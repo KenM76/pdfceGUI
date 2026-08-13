@@ -28,7 +28,7 @@ old build intact and installable beside it.
 WHAT IT PRODUCES
 ================
 
-``D:\\builds\\pdfcegui-<YYYYMMDD-HHMM>-<engine>-<src>[-enginedirty]\\``
+``D:\\builds\\pdfcegui-<YYYYMMDD-HHMM>-<engine>-<shell>[-dirty][-enginedirty]\\``
 
     pdfce-gui.exe            the new shell, with pdfce's engine linked in
     LICENSE                  MIT
@@ -51,26 +51,28 @@ distinguishable.
 TWO IDENTITIES, BECAUSE THERE ARE TWO SOURCES
 =============================================
 
-pdfce's packager names a build after one commit. It cannot here, and the
-difference is not cosmetic — **this binary is built from two trees**:
+pdfce's packager names a build after one commit. This one cannot, and
+the difference is not cosmetic — **this binary is built from two trees**:
 
-* the **engine**, `D:\\Dev\\pdfce`, which IS a git repository and which
-  another session edits live; and
-* the **shell**, this workspace, which is **not under version control at
-  all**.
+* the **engine**, `D:\\Dev\\pdfce`, which another session edits live; and
+* the **shell**, this workspace.
 
-So the name carries both. `<engine>` is pdfce's short HEAD. `<src>` is a
-12-hex digest over this workspace's build-affecting source, computed by
-`source_digest()` below. The digest is not a substitute for git — it
-cannot tell you *what* the code was, only whether two builds were built
-from identical code — but that is the question a bug report actually
-asks ("is this the build I was running?"), and answering it is strictly
-better than a name that answers nothing.
+Both are now git repositories (this one since `2a504ef`, 2026-08-13), so
+the name carries a short HEAD for each: ``<engine>-<shell>``.
 
-If this workspace is ever put under git, replace `source_digest()` with
-the same `git rev-parse --short HEAD` the engine uses and delete this
-paragraph. The digest exists because of an absence, not because it is
-the better design.
+`source_digest()` survives that, and the reason is specific to how this
+project works. Commits here are taken at milestones while **several
+agents write concurrently**, so the working tree is dirty far more often
+than not — and for a dirty tree the commit hash names the last
+checkpoint, not what was compiled. The digest names what was compiled.
+It cannot say *what* the code was, only whether two builds were built
+from identical bytes, but that is the question a bug report actually
+asks: *"is this the build I was running?"*
+
+So they answer different questions and both are recorded. The commit
+goes in the folder name; the digest goes in `BUILD-INFO.txt`, and is
+appended to the name too when the shell tree is dirty, because that is
+exactly the case where the commit alone is not an identity.
 
 THE `-enginedirty` SUFFIX IS LOAD-BEARING
 =========================================
@@ -176,7 +178,8 @@ SOURCE_FILES = ("Cargo.toml", "Cargo.lock")
 def git(*args: str, cwd: Path = ENGINE) -> str:
     """Run a git command in `cwd` and return its stripped stdout.
 
-    Defaults to the ENGINE tree, since this workspace has no repository.
+    Defaults to the ENGINE tree because that is the identity most calls
+    below want; pass `cwd=REPO` for the shell's own repository.
 
     `encoding="utf-8"` is not optional, and the reason is recorded in
     pdfce's packager: `text=True` alone decodes with the LOCALE codec,
@@ -255,9 +258,14 @@ def path_of(line: str) -> str:
     return m.group(1).split(" -> ")[-1].strip().strip('"')
 
 
-def previous_build(dest: Path) -> tuple[str, str] | None:
-    """`(engine_commit, source_digest)` of the most recent build of THIS
-    project in `dest`, or `None`.
+def previous_build(dest: Path) -> tuple[str, str, str] | None:
+    """`(engine_commit, shell_commit, source_digest)` of the most recent
+    build of THIS project in `dest`, or `None`.
+
+    `shell_commit` is `""` for builds packaged before this workspace was
+    put under git (2026-08-13), whose `BUILD-INFO.txt` has no `Shell:`
+    line. Callers must treat it as "no baseline" rather than as a ref —
+    which is why the changelog below verifies every ref it is handed.
 
     Read out of that build's own `BUILD-INFO.txt` rather than parsed from
     the folder name: the name is for humans and can be renamed, the file
@@ -276,14 +284,20 @@ def previous_build(dest: Path) -> tuple[str, str] | None:
         info = b / "BUILD-INFO.txt"
         if not info.is_file():
             continue
-        engine = src = ""
+        engine = shell = src = ""
         for line in info.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("Engine:"):
-                engine = line.split(":", 1)[1].strip().split()[0]
-            elif line.startswith("Shell source:"):
+            # `Shell source digest:` is matched BEFORE `Shell:` — the
+            # latter is a prefix of nothing here, but `startswith` order
+            # is the kind of thing that quietly stops being true when a
+            # label is renamed, so the specific one goes first.
+            if line.startswith("Shell source digest:"):
                 src = line.split(":", 1)[1].strip().split()[0]
+            elif line.startswith("Engine:"):
+                engine = line.split(":", 1)[1].strip().split()[0]
+            elif line.startswith("Shell:"):
+                shell = line.split(":", 1)[1].strip().split()[0]
         if engine:
-            return engine, src
+            return engine, shell, src
     return None
 
 
@@ -437,15 +451,40 @@ def main() -> int:
         return 1
 
     # --- identity, before anything is built --------------------------------
+    #
+    # Computed for BOTH trees with the same three questions: what commit,
+    # what did it say, and does the tree carry changes that can reach a
+    # compiler. `dirty_of()` is shared rather than duplicated because the
+    # narrow definition of "dirty" is the load-bearing part, and two
+    # copies of it would drift.
+    def dirty_of(cwd: Path) -> tuple[list[str], list[str]]:
+        changed = [
+            path_of(l) for l in git("status", "--porcelain", cwd=cwd).splitlines() if l.strip()
+        ]
+        build = [p for p in changed if p.startswith(BUILD_AFFECTING)]
+        return build, [p for p in changed if p not in build]
+
     engine_short = git("rev-parse", "--short", "HEAD") or "unknown"
     engine_subject = git("log", "-1", "--format=%s")
-    changed = [path_of(l) for l in git("status", "--porcelain").splitlines() if l.strip()]
-    dirty_build = [p for p in changed if p.startswith(BUILD_AFFECTING)]
-    dirty_other = [p for p in changed if p not in dirty_build]
+    dirty_build, dirty_other = dirty_of(ENGINE)
+
+    shell_short = git("rev-parse", "--short", "HEAD", cwd=REPO) or "unknown"
+    shell_subject = git("log", "-1", "--format=%s", cwd=REPO)
+    shell_dirty_build, shell_dirty_other = dirty_of(REPO)
     src = source_digest(REPO)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
-    name = f"pdfcegui-{stamp}-{engine_short}-{src}" + ("-enginedirty" if dirty_build else "")
+    # The digest joins the NAME only when the shell tree is dirty. On a
+    # clean tree the commit already identifies the bytes, and a
+    # permanently-appended 12-hex string would be noise in every folder
+    # name; on a dirty tree the commit identifies the last checkpoint and
+    # nothing else, so the digest is the only thing distinguishing this
+    # build from the next one taken thirty seconds later.
+    name = f"pdfcegui-{stamp}-{engine_short}-{shell_short}"
+    if shell_dirty_build:
+        name += f"-dirty-{src}"
+    if dirty_build:
+        name += "-enginedirty"
     out = args.dest / name
 
     if out.exists() and any(out.iterdir()):
@@ -497,31 +536,75 @@ def main() -> int:
             print(f"package-portable: WARNING — {d} not found at the workspace root")
 
     # --- what changed since the last build ----------------------------------
+    def changelog(cwd: Path, since: str | None, label: str) -> str:
+        """Commits in `cwd` since the previous build, formatted for the file.
+
+        `since` may name a commit this tree does not contain — a build
+        packaged before a history rewrite, or a `BUILD-INFO.txt` copied
+        between machines. `git log bad..HEAD` writes to stderr and returns
+        nothing, and `git()` returns only stdout, so that failure would
+        otherwise render as a confident, empty "(none)": a claim that
+        nothing changed, which is the worst available answer. Verifying
+        the ref first turns it into a stated fallback.
+        """
+        if since:
+            # `git cat-file -e` answers through its EXIT CODE and prints
+            # nothing, so this cannot go through `git()` — that helper
+            # returns stdout, which is empty either way.
+            exists = subprocess.run(
+                ["git", "cat-file", "-e", f"{since}^{{commit}}"],
+                cwd=cwd,
+                capture_output=True,
+                check=False,
+            ).returncode == 0
+            if not exists:
+                label += (
+                    "\n  (the previous build's commit is not in this tree;"
+                    " showing recent history instead)"
+                )
+                since = None
+        if since:
+            out_ = git("log", "--oneline", "--no-decorate", f"{since}..HEAD", cwd=cwd)
+        else:
+            out_ = git("log", "--oneline", "--no-decorate", "-10", cwd=cwd)
+        body = "\n".join(f"  {l}" for l in out_.splitlines()) if out_ else "  (none)"
+        return f"{label}\n{body}"
+
     prev = previous_build(args.dest)
     if prev:
-        prev_engine, prev_src = prev
-        engine_changes = git("log", "--oneline", "--no-decorate", f"{prev_engine}..HEAD")
-        change_header = f"Engine commits since the previous build ({prev_engine}):"
-        shell_line = (
-            "  the shell source is UNCHANGED since the previous build"
+        prev_engine, prev_shell, prev_src = prev
+        engine_log = changelog(
+            ENGINE, prev_engine, f"Engine commits since the previous build ({prev_engine}):"
+        )
+        shell_log = changelog(
+            REPO, prev_shell or None, f"Shell commits since the previous build ({prev_shell}):"
+        )
+        digest_line = (
+            "  Source digest UNCHANGED since the previous build — this is the\n"
+            "  same program, however the commits read."
             if prev_src == src
-            else f"  the shell source CHANGED since the previous build ({prev_src} -> {src})"
+            else f"  Source digest changed: {prev_src} -> {src}"
         )
     else:
-        engine_changes = git("log", "--oneline", "--no-decorate", "-10")
-        change_header = "Recent engine commits (no previous pdfceGUI build to diff against):"
-        shell_line = "  no previous build to compare the shell source against"
-    engine_changes = (
-        "\n".join(f"  {l}" for l in engine_changes.splitlines())
-        if engine_changes
-        else "  (none)"
-    )
+        engine_log = changelog(ENGINE, None, "Recent engine commits (no previous build to diff):")
+        shell_log = changelog(REPO, None, "Recent shell commits (no previous build to diff):")
+        digest_line = "  No previous build to compare the source digest against."
 
     warn = ""
+    if shell_dirty_build:
+        listed = "\n".join(f"  {q}" for q in shell_dirty_build[:10])
+        more = "\n  ..." if len(shell_dirty_build) > 10 else ""
+        warn += (
+            "\n*** THE SHELL WAS BUILT FROM AN UNCOMMITTED WORKING TREE ***\n"
+            "The shell commit below is the last CHECKPOINT, not what was compiled.\n"
+            "Use the source digest to tell this build apart from another; the\n"
+            "code itself is in no commit and cannot be recovered from the hash.\n"
+            f"{listed}{more}\n"
+        )
     if dirty_other and not dirty_build:
         listed = "\n".join(f"  {q}" for q in dirty_other[:10])
         more = "\n  ..." if len(dirty_other) > 10 else ""
-        warn = (
+        warn += (
             "\nEngine tree note: files outside the build were modified when this\n"
             "was packaged (documentation, fixtures, or agent memory). None of them\n"
             "reach the compiler, so the engine linked here IS the commit below:\n"
@@ -530,7 +613,7 @@ def main() -> int:
     if dirty_build:
         listed = "\n".join(f"  {q}" for q in dirty_build[:10])
         more = "\n  ..." if len(dirty_build) > 10 else ""
-        warn = (
+        warn += (
             "\n*** THE ENGINE WAS BUILT FROM AN UNCOMMITTED WORKING TREE ***\n"
             "The commit below identifies D:\\Dev\\pdfce's last COMMIT, not what was\n"
             "linked into this binary. These build-affecting files were modified:\n"
@@ -548,7 +631,12 @@ def main() -> int:
 Built:  {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 Engine: {engine_short}  {engine_subject}
         (D:\\Dev\\pdfce, branch {git("rev-parse", "--abbrev-ref", "HEAD")})
-Shell source: {src}  (sha256 digest — this workspace is not under git)
+Shell:  {shell_short}  {shell_subject}
+        (D:\\Dev\\pdfceGUI, branch {git("rev-parse", "--abbrev-ref", "HEAD", cwd=REPO)})
+Shell source digest: {src}
+        Identifies the BYTES compiled, which the commit above does not when
+        the tree is dirty. Two builds with the same digest are the same
+        program; a different digest means the source differs, somewhere.
 
 WHAT THIS IS
 ------------
@@ -578,11 +666,12 @@ VERIFICATION
 {verification}
 
 {note_block}
-{change_header}
-{engine_changes}
+{engine_log}
 
-Shell source:
-{shell_line}
+{shell_log}
+
+Source digest:
+{digest_line}
 
 Files in this build: {", ".join(BINARIES + copied_docs)}
 """,

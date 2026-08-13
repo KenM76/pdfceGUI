@@ -43,7 +43,7 @@ the harness needs.
 python tools/package-portable.py --verify --note "what this milestone added"
 ```
 
-Writes `D:\builds\pdfcegui-<stamp>-<engine>-<src>\` — one folder per
+Writes `D:\builds\pdfcegui-<stamp>-<engine>-<shell>\` — one folder per
 build, never an overwrite, because on Windows a running executable
 cannot be replaced and a half-updated folder is worse than either
 version.
@@ -63,12 +63,19 @@ installable beside it. Fold-in happens when `FEATURES.md` says nothing
 regresses, per `PROJECT_PLAN.md` §5.
 
 **Two identities, because there are two source trees.** `<engine>` is
-`D:\Dev\pdfce`'s short HEAD. `<src>` is a sha256 digest over this
-workspace's build-affecting source — because **this workspace is not
-under version control**, so there is no commit to name. The digest
-answers "is this the build I was running?" and nothing more; it is a
-stand-in for git, not a version. If the workspace is ever put under git,
-the digest should be replaced by its short HEAD.
+`D:\Dev\pdfce`'s short HEAD; `<shell>` is this workspace's. Either gets
+a `-dirty` / `-enginedirty` marker when its tree carries changes that
+can reach a compiler — narrowly defined, so a documentation edit does
+not raise a warning about the binary.
+
+A **source digest** is recorded alongside them, and joins the folder
+name when the shell tree is dirty. It exists because commits here are
+taken at milestones while several agents write concurrently, so the tree
+is dirty more often than not — and for a dirty tree the commit names the
+last checkpoint, not what was compiled. The digest names what was
+compiled. It cannot say *what* the code was, only whether two builds
+came from identical bytes, which is the question a bug report actually
+asks.
 
 `--verify` runs the workspace tests and the CI gates **before** building,
 so a failure costs nothing and leaves no folder behind, and records the
@@ -80,7 +87,21 @@ nobody checked.
 two invisible invariants: that the folder name is **not** caught by
 pdfce's own `pdfce-*` glob (it would otherwise diff *its* changelog
 against a commit from this tree), and that the source digest is
-deterministic and moves on a rename.
+deterministic and moves on a rename. Both failures package successfully
+and run fine — the damage lands elsewhere, later — which is why they are
+asserted rather than reasoned about.
+
+## Version control
+
+Under git since `2a504ef` (2026-08-13). `.gitattributes` **predates that
+commit deliberately**: `core.autocrlf` is true globally on this machine,
+and pdfce's 2026-08-02 finding records that CRLF normalization of PDF
+fixtures lands **in the index at add time**, not only at checkout. A
+PDF's cross-reference table stores absolute byte offsets, so a
+normalized fixture is a corrupt one, and 18 evidence PNGs would have
+gone the same way. The first `git add` here was made without the file,
+noticed, and unwound with `git rm -r --cached` before anything was
+committed.
 
 The rebuild is owned by the **`pdfce-gui-engineer`** agent
 (`.claude/agents/pdfce-gui-engineer.md`). Its governing rule:
