@@ -1,0 +1,631 @@
+# pdfce GUI — Ribbon Information Architecture
+
+**Status:** proposal, 2026-08-12
+**Scope:** where every user-reachable command lives, and why.
+**Companion documents:** `GUI_ROADMAP.md` (when each part gets built),
+`DEFECTS.md` (what is broken today), `mockups/` (what it looks like),
+**`MODES_AND_PANELS.md`** (the Read/Review/Edit selector and the
+flexible panel system — an operator addition of 2026-08-13 that layers
+on top of everything here).
+
+> **Amendment, 2026-08-13.** The seven-tab layout below describes
+> **Edit** mode. `MODES_AND_PANELS.md` adds a three-position selector at
+> the far right of the tab row; **Read** and **Review** are subsets of
+> this layout, not different ones. No command specified here moves, and
+> nothing here is superseded — the selector governs which tabs and
+> panels are *present*, not where a command lives when it is.
+
+---
+
+## 1. What this document is for
+
+pdfce's ribbon today has six tabs and twenty groups. The grouping is
+principled — there is a real rule set behind it, written down in
+`crates/pdfce-gui/src/ribbon.rs` — but the result does not match what a
+user reaching for a command expects to find, and three of the six tabs
+are underfilled to the point of looking unfinished.
+
+This document specifies a replacement layout: seven tabs, each with a
+stated question it answers, each command assigned to exactly one home,
+and every currently-existing command explicitly migrated. It is written
+so that the ribbon could be rebuilt from this document alone, including
+the reasoning behind each placement, which is the standard the rest of
+this project's documentation is held to.
+
+It is a *specification*, not a wish list. Every command below is marked
+with where it exists today:
+
+| Mark | Meaning |
+|---|---|
+| **G** | Exists in the GUI now. Moving it is pure re-parenting. |
+| **C** | Exists in `pdfce-core` and/or `pdfce-cli`, but has no GUI surface. Needs a shell, not an engine. |
+| **N** | Does not exist anywhere. Needs building. |
+
+The **C** rows matter disproportionately: they are the cheapest possible
+wins, because the hard half is already written and tested.
+
+---
+
+## 2. Principles carried forward
+
+These come from the existing codebase and are kept, because they are
+good and because breaking them silently would be worse than the problem
+they cause.
+
+**P1 — One command, one tab.** No command appears on two ribbon tabs.
+The existing rule (`ribbon.rs:64-75`) exists because Pass 47.1 found
+that mirroring undo/redo onto every tab was the reason the ribbon
+rendered only the active band and undo became unreachable from the
+Measure tab. A test asserts every group has exactly one owning tab
+(`ribbon.rs:678`). Keep both the rule and the test.
+
+**P2 — The ribbon picks the activity; the sidebar holds that activity's
+controls.** Codified at `ribbon.rs:218-220`. The Measure tab arms
+"Linear ce dimension"; the group picker, scale entry, number format and
+drafting standard live in the Tool Options pane. This is correct and it
+is why the Measure tab has one group. The fix for an underfilled tab is
+never to move sidebar controls up into it.
+
+**P3 — No placeholders.** An unavailable capability renders nothing, not
+a disabled stub (`ribbon_ui.rs:241-244`). Greying is reserved for
+*temporarily* unavailable — no document open, document encrypted, undo
+stack empty — and is always explained on hover.
+
+**P4 — Group captions are mandatory.** Every group draws its caption
+beneath its controls, enforced by routing all groups through one closure
+(`ribbon_ui.rs:76-117`) after two groups were found rendering without
+one.
+
+**P5 — Nothing floats over the canvas.** Stated at `FEATURES.md:182`.
+Tool options live in the dock, not in canvas-anchored overlays, because
+accept/reject boxes that moved on every zoom were a reported defect.
+
+### One amendment is proposed
+
+**P1 as written also forbids the Quick Access Toolbar and status bar
+from carrying a command that appears on a tab.** That is why the File
+tab today has no Open and no Save — they live only in the QAT — and why
+the View tab has no zoom controls, because zoom lives only in the status
+bar.
+
+That reading is too strong, and it is the direct cause of two of the
+worst discoverability failures in the product. A user who wants to open
+a file looks under File. A user who wants to change how the page is
+displayed looks under View. Finding neither there teaches them the
+ribbon is not where commands live.
+
+**Proposed amendment — P1a:** *the QAT and the status bar are shortcut
+surfaces, not tabs. A command may appear on exactly one tab and
+additionally on the QAT and/or the status bar.* This is precisely how
+Office's QAT is defined, and it does not reintroduce the Pass 47.1
+defect, which was about a command being reachable from **no** tab when
+the band collapsed — the opposite failure.
+
+With P1a, `RibbonTab::groups()` stays the single source of truth for
+tab ownership and the existing uniqueness test is unchanged; the QAT and
+status bar are simply outside its domain, which they already are.
+
+---
+
+## 3. What is wrong with the current layout
+
+Observed directly by driving the built release binary (`evidence/`),
+not inferred from source.
+
+**The View tab contains no view controls.** It has two groups: `Panels`
+(sidebar, Bookmarks, Layers, Signatures, Fonts, Objects) and `Show`
+(annotations, points). There is no zoom, no page layout, no view
+rotation, no read mode, no full screen. Read mode and full screen have
+**no ribbon control at all** — they are keyboard-only (Ctrl+H, F11) on a
+tab literally named View. This is the single most confusing thing in the
+current ribbon.
+
+**Page operations are hidden.** Insert, delete, extract, reorder,
+split and merge exist and work, but live in the thumbnail rail's
+selection action bar and in a `Tools ▸ Batch` pane. Nothing on any
+ribbon tab says "pages". A user who wants to delete page 7 has no path
+that starts at the ribbon. The Edit tab's `Pages` group contains only
+Rotate left / Rotate right, which makes the absence louder — it looks
+like page ops were considered and rejected.
+
+**The File tab is a junk drawer.** Properties, Copy this page's text,
+Copy the whole document's text, Export DXF, Print, Reset layout,
+Settings, keyboard shortcuts. Text copying is not a file operation. Panel
+layout reset is not a file operation. Meanwhile there is no New, no
+Recent, no Close, and — per §2 — no Open and no Save.
+
+**Three tabs are underfilled.** Measure has one group and four controls.
+Tools has three groups of one control each. View has two groups. On a
+1936 px window each of these leaves 1200–1700 px of empty band. An empty
+ribbon band reads as an unfinished program regardless of how much
+capability sits behind the controls that are there.
+
+**Two Edit-tab buttons are unlabelled icons.** The `Pages` group's
+rotate buttons carry no text, and the `Content` group's buttons read
+`Aa`, `I⁺ Aa` and `Obj`. `Obj` is not a word. These are the primary
+content-editing tools and they are the least legible controls in the
+application.
+
+**Group captions are set in a colour that is nearly invisible** in the
+default Quiet theme — the same defect that hides the dock tab labels and
+the Settings dialog headings. See `DEFECTS.md` §1. It affects the ribbon
+too: the words `Document`, `Clipboard`, `Export`, `Print` under the File
+tab's groups are present and technically legible, but only just.
+
+---
+
+## 4. The proposed tab set
+
+Seven tabs. Each keeps the existing idiom of a one-line question it
+exists to answer.
+
+| # | Tab | The question it answers |
+|---|---|---|
+| 1 | **File** | What do I do with the file as a whole, or with pdfce itself? |
+| 2 | **View** | What is on my screen, and how is the page laid out? |
+| 3 | **Pages** | What am I doing to the set of pages? |
+| 4 | **Edit** | What am I changing about content that is already there? |
+| 5 | **Markup** | What am I adding for someone else to read? |
+| 6 | **Measure** | What am I measuring, and in what units? |
+| 7 | **Tools** | What do I run across files, or configure once? |
+
+Plus **one contextual tab**:
+
+| Tab | Appears when |
+|---|---|
+| **Format** | A markup, dimension, image or vector object is selected |
+
+### Why seven, and why these
+
+Six tabs was one too few for the amount of capability behind them, and
+the sixth was carrying two unrelated jobs. The change is essentially:
+split page operations out of hiding into their own tab, give View the
+view controls its name promises, and let File become an actual file tab.
+
+`Review` is renamed **Markup**. What lives there is markup authoring —
+shapes, notes, stamps. "Review" promises a review *workflow*: compare
+revisions, resolve comments, track changes. pdfce does not have that
+yet, and when it does, it will want the name. `Markup` is also the term
+this project's audience uses; Bluebeam and every drafting office call it
+that.
+
+`Format` as a contextual tab is how the P2 tension resolves. Today,
+selecting a placed markup gives you nowhere to change its colour,
+because the Markup tab's colour swatch sets the colour of the *next*
+markup. A contextual tab is the standard answer and it is already named
+in the code as an unbuilt slice (`ribbon.rs:42-52`).
+
+---
+
+## 5. Tab specifications
+
+Notation: groups are `**Group**`, commands are listed with their status
+mark. `⌄` means the control is a split button or dropdown.
+
+---
+
+### 5.1 File — *what do I do with the file as a whole, or with pdfce itself?*
+
+| Group | Commands | |
+|---|---|---|
+| **File** | New (blank / from template) | **N** |
+| | Open… | **G** *(also QAT)* |
+| | Recent ⌄ | **N** |
+| | Close | **G** *(currently switcher-only)* |
+| **Save** | Save | **N** — blocked on autosave, see roadmap |
+| | Save a copy… | **G** *(also QAT)* |
+| | Revert | **N** |
+| **Export** | Export DXF… | **G** |
+| | Export image… (PNG/JPEG/TIFF, DPI picker) | **C** |
+| | Export text… | **C** |
+| | Export form data ⌄ (FDF / XFDF / CSV) | **G** *(currently in Forms pane)* |
+| **Print** | Print… | **G** |
+| | Imposition… (n-up / booklet / poster) | **C** |
+| **Document** | Properties | **G** |
+| | Fonts | **G** *(currently View ▸ Panels)* |
+| | Security | **N** |
+| **pdfce** | Settings… | **G** |
+| | Keyboard shortcuts | **G** |
+| | About | **N** |
+
+**Moved off this tab:** `Copy this page's text` and `Copy the whole
+document's text` go to **Edit ▸ Clipboard** — they are content
+operations, not file operations. `Reset layout…` goes to **View ▸
+Window** — it resets panel geometry, which is a view concern.
+
+**Why Fonts moves here from View:** the Fonts panel answers "what is
+inside this file", not "what is on my screen". It sits with Properties
+and Security as document-level inspection. This is a genuine
+improvement in the current build — Fonts is excellent and nobody will
+find it under View ▸ Panels.
+
+**Note on Save.** A `Save` command that overwrites in place cannot ship
+before autosave and crash recovery exist; that dependency is already
+documented (`FEATURES.md:62`, `main.rs:49-54`). Until then the group
+holds `Save a copy…` alone and `Save` does not render at all, per P3 —
+it is not greyed out with a tooltip, it is absent.
+
+---
+
+### 5.2 View — *what is on my screen, and how is the page laid out?*
+
+| Group | Commands | |
+|---|---|---|
+| **Page display** | Single page | **G** *(current behaviour, now named)* |
+| | Continuous | **N** |
+| | Facing | **N** |
+| | Facing continuous | **N** |
+| **Render** | Strategy: Whole page · Tiled progressive | **N** |
+| | Raster scale ⌄ (quality) | **partial G** — exists as a constant |
+| | Settle delay | **partial G** — `ZOOM_SETTLE` is a constant |
+| | Thin lines | **N** |
+| | Antialias ⌄ (text / vector) | **N** |
+| **Rotate view** | Rotate view left / right | **N** |
+| **Zoom** | Zoom to selection | **N** |
+| | Zoom to region (marquee) | **N** |
+| | Actual size · Fit page · Fit width | **G** *(status bar; P1a mirror)* |
+| **Display** | Thin lines | **N** |
+| | Show annotations | **G** |
+| | Show points | **G** |
+| | Rulers · Grid · Guides | **N** |
+| **Panels** | Sidebar ⌄ | **G** |
+| | Pages · Objects · Bookmarks · Layers · Signatures · Comments · Forms | **G** |
+| **Window** | Read mode | **G** *(keyboard-only today)* |
+| | Full screen | **G** *(keyboard-only today)* |
+| | Floating panels: Off · Allowed | **N** — *default Allowed* |
+| | App initiative: Never · Ask · Allowed | **N** — *default **Never*** |
+| | Save workspace… · Load workspace ⌄ | **N** |
+| | Reset layout… | **G** *(from File)* |
+
+**Page display is the important entry.** Per your correction: single
+page stays the **default**, because paging one drawing sheet at a time
+is the right model for drafting review and the existing navigation is
+good. Continuous becomes a *mode you choose*, sitting beside it, for the
+case where the document is a 40-page specification rather than a sheet
+set. The four modes are radio-style — exactly one is active — and the
+choice persists per document, not globally, so opening a drawing set
+does not inherit a report's setting.
+
+This is a larger build than it looks; `viewer.rs` holds a single
+`page_index` and `object_provider.rs:392-399` returns nothing for any
+page but the current one. See `GUI_ROADMAP.md` Phase 4.
+
+**The Render group is an operator decision, 2026-08-12.** pdfce caches
+one whole-page texture and scales it with linear filtering during the
+150 ms settle. Measured in use on a large drawing, that is *smoother*
+to pan and zoom than the comparison product's progressive tile
+rendering — no seams, no piece-by-piece fill-in — at the cost of a full
+re-raster once motion stops. Those are two legitimate trades, not a
+better and a worse, and which one wins depends on the sheet and the
+machine.
+
+So the strategy becomes a **choice on the View tab**, with whole-page as
+the default because it is what measured better. This is R169 applied to
+rendering: where the right answer is genuinely undetermined, pdfce
+states the trade and lets the operator pick, rather than deciding
+quietly. `ZOOM_SETTLE` (`main.rs:367`) and the raster-scale multiplier
+are constants today and become the two knobs beside it.
+
+**Zoom on this tab does not duplicate the status bar in spirit.** The
+status bar keeps the continuous controls a user reaches for constantly
+(−/%/+, fit toggles). The View tab adds the two *targeted* zooms that
+have no status-bar home — zoom to selection and marquee zoom-to-region —
+and mirrors the three named zoom levels under P1a so that a user looking
+under View for zoom finds zoom.
+
+---
+
+### 5.3 Pages — *what am I doing to the set of pages?*
+
+| Group | Commands | |
+|---|---|---|
+| **Insert** | Insert blank | **C** |
+| | Insert from file… | **G** *(Tools ▸ Batch pane)* |
+| | Insert scan | **N** |
+| **Organise** | Delete | **G** *(thumbnail rail)* |
+| | Extract… | **G** *(thumbnail rail)* |
+| | Replace… | **N** |
+| | Move up / Move down | **G** *(thumbnail rail)* |
+| | Split… | **G** *(Tools ▸ Batch pane)* |
+| | Merge into this document… | **G** *(Tools ▸ Batch pane)* |
+| **Transform** | Rotate left / right | **G** *(Edit ▸ Pages)* |
+| | Crop… | **N** |
+| | Resize… | **N** |
+| **Stamp** | Watermark… | **N** |
+| | Header & footer… | **N** |
+| | Bates numbering… | **N** — *see `DEFECTS.md` §2* |
+
+Every command here operates on **the current document's page set**, and
+every one of them respects the thumbnail rail's current selection when
+there is one. That is the tab's organising rule and it is what
+distinguishes it from Tools: Pages changes *this* document, Tools
+produces *new* files.
+
+The thumbnail rail keeps its selection action bar. That is not a P1
+violation — the rail is a panel, not a tab, and a selection-scoped
+action bar next to the selection is correct. But the ribbon becomes the
+discoverable path, and the rail becomes the fast path.
+
+---
+
+### 5.4 Edit — *what am I changing about content that is already there?*
+
+| Group | Commands | |
+|---|---|---|
+| **Content** | Edit text | **G** — *relabel from `Aa`* |
+| | Add text | **G** — *relabel from `I⁺ Aa`* |
+| | Edit objects | **G** — *relabel from `Obj`* |
+| **Insert** | Image… | **G** *(drag-drop only today)* |
+| | Shape ⌄ | **N** |
+| **Arrange** | Align ⌄ · Distribute ⌄ | **N** |
+| | Bring forward / Send backward | **N** |
+| | Group / Ungroup | **N** |
+| | Flip horizontal / vertical | **N** |
+| **Clipboard** | Cut · Copy · Paste · Paste in place | **N** *(object clipboard)* |
+| | Copy page text · Copy document text | **G** *(from File)* |
+| **Forms** | Fill form | **G** |
+| | Create field ⌄ | **G** |
+| | Manage fields | **G** |
+| | Flatten | **G** *(in Forms pane)* |
+| **Protect** | Redact ⌄ (mark page / by text / by pattern) | **G** |
+| | Apply redactions | **G** |
+| | Sanitise… | **N** |
+
+**The three `Content` buttons must get real labels.** `Aa`, `I⁺ Aa` and
+`Obj` are the primary editing tools and are currently the least legible
+controls in the application. `Edit text`, `Add text`, `Edit objects` —
+with the icons kept.
+
+**The `Editing on` master toggle is removed. Operator decision,
+2026-08-12: "make it work the same way other programs do."**
+
+No mainstream editor has a global editing switch. Acrobat, Bluebeam,
+Word and Illustrator all work the same way: selection and Delete are
+always live, and picking a tool arms *that tool* until you press Escape
+or pick another. There is no state in which a click does nothing without
+the application saying so.
+
+Concretely:
+
+- `editing_enabled` (`main.rs:3235`, `3624`) is deleted, along with the
+  ribbon toggle at `ribbon_ui.rs:721-736` and
+  `ui_text::authoring_disabled_note()`.
+- The four sites that currently gate on it — `main.rs:7095`, `8169`,
+  `8194`, `16920` — lose the gate. Nothing replaces it: an unarmed
+  canvas already does modeless select-and-delete, and every authoring
+  gesture already requires its tool to be armed.
+- **This supersedes `DEFECTS.md` D6.** That defect was "review mode does
+  not actually block object deletion". With review mode gone there is
+  nothing to enforce, so D6's fix becomes "delete the check sites"
+  rather than "add the missing one". If a genuine read-only mode is ever
+  wanted it should be a *document* state (open read-only, encrypted, or
+  signature-locked) with a visible badge, not a hidden global toggle.
+
+It was already `true` by default, and it is **not** what breaks
+click-then-Delete (`DEFECTS.md` D1). Removing it is about eliminating a
+class of failure, not fixing a current one.
+
+---
+
+### 5.5 Markup — *what am I adding for someone else to read?*
+
+| Group | Commands | |
+|---|---|---|
+| **Shapes** | Rectangle · Ellipse · Line · Arrow | **G** *(Arrow is `Arrow line`)* |
+| | Polyline · Polygon | **N** |
+| | Cloud | **N** — revision clouds; AEC table stakes |
+| | Ink (freehand) | **N** |
+| **Text markup** | Highlight | **G** *(`Highlight band`)* |
+| | Underline · Strikeout · Squiggly | **N** |
+| **Notes** | Text box | **G** |
+| | Sticky note | **G** |
+| | Callout | **N** |
+| | Stamp ⌄ | **G** *(`Draft stamp`; needs a gallery)* |
+| **Style** | Colour · Line width · Fill · Opacity | **partial G** — colour only |
+| **Comments** | Comments panel | **G** |
+| | Clear page · Clear all | **N** |
+
+Six of ten markup kinds are missing (`canvas.rs:255-262` defers Ink,
+Polygon, PolyLine, Underline, StrikeOut, Squiggly to "slice 3"). Cloud
+is not in that list and matters most for this audience.
+
+**The `Style` group sets defaults for the next markup.** Changing an
+*existing* markup's style happens on the contextual **Format** tab. Both
+must exist; today only the first does, which is why a placed markup
+feels final.
+
+---
+
+### 5.6 Measure — *what am I measuring, and in what units?*
+
+| Group | Commands | |
+|---|---|---|
+| **ce dimension** | Linear | **G** |
+| | Aligned | **partial G** — constraint exists, not a separate tool |
+| | Angular | **N** |
+| | Radius / Diameter | **G** |
+| | Two-line | **C** — *core + CLI done, gesture has no caller* |
+| **Quantity** | Distance · Perimeter · Area | **N** |
+| | Count | **N** |
+| **Scale** | Set scale | **G** |
+| | Calibrate from a known length | **partial G** |
+| | Manage dimension groups… | **G** |
+| **Takeoff** | Schedule panel · Export CSV | **N** |
+
+The **Scale ▸ group** model — named groups carrying a shared scale and
+drafting standard — is genuinely better than what the comparison product
+does, and nothing here should dilute it. Area and Angular are the
+conspicuous absences for anyone doing takeoff on a drawing.
+
+**Two-line dimensioning is a C row and is at the top of the project's
+own queue** — core and CLI shipped and measured, `pick_line` has no
+caller. That is a shell-only task.
+
+---
+
+### 5.7 Tools — *what do I run across files, or configure once?*
+
+| Group | Commands | |
+|---|---|---|
+| **Batch** | Merge files… | **G** |
+| | Split files… | **G** |
+| | Batch print… | **N** |
+| **Compare** | Compare documents… | **N** |
+| **Fonts** | Font folders… | **G** |
+| | Embed fonts · Unembed fonts | **G** *(Fonts pane)* |
+| **Recognise** | OCR… | **N** — blocked, see roadmap |
+| **Validate** | PDF/A validate & convert… | **N** — *see `DEFECTS.md` §2* |
+| | Optimise… | **N** |
+| **Diagnostics** | Render diagnostics | **G** *(status bar; belongs here)* |
+
+Tools is now the tab for things that either operate on files other than
+the open one, or are configured once and rarely touched. Redact moved to
+Edit ▸ Protect, where a user editing a document will actually look for
+it.
+
+---
+
+### 5.8 Format — *contextual*
+
+Appears only while something is selected; disappears on deselect.
+Contents vary by selection type:
+
+| Selection | Groups |
+|---|---|
+| Markup | Colour · Fill · Line width · Line style · Opacity · Arrowheads · Note text · Delete |
+| ce dimension | Group · Scale · Precision · Units · Standard · Witness lines · Delete |
+| Image | Size · Position · Crop · Opacity · Replace · Delete |
+| Vector object | Stroke · Fill · Winding rule · Node tools · Delete |
+| Text run | Font · Size · Colour · Spacing · Alignment · Delete |
+| Pages (rail) | Rotate · Delete · Extract · Move |
+
+This tab is the single largest usability change proposed here. It is
+also what makes selection *mean* something — right now, selecting an
+object gives you an object-tree row and no way to act on it.
+
+### Both surfaces, not one — operator decision, 2026-08-12
+
+The contextual tab and a **persistent properties panel** both ship. They
+are not redundant; they answer different questions.
+
+| | Format tab | Properties panel |
+|---|---|---|
+| Lives | in the ribbon, appears on selection | right dock, always available |
+| Holds | the edits reached for mid-gesture | the complete property set |
+| Survives a tab switch | no | yes |
+| Costs | nothing when nothing is selected | ~200 px of width |
+| Discoverable | high — it appears, which is itself the affordance | medium |
+
+The division of labour: the **tab** carries what a user changes *while
+working* — colour, width, style, align, delete. The **panel** carries
+everything, including the read-only facts (winding rule, node count,
+embedded-font status, exact geometry) that belong beside the Objects
+panel's inventory rather than in a ribbon band.
+
+The panel is also where the **editable geometry** lives — X, Y, W, H as
+typed values. That is the surface through which `/Rect` move-and-resize
+becomes reachable without a drag, which matters for drafting work where
+the number is known and the mouse is imprecise.
+
+Build order: **panel first, tab second.** The panel is the harder half
+and the tab's contents are a subset of it, so building the tab first
+would mean writing the property editors twice.
+
+A third surface, the **context menu**, carries the same commands again
+for the user who right-clicks. That is not duplication in the P1 sense —
+context menus are not tabs — and it is the path most users try after the
+keyboard.
+
+---
+
+## 6. What deliberately does not go on the ribbon
+
+**Quick Access Toolbar** — Open, Save a copy, Undo, Redo. Unchanged from
+today, now understood as a P1a shortcut surface rather than the only
+home for those commands.
+
+**Status bar** — Find toggle, actual size, fit width, fit page, zoom
+−/%/+, page ◀ n/N ▶, and a **new editable page-number box**. These are
+the controls a user touches constantly; they belong where they never
+disappear behind a tab change. The current render-diagnostics text moves
+behind a disclosure (see `DEFECTS.md` §5).
+
+**Context menus** — currently zero in the entire crate
+(`grep context_menu` → no hits). Every selection type above needs one,
+carrying the same commands as its Format tab section plus Cut/Copy/
+Paste/Delete. This is not a ribbon question, but it is the other half of
+making selection meaningful, and no amount of ribbon design substitutes
+for it.
+
+**Tool Options pane** — per P2, every armed tool's parameters. Unchanged
+in principle; the pane needs the layout work described in the roadmap.
+
+---
+
+## 7. Migration map
+
+Every command that exists in the GUI today, and where it goes. Nothing
+is dropped.
+
+| Today | Proposed |
+|---|---|
+| QAT: Open, Save a copy, Undo, Redo | QAT *(unchanged)* + File ▸ File/Save |
+| File ▸ Document ▸ Properties | File ▸ Document |
+| File ▸ Clipboard ▸ Copy page/document text | **Edit ▸ Clipboard** |
+| File ▸ Export ▸ Export DXF | File ▸ Export |
+| File ▸ Print ▸ Print | File ▸ Print |
+| File ▸ Layout ▸ Reset layout | **View ▸ Window** |
+| File ▸ Settings ▸ Settings | File ▸ pdfce |
+| File ▸ Help ▸ Keyboard shortcuts | File ▸ pdfce |
+| Edit ▸ Pages ▸ Rotate left/right | **Pages ▸ Transform** |
+| Edit ▸ ContentTools ▸ Editing on | Edit ▸ Mode |
+| Edit ▸ ContentTools ▸ Aa / I⁺ Aa / Obj | Edit ▸ Content *(relabelled)* |
+| Edit ▸ Forms ▸ Fill Form | Edit ▸ Forms |
+| Edit ▸ BuildForm ▸ Create Field | Edit ▸ Forms |
+| Review ▸ Markup ▸ Rectangle/Ellipse/Arrow line/Highlight band + Colour | **Markup ▸ Shapes / Text markup / Style** |
+| Review ▸ Comments ▸ Comments | Markup ▸ Comments |
+| Review ▸ Notes ▸ Text box / Sticky note / Draft stamp | Markup ▸ Notes |
+| Measure ▸ Measure ▸ Linear / Radius-Diameter | Measure ▸ ce dimension |
+| Measure ▸ Measure ▸ Set Group Scale / Manage ce-dimension Groups | Measure ▸ Scale |
+| Tools ▸ Protect ▸ Redact | **Edit ▸ Protect** |
+| Tools ▸ Across files ▸ Tools *(batch pane)* | **Pages ▸ Insert/Organise** + Tools ▸ Batch |
+| Tools ▸ Font folders ▸ Font folders | Tools ▸ Fonts |
+| View ▸ Panels ▸ Sidebar / Bookmarks / Layers / Signatures / Objects | View ▸ Panels |
+| View ▸ Panels ▸ Fonts | **File ▸ Document** |
+| View ▸ Show ▸ annotations / points | View ▸ Display |
+
+Three commands change tab in a way a returning user will notice:
+`Copy text` (File → Edit), `Redact` (Tools → Edit), and `Rotate page`
+(Edit → Pages). All three are moving *toward* where a first-time user
+would look, which is the trade this proposal accepts.
+
+---
+
+## 8. Questions — answered and outstanding
+
+### Answered 2026-08-12
+
+**`Editing on` master toggle** → *"make it work the same way other
+programs do."* Removed entirely. See §5.4.
+
+**Format tab vs. properties panel** → **both**, panel first. See §5.8.
+
+**Page display** → single page stays the **default**; continuous,
+facing and facing-continuous are modes chosen on the View tab, persisted
+per document. See §5.2.
+
+**Rendering** → whole-page raster stays the default because it measured
+better in use; tiled progressive becomes an opt-in, with raster scale
+and settle delay exposed beside it. New **View ▸ Render** group. See
+§5.2.
+
+### Still open
+
+1. **Save semantics** — is autosave + true in-place `Save` wanted in the
+   next year, or is `Save a copy` the permanent model? The File tab
+   layout differs.
+2. **Compare** — worth building, or out of scope? It is the one absence
+   an AEC reviewer will name first, and it is a large build.
+3. **Multi-run text editing** (`GUI_ROADMAP.md` Phase 5d) — is "edit one
+   run at a time, clearly disclosed" an acceptable resting state for
+   another year, or is this the thing that has to be right?

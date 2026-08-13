@@ -1,0 +1,47 @@
+# pdfce GUI rebuild — workspace root.
+#
+# Two members, and the split is load-bearing:
+#
+#   egui-shell  — a REUSABLE application shell (ribbon, dock, modes,
+#                 layout persistence, theme, command registry). It knows
+#                 nothing about PDF and must never learn. Enforced by
+#                 tools/gates/check-shell-purity.sh. MIT, extracted to its
+#                 own repository at or before fold-in.
+#   pdfce-gui   — the pdfce application. Supplies a shell manifest, panel
+#                 bodies and command handlers; depends on pdfce-core and
+#                 pdfce-render by PATH into D:\Dev\pdfce.
+#
+# The path dependencies are deliberate (PROJECT_PLAN.md §2): building
+# against the live engine means divergence shows up at compile time rather
+# than at fold-in. D:\Dev\pdfce is READ-ONLY for this project.
+[workspace]
+resolver = "2"
+members = ["crates/egui-shell", "crates/pdfce-gui", "tools/ui-verify"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+
+[workspace.dependencies]
+egui-shell = { path = "crates/egui-shell" }
+
+# Versions are pinned to match D:\Dev\pdfce exactly. A dependency this
+# workspace adds that is NOT already in pdfce's lockfile is an operator
+# decision, not a convenience — pdfce's dependency posture (all-permissive
+# licences, no GPL engines, skrifa pinned to epaint's) is deliberate.
+eframe = { version = "0.35", default-features = false, features = [
+    "glow",
+    "default_fonts",
+    "accesskit",
+    "wayland",
+    "x11",
+] }
+egui = { version = "0.35", default-features = false }
+egui_tiles = { version = "0.16.0", default-features = false }
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"
+thiserror = "2"
+
+[profile.release]
+debug = 1

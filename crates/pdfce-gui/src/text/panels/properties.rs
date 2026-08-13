@@ -1,0 +1,519 @@
+//! # `text::panels::properties` — the Properties panel
+//!
+//! `RIBBON_IA.md` §5.8 commissions two surfaces for a selection's
+//! properties, and is explicit about which is built first:
+//!
+//! > The division of labour: the **tab** carries what a user changes *while
+//! > working* — colour, width, style, align, delete. The **panel** carries
+//! > everything, including the read-only facts (winding rule, node count,
+//! > embedded-font status, exact geometry) that belong beside the Objects
+//! > panel's inventory rather than in a ribbon band.
+//! >
+//! > Build order: **panel first, tab second.** The panel is the harder half
+//! > and the tab's contents are a subset of it, so building the tab first
+//! > would mean writing the property editors twice.
+//!
+//! This is that panel's copy — **the read-only half of it**, which is all of
+//! it at stage S3.
+//!
+//! ## What is deliberately absent, and why it is absent rather than greyed
+//!
+//! §5.8 also says the panel is *"where the **editable geometry** lives — X,
+//! Y, W, H as typed values"*, and calls that the surface through which
+//! `/Rect` move-and-resize becomes reachable without a drag. **None of that
+//! is here.**
+//!
+//! Not because typed geometry is hard, but because there is nothing to edit:
+//! [`crate::app::actions::Action`] carries zoom and page navigation and
+//! nothing else, and the panel that would host the editors has no selection
+//! to host them for. Four spinners bound to nothing would render, accept
+//! typing, and discard it — which is not a placeholder in the harmless sense
+//! but a control that silently loses an operator's work.
+//!
+//! `RIBBON_IA.md` P3 states the rule this follows: *"An unavailable
+//! capability renders nothing, not a disabled stub. Greying is reserved for
+//! **temporarily** unavailable — no document open, document encrypted, undo
+//! stack empty — and is always explained on hover."* "The selection model
+//! does not exist" is not temporary unavailability; it is absence.
+//!
+//! So the geometry is stated as **facts**, in the same field list as
+//! everything else, and becomes editable when there is something to edit.
+//!
+//! ## The panel is the disclosure surface
+//!
+//! Every `ObjectNote` an object carries is spelled out here in full, at the
+//! foot of the field list. That placement is the disclosure rule's, not a
+//! layout preference: inference reporting belongs **off-canvas** — *"a
+//! status line, a results panel, a report after the command, a properties
+//! field"* — and the page view must carry no badge, tint, dashed outline or
+//! "provisional" layer at all.
+//!
+//! The one-line test the rule offers: *would a screenshot of the editing
+//! canvas differ from a screenshot of the same document saved and reopened?*
+//! Nothing in this panel can make it differ, because nothing in this panel
+//! draws on the page.
+//!
+//! ## Field wording lives next door
+//!
+//! The *values* — kind names, paint dispositions, winding rules, colours,
+//! font labels, note sentences — are all [`super::objects`]'s, and are
+//! reached from here rather than re-worded. That is the same
+//! single-description discipline
+//! [`crate::panels::objects::summary`] exists to enforce, applied one layer
+//! up: a path's fill colour must not be described one way in an Objects row
+//! and another way in a Properties field.
+//!
+//! This module owns only the **labels** — the left-hand column — and the
+//! panel's own chrome.
+
+/// Heading over the selected object's properties.
+///
+/// Says **object**, and it matters. `RIBBON_IA.md` §5.1 gives `file.
+/// properties` the tooltip *"The document's own title, author, subject and
+/// keywords, and the properties of whatever is selected on the page"* — two
+/// scopes under one command. An unheaded field list invites the reading
+/// "these are the document's properties", which is exactly wrong for a fill
+/// colour, and would be exactly wrong in the other direction for `/Title`.
+///
+/// The document half of that command is a separate surface and is not built
+/// here; there is no `/Info` accessor on `Document` at all (the core API map
+/// §12.6 calls that "the honest gap"), so it is a task rather than a
+/// forgotten row.
+#[must_use]
+pub fn properties_object_heading() -> &'static str {
+    "Object properties"
+}
+
+/// Shown when no object is being shown properties for.
+///
+/// The panel is never blanked: a blank region is indistinguishable from a
+/// broken one, so the honest answer is a sentence naming the precondition —
+/// and naming the surface that satisfies it, because the Objects panel is
+/// the only route to this one at S3 and an operator has no way to guess
+/// that.
+#[must_use]
+pub fn properties_nothing_focused() -> &'static str {
+    "Pick a row in the Objects panel to see what it is made of."
+}
+
+/// The line stating that this panel reports and does not change.
+///
+/// **Shown once, at the top, and never repeated per field.** An operator
+/// looking at a list of exact numbers with no input boxes will reasonably
+/// wonder whether the boxes failed to draw; saying so costs one line and
+/// removes the question.
+///
+/// It states the boundary without naming a future control (P3 again — a
+/// promise is a placeholder made of prose).
+#[must_use]
+pub fn properties_read_only_note() -> &'static str {
+    "These are the facts pdfce read from the file. Nothing here can be changed in this build."
+}
+
+/// Sub-heading over the disclosure sentences at the foot of the list.
+///
+/// A heading rather than an unlabelled run of paragraphs, because the
+/// sentences are long and an operator scanning for a number needs to know
+/// where the numbers stop. "Worth knowing" rather than "Warnings": every one
+/// of these is a fact about the document, and warning styling would make a
+/// property of the file read as a pdfce failure.
+#[must_use]
+pub fn properties_notes_heading() -> &'static str {
+    "Worth knowing about this object"
+}
+
+// ---------------------------------------------------------------------------
+// Field labels
+//
+// The left-hand column, and nothing else. Every VALUE in this panel is
+// worded by `super::objects`, so a fact cannot be described one way in an
+// Objects row and another way in a Properties field.
+//
+// Each is a noun, sentence case, with no trailing colon: the colon is
+// layout, and putting it in the string means a future two-column layout has
+// to strip it back out.
+// ---------------------------------------------------------------------------
+
+/// The object's kind.
+#[must_use]
+pub fn field_type() -> &'static str {
+    "Type"
+}
+
+/// The object's paint-order index — the handle every command-line verb
+/// takes.
+#[must_use]
+pub fn field_index() -> &'static str {
+    "Index"
+}
+
+/// How the path is painted (§8.5.3, Table 60).
+#[must_use]
+pub fn field_paint() -> &'static str {
+    "Paint"
+}
+
+/// The colour a viewer actually sees for this object.
+///
+/// "Colour", not "Fill" or "Stroke", because which of the two is showing
+/// depends on the paint disposition — a stroke-only path never shows its
+/// fill colour, so a field labelled "Fill" would name a colour that appears
+/// nowhere on the page. The Paint field directly above says which it is.
+#[must_use]
+pub fn field_colour() -> &'static str {
+    "Colour"
+}
+
+/// The fill winding rule (§8.5.3.3).
+#[must_use]
+pub fn field_winding() -> &'static str {
+    "Winding rule"
+}
+
+/// Stroke width in user-space units at paint time.
+#[must_use]
+pub fn field_line_width() -> &'static str {
+    "Line width"
+}
+
+/// Anchor count across every part of the object.
+#[must_use]
+pub fn field_nodes() -> &'static str {
+    "Points"
+}
+
+/// How many separate pieces the object is drawn from.
+#[must_use]
+pub fn field_parts() -> &'static str {
+    "Parts"
+}
+
+/// The text a text object shows.
+#[must_use]
+pub fn field_text() -> &'static str {
+    "Text"
+}
+
+/// The font in effect at the object's first show operator.
+#[must_use]
+pub fn field_font() -> &'static str {
+    "Font"
+}
+
+/// Whether the document carries the font's program.
+#[must_use]
+pub fn field_font_embedded() -> &'static str {
+    "Font embedded"
+}
+
+/// An image's sample count.
+#[must_use]
+pub fn field_pixels() -> &'static str {
+    "Image samples"
+}
+
+/// The object's lower-left corner in PDF user space.
+#[must_use]
+pub fn field_position() -> &'static str {
+    "Position"
+}
+
+/// The object's width and height in PDF points.
+#[must_use]
+pub fn field_size() -> &'static str {
+    "Size"
+}
+
+// ---------------------------------------------------------------------------
+// Field values that are this panel's own
+// ---------------------------------------------------------------------------
+
+/// A position, in PDF points.
+///
+/// **PDF user space, y-UP, origin at the page's lower left** — the same
+/// frame `pdfce-cli` prints and the same frame the object model stores. Not
+/// the screen's y-down frame, and not adjusted for `/CropBox` or `/Rotate`.
+/// An operator comparing this number against one from the CLI must get the
+/// same number, and that is worth more than matching the direction their
+/// mouse moves.
+///
+/// One decimal: enough to tell a 0.0-pt-tall rule from a 0.5-pt one, which
+/// is precisely the distinction that makes a hairline look like nothing at
+/// all.
+#[must_use]
+pub fn value_position(x: f64, y: f64) -> String {
+    format!("{x:.1}, {y:.1} pt")
+}
+
+/// The object's paint-order index, as an operator reads it.
+///
+/// The `#` is not decoration: it is the form the Objects panel's row label
+/// uses and the form `pdfce-cli object-list` prints, so an operator can
+/// match a properties field against a row and against a command line without
+/// translating. Formatting a number is a catalog decision for exactly this
+/// reason — one place decides, and every surface inherits it.
+#[must_use]
+pub fn value_index(index: usize) -> String {
+    format!("#{index}")
+}
+
+/// A stroke width, in PDF points.
+///
+/// Two decimals, unlike the one [`value_size`] uses, and the difference is
+/// deliberate: a line width is routinely 0.25 or 0.75 pt, and rounding to
+/// one decimal makes a quarter-point hairline and a half-point one the same
+/// number. A bounding box is never that fine.
+#[must_use]
+pub fn value_line_width(width: f64) -> String {
+    format!("{width:.2} pt")
+}
+
+/// A width and height, in PDF points.
+///
+/// `×` rather than `x`, and one decimal for the same reason
+/// [`value_position`] uses one. A zero on either axis is a real answer, not
+/// a missing measurement — the note list below the fields says which shape
+/// it is.
+#[must_use]
+pub fn value_size(width: f64, height: f64) -> String {
+    format!("{width:.1} × {height:.1} pt")
+}
+
+/// An image's sample count.
+///
+/// "px" and never "pt": these are SAMPLES (§8.9.5, Table 89), and the Size
+/// field a few rows above is in points. An image occupies the unit square
+/// under the CTM, so the two numbers describe genuinely different things —
+/// where it is, and what it is made of — and the pair is what lets an
+/// operator judge effective resolution. They must not look alike.
+#[must_use]
+pub fn value_pixels(width: u32, height: u32) -> String {
+    format!("{width} × {height} px")
+}
+
+/// Shown for a field whose value the file does not state.
+///
+/// One sentence fragment for every such field rather than a per-field
+/// wording, because the answer is the same in every case and the *reason*
+/// belongs in the note list rather than duplicated across four rows.
+///
+/// It is not a blank. A blank field is indistinguishable from a field pdfce
+/// forgot to fill in, and this panel's entire value is that its silences are
+/// as legible as its numbers.
+#[must_use]
+pub fn value_not_stated() -> &'static str {
+    "not stated in the file"
+}
+
+/// The font's program is in the document.
+#[must_use]
+pub fn value_font_embedded_yes() -> &'static str {
+    "Yes — the document carries this font's program."
+}
+
+/// The font's program is not in the document.
+///
+/// States the consequence, not just the fact: a font the reader has to
+/// supply is the difference between a file that prints as designed anywhere
+/// and one that does so only on the machine it was made on. That is the
+/// question an operator is actually asking when they look at this field.
+#[must_use]
+pub fn value_font_embedded_no() -> &'static str {
+    "No — this document relies on the reader having a copy of it."
+}
+
+/// pdfce could not decide whether the font is embedded.
+///
+/// ★ **The honest answer to a name-matching problem, and it is disclosed
+/// rather than resolved.**
+///
+/// A text object records the `/BaseFont` in effect; the document's font
+/// inventory records a program per font *dictionary*. Joining the two by
+/// name is the only join available — the object model does not carry the
+/// font dictionary's object id — and a name is not a key: one document can
+/// declare two font dictionaries with the same `/BaseFont` (two independent
+/// subsets of one face, which the survey behind the Fonts panel found in
+/// 87 % of embedding files), and they can differ in whether they embed.
+///
+/// So when the name matches more than one record, or none, pdfce says it
+/// could not tell rather than picking one. Picking would be an inference
+/// presented as a fact, which is precisely what rule 4 exists to stop — and
+/// unlike most inferences this one is invisible: a confidently wrong "Yes"
+/// looks exactly like a right one.
+///
+/// The Fonts panel is where the per-dictionary truth lives, so this points
+/// at it.
+#[must_use]
+pub fn value_font_embedded_ambiguous() -> &'static str {
+    "pdfce could not tell — this document declares more than one font under that name, and they need not agree. The Fonts panel lists each one separately."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Every field label is a bare noun phrase with no trailing colon.**
+    ///
+    /// The colon is layout. Baking it into the string means a future
+    /// two-column or grid layout has to strip it back out of every entry,
+    /// and the one that gets missed renders as `Type::`.
+    #[test]
+    fn no_field_label_carries_its_own_punctuation() {
+        for label in ALL_FIELD_LABELS {
+            assert!(!label.ends_with(':'), "`{label}` carries a colon");
+            assert!(
+                !label.ends_with('.'),
+                "`{label}` is a label, not a sentence"
+            );
+            assert!(!label.is_empty());
+        }
+    }
+
+    /// **No two fields share a label.**
+    ///
+    /// Two rows reading "Size" — one for the bounding box and one for the
+    /// image's samples — is exactly the confusion [`value_pixels`]'s "px vs
+    /// pt" comment is about, arriving through the label column instead of
+    /// the value column.
+    #[test]
+    fn every_field_label_is_distinct() {
+        let mut seen: Vec<&str> = Vec::new();
+        for label in ALL_FIELD_LABELS {
+            assert!(!seen.contains(&label), "two fields share the label {label}");
+            seen.push(label);
+        }
+    }
+
+    /// The catalog of field labels, for the sweeps above.
+    ///
+    /// Hand-written, like every enumeration of things Rust cannot enumerate
+    /// for us. It is only used by tests, so an entry missed here weakens a
+    /// check rather than shipping a defect — but it is listed in the same
+    /// order as the panel draws them so a reader can diff the two.
+    const ALL_FIELD_LABELS: [&str; 15] = [
+        "Type",
+        "Index",
+        "Paint",
+        "Colour",
+        "Winding rule",
+        "Line width",
+        "Points",
+        "Parts",
+        "Text",
+        "Font",
+        "Font embedded",
+        "Image samples",
+        "Position",
+        "Size",
+        // Not a field: the note heading. Included so a rename of it is
+        // caught by the distinctness sweep alongside the fields, since it
+        // shares the same column.
+        "Worth knowing about this object",
+    ];
+
+    /// The label list and the functions agree.
+    ///
+    /// Without this the sweeps above would silently test a stale copy of the
+    /// catalog — the classic failure of a hand-written enumeration.
+    #[test]
+    fn the_label_catalog_matches_the_functions() {
+        let from_fns = [
+            field_type(),
+            field_index(),
+            field_paint(),
+            field_colour(),
+            field_winding(),
+            field_line_width(),
+            field_nodes(),
+            field_parts(),
+            field_text(),
+            field_font(),
+            field_font_embedded(),
+            field_pixels(),
+            field_position(),
+            field_size(),
+            properties_notes_heading(),
+        ];
+        assert_eq!(from_fns, ALL_FIELD_LABELS);
+    }
+
+    /// Position and size are in points, to one decimal, and a zero extent is
+    /// a real answer.
+    ///
+    /// The decimal is not decoration: a horizontal rule is 0.0 pt tall and a
+    /// hairline is 0.5 pt tall, and rounding to whole points makes those the
+    /// same object.
+    #[test]
+    fn geometry_values_keep_one_decimal_and_state_their_unit() {
+        assert_eq!(value_position(72.0, 144.26), "72.0, 144.3 pt");
+        assert_eq!(value_size(200.0, 0.0), "200.0 × 0.0 pt");
+        assert!(value_size(1.0, 1.0).ends_with(" pt"));
+    }
+
+    /// An image's samples are labelled px, never pt.
+    ///
+    /// The Size field a few rows above is in points and describes a
+    /// different thing. Two numbers of the same shape with the same unit
+    /// would read as one measurement stated twice.
+    #[test]
+    fn image_samples_are_never_labelled_in_points() {
+        let px = value_pixels(640, 480);
+        assert_eq!(px, "640 × 480 px");
+        assert!(!px.contains("pt"));
+    }
+
+    /// **The three embedded-font answers are three different answers.**
+    ///
+    /// The ambiguous one is the load-bearing case: a confidently wrong "Yes"
+    /// is indistinguishable from a right one, so the panel has to be able to
+    /// decline. It must not read like either of the definite answers, and it
+    /// must point at the surface that can be definite.
+    #[test]
+    fn the_embedded_font_answers_include_an_honest_dont_know() {
+        let yes = value_font_embedded_yes();
+        let no = value_font_embedded_no();
+        let dunno = value_font_embedded_ambiguous();
+        assert_ne!(yes, no);
+        assert_ne!(no, dunno);
+        assert_ne!(yes, dunno);
+        assert!(
+            dunno.contains("could not tell"),
+            "the ambiguous answer must decline in words: {dunno}"
+        );
+        assert!(
+            dunno.contains("Fonts panel"),
+            "an honest don't-know has to say where the answer is: {dunno}"
+        );
+    }
+
+    /// An unstated value is a sentence, never a blank.
+    ///
+    /// A blank field is indistinguishable from one pdfce forgot to fill in,
+    /// and this panel's whole value is that its silences are as legible as
+    /// its numbers.
+    #[test]
+    fn an_absent_value_says_so() {
+        assert!(!value_not_stated().trim().is_empty());
+    }
+
+    /// **The panel must not promise typed geometry it cannot accept.**
+    ///
+    /// `RIBBON_IA.md` §5.8 specifies editable X/Y/W/H here, and it is not
+    /// built: there is no selection model and no mutating action to carry
+    /// the edit. The read-only note is the one string that says so, and a
+    /// well-meaning copy edit that turns it into "editing coming soon" would
+    /// make it a promise — which P3 forbids in prose exactly as it forbids
+    /// in a widget.
+    #[test]
+    fn the_read_only_note_states_the_boundary_without_promising_a_control() {
+        let note = properties_read_only_note();
+        assert!(note.contains("can be changed"), "{note}");
+        assert!(note.contains("Nothing here"), "{note}");
+        for promise in ["coming soon", "not yet available", "will be", "future"] {
+            assert!(
+                !note.to_lowercase().contains(promise),
+                "the note promises a control instead of stating a boundary: {note}"
+            );
+        }
+    }
+}

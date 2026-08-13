@@ -1,0 +1,329 @@
+<title>pdfce Mode Selector</title>
+<style>
+  :root{
+    --bg:#f2f2f3; --surface:#fafafa; --panel:#e9e9ea; --line:#c9c9cd;
+    --text:#1d1f24; --muted:#5e6066; --accent:#2f6fb5; --accentsoft:#dbe8f6;
+    --new:#f5a623; --newsoft:#fdf0d9; --ink:#8a8a8a; --shadow:rgba(0,0,0,.10);
+    --hot:#d1452b;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#1b1d21; --surface:#24262b; --panel:#2b2e34; --line:#3d4148;
+    --text:#e8e9ec; --muted:#9ba0a8; --accent:#6aa6e8; --accentsoft:#243a52;
+    --newsoft:#3a2f1c; --shadow:rgba(0,0,0,.5);
+  }}
+  :root[data-theme="dark"]{
+    --bg:#1b1d21; --surface:#24262b; --panel:#2b2e34; --line:#3d4148;
+    --text:#e8e9ec; --muted:#9ba0a8; --accent:#6aa6e8; --accentsoft:#243a52;
+    --newsoft:#3a2f1c; --shadow:rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);padding:28px 20px 70px;
+    font:14px/1.55 "Segoe UI",Inter,system-ui,sans-serif}
+  .wrap{max-width:1240px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 22px;max-width:82ch}
+  h2{font-size:18px;margin:40px 0 3px}
+  .q{color:var(--muted);font-size:13.5px;margin:0 0 12px;max-width:84ch}
+
+  .app{border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    box-shadow:0 6px 22px var(--shadow);background:var(--surface);margin-bottom:8px}
+  .titlebar{display:flex;align-items:center;gap:8px;padding:6px 11px;background:var(--panel);
+    border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+  .qat{display:flex;align-items:center;gap:6px;padding:5px 10px;
+    border-bottom:1px solid var(--line)}
+  .tabstrip{display:flex;gap:2px;margin-left:8px}
+  .tab{padding:3px 12px;border-radius:5px 5px 0 0;font-size:12.5px;
+    border:1px solid transparent;border-bottom:none;white-space:nowrap}
+  .tab.on{background:var(--accentsoft);border-color:var(--line);font-weight:600}
+  .tab.ctx{color:var(--accent);font-style:italic}
+  .btn,.cmd{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;
+    border:1px solid var(--line);border-radius:5px;background:var(--surface);
+    font-size:12px;white-space:nowrap;color:var(--text)}
+  .cmd.new{background:var(--newsoft);border-color:var(--new)}
+  .cmd.on{background:var(--accentsoft);border-color:var(--accent);font-weight:600}
+  .btn.ghost{border-color:transparent}
+
+  /* ---- the mode selector ---- */
+  .modewrap{margin-left:auto;display:flex;align-items:center;gap:9px}
+  .modesel{display:inline-flex;border:1px solid var(--line);border-radius:20px;
+    background:var(--panel);padding:2px;position:relative;font-size:12px}
+  .modesel span{padding:3px 15px;border-radius:18px;position:relative;z-index:1;
+    color:var(--muted);white-space:nowrap}
+  .modesel span.on{background:var(--accent);color:#fff;font-weight:600}
+  .badge{font-size:11px;padding:2px 9px;border-radius:11px;
+    border:1px solid var(--line);background:var(--panel);color:var(--muted)}
+  .badge.read{border-color:var(--accent);color:var(--accent)}
+
+  .band{display:flex;padding:7px 9px 3px;border-bottom:1px solid var(--line);
+    overflow-x:auto;min-height:74px}
+  .group{display:flex;flex-direction:column;justify-content:space-between;
+    padding:0 12px;border-right:1px solid var(--line)}
+  .group:last-child{border-right:none}
+  .gcmds{display:flex;flex-wrap:wrap;gap:4px;max-width:400px}
+  .gcap{text-align:center;font-size:10px;color:var(--muted);padding-top:5px}
+
+  .body{display:flex;height:290px;background:var(--panel)}
+  .rail{border-right:1px solid var(--line);background:var(--surface);
+    display:flex;flex-direction:column;min-width:0}
+  .railtabs{display:flex;border-bottom:1px solid var(--line);overflow:hidden}
+  .railtab{flex:1;text-align:center;font-size:10.5px;padding:4px 2px;color:var(--muted);
+    white-space:nowrap;overflow:hidden}
+  .railtab.on{background:var(--accentsoft);color:var(--text);font-weight:600}
+  .thumbs{padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:7px 8px;align-content:start}
+  .th{aspect-ratio:1.414/1;background:#fff;border:1px solid var(--ink);border-radius:2px;position:relative}
+  .th.sel{outline:2px solid var(--accent);outline-offset:1px}
+  .th em{position:absolute;bottom:-13px;left:0;right:0;text-align:center;
+    font-size:9px;font-style:normal;color:var(--muted)}
+  .canvas{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;min-width:0}
+  .sheet{width:100%;height:100%;background:#fff;border:1px solid var(--ink);
+    position:relative;box-shadow:0 2px 8px var(--shadow)}
+  .tblock{position:absolute;right:7px;bottom:7px;width:33%;height:27%;
+    border:1px solid var(--ink);background:#fff;display:grid;
+    grid-template-rows:auto 1fr auto;font-size:6.5px;color:#333}
+  .tblock i{background:#2b2b2b;color:#fff;padding:2px 4px;font-style:normal}
+  .tblock u{border-top:1px solid #ddd;padding:2px 4px;text-decoration:none;color:#c86a17}
+  .props{border-left:1px solid var(--line);background:var(--surface);
+    padding:8px 10px;font-size:11.5px;overflow:hidden}
+  .props h5{margin:0 0 6px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--muted)}
+  .prow{display:flex;justify-content:space-between;gap:8px;padding:2px 0;
+    border-bottom:1px dotted var(--line)}
+  .prow b{font-weight:500;color:var(--muted)}
+  .status{display:flex;align-items:center;gap:9px;padding:4px 10px;background:var(--surface);
+    border-top:1px solid var(--line);font-size:11.5px}
+  .status .sp{flex:1}
+  .pgbox{border:1px solid var(--accent);border-radius:4px;padding:0 6px;font-weight:600}
+  .cloud{position:absolute;border:1.5px solid var(--hot);border-radius:14px}
+
+  .notes{margin:8px 0 0;padding:0;list-style:none;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:9px}
+  .notes li{background:var(--surface);border:1px solid var(--line);
+    border-left:3px solid var(--accent);border-radius:0 7px 7px 0;padding:8px 11px;font-size:12.5px}
+  .notes li b{display:block;margin-bottom:1px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0 4px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  code{font:12px ui-monospace,Consolas,monospace;background:var(--panel);
+    padding:1px 5px;border-radius:3px}
+</style>
+
+<div class="wrap">
+<h1>Read · Review · Edit</h1>
+<p class="sub">One three-position control at the far right of the tab row. Sliding left removes capability and the interface that serves it, so pdfce reads as a viewer rather than an editor. The same document, in all three positions.</p>
+
+<!-- ============ READ ============ -->
+<h2>Read</h2>
+<p class="q">A PDF reader. Two tabs. The inspection panels are still there — that is pdfce's whole advantage — but nothing authors anything. This is the mode someone is in when a drawing arrives in their inbox.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <nav class="tabstrip"><span class="tab on">File</span><span class="tab">View</span></nav>
+    <span class="modewrap">
+      <span class="badge read">Read</span>
+      <span class="modesel"><span class="on">Read</span><span>Review</span><span>Edit</span></span>
+      <span class="btn ghost">⌃</span>
+    </span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Open…</span><span class="cmd new">Recent ⌄</span><span class="cmd">Close</span>
+    </div><div class="gcap">File</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Save a copy…</span></div><div class="gcap">Save</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Print…</span><span class="cmd">Image…</span><span class="cmd">Text…</span>
+    </div><div class="gcap">Print &amp; export</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Properties</span><span class="cmd">Fonts</span>
+    </div><div class="gcap">Document</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Settings…</span><span class="cmd">Shortcuts</span>
+    </div><div class="gcap">pdfce</div></div>
+  </div>
+  <div class="body">
+    <div class="rail" style="width:168px">
+      <div class="railtabs"><div class="railtab on">Pages</div><div class="railtab">Bookmarks</div></div>
+      <div class="thumbs">
+        <div class="th sel"><em>1</em></div><div class="th"><em>2</em></div>
+        <div class="th"><em>3</em></div><div class="th"><em>4</em></div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+  </div>
+  <div class="status">
+    <span style="color:var(--muted)">sheet_A1_foundation.pdf — PDF 1.7 · 42 pages</span>
+    <span class="sp"></span><span class="btn ghost">🔍 Find</span>
+    <span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span>
+    <span class="btn ghost">Fit page</span></div>
+</div>
+<ul class="notes">
+  <li><b>Two tabs, no tools</b>There is no Edit tab to click, so there is no click that mysteriously does nothing. That is the whole difference from the master toggle that was removed.</li>
+  <li><b>The document summary moved</b>Out of the tab row — where it competed with the selector — and into the status bar, where document facts belong.</li>
+  <li><b>Inspection survives</b>Pages, Bookmarks, Layers, Signatures, Fonts, Attachments are all reading. Objects is not: it is an editing surface.</li>
+</ul>
+
+<!-- ============ REVIEW ============ -->
+<h2>Review</h2>
+<p class="q">Markup and measurement. Comment, cloud, dimension, take a length off the drawing — without the ability to restructure the document or alter what is on it. The Format tab appears for your own markup, so a placed cloud can be recoloured; it does not appear for page content.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab">Pages</span><span class="tab on">Markup</span><span class="tab">Measure</span>
+      <span class="tab ctx">Format</span></nav>
+    <span class="modewrap">
+      <span class="badge">Review</span>
+      <span class="modesel"><span>Read</span><span class="on">Review</span><span>Edit</span></span>
+      <span class="btn ghost">⌃</span>
+    </span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Rectangle</span><span class="cmd">Ellipse</span><span class="cmd">Line</span>
+      <span class="cmd">Arrow</span><span class="cmd new on">Cloud</span><span class="cmd new">Ink</span>
+    </div><div class="gcap">Shapes</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Highlight</span><span class="cmd new">Underline</span><span class="cmd new">Strikeout</span>
+    </div><div class="gcap">Text markup</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Text box</span><span class="cmd">Sticky</span>
+      <span class="cmd new">Callout</span><span class="cmd">Stamp ⌄</span>
+    </div><div class="gcap">Notes</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">■ Colour</span><span class="cmd new">Width</span><span class="cmd new">Opacity</span>
+    </div><div class="gcap">Style</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Comments</span></div><div class="gcap">Comments</div></div>
+  </div>
+  <div class="body">
+    <div class="rail" style="width:168px">
+      <div class="railtabs"><div class="railtab">Pages</div><div class="railtab on">Tool options</div></div>
+      <div style="padding:9px 10px;font-size:11.5px">
+        <h5 style="margin:0 0 6px;font-size:10.5px;text-transform:uppercase;color:var(--muted)">Cloud</h5>
+        <div class="prow"><b>Colour</b><span>■ #d1452b</span></div>
+        <div class="prow"><b>Width</b><span>1.5 pt</span></div>
+        <div class="prow"><b>Arc</b><span>6 pt</span></div>
+        <div class="prow"><b>Note</b><span>Rev B</span></div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div class="cloud" style="left:22%;top:26%;width:30%;height:26%"></div>
+      <div style="position:absolute;left:53%;top:24%;font-size:8px;color:var(--hot)">Rev B</div>
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+    <div class="props" style="width:186px">
+      <h5>Comments</h5>
+      <div class="prow"><b>Rev B</b><span>you</span></div>
+      <div class="prow"><b>Check level</b><span>JM</span></div>
+      <div class="prow"><b>Datum?</b><span>JM</span></div>
+      <h5 style="margin-top:11px">This page</h5>
+      <div class="prow"><b>Markup</b><span>3</span></div>
+      <div class="prow"><b>Dimensions</b><span>2</span></div>
+    </div>
+  </div>
+  <div class="status">
+    <span style="color:var(--muted)">Cloud — drag to place · Esc to cancel</span>
+    <span class="sp"></span><span class="btn ghost">🔍 Find</span>
+    <span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span></div>
+</div>
+<ul class="notes">
+  <li><b>Pages is included</b>Reviewing a set means rotating a sheet to read it, extracting the two pages you were asked about, inserting a marked-up revision. The stance that matters is <i>the content is not yours to alter</i> — and page operations do not alter content.</li>
+  <li><b>Format appears for markup only</b>Recolour your own cloud, yes. Select and restyle a path that came from the CAD export, no — that is Edit.</li>
+  <li><b>Measure is here</b>Taking a length off a drawing is a reviewer's job, not an editor's.</li>
+</ul>
+
+<!-- ============ EDIT ============ -->
+<h2>Edit</h2>
+<p class="q">Everything. Seven tabs plus Format, every panel, full content editing. This is what <code>RIBBON_IA.md</code> specifies today — the other two modes are subsets of it.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab">Pages</span><span class="tab on">Edit</span><span class="tab">Markup</span>
+      <span class="tab">Measure</span><span class="tab">Tools</span>
+      <span class="tab ctx">Format</span></nav>
+    <span class="modewrap">
+      <span class="modesel"><span>Read</span><span>Review</span><span class="on">Edit</span></span>
+      <span class="btn ghost">⌃</span>
+    </span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd on">Edit text</span><span class="cmd">Add text</span><span class="cmd">Edit objects</span>
+    </div><div class="gcap">Content</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Image…</span><span class="cmd new">Shape ⌄</span>
+    </div><div class="gcap">Insert</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Align ⌄</span><span class="cmd new">Group</span><span class="cmd new">Flip ⌄</span>
+    </div><div class="gcap">Arrange</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Cut</span><span class="cmd new">Copy</span><span class="cmd new">Paste</span>
+    </div><div class="gcap">Clipboard</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Fill form</span><span class="cmd">Create field ⌄</span><span class="cmd">Flatten</span>
+    </div><div class="gcap">Forms</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Redact ⌄</span><span class="cmd">Apply</span>
+    </div><div class="gcap">Protect</div></div>
+  </div>
+  <div class="body">
+    <div class="rail" style="width:168px">
+      <div class="railtabs"><div class="railtab">Pages</div><div class="railtab on">Tool options</div></div>
+      <div style="padding:9px 10px;font-size:11.5px">
+        <h5 style="margin:0 0 6px;font-size:10.5px;text-transform:uppercase;color:var(--muted)">Edit text</h5>
+        <div class="prow"><b>Font</b><span>JetBrainsMono</span></div>
+        <div class="prow"><b>Size</b><span>6.0 pt</span></div>
+        <div class="prow"><b>Align</b><span>left · detected</span></div>
+        <div class="prow"><b>Block width</b><span>156 pt</span></div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div style="position:absolute;left:18%;top:24%;width:32%;
+        border:1px dashed var(--accent);padding:3px 5px;font-size:8px;
+        background:rgba(47,111,181,.05)">FOUNDATION PLAN — reinforcement revised</div>
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+    <div class="props" style="width:186px">
+      <h5>Text run</h5>
+      <div class="prow"><b>Font</b><span>AAAAAA+JetBrains</span></div>
+      <div class="prow"><b>Embedded</b><span>yes · 10.7 KB</span></div>
+      <div class="prow"><b>Size</b><span>6.00 pt</span></div>
+      <div class="prow"><b>Rotation</b><span>0°</span></div>
+      <h5 style="margin-top:11px">Page</h5>
+      <div class="prow"><b>Objects</b><span>28</span></div>
+      <div class="prow"><b>Annotations</b><span>12</span></div>
+    </div>
+  </div>
+  <div class="status">
+    <span style="color:var(--muted)">▸ ⚠ 119 substitute glyphs · live layout</span>
+    <span class="sp"></span><span>1 selected</span>
+    <span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>140%</span><span class="btn ghost">+</span></div>
+</div>
+
+<h2>The rule that makes this safe</h2>
+<p class="q">A mode changes what is <b>visible</b>. It never makes a visible control silently inert. That is the entire difference between this and the <code>editing_enabled</code> master toggle removed two turns ago — that one left the tools on screen and made gestures quietly fail.</p>
+<table>
+  <tr><th></th><th>Removed <code>editing_enabled</code> toggle</th><th>Read / Review / Edit</th></tr>
+  <tr><td>Visibility</td><td>Hidden binary in one ribbon group</td><td>Named control, always on screen, current position visible</td></tr>
+  <tr><td>When off</td><td>Tools still shown, clicks do nothing</td><td>Tools are not there to click</td></tr>
+  <tr><td>Feedback</td><td>None at the point of failure</td><td>A badge stating the stance, and why if the document forced it</td></tr>
+  <tr><td>Granularity</td><td>All-or-nothing</td><td>Three ordered levels, each a superset of the last</td></tr>
+  <tr><td>Undo</td><td>—</td><td>Untouched. Undo reaches across a mode change.</td></tr>
+</table>
+<ul class="notes">
+  <li><b>Each mode remembers its own layout</b>Leaving Edit and coming back restores your arrangement, not a default. Modes are named workspaces.</li>
+  <li><b>A document can force a mode</b>Signed, encrypted, or read-only-on-disk opens in Read with the badge saying why — earlier than today, where you can arm a tool that later refuses.</li>
+  <li><b>Not a permissions system</b>Read mode protects nothing; the operator can move the slider. It is an interface-complexity control, and the badge says which stance you are in.</li>
+</ul>
+</div>

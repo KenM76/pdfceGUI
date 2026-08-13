@@ -1,0 +1,86 @@
+# ORDERING IS LOAD-BEARING — read before editing this file.
+#
+# git applies the LAST matching pattern for a given attribute, so the
+# catch-all `* text=auto` MUST come first and every specific override MUST
+# follow it. In `D:\Dev\pdfce` this file once had the catch-all sitting in
+# the middle, below the `*.pdf binary` rule, and the catch-all silently
+# WON for .pdf: `git check-attr text -- foo.pdf` reported `text: auto`,
+# not `unset`.
+#
+# WHY THIS FILE EXISTS AT ALL, AND WHY IT WAS WRITTEN BEFORE THE FIRST
+# COMMIT RATHER THAN AFTER
+# =====================================================================
+#
+# `core.autocrlf` is **true** globally on this machine. Under that
+# setting, a repository with no `.gitattributes` normalizes line endings
+# in anything git guesses is text — and git guesses by looking for NUL
+# bytes, which a small synthetic PDF may not contain.
+#
+# The damage that caused in pdfce (found 2026-08-02, in a fresh worktree):
+#
+#   - On checkout, 69 binary fixtures were CRLF-inflated. A PDF's
+#     cross-reference table stores ABSOLUTE BYTE OFFSETS, so every offset
+#     past the first rewrite pointed at the wrong byte and the file failed
+#     to parse.
+#   - Worse, four fixtures were damaged **in the index itself**, because
+#     git stripped their CRs at `git add` time rather than at checkout.
+#     Two of those exist SPECIFICALLY to test CRLF handling in
+#     cross-reference sections (ISO 32000-1 §7.5.4 requires exactly
+#     20-byte xref entries) — normalization turned six entries into 19
+#     bytes, so the very bytes under test were the bytes destroyed.
+#
+# Neither state worked, and the main tree only kept passing because it
+# still held the original on-disk bytes and had never been re-checked-out
+# — which is the property that makes this class of damage invisible until
+# someone clones.
+#
+# That last point is why this file predates the first commit here. The
+# initial `git add` of this workspace was made WITHOUT it, noticed, and
+# unwound with `git rm -r --cached` before anything was committed,
+# precisely because the pdfce finding says the corruption can land at add
+# time. There was no history to lose at that point; there would have been
+# five minutes later.
+#
+# So: catch-all first, specific rules after. Do not reorder.
+* text=auto
+
+# Force LF for anything that must run as a script or gets parsed
+# line-sensitively, regardless of the checkout platform's autocrlf
+# setting — a CRLF-mangled shebang script fails to run. `tools/gates/*.sh`
+# are run by `run-all.sh` through bash on Windows, so this is not
+# hypothetical here.
+*.sh text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.py text eol=lf
+*.ron text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Markdown/docs and the mockups: normalize to LF for consistent diffs.
+# Content does not depend on it, but mixed line endings make diffs noisy,
+# and this project's documents are large and reviewed often.
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+
+# Binary fixtures and evidence: NEVER apply end-of-line normalization.
+# Marked explicitly so `* text=auto` above can never misdetect a NUL-free
+# synthetic PDF as text and mangle it. (`binary` == `-text -diff`.)
+#
+# The .png rules matter as much as the .pdf one here: `evidence/` is 18
+# screenshots that back observational claims in README.md's evidence
+# index. A normalized PNG is a corrupt PNG, and the claim it backs
+# silently loses its evidence.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.bin binary
+*.ico binary
+
+# Font binaries — same rationale as the PDF-fixture rules above.
+*.ttf binary
+*.otf binary
+*.cff binary
+*.pfb binary

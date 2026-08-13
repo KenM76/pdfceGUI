@@ -1,0 +1,895 @@
+//! # `panels` — the dock's panel bodies
+//!
+//! Six panels, each a **function the dock can call**. This module owns the
+//! set, the dispatch, the little state the bodies share, and the two layout
+//! rules that every one of them has to get right.
+//!
+//! | Panel | Ribbon command | Salvaged from |
+//! |---|---|---|
+//! | [`bookmarks`] | `view.panel_bookmarks` | `panels_structure.rs` |
+//! | [`layers`] | `view.panel_layers` | `panels_structure.rs` |
+//! | [`signatures`] | `view.panel_signatures` | `panels_structure.rs` |
+//! | [`fonts`] | `file.fonts` | `panels_structure.rs` |
+//! | [`objects`] | `view.panel_objects` | `main.rs` + `object_provider.rs` + `object_summary.rs` |
+//! | [`properties`] | `file.properties` | **new** — `RIBBON_IA.md` §5.8 |
+//!
+//! ## ★ These panels once had no way in
+//!
+//! Recorded here because this is now the file someone reads when they touch
+//! them. The old shell's `panels_structure.rs` header:
+//!
+//! > All three shipped with a `PaneSubject`, a panel body, a rail entry and
+//! > a diagnostic step — and no control an operator could click. Their only
+//! > callers were the harness step handlers, so every verification passed
+//! > while the panels were unreachable in a real build.
+//!
+//! That is what [`Panel::command_id`] and
+//! [`tests::every_panel_is_reachable_from_the_ribbon`] exist for, and the
+//! check here is stronger than the one it replaces. The old gate was a
+//! **source-text grep** — it read `main.rs` as a string and looked for a
+//! `show_pane_subject(…)` call outside the harness function. This one asks
+//! the shell manifest whether a real ribbon command names the panel, and
+//! asks the command registry whether that command exists, so it is
+//! satisfied by the same data the ribbon draws itself from rather than by
+//! the presence of a substring.
+//!
+//! A panel added here without a ribbon command does not compile a warning;
+//! it fails a test with the name of the panel in the message.
+//!
+//! ## Actions, not mutations — and it still has teeth
+//!
+//! A panel body never touches a document. It is handed `&OpenDoc` — a
+//! **shared** reference, so this is a compile-time fact and not a
+//! convention — it reads, and it pushes a
+//! [`crate::app::actions::Action`]. `PROJECT_PLAN.md` §3 lists this first
+//! among the invariants that are *"not up for renegotiation"*, and
+//! `crate::app::actions`' own header explains why retrofitting it is
+//! expensive.
+//!
+//! **Two** panels can act on the document, and the count is worth stating
+//! plainly rather than discovering. Bookmarks pushes [`Action::GoToPage`].
+//! Layers pushes [`Action::SetLayerVisible`] and [`Action::ResetLayers`],
+//! which arrived at S4 and are what restored its visibility checkbox. Every
+//! other panel is still a report — and where the old shell had a control that
+//! this build does not (the Fonts unembed and embed buttons), that panel's
+//! own module docs say which control is missing and what it is waiting for,
+//! because a control with no action behind it is an affordance for something
+//! that cannot work (`RIBBON_IA.md` P3, R83).
+//!
+//! ### ★ A note for whoever restores one of the remaining controls
+//!
+//! The Layers checkbox is the worked example, and its three preconditions are
+//! written up in [`layers`]' own header. In summary: the renderer had to
+//! accept an override (it always did), the render worker's cache key had to
+//! vary with it (S4: `RenderKey` carries `layers_generation`, and
+//! `crate::app::state::OpenDoc` carries the override plus
+//! `set_layer_visible`, `set_hidden_layers`, `reset_layers`), and an
+//! [`Action`] variant had to carry the intent from the panel to `apply`
+//! (S4, last to land). **A control that is missing any one of the three
+//! renders nothing at all** rather than shipping and looking broken.
+//!
+//! It is tempting, seeing an override behind a `RefCell` on `OpenDoc`, to
+//! reach for interior mutability and let the panel toggle it through the
+//! shared reference. **Do not.** The `RefCell`s there hold *derived caches*,
+//! whose filling nothing can observe; layer visibility is state that decides
+//! what appears on the page. Mutating it from a widget would make "what can
+//! change what is drawn?" un-greppable, which is the fourth of the four
+//! properties `crate::app::actions`' header says the funnel buys.
+//!
+//! Note also that a panel may raise **several** actions for one gesture, and
+//! that this is the intended shape rather than a workaround: the Layers
+//! panel's `/RBGroups` radio behaviour is one `Action::SetLayerVisible` per
+//! layer that moves, applied in order, each recomputing from the state the
+//! previous one left. That keeps one greppable action per changed layer
+//! instead of a single variant carrying an opaque set.
+//!
+//! ## Rule 4 lives here
+//!
+//! `D:\Dev\FeatureRequests\pdfce_FeatureRequests\README.md`'s first
+//! non-negotiable, in one clause:
+//!
+//! > **Disclosure lives off-canvas**: a status line, a results panel, a
+//! > report after the command, a properties field. Never blocking, never
+//! > requiring acknowledgement, never positioned relative to the document.
+//!
+//! A panel is the *right home* for everything pdfce inferred — a substituted
+//! font, a best-fit residual, a snapped point, an approximate text extent —
+//! and the page view must carry none of it. No badge, no tint, no dashed
+//! outline, no "provisional" layer. Nothing in this module draws on the
+//! canvas, and nothing in it may start to: the one-line test is *would a
+//! screenshot of the editing canvas differ from a screenshot of the same
+//! document saved and reopened?*
+//!
+//! [`objects::summary::ObjectSummary::bounds_are_approximate`] is where that
+//! bit: in the old shell it drove a **dashed outline on the page**. It
+//! survives as a question, and its answer is now a sentence in
+//! [`properties`].
+//!
+//! ## Two layout rules every panel obeys
+//!
+//! ### 1. Scrollbars must be visible
+//!
+//! egui's default `ScrollStyle` is `floating()`: a 2 pt sliver that
+//! allocates **zero** space and has `dormant_handle_opacity: 0.0`, i.e. is
+//! fully transparent when the pointer is elsewhere. The area scrolls
+//! correctly and a screenshot of it is indistinguishable from content
+//! clipped at the container edge.
+//!
+//! `ScrollStyle::solid()` is not enough on its own: it sets
+//! `foreground_color: false`, which draws the handle from
+//! `visuals.widgets.inactive.bg_fill` — a near-white on a near-white panel
+//! under a light preset. Measured in the old shell: the bar was present,
+//! opaque, correctly sized, reserving its 10 pt of layout, and invisible in
+//! a capture.
+//!
+//! [`scroll_style`] sets all three, and every panel calls it. See
+//! `D:\dev\rag\egui\scrollstyle_solid_draws_the_handle_in_bg_fill_which_is_invisible_on_a_light_panel.md`.
+//!
+//! ### 2. A fixed-size child inside a scroll area needs the container's
+//! width stated
+//!
+//! `Ui::allocate_ui*` and `add_sized` CLAMP their requested size to the
+//! space left in the parent region, so a row wider than the viewport is
+//! silently squeezed, the area measures content == viewport, and no bar
+//! appears anywhere — the overflow is clipped by the outer container with
+//! nothing to say so.
+//!
+//! [`content_width`] is the fix, and it is a pure function precisely so it
+//! can be tested: the container's width is `max(widest row, viewport)`,
+//! never a measurement of the laid-out row. See
+//! `D:\dev\rag\egui\allocate_ui_clamps_to_remaining_space_so_a_horizontal_scrollarea_squeezes_a_column_instead_of_scrolling.md`.
+
+use crate::app::actions::Action;
+use crate::app::state::OpenDoc;
+use crate::shell::menus::MenuHost;
+use egui_shell::HandlerToken;
+
+pub mod bookmarks;
+pub mod fonts;
+pub mod layers;
+pub mod objects;
+pub mod properties;
+pub mod signatures;
+
+/// One dockable panel.
+///
+/// An enum rather than a trait object, for one reason that matters and one
+/// that follows from it. The reason that matters: [`Panel::ALL`] makes the
+/// set **enumerable**, which is what lets a test sweep every panel and
+/// assert something about each one — the reachability check below is exactly
+/// that, and it is the check three panels shipped without. A registry of
+/// boxed closures would be extensible and unsweepable.
+///
+/// The reason that follows: a dock hosting these needs to persist which
+/// panels are open, and a `Copy`, `Eq`, `Debug` enum serialises to a token
+/// that survives a restart. A closure does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Panel {
+    /// The document's outline, as navigation.
+    Bookmarks,
+    /// The document's optional-content groups.
+    Layers,
+    /// What each digital signature covers.
+    Signatures,
+    /// What fonts the document declares, and what they cost.
+    Fonts,
+    /// Everything drawn on the current page.
+    Objects,
+    /// The read-only facts about one object.
+    Properties,
+}
+
+impl Panel {
+    /// Every panel.
+    ///
+    /// Hand-written, because Rust cannot enumerate an enum. That makes it
+    /// the classic array that silently stops being exhaustive when a variant
+    /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
+    /// length against a match that the compiler *does* check, which is the
+    /// only way to make a hand-written catalog self-defending.
+    pub const ALL: [Self; 6] = [
+        Self::Bookmarks,
+        Self::Layers,
+        Self::Signatures,
+        Self::Fonts,
+        Self::Objects,
+        Self::Properties,
+    ];
+
+    /// The ribbon command that shows this panel.
+    ///
+    /// **This is the reachability contract**, and it is the answer to the
+    /// defect in this module's header. Every panel names a command; the test
+    /// below asserts every one of those commands is both registered in
+    /// `crate::shell::commands` and referenced by
+    /// `crate::shell::manifest::built_in`. A panel with no route from the
+    /// ribbon cannot get past that.
+    ///
+    /// Two of the six are **not** on View ▸ Panels, and both placements are
+    /// `RIBBON_IA.md`'s:
+    ///
+    /// - **Fonts is `file.fonts`.** §7's migration map moves it from View ▸
+    ///   Panels to File ▸ Document, because the Fonts panel answers "what is
+    ///   inside this file", not "what is on my screen".
+    /// - **Properties is `file.properties`**, whose tooltip commissions both
+    ///   halves: *"The document's own title, author, subject and keywords,
+    ///   and the properties of whatever is selected on the page."* Only the
+    ///   second half is built here; the first needs a `/Info` accessor that
+    ///   `pdfce-core` does not expose on `Document` at all.
+    #[must_use]
+    pub fn command_id(self) -> &'static str {
+        match self {
+            Self::Bookmarks => "view.panel_bookmarks",
+            Self::Layers => "view.panel_layers",
+            Self::Signatures => "view.panel_signatures",
+            Self::Fonts => "file.fonts",
+            Self::Objects => "view.panel_objects",
+            Self::Properties => "file.properties",
+        }
+    }
+
+    /// The panel whose [`Self::command_id`] is `id`, if any.
+    ///
+    /// The dock stores opaque ids, so something has to turn one back into a
+    /// panel, and this is deliberately the only thing that does. Written as
+    /// a search over [`Self::ALL`] rather than a second `match`: a second
+    /// `match` is a second list to keep in step, and the failure when it
+    /// drifts is a panel that opens from the ribbon and draws nothing in
+    /// the dock — which looks like a rendering bug and is not.
+    ///
+    /// Returns `None` for an id this build does not have, which is a
+    /// reachable state: a saved layout can name a panel whose capability
+    /// was compiled out.
+    #[must_use]
+    pub fn from_command_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.command_id() == id)
+    }
+
+    /// Draw this panel.
+    ///
+    /// The one entry point a dock calls. `doc` is `None` when nothing is
+    /// open, and that case is handled **here** rather than six times: the
+    /// answer does not vary by panel, and six bespoke "open a document to…"
+    /// sentences would be six chances for one of them to drift.
+    ///
+    /// The bodies below therefore all have the shape
+    /// `fn body(ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>)`
+    /// and never see the empty case.
+    ///
+    /// # ★ Two routes out, and why context-menu commands take the second
+    ///
+    /// `actions` carries what a panel decides for itself — the Bookmarks
+    /// panel's `GoToPage`, the Layers panel's `SetLayerVisible`. The
+    /// **return value** carries `egui_shell::HandlerToken`s: the commands an
+    /// operator chose from a panel's context menu.
+    ///
+    /// A panel must not translate those into `Action`s, for the same reason
+    /// the canvas must not. A token is resolved to an id and dispatched by
+    /// `PdfceApp::dispatch_token`, which is the single choke point where a
+    /// confirmation gate, an undo entry or a refusal lives; a panel that
+    /// translated `file.properties` for itself would be a second
+    /// implementation of a command that already has one, and the two would
+    /// drift the first time the command grew a precondition.
+    ///
+    /// `host` is `None` when the application has no validated shell (see
+    /// [`MenuHost`]), in which case no panel attaches a menu and a
+    /// right-click does nothing.
+    ///
+    /// **Only the Objects panel has a menu today.** The other five return
+    /// an empty `Vec` because `crate::shell::menus` defines no context for
+    /// them, and a menu defined for a surface with nothing to offer would
+    /// not open anyway — which is the rule, not a workaround.
+    #[must_use]
+    pub fn show(
+        self,
+        ui: &mut egui::Ui,
+        doc: Option<&OpenDoc>,
+        state: &mut PanelsState,
+        host: Option<&MenuHost<'_>>,
+        actions: &mut Vec<Action>,
+    ) -> Vec<HandlerToken> {
+        scroll_style(ui);
+        let Some(doc) = doc else {
+            // Nothing open: forget the operator's tree state. Doing this
+            // here rather than in each body is what makes it unforgettable —
+            // a panel that never draws while the shell is empty would never
+            // get the chance. (The document's own caches need no equivalent:
+            // they live on `OpenDoc` and were dropped with it.)
+            state.forget_document();
+            ui.label(crate::text::panels::panel_no_document());
+            return Vec::new();
+        };
+        state.sync(doc);
+        match self {
+            Self::Bookmarks => bookmarks::body(ui, doc, state, actions),
+            Self::Layers => layers::body(ui, doc, state, actions),
+            Self::Signatures => signatures::body(ui, doc, state, actions),
+            Self::Fonts => fonts::body(ui, doc, state, actions),
+            Self::Objects => return objects::body(ui, doc, state, host, actions),
+            Self::Properties => properties::body(ui, doc, state, actions),
+        }
+        Vec::new()
+    }
+}
+
+/// The little state the panel bodies own between frames.
+///
+/// # Why this exists at all, and why it is not on `PdfceApp`
+///
+/// Two of the six panels are not pure functions of the document: the Objects
+/// panel remembers which rows are expanded and which row was last picked, and
+/// the Properties panel reads that pick. None of it is document state, and
+/// none of it is derivable from anything — but all of it has to outlive a
+/// frame.
+///
+/// It lives here rather than as fields on `crate::app::PdfceApp` because
+/// *this* is the module that owns the concepts. A dock hands one `&mut
+/// PanelsState` to whichever panel it is drawing, and the app holds it the
+/// way it holds any other subsystem's state. Spreading these fields across
+/// `PdfceApp` would put the Objects panel's expansion set next to the render
+/// worker.
+///
+/// # ★ What is NO LONGER here: the two caches, and their identity key
+///
+/// Until S4 this struct also held the page decomposition and the font
+/// inventory, guarded by a `DocKey` assembled from the `Arc<EditSession>`'s
+/// **address** plus the path, page count and edit epoch. The header of that
+/// type documented its own residual hazard: an address is not an identity,
+/// because a dropped `Arc`'s allocation can be reused, so a reopened document
+/// could in principle have been served the previous one's decomposition. It
+/// also documented why the obvious fix was worse — holding an `Arc` or a
+/// `Weak` clone would make it a real identity and would break
+/// `crate::app::state::OpenDoc::session`'s `Arc::get_mut` mutation path,
+/// disabling document editing to fix a cache.
+///
+/// Both caches now live on `crate::app::state::OpenDoc`, where the document's
+/// own lifetime bounds them and **no identity key is needed at all**:
+/// `OpenDoc::new` constructs a whole new document state per open, so a cache
+/// inside it can never describe a previous file. `DocKey` was deleted rather
+/// than repaired, because an identity key existed only to compensate for a
+/// cache outliving the thing it described.
+///
+/// What is left here genuinely does outlive a document — it hangs off the
+/// application — and it is handled by *forgetting* rather than by keying:
+/// [`Self::forget_document`] is called from `PdfceApp::open_path`, the one
+/// place a document is ever opened, and from [`Panel::show`] when nothing is
+/// open. A single statement at the one moment it is true beats a comparison
+/// made sixty times a second.
+///
+/// Within one document, [`Self::sync`] still drops this state on a page or
+/// revision change, keyed on `(page index, edit epoch)` — two plain values,
+/// no address, no ABA hazard.
+#[derive(Default)]
+pub struct PanelsState {
+    /// The `(page index, edit epoch)` [`Self::tree`] describes, or `None`
+    /// before anything has been drawn.
+    ///
+    /// The page is in the key because a paint-order index is a position on
+    /// **one page**: keeping a focus or an expansion set across a page step
+    /// would silently point them at a different object with the same number.
+    /// The epoch is in it because an edit renumbers everything after the
+    /// object it touched, which does the same thing without moving page.
+    tree_key: Option<(usize, u64)>,
+    /// What the operator has opened and picked in the Objects tree.
+    ///
+    /// A struct rather than three loose fields so the grouping says what it
+    /// is: the operator's own state, not a cache of the document. Everything
+    /// derived from the document now lives on `OpenDoc`, and this is what was
+    /// left when it went.
+    tree: ObjectTreeUi,
+}
+
+/// What the operator has opened and picked in the Objects tree.
+///
+/// Every field is cleared when the page or the document revision changes
+/// (see [`PanelsState::sync`]), because a paint-order index is a **position
+/// on one page of one revision**, not an identity.
+#[derive(Default)]
+pub struct ObjectTreeUi {
+    /// Which object rows are expanded, by paint-order index.
+    pub(crate) objects_expanded: std::collections::BTreeSet<usize>,
+    /// Which part rows are expanded, by `(object, part)`.
+    pub(crate) parts_expanded: std::collections::BTreeSet<(usize, usize)>,
+    /// The object the Properties panel describes, by paint-order index.
+    ///
+    /// **Not a selection**, and the distinction is load-bearing enough to
+    /// have its own name. A selection is document-scoped, multi-valued,
+    /// survives a page change, drives the contextual Format tab, and is what
+    /// an edit acts on. This is one `usize` that says which Objects row the
+    /// operator last clicked, so a second panel can describe it.
+    ///
+    /// # ★ This field is DELETED when the selection model lands, not grown
+    ///
+    /// The distinction is what stops a shell acquiring two selections. When
+    /// the real one exists, [`properties`] reads *it*, the Objects row click
+    /// becomes a selection gesture, and this field goes. Growing it instead —
+    /// making it a `Vec`, letting it survive a page change, letting an edit
+    /// act on it — would produce a second, weaker selection that the canvas
+    /// and the panel would have to keep in step, and the drift between them
+    /// would be invisible until an edit acted on the wrong object.
+    ///
+    /// **The S4 status, stated rather than assumed.** The canvas's selection
+    /// model is being built in this stage, and this field has deliberately
+    /// **not** been extended to meet it half way: it is still one `usize`,
+    /// still page-scoped, still cleared by [`PanelsState::sync`] on any page
+    /// or revision change, and still read by exactly one panel.
+    /// [`tests::the_panel_focus_has_not_quietly_become_a_selection`] pins
+    /// each of those, so the field cannot acquire selection semantics one
+    /// commit at a time. It is deleted in the commit that makes
+    /// [`properties`] read the canvas's selection, and not before — deleting
+    /// it earlier would leave the Properties panel with nothing to describe.
+    focus: Option<usize>,
+}
+
+impl ObjectTreeUi {
+    /// Which object the Properties panel is describing.
+    #[must_use]
+    pub fn focus(&self) -> Option<usize> {
+        self.focus
+    }
+
+    /// Point the Properties panel at an object.
+    ///
+    /// Clicking the already-focused row clears the focus, so a row click is
+    /// its own undo. That is a deliberate consequence of there being no
+    /// Escape ladder yet: with no selection model there is no other way back
+    /// to "nothing focused", and a panel an operator cannot get out of is
+    /// worse than one they cannot get into.
+    pub fn set_focus(&mut self, index: usize) {
+        self.focus = if self.focus == Some(index) {
+            None
+        } else {
+            Some(index)
+        };
+    }
+
+    /// Toggle an object row's expansion.
+    pub(crate) fn toggle_object(&mut self, index: usize) {
+        if !self.objects_expanded.remove(&index) {
+            self.objects_expanded.insert(index);
+        }
+    }
+
+    /// Toggle a part row's expansion.
+    pub(crate) fn toggle_part(&mut self, object: usize, part: usize) {
+        if !self.parts_expanded.remove(&(object, part)) {
+            self.parts_expanded.insert((object, part));
+        }
+    }
+}
+
+impl PanelsState {
+    /// Drop anything that no longer describes `doc`'s current page.
+    ///
+    /// Called once per frame, before any panel body runs, so no two panels
+    /// can disagree about which revision they are describing — which is the
+    /// whole point of doing it here rather than in each body.
+    ///
+    /// **A page or revision change clears the focus and the expansion sets.**
+    /// Paint-order indices are positions, not identities: deleting one object
+    /// renumbers every object after it, so a retained focus would silently
+    /// describe a *different* object with the same number, and a retained
+    /// expansion set would open the wrong rows. Forgetting is the only honest
+    /// response, and it is cheap.
+    ///
+    /// The key is `(page index, edit epoch)` and nothing else. It does not
+    /// need to say *which document* — a different document reaches
+    /// [`Self::forget_document`] through `PdfceApp::open_path` before any
+    /// panel draws, so there is nothing left to confuse it with. That is what
+    /// let the old four-field `DocKey`, with the `Arc` address in it, be
+    /// deleted rather than repaired; see this struct's own header.
+    fn sync(&mut self, doc: &OpenDoc) {
+        let key = (doc.view.page_index, doc.edit_epoch);
+        if self.tree_key != Some(key) {
+            self.tree_key = Some(key);
+            self.tree = ObjectTreeUi::default();
+        }
+    }
+
+    /// Forget everything about whatever document was open.
+    ///
+    /// Called from two places, and both are needed: `PdfceApp::open_path`,
+    /// because a new document makes every paint-order index here meaningless,
+    /// and [`Panel::show`] when nothing is open, because a panel that never
+    /// draws while the shell is empty would never get the chance.
+    ///
+    /// `*self = Self::default()` rather than clearing fields one at a time,
+    /// so a field added later is forgotten by construction. This is the one
+    /// operation that must not need updating when the struct grows.
+    pub fn forget_document(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The operator's state in the Objects tree — what is expanded, and what
+    /// is focused.
+    ///
+    /// Handed out whole rather than through a method per field, because the
+    /// Objects panel reads the expansion sets while it draws and writes them
+    /// after; splitting that across four accessors would gain nothing and
+    /// cost the panel the ability to hold one borrow for the frame.
+    ///
+    /// Note what it is **not** paired with any more. Until S4 this came back
+    /// alongside the page decomposition from one method, because the panel
+    /// needed `&provider` and `&mut tree` simultaneously and Rust permits
+    /// that only as two disjoint borrows of one struct. The provider now
+    /// lives on `OpenDoc`, so the two come from different objects entirely
+    /// and the pairing has no reason to exist.
+    pub fn tree_mut(&mut self) -> &mut ObjectTreeUi {
+        &mut self.tree
+    }
+
+    /// Which object the Properties panel is describing.
+    ///
+    /// Delegates to [`ObjectTreeUi`], which is where the field lives. The
+    /// forwarder exists so a panel that only needs to *read* the focus — the
+    /// Properties panel — does not have to reach through the grouping.
+    #[must_use]
+    pub fn focus(&self) -> Option<usize> {
+        self.tree.focus()
+    }
+
+    /// Point the Properties panel at an object. See
+    /// [`ObjectTreeUi::set_focus`].
+    pub fn set_focus(&mut self, index: usize) {
+        self.tree.set_focus(index);
+    }
+}
+
+/// Apply this project's scroll-bar style to `ui`.
+///
+/// Scoped to the `Ui` that owns the scroll area rather than to the app
+/// style, because "always show a solid bar" is right for a narrow panel
+/// column and not obviously right for every surface in the application.
+///
+/// Three settings, and all three are needed — see this module's header for
+/// the measurement behind each:
+///
+/// 1. `solid()` over the `floating()` default, so the bar allocates layout
+///    and is drawn when the pointer is elsewhere.
+/// 2. `foreground_color = true`, so the handle is drawn in the visuals' TEXT
+///    colour rather than `widgets.inactive.bg_fill` — which on a light
+///    preset is a near-white handle on a near-white panel. This is also the
+///    theme-respecting form: the handle inherits whatever contrast the
+///    active theme gives its text, so it stays correct across light and dark
+///    without a hard-coded colour.
+/// 3. `bar_width = 10.0`, wide enough to grab with a mouse.
+pub fn scroll_style(ui: &mut egui::Ui) {
+    let mut scroll = egui::style::ScrollStyle::solid();
+    scroll.foreground_color = true;
+    scroll.bar_width = 10.0;
+    ui.style_mut().spacing.scroll = scroll;
+}
+
+/// The width a scrolling container must declare so its rows are not
+/// squeezed.
+///
+/// # The defect this prevents
+///
+/// `Ui::allocate_ui_with_layout_dyn` fits its requested size into the space
+/// **remaining in the parent region**, so a row that asks for 600 pt inside
+/// a 370 pt viewport receives 370. The row's `min_rect` therefore measures
+/// exactly the viewport width, `ScrollArea` compares content against
+/// viewport, finds them equal, and draws no bar. The visible symptom is a
+/// label cut off at the panel's edge with no way to reach the rest of it,
+/// and nothing errors or warns.
+///
+/// `auto_shrink([false, false])` does not help — it stops the area shrinking
+/// *below* the viewport, it does not let content exceed it. `max_width` does
+/// not help either; it bounds the viewport, which was already right.
+///
+/// The fix is to state the content's own width on the container:
+/// `Ui::set_width` calls `set_max_width`, and `Placer::set_max_width` GROWS
+/// `max_rect` rather than only shrinking it, which is what gives the rows
+/// their real width and lets the area measure content > viewport.
+///
+/// # Why `.max(viewport)`
+///
+/// So a wide panel still fills rather than leaving a dead strip to the right
+/// of the rows.
+///
+/// # Why this is a function and not three lines at the call site
+///
+/// So it can be tested. The RAG note this comes from is explicit that the
+/// value must not be a measurement of the *laid-out* row — measuring is what
+/// produced the squeezed number in the first place — and the difference
+/// between "the intrinsic width of this text" and "the width this row ended
+/// up with" is invisible at a call site and obvious in a test.
+#[must_use]
+pub fn content_width(row_widths: impl IntoIterator<Item = f32>, viewport: f32) -> f32 {
+    row_widths
+        .into_iter()
+        .filter(|w| w.is_finite())
+        .fold(viewport, f32::max)
+}
+
+/// Measure the intrinsic width of a row's text, in points.
+///
+/// The *intrinsic* width — what the text would occupy with no wrapping and
+/// no container — which is the number [`content_width`] needs and the one a
+/// laid-out row cannot give (a laid-out row has already been clamped).
+///
+/// `layout_no_wrap` is what makes it intrinsic — the same call the widget
+/// itself will make, so the number is the width the row would want rather
+/// than an estimate of it.
+///
+/// The colour is [`egui::Color32::PLACEHOLDER`] because a galley's *width*
+/// does not depend on its colour, and naming a real one here would tie a
+/// measurement to a theme decision.
+#[must_use]
+pub fn text_width(ui: &egui::Ui, text: &str) -> f32 {
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
+    ui.painter()
+        .layout_no_wrap(text.to_owned(), font_id, egui::Color32::PLACEHOLDER)
+        .rect
+        .width()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::{commands, manifest};
+    use egui_shell::CommandRegistry;
+    use std::collections::BTreeSet;
+
+    /// **★ Every panel is reachable from the ribbon.**
+    ///
+    /// The check three panels shipped without. The old shell's
+    /// `panels_structure.rs` header records what that cost:
+    ///
+    /// > All three shipped with a `PaneSubject`, a panel body, a rail entry
+    /// > and a diagnostic step — and no control an operator could click.
+    /// > Their only callers were the harness step handlers, so every
+    /// > verification passed while the panels were unreachable in a real
+    /// > build.
+    ///
+    /// Two assertions per panel, and both are needed. A command **the
+    /// manifest references** is one the ribbon draws a control for; a
+    /// command **the registry holds** is one that has a label, a tooltip and
+    /// an enable predicate. Either alone is half a control: an id on a tab
+    /// with no registration renders nothing, and a registration nothing
+    /// references is an orphan (`crate::shell`'s own
+    /// `no_registered_command_is_orphaned` catches the second direction from
+    /// the other side).
+    ///
+    /// This is deliberately stronger than the gate it replaces, which read
+    /// `main.rs` as a **string** and looked for a `show_pane_subject(…)`
+    /// substring outside the harness function. A substring search cannot
+    /// tell a live call from one inside a `#[cfg(test)]` block, and it
+    /// silently stops working the day the call is spelled differently. This
+    /// one asks the same data the ribbon draws itself from.
+    #[test]
+    fn every_panel_is_reachable_from_the_ribbon() {
+        let shell = manifest::built_in();
+        let mut registry = CommandRegistry::new();
+        commands::register(&mut registry);
+        let referenced: BTreeSet<String> = shell
+            .command_references()
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+
+        for panel in Panel::ALL {
+            let id = panel.command_id();
+            assert!(
+                referenced.contains(id),
+                "{panel:?} names the command `{id}`, and no tab, QAT slot or key \
+                 binding references it. An operator cannot open this panel. \
+                 Give it a control in `shell::manifest`, or remove the panel."
+            );
+            assert!(
+                registry.get(id).is_some(),
+                "{panel:?} names the command `{id}`, which is not registered — so \
+                 the ribbon has an id with no label, no tooltip and no enable \
+                 predicate, and draws nothing for it."
+            );
+        }
+    }
+
+    /// **No two panels claim the same command.**
+    ///
+    /// A shared id would make the reachability test above pass for both
+    /// while only one of them could ever be opened — the failure hiding
+    /// inside the fix. It is a live hazard rather than a hypothetical: two
+    /// of the six panels are commissioned by one `RIBBON_IA.md` sentence
+    /// (`file.properties` names both the document's metadata and the
+    /// selection's properties), and the temptation to hang both off that one
+    /// id is exactly what this refuses.
+    #[test]
+    fn no_two_panels_share_a_command() {
+        let mut seen: Vec<&str> = Vec::new();
+        for panel in Panel::ALL {
+            let id = panel.command_id();
+            assert!(
+                !seen.contains(&id),
+                "{panel:?} claims `{id}`, which another panel already claims. \
+                 One command opens one panel."
+            );
+            seen.push(id);
+        }
+    }
+
+    /// **The hand-written catalog is exhaustive.**
+    ///
+    /// [`Panel::ALL`] is an array, and an array cannot notice a new variant.
+    /// The `match` below can: it has no catch-all arm, so adding a variant
+    /// to [`Panel`] fails to compile until it is listed here, and the length
+    /// assertion then fails until it is added to `ALL`. That chain is what
+    /// makes a hand-written enumeration self-defending, and it matters
+    /// because every sweep in this module — reachability included — is only
+    /// as complete as `ALL`.
+    #[test]
+    fn the_panel_catalog_is_complete() {
+        // Exhaustive by construction: no `_` arm.
+        const fn ordinal(p: Panel) -> usize {
+            match p {
+                Panel::Bookmarks => 0,
+                Panel::Layers => 1,
+                Panel::Signatures => 2,
+                Panel::Fonts => 3,
+                Panel::Objects => 4,
+                Panel::Properties => 5,
+            }
+        }
+        let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();
+        ordinals.sort_unstable();
+        ordinals.dedup();
+        assert_eq!(
+            ordinals,
+            (0..Panel::ALL.len()).collect::<Vec<_>>(),
+            "Panel::ALL is missing a variant, or lists one twice"
+        );
+    }
+
+    /// **★ The container width exceeds the viewport when a row is wider —
+    /// which is the whole of the no-clipping fix.**
+    ///
+    /// If this returned the viewport width, `ScrollArea` would compare
+    /// content against viewport, find them equal, draw no bar, and the row
+    /// would be cut off at the panel's edge with nothing to say so. That is
+    /// the exact defect the Objects panel had, and it is why this is a pure
+    /// function rather than three lines inside a closure.
+    #[test]
+    fn a_row_wider_than_the_viewport_widens_the_container() {
+        // The measured case: a 600 pt row in a 370 pt dock pane.
+        assert!((content_width([600.0], 370.0) - 600.0).abs() < f32::EPSILON);
+        // The widest row wins, not the last or the first.
+        assert!((content_width([120.0, 600.0, 90.0], 370.0) - 600.0).abs() < f32::EPSILON);
+    }
+
+    /// …and it fills the viewport when every row is narrower, rather than
+    /// leaving a dead strip.
+    #[test]
+    fn narrow_rows_still_fill_the_panel() {
+        assert!((content_width([120.0, 90.0], 370.0) - 370.0).abs() < f32::EPSILON);
+        // No rows at all — an empty page — is the viewport, not zero.
+        assert!((content_width(std::iter::empty(), 370.0) - 370.0).abs() < f32::EPSILON);
+    }
+
+    /// A non-finite measurement is ignored rather than poisoning the width.
+    ///
+    /// `f32::max` propagates `NaN` in one direction and swallows it in the
+    /// other depending on argument order, and a `NaN` container width makes
+    /// egui lay nothing out at all — a blank panel, which reads as a crash.
+    /// Filtering is cheaper than reasoning about which way round it went.
+    #[test]
+    fn a_non_finite_row_width_cannot_blank_the_panel() {
+        let w = content_width([f32::NAN, 500.0, f32::INFINITY], 370.0);
+        assert!(w.is_finite(), "container width went non-finite: {w}");
+        assert!((w - 500.0).abs() < f32::EPSILON);
+    }
+
+    /// The focus is a toggle, so a row click is its own undo.
+    ///
+    /// With no selection model there is no Escape ladder and no other route
+    /// back to "nothing focused". A panel an operator cannot get out of is
+    /// worse than one they cannot get into.
+    #[test]
+    fn clicking_the_focused_row_again_clears_the_focus() {
+        let mut state = PanelsState::default();
+        assert_eq!(state.focus(), None);
+        state.set_focus(7);
+        assert_eq!(state.focus(), Some(7));
+        state.set_focus(9);
+        assert_eq!(state.focus(), Some(9), "a different row moves the focus");
+        state.set_focus(9);
+        assert_eq!(state.focus(), None, "the same row clears it");
+    }
+
+    /// **★ The panel focus has not quietly become a selection.**
+    ///
+    /// [`ObjectTreeUi::focus`]'s own docs say the field is **deleted** when
+    /// the real selection model lands, not extended — because two selections
+    /// that have to be kept in step will drift, and the drift is invisible
+    /// until an edit acts on the wrong object.
+    ///
+    /// The danger is not that someone renames it in one commit. It is that it
+    /// grows into one an attribute at a time — a second index here, surviving
+    /// a page change there — until deleting it is a refactor nobody wants to
+    /// start. So the four properties that make it *not* a selection are
+    /// asserted directly, and the canvas's real selection model landing in
+    /// this same stage is exactly why they are asserted now:
+    ///
+    /// 1. **Single-valued.** A selection is a set; this is one `Option`.
+    /// 2. **Does not survive a page change.** A selection is document-scoped;
+    ///    a paint-order index is a position on one page.
+    /// 3. **Does not survive an edit.** Deleting one object renumbers every
+    ///    object after it, so a retained index describes a different object.
+    /// 4. **Read by one panel, and drives nothing else.** No enable
+    ///    predicate reads it. `crate::app::PdfceApp::conditions` **does**
+    ///    set `selection.any` as of S4 — but from `OpenDoc::selection`, the
+    ///    canvas's real selection, and never from this focus. That is the
+    ///    distinction this test defends: the two look alike, and the day
+    ///    someone wires the condition to whichever one is nearest, a row
+    ///    highlighted in a panel starts arming a destructive command.
+    #[test]
+    fn the_panel_focus_has_not_quietly_become_a_selection() {
+        use crate::app::state::OpenDoc;
+        use crate::panels::objects::test_support::engine_fixture;
+
+        let mut state = PanelsState::default();
+        let path = engine_fixture("pageops/four-pages.pdf");
+        let doc = pdfce_core::document::Document::load(&path).expect("the fixture loads");
+        let pages = pdfce_core::page_tree::pages(&doc).expect("a page tree");
+        let mut open = OpenDoc::new(path, pdfce_core::edit::EditSession::new(doc), pages);
+
+        // Property 1 is structural: `focus()` returns `Option<usize>`, so a
+        // second focused row is not representable. Asserted by use — a set
+        // would not compile on the left of this binding.
+        state.sync(&open);
+        state.set_focus(2);
+        state.tree_mut().toggle_object(2);
+        let focused: Option<usize> = state.focus();
+        assert_eq!(focused, Some(2), "state within one page survives `sync`");
+
+        // 2. A page change forgets it.
+        open.view.page_index = 1;
+        state.sync(&open);
+        assert_eq!(
+            state.focus(),
+            None,
+            "a paint-order index is a position on ONE page; carrying it \
+             across a page step would describe a different object"
+        );
+        assert!(state.tree_mut().objects_expanded.is_empty());
+
+        // 3. An edit forgets it, without moving page.
+        state.set_focus(2);
+        open.edit_epoch = 1;
+        state.sync(&open);
+        assert_eq!(
+            state.focus(),
+            None,
+            "an edit renumbers every object after the one it touched"
+        );
+
+        // 4. Setting the focus arms nothing. A real selection now exists —
+        //    `format.delete` is gated on `selection.any` — which makes this
+        //    the live hazard rather than a hypothetical one: if the focus
+        //    ever came to satisfy that predicate, clicking a row in a REPORT
+        //    panel would enable a destructive command, and the operator
+        //    would have no way to tell which of the two "selections" it was
+        //    about to act on.
+        //
+        //    Asserted through the enable machinery itself: a `ConditionSet`
+        //    that has seen nothing but a focus must not satisfy the
+        //    predicate that gates those commands.
+        let mut registry = CommandRegistry::new();
+        commands::register(&mut registry);
+        let mut conditions = egui_shell::commands::ConditionSet::new();
+        conditions.set("doc.open");
+        conditions.set("doc.pages");
+        state.set_focus(2);
+        let armed: Vec<&str> = registry
+            .iter()
+            .filter(|c| format!("{:?}", c.enable).contains("selection"))
+            .filter(|c| c.is_enabled(&conditions))
+            .map(|c| c.id.as_str())
+            .collect();
+        assert!(
+            armed.is_empty(),
+            "a selection-gated command is enabled by a document being open \
+             and a panel row being focused: {armed:?}. The Objects panel's \
+             focus is not a selection and must not arm one."
+        );
+    }
+}

@@ -1,0 +1,320 @@
+<title>pdfce Ribbon Mockup</title>
+<style>
+  :root{
+    --bg:#f2f2f3; --surface:#fafafa; --panel:#e9e9ea; --line:#c9c9cd;
+    --text:#1d1f24; --muted:#5e6066; --accent:#2f6fb5; --accentsoft:#dbe8f6;
+    --new:#f5a623; --newsoft:#fdf0d9; --core:#3f8f6f; --coresoft:#dcefe6;
+    --canvas:#ffffff; --shadow:rgba(0,0,0,.10);
+  }
+  :root:not([data-theme=light]) { }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#1b1d21; --surface:#24262b; --panel:#2b2e34; --line:#3d4148;
+      --text:#e8e9ec; --muted:#9ba0a8; --accent:#6aa6e8; --accentsoft:#243a52;
+      --newsoft:#3a2f1c; --coresoft:#1f3329; --canvas:#f4f4f2; --shadow:rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#1b1d21; --surface:#24262b; --panel:#2b2e34; --line:#3d4148;
+    --text:#e8e9ec; --muted:#9ba0a8; --accent:#6aa6e8; --accentsoft:#243a52;
+    --newsoft:#3a2f1c; --coresoft:#1f3329; --canvas:#f4f4f2; --shadow:rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.55 "Segoe UI",Inter,system-ui,sans-serif;
+    padding:28px 20px 60px;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 26px;font-size:14px}
+  h2{font-size:17px;margin:38px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  p.note{color:var(--muted);font-size:13px;margin:8px 0 16px;max-width:76ch}
+
+  /* ---------- legend ---------- */
+  .legend{display:flex;gap:18px;flex-wrap:wrap;align-items:center;
+    background:var(--surface);border:1px solid var(--line);border-radius:8px;
+    padding:11px 14px;margin-bottom:22px;font-size:13px}
+  .key{display:inline-flex;align-items:center;gap:7px}
+  .chip{width:13px;height:13px;border-radius:3px;border:1px solid var(--line);display:inline-block}
+  .chip.g{background:var(--surface)}
+  .chip.c{background:var(--coresoft);border-color:var(--core)}
+  .chip.n{background:var(--newsoft);border-color:var(--new)}
+
+  /* ---------- app window ---------- */
+  .app{border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    box-shadow:0 6px 22px var(--shadow);background:var(--surface)}
+  .titlebar{display:flex;align-items:center;gap:9px;padding:7px 11px;
+    background:var(--panel);border-bottom:1px solid var(--line);font-size:12.5px}
+  .titlebar .dot{width:11px;height:11px;border-radius:50%;background:var(--line)}
+  .titlebar .t{flex:1;color:var(--muted)}
+
+  /* QAT + tab strip */
+  .qat{display:flex;align-items:center;gap:7px;padding:6px 10px;
+    border-bottom:1px solid var(--line);background:var(--surface);flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;
+    border:1px solid var(--line);border-radius:5px;background:var(--surface);
+    font-size:12.5px;white-space:nowrap;color:var(--text)}
+  .btn.ghost{border-color:transparent}
+  .btn.dim{color:var(--muted);border-color:var(--line);opacity:.55}
+  .tabstrip{display:flex;gap:2px;margin-left:10px;flex-wrap:wrap}
+  .tab{padding:4px 13px;border-radius:5px 5px 0 0;font-size:13px;cursor:pointer;
+    border:1px solid transparent;border-bottom:none;color:var(--text);background:none}
+  .tab:hover{background:var(--panel)}
+  .tab[aria-selected="true"]{background:var(--accentsoft);border-color:var(--line);
+    color:var(--text);font-weight:600}
+  .tab.ctx{color:var(--accent);font-style:italic}
+  .docinfo{margin-left:auto;color:var(--muted);font-size:12px}
+
+  /* ribbon band */
+  .band{display:flex;align-items:stretch;gap:0;padding:8px 10px 4px;
+    background:var(--surface);border-bottom:1px solid var(--line);
+    overflow-x:auto;min-height:86px}
+  .group{display:flex;flex-direction:column;justify-content:space-between;
+    padding:0 13px;border-right:1px solid var(--line);min-width:0}
+  .group:last-child{border-right:none}
+  .gcmds{display:flex;flex-wrap:wrap;gap:5px;align-items:flex-start;max-width:440px}
+  .gcap{text-align:center;font-size:10.5px;color:var(--muted);
+    padding-top:6px;letter-spacing:.02em}
+  .cmd{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;
+    border:1px solid var(--line);border-radius:5px;background:var(--surface);
+    font-size:12.5px;white-space:nowrap}
+  .cmd.core{background:var(--coresoft);border-color:var(--core)}
+  .cmd.new{background:var(--newsoft);border-color:var(--new)}
+  .cmd.on{background:var(--accentsoft);border-color:var(--accent);font-weight:600}
+  .cmd svg{flex:none}
+
+  /* body */
+  .body{display:flex;height:330px;background:var(--panel)}
+  .rail{width:180px;border-right:1px solid var(--line);background:var(--surface);
+    display:flex;flex-direction:column}
+  .railtabs{display:flex;border-bottom:1px solid var(--line)}
+  .railtab{flex:1;text-align:center;font-size:11.5px;padding:5px 2px;color:var(--muted)}
+  .railtab.on{background:var(--accentsoft);color:var(--text);font-weight:600}
+  .thumbs{padding:9px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .th{aspect-ratio:1.414/1;background:var(--canvas);border:1px solid var(--line);
+    border-radius:2px;position:relative}
+  .th.sel{outline:2px solid var(--accent);outline-offset:1px}
+  .th span{position:absolute;bottom:-15px;left:0;right:0;text-align:center;
+    font-size:10px;color:var(--muted)}
+  .canvas{flex:1;display:flex;align-items:center;justify-content:center;padding:16px}
+  .sheet{width:100%;height:100%;background:var(--canvas);border:1px solid #8a8a8a;
+    position:relative;box-shadow:0 2px 8px var(--shadow)}
+  .tblock{position:absolute;right:8px;bottom:8px;width:34%;height:28%;
+    border:1px solid #8a8a8a;background:#fff;
+    display:grid;grid-template-rows:auto 1fr auto;font-size:7px;color:#333}
+  .tblock i{background:#2b2b2b;color:#fff;padding:2px 4px;font-style:normal}
+  .tblock u{border-top:1px solid #ccc;padding:2px 4px;text-decoration:none;color:#c86a17}
+  .props{width:210px;border-left:1px solid var(--line);background:var(--surface);
+    padding:9px 11px;font-size:11.5px}
+  .props h4{margin:0 0 7px;font-size:11px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  .prow{display:flex;justify-content:space-between;gap:8px;padding:2.5px 0;
+    border-bottom:1px dotted var(--line)}
+  .prow b{font-weight:500;color:var(--muted)}
+
+  /* status bar */
+  .status{display:flex;align-items:center;gap:10px;padding:5px 11px;
+    background:var(--surface);border-top:1px solid var(--line);font-size:12px}
+  .status .sp{flex:1}
+  .pgbox{border:1px solid var(--accent);border-radius:4px;padding:1px 7px;
+    background:var(--surface);font-weight:600}
+
+  /* callouts */
+  .callouts{margin:14px 0 0;padding:0;list-style:none;
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+  .callouts li{background:var(--surface);border:1px solid var(--line);
+    border-left:3px solid var(--accent);border-radius:0 7px 7px 0;
+    padding:9px 12px;font-size:13px}
+  .callouts li b{display:block;margin-bottom:2px;font-size:12.5px}
+  .callouts li.fix{border-left-color:var(--new)}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0 4px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  code{font:12.5px ui-monospace,Consolas,monospace;background:var(--panel);
+    padding:1px 5px;border-radius:3px}
+  .scroller{overflow-x:auto}
+</style>
+
+<div class="wrap">
+<h1>pdfce — proposed GUI</h1>
+<p class="sub">Seven tabs plus one contextual tab. Click a tab to see its band. Colour marks how much is new.</p>
+
+<div class="legend">
+  <span class="key"><span class="chip g"></span> <b>Exists in the GUI</b> — re-parenting only</span>
+  <span class="key"><span class="chip c"></span> <b>Exists in core / CLI</b> — needs a shell, not an engine</span>
+  <span class="key"><span class="chip n"></span> <b>New build</b></span>
+</div>
+
+<div class="app">
+  <div class="titlebar">
+    <span class="dot"></span><span class="t">sheet_A1_foundation.pdf — pdfce</span>
+    <span style="color:var(--muted)">— ▢ ✕</span>
+  </div>
+
+  <div class="qat">
+    <span class="btn">📂 Open…</span>
+    <span class="btn">💾 Save a copy…</span>
+    <span class="btn dim">↶</span>
+    <span class="btn dim">↷</span>
+    <nav class="tabstrip" id="tabs" role="tablist"></nav>
+    <span class="docinfo">PDF 1.7 · 42 pages</span>
+  </div>
+
+  <div class="band" id="band"></div>
+
+  <div class="body">
+    <div class="rail">
+      <div class="railtabs"><div class="railtab on">Pages</div><div class="railtab">Tool options</div></div>
+      <div class="thumbs">
+        <div class="th sel"><span>1</span></div><div class="th"><span>2</span></div>
+        <div class="th"><span>3</span></div><div class="th"><span>4</span></div>
+      </div>
+    </div>
+    <div class="canvas">
+      <div class="sheet">
+        <div class="tblock">
+          <i>Construction drawing</i>
+          <div style="padding:3px 4px">Project name<br><span style="color:#888">Street, number, city</span></div>
+          <u>OpenAEC · A1 · 1:100</u>
+        </div>
+      </div>
+    </div>
+    <div class="props">
+      <h4>Selection</h4>
+      <div class="prow"><b>Type</b><span>Path</span></div>
+      <div class="prow"><b>Stroke</b><span>#D97706</span></div>
+      <div class="prow"><b>Width</b><span>1.43 pt</span></div>
+      <div class="prow"><b>Nodes</b><span>6</span></div>
+      <div class="prow"><b>Winding</b><span>even-odd</span></div>
+      <h4 style="margin-top:12px">Page</h4>
+      <div class="prow"><b>Objects</b><span>28</span></div>
+      <div class="prow"><b>Annotations</b><span>12</span></div>
+      <div class="prow"><b>Size</b><span>841 × 594 mm</span></div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span style="color:var(--muted)">▸ ⚠ 119 substitute glyphs — details</span>
+    <span class="sp"></span>
+    <span class="btn ghost">🔍 Find</span>
+    <span class="btn ghost">◀</span>
+    <span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">▶</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span>
+    <span class="btn ghost">Fit page</span><span class="btn ghost">Fit width</span>
+  </div>
+</div>
+
+<ul class="callouts">
+  <li class="fix"><b>Editable page box</b>Type <code>37</code> and press Enter. Today reaching page 37 of 42 means the thumbnail rail or 36 keystrokes.</li>
+  <li class="fix"><b>Properties panel is populated</b>Selecting an object shows what it is and lets you change it. Today selection produces a tree row and nothing else.</li>
+  <li class="fix"><b>Thumbnails reflow to a grid</b>The rail narrows to ~180 px and packs two-up. Today it reserves ~390 px and shows one thumbnail.</li>
+  <li class="fix"><b>Diagnostics behind a disclosure</b>The substitute-glyph census stays — collapsed. The app should open by talking about the document, not about itself.</li>
+</ul>
+
+<h2>Every tab, side by side</h2>
+<p class="note">The same bands as above, stacked, so the whole surface can be read at once. Groups are separated by rules; the caption under each group is the group name that <code>ribbon_group_ui</code> draws.</p>
+<div id="allbands"></div>
+
+<h2>What moves</h2>
+<div class="scroller">
+<table>
+  <tr><th>Command</th><th>Today</th><th>Proposed</th><th>Why</th></tr>
+  <tr><td>Copy page / document text</td><td>File ▸ Clipboard</td><td><b>Edit ▸ Clipboard</b></td><td>Copying text is a content operation, not a file operation.</td></tr>
+  <tr><td>Redact</td><td>Tools ▸ Protect</td><td><b>Edit ▸ Protect</b></td><td>Redaction changes the document. Nobody looks under "Tools" to remove content.</td></tr>
+  <tr><td>Rotate page</td><td>Edit ▸ Pages</td><td><b>Pages ▸ Transform</b></td><td>Joins the rest of the page operations instead of being the only one on the ribbon.</td></tr>
+  <tr><td>Fonts panel</td><td>View ▸ Panels</td><td><b>File ▸ Document</b></td><td>It answers "what is in this file", not "what is on my screen". Sits with Properties.</td></tr>
+  <tr><td>Reset layout</td><td>File ▸ Layout</td><td><b>View ▸ Window</b></td><td>Panel geometry is a view concern.</td></tr>
+  <tr><td>Insert / Split / Merge</td><td>Tools ▸ Batch pane</td><td><b>Pages ▸ Insert / Organise</b></td><td>They change this document's page set. Batch keeps only cross-file work.</td></tr>
+  <tr><td>Read mode · Full screen</td><td>keyboard only</td><td><b>View ▸ Window</b></td><td>Two view modes with no control on the View tab.</td></tr>
+  <tr><td><code>Aa</code> · <code>I⁺ Aa</code> · <code>Obj</code></td><td>Edit ▸ Content</td><td><b>Edit text · Add text · Edit objects</b></td><td>The primary editing tools currently carry the least legible labels in the app.</td></tr>
+</table>
+</div>
+</div>
+
+<script>
+const G=0,C=1,N=2; // status
+const TABS = [
+ ["File","What do I do with the file as a whole, or with pdfce itself?",[
+   ["File",[["New",N],["Open…",G],["Recent ⌄",N],["Close",G]]],
+   ["Save",[["Save a copy…",G],["Revert",N]]],
+   ["Export",[["DXF…",G],["Image…",C],["Text…",C],["Form data ⌄",G]]],
+   ["Print",[["Print…",G],["Imposition…",C]]],
+   ["Document",[["Properties",G],["Fonts",G],["Security",N]]],
+   ["pdfce",[["Settings…",G],["Shortcuts",G],["About",N]]],
+ ]],
+ ["View","What is on my screen, and how is the page laid out?",[
+   ["Page display",[["Single",G,1],["Continuous",N],["Facing",N],["Facing cont.",N]]],
+   ["Rotate view",[["↺ Left",N],["↻ Right",N]]],
+   ["Zoom",[["To selection",N],["To region",N],["Actual size",G],["Fit page",G],["Fit width",G]]],
+   ["Display",[["Thin lines",N],["Annotations",G,1],["Points",G],["Rulers",N],["Grid",N],["Guides",N]]],
+   ["Panels",[["Sidebar ⌄",G,1],["Pages",G,1],["Objects",G],["Bookmarks",G],["Layers",G],["Signatures",G],["Comments",G],["Forms",G]]],
+   ["Window",[["Read mode",G],["Full screen",G],["Floating panels ⌄",N],["App initiative ⌄",N],["Save workspace…",N],["Load workspace ⌄",N],["Reset layout…",G]]],
+ ]],
+ ["Pages","What am I doing to the set of pages?",[
+   ["Insert",[["Blank",C],["From file…",G],["Scan",N]]],
+   ["Organise",[["Delete",G],["Extract…",G],["Replace…",N],["Move ▲",G],["Move ▼",G],["Split…",G],["Merge in…",G]]],
+   ["Transform",[["↺ Rotate L",G],["↻ Rotate R",G],["Crop…",N],["Resize…",N]]],
+   ["Stamp",[["Watermark…",N],["Header & footer…",N],["Bates…",N]]],
+ ]],
+ ["Edit","What am I changing about content that is already there?",[
+   ["Mode",[["Editing on",G,1]]],
+   ["Content",[["Edit text",G],["Add text",G],["Edit objects",G]]],
+   ["Insert",[["Image…",G],["Shape ⌄",N]]],
+   ["Arrange",[["Align ⌄",N],["Distribute ⌄",N],["Forward",N],["Backward",N],["Group",N],["Flip ⌄",N]]],
+   ["Clipboard",[["Cut",N],["Copy",N],["Paste",N],["Paste in place",N],["Copy page text",G],["Copy doc text",G]]],
+   ["Forms",[["Fill form",G],["Create field ⌄",G],["Manage",G],["Flatten",G]]],
+   ["Protect",[["Redact ⌄",G],["Apply",G],["Sanitise…",N]]],
+ ]],
+ ["Markup","What am I adding for someone else to read?",[
+   ["Shapes",[["Rectangle",G],["Ellipse",G],["Line",G],["Arrow",G],["Polyline",N],["Polygon",N],["Cloud",N],["Ink",N]]],
+   ["Text markup",[["Highlight",G],["Underline",N],["Strikeout",N],["Squiggly",N]]],
+   ["Notes",[["Text box",G],["Sticky",G],["Callout",N],["Stamp ⌄",G]]],
+   ["Style",[["■ Colour",G],["Width",N],["Fill",N],["Opacity",N]]],
+   ["Comments",[["Panel",G],["Clear page",N],["Clear all",N]]],
+ ]],
+ ["Measure","What am I measuring, and in what units?",[
+   ["Dimension",[["Linear",G],["Aligned",G],["Angular",N],["Radius / Ø",G],["Two-line",C]]],
+   ["Quantity",[["Distance",N],["Perimeter",N],["Area",N],["Count",N]]],
+   ["Scale",[["Set scale",G],["Calibrate",G],["Manage groups…",G]]],
+   ["Takeoff",[["Schedule",N],["Export CSV",N]]],
+ ]],
+ ["Tools","What do I run across files, or configure once?",[
+   ["Batch",[["Merge files…",G],["Split files…",G],["Batch print…",N]]],
+   ["Compare",[["Compare documents…",N]]],
+   ["Fonts",[["Font folders…",G],["Embed",G],["Unembed",G]]],
+   ["Recognise",[["OCR…",N]]],
+   ["Validate",[["PDF/A…",N],["Optimise…",N]]],
+   ["Diagnostics",[["Render diagnostics",G]]],
+ ]],
+ ["Format","Contextual — appears while something is selected",[
+   ["Object",[["Stroke ■",N],["Fill ■",N],["Width",N],["Style ⌄",N],["Opacity",N]]],
+   ["Nodes",[["Add",N],["Delete",N],["Corner",N],["Smooth",N]]],
+   ["Arrange",[["Forward",N],["Backward",N],["Align ⌄",N]]],
+   ["Actions",[["Duplicate",N],["Delete",N]]],
+ ]],
+];
+const cls = s => s===C?"cmd core":s===N?"cmd new":"cmd";
+function bandHTML(groups){
+  return groups.map(([cap,cmds])=>
+    `<div class="group"><div class="gcmds">`+
+    cmds.map(([t,s,on])=>`<span class="${cls(s)}${on?" on":""}">${t}</span>`).join("")+
+    `</div><div class="gcap">${cap}</div></div>`).join("");
+}
+const tabsEl=document.getElementById("tabs"), bandEl=document.getElementById("band");
+TABS.forEach(([name,,groups],i)=>{
+  const b=document.createElement("button");
+  b.className="tab"+(name==="Format"?" ctx":""); b.textContent=name;
+  b.setAttribute("role","tab"); b.setAttribute("aria-selected", i===1?"true":"false");
+  b.onclick=()=>{ [...tabsEl.children].forEach(c=>c.setAttribute("aria-selected","false"));
+    b.setAttribute("aria-selected","true"); bandEl.innerHTML=bandHTML(groups); };
+  tabsEl.appendChild(b);
+});
+bandEl.innerHTML=bandHTML(TABS[1][2]);
+document.getElementById("allbands").innerHTML = TABS.map(([n,q,g])=>
+  `<div style="margin:18px 0 4px"><b style="font-size:14px">${n}</b>
+   <span style="color:var(--muted);font-size:12.5px"> — ${q}</span></div>
+   <div class="app"><div class="band" style="min-height:74px">${bandHTML(g)}</div></div>`).join("");
+</script>

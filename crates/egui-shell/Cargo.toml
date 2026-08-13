@@ -1,0 +1,67 @@
+# `egui-shell` — the reusable application shell.
+#
+# WHAT THIS CRATE IS
+#
+# A ribbon, a dock, modes, a theme, a command registry and a diagnostic
+# channel, with NO knowledge of any document format. See
+# `D:\Dev\pdfceGUI\SHELL_FRAMEWORK.md` for the architecture this
+# implements, and `src/lib.rs` for the module map.
+#
+# WHY THE DEPENDENCY LIST IS SHORT, AND WHY IT MUST STAY SHORT
+#
+# SHELL_FRAMEWORK.md §2 states the rule this file enforces mechanically:
+#
+#   > it may depend on `egui`, `eframe`, `egui_tiles`, `serde` and small
+#   > leaf utilities — NEVER on `pdfce-core`, `pdfce-render`, or anything
+#   > that knows what a PDF is. If `egui-shell` needs to know about pages,
+#   > the abstraction is wrong.
+#
+# A CI gate (`tools/gates/check-shell-purity.sh`) enforces the negative
+# half. This manifest is the positive half: the crate cannot accidentally
+# reach for something it has not declared.
+#
+# NOT PRESENT, DELIBERATELY, AT THIS STAGE (S0):
+#
+#   eframe      — the shell defines a look and a manifest; it does not yet
+#                 own a window or an event loop. Adding eframe now would
+#                 pull winit, glow and the whole windowing stack into a
+#                 crate whose tests are all headless. It arrives when the
+#                 shell actually hosts a frame.
+#   egui_tiles  — arrives with the `dock` module at S3. Until there is a
+#                 panel host there is nothing for it to do, and an unused
+#                 dependency is a licence and audit surface with no
+#                 counterpart in the build.
+#
+# Every version here is `.workspace = true` so the pin lives in one place
+# (the workspace root) and matches `D:\Dev\pdfce` exactly. A dependency
+# this workspace adds that is NOT already in pdfce's lockfile is an
+# operator decision, not a convenience.
+[package]
+name = "egui-shell"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "A reusable, data-driven egui application shell: ribbon, modes, theme and command registry, with no knowledge of any document format."
+
+[dependencies]
+# The only rendering dependency. `default-features = false` is inherited
+# from the workspace pin, so this crate does not silently acquire fonts,
+# rayon or an image backend it never asks for.
+egui.workspace = true
+
+# The manifest is a serializable document (SHELL_FRAMEWORK.md §1: "the
+# shell is data"). serde is what makes it one, and `derive` is on in the
+# workspace pin.
+serde.workspace = true
+
+# The manifest's on-disk form. RON rather than JSON because the format
+# has real enums (`Command("view.single")` vs `Separator`), comments, and
+# trailing commas — all three matter for a file an OPERATOR edits by hand,
+# which is the whole point of the customization layer.
+ron.workspace = true
+
+# Structured errors. `validate()` must be able to name the offending
+# command id, and a `String` error cannot be matched on by a caller that
+# wants to offer "reset this one item" rather than "your file is broken".
+thiserror.workspace = true

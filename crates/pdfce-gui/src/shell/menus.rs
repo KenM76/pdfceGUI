@@ -1,0 +1,850 @@
+//! # shell::menus — pdfce's context menus, as data
+//!
+//! [`built_in`] returns every context menu pdfce defines, as an
+//! `egui_shell::menu::Menus` value carried on the same
+//! [`egui_shell::Shell`] the ribbon is. [`MenuHost`] is the one place a
+//! right-click site turns that data into drawn rows and invoked commands.
+//!
+//! This module is the third of the three surfaces `RIBBON_IA.md` §5.8
+//! names, and it is the one that was missing entirely:
+//!
+//! | Surface | Answers | Lives | Built |
+//! |---|---|---|---|
+//! | the contextual **Format** tab | *"what do I change mid-gesture?"* | in the ribbon, on selection | `manifest::format` |
+//! | the **properties panel** | *"what *is* this thing?"* | in the dock, always | `panels::properties` |
+//! | the **context menu** | *"act on **this**, now"* | at the pointer | **here** |
+//!
+//! `RIBBON_IA.md` §6 says what its absence cost:
+//!
+//! > **Context menus** — currently zero in the entire crate
+//! > (`grep context_menu` → no hits). Every selection type above needs one,
+//! > carrying the same commands as its Format tab section plus
+//! > Cut/Copy/Paste/Delete. This is not a ribbon question, but it is **the
+//! > other half of making selection meaningful**, and no amount of ribbon
+//! > design substitutes for it.
+//!
+//! and §5.8 says why a third surface is not duplication:
+//!
+//! > A third surface, the **context menu**, carries the same commands again
+//! > for the user who right-clicks. That is not duplication in the P1 sense
+//! > — **context menus are not tabs** — and it is the path most users try
+//! > after the keyboard.
+//!
+//! That sentence is why this module holds no vocabulary of its own. A menu
+//! item is [`egui_shell::manifest::Item`] — the *same* type a ribbon band
+//! holds — so a command id resolves through the *same* registry into the
+//! *same* [`egui_shell::HandlerToken`], dispatched at the *same* choke
+//! point. "The same commands again" is literally true, and the
+//! confirmation gate, the undo entry and the refusal that `format.delete`
+//! is subject to are written once and cover both.
+//!
+//! # ★ The rule that decided what is in each menu: only real commands
+//!
+//! `RIBBON_IA.md` P3, **no placeholders**, applied here exactly as
+//! [`super::manifest`] applies it to the ribbon. §6 asks for
+//! *"Cut/Copy/Paste/Delete"* on the selection menu. **Cut, copy and paste
+//! do not exist**: there is no object clipboard in this build, which
+//! [`super::manifest::PLANNED`] records against `edit.cut`, `edit.copy`,
+//! `edit.paste` and `edit.paste_in_place`. So they are **absent from
+//! `canvas.object`**, not present and greyed.
+//!
+//! The distinction matters and the menu engine implements both halves:
+//!
+//! | Situation | What the operator sees | Why |
+//! |---|---|---|
+//! | the command **is registered** and its predicate is false | the row, **greyed**, with its tooltip | it exists; it is not applicable *right now* |
+//! | the command **is not registered** in this build | nothing at all | it does not exist, and a greyed row for a command that can never be enabled is a promise the build cannot keep |
+//!
+//! An unregistered id would in fact still be *dropped* by
+//! `egui_shell::menu::plan::resolve` and disclosed on the verify channel —
+//! but relying on that would be shipping a document that names commands
+//! this build does not have and calling the omission a feature.
+//! [`tests::every_command_every_menu_names_is_registered`] is what stops
+//! that: the check `egui_shell::Shell::validate_against` does **not**
+//! perform, because `command_references()` walks tabs, the QAT and the
+//! keymap and deliberately not the menus (a command in a menu is not a
+//! reachability claim — see [`super::tests`]).
+//!
+//! # ★ And the rule that decided the shape: a menu with nothing to offer
+//! never opens
+//!
+//! Right-clicking something that has nothing to offer must do **nothing** —
+//! not flash an empty box, and not open a menu of greyed rows. The engine
+//! takes that decision *before* it asks `egui` for a popup
+//! (`egui_shell::menu::plan::offers_anything`), and [`MenuHost::attach`]
+//! is the only path this application uses, so every pdfce right-click
+//! inherits it. [`MenuHost::would_open`] answers the same question without
+//! drawing, for a caller that wants to know.
+//!
+//! It is not a theoretical case here. `objects.row` offers `file.properties`,
+//! which is gated on `doc.open`; with no document the Objects panel draws no
+//! rows at all, but a build that compiled `file.properties` out would leave
+//! that menu empty, and the right-click would then correctly do nothing
+//! rather than opening a box with a rule in it.
+//!
+//! # The four menus, and why each holds what it holds
+//!
+//! | Context id | Right-click site | Items | The reasoning |
+//! |---|---|---|---|
+//! | [`CANVAS_OBJECT`] | a selected object on the page | `format.delete` | §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. |
+//! | [`CANVAS_EMPTY`] | blank page, or the paper beside the drawing | `view.zoom_fit_page`, `view.zoom_fit_width`, `view.zoom_actual` | The three **named** zoom levels, all of which have a live dispatch arm today. A right-click on paper is about the *view*, because there is no object to be about. |
+//! | [`DOCK_TAB`] | a panel tab in the dock | `view.reset_layout` | The only registered command that acts on the dock. The **command** is wired (`PdfceApp::dispatch_command` calls `Modes::reset` with `ResetScope::All`); the **menu** still cannot be attached — see the warning below. |
+//! | [`OBJECTS_ROW`] | a row in the Objects panel | `file.properties` | The Properties panel is *where an object row is described*; right-clicking a row focuses it and this is the command that puts the description on screen — which it now does: `PdfceApp::show_panel` activates the panel, mounting it first if the operator's arrangement no longer holds it. |
+//!
+//! ## ★ `dock.tab` is defined and **cannot be attached from this crate**
+//!
+//! `egui-shell`'s dock draws its own tabs and already owns their secondary
+//! click: `crates/egui-shell/src/dock/tabs.rs` calls
+//! `response.context_menu(…)` with a hard-coded **Close** button, and
+//! `egui_shell::dock::Dock` exposes no seam — no `with_tab_menu`, no tab
+//! `Response` handed back — through which an application could attach one
+//! of its own. Two context menus on one `Response` would fight over the
+//! same popup id.
+//!
+//! The menu is defined here anyway, and that is a deliberate choice rather
+//! than an oversight left lying about:
+//!
+//! - it is **data**, and a document that describes pdfce's context menus
+//!   with one of the four missing would be wrong about the application even
+//!   while it happened to match the wiring;
+//! - the operator-customization layer merges against it, so an operator can
+//!   already state what they want on a panel tab;
+//! - it costs nothing at run time — a menu nobody looks up is a `Vec` entry.
+//!
+//! What it needs to come alive is a change in `egui-shell`, not here: the
+//! dock must either take a context id for its tabs and call
+//! `egui_shell::menu::Menu::attach` itself, or hand the tab's `Response`
+//! out. `Close` is not a pdfce command and is not registered
+//! (see [`super::manifest::PLANNED`]'s `dock.close_panel` entry), so the
+//! hard-coded button is not a duplication of anything in this file.
+//!
+//! # Where the strings are
+//!
+//! Nowhere in this module, and nowhere in [`crate::text::menus`] either.
+//! Every row's label and tooltip is the **command's**, from
+//! [`crate::text::commands`], because a context menu carries the same
+//! commands again and a second copy of "Delete" is a second copy that can
+//! drift. [`crate::text::menus`]' header carries the full argument and the
+//! list of what *would* land there.
+//!
+//! The context ids below (`"canvas.object"`, `"dock.tab"`, …) are never
+//! displayed. They are lookup keys the application chooses and the shell
+//! never interprets — the same kind of string a command id is.
+
+use egui_shell::manifest::{Item, Shell};
+use egui_shell::menu::{Menu, Menus};
+use egui_shell::{CommandRegistry, ConditionSet, HandlerToken};
+
+// ===========================================================================
+// Context ids
+// ===========================================================================
+//
+// Constants rather than literals at the call sites, because a context id is
+// used in exactly two places that must agree — the document below, and the
+// right-click site in `canvas` or `panels` — and a typo in either produces
+// silence rather than an error. `Menu::attach` treats an unknown context as
+// "this surface has no menu yet", which is the correct behaviour for a
+// surface that genuinely has none and an undebuggable one for a surface
+// that was meant to have one.
+//
+// Dotted lowercase, matching command ids. The shell enforces no shape.
+
+/// Right-click on the page, over an object.
+///
+/// The **selection** menu of `RIBBON_IA.md` §5.8: act on what is selected.
+pub const CANVAS_OBJECT: &str = "canvas.object";
+
+/// Right-click on the page, over nothing.
+///
+/// The **view** menu: with no object under the pointer there is nothing to
+/// act *on*, so the menu is about how the page is shown.
+pub const CANVAS_EMPTY: &str = "canvas.empty";
+
+/// Right-click on a panel tab in the dock.
+///
+/// Defined but not attachable from this crate — see the module header.
+pub const DOCK_TAB: &str = "dock.tab";
+
+/// Right-click on an object row in the Objects panel.
+pub const OBJECTS_ROW: &str = "objects.row";
+
+/// Every context id this module defines, for the sweeps in [`tests`].
+///
+/// Hand-written, and pinned by
+/// [`tests::the_catalog_defines_exactly_the_documented_contexts`] against
+/// [`built_in`] itself, so a menu added to the document without an entry
+/// here — or an entry here with no menu — fails rather than silently
+/// halving a test sweep.
+pub const CONTEXTS: &[&str] = &[CANVAS_OBJECT, CANVAS_EMPTY, DOCK_TAB, OBJECTS_ROW];
+
+// ===========================================================================
+// The document
+// ===========================================================================
+
+/// **Every context menu pdfce defines.**
+///
+/// Deterministic and side-effect free, exactly as
+/// [`super::manifest::built_in`] is, and called from the same place: once,
+/// at start-up, and from the tests. It is the **built-in layer** of
+/// `SHELL_FRAMEWORK.md` §4's three-layer merge, so it has to be complete
+/// and has to validate — it is what every other layer patches and what an
+/// operator gets back when they reset.
+///
+/// # Order is presentation
+///
+/// Items appear in the order they are written. Within a menu that order is
+/// argued at each site; between menus it does not matter, because a lookup
+/// is by key.
+#[must_use]
+pub fn built_in() -> Menus {
+    Menus::new()
+        // -------------------------------------------------------------------
+        // canvas.object — the selection menu.
+        //
+        // ★ ONE item, and the three that `RIBBON_IA.md` §6 also asks for are
+        // ABSENT rather than greyed.
+        //
+        // §6: "carrying the same commands as its Format tab section plus
+        // Cut/Copy/Paste/Delete". The Format tab section is `format.delete`
+        // and nothing else — every property editor in §5.8's table is **N**
+        // and sits in `manifest::PLANNED`, twenty-four entries from that one
+        // section. Cut, copy and paste need an **object clipboard**, which
+        // this build does not have in any form:
+        //
+        //   edit.cut   "N — there is no object clipboard. The two text-copy
+        //               commands in Edit ▸ Clipboard are a different
+        //               mechanism and do not imply one."
+        //
+        // So a faithful reading of §6 would produce a menu of one live row
+        // and three dead ones. P3 says the dead ones render nothing, and the
+        // menu engine's own rule 1 says the same in the other direction: an
+        // unregistered id is absent, a registered-but-inapplicable one is
+        // greyed. `edit.cut` is not registered. It is absent.
+        //
+        // No separator: a rule is punctuation between *kinds*, and one item
+        // has no kinds to separate. (The engine would collapse a leading or
+        // trailing rule anyway — `plan::collapse` — which is exactly why a
+        // stale document degrades into a clean menu rather than into two
+        // horizontal lines above one row.)
+        // -------------------------------------------------------------------
+        .with(Menu::new(CANVAS_OBJECT).with_items([Item::command("format.delete")]))
+        // -------------------------------------------------------------------
+        // canvas.empty — the view menu.
+        //
+        // Right-clicking paper is not a question about an object, because
+        // there is not one; it is a question about the view. The three named
+        // zoom levels are the view commands that exist AND have a live
+        // dispatch arm in `PdfceApp::dispatch_token` today, so every row here
+        // does something the moment it is clicked.
+        //
+        // ORDER: fit page, fit width, actual size — deliberately not the View
+        // ▸ Zoom band's order (actual, fit page, fit width). The band reads as
+        // a scale progression, top to bottom, because it is a band and the
+        // eye reads it as a set. A menu at the pointer is read as a list of
+        // verbs in likelihood order, and on a drawing sheet the overwhelmingly
+        // most-wanted answer to "I have lost my place" is **fit page**.
+        //
+        // What is NOT here, and why each was considered:
+        //
+        //   view.show_annotations   A real, wired toggle — but it is a
+        //                           *display* setting rather than an act on
+        //                           what was pointed at, and a menu that
+        //                           starts collecting settings stops being a
+        //                           list of verbs. It is one click away on
+        //                           View ▸ Display.
+        //   view.zoom_selection     N. Zoom to the selection's bounding box —
+        //   view.zoom_region        N. Marquee zoom. Both in PLANNED, and both
+        //                           are the commands that would most obviously
+        //                           belong here when they land.
+        //   pages.* / edit.*        Act on the page or its content, which is
+        //                           what `canvas.object` is for.
+        // -------------------------------------------------------------------
+        .with(Menu::new(CANVAS_EMPTY).with_items([
+            Item::command("view.zoom_fit_page"),
+            Item::command("view.zoom_fit_width"),
+            Item::command("view.zoom_actual"),
+        ]))
+        // -------------------------------------------------------------------
+        // dock.tab — a panel tab.
+        //
+        // ★ Defined, valid, merged and NOT ATTACHED. The dock owns its tabs'
+        // secondary click inside `egui-shell` and offers no seam; the module
+        // header carries the full account and what would close it.
+        //
+        // `Close` is deliberately absent. The dock's own hard-coded button
+        // closes a tab through `dock::ctx::Intent::Close`, which is a dock
+        // mechanism and not a pdfce command: there is no `dock.close_panel`
+        // in the registry, it is listed in `manifest::PLANNED`, and inventing
+        // one here would name an id that resolves to nothing.
+        //
+        // `view.reset_layout` is what is left, and it is not a consolation
+        // prize: "put the panels back where they started" is the single most
+        // likely thing an operator wants from a right-click on a panel tab
+        // after closing it, it is registered, and it is reachable from
+        // View ▸ Window as well — which a menu is allowed to mirror, because
+        // context menus are not tabs.
+        // -------------------------------------------------------------------
+        .with(Menu::new(DOCK_TAB).with_items([Item::command("view.reset_layout")]))
+        // -------------------------------------------------------------------
+        // objects.row — a row in the Objects panel.
+        //
+        // The panel's own stated purpose is the operator's: "I'd like to have
+        // a layer tree there for the document that I can also click on to
+        // select objects. at least that way we can troubleshoot better what I
+        // am clicking on in the GUI area." So the row's question is *what is
+        // this*, and the Properties panel is the surface that answers it —
+        // `file.properties`' own tooltip commissions exactly that: "…and the
+        // properties of whatever is selected on the page."
+        //
+        // ★ `format.delete` is deliberately NOT here, and the reason is
+        // destructive rather than tidy. The Objects panel's focus is **not**
+        // the selection — `panels::ObjectTreeUi::focus`'s own docs and
+        // `the_panel_focus_has_not_quietly_become_a_selection` defend the
+        // distinction — so a Delete on this menu would be enabled by
+        // `selection.any`, which describes the CANVAS selection, and would
+        // remove objects the operator never pointed at. That is the exact
+        // failure that test exists to prevent, arriving through a menu.
+        //
+        // A Delete that acts on the row belongs here the day the row click
+        // becomes a selection gesture and that focus field is deleted, which
+        // is the commit `ObjectTreeUi::focus` names.
+        // -------------------------------------------------------------------
+        .with(Menu::new(OBJECTS_ROW).with_items([Item::command("file.properties")]))
+}
+
+// ===========================================================================
+// MenuHost
+// ===========================================================================
+
+/// **The one seam between a right-click site and the menu engine.**
+///
+/// Carries the three things every `egui_shell::menu::Menu::attach` call
+/// needs — the document to look the context up in, the registry to resolve
+/// its ids against, and the conditions to evaluate their predicates
+/// against — so a call site names only *which* menu and *what* it was
+/// attached to.
+///
+/// # Why a borrowing struct rather than three arguments
+///
+/// Because it is passed through two layers that have nothing to do with
+/// menus. `canvas::show` and `panels::Panel::show` hand it on to the
+/// functions that actually right-click, and threading three parameters
+/// through each of them would make every one of those signatures a place
+/// the three could be mismatched — a registry from one frame with the
+/// conditions from another, say, which produces a menu that is *plausible*
+/// and wrong.
+///
+/// # Why it is `Option` at every call site
+///
+/// [`crate::app::PdfceApp::shell`] is `Option<Shell>`: if the built-in
+/// manifest ever fails to validate, the ribbon does not render and the
+/// application deliberately stays usable for reading. A build in that state
+/// has no menus either, and `None` is the honest way to say so — not a
+/// stand-in for "menus are not wired yet".
+#[derive(Clone, Copy)]
+pub struct MenuHost<'a> {
+    /// The document the menus live in. `Shell` implements
+    /// `egui_shell::menu::MenuLookup`, and it is also what supplies the
+    /// chord hints: a menu row shows the chord **the keymap binds**, so an
+    /// operator who rebinds a key sees the menu follow with nothing else to
+    /// keep in step.
+    shell: &'a Shell,
+    /// Every command this build has.
+    registry: &'a CommandRegistry,
+    /// The conditions the frame was composed with.
+    ///
+    /// A *snapshot*, taken before any widget was drawn — which is why
+    /// [`Self::with_condition`] exists. See its docs; the staleness it
+    /// repairs is not hypothetical.
+    conditions: &'a ConditionSet,
+}
+
+impl<'a> MenuHost<'a> {
+    /// Bind the menu document, the registry and this frame's conditions
+    /// together.
+    #[must_use]
+    pub fn new(
+        shell: &'a Shell,
+        registry: &'a CommandRegistry,
+        conditions: &'a ConditionSet,
+    ) -> Self {
+        Self {
+            shell,
+            registry,
+            conditions,
+        }
+    }
+
+    /// The conditions this host evaluates predicates against.
+    #[must_use]
+    pub fn conditions(&self) -> &ConditionSet {
+        self.conditions
+    }
+
+    /// **★ This frame's conditions, with one condition corrected.**
+    ///
+    /// # The frame-ordering hazard this exists for, in full
+    ///
+    /// `PdfceApp::conditions()` is evaluated **once**, at the top of the
+    /// frame, before the ribbon is drawn — so its `selection.any` describes
+    /// the selection as it stood *at the start of the frame*. The canvas is
+    /// composed last, and a right-click over an unselected object **selects
+    /// it** (see [`crate::canvas::menus`]). The click and the menu it opens
+    /// therefore happen on a frame whose snapshot still says nothing is
+    /// selected.
+    ///
+    /// Left uncorrected the consequence is total, not cosmetic:
+    /// `format.delete` is gated on `selection.any`, so it resolves disabled,
+    /// so `offers_anything` is false, so **the menu does not open at all** —
+    /// and it never opens later either, because `egui`'s popup is opened by
+    /// the secondary click and there is no second click. The first
+    /// right-click on an object would silently do nothing, which is
+    /// precisely the class of defect (`DEFECTS.md` D1) this whole stage
+    /// exists to end.
+    ///
+    /// # Why this is not a second source of truth
+    ///
+    /// It corrects **one named condition to a value the caller has just
+    /// computed**; it does not re-derive the condition set. The rule for
+    /// *when* `selection.any` holds still lives in exactly one place —
+    /// `PdfceApp::conditions`, reading `OpenDoc::selection` — and the caller
+    /// here passes `!selection.is_empty()` read from the same field, one
+    /// frame later. The spelling of the condition comes from
+    /// [`super::manifest::SELECTION_ANY`], which is the same constant the
+    /// Format tab's `visible_when` and `format.delete`'s `enabled_when` are
+    /// built from.
+    ///
+    /// Returns an owned set, because the borrow it corrects is shared and
+    /// the correction lasts exactly as long as the one `attach` call that
+    /// wants it.
+    #[must_use]
+    pub fn with_condition(&self, condition: &str, holds: bool) -> ConditionSet {
+        let mut set = self.conditions.clone();
+        if holds {
+            set.set(condition);
+        } else {
+            set.clear(condition);
+        }
+        set
+    }
+
+    /// Attach the menu for `context_id` to a widget's secondary click, and
+    /// report the commands the operator chose.
+    ///
+    /// **Nothing is executed.** The returned tokens are *intent*; the
+    /// application dispatches them at the one choke point the ribbon
+    /// already uses, which is where the confirmation gate and the undo entry
+    /// belong.
+    ///
+    /// A context with no menu, a menu whose every command is missing from
+    /// this build, and a menu whose every command is disabled all produce
+    /// the same thing: **no popup, and an empty `Vec`**. The engine takes
+    /// that decision before `egui` is asked for a popup, and it also closes
+    /// an already-open popup whose offer has evaporated — so a menu left
+    /// open over a selection that is then deleted vanishes rather than
+    /// lingering with a dead Delete in it.
+    #[must_use]
+    pub fn attach(&self, response: &egui::Response, context_id: &str) -> Vec<HandlerToken> {
+        self.attach_with(response, context_id, self.conditions)
+    }
+
+    /// [`Self::attach`], against conditions the caller has corrected.
+    ///
+    /// The companion to [`Self::with_condition`]; see its docs for the
+    /// frame-ordering hazard both exist for.
+    #[must_use]
+    pub fn attach_with(
+        &self,
+        response: &egui::Response,
+        context_id: &str,
+        conditions: &ConditionSet,
+    ) -> Vec<HandlerToken> {
+        Menu::attach(response, self.shell, self.registry, context_id, conditions)
+    }
+
+    /// **Whether right-clicking this context would produce a menu at all.**
+    ///
+    /// Pure and cheap, and the *same* question [`Self::attach`] asks itself
+    /// — so a caller that wants to draw a "⋯" affordance beside a row, or a
+    /// test that wants to assert the empty-menu rule without opening a
+    /// window, gets the answer the operator will actually get.
+    #[must_use]
+    pub fn would_open(&self, context_id: &str) -> bool {
+        self.would_open_with(context_id, self.conditions)
+    }
+
+    /// [`Self::would_open`], against conditions the caller has corrected.
+    #[must_use]
+    pub fn would_open_with(&self, context_id: &str, conditions: &ConditionSet) -> bool {
+        Menu::would_open(self.shell, self.registry, context_id, conditions)
+    }
+}
+
+impl std::fmt::Debug for MenuHost<'_> {
+    /// Deliberately shallow. A `Shell` and a `CommandRegistry` printed in
+    /// full are thousands of lines, and a `MenuHost` appears in a trace to
+    /// answer "was one supplied at all", never "what is in it".
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MenuHost")
+            .field("menus", &self.shell.menus.as_ref().map_or(0, Menus::len))
+            .field("commands", &self.registry.len())
+            .field("conditions", &self.conditions.iter().count())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::{commands, manifest};
+    use egui_shell::manifest::Item;
+    use std::collections::BTreeSet;
+
+    /// The shipped shell and a fully populated registry, built the way the
+    /// application builds them.
+    fn shell_and_registry() -> (Shell, CommandRegistry) {
+        let mut registry = CommandRegistry::new();
+        commands::register(&mut registry);
+        (manifest::built_in(), registry)
+    }
+
+    /// Conditions for a document that is open, has pages, and has something
+    /// selected — the state in which every menu here is at its liveliest.
+    fn everything_open() -> ConditionSet {
+        ConditionSet::new()
+            .with("doc.open")
+            .with("doc.pages")
+            .with(manifest::SELECTION_ANY)
+    }
+
+    /// **★ Every command every menu names is registered.**
+    ///
+    /// The check nothing else performs. `Shell::validate_against` walks
+    /// `command_references()`, which covers tab groups, the QAT and the
+    /// keymap and deliberately **not** the menus — so a menu naming a
+    /// command this build does not have passes the manifest's own
+    /// validation, renders as one row fewer, and discloses the omission on
+    /// a channel nobody reads during development.
+    ///
+    /// `Menus::validate_against` is the engine's own opt-in answer and it
+    /// checks both this and the structural rules (no empty context id, no
+    /// duplicate context, no command listed twice within one menu), so it
+    /// is asked rather than reimplemented. Its error names the menu **and**
+    /// the id, which is what makes a failure point at a line rather than at
+    /// a file.
+    #[test]
+    fn every_command_every_menu_names_is_registered() {
+        let (shell, registry) = shell_and_registry();
+        let menus = shell
+            .menus
+            .as_ref()
+            .expect("the built-in shell must carry its menus");
+        menus.validate_against(&registry).expect(
+            "every command a context menu names must be registered — an unregistered id \
+             is silently dropped at render time, so nothing else would report this",
+        );
+    }
+
+    /// …and the manifest really carries them, rather than the menus existing
+    /// only as a function nothing calls.
+    ///
+    /// The failure this catches is a one-line omission with no symptom: drop
+    /// the `menus` assignment from `manifest::built_in` and every test in
+    /// this file that builds `built_in()` directly still passes, while every
+    /// right-click in the running application does nothing.
+    #[test]
+    fn the_shipped_shell_carries_the_menu_document() {
+        let shell = manifest::built_in();
+        let menus = shell
+            .menus
+            .as_ref()
+            .expect("`manifest::built_in` must set the `menus` field");
+        assert_eq!(
+            menus.len(),
+            built_in().len(),
+            "the shell carries a different menu document from the one this module defines"
+        );
+        for context in CONTEXTS {
+            assert!(
+                menus.get(context).is_some(),
+                "the shipped shell has no menu for `{context}`"
+            );
+        }
+    }
+
+    /// **The catalog and the constant list are the same set.**
+    ///
+    /// [`CONTEXTS`] is hand-written and every sweep below is only as
+    /// complete as it is, which is the classic way a test suite quietly
+    /// stops covering something. Checked in both directions.
+    #[test]
+    fn the_catalog_defines_exactly_the_documented_contexts() {
+        let menus = built_in();
+        let declared: BTreeSet<&str> = CONTEXTS.iter().copied().collect();
+        assert_eq!(
+            declared.len(),
+            CONTEXTS.len(),
+            "CONTEXTS lists a context id twice"
+        );
+        let defined: BTreeSet<&str> = menus.iter().map(|m| m.context.as_str()).collect();
+        assert_eq!(
+            defined, declared,
+            "the menu document and CONTEXTS disagree; every sweep in this file is scoped \
+             by CONTEXTS, so the extra or missing entry is untested"
+        );
+    }
+
+    /// The document is structurally valid on its own.
+    ///
+    /// Distinct from the registry check and not implied by it: the built-in
+    /// layer is what every customization layer patches and what a reset
+    /// restores, so it has to stand up without an application present —
+    /// non-empty context ids, no duplicates, no command listed twice in one
+    /// menu.
+    #[test]
+    fn the_built_in_menu_document_is_valid() {
+        built_in()
+            .validate()
+            .expect("the built-in menu layer must satisfy every structural rule");
+    }
+
+    /// **★ No menu names a command that does not exist — stated as the
+    /// no-placeholders rule, by name.**
+    ///
+    /// `every_command_every_menu_names_is_registered` proves the positive.
+    /// This proves the *specific* negative `RIBBON_IA.md` §6 asks for and
+    /// P3 forbids: §6 wants Cut/Copy/Paste on the selection menu, this build
+    /// has no object clipboard, and the honest answer is **absence**.
+    ///
+    /// Asserted against `PLANNED` rather than against a hand-written list of
+    /// four ids, so a clipboard command that lands — and is therefore
+    /// removed from `PLANNED` — stops being forbidden here automatically
+    /// instead of failing a test that had gone stale.
+    #[test]
+    fn no_menu_offers_a_command_this_build_does_not_have() {
+        let planned: BTreeSet<&str> = manifest::PLANNED.iter().map(|(id, _)| *id).collect();
+        for menu in built_in().iter() {
+            for id in menu.command_ids() {
+                assert!(
+                    !planned.contains(id),
+                    "menu `{}` offers `{id}`, which `manifest::PLANNED` records as absent \
+                     from this build. P3: an unavailable capability renders NOTHING — not \
+                     a greyed row, which is a promise the build cannot keep.",
+                    menu.context
+                );
+            }
+        }
+        // The four §6 asks for by name, checked explicitly, because this is
+        // the deviation from the specification that most wants to be visible
+        // in a failure message rather than inferred from a list.
+        let menus = built_in();
+        let offered: BTreeSet<&str> = menus.iter().flat_map(|m| m.command_ids()).collect();
+        for id in ["edit.cut", "edit.copy", "edit.paste", "edit.paste_in_place"] {
+            assert!(
+                !offered.contains(id),
+                "`{id}` is on a context menu and there is no object clipboard in this build"
+            );
+        }
+    }
+
+    /// **★ Every menu opens when the application is at its liveliest.**
+    ///
+    /// The other half of the empty-menu rule, and the half that would
+    /// otherwise be satisfied by defining no menus at all. A menu that never
+    /// opens is indistinguishable from a right-click that is not wired, and
+    /// the operator draws the same conclusion from both.
+    ///
+    /// `dock.tab` is included: it is not *attached* (see the module header),
+    /// but the day the `egui-shell` seam lands it must have something to
+    /// offer, and this is what says so.
+    #[test]
+    fn every_menu_offers_something_when_a_document_is_open_and_selected() {
+        let (shell, registry) = shell_and_registry();
+        let conditions = everything_open();
+        let host = MenuHost::new(&shell, &registry, &conditions);
+        for context in CONTEXTS {
+            assert!(
+                host.would_open(context),
+                "`{context}` offers nothing even with a document open, pages present and \
+                 something selected — so right-clicking that surface does nothing, ever"
+            );
+        }
+    }
+
+    /// **★ …and an empty menu never opens.**
+    ///
+    /// The engine's rule 2, asserted through the seam this application
+    /// actually uses rather than against the engine's own unit tests.
+    /// Three shapes, and all three are reachable:
+    ///
+    /// 1. **a context with no menu at all** — a right-click site whose id is
+    ///    misspelled, or one wired ahead of its menu;
+    /// 2. **a menu whose every command is disabled** — `canvas.object` with
+    ///    nothing selected, which is what a right-click on paper would find
+    ///    if the canvas picked the wrong context id;
+    /// 3. **a menu whose every command is unregistered** — the shape a
+    ///    build with a capability compiled out produces.
+    ///
+    /// Shape 2 is the one that matters most in daily use, and it is the one
+    /// a naive wiring gets wrong: `format.delete` is registered, so a
+    /// `context_menu` closure written by hand would happily draw it greyed
+    /// and cost a click to dismiss.
+    #[test]
+    fn a_menu_with_nothing_to_offer_does_not_open() {
+        let (shell, registry) = shell_and_registry();
+
+        // 1. No such context.
+        let live = everything_open();
+        let host = MenuHost::new(&shell, &registry, &live);
+        assert!(
+            !host.would_open("canvas.nothing-here"),
+            "an unknown context must resolve to no menu, not to an empty one"
+        );
+
+        // 2. Every command disabled — nothing is selected, so `format.delete`
+        //    is greyed and it is the menu's only item.
+        let nothing_selected = ConditionSet::new().with("doc.open").with("doc.pages");
+        let host = MenuHost::new(&shell, &registry, &nothing_selected);
+        assert!(
+            !host.would_open(CANVAS_OBJECT),
+            "a menu of nothing but greyed rows is strictly worse than no menu: it costs a \
+             click to dismiss and teaches the operator that right-clicking here is useless"
+        );
+        assert!(
+            host.would_open(CANVAS_EMPTY),
+            "…while the view menu is still live, which is what makes the canvas's choice \
+             of context id the thing that matters"
+        );
+
+        // 3. Every command unregistered — the compiled-out build.
+        let empty_registry = CommandRegistry::new();
+        let host = MenuHost::new(&shell, &empty_registry, &live);
+        for context in CONTEXTS {
+            assert!(
+                !host.would_open(context),
+                "`{context}` opened against a registry holding no commands at all"
+            );
+        }
+    }
+
+    /// **★ A corrected condition changes the answer.**
+    ///
+    /// [`MenuHost::with_condition`] exists for one frame-ordering hazard,
+    /// and this is that hazard reduced to two assertions: with the stale
+    /// snapshot the selection menu does not open, and with the correction
+    /// the canvas just computed it does.
+    ///
+    /// Without this the first right-click on an object silently does
+    /// nothing — the menu is decided before `egui` is asked for a popup, so
+    /// there is no later frame on which it can recover.
+    #[test]
+    fn correcting_the_selection_condition_is_what_opens_the_object_menu() {
+        let (shell, registry) = shell_and_registry();
+        // The snapshot the frame was composed with: nothing was selected
+        // when the ribbon was drawn.
+        let stale = ConditionSet::new().with("doc.open").with("doc.pages");
+        let host = MenuHost::new(&shell, &registry, &stale);
+        assert!(!host.would_open(CANVAS_OBJECT));
+
+        // The canvas has since selected the object under the pointer.
+        let corrected = host.with_condition(manifest::SELECTION_ANY, true);
+        assert!(
+            host.would_open_with(CANVAS_OBJECT, &corrected),
+            "the right-click selected an object and the menu still refused to open"
+        );
+
+        // …and the correction goes both ways, so a menu cannot be opened by
+        // a condition the caller has just found to be false.
+        let cleared = MenuHost::new(&shell, &registry, &corrected)
+            .with_condition(manifest::SELECTION_ANY, false);
+        assert!(!host.would_open_with(CANVAS_OBJECT, &cleared));
+    }
+
+    /// A command may appear in several menus, and on a tab as well.
+    ///
+    /// `RIBBON_IA.md` §5.8: the context menu *"carries the same commands
+    /// again … that is not duplication in the P1 sense — context menus are
+    /// not tabs"*. Every id in this document is also on a ribbon tab, which
+    /// is the point and not an oversight; if a future edit extends the
+    /// one-command-one-tab rule over menus, this is the test that says no.
+    #[test]
+    fn every_menu_command_is_also_reachable_from_the_ribbon() {
+        let shell = manifest::built_in();
+        let on_a_surface: BTreeSet<String> = shell
+            .command_references()
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        for menu in built_in().iter() {
+            for id in menu.command_ids() {
+                assert!(
+                    on_a_surface.contains(id),
+                    "menu `{}` is the ONLY route to `{id}`. A context menu is a third \
+                     surface carrying commands that already have a home, not a home of \
+                     its own — a command reachable by right-click alone is undiscoverable.",
+                    menu.context
+                );
+            }
+        }
+    }
+
+    /// Menus survive a round trip through RON, which is what makes them
+    /// customizable.
+    ///
+    /// The whole value proposition of the shell-as-data design is that an
+    /// operator can edit this; `crate::shell::ron` asserts the same thing
+    /// for the manifest as a whole. Asserted here as well, on the menu
+    /// document alone, because a failure in the shared file says only that
+    /// *something* stopped round-tripping.
+    #[test]
+    fn the_menu_document_round_trips_through_ron() {
+        let original = built_in();
+        let text = original.to_ron_pretty().expect("serializes");
+        assert_eq!(
+            Menus::from_ron(&text).expect("the pretty form parses"),
+            original
+        );
+        // And the shapes an operator would search for are legible in it.
+        assert!(text.contains(CANVAS_OBJECT), "{text}");
+        assert!(text.contains("Command(\"format.delete\")"), "{text}");
+    }
+
+    /// Each menu holds the items this module's header claims it holds.
+    ///
+    /// A change-detector, and deliberately one: the table in the header is
+    /// the specification, and a menu that quietly gains an item has a
+    /// specification that quietly became wrong. The failure message names
+    /// the menu, so the fix is one line in one of the two places.
+    #[test]
+    fn each_menu_holds_exactly_the_documented_items() {
+        let menus = built_in();
+        for (context, expected) in [
+            (CANVAS_OBJECT, &["format.delete"][..]),
+            (
+                CANVAS_EMPTY,
+                &[
+                    "view.zoom_fit_page",
+                    "view.zoom_fit_width",
+                    "view.zoom_actual",
+                ][..],
+            ),
+            (DOCK_TAB, &["view.reset_layout"][..]),
+            (OBJECTS_ROW, &["file.properties"][..]),
+        ] {
+            let menu = menus.get(context).expect("defined");
+            let ids: Vec<&str> = menu.command_ids().collect();
+            assert_eq!(
+                ids, expected,
+                "menu `{context}` no longer matches the table in this module's header"
+            );
+            // Nothing in this document is a custom item or a separator yet,
+            // and a document of pure commands is what makes the sweeps above
+            // total rather than approximate.
+            assert!(
+                menu.items().iter().all(|i| matches!(i, Item::Command(_))),
+                "menu `{context}` holds a non-command item; the sweeps in this file walk \
+                 `command_ids()` and would not see it"
+            );
+        }
+    }
+}

@@ -1,0 +1,537 @@
+//! # `panels::properties` — the read-only facts about one object
+//!
+//! **New.** Nothing like it exists in the old shell — `SALVAGE.md`'s "What
+//! is NOT salvaged" list names *"a properties panel of any kind"* explicitly
+//! — so this is `RIBBON_IA.md` §5.8 built from the specification rather than
+//! carried across from anything.
+//!
+//! ## Why the panel is built before the tab
+//!
+//! §5.8, verbatim:
+//!
+//! > Build order: **panel first, tab second.** The panel is the harder half
+//! > and the tab's contents are a subset of it, so building the tab first
+//! > would mean writing the property editors twice.
+//!
+//! and, on the division of labour between the two surfaces:
+//!
+//! > the **tab** carries what a user changes *while working* — colour,
+//! > width, style, align, delete. The **panel** carries everything,
+//! > including the read-only facts (winding rule, node count,
+//! > embedded-font status, exact geometry) that belong beside the Objects
+//! > panel's inventory rather than in a ribbon band.
+//!
+//! Those four parenthesised facts are this module's brief, and all four are
+//! below.
+//!
+//! ## One description, two renderings
+//!
+//! Every value here comes from [`super::objects::summary::describe_object`]
+//! and is worded by [`crate::text::panels::objects`] — the *same* record and
+//! the *same* functions the Objects panel's row label uses. That is the
+//! single-source-of-truth requirement made structural: a path's fill colour
+//! cannot be described one way in a tree row and a different way in
+//! Properties, because there is only one description.
+//!
+//! What differs between the two is *shape*, not *content*: a row is one line
+//! and joins its facts with separators; a panel is a list and labels them.
+//! [`crate::text::panels::properties`] owns the labels — the left-hand
+//! column — and nothing else.
+//!
+//! ## This panel is where rule 4's disclosure lands
+//!
+//! Every [`super::objects::summary::ObjectNote`] the object carries is
+//! spelled out in full at the foot of the list, under its own heading. That
+//! placement is the disclosure rule's:
+//!
+//! > **Disclosure lives off-canvas**: a status line, a results panel, a
+//! > report after the command, a properties field. … **No badge, tint, red
+//! > flag, dashed outline or "provisional" layer drawn into the page view.**
+//!
+//! In the old shell, "these bounds are approximate" drove a **dashed outline
+//! on the page**. Under the rule as it now stands that is content marking,
+//! and content marking is forbidden — it is *"a second rendering path for
+//! the same content, and two paths drift"*. Here the same fact is a
+//! sentence, in a panel, and the canvas is untouched.
+//!
+//! The heading is *"Worth knowing about this object"* rather than
+//! *"Warnings"*, and the sentences are drawn at ordinary weight: every one
+//! of them is a fact about the **document**, and warning styling would make
+//! a property of the file read as a pdfce failure.
+//!
+//! ## What it describes, given that there is no selection
+//!
+//! `super::PanelsState::focus` — the object whose row the operator last
+//! clicked in the Objects panel. That is **not a selection**, and the
+//! difference is spelled out where the field is declared. The consequence
+//! here is that the panel's empty state names the Objects panel by name: it
+//! is the only route in, and an operator has no way to guess that.
+//!
+//! ## What is deliberately not built
+//!
+//! §5.8 also commissions **editable X/Y/W/H** here, and calls the panel the
+//! surface through which `/Rect` move-and-resize becomes reachable without a
+//! drag. None of it is here, and the reason is not that typed geometry is
+//! hard: there is nothing to edit. [`crate::app::actions::Action`] carries
+//! zoom and page navigation, and this module may not add to it. Four
+//! spinners bound to nothing would render, accept typing, and discard it —
+//! not a harmless placeholder but a control that silently loses an
+//! operator's work.
+//!
+//! So the geometry is stated as facts in the same list as everything else,
+//! and [`crate::text::panels::properties::properties_read_only_note`] says
+//! so once at the top. `RIBBON_IA.md` P3: an unavailable capability renders
+//! nothing; greying is for *temporarily* unavailable, and "the selection
+//! model does not exist" is absence, not temporary unavailability.
+//!
+//! ## The embedded-font field is a name join, and it discloses that
+//!
+//! A text object records the `/BaseFont` in effect; the document's font
+//! inventory records a program per font **dictionary**. Joining them by name
+//! is the only join available — the object model does not carry the font
+//! dictionary's object id — and a name is not a key. One document can
+//! declare two font dictionaries with the same `/BaseFont` (two independent
+//! subsets of one face, which the survey behind the Fonts panel found in
+//! 87 % of embedding files), and they need not agree about embedding.
+//!
+//! So the field has **three** answers, not two: yes, no, and *"pdfce could
+//! not tell — the Fonts panel lists each one separately"*. Picking one when
+//! the name is ambiguous would be an inference presented as a fact, and
+//! unlike most inferences this one is invisible: a confidently wrong "Yes"
+//! looks exactly like a right one.
+
+use crate::app::actions::Action;
+use crate::app::state::OpenDoc;
+use crate::panels::PanelsState;
+use crate::panels::objects::summary::{self, ObjectSummary};
+use crate::text::panels::objects as ot;
+use crate::text::panels::properties as t;
+
+/// What pdfce can say about whether a named font's program is in the file.
+///
+/// Three answers, not two — see the module header on why the third is not a
+/// failure to resolve but the honest result of a name join.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontEmbedded {
+    /// Exactly one font dictionary carries that name, and it has a program.
+    Yes,
+    /// Exactly one font dictionary carries that name, and it has none.
+    No,
+    /// The name matches no font dictionary, or more than one, and those need
+    /// not agree.
+    Unknown,
+}
+
+/// Whether the document embeds the program for the font named `base_font`.
+///
+/// A pure function over the inventory so it can be tested without a frame,
+/// and so the disclosure rule it implements — *never pick when the join is
+/// ambiguous* — is visible as an assertion rather than as a comment.
+///
+/// **Zero matches is [`FontEmbedded::Unknown`], not [`FontEmbedded::No`].**
+/// "This font is not embedded" is a claim about a font dictionary pdfce
+/// found; "no font dictionary answers to this name" is a claim about pdfce's
+/// own inventory, and the Fonts panel already states which surfaces that
+/// inventory does not cover. Reporting the second as the first would turn a
+/// coverage gap into a statement about the operator's document.
+#[must_use]
+pub fn font_embedded(
+    inventory: &pdfce_core::fontinfo::FontInventory,
+    base_font: &str,
+) -> FontEmbedded {
+    let mut matches = inventory
+        .fonts
+        .iter()
+        .filter(|f| f.base_font.as_deref() == Some(base_font));
+    let (Some(first), None) = (matches.next(), matches.next()) else {
+        return FontEmbedded::Unknown;
+    };
+    if matches!(first.program, pdfce_core::fontinfo::Program::Embedded(_)) {
+        FontEmbedded::Yes
+    } else {
+        FontEmbedded::No
+    }
+}
+
+/// Draw the Properties panel.
+pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, _actions: &mut Vec<Action>) {
+    let Some(index) = state.focus() else {
+        ui.label(t::properties_nothing_focused());
+        return;
+    };
+    // The description is taken out of the shared decomposition and OWNED
+    // (it is one small record), so the `Ref` into the document's cache is
+    // released before anything is drawn. Holding it across the whole body
+    // would work too, but a short borrow is the honest shape: this panel
+    // describes a snapshot of one object, not the page.
+    let Some(described) = doc.page_objects().and_then(|provider| {
+        provider
+            .page_objects()
+            .objects
+            .get(index)
+            .map(summary::describe_object)
+    }) else {
+        // The focused row named an object that is no longer there. Reachable
+        // only if something clears the provider without clearing the focus,
+        // which `PanelsState::sync` is written to make impossible — so this
+        // is a guard, not a state with copy of its own. It reads as "nothing
+        // is picked", which is the truth from the operator's side.
+        ui.label(t::properties_nothing_focused());
+        return;
+    };
+    // Only a text object with a named font needs the inventory, and it is
+    // the expensive one (it decodes every embedded font program), so it is
+    // fetched only when there is a name to look up.
+    let embedded = described
+        .font
+        .as_ref()
+        .and_then(|f| f.base_font.as_deref())
+        .map(|name| font_embedded(&doc.font_inventory(), name));
+
+    ui.label(egui::RichText::new(t::properties_object_heading()).strong());
+    ui.label(
+        egui::RichText::new(t::properties_read_only_note())
+            .small()
+            .weak(),
+    );
+    ui.separator();
+
+    egui::ScrollArea::vertical()
+        .id_salt("properties-fields")
+        .show(ui, |ui| {
+            for (label, value) in property_rows(index, &described, embedded) {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new(label).strong());
+                    ui.label(value);
+                });
+            }
+
+            if !described.notes.is_empty() {
+                ui.separator();
+                ui.label(egui::RichText::new(t::properties_notes_heading()).strong());
+                for note in &described.notes {
+                    // Ordinary weight, never warn-coloured: each of these is
+                    // a fact about the FILE, and error styling would make it
+                    // read as a pdfce failure.
+                    ui.label(ot::object_note(*note));
+                }
+            }
+        });
+
+    crate::diag::trace(|| {
+        format!(
+            "properties-panel object={index} kind={:?} notes={}",
+            described.kind,
+            described.notes.len()
+        )
+    });
+}
+
+/// The panel's field list, as `(label, value)` pairs in display order.
+///
+/// A pure function, and that is the point: it is where every "is this fact
+/// present?" decision lives, so every one of them is testable without a
+/// frame. The drawing code above does nothing but lay these out.
+///
+/// **A field is omitted when the object has no such property, and present
+/// with [`crate::text::panels::properties::value_not_stated`] when it has
+/// one the file does not state.** Those are different situations and the
+/// panel distinguishes them: a path has no font at all (omit), while an
+/// object with no finite geometry *has* a position that the file does not
+/// give (say so). A blank row is never produced, because a blank is
+/// indistinguishable from a field pdfce forgot to fill in — and this panel's
+/// whole value is that its silences are as legible as its numbers.
+#[must_use]
+pub fn property_rows(
+    index: usize,
+    summary: &ObjectSummary,
+    embedded: Option<FontEmbedded>,
+) -> Vec<(&'static str, String)> {
+    let mut rows: Vec<(&'static str, String)> = Vec::new();
+
+    rows.push((
+        t::field_type(),
+        ot::object_kind_label(summary.kind).to_owned(),
+    ));
+    // The paint-order index: the handle every command-line verb takes, and
+    // the reason it is a *field* rather than only part of the Objects row is
+    // that an operator reading properties is exactly the operator about to
+    // reach for `pdfce-cli`.
+    rows.push((t::field_index(), t::value_index(index)));
+
+    if let Some(paint) = summary.paint {
+        rows.push((t::field_paint(), ot::paint_style_label(paint).to_owned()));
+        // Stated in full here, unlike in the one-line row where only
+        // even-odd is called out — see `winding_rule_label`'s own docs. A
+        // field headed "Winding rule" that is blank nine times in ten reads
+        // as a value pdfce failed to read.
+        if let Some(winding) = ot::winding_rule_label(paint) {
+            rows.push((t::field_winding(), winding.to_owned()));
+        }
+    }
+    // `None` for a path that paints nothing — its unused, default-black fill
+    // colour appears nowhere on the page, so reporting it would be a
+    // confidently wrong answer. Omitted rather than "not stated": the file
+    // states a colour, it is simply not one a viewer shows.
+    if let Some(colour) = summary.colour {
+        rows.push((t::field_colour(), ot::rgb_hex(colour)));
+    }
+    if let Some(width) = summary.line_width {
+        rows.push((t::field_line_width(), t::value_line_width(width)));
+    }
+    if let Some(nodes) = summary.nodes {
+        rows.push((t::field_nodes(), nodes.to_string()));
+    }
+    if let Some(text) = summary.text.as_deref() {
+        // A longer cap than the Objects row's: a panel field wraps, so it
+        // can afford the whole preview the model kept. The quoting and the
+        // control-character replacement are the same, which is the half that
+        // must not diverge.
+        rows.push((
+            t::field_text(),
+            ot::quoted_text(text, summary.text_truncated),
+        ));
+    }
+    if let Some(font) = summary.font.as_ref() {
+        rows.push((t::field_font(), ot::font_label(font)));
+        rows.push((
+            t::field_font_embedded(),
+            match embedded {
+                Some(FontEmbedded::Yes) => t::value_font_embedded_yes().to_owned(),
+                Some(FontEmbedded::No) => t::value_font_embedded_no().to_owned(),
+                // `None` reaches here when the font has no `/BaseFont` to
+                // join on, which is the same situation as a name that
+                // matches nothing: pdfce has no dictionary to report about.
+                Some(FontEmbedded::Unknown) | None => t::value_font_embedded_ambiguous().to_owned(),
+            },
+        ));
+    }
+    if let Some((w, h)) = summary.pixels {
+        rows.push((t::field_pixels(), t::value_pixels(w, h)));
+    }
+
+    // Geometry LAST, and always present. An object with no finite bounds
+    // still has a position field — it says the file does not state one,
+    // which is the fact `ObjectNote::NoBounds` then explains at length.
+    // Dropping the rows would leave the operator to notice an absence.
+    match summary.size() {
+        Some((w, h)) => {
+            rows.push((
+                t::field_position(),
+                t::value_position(summary.bounds.min.x, summary.bounds.min.y),
+            ));
+            rows.push((t::field_size(), t::value_size(w, h)));
+        }
+        None => {
+            rows.push((t::field_position(), t::value_not_stated().to_owned()));
+            rows.push((t::field_size(), t::value_not_stated().to_owned()));
+        }
+    }
+
+    rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::panels::objects::test_support::engine_fixture;
+    use pdfce_core::content::ContentStream;
+    use pdfce_core::vector::{Matrix, NoXObjects, decompose};
+
+    fn describe(src: &[u8]) -> ObjectSummary {
+        let cs = ContentStream::parse(src.to_vec()).expect("parse");
+        let objects = decompose(&cs, Matrix::IDENTITY, &NoXObjects);
+        assert_eq!(objects.objects.len(), 1);
+        summary::describe_object(&objects.objects[0])
+    }
+
+    fn value<'a>(rows: &'a [(&'static str, String)], label: &str) -> Option<&'a str> {
+        rows.iter()
+            .find(|(l, _)| *l == label)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// **★ The four facts `RIBBON_IA.md` §5.8 commissions this panel for are
+    /// all present.**
+    ///
+    /// > the read-only facts (winding rule, node count, embedded-font
+    /// > status, exact geometry) that belong beside the Objects panel's
+    /// > inventory rather than in a ribbon band
+    ///
+    /// Three of them are on a path and the fourth is on text, so the check
+    /// takes two objects. This is the panel's acceptance criterion, and it
+    /// is the one a later refactor is most likely to erode a field at a
+    /// time.
+    #[test]
+    fn the_four_commissioned_facts_are_all_reported() {
+        // Winding rule, node count, exact geometry — on a filled path.
+        let path = describe(b"0 0 1 rg 10 10 80 80 re f*");
+        let rows = property_rows(0, &path, None);
+        assert_eq!(value(&rows, t::field_winding()), Some("Even-odd"));
+        assert_eq!(value(&rows, t::field_nodes()), Some("4"));
+        assert_eq!(value(&rows, t::field_position()), Some("10.0, 10.0 pt"));
+        assert_eq!(value(&rows, t::field_size()), Some("80.0 × 80.0 pt"));
+
+        // Embedded-font status — on text.
+        let text = describe(b"BT /F1 12 Tf 40 40 Td (Hi) Tj ET");
+        let rows = property_rows(0, &text, Some(FontEmbedded::No));
+        assert_eq!(
+            value(&rows, t::field_font_embedded()),
+            Some(t::value_font_embedded_no())
+        );
+    }
+
+    /// **A field is omitted when the object has no such property, and
+    /// present-but-unstated when it has one the file does not give.**
+    ///
+    /// The distinction the panel's whole legibility argument rests on. A
+    /// path has no font — the row must not exist. An object with no finite
+    /// bounds *has* a position the file does not state — the row must exist
+    /// and say so, or the operator is left to notice an absence.
+    #[test]
+    fn an_absent_property_is_omitted_and_an_unstated_one_says_so() {
+        let path = describe(b"10 10 80 80 re f");
+        let rows = property_rows(0, &path, None);
+        assert_eq!(value(&rows, t::field_font()), None, "a path has no font");
+        assert_eq!(value(&rows, t::field_text()), None);
+        assert_eq!(value(&rows, t::field_pixels()), None);
+
+        // Geometry is always present, even when there is none to report.
+        let mut empty = path.clone();
+        empty.bounds = pdfce_core::vector::Bounds::EMPTY;
+        let rows = property_rows(0, &empty, None);
+        assert_eq!(
+            value(&rows, t::field_position()),
+            Some(t::value_not_stated())
+        );
+        assert_eq!(value(&rows, t::field_size()), Some(t::value_not_stated()));
+    }
+
+    /// **A path that paints nothing reports no colour, and does not invent
+    /// one.**
+    ///
+    /// Its fill colour is default black and appears nowhere on the page.
+    /// Printing it would be a confidently wrong answer about a real,
+    /// addressable object — the exact class of error the panel exists to
+    /// avoid.
+    #[test]
+    fn a_no_paint_path_reports_no_colour_at_all() {
+        let clip = describe(b"10 10 80 80 re n");
+        let rows = property_rows(0, &clip, None);
+        assert_eq!(value(&rows, t::field_colour()), None);
+        assert_eq!(
+            value(&rows, t::field_paint()),
+            Some("paints nothing (a clip or discarded path)")
+        );
+        // …and no winding rule either: an `n` path has no fill in effect, so
+        // naming one would name a rule that decides nothing.
+        assert_eq!(value(&rows, t::field_winding()), None);
+    }
+
+    /// **A stroke-only path reports the STROKE colour.**
+    ///
+    /// The one-description rule at work: the resolution happens once, in
+    /// `describe_object`, so this panel and the Objects row cannot name
+    /// different colours for one object.
+    #[test]
+    fn a_stroked_path_reports_the_colour_a_viewer_sees() {
+        let stroked = describe(b"1 0 0 RG 0 0 1 rg 2 w 10 10 m 90 90 l S");
+        let rows = property_rows(0, &stroked, None);
+        assert_eq!(
+            value(&rows, t::field_colour()),
+            Some("#FF0000"),
+            "the fill colour is never painted and must not be reported"
+        );
+        assert_eq!(value(&rows, t::field_line_width()), Some("2.00 pt"));
+    }
+
+    /// **★ An ambiguous font name is disclosed, never resolved.**
+    ///
+    /// The join is by `/BaseFont`, and a name is not a key. Two dictionaries
+    /// with one name need not agree about embedding, so pdfce declines —
+    /// because a confidently wrong "Yes" is indistinguishable from a right
+    /// one, which makes this the one field on the panel that could mislead
+    /// silently.
+    ///
+    /// Driven through a real inventory rather than a hand-built one, so the
+    /// `/BaseFont` values are the ones a document actually produces.
+    #[test]
+    fn the_embedded_font_join_declines_when_the_name_is_not_a_key() {
+        let path = engine_fixture("text/subset-simple-embedded.pdf");
+        let doc = pdfce_core::document::Document::load(&path).expect("the fixture loads");
+        let inv = pdfce_core::fontinfo::inventory(&doc.view());
+        let name = inv
+            .fonts
+            .iter()
+            .find_map(|f| f.base_font.clone())
+            .expect("the fixture must declare a named font");
+
+        // One dictionary answers to the name: a definite answer.
+        let answer = font_embedded(&inv, &name);
+        assert_ne!(
+            answer,
+            FontEmbedded::Unknown,
+            "a name matching exactly one dictionary must resolve: {name}"
+        );
+
+        // A name nothing answers to is UNKNOWN, not "not embedded" — the
+        // second would turn a gap in pdfce's inventory into a claim about
+        // the operator's document.
+        assert_eq!(
+            font_embedded(&inv, "NoSuchFaceInThisDocument"),
+            FontEmbedded::Unknown
+        );
+    }
+
+    /// The index is printed with its `#`, matching the Objects row and the
+    /// CLI's `index=`.
+    #[test]
+    fn the_index_field_prints_the_paint_order_handle() {
+        let path = describe(b"10 10 80 80 re f");
+        let rows = property_rows(412, &path, None);
+        assert_eq!(value(&rows, t::field_index()), Some("#412"));
+    }
+
+    /// Every row has a non-empty value.
+    ///
+    /// A blank value is indistinguishable from a field pdfce forgot to fill
+    /// in, and the panel's whole value is that its silences are as legible
+    /// as its numbers. Swept across several object kinds so a kind-specific
+    /// arm cannot slip through.
+    #[test]
+    fn no_field_is_ever_rendered_blank() {
+        for src in [
+            &b"0 0 1 rg 10 10 80 80 re f"[..],
+            &b"10 10 80 80 re n"[..],
+            &b"1 0 0 RG 2 w 10 10 m 90 90 l S"[..],
+            &b"BT /F1 12 Tf 40 40 Td (Hi) Tj ET"[..],
+            &b"100 200 m 300 200 l S"[..],
+            &b"q 100 0 0 50 10 10 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI Q"[..],
+        ] {
+            let s = describe(src);
+            for (label, value) in property_rows(0, &s, Some(FontEmbedded::Unknown)) {
+                assert!(!label.trim().is_empty());
+                assert!(
+                    !value.trim().is_empty(),
+                    "the field `{label}` rendered blank for {}",
+                    String::from_utf8_lossy(src)
+                );
+            }
+        }
+    }
+
+    /// **A text object's disclosure list is never empty**, so the notes
+    /// heading always has something under it when it is drawn.
+    ///
+    /// Text is always approximate, so it always carries at least the
+    /// bounds-basis note. This pins the panel's most-used disclosure path:
+    /// if it ever came out empty, the heading would draw over nothing.
+    #[test]
+    fn a_text_object_always_has_something_to_disclose() {
+        let text = describe(b"BT /F1 12 Tf 40 40 Td (Hi) Tj ET");
+        assert!(!text.notes.is_empty());
+        for note in &text.notes {
+            assert!(ot::object_note(*note).len() > 60);
+        }
+    }
+}

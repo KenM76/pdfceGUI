@@ -1,0 +1,75 @@
+//! The non-Windows implementation: the same API, every call refusing clearly.
+//!
+//! ## Why this file exists at all
+//!
+//! The harness drives a Windows window with the Windows input API and cannot
+//! work anywhere else. It would be easy to say so with a `compile_error!` —
+//! and that would break `cargo check --workspace` on any non-Windows machine,
+//! which is how a crate gets quietly removed from the workspace members list.
+//! A verification harness that has been removed from the build verifies
+//! nothing.
+//!
+//! So the crate compiles everywhere, every platform call fails with a sentence
+//! naming the platform, and the checks resolve to SKIPPED with that sentence
+//! as the reason. That is the honest outcome: on a Linux box the harness has
+//! learned nothing about the application, and "learned nothing" must never be
+//! printed as a pass.
+//!
+//! ## Keeping it honest
+//!
+//! Every function here mirrors [`super::win32`]'s signature exactly. If the
+//! Windows API grows a function and this one does not, the non-Windows build
+//! breaks immediately and loudly, which is the intended failure mode — much
+//! better than a stub that silently returns a plausible zero.
+
+use crate::coords::WindowFrame;
+use crate::error::{Error, Result};
+use crate::geom::PixRect;
+
+/// Stands in for the Windows handle so the rest of the crate type-checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowHandle(isize);
+
+fn refuse<T>(what: &str) -> Result<T> {
+    Err(Error::new(format!(
+        "{what} is not available on this platform ({}). ui-verify drives a Windows \
+         window through the Windows input API; on any other platform every check \
+         reports SKIPPED rather than a result.",
+        std::env::consts::OS
+    )))
+}
+
+/// Always `None`: there is no window to find.
+#[must_use]
+pub fn find_window_for_pid(_pid: u32) -> Option<WindowHandle> {
+    None
+}
+
+/// Always refuses.
+pub fn window_frame(_w: WindowHandle) -> Result<WindowFrame> {
+    refuse("measuring a window's client area")
+}
+
+/// No-op: there is nothing to raise.
+pub fn raise_window(_w: WindowHandle) {}
+
+/// Always refuses.
+pub fn cursor_position() -> Result<(i32, i32)> {
+    refuse("reading the pointer position")
+}
+
+/// Always refuses.
+pub fn set_cursor_position(_x: i32, _y: i32) -> Result<()> {
+    refuse("moving the pointer")
+}
+
+/// No-op: there is no pointer to click with.
+pub fn mouse_button(_down: bool) {}
+
+/// No-op: there is no window to type into.
+pub fn key_stroke(_vk: u16) {}
+
+/// Always refuses.
+pub fn capture_screen(_region: PixRect) -> Result<Vec<u8>> {
+    refuse("capturing the screen")
+}

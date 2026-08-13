@@ -1,0 +1,243 @@
+//! Drive the pointer and the keyboard **through the operating system**.
+//!
+//! # Why OS-level injection, and not the two easier alternatives
+//!
+//! This is the module's central design decision, and it is required by the
+//! defect the harness exists to catch. Three ways to get input into an egui
+//! application were available; two of them cannot see D1.
+//!
+//! ## Rejected: `PostMessage(WM_MOUSEMOVE / WM_LBUTTONDOWN)`
+//!
+//! Tried first in this project's predecessor, and it **does not work for an
+//! off-screen window** — with a silent failure, which is the worst kind. winit
+//! calls `TrackMouseEvent` on the move; Windows answers `WM_MOUSELEAVE`
+//! because the physical cursor is elsewhere; `egui-winit` then drops the
+//! button entirely, because it emits `PointerButton` only when it knows the
+//! pointer position. The observed event list was `[PointerMoved, PointerGone]`
+//! in **every** message ordering tried, including move and button posted back
+//! to back. That finding is recorded in `D:\dev\rag\egui\`, and it is recorded
+//! here too so nobody rebuilds it.
+//!
+//! ## Rejected as the *primary* driver: in-process injection
+//!
+//! The application already has one — `PDFCE_DIAG_SCRIPT` feeds steps through
+//! eframe's `raw_input_hook`. It is excellent, it needs no screen, and it is
+//! the right tool for a behavioural question on a machine the operator is
+//! using. It is **the wrong oracle for D1**, and precisely because of what it
+//! skips.
+//!
+//! D1's causal chain is:
+//!
+//! 1. the canvas calls `request_focus()` when `Response::clicked()` fires;
+//! 2. `ctx.egui_wants_keyboard_input()` — which means *any widget has focus*,
+//!    not *a text field has focus* — therefore returns `true` forever after;
+//! 3. so the unmodified-key bindings, `Delete` among them, are never
+//!    installed.
+//!
+//! Every link in that chain is about **what egui's focus machinery does with a
+//! real click**. A harness that hands egui a synthetic `PointerButton` event
+//! is asserting on the same layer that is broken. It might well reproduce the
+//! bug — but a green result from it would not be evidence, because the thing
+//! it skipped is the thing in question. The only way to be sure the click that
+//! selects the object is the same click that focuses the canvas is to make the
+//! window manager deliver it.
+//!
+//! Put plainly: **the harness that must catch D1 has to go through the OS,
+//! because D1 is a defect in how the application responds to the OS.**
+//!
+//! ## Chosen: `SetCursorPos` + `mouse_event` + `keybd_event`
+//!
+//! System-level injection. The cursor really moves, the click lands on
+//! whatever window is in front, and the keystroke goes to the foreground
+//! window. Everything downstream — hit testing, focus, hover, capture — runs
+//! exactly as it does for a person.
+//!
+//! `mouse_event`/`keybd_event` rather than `SendInput`: for a button at the
+//! current position they are equivalent, and their signatures have no
+//! variable-length array to get wrong. The one thing `SendInput` would buy is
+//! atomic multi-event batches, which is not wanted — a real click is not
+//! atomic either.
+//!
+//! ## What that costs, and how it is paid
+//!
+//! It commandeers the real desktop. Three mitigations, all mechanical:
+//!
+//! * [`Driver::new`] records the pointer position and [`Driver`]'s [`Drop`]
+//!   puts it back, on every path including a panic.
+//! * [`Driver::click_at`] and [`Driver::press`] raise the target window first,
+//!   and `press` refuses if there is no window — a keystroke sent to the wrong
+//!   window is not a failed keystroke, it is a keystroke into the operator's
+//!   editor.
+//! * Checks are short, and each one holds the desktop for a couple of seconds
+//!   rather than a couple of minutes.
+//!
+//! The harness is honest about this rather than clever: it is a foreground
+//! activity, it says so when it starts, and `--no-input` turns it off (whereupon
+//! the checks that need it report SKIPPED, never PASS).
+//!
+//! # The PowerShell fallback
+//!
+//! [`PowerShellDriver`] does the same three operations by shelling out to
+//! `Add-Type`'d `user32` P/Invokes. It exists for two reasons: it is what the
+//! predecessor scripts used, so a finding reproduced there can be reproduced
+//! here; and it keeps the harness usable if the `windows-sys` binding ever has
+//! to be dropped. It is **not** the default — it costs a process per event,
+//! which turns a three-event click into three process spawns and makes the
+//! timing unlike a real click.
+
+use std::time::Duration;
+
+use crate::coords::ScreenPoint;
+use crate::error::{Error, Result};
+use crate::sys::{self, WindowHandle};
+
+/// How long the primary button stays down during a synthetic click.
+///
+/// Long enough that the application sees a press and a release on different
+/// frames, which is what a real click looks like. Zero-length clicks have been
+/// observed to be coalesced by frameworks that sample input once per frame,
+/// and a coalesced click is a click the application never saw.
+const CLICK_HOLD: Duration = Duration::from_millis(60);
+
+/// How long to wait after moving the pointer before pressing.
+///
+/// The application needs at least one frame to process the move and update its
+/// hover state; several widgets only respond to a click when they were hovered
+/// on the preceding frame.
+const MOVE_SETTLE: Duration = Duration::from_millis(80);
+
+/// The OS-level input driver.
+///
+/// Owns the operator's pointer position for its lifetime and returns it on
+/// drop.
+pub struct Driver {
+    original_cursor: Option<(i32, i32)>,
+    target: Option<WindowHandle>,
+}
+
+impl Driver {
+    /// Take the pointer, remembering where it was.
+    ///
+    /// `target` is the window every action is aimed at. It is required for
+    /// keystrokes and used to raise before pointer actions.
+    #[must_use]
+    pub fn new(target: Option<WindowHandle>) -> Self {
+        Self {
+            original_cursor: sys::cursor_position().ok(),
+            target,
+        }
+    }
+
+    /// Move the pointer and click the primary button.
+    ///
+    /// The window is raised first: a click on a window that is not in front is
+    /// consumed by the click-to-focus of whatever *is*, and the application
+    /// under test sees nothing. That failure looks identical to a hit test
+    /// returning nothing.
+    pub fn click_at(&self, p: ScreenPoint) -> Result<()> {
+        self.raise();
+        sys::set_cursor_position(p.x(), p.y())?;
+        std::thread::sleep(MOVE_SETTLE);
+        sys::mouse_button(true);
+        std::thread::sleep(CLICK_HOLD);
+        sys::mouse_button(false);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    /// Move the pointer without clicking — for hover assertions, and for
+    /// getting the pointer off a widget before a screenshot.
+    pub fn move_to(&self, p: ScreenPoint) -> Result<()> {
+        sys::set_cursor_position(p.x(), p.y())?;
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    /// Press and release a virtual key, in the target window.
+    ///
+    /// # Errors
+    ///
+    /// If there is no target window. Refusing is the whole point: keystrokes
+    /// go to the foreground window, and if the harness does not know which
+    /// window that should be, the keystroke lands in whatever the operator was
+    /// typing in. There is no safe default here, so there is no default.
+    pub fn press(&self, vk: u16) -> Result<()> {
+        if self.target.is_none() {
+            return Err(Error::new(
+                "refusing to send a keystroke with no target window: it would go to whatever \
+                 window is in front, which may be the operator's own",
+            ));
+        }
+        self.raise();
+        std::thread::sleep(MOVE_SETTLE);
+        sys::key_stroke(vk);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    fn raise(&self) {
+        if let Some(w) = self.target {
+            sys::raise_window(w);
+        }
+    }
+}
+
+impl Drop for Driver {
+    /// Put the operator's pointer back where it was.
+    fn drop(&mut self) {
+        if let Some((x, y)) = self.original_cursor {
+            let _ = sys::set_cursor_position(x, y);
+        }
+    }
+}
+
+/// The same three operations, through PowerShell.
+///
+/// Kept for the reasons in the module docs. Not the default; one process per
+/// event.
+pub struct PowerShellDriver;
+
+impl PowerShellDriver {
+    /// Move the pointer and click, via `user32` P/Invokes in PowerShell.
+    pub fn click_at(p: ScreenPoint) -> Result<()> {
+        let script = format!(
+            "Add-Type -Namespace UiVerify -Name U -MemberDefinition '\
+             [DllImport(\"user32.dll\")] public static extern bool SetCursorPos(int x,int y);\
+             [DllImport(\"user32.dll\")] public static extern void mouse_event(uint f,int x,int y,int d,System.UIntPtr e);'; \
+             [UiVerify.U]::SetCursorPos({},{}) | Out-Null; Start-Sleep -Milliseconds 80; \
+             [UiVerify.U]::mouse_event(0x0002,0,0,0,[System.UIntPtr]::Zero); \
+             Start-Sleep -Milliseconds 60; \
+             [UiVerify.U]::mouse_event(0x0004,0,0,0,[System.UIntPtr]::Zero)",
+            p.x(),
+            p.y()
+        );
+        run_powershell(&script)
+    }
+
+    /// Press and release a virtual key, via `user32` P/Invokes in PowerShell.
+    pub fn press(vk: u16) -> Result<()> {
+        let script = format!(
+            "Add-Type -Namespace UiVerify -Name K -MemberDefinition '\
+             [DllImport(\"user32.dll\")] public static extern void keybd_event(byte v,byte s,uint f,System.UIntPtr e);'; \
+             [UiVerify.K]::keybd_event({vk},0,0,[System.UIntPtr]::Zero); \
+             Start-Sleep -Milliseconds 40; \
+             [UiVerify.K]::keybd_event({vk},0,2,[System.UIntPtr]::Zero)"
+        );
+        run_powershell(&script)
+    }
+}
+
+fn run_powershell(script: &str) -> Result<()> {
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .map_err(|e| Error::new(format!("cannot run powershell: {e}")))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(Error::new(format!(
+            "powershell input step failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )))
+    }
+}

@@ -1,0 +1,330 @@
+//! # `canvas::handles` — eight grips plus move, and the cursor over each
+//!
+//! `GUI_ROADMAP.md` Phase 1.3: *"Eight handles plus move, per the convention
+//! every drawing tool shares. Cursor changes over a handle, over a movable
+//! object, over the canvas."*
+//!
+//! ## Rule 4 says these are welcome, and says exactly why
+//!
+//! `D:\Dev\FeatureRequests\pdfce_FeatureRequests\README.md`, fourth clause of
+//! the disclosure rule:
+//!
+//! > **A pre-commit affordance is not content marking.** A snap indicator, a
+//! > hover highlight, a rubber-band, a selection handle — these are the
+//! > *cursor*; they describe what is about to happen and they are welcome.
+//! > What is forbidden is styling content that has **already been applied**
+//! > as though it were pending.
+//!
+//! So the grips are drawn, and nothing else is. No badge, no tint, no dashed
+//! "provisional" layer over content, nothing that would make a screenshot of
+//! the editing canvas differ from a screenshot of the same document saved and
+//! reopened. The grips vanish with the selection because they are the
+//! cursor's statement about the selection, not a property of the page.
+//!
+//! ## ★ These are SCREEN-space rects, deliberately, and it is the one place
+//!
+//! Everything else in `canvas/` past [`crate::canvas::mapping`] is page
+//! space. A grip is the exception and must be: it is a **fixed number of
+//! screen pixels**, because it is something the operator has to hit with a
+//! mouse, and a grip sized in page units would be a 3-pixel speck at fit-page
+//! and a slab the size of the object at 800%. It sits on the *output* side of
+//! the boundary — the selection's bounds are converted to screen once, by
+//! [`crate::canvas::mapping::PageMapping::rect_to_screen`], and the grips are
+//! laid out on the result.
+//!
+//! ## What a grip drag does today, stated so it is not mistaken for an oversight
+//!
+//! [`Grip::Move`] is live: a drag on the selection's body moves it, through
+//! `EditSession::move_objects`.
+//!
+//! The **eight resize grips change the cursor and consume the drag, and
+//! perform no edit yet.** That is not a placeholder left in by accident, and
+//! the reason is worth writing down rather than rediscovering: `pdfce-core`
+//! has `move_object`, `move_objects`, `move_subpath`, `move_node`,
+//! `move_nodes` and `move_handle` — and **no scale or resize verb for a
+//! vector object at all**. `GUI_ROADMAP.md` 1.2 (*"move and resize anything
+//! carrying a `/Rect`"*, `FEATURES.md:208`) is the row that gives them one,
+//! and it covers annotations, form widgets, redaction marks, links and ce
+//! dimensions — objects whose size is a rectangle in the file rather than a
+//! consequence of their path data.
+//!
+//! Consuming the drag is the deliberate part. Without it, a drag that started
+//! on a grip would fall through and become a **marquee**, so aiming at a
+//! resize handle would silently replace the selection the operator was trying
+//! to resize. Swallowing the gesture is the honest behaviour until the verb
+//! exists.
+
+use egui::{CursorIcon, Pos2, Rect, Vec2};
+
+/// The side length of a grip square, in screen points.
+///
+/// Large enough to hit with a mouse without a steady hand, small enough that
+/// eight of them around a modest selection do not obscure it. It is also the
+/// *drawn* size — grip and target are the same square, which is what makes
+/// "aim at the thing you can see" true rather than approximately true.
+pub const GRIP_SIZE_PX: f32 = 8.0;
+
+/// Extra slack, in screen points, around a grip's drawn square when
+/// hit-testing it.
+///
+/// Small and asymmetric with the selection catch radius on purpose: a grip is
+/// a visible target the operator is aiming at, so it needs far less
+/// forgiveness than an invisible hairline does, and every point of slack here
+/// is a point stolen from the body-drag region just inside it.
+pub const GRIP_GRAB_SLACK_PX: f32 = 2.0;
+
+/// The smallest box, in screen points, that gets mid-edge grips on an axis.
+///
+/// Below three grip-widths the mid-edge grip would sit on top of its two
+/// corner neighbours, producing an unaimable pile that looks like a rendering
+/// fault. Corner grips are always offered — they are the ones that survive a
+/// small box — so nothing is unreachable, there is simply less on screen.
+pub const MIN_MID_GRIP_EXTENT_PX: f32 = GRIP_SIZE_PX * 3.0;
+
+/// One grip on the selection's bounding box.
+///
+/// Named by compass point rather than by index, because an index would have
+/// to be read against a table to know which corner it meant, and the cursor
+/// mapping below is exactly such a table — written once, here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Grip {
+    /// Top-left corner.
+    NorthWest,
+    /// Top edge, centred.
+    North,
+    /// Top-right corner.
+    NorthEast,
+    /// Right edge, centred.
+    East,
+    /// Bottom-right corner.
+    SouthEast,
+    /// Bottom edge, centred.
+    South,
+    /// Bottom-left corner.
+    SouthWest,
+    /// Left edge, centred.
+    West,
+    /// The body of the selection — the ninth affordance, and the only one
+    /// with a verb behind it today.
+    ///
+    /// Not drawn as a square: the whole interior *is* the target, which is
+    /// what every drawing tool does and what an operator will try first.
+    Move,
+}
+
+impl Grip {
+    /// The eight resize grips, clockwise from the top-left.
+    ///
+    /// Clockwise so the order is the one a reader traces with a finger, which
+    /// makes an off-by-one in a table obvious rather than plausible.
+    pub const RESIZE: [Self; 8] = [
+        Self::NorthWest,
+        Self::North,
+        Self::NorthEast,
+        Self::East,
+        Self::SouthEast,
+        Self::South,
+        Self::SouthWest,
+        Self::West,
+    ];
+
+    /// The cursor shown while the pointer is over this grip.
+    ///
+    /// The diagonal cursors are *shared between opposite corners* — NW and SE
+    /// both read as `ResizeNwSe` — because that is what the cursor is
+    /// describing: the **axis of the resize**, not which corner is under the
+    /// hand. Every platform's own resize cursors work this way, and giving
+    /// each corner its own arrow would be a private convention the operator
+    /// has to learn.
+    #[must_use]
+    pub fn cursor(self) -> CursorIcon {
+        match self {
+            Self::NorthWest | Self::SouthEast => CursorIcon::ResizeNwSe,
+            Self::NorthEast | Self::SouthWest => CursorIcon::ResizeNeSw,
+            Self::North | Self::South => CursorIcon::ResizeVertical,
+            Self::East | Self::West => CursorIcon::ResizeHorizontal,
+            Self::Move => CursorIcon::Move,
+        }
+    }
+
+    /// Whether this grip resizes rather than moves.
+    #[must_use]
+    pub fn is_resize(self) -> bool {
+        self != Self::Move
+    }
+
+    /// Where this grip's centre sits on a screen-space bounding box.
+    ///
+    /// [`Self::Move`] answers with the box's centre. It has no drawn square,
+    /// so the value is only meaningful as "the middle of the thing" — used by
+    /// nothing that paints, and defined rather than left as an `Option` so
+    /// every arm of the enum has an answer and a future caller cannot be
+    /// surprised by a `None`.
+    #[must_use]
+    pub fn anchor(self, bounds: Rect) -> Pos2 {
+        let mid = bounds.center();
+        match self {
+            Self::NorthWest => bounds.left_top(),
+            Self::North => Pos2::new(mid.x, bounds.top()),
+            Self::NorthEast => bounds.right_top(),
+            Self::East => Pos2::new(bounds.right(), mid.y),
+            Self::SouthEast => bounds.right_bottom(),
+            Self::South => Pos2::new(mid.x, bounds.bottom()),
+            Self::SouthWest => bounds.left_bottom(),
+            Self::West => Pos2::new(bounds.left(), mid.y),
+            Self::Move => mid,
+        }
+    }
+}
+
+/// The grips to draw for a screen-space selection box, with their squares.
+///
+/// Mid-edge grips are omitted on an axis shorter than
+/// [`MIN_MID_GRIP_EXTENT_PX`] — see that constant for why. The corners are
+/// always present, so a selection is never left with nothing to grab.
+///
+/// `bounds` must already be the **visible** box, i.e. after
+/// [`crate::canvas::overlay::visible_outline_rect`] has grown a degenerate
+/// one. A zero-height rule would otherwise get eight grips stacked along a
+/// line, which is both unaimable and a fair description of nothing.
+#[must_use]
+pub fn grip_rects(bounds: Rect) -> Vec<(Grip, Rect)> {
+    let wide = bounds.width() >= MIN_MID_GRIP_EXTENT_PX;
+    let tall = bounds.height() >= MIN_MID_GRIP_EXTENT_PX;
+    Grip::RESIZE
+        .into_iter()
+        .filter(|g| match g {
+            Grip::North | Grip::South => wide,
+            Grip::East | Grip::West => tall,
+            _ => true,
+        })
+        .map(|g| {
+            (
+                g,
+                Rect::from_center_size(g.anchor(bounds), Vec2::splat(GRIP_SIZE_PX)),
+            )
+        })
+        .collect()
+}
+
+/// Which grip a screen-space `pointer` is over, or `None` if it is over
+/// neither a grip nor the selection's body.
+///
+/// # Resize grips win over the body, and that is not arbitrary
+///
+/// The corner grips sit *on* the box's edge, so half of each square overlaps
+/// the interior. If the body won, the corner grips would be half-size targets
+/// on their outer halves only — the operator would aim at a square and get a
+/// move. Checking the grips first makes the drawn square and the live target
+/// the same shape, which is the same argument that puts Bézier handles ahead
+/// of the nodes they belong to.
+#[must_use]
+pub fn grip_at(bounds: Rect, pointer: Pos2) -> Option<Grip> {
+    for (grip, rect) in grip_rects(bounds) {
+        if rect.expand(GRIP_GRAB_SLACK_PX).contains(pointer) {
+            return Some(grip);
+        }
+    }
+    bounds.contains(pointer).then_some(Grip::Move)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn box_of(w: f32, h: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(100.0, 200.0), Vec2::new(w, h))
+    }
+
+    /// A comfortable selection offers all eight grips, and each one sits
+    /// where its name says.
+    #[test]
+    fn a_comfortable_box_offers_all_eight_grips_in_the_right_places() {
+        let b = box_of(200.0, 100.0);
+        let grips = grip_rects(b);
+        assert_eq!(grips.len(), 8);
+
+        let at = |g: Grip| {
+            grips
+                .iter()
+                .find(|(k, _)| *k == g)
+                .map(|(_, r)| r.center())
+                .expect("grip present")
+        };
+        assert_eq!(at(Grip::NorthWest), b.left_top());
+        assert_eq!(at(Grip::SouthEast), b.right_bottom());
+        assert_eq!(at(Grip::North), Pos2::new(b.center().x, b.top()));
+        assert_eq!(at(Grip::West), Pos2::new(b.left(), b.center().y));
+    }
+
+    /// A box too narrow for a mid-edge grip drops it rather than piling it
+    /// on top of the corners — but keeps every corner, so nothing becomes
+    /// unreachable.
+    #[test]
+    fn a_narrow_box_drops_its_mid_edge_grips_and_keeps_its_corners() {
+        let narrow = box_of(10.0, 200.0);
+        let kinds: Vec<Grip> = grip_rects(narrow).into_iter().map(|(g, _)| g).collect();
+        assert!(!kinds.contains(&Grip::North));
+        assert!(!kinds.contains(&Grip::South));
+        assert!(kinds.contains(&Grip::East), "the tall axis keeps its grips");
+        for corner in [
+            Grip::NorthWest,
+            Grip::NorthEast,
+            Grip::SouthEast,
+            Grip::SouthWest,
+        ] {
+            assert!(kinds.contains(&corner), "{corner:?} must always be offered");
+        }
+
+        // …and symmetrically for a short one.
+        let short = box_of(200.0, 10.0);
+        let kinds: Vec<Grip> = grip_rects(short).into_iter().map(|(g, _)| g).collect();
+        assert!(!kinds.contains(&Grip::East));
+        assert!(kinds.contains(&Grip::North));
+    }
+
+    /// A grip wins over the body where they overlap, so the drawn square and
+    /// the live target are the same shape.
+    #[test]
+    fn a_grip_wins_over_the_body_where_they_overlap() {
+        let b = box_of(200.0, 100.0);
+        // Just inside the top-left corner — inside the body, and inside the
+        // NW grip's square.
+        assert_eq!(
+            grip_at(b, b.left_top() + Vec2::splat(2.0)),
+            Some(Grip::NorthWest)
+        );
+        // Well inside: the body.
+        assert_eq!(grip_at(b, b.center()), Some(Grip::Move));
+        // Well outside: nothing.
+        assert_eq!(grip_at(b, b.left_top() - Vec2::splat(60.0)), None);
+    }
+
+    /// Every grip has a cursor, opposite corners share an axis cursor, and
+    /// the move grip is the only one that is not a resize.
+    #[test]
+    fn opposite_corners_share_a_resize_axis_and_move_stands_apart() {
+        assert_eq!(Grip::NorthWest.cursor(), Grip::SouthEast.cursor());
+        assert_eq!(Grip::NorthEast.cursor(), Grip::SouthWest.cursor());
+        assert_eq!(Grip::North.cursor(), Grip::South.cursor());
+        assert_eq!(Grip::East.cursor(), Grip::West.cursor());
+        assert_ne!(Grip::NorthWest.cursor(), Grip::NorthEast.cursor());
+        assert_eq!(Grip::Move.cursor(), CursorIcon::Move);
+        assert!(!Grip::Move.is_resize());
+        assert!(Grip::RESIZE.iter().all(|g| g.is_resize()));
+        assert_eq!(Grip::RESIZE.len(), 8, "eight grips, plus move");
+    }
+
+    /// The grips are a fixed number of SCREEN points, so they do not change
+    /// size with the zoom — the one place screen space is used inside the
+    /// selection layer, and the property that makes it correct.
+    #[test]
+    fn grips_are_the_same_size_however_big_the_selection_is() {
+        for (w, h) in [(40.0, 40.0), (2_000.0, 1_400.0), (60.0, 5_000.0)] {
+            for (_, r) in grip_rects(box_of(w, h)) {
+                assert!((r.width() - GRIP_SIZE_PX).abs() < f32::EPSILON);
+                assert!((r.height() - GRIP_SIZE_PX).abs() < f32::EPSILON);
+            }
+        }
+    }
+}

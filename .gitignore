@@ -1,0 +1,12 @@
+# Build output
+/target
+**/target
+
+# ui-verify artefacts — screenshots and diag traces are evidence for a
+# single run, not source. Anything worth keeping is copied to evidence/.
+/tools/ui-verify/out
+*.diag.txt
+
+# OS / editor
+Thumbs.db
+.DS_Store

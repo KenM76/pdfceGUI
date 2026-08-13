@@ -1,0 +1,588 @@
+<title>pdfce Scene Mockups</title>
+<style>
+  :root{
+    --bg:#f2f2f3; --surface:#fafafa; --panel:#e9e9ea; --line:#c9c9cd;
+    --text:#1d1f24; --muted:#5e6066; --accent:#2f6fb5; --accentsoft:#dbe8f6;
+    --new:#f5a623; --newsoft:#fdf0d9; --core:#3f8f6f; --coresoft:#dcefe6;
+    --canvas:#fff; --ink:#8a8a8a; --shadow:rgba(0,0,0,.10); --hot:#d1452b;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#1b1d21; --surface:#24262b; --panel:#2b2e34; --line:#3d4148;
+    --text:#e8e9ec; --muted:#9ba0a8; --accent:#6aa6e8; --accentsoft:#243a52;
+    --newsoft:#3a2f1c; --coresoft:#1f3329; --shadow:rgba(0,0,0,.5);
+  }}
+  :root[data-theme="dark"]{
+    --bg:#1b1d21; --surface:#24262b; --panel:#2b2e34; --line:#3d4148;
+    --text:#e8e9ec; --muted:#9ba0a8; --accent:#6aa6e8; --accentsoft:#243a52;
+    --newsoft:#3a2f1c; --coresoft:#1f3329; --shadow:rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);padding:28px 20px 70px;
+    font:14px/1.55 "Segoe UI",Inter,system-ui,sans-serif}
+  .wrap{max-width:1240px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 8px;max-width:80ch}
+  h2{font-size:18px;margin:44px 0 3px}
+  .q{color:var(--muted);font-size:13.5px;margin:0 0 12px;max-width:82ch}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;background:var(--surface);
+    border:1px solid var(--line);border-radius:8px;padding:11px 14px;
+    margin:18px 0 8px;font-size:13px}
+  .key{display:inline-flex;align-items:center;gap:7px}
+  .chip{width:13px;height:13px;border-radius:3px;border:1px solid var(--line)}
+  .chip.g{background:var(--surface)} .chip.c{background:var(--coresoft);border-color:var(--core)}
+  .chip.n{background:var(--newsoft);border-color:var(--new)}
+
+  .app{border:1px solid var(--line);border-radius:9px;overflow:hidden;
+    box-shadow:0 6px 22px var(--shadow);background:var(--surface);margin-bottom:6px}
+  .titlebar{display:flex;align-items:center;gap:9px;padding:6px 11px;background:var(--panel);
+    border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+  .qat{display:flex;align-items:center;gap:6px;padding:5px 10px;
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .tabstrip{display:flex;gap:2px;margin-left:8px}
+  .tab{padding:3px 12px;border-radius:5px 5px 0 0;font-size:12.5px;
+    border:1px solid transparent;border-bottom:none}
+  .tab.on{background:var(--accentsoft);border-color:var(--line);font-weight:600}
+  .tab.ctx{color:var(--accent);font-style:italic}
+  .tab.ctx.on{background:var(--accentsoft);color:var(--accent)}
+  .docinfo{margin-left:auto;color:var(--muted);font-size:11.5px}
+  .band{display:flex;padding:7px 9px 3px;border-bottom:1px solid var(--line);
+    overflow-x:auto;min-height:76px}
+  .group{display:flex;flex-direction:column;justify-content:space-between;
+    padding:0 12px;border-right:1px solid var(--line)}
+  .group:last-child{border-right:none}
+  .gcmds{display:flex;flex-wrap:wrap;gap:4px;max-width:400px}
+  .gcap{text-align:center;font-size:10px;color:var(--muted);padding-top:5px}
+  .cmd,.btn{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;
+    border:1px solid var(--line);border-radius:5px;background:var(--surface);
+    font-size:12px;white-space:nowrap;color:var(--text)}
+  .cmd.core{background:var(--coresoft);border-color:var(--core)}
+  .cmd.new{background:var(--newsoft);border-color:var(--new)}
+  .cmd.on{background:var(--accentsoft);border-color:var(--accent);font-weight:600}
+  .btn.ghost{border-color:transparent}
+  .sel{background:#fff;border:1px solid var(--line);border-radius:4px;
+    padding:2px 6px;font-size:11.5px;color:#1d1f24}
+
+  .body{display:flex;height:340px;background:var(--panel);position:relative}
+  .rail{width:184px;border-right:1px solid var(--line);background:var(--surface);
+    display:flex;flex-direction:column;min-width:0}
+  .railtabs{display:flex;border-bottom:1px solid var(--line)}
+  .railtab{flex:1;text-align:center;font-size:11px;padding:4px 2px;color:var(--muted)}
+  .railtab.on{background:var(--accentsoft);color:var(--text);font-weight:600}
+  .thumbs{padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:7px 8px;
+    align-content:start;overflow:hidden}
+  .th{aspect-ratio:1.414/1;background:#fff;border:1px solid var(--ink);border-radius:2px;
+    position:relative;font-size:0}
+  .th.sel{outline:2px solid var(--accent);outline-offset:1px}
+  .th em{position:absolute;bottom:-14px;left:0;right:0;text-align:center;
+    font-size:9.5px;font-style:normal;color:var(--muted)}
+  .toolopts{padding:9px 10px;font-size:11.5px;overflow:hidden}
+  .toolopts h5{margin:0 0 6px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--muted)}
+  .orow{display:flex;justify-content:space-between;align-items:center;
+    gap:8px;padding:3px 0}
+  .canvas{flex:1;display:flex;align-items:center;justify-content:center;
+    padding:14px;position:relative;min-width:0}
+  .sheet{width:100%;height:100%;background:#fff;border:1px solid var(--ink);
+    position:relative;box-shadow:0 2px 8px var(--shadow)}
+  .tblock{position:absolute;right:7px;bottom:7px;width:33%;height:27%;
+    border:1px solid var(--ink);background:#fff;display:grid;
+    grid-template-rows:auto 1fr auto;font-size:6.5px;color:#333}
+  .tblock i{background:#2b2b2b;color:#fff;padding:2px 4px;font-style:normal}
+  .tblock u{border-top:1px solid #ddd;padding:2px 4px;text-decoration:none;color:#c86a17}
+  .props{width:206px;border-left:1px solid var(--line);background:var(--surface);
+    padding:8px 10px;font-size:11.5px;overflow:hidden}
+  .props h5{margin:0 0 6px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--muted)}
+  .prow{display:flex;justify-content:space-between;gap:8px;padding:2px 0;
+    border-bottom:1px dotted var(--line)}
+  .prow b{font-weight:500;color:var(--muted)}
+  .status{display:flex;align-items:center;gap:9px;padding:4px 10px;background:var(--surface);
+    border-top:1px solid var(--line);font-size:11.5px}
+  .status .sp{flex:1}
+  .pgbox{border:1px solid var(--accent);border-radius:4px;padding:0 6px;font-weight:600}
+
+  /* overlays on the sheet */
+  .obj{position:absolute;border:1.5px solid var(--accent)}
+  .h{position:absolute;width:7px;height:7px;background:#fff;border:1.5px solid var(--accent)}
+  .ctxmenu{position:absolute;background:var(--surface);border:1px solid var(--line);
+    border-radius:6px;box-shadow:0 8px 20px var(--shadow);padding:4px;
+    font-size:12px;min-width:174px;z-index:5}
+  .ctxmenu div{padding:4px 10px;border-radius:4px;display:flex;
+    justify-content:space-between;gap:14px}
+  .ctxmenu div:hover{background:var(--accentsoft)}
+  .ctxmenu hr{border:none;border-top:1px solid var(--line);margin:4px 2px}
+  .ctxmenu span{color:var(--muted);font-size:11px}
+  .caret{position:absolute;width:1.5px;background:var(--text);animation:bl 1s steps(2) infinite}
+  @keyframes bl{50%{opacity:0}}
+  .marq{position:absolute;border:1px dashed var(--accent);background:rgba(47,111,181,.10)}
+  .dim{position:absolute;border-top:1.5px solid var(--hot)}
+  .dim::before,.dim::after{content:"";position:absolute;top:-5px;width:1.5px;
+    height:11px;background:var(--hot)}
+  .dim::before{left:0} .dim::after{right:0}
+  .dimlab{position:absolute;background:#fff;border:1px solid var(--hot);color:var(--hot);
+    font-size:9px;padding:0 4px;border-radius:2px}
+
+  .notes{margin:8px 0 0;padding:0;list-style:none;display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:9px}
+  .notes li{background:var(--surface);border:1px solid var(--line);
+    border-left:3px solid var(--new);border-radius:0 7px 7px 0;padding:8px 11px;font-size:12.5px}
+  .notes li b{display:block;margin-bottom:1px}
+  code{font:12px ui-monospace,Consolas,monospace;background:var(--panel);
+    padding:1px 5px;border-radius:3px}
+</style>
+
+<div class="wrap">
+<h1>pdfce — scene mockups</h1>
+<p class="sub">Six states of the proposed GUI. These show the panels and canvas, not just the ribbon band — the point is what the whole window does as context changes.</p>
+
+<div class="legend">
+  <span class="key"><span class="chip g"></span> exists in the GUI</span>
+  <span class="key"><span class="chip c"></span> exists in core / CLI — needs a shell</span>
+  <span class="key"><span class="chip n"></span> new build</span>
+</div>
+
+<!-- ============ SCENE 1 ============ -->
+<h2>1 · Object selected — the contextual Format tab and the properties panel, together</h2>
+<p class="q">Your answer was “both”. The <b>Format</b> tab carries the edits you reach for mid-gesture; the <b>properties panel</b> carries the full set and survives a tab switch. Right-click gives the same commands a third way. Today none of these three exist: selecting an object produces a tree row and nothing else.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab">Pages</span><span class="tab">Edit</span><span class="tab">Markup</span>
+      <span class="tab">Measure</span><span class="tab">Tools</span>
+      <span class="tab ctx on">Format</span></nav>
+    <span class="docinfo">1 object selected</span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Stroke ■</span><span class="cmd new">Fill ▨</span>
+      <span class="cmd new">Width 1.43</span><span class="cmd new">Style ⌄</span>
+      <span class="cmd new">Opacity 100%</span></div><div class="gcap">Appearance</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Add node</span><span class="cmd new">Delete node</span>
+      <span class="cmd new">Corner</span><span class="cmd new">Smooth</span></div><div class="gcap">Nodes</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Align ⌄</span><span class="cmd new">Forward</span>
+      <span class="cmd new">Backward</span><span class="cmd new">Flip ⌄</span></div><div class="gcap">Arrange</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Duplicate</span><span class="cmd new">Delete</span></div><div class="gcap">Actions</div></div>
+  </div>
+  <div class="body">
+    <div class="rail">
+      <div class="railtabs"><div class="railtab on">Pages</div><div class="railtab">Tool options</div></div>
+      <div class="thumbs">
+        <div class="th sel"><em>1</em></div><div class="th"><em>2</em></div>
+        <div class="th"><em>3</em></div><div class="th"><em>4</em></div>
+        <div class="th"><em>5</em></div><div class="th"><em>6</em></div>
+      </div>
+    </div>
+    <div class="canvas">
+      <div class="sheet">
+        <div class="obj" style="left:18%;top:22%;width:26%;height:19%"></div>
+        <div class="h" style="left:calc(18% - 4px);top:calc(22% - 4px)"></div>
+        <div class="h" style="left:calc(31% - 4px);top:calc(22% - 4px)"></div>
+        <div class="h" style="left:calc(44% - 4px);top:calc(22% - 4px)"></div>
+        <div class="h" style="left:calc(18% - 4px);top:calc(31.5% - 4px)"></div>
+        <div class="h" style="left:calc(44% - 4px);top:calc(31.5% - 4px)"></div>
+        <div class="h" style="left:calc(18% - 4px);top:calc(41% - 4px)"></div>
+        <div class="h" style="left:calc(31% - 4px);top:calc(41% - 4px)"></div>
+        <div class="h" style="left:calc(44% - 4px);top:calc(41% - 4px)"></div>
+        <div class="ctxmenu" style="left:45%;top:40%">
+          <div>Cut <span>Ctrl+X</span></div>
+          <div>Copy <span>Ctrl+C</span></div>
+          <div>Paste in place <span>Ctrl+Shift+V</span></div>
+          <hr>
+          <div><b>Delete</b> <span>Del</span></div>
+          <div>Duplicate <span>Ctrl+D</span></div>
+          <hr>
+          <div>Bring forward</div>
+          <div>Send backward</div>
+          <hr>
+          <div>Properties…</div>
+          <div>Show in Objects panel</div>
+        </div>
+        <div class="tblock"><i>Construction drawing</i>
+          <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div>
+      </div>
+    </div>
+    <div class="props">
+      <h5>Path</h5>
+      <div class="prow"><b>Stroke</b><span class="sel">#D97706</span></div>
+      <div class="prow"><b>Fill</b><span>none</span></div>
+      <div class="prow"><b>Width</b><span class="sel">1.43 pt</span></div>
+      <div class="prow"><b>Nodes</b><span>6</span></div>
+      <div class="prow"><b>Winding</b><span>even-odd</span></div>
+      <div class="prow"><b>Opacity</b><span class="sel">100 %</span></div>
+      <h5 style="margin-top:11px">Geometry</h5>
+      <div class="prow"><b>X · Y</b><span class="sel">142.0 · 388.5</span></div>
+      <div class="prow"><b>W · H</b><span class="sel">210.4 · 112.9</span></div>
+      <h5 style="margin-top:11px">Page</h5>
+      <div class="prow"><b>Objects</b><span>28</span></div>
+      <div class="prow"><b>Annotations</b><span>12</span></div>
+    </div>
+  </div>
+  <div class="status"><span style="color:var(--muted)">▸ ⚠ 119 substitute glyphs</span>
+    <span class="sp"></span><span class="btn ghost">🔍 Find</span>
+    <span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span>
+    <span class="btn ghost">Fit page</span></div>
+</div>
+<ul class="notes">
+  <li><b>W · H are editable</b>Typing a width resizes the object. This is the <code>/Rect</code> move-and-resize row that also unblocks markup, form widgets, redaction marks and links.</li>
+  <li><b>Delete is bold in the menu</b>Because after the focus fix it finally works, and the context menu is the path a user tries second.</li>
+  <li><b>Format appears and disappears</b>It exists only while something is selected, so it never adds a tab to scan when nothing is.</li>
+</ul>
+
+<!-- ============ SCENE 2 ============ -->
+<h2>2 · View tab — render options, as you asked</h2>
+<p class="q">You found whole-page raster faster and more pleasant to pan and zoom than the tiled competitor. That is a real trade, not a weakness: one texture scaled during the settle gives smooth motion with no tile seams and no progressive fill-in. So the answer is not to replace it — it is to expose the choice, which is what R169 says to do with anything genuinely undetermined.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab on">View</span>
+      <span class="tab">Pages</span><span class="tab">Edit</span><span class="tab">Markup</span>
+      <span class="tab">Measure</span><span class="tab">Tools</span></nav>
+    <span class="docinfo">PDF 1.7 · 42 pages</span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd on">Single</span><span class="cmd new">Continuous</span>
+      <span class="cmd new">Facing</span><span class="cmd new">Facing cont.</span>
+    </div><div class="gcap">Page display</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Whole page</span><span class="cmd new">Tiled</span>
+      <span class="cmd new">Quality ⌄</span><span class="cmd new">Settle 150 ms</span>
+      <span class="cmd new">Thin lines</span><span class="cmd new">Antialias ⌄</span>
+    </div><div class="gcap">Render</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">↺</span><span class="cmd new">↻</span>
+    </div><div class="gcap">Rotate view</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">To selection</span><span class="cmd new">To region</span>
+      <span class="cmd">Actual</span><span class="cmd">Fit page</span><span class="cmd">Fit width</span>
+    </div><div class="gcap">Zoom</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd on">Annotations</span><span class="cmd">Points</span>
+      <span class="cmd new">Rulers</span><span class="cmd new">Grid</span>
+    </div><div class="gcap">Display</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd on">Pages</span><span class="cmd">Objects</span><span class="cmd">Bookmarks</span>
+      <span class="cmd">Layers</span><span class="cmd">Comments</span>
+    </div><div class="gcap">Panels</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Read mode</span><span class="cmd">Full screen</span>
+      <span class="cmd new">Floating panels ⌄</span><span class="cmd new">App initiative ⌄</span>
+      <span class="cmd new">Save workspace…</span><span class="cmd">Reset layout…</span>
+    </div><div class="gcap">Window</div></div>
+  </div>
+  <div class="body">
+    <div class="rail">
+      <div class="railtabs"><div class="railtab">Pages</div><div class="railtab on">Tool options</div></div>
+      <div class="toolopts">
+        <h5>Render strategy</h5>
+        <div class="orow"><span>◉ Whole page</span></div>
+        <div style="color:var(--muted);font-size:10.5px;padding:0 0 5px 12px">
+          One texture for the sheet. Smoothest pan and zoom — no seams, no fill-in.
+          Costs a full re-raster after you stop moving.</div>
+        <div class="orow"><span>○ Tiled, progressive</span></div>
+        <div style="color:var(--muted);font-size:10.5px;padding:0 0 6px 12px">
+          Only visible tiles. First pixels arrive sooner on very large sheets;
+          the page fills in piece by piece as you look at it.</div>
+        <h5 style="margin-top:9px">Quality</h5>
+        <div class="orow"><span>Raster scale</span><span class="sel">2.0 ×</span></div>
+        <div class="orow"><span>Settle delay</span><span class="sel">150 ms</span></div>
+        <div class="orow"><span>Text antialias</span><span class="sel">on</span></div>
+        <div class="orow"><span>Vector antialias</span><span class="sel">on</span></div>
+        <div class="orow"><span>Thin lines</span><span class="sel">off</span></div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+  </div>
+  <div class="status"><span style="color:var(--muted)">▸ render 41 ms · whole page · 2.0×</span>
+    <span class="sp"></span><span class="btn ghost">🔍 Find</span>
+    <span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span></div>
+</div>
+<ul class="notes">
+  <li><b>Whole page stays the default</b>It is what you measured as better. Tiled is the opt-in for sheets big enough that time-to-first-pixel matters more than smoothness.</li>
+  <li><b>Settle delay is exposed</b><code>ZOOM_SETTLE</code> is currently a 150 ms constant. On a fast machine and a light sheet, lower is better; on a huge one, higher. That is exactly a setting.</li>
+  <li><b>Thin lines</b>CAD hairline rendering — draw every stroke one pixel wide regardless of zoom. The competitor has this; drawings need it.</li>
+</ul>
+
+<!-- ============ SCENE 3 ============ -->
+<h2>3 · Editing — no master switch, the way other programs work</h2>
+<p class="q">Your answer: make it work the way other programs do. So the global <b>Editing on</b> toggle goes away entirely. Selection and Delete always work. Picking a tool arms that tool, and the tool disarms when you press Escape or pick another. There is no state in which clicking does nothing without saying so.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶ Undo Edit text</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab">Pages</span><span class="tab on">Edit</span><span class="tab">Markup</span>
+      <span class="tab">Measure</span><span class="tab">Tools</span>
+      <span class="tab ctx on">Format</span></nav>
+    <span class="docinfo">editing “FOUNDATION”</span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd on">Edit text</span><span class="cmd">Add text</span><span class="cmd">Edit objects</span>
+    </div><div class="gcap">Content</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Image…</span><span class="cmd new">Shape ⌄</span>
+    </div><div class="gcap">Insert</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Align ⌄</span><span class="cmd new">Distribute ⌄</span>
+      <span class="cmd new">Group</span><span class="cmd new">Flip ⌄</span>
+    </div><div class="gcap">Arrange</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Cut</span><span class="cmd new">Copy</span><span class="cmd new">Paste</span>
+      <span class="cmd">Copy page text</span>
+    </div><div class="gcap">Clipboard</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Fill form</span><span class="cmd">Create field ⌄</span><span class="cmd">Flatten</span>
+    </div><div class="gcap">Forms</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Redact ⌄</span><span class="cmd">Apply</span><span class="cmd new">Sanitise…</span>
+    </div><div class="gcap">Protect</div></div>
+  </div>
+  <div class="body">
+    <div class="rail">
+      <div class="railtabs"><div class="railtab">Pages</div><div class="railtab on">Tool options</div></div>
+      <div class="toolopts">
+        <h5>Edit text</h5>
+        <div class="orow"><span>Font</span><span class="sel">JetBrainsMono</span></div>
+        <div class="orow"><span>Size</span><span class="sel">6.0 pt</span></div>
+        <div class="orow"><span>Colour</span><span class="sel">■ #1d1f24</span></div>
+        <div class="orow"><span>Alignment</span><span class="sel">left · detected</span></div>
+        <div class="orow"><span>Block width</span><span class="sel">156 pt</span></div>
+        <div style="color:var(--muted);font-size:10.5px;padding:5px 0">
+          Wrapping at the block width as you type. Undo restores the original
+          line breaks; nothing is written until you accept.</div>
+        <div class="orow" style="margin-top:5px">
+          <span class="cmd on">Accept</span><span class="cmd">Reject</span></div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div style="position:absolute;left:16%;top:24%;width:34%;
+        border:1px dashed var(--accent);padding:4px 6px;font-size:8.5px;
+        background:rgba(47,111,181,.04);line-height:1.5">
+        FOUNDATION PLAN — reinforcement layout revised
+        per structural engineer’s note dated 12 Aug<span class="caret"
+        style="right:-1px;top:4px;bottom:4px;position:relative;display:inline-block;height:9px"></span>
+      </div>
+      <div style="position:absolute;left:16%;top:24%;width:34%;height:0;
+        border-top:1px solid var(--new)"></div>
+      <div style="position:absolute;left:50.2%;top:22.4%;font-size:8px;color:var(--new)">
+        ⟵ 156 pt ⟶</div>
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+    <div class="props">
+      <h5>Text run</h5>
+      <div class="prow"><b>Font</b><span>AAAAAA+JetBrainsMono</span></div>
+      <div class="prow"><b>Embedded</b><span>yes · 10.7 KB</span></div>
+      <div class="prow"><b>Size</b><span class="sel">6.00 pt</span></div>
+      <div class="prow"><b>Char spacing</b><span class="sel">0.00</span></div>
+      <div class="prow"><b>Word spacing</b><span class="sel">0.00</span></div>
+      <div class="prow"><b>Horiz. scale</b><span class="sel">100 %</span></div>
+      <div class="prow"><b>Rotation</b><span>0°</span></div>
+      <h5 style="margin-top:11px">Block</h5>
+      <div class="prow"><b>Runs</b><span>4 · edited as one</span></div>
+      <div class="prow"><b>Lines</b><span>2 → 2</span></div>
+    </div>
+  </div>
+  <div class="status"><span style="color:var(--muted)">▸ live layout · real metrics</span>
+    <span class="sp"></span><span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>140%</span><span class="btn ghost">+</span></div>
+</div>
+<ul class="notes">
+  <li><b>“Runs 4 · edited as one”</b>The end state of Phase 5d. Today a paragraph split across four <code>Tj</code> operators must be edited four times, and a selection across runs silently stops accepting keystrokes.</li>
+  <li><b>Real glyphs while typing</b>Today the draft is ghost text in an egui font at the wrong widths, and snaps to reality on Accept. The metrics path is already correct — it just is not called per keystroke.</li>
+  <li><b>Alignment is detected and shown</b>Because right/centre/justified tails currently move the wrong way — <code>FollowerDisposition::Pin</code> exists and the GUI never passes it.</li>
+</ul>
+
+<!-- ============ SCENE 4 ============ -->
+<h2>4 · Pages tab — the operations that already work, finally on the ribbon</h2>
+<p class="q">Every command here exists and works today. None of it is on any ribbon tab: it lives in the thumbnail rail’s selection bar and in a Batch pane under Tools. The rail keeps its action bar as the fast path; the ribbon becomes the discoverable one.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab on">Pages</span><span class="tab">Edit</span><span class="tab">Markup</span>
+      <span class="tab">Measure</span><span class="tab">Tools</span></nav>
+    <span class="docinfo">3 pages selected</span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd core">Blank</span><span class="cmd">From file…</span><span class="cmd new">Scan</span>
+    </div><div class="gcap">Insert</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Delete</span><span class="cmd">Extract…</span><span class="cmd new">Replace…</span>
+      <span class="cmd">Move ▲</span><span class="cmd">Move ▼</span>
+      <span class="cmd">Split…</span><span class="cmd">Merge in…</span>
+    </div><div class="gcap">Organise</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">↺ Rotate L</span><span class="cmd">↻ Rotate R</span>
+      <span class="cmd new">Crop…</span><span class="cmd new">Resize…</span>
+    </div><div class="gcap">Transform</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Watermark…</span><span class="cmd new">Header & footer…</span>
+      <span class="cmd new">Bates…</span>
+    </div><div class="gcap">Stamp</div></div>
+  </div>
+  <div class="body">
+    <div class="rail" style="width:264px">
+      <div class="railtabs"><div class="railtab on">Pages</div><div class="railtab">Tool options</div></div>
+      <div class="thumbs" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="th sel"><em>1</em></div><div class="th sel"><em>2</em></div><div class="th sel"><em>3</em></div>
+        <div class="th"><em>4</em></div><div class="th"><em>5</em></div><div class="th"><em>6</em></div>
+        <div class="th"><em>7</em></div><div class="th"><em>8</em></div><div class="th"><em>9</em></div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+  </div>
+  <div class="status"><span style="color:var(--muted)">▸ pages 1–3 selected</span>
+    <span class="sp"></span><span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span></div>
+</div>
+
+<!-- ============ SCENE 5 ============ -->
+<h2>5 · Measure — the tab that is one group today</h2>
+<p class="q">The dimension-group model (named groups carrying a shared scale and drafting standard) is better than anything the competitor offers and stays exactly as it is. What is missing is Area and Angular, which are the two a takeoff needs, and Two-line — which is <b>already done in core and CLI</b> and simply has no caller on the canvas.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab">Pages</span><span class="tab">Edit</span><span class="tab">Markup</span>
+      <span class="tab on">Measure</span><span class="tab">Tools</span></nav>
+    <span class="docinfo">scale 1:100 · group “Foundations”</span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd on">Linear</span><span class="cmd">Aligned</span>
+      <span class="cmd new">Angular</span><span class="cmd">Radius / Ø</span>
+      <span class="cmd core">Two-line</span>
+    </div><div class="gcap">Dimension</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Distance</span><span class="cmd new">Perimeter</span>
+      <span class="cmd new">Area</span><span class="cmd new">Count</span>
+    </div><div class="gcap">Quantity</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Set scale</span><span class="cmd">Calibrate</span>
+      <span class="cmd">Manage groups…</span>
+    </div><div class="gcap">Scale</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd new">Schedule</span><span class="cmd new">Export CSV</span>
+    </div><div class="gcap">Takeoff</div></div>
+  </div>
+  <div class="body">
+    <div class="rail">
+      <div class="railtabs"><div class="railtab">Pages</div><div class="railtab on">Tool options</div></div>
+      <div class="toolopts">
+        <h5>Linear dimension</h5>
+        <div class="orow"><span>Group</span><span class="sel">Foundations ⌄</span></div>
+        <div class="orow"><span>Scale</span><span class="sel">1 : 100</span></div>
+        <div class="orow"><span>Standard</span><span class="sel">ISO 129-1 ⌄</span></div>
+        <div class="orow"><span>Units</span><span class="sel">mm ⌄</span></div>
+        <div class="orow"><span>Precision</span><span class="sel">0.1 ⌄</span></div>
+        <div class="orow"><span>Constraint</span><span class="sel">horizontal ⌄</span></div>
+        <div class="orow"><span>Snap</span><span class="sel">endpoint · centre</span></div>
+        <div style="color:var(--muted);font-size:10.5px;padding:5px 0">
+          Tab cycles snap candidates. Click the first point, then the second.</div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div class="dim" style="left:20%;top:56%;width:38%"></div>
+      <div class="dimlab" style="left:35%;top:50%">4 250 mm</div>
+      <div style="position:absolute;left:20%;top:30%;width:38%;height:26%;
+        border:1px solid #bbb"></div>
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+  </div>
+  <div class="status"><span style="color:var(--muted)">▸ snapped to endpoint</span>
+    <span class="sp"></span><span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span></div>
+</div>
+
+<!-- ============ SCENE 6 ============ -->
+<h2>6 · Markup — placing a revision cloud</h2>
+<p class="q">Six of ten markup kinds are deferred in the code today, and <b>Cloud</b> is not even on that list. It is the single most-used markup on a drawing revision. The Style group sets the <i>next</i> markup’s appearance; changing a placed one is the Format tab’s job.</p>
+<div class="app">
+  <div class="titlebar">▢ sheet_A1_foundation.pdf — pdfce</div>
+  <div class="qat">
+    <span class="btn">📂 Open…</span><span class="btn">💾 Save a copy…</span>
+    <span class="btn">↶</span><span class="btn">↷</span>
+    <nav class="tabstrip"><span class="tab">File</span><span class="tab">View</span>
+      <span class="tab">Pages</span><span class="tab">Edit</span><span class="tab on">Markup</span>
+      <span class="tab">Measure</span><span class="tab">Tools</span></nav>
+    <span class="docinfo">Cloud armed</span>
+  </div>
+  <div class="band">
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Rectangle</span><span class="cmd">Ellipse</span><span class="cmd">Line</span>
+      <span class="cmd">Arrow</span><span class="cmd new">Polyline</span><span class="cmd new">Polygon</span>
+      <span class="cmd new on">Cloud</span><span class="cmd new">Ink</span>
+    </div><div class="gcap">Shapes</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Highlight</span><span class="cmd new">Underline</span>
+      <span class="cmd new">Strikeout</span>
+    </div><div class="gcap">Text markup</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Text box</span><span class="cmd">Sticky</span>
+      <span class="cmd new">Callout</span><span class="cmd">Stamp ⌄</span>
+    </div><div class="gcap">Notes</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">■ Colour</span><span class="cmd new">Width</span>
+      <span class="cmd new">Fill</span><span class="cmd new">Opacity</span>
+    </div><div class="gcap">Style</div></div>
+    <div class="group"><div class="gcmds">
+      <span class="cmd">Comments</span><span class="cmd new">Clear page</span>
+    </div><div class="gcap">Comments</div></div>
+  </div>
+  <div class="body">
+    <div class="rail">
+      <div class="railtabs"><div class="railtab">Pages</div><div class="railtab on">Tool options</div></div>
+      <div class="toolopts">
+        <h5>Cloud</h5>
+        <div class="orow"><span>Colour</span><span class="sel">■ #d1452b</span></div>
+        <div class="orow"><span>Line width</span><span class="sel">1.5 pt</span></div>
+        <div class="orow"><span>Arc radius</span><span class="sel">6 pt</span></div>
+        <div class="orow"><span>Fill</span><span class="sel">none ⌄</span></div>
+        <div class="orow"><span>Opacity</span><span class="sel">100 %</span></div>
+        <div class="orow"><span>Note text</span><span class="sel">Rev B ⌄</span></div>
+        <div style="color:var(--muted);font-size:10.5px;padding:5px 0">
+          Drag a rectangle, or click points and close the loop. Escape disarms.</div>
+      </div>
+    </div>
+    <div class="canvas"><div class="sheet">
+      <div class="marq" style="left:24%;top:30%;width:30%;height:24%"></div>
+      <svg style="position:absolute;left:24%;top:30%;width:30%;height:24%;overflow:visible"
+           viewBox="0 0 100 80" preserveAspectRatio="none">
+        <path d="M4,8 a6,6 0 0 1 10,-4 a6,6 0 0 1 11,0 a6,6 0 0 1 11,0 a6,6 0 0 1 11,0
+                 a6,6 0 0 1 11,0 a6,6 0 0 1 11,0 a6,6 0 0 1 11,0 a6,6 0 0 1 8,6
+                 a6,6 0 0 1 0,11 a6,6 0 0 1 0,11 a6,6 0 0 1 0,11 a6,6 0 0 1 0,11
+                 a6,6 0 0 1 -8,9 a6,6 0 0 1 -11,0 a6,6 0 0 1 -11,0 a6,6 0 0 1 -11,0
+                 a6,6 0 0 1 -11,0 a6,6 0 0 1 -11,0 a6,6 0 0 1 -11,0 a6,6 0 0 1 -10,-9
+                 a6,6 0 0 1 0,-11 a6,6 0 0 1 0,-11 a6,6 0 0 1 0,-11 a6,6 0 0 1 0,-11 z"
+              fill="none" stroke="#d1452b" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="tblock"><i>Construction drawing</i>
+        <div style="padding:3px 4px">Project name</div><u>OpenAEC · A1 · 1:100</u></div></div></div>
+  </div>
+  <div class="status"><span style="color:var(--muted)">▸ release to place · Esc to cancel</span>
+    <span class="sp"></span><span>Page <span class="pgbox">1</span> / 42</span>
+    <span class="btn ghost">−</span><span>48%</span><span class="btn ghost">+</span></div>
+</div>
+
+</div>

@@ -1,0 +1,412 @@
+(
+    schema: 1,
+    modes: [
+        (
+            id: "read",
+            label: "Read",
+            tabs: [
+                "file",
+                "view",
+            ],
+        ),
+        (
+            id: "review",
+            label: "Review",
+            tabs: [
+                "file",
+                "view",
+                "pages",
+                "markup",
+                "measure",
+            ],
+        ),
+        (
+            id: "edit",
+            label: "Edit",
+            tabs: [
+                "file",
+                "view",
+                "pages",
+                "edit",
+                "markup",
+                "measure",
+                "tools",
+            ],
+        ),
+    ],
+    tabs: [
+        (
+            id: "file",
+            label: "File",
+            question: "What do I do with the file as a whole, or with pdfce itself?",
+            groups: [
+                (
+                    id: "file",
+                    caption: "File",
+                    items: [
+                        Command("file.open"),
+                        Command("file.close"),
+                    ],
+                ),
+                (
+                    id: "save",
+                    caption: "Save",
+                    items: [
+                        Command("file.save_copy"),
+                    ],
+                ),
+                (
+                    id: "export",
+                    caption: "Export",
+                    items: [
+                        Command("file.export_dxf"),
+                        Command("file.export_form_data"),
+                    ],
+                ),
+                (
+                    id: "print",
+                    caption: "Print",
+                    items: [
+                        Command("file.print"),
+                    ],
+                ),
+                (
+                    id: "document",
+                    caption: "Document",
+                    items: [
+                        Command("file.properties"),
+                        Command("file.fonts"),
+                    ],
+                ),
+                (
+                    id: "pdfce",
+                    caption: "pdfce",
+                    items: [
+                        Command("file.settings"),
+                        Command("file.shortcuts"),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "view",
+            label: "View",
+            question: "What is on my screen, and how is the page laid out?",
+            groups: [
+                (
+                    id: "page_display",
+                    caption: "Page display",
+                    items: [
+                        Command("view.page_single"),
+                    ],
+                ),
+                (
+                    id: "render",
+                    caption: "Render",
+                    items: [
+                        Command("view.render_strategy"),
+                        Command("view.render_quality"),
+                        Command("view.render_settle"),
+                        Command("view.render_thin_lines"),
+                        Command("view.render_antialias"),
+                    ],
+                ),
+                (
+                    id: "zoom",
+                    caption: "Zoom",
+                    items: [
+                        Command("view.zoom_actual"),
+                        Command("view.zoom_fit_page"),
+                        Command("view.zoom_fit_width"),
+                    ],
+                ),
+                (
+                    id: "display",
+                    caption: "Display",
+                    items: [
+                        Command("view.show_annotations"),
+                        Command("view.show_points"),
+                    ],
+                ),
+                (
+                    id: "panels",
+                    caption: "Panels",
+                    items: [
+                        Command("view.sidebar"),
+                        Command("view.panel_bookmarks"),
+                        Command("view.panel_layers"),
+                        Command("view.panel_signatures"),
+                        Command("view.panel_objects"),
+                    ],
+                ),
+                (
+                    id: "window",
+                    caption: "Window",
+                    items: [
+                        Command("view.read_mode"),
+                        Command("view.fullscreen"),
+                        Command("view.floating_panels"),
+                        Command("view.app_initiative"),
+                        Command("view.reset_layout"),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "pages",
+            label: "Pages",
+            question: "What am I doing to the set of pages?",
+            groups: [
+                (
+                    id: "insert",
+                    caption: "Insert",
+                    items: [
+                        Command("pages.insert_from_file"),
+                    ],
+                ),
+                (
+                    id: "organise",
+                    caption: "Organise",
+                    items: [
+                        Command("pages.delete"),
+                        Command("pages.extract"),
+                        Command("pages.move_up"),
+                        Command("pages.move_down"),
+                        Command("pages.split"),
+                        Command("pages.merge_into"),
+                    ],
+                ),
+                (
+                    id: "transform",
+                    caption: "Transform",
+                    items: [
+                        Command("pages.rotate_left"),
+                        Command("pages.rotate_right"),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "edit",
+            label: "Edit",
+            question: "What am I changing about content that is already there?",
+            groups: [
+                (
+                    id: "content",
+                    caption: "Content",
+                    items: [
+                        Command("edit.text"),
+                        Command("edit.add_text"),
+                        Command("edit.objects"),
+                    ],
+                ),
+                (
+                    id: "insert",
+                    caption: "Insert",
+                    items: [
+                        Command("edit.insert_image"),
+                    ],
+                ),
+                (
+                    id: "clipboard",
+                    caption: "Clipboard",
+                    items: [
+                        Command("edit.copy_page_text"),
+                        Command("edit.copy_document_text"),
+                    ],
+                ),
+                (
+                    id: "forms",
+                    caption: "Forms",
+                    items: [
+                        Command("edit.form_fill"),
+                        Command("edit.form_create_field"),
+                        Command("edit.form_manage_fields"),
+                        Command("edit.form_flatten"),
+                    ],
+                ),
+                (
+                    id: "protect",
+                    caption: "Protect",
+                    items: [
+                        Command("edit.redact"),
+                        Command("edit.redact_apply"),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "markup",
+            label: "Markup",
+            question: "What am I adding for someone else to read?",
+            groups: [
+                (
+                    id: "shapes",
+                    caption: "Shapes",
+                    items: [
+                        Command("markup.rectangle"),
+                        Command("markup.ellipse"),
+                        Command("markup.arrow"),
+                    ],
+                ),
+                (
+                    id: "text_markup",
+                    caption: "Text markup",
+                    items: [
+                        Command("markup.highlight"),
+                    ],
+                ),
+                (
+                    id: "notes",
+                    caption: "Notes",
+                    items: [
+                        Command("markup.text_box"),
+                        Command("markup.sticky_note"),
+                        Command("markup.stamp"),
+                    ],
+                ),
+                (
+                    id: "style",
+                    caption: "Style",
+                    items: [
+                        Custom(
+                            kind: "colour_swatch",
+                        ),
+                    ],
+                ),
+                (
+                    id: "comments",
+                    caption: "Comments",
+                    items: [
+                        Command("markup.comments"),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "measure",
+            label: "Measure",
+            question: "What am I measuring, and in what units?",
+            groups: [
+                (
+                    id: "dimension",
+                    caption: "Dimension",
+                    items: [
+                        Command("measure.linear"),
+                        Command("measure.radius_diameter"),
+                    ],
+                ),
+                (
+                    id: "scale",
+                    caption: "Scale",
+                    items: [
+                        Command("measure.set_scale"),
+                        Command("measure.manage_groups"),
+                    ],
+                ),
+            ],
+        ),
+        (
+            id: "tools",
+            label: "Tools",
+            question: "What do I run across files, or configure once?",
+            groups: [
+                (
+                    id: "batch",
+                    caption: "Batch",
+                    items: [
+                        Command("tools.merge_files"),
+                        Command("tools.split_files"),
+                    ],
+                ),
+                (
+                    id: "fonts",
+                    caption: "Fonts",
+                    items: [
+                        Command("tools.font_folders"),
+                        Command("tools.embed_fonts"),
+                        Command("tools.unembed_fonts"),
+                    ],
+                ),
+                (
+                    id: "diagnostics",
+                    caption: "Diagnostics",
+                    items: [
+                        Command("tools.render_diagnostics"),
+                    ],
+                ),
+            ],
+        ),
+    ],
+    contextual_tabs: [
+        (
+            id: "format",
+            label: "Format",
+            question: "What am I changing about the thing I have selected?",
+            visible_when: "selection.any",
+            groups: [
+                (
+                    id: "selection",
+                    caption: "Selection",
+                    items: [
+                        Command("format.delete"),
+                    ],
+                ),
+            ],
+        ),
+    ],
+    qat: [
+        "file.open",
+        "file.save_copy",
+        "edit.undo",
+        "edit.redo",
+    ],
+    keymap: {
+        "Alt+Down": "pages.move_down",
+        "Alt+Up": "pages.move_up",
+        "Ctrl+0": "view.zoom_actual",
+        "Ctrl+1": "mode.read",
+        "Ctrl+2": "mode.review",
+        "Ctrl+3": "mode.edit",
+        "Ctrl+E": "edit.text",
+        "Ctrl+H": "view.read_mode",
+        "Ctrl+O": "file.open",
+        "Ctrl+S": "file.save_copy",
+        "Ctrl+Shift+C": "edit.copy_page_text",
+        "Ctrl+Shift+E": "edit.add_text",
+        "Ctrl+Shift+Z": "edit.redo",
+        "Ctrl+Y": "edit.redo",
+        "Ctrl+Z": "edit.undo",
+        "F11": "view.fullscreen",
+        "[": "pages.rotate_left",
+        "]": "pages.rotate_right",
+    },
+    menus: [
+        (
+            context: "canvas.object",
+            items: [
+                Command("format.delete"),
+            ],
+        ),
+        (
+            context: "canvas.empty",
+            items: [
+                Command("view.zoom_fit_page"),
+                Command("view.zoom_fit_width"),
+                Command("view.zoom_actual"),
+            ],
+        ),
+        (
+            context: "dock.tab",
+            items: [
+                Command("view.reset_layout"),
+            ],
+        ),
+        (
+            context: "objects.row",
+            items: [
+                Command("file.properties"),
+            ],
+        ),
+    ],
+)

@@ -1,0 +1,477 @@
+//! # `canvas::target` — the seam a hit-testable content model plugs into
+//!
+//! The canvas selects *things*. It does not know what a thing is, how it was
+//! decomposed, or what coordinate frame its geometry was authored in. All it
+//! needs is: **what is under this point, what is inside this rect, and where
+//! is the thing I already have?** That question set is
+//! [`CanvasTargetProvider`], and everything in `canvas/` is written against
+//! it rather than against `pdfce-core`.
+//!
+//! ## Why a trait rather than a direct call into the provider
+//!
+//! Three reasons, in order of how much they cost if ignored.
+//!
+//! 1. **The selection layer becomes headlessly testable.** Every invariant
+//!    this stage is accountable for — *selection survives navigation* above
+//!    all — is a property of the selection layer's *logic*, not of PDF
+//!    decomposition. A test that had to build a `Document` to prove that
+//!    zooming does not clear a selection would be a slow test of the wrong
+//!    thing. [`StubTargets`] lets those tests state a page's contents in
+//!    three lines.
+//! 2. **The old shell already drew this line, and the provider was salvaged
+//!    expecting it.** `panels::objects::provider`'s header, §2 of "What
+//!    changed at salvage": *"The `CanvasTargetProvider` trait impl became
+//!    inherent methods. The trait lives in `canvas/` and does not exist yet.
+//!    The three methods keep their names and their exact semantics …
+//!    Re-attaching the trait at S4 is a one-line `impl` block over methods
+//!    that already have the right signatures."* This module is that
+//!    re-attachment, and it is exactly that: [`impl CanvasTargetProvider for
+//!    ObjectModelProvider`] delegates and adds nothing.
+//! 3. **`GUI_ROADMAP.md` Phase 4** (continuous page display) changes *which
+//!    pages* a provider answers for. A canvas written against the concrete
+//!    single-page provider would have that assumption spread through it; a
+//!    canvas written against a trait that takes `page_index` on every query
+//!    already asks the right question.
+//!
+//! ## Every geometric argument here is CANVAS space
+//!
+//! Points, rects and tolerances crossing this trait are in canvas space —
+//! Y-**down**, origin at the page's top-left, `/Rotate` already resolved. The
+//! provider owns the hop into PDF user space (Y-**up**), because it owns the
+//! page transform and inverts the *renderer's own* map to get there, so the
+//! selection geometry and the raster agree by construction. See
+//! [`crate::canvas::mapping`] for the full three-frame table and why
+//! conflating any two of them is silent.
+//!
+//! ## The tolerance is a parameter, never a provider constant
+//!
+//! Stated on [`CanvasTargetProvider::hit_test`] and worth stating here too:
+//! the only honest source for a hit tolerance is the live zoom, and the live
+//! zoom belongs to the frame, not to the model. A provider that baked its own
+//! tolerance would be a provider whose catch radius shrank as the operator
+//! zoomed out — which is the defect
+//! [`crate::canvas::mapping::SELECT_SCREEN_TOLERANCE_PX`] exists to close.
+
+use egui::{Pos2, Rect};
+
+use crate::panels::objects::provider::ObjectModelProvider;
+pub use crate::panels::objects::provider::TargetId;
+
+/// The seam a hit-testable content model plugs into.
+///
+/// Implemented today by [`ObjectModelProvider`] — the page's decomposed
+/// vector objects. It will grow implementations for annotations and for
+/// placed ce dimensions; those are separate object spaces with separate index
+/// conventions, and the [`TargetId`] newtype is what keeps them from being
+/// confused with each other.
+///
+/// ## "This page has no object model" is `None`, not a no-op provider
+///
+/// The old shell shipped an `EmptyTargetProvider` that hit nothing, enclosed
+/// nothing and had no bounds. It is deliberately **not** carried across:
+/// every consumer here takes `Option<&dyn CanvasTargetProvider>`, so the
+/// absence is already representable, and two ways to say one thing is one way
+/// too many. The `Option` is also the one that cannot be misread — a no-op
+/// provider is indistinguishable from a page that decoded to nothing, and
+/// [`crate::canvas::selection::SelectionState::resolve`] has to tell those
+/// apart: the first must keep the selection and draw no outlines, the second
+/// must drop entries that no longer exist.
+pub trait CanvasTargetProvider {
+    /// **Every** target at a canvas-space `point` within `tolerance`,
+    /// **front-most first**.
+    ///
+    /// The required half of the point query, and the input to click-through
+    /// cycling: an object entirely covered by another can only ever be
+    /// selected by stepping past the cover, and a topmost-only query gives no
+    /// click any way to do that.
+    ///
+    /// Empty for a miss, and empty for a query about a page this provider
+    /// does not serve. Those two are deliberately the same answer — a caller
+    /// that must distinguish them is asking the wrong object; the *canvas*
+    /// knows which page it drew.
+    fn hit_test_all(&self, page_index: usize, point: Pos2, tolerance: f64) -> Vec<TargetId>;
+
+    /// The **front-most** target at a canvas-space `point`, or `None`.
+    ///
+    /// `tolerance` is the canvas-space slack the click may miss an object's
+    /// edge by, and it is a **parameter, not a constant** — see the module
+    /// docs. Callers hand it
+    /// [`crate::canvas::mapping::PageMapping::tolerance`], which is the one
+    /// place the screen radius is divided by the zoom.
+    ///
+    /// **A provided method, not a required one.** Defined as the head of
+    /// [`Self::hit_test_all`], which is what makes *"what does a plain click
+    /// select?"* and *"what does cycling start from?"* structurally the same
+    /// answer rather than a convention two implementations have to keep.
+    fn hit_test(&self, page_index: usize, point: Pos2, tolerance: f64) -> Option<TargetId> {
+        self.hit_test_all(page_index, point, tolerance)
+            .into_iter()
+            .next()
+    }
+
+    /// Every target **fully enclosed** by a canvas-space marquee rect.
+    ///
+    /// Fully-enclosed rather than touched is the shipped convention
+    /// (decision 011, matching Inkscape's default and the old shell): a
+    /// marquee that grabs everything it grazes is unusable on a dense
+    /// drawing, which is the document class pdfce is for.
+    fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId>;
+
+    /// One target's canvas-space bounding rect, or `None` for a target this
+    /// provider no longer knows.
+    ///
+    /// **`None` rather than a panic is the contract**, and it is what makes
+    /// re-resolution possible: a selection can outlive an edit that removed
+    /// what it named, and the correct response is to drop the entry silently,
+    /// not to crash the frame that is trying to draw.
+    fn bounds(&self, page_index: usize, target: TargetId) -> Option<Rect>;
+
+    /// Which **part** of `object` a canvas-space click lands on — subpaths
+    /// for a path object, show-operator runs for a text object — nearest
+    /// first.
+    ///
+    /// One query for both kinds, because the alternative is a kind match at
+    /// every call site and the failure when two of them drift is that
+    /// descending works for a drawing and not for a label. The dispatch lives
+    /// in the provider ([`ObjectModelProvider::part_hits`]).
+    ///
+    /// Empty for an object with no part rung at all (an image), which is why
+    /// the ladder caps itself at the Object rung for images by construction
+    /// rather than by a check.
+    fn part_hits(
+        &self,
+        page_index: usize,
+        object: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Vec<usize>;
+
+    /// A part's own canvas-space bounds, for its outline.
+    ///
+    /// The *part's* box, never the object's. An object-sized rectangle drawn
+    /// around a part tells the operator they selected the whole thing again
+    /// — which is the misunderstanding entering the object exists to
+    /// resolve, and on a measured CAD export that rectangle spans the entire
+    /// drawing.
+    fn part_bounds(&self, page_index: usize, object: usize, part: usize) -> Option<Rect>;
+
+    /// The **object-scoped** index of the anchor of `part` nearest a
+    /// canvas-space `point` within `tolerance` — the Node rung's pick.
+    ///
+    /// Object-scoped, not part-scoped, and that is load-bearing rather than a
+    /// convention: it is the space `vector::anchor_count` reports and the
+    /// space `pdfce-cli node-move --node N` addresses. A second numbering
+    /// would make the number pdfce shows disagree with the number the
+    /// operator can act on.
+    fn nearest_node(
+        &self,
+        page_index: usize,
+        object: usize,
+        part: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Option<usize>;
+}
+
+/// ★ **The re-attachment.**
+///
+/// `panels::objects::provider` carried these methods across salvage as
+/// inherent methods with their signatures and semantics unchanged, precisely
+/// so this block would be a delegation and nothing else. It is: no
+/// arithmetic, no tolerance rule, no hit ordering and no index convention is
+/// decided here. Every one of the delegated methods is already under test in
+/// that module against a real decomposition.
+///
+/// [`Self::hit_test`] is deliberately **not** overridden. The provider has an
+/// inherent `hit_test` with the identical derivation (the head of
+/// `hit_test_all`), and its own doc comment says the comment carries the
+/// guarantee *"until the trait comes back"*. The trait is back, so the
+/// guarantee is structural again and the inherent one is the redundant copy
+/// — overriding here would reinstate two derivations of one answer.
+///
+/// The three ladder methods take `page_index` even though the provider is
+/// single-page and its inherent methods do not, so the guard is applied on
+/// this side. A canvas that descended into a part of a page the provider does
+/// not serve would be addressing paint-order indices in the wrong page's
+/// index space, which is the same class of error the `TargetId` newtype
+/// exists to prevent — and the guard costs one comparison.
+impl CanvasTargetProvider for ObjectModelProvider {
+    fn hit_test_all(&self, page_index: usize, point: Pos2, tolerance: f64) -> Vec<TargetId> {
+        Self::hit_test_all(self, page_index, point, tolerance)
+    }
+
+    fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
+        Self::hit_test_rect(self, page_index, rect)
+    }
+
+    fn bounds(&self, page_index: usize, target: TargetId) -> Option<Rect> {
+        Self::bounds(self, page_index, target)
+    }
+
+    fn part_hits(
+        &self,
+        page_index: usize,
+        object: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Vec<usize> {
+        if page_index != self.page_index() {
+            return Vec::new();
+        }
+        Self::part_hits(self, object, point, tolerance)
+    }
+
+    fn part_bounds(&self, page_index: usize, object: usize, part: usize) -> Option<Rect> {
+        if page_index != self.page_index() {
+            return None;
+        }
+        Self::part_bounds_canvas(self, object, part)
+    }
+
+    fn nearest_node(
+        &self,
+        page_index: usize,
+        object: usize,
+        part: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Option<usize> {
+        if page_index != self.page_index() {
+            return None;
+        }
+        Self::nearest_node(self, object, part, point, tolerance)
+    }
+}
+
+/// A provider assembled from plain rectangles — the seam every selection
+/// test in `canvas/` uses.
+///
+/// # Why the selection tests do not use the real provider
+///
+/// Because they are not about decomposition. *"Zooming out three rungs does
+/// not clear the selection"* is a property of the selection layer's state
+/// machine; proving it against a real PDF would mean a fixture, a
+/// `Document`, a page tree and a content-stream walk, all to establish that
+/// one `Vec` was not emptied. The real provider's geometry is already proven
+/// in its own module, against real content streams, and duplicating that
+/// coverage here would test `pdfce-core` twice and the invariant once.
+///
+/// Objects are listed **back to front** (paint order, the same convention as
+/// `PageObjects::objects`), so `hit_test_all`'s front-most-first contract is
+/// this type reversing the scan — which is a real behaviour worth having in
+/// the stub rather than a simplification that would let a caller depending on
+/// the order pass here and fail live.
+#[cfg(test)]
+#[derive(Debug, Default, Clone)]
+pub struct StubTargets {
+    /// Which page this stub answers for.
+    pub page: usize,
+    /// One rect per object, in paint order.
+    pub objects: Vec<Rect>,
+    /// Optional per-object part rects, in part order. An object with no
+    /// entry has no parts — the image case.
+    pub parts: std::collections::BTreeMap<usize, Vec<Rect>>,
+}
+
+#[cfg(test)]
+impl StubTargets {
+    /// A stub for `page` holding `objects` in paint order.
+    pub fn new(page: usize, objects: impl IntoIterator<Item = Rect>) -> Self {
+        Self {
+            page,
+            objects: objects.into_iter().collect(),
+            parts: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Give `object` some parts.
+    #[must_use]
+    pub fn with_parts(mut self, object: usize, parts: impl IntoIterator<Item = Rect>) -> Self {
+        self.parts.insert(object, parts.into_iter().collect());
+        self
+    }
+
+    /// The rect grown by `tolerance` on every side — the stub's model of "a
+    /// click may miss an edge by the catch radius". Crude next to the real
+    /// per-segment distance test, and deliberately so: what the selection
+    /// layer must get right is *that it passes a page-space tolerance at
+    /// all*, and a stub that ignored the argument could not fail that way.
+    fn caught(rect: Rect, tolerance: f64) -> Rect {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "a catch radius is a handful of points; f32 is exact well past that" // ui-text-exempt: clippy lint justification, never displayed
+        )]
+        let pad = tolerance.max(0.0) as f32;
+        rect.expand(pad)
+    }
+}
+
+#[cfg(test)]
+impl CanvasTargetProvider for StubTargets {
+    fn hit_test_all(&self, page_index: usize, point: Pos2, tolerance: f64) -> Vec<TargetId> {
+        if page_index != self.page {
+            return Vec::new();
+        }
+        self.objects
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| Self::caught(**r, tolerance).contains(point))
+            .map(|(i, _)| TargetId(i as u64))
+            // Paint order is back to front; the contract is front-most first.
+            .rev()
+            .collect()
+    }
+
+    fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
+        if page_index != self.page {
+            return Vec::new();
+        }
+        self.objects
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| rect.contains_rect(**r))
+            .map(|(i, _)| TargetId(i as u64))
+            .collect()
+    }
+
+    fn bounds(&self, page_index: usize, target: TargetId) -> Option<Rect> {
+        if page_index != self.page {
+            return None;
+        }
+        self.objects.get(usize::try_from(target.0).ok()?).copied()
+    }
+
+    fn part_hits(
+        &self,
+        page_index: usize,
+        object: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Vec<usize> {
+        if page_index != self.page {
+            return Vec::new();
+        }
+        self.parts
+            .get(&object)
+            .map(|parts| {
+                parts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| Self::caught(**r, tolerance).contains(point))
+                    .map(|(i, _)| i)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn part_bounds(&self, page_index: usize, object: usize, part: usize) -> Option<Rect> {
+        if page_index != self.page {
+            return None;
+        }
+        self.parts.get(&object)?.get(part).copied()
+    }
+
+    fn nearest_node(
+        &self,
+        page_index: usize,
+        object: usize,
+        part: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Option<usize> {
+        // The stub's nodes are the part rect's four corners, numbered from
+        // the object's first part — object-scoped, as the contract requires.
+        if page_index != self.page {
+            return None;
+        }
+        let parts = self.parts.get(&object)?;
+        let offset = parts.iter().take(part).count() * 4;
+        let rect = parts.get(part)?;
+        let corners = [
+            rect.left_top(),
+            rect.right_top(),
+            rect.right_bottom(),
+            rect.left_bottom(),
+        ];
+        corners
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (i, f64::from(c.distance(point))))
+            .filter(|(_, d)| *d <= tolerance)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| offset + i)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h))
+    }
+
+    /// The stub reports front-most first, so a test that depends on stacking
+    /// order is exercising the same contract the live provider honours.
+    #[test]
+    fn the_stub_reports_the_front_most_object_first() {
+        let p = StubTargets::new(
+            0,
+            [rect(0.0, 0.0, 100.0, 100.0), rect(40.0, 40.0, 20.0, 20.0)],
+        );
+        assert_eq!(
+            p.hit_test_all(0, Pos2::new(50.0, 50.0), 0.0),
+            vec![TargetId(1), TargetId(0)]
+        );
+        assert_eq!(p.hit_test(0, Pos2::new(50.0, 50.0), 0.0), Some(TargetId(1)));
+        // A query about another page is a miss, not a panic.
+        assert!(p.hit_test_all(1, Pos2::new(50.0, 50.0), 0.0).is_empty());
+    }
+
+    /// The stub actually consults the tolerance it is handed. A stub that
+    /// ignored it could not fail the way a caller passing raw screen pixels
+    /// fails, which would make every selection test blind to the defect this
+    /// stage is most at risk of.
+    #[test]
+    fn the_stub_honours_the_tolerance_it_is_given() {
+        let p = StubTargets::new(0, [rect(0.0, 0.0, 10.0, 10.0)]);
+        let just_outside = Pos2::new(14.0, 5.0);
+        assert!(p.hit_test_all(0, just_outside, 1.0).is_empty());
+        assert_eq!(p.hit_test_all(0, just_outside, 6.0), vec![TargetId(0)]);
+    }
+
+    /// The marquee encloses rather than touches, on both sides of the seam.
+    #[test]
+    fn the_stub_marquee_requires_full_enclosure() {
+        let p = StubTargets::new(
+            0,
+            [rect(0.0, 0.0, 10.0, 10.0), rect(100.0, 100.0, 10.0, 10.0)],
+        );
+        let grazing = Rect::from_min_size(Pos2::new(5.0, 5.0), egui::vec2(200.0, 200.0));
+        assert_eq!(
+            p.hit_test_rect(0, grazing),
+            vec![TargetId(1)],
+            "an object the marquee only grazes must not be selected"
+        );
+    }
+
+    /// Node indices stay object-scoped across a part boundary — the same law
+    /// the real provider's `node_rung_tests` pins, restated on the stub so a
+    /// selection test reading a node index is reading the same numbering the
+    /// live provider would have produced.
+    #[test]
+    fn stub_node_indices_keep_counting_across_parts() {
+        let p = StubTargets::new(0, [rect(0.0, 0.0, 100.0, 100.0)]).with_parts(
+            0,
+            [rect(0.0, 0.0, 10.0, 10.0), rect(50.0, 50.0, 10.0, 10.0)],
+        );
+        assert_eq!(p.nearest_node(0, 0, 0, Pos2::new(0.0, 0.0), 2.0), Some(0));
+        assert_eq!(
+            p.nearest_node(0, 0, 1, Pos2::new(50.0, 50.0), 2.0),
+            Some(4),
+            "the second part's points must continue the object's numbering"
+        );
+        // Out of tolerance is nothing, rather than the nearest regardless.
+        assert_eq!(p.nearest_node(0, 0, 0, Pos2::new(30.0, 30.0), 2.0), None);
+    }
+}
