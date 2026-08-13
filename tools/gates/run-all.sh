@@ -40,10 +40,14 @@
 # ORDER
 # ===========================================================================
 #
-# The self-test runs FIRST, before any gate is trusted. If `check-ui-strings.sh`
-# cannot detect its own planted violation, its verdict on the real crate is
-# worth nothing, and finding that out after a green run is finding it out too
-# late.
+# The self-tests run FIRST, before any gate is trusted. If a gate cannot detect
+# its own planted violation, its verdict on the real crate is worth nothing,
+# and finding that out after a green run is finding it out too late.
+#
+# Two gates carry one: `check-ui-strings.sh` and `check-theme-colors.sh`. Both
+# are greps over source, which is the category that fails SILENTLY — a pattern
+# that stops matching, a path that stops resolving, and a find that walks an
+# empty tree all print exactly what a clean run prints.
 #
 # fmt and clippy run LAST, because they are the slow ones and because a
 # formatting complaint is the least interesting thing this script can tell you.
@@ -92,11 +96,13 @@ echo ""
 echo "pdfceGUI gates — $(date '+%Y-%m-%d %H:%M:%S') — $ROOT"
 echo ""
 
-# --- 0. the gate proves it can fail, before its verdict is believed ---------
-run "check-ui-strings --self-test" bash "$HERE/check-ui-strings.sh" --self-test
+# --- 0. the gates prove they can fail, before their verdicts are believed ---
+run "check-ui-strings --self-test"  bash "$HERE/check-ui-strings.sh" --self-test
+run "check-theme-colors --self-test" bash "$HERE/check-theme-colors.sh" --self-test
 
 # --- 1. the gates themselves ------------------------------------------------
 run "check-ui-strings"   bash "$HERE/check-ui-strings.sh"
+run "check-theme-colors" bash "$HERE/check-theme-colors.sh"
 run "check-file-size"    bash "$HERE/check-file-size.sh"
 run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
 
