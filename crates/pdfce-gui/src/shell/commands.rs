@@ -1,12 +1,25 @@
 //! # shell::commands — every verb pdfce can perform
 //!
 //! [`register`] populates an `egui_shell::CommandRegistry` with the
-//! eighty commands this build has: the seventy-nine
-//! [`super::manifest::built_in`] names by id, plus the one whose ribbon
-//! control is a *custom item* rather than a button and which is therefore
-//! reachable without appearing in `command_references()` — see
-//! [`super::manifest::CUSTOM_BACKED`], which is the register that keeps that
-//! exception visible and testable. A command carries five things:
+//! eighty-one commands this build has, which fall into three groups:
+//!
+//! | group | count | how the operator reaches it |
+//! |---|---|---|
+//! | on a tab, the QAT or the keymap | 79 | a control [`super::manifest::built_in`] names by id |
+//! | drawn by a **custom item** | 1 | `file.recent` — see [`super::manifest::CUSTOM_BACKED`] |
+//! | drawn on the **status bar** | 1 | `edit.find` — `RIBBON_IA.md` §6 |
+//!
+//! The last two are the interesting ones, because both are reachable by an
+//! operator and neither is a button on a tab. They are kept honest by
+//! different mechanisms and the difference is worth knowing: a `Custom` item
+//! carries no command id, so `Shell::command_references()` cannot see
+//! `file.recent` at all and [`super::manifest::CUSTOM_BACKED`] is the
+//! register that says why that is allowed; whereas the status bar is simply
+//! not part of the manifest, and `edit.find` needs no exemption because the
+//! keymap's `Ctrl+F` binding **is** a reference site — so the orphan check
+//! still guards it against a rename.
+//!
+//! A command carries five things:
 //!
 //! | Field | Comes from | Why here rather than the manifest |
 //! |---|---|---|
@@ -316,6 +329,30 @@ fn all() -> Vec<Command> {
         command("edit.form_manage_fields", t::edit_form_manage_fields(), 432)
             .enabled_when("doc.pages"),
         command("edit.form_flatten", t::edit_form_flatten(), 433).enabled_when("doc.pages"),
+        // ★ Find — registered, bound to Ctrl+F, and on **no tab**.
+        //
+        // A third documented exception to the "every command is on its owning
+        // tab" convention, alongside `edit.undo`/`edit.redo` (QAT only). Its
+        // control is the **status bar's Find toggle**: `RIBBON_IA.md` §6 lists
+        // the status bar's contents and puts Find first among them, in the
+        // section headed "what deliberately does not go on the ribbon". The
+        // `edit.` prefix says where it would go if it ever got a tab, which is
+        // the same thing undo's and redo's prefixes say.
+        //
+        // It is not orphaned, and it needs no `CUSTOM_BACKED` exemption: the
+        // manifest keymap binds `Ctrl+F` to it, and a keymap entry is a
+        // reference site `Shell::command_references()` walks. So
+        // `no_registered_command_is_orphaned` sees it, and a rename that lost
+        // the binding would fail that test rather than silently producing a
+        // command nothing can reach.
+        //
+        // `doc.pages`, not `doc.open`: there is no page text to search in a
+        // document with no pages, and a Find bar over one is a control whose
+        // every input is refused — the exact case that predicate exists to
+        // separate.
+        command("edit.find", t::edit_find(), 450)
+            .with_icon("search")
+            .enabled_when("doc.pages"),
         command("edit.redact", t::edit_redact(), 440)
             .with_icon("redact")
             .enabled_when("doc.pages"),
@@ -435,7 +472,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 80);
+        assert_eq!(registry().len(), 81);
     }
 
     /// **★ No two commands share a handler token.**

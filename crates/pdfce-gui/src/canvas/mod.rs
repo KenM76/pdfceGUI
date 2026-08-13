@@ -333,6 +333,7 @@ pub fn show(
     ui: &mut egui::Ui,
     doc: &mut OpenDoc,
     host: Option<&MenuHost<'_>>,
+    find: &crate::find::FindState,
     actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
     if doc.pages.is_empty() {
@@ -414,12 +415,33 @@ pub fn show(
     // decides whether the zoom has actually landed yet — see [`zoom`]'s header
     // on the two-frame handshake, and on why an unconditional `take()` here
     // made every *command*-driven zoom silently unanchored.
+    //
+    // ★ Three sources of a forced scroll offset, and the order between them is
+    // a precedence rather than a coincidence:
+    //
+    // 1. **a zoom anchor**, because a zoom has just landed and the whole point
+    //    of the anchor is that one page point does not move as it does;
+    // 2. **a find reveal**, because the operator asked to be taken somewhere
+    //    and a one-shot navigation outranks nothing else in flight;
+    // 3. **a middle-drag pan**, which is a live gesture — and a live gesture is
+    //    LAST here for the reason it wins anyway: it re-arms itself on the next
+    //    frame, while both of the others are spent once.
+    let vp = ui.available_size();
     if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, (display_size.x, display_size.y)) {
+        scroll_area = scroll_area.scroll_offset(offset);
+    } else if let Some(offset) =
+        crate::find::take_reveal_offset(doc, (display_size.x, display_size.y), (vp.x, vp.y))
+    {
+        // The other half of `Action::Find`'s navigation: the page change was
+        // applied after the frame that asked for it, and this is the first
+        // frame that is actually showing that page — so it is the first frame
+        // on which the page's real drawn size is known and the offset can be
+        // solved. `crate::find` owns both the gate and the solve; nothing
+        // about a search is decided here.
         scroll_area = scroll_area.scroll_offset(offset);
     } else if let Some(pan) = pan_delta(ui, active_tool) {
         // Panning subtracts the pointer delta: the content follows the hand,
         // so the page moves WITH the pointer rather than under it.
-        let vp = ui.available_size();
         let (x, y) = geometry::pan_offset(
             (doc.last_scroll_offset.x, doc.last_scroll_offset.y),
             (pan.x, pan.y),
@@ -536,6 +558,7 @@ pub fn show(
             tool: active_tool,
         },
         host,
+        find,
         actions,
     );
 
@@ -673,6 +696,7 @@ fn interact(
     response: &egui::Response,
     frame_ctx: &Frame,
     host: Option<&MenuHost<'_>>,
+    find: &crate::find::FindState,
     actions: &mut Vec<Action>,
 ) -> (usize, Vec<HandlerToken>) {
     // Destructured through the reference, so `map` stays a borrow — it is
@@ -1005,6 +1029,25 @@ fn interact(
 
     // ---- 8. draw --------------------------------------------------------
     let painter = ui.painter().with_clip_rect(clip);
+    // ★ The find highlights go on FIRST, under everything else.
+    //
+    // They are a wash over page content — an answer to "where is the text I
+    // asked about" — while the selection outline is a statement about what a
+    // verb would act on. Painting the wash over the outline would dim the
+    // control feedback with a hint; painting it under leaves both readable.
+    //
+    // `page_highlights` yields nothing at all when the results are not current
+    // — a stale epoch, a query the operator has edited, a closed bar — so an
+    // edit stops the highlights by supplying an empty iterator rather than by
+    // a check here. That is what keeps rule 4: this file cannot paint a mark
+    // over content the search no longer describes, because it is never handed
+    // one. See `crate::find`'s staleness section.
+    overlay::draw_find_hits(
+        &painter,
+        ui.visuals(),
+        map,
+        find.page_highlights(page_index, doc.edit_epoch),
+    );
     overlay::draw_selection(&painter, ui.visuals(), map, &selection);
     if let Some(rect) = marquee {
         overlay::draw_marquee(&painter, ui.visuals(), map, rect);

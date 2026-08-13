@@ -19,7 +19,7 @@
 //!    command ids and go through the same dispatcher a ribbon click does,
 //!    and chords the viewer owns outright arrive as actions.
 //! 2. **Compose the panels** — draw, and let each surface push more
-//!    actions. Nothing mutates.
+//!    actions, then the Find overlay over the top of them. Nothing mutates.
 //! 3. **Apply the actions** ([`PdfceApp::apply_actions`]) — after the frame
 //!    is drawn, in one place, in the order raised.
 //! 4. **Settle and rasterize** ([`PdfceApp::settle_and_rasterize`]) — decide
@@ -54,8 +54,9 @@
 //! oversight
 //!
 //! The list S0 opened with — *"no ribbon, no QAT, no dock, no status bar, no
-//! find bar, no dialogs, no Open command"* — is down to the find bar and the
-//! save. **Open, Close and Recent are wired**: the picker and its
+//! find bar, no dialogs, no Open command"* — is down to **the save**. The find
+//! bar is [`crate::find`], reached by Ctrl+F and by the status bar's Find
+//! toggle. **Open, Close and Recent are wired**: the picker and its
 //! diagnostics seam are [`files`], the list is [`recent`], and both arrive
 //! through [`actions::Action::Open`] like everything else. What is left of
 //! that sentence is scheduled in `PROJECT_PLAN.md` §4, and the
@@ -221,6 +222,23 @@ pub struct PdfceApp {
     /// state: scroll positions, expansion, focus. `open_path` forgets it,
     /// which is why it needs no key of any kind.
     pub panels: crate::panels::PanelsState,
+
+    /// **The Find bar's state** — the query, the search options, whether the
+    /// bar is on screen, and the last search's hits.
+    ///
+    /// Here rather than on [`state::OpenDoc`] by this struct's own rule, and
+    /// the rule cuts *through* the subject rather than around it: the query
+    /// and the options outlive a document (closing one file and opening
+    /// another is the likeliest moment to search for the same term again),
+    /// while the hits do not. So the state lives here beside
+    /// [`Self::panels`], with the same `forget_document` seam for the half
+    /// that dies — and the one piece that is genuinely per-document, the
+    /// pending scroll-to-a-hit, lives on `OpenDoc` as `find_reveal`.
+    ///
+    /// See `crate::find`'s header for the wildcard trap this module exists to
+    /// avoid, for why the bar is docked rather than floating over the canvas,
+    /// and for what an edit does to a hit list.
+    pub find: crate::find::FindState,
 
     /// The modal dialogs — currently Print, and the place any other lands.
     ///
@@ -393,6 +411,7 @@ impl PdfceApp {
             recent,
             recent_choice: None,
             panels: crate::panels::PanelsState::default(),
+            find: crate::find::FindState::default(),
             dialogs: crate::dialogs::DialogsState::default(),
         }
     }
@@ -877,7 +896,10 @@ impl eframe::App for PdfceApp {
         egui::Panel::bottom("status")
             .exact_size(crate::app::status::HEIGHT_PTS)
             .show(ui, |ui| {
-                crate::app::status::show(ui, &self.status, &mut actions);
+                // Two disjoint field borrows through `self`, as at the canvas
+                // call site below: the bar reads the status and writes the
+                // Find toggle's own state.
+                crate::app::status::show(ui, &self.status, &mut self.find, &mut actions);
             });
 
         // Step 1c — the docks, between the ribbon and the canvas.
@@ -901,6 +923,24 @@ impl eframe::App for PdfceApp {
             crate::diag::ui_rect(REGION_CENTRAL_PANEL, ui.max_rect());
             self.central(ui, &mut actions);
         });
+
+        // Step 2a² — the FIND OVERLAY, over the page.
+        //
+        // ★ After the canvas, and the order IS the placement. The box is an
+        // `egui::Area` positioned from the CANVAS VIEWPORT's rect, which
+        // `canvas::show` records through `zoom::remember_frame` as the last
+        // thing it does — so drawing it before the canvas would position this
+        // frame's box from last frame's layout, visible as a one-frame lag
+        // every time a dock splitter is dragged.
+        //
+        // Before the dialogs, because a modal takes the frame and must be over
+        // everything, this included.
+        //
+        // It draws nothing when the bar is closed and nothing when no document
+        // is open, so on the overwhelming majority of frames this line costs
+        // one boolean. Two disjoint field borrows through `self`, as at the
+        // canvas call site: `&mut self.find` and `&self.status`.
+        crate::find::bar::show(ui, &mut self.find, &self.status, &mut actions);
 
         // Step 2b — modal dialogs, LAST among the surfaces.
         //
@@ -980,8 +1020,15 @@ impl PdfceApp {
         // `format.delete` reads the selection off the open document — and the
         // arm holds `&mut self.status`. Letting the borrow end at the `if let`
         // is the whole reason this is not simply the first arm below.
+        // ★ Two disjoint field borrows, and they have to be taken through
+        // `self` in one expression: the canvas needs `&mut` on the open
+        // document (it writes the three documented bookkeeping fields) and
+        // `&` on the find state (it reads the hits to draw them). Binding
+        // either one first and then reaching for the other through `self`
+        // would be a second borrow of the whole struct.
+        let find = &self.find;
         if let Status::Open(doc) = &mut self.status {
-            let tokens = crate::canvas::show(ui, doc, host.as_ref(), actions);
+            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, actions);
             // Dispatched here rather than inside `show`: the canvas reports
             // intent and the application decides, which is the same seam the
             // ribbon and the dock already use.

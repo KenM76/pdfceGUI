@@ -27,7 +27,7 @@ the blocker named.
 | **Tests** | 1,008 passing, 0 failing |
 | **Gates** | 8 of 8, 0 skipped — `check-theme-colors` added 2026-08-13, with a self-test |
 | **Source** | ~86,000 lines across three crates |
-| **Commands** | 80 registered · 97 declared-and-deferred (`PLANNED`) |
+| **Commands** | 81 registered · 96 declared-and-deferred (`PLANNED`) |
 | **Ribbon surface built** | ~48 % of `RIBBON_IA.md` §5 · 32 groups |
 
 ---
@@ -47,6 +47,7 @@ the blocker named.
 - ✅ **Band overflow** — reserved-space "⌄ N more", proven hit-testable at a width narrow enough to hide groups
 - ✅ **Tab-strip overflow** — active tab pinned; collapses to the affordance below ~47 pt rather than hiding the tab you are looking at
 - ✅ **Status bar** — render-notes disclosure (closed by default), Actual size / Fit width / Fit page, zoom −/%/+, page ⏴ n/N ⏵
+- ✅ **Find** — `Ctrl+F` and a status-bar toggle open a floating box at the page's top right: search, `3 of 47`, Enter / Shift+Enter to step, hits highlighted with the current one distinguished, and Match case · Whole word · Wildcards behind an Options menu. Literal by default — the old shell's bar ran through `find_text`, which patterns, so typing `?` matched every character on the page. An edit clears the highlights and says so rather than drawing a mark that may no longer be over the text it names. Measured at **350 ms** on the 5.6 MB benchmark drawing, which is why nothing searches on a keystroke
 - ✅ **Editable page box** — type `37`, press Enter. Commits on Enter or focus loss, clamps out-of-range and says so, rejects non-numeric without discarding what you typed
 - ✅ **Three themes** with a *rendered-pair* contrast gate over all five widget states
 

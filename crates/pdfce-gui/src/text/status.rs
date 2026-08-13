@@ -67,10 +67,15 @@
 //!   than a substitution. Do not invent a replacement chord to fill the gap;
 //!   bind one in the manifest first, and it may be named the same day.
 //! - **Never state a capability the build does not have.** The Find toggle
-//!   `RIBBON_IA.md` §6 specifies has **no strings here at all**, because it
-//!   has no command in `crate::shell::commands` and therefore no control on
-//!   the bar. An unused label in a catalog is a placeholder with extra
-//!   steps.
+//!   `RIBBON_IA.md` §6 specifies has **no strings here**, and that is now a
+//!   filing decision rather than an absence: the toggle exists, and its label
+//!   and tooltip live in [`crate::text::find`] beside the rest of the Find
+//!   surface's copy. One area per consumer is this catalog's organising
+//!   principle, and the toggle's consumer is a control the Find module owns.
+//!   (It used to say the toggle had no strings *because it had no command*.
+//!   That is no longer true, and the sentence is corrected rather than
+//!   deleted, because "this used to be absent and is now built" is exactly
+//!   what a catalog header should make legible.)
 
 // ---------------------------------------------------------------------------
 // The narrator — the render diagnostics disclosure

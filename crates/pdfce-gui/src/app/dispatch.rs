@@ -255,6 +255,44 @@ impl PdfceApp {
                     }
                 }
             }
+            // ★ Find. `Ctrl+F`, and the status bar's Find toggle.
+            //
+            // A **toggle**, not a show: Ctrl+F is the chord every application
+            // in the class uses to open a find bar, and the operator whose
+            // fingers already know it expects the second press to put the
+            // canvas back. That is the opposite of `file.properties`
+            // immediately below, which is deliberately *idempotent* — and the
+            // difference is not inconsistency. Properties is offered from a
+            // context menu to *describe the row just clicked*, so a second
+            // invocation that hid the description would be actively hostile;
+            // Find is offered from a chord whose whole idiom is a toggle.
+            //
+            // Raises **no action**. Opening a bar changes no document and
+            // needs no frame boundary, exactly as mounting a panel does not —
+            // the funnel is for work that touches a document or that must not
+            // happen mid-frame, and this is neither. What *does* go through
+            // the funnel is the search itself; see `crate::find`.
+            //
+            // The command is gated on `doc.pages`, so the ribbon and the
+            // status bar cannot reach it without a document. A customized
+            // keymap can, which is why the no-document case is answered here
+            // rather than assumed away: the bar would draw nothing over an
+            // empty shell, so opening it would be a control the operator
+            // cannot see, and a trace line is the honest response.
+            "edit.find" => {
+                if matches!(self.status, Status::Open(_)) {
+                    let open = self.find.toggle();
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        format!("find-toggled open={open}")
+                    });
+                } else {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "find-declined reason=no-document".to_owned()
+                    });
+                }
+            }
             // ★ The Properties panel. See [`Self::show_panel`] for the
             // mount-versus-nothing decision, which is the only interesting
             // part of this.

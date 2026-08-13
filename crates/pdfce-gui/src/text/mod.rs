@@ -49,6 +49,7 @@
 //! | [`ribbon`] | the ribbon's *structural* strings — tab labels, the one-line question each tab answers, group captions, mode labels |
 //! | [`commands`] | the label and tooltip of every ribbon command |
 //! | [`files`] | the open/close/recent surface: the file dialog's title and filters, and everything the Recent control draws |
+//! | [`find`] | the Find bar — the field, the step buttons, the position readout, the four search options, and the status bar's Find toggle |
 //! | [`menus`] | the copy a **context menu** owns rather than borrows. Empty by construction — a menu row's words are its command's — and its header is the argument for why |
 //! | [`panels`] | every string the dock's panel bodies show — Bookmarks, Layers, Signatures, Fonts, Objects, Properties |
 //! | [`print`] | the print dialog — three tabs, the preview, the device refusals, and the commit button whose label carries the clip count |
@@ -69,6 +70,9 @@ pub mod commands;
 /// filter names, and every string the Recent control draws. Consumed by
 /// `crate::app::files` and `crate::app::recent`.
 pub mod files;
+/// Every string the Find bar shows, plus the status bar's Find toggle.
+/// Consumed by `crate::find::bar` and `crate::app::status`.
+pub mod find;
 /// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
 pub mod forms;
 /// The copy the **context-menu** surface owns, as distinct from the copy

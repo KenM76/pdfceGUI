@@ -249,6 +249,140 @@ pub fn draw_move_ghost(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Find highlights
+// ---------------------------------------------------------------------------
+
+/// One search hit, ready to paint.
+///
+/// The whole vocabulary this module needs about Find: **where**, in canvas
+/// space, and **whether it is the one the view is on**. Deliberately not a
+/// `TextMatch`, not a page index and not a `Quad` — the projection from
+/// unrotated PDF user space happens once, at search time, in
+/// [`crate::find::Hit::canvas`], so this file is never told what a PDF is and
+/// that file is never told what a `Painter` is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FindHighlight {
+    /// The hit's box in canvas space — Y-down, page top-left, `/Rotate`
+    /// applied. The same space the selection outlines are cached in, so it
+    /// projects through the same [`PageMapping`].
+    pub rect: Rect,
+    /// Whether this is the hit the position readout is counting.
+    pub current: bool,
+}
+
+/// How opaque a non-current hit's wash is, out of 255.
+///
+/// Low enough that the *text under it stays readable* — the operator is
+/// scanning the page to decide whether the hit is the one they want, and a
+/// highlight that obscures its own subject defeats the purpose. Deliberately
+/// the same order as the marquee's wash, which exists for the identical
+/// reason.
+const HIT_ALPHA: u8 = 40;
+
+/// How opaque the current hit's wash is.
+///
+/// ★ **Emphasis, not hue, is what distinguishes the current hit** — and that
+/// is a constraint rather than a preference. Every colour on this canvas comes
+/// from the theme (see this module's header, and
+/// `tools/gates/check-theme-colors.sh`), and the theme has no role meaning
+/// "the search hit you are on". Borrowing one that means something else —
+/// `warn_fg_color`, `error_fg_color` — would say *warning* on a control that
+/// is not warning about anything, and would then be wrong the first time
+/// somebody restyled the warning colour for warnings.
+///
+/// So the current hit is the same colour, more than twice as opaque, **and
+/// stroked**. Two independent signals rather than one: alpha alone is a weak
+/// difference on a dense drawing, and the outline is what carries it at a
+/// glance. Acrobat and every browser use a second hue for this; pdfce cannot,
+/// and this is the honest substitute.
+///
+/// ### ★ Why it is 96 and not 168, which is what it was
+///
+/// **Measured on a screenshot of the running binary.** The first value was
+/// chosen for contrast against neighbouring hits and produced a solid block
+/// over the current one: on `reflow.pdf`, searching `the`, the word `The` at
+/// the head of the paragraph was completely covered by its own highlight. A
+/// highlight that hides the text it is highlighting has defeated its purpose —
+/// the operator's next act is to *read* the hit and decide whether it is the
+/// one they wanted.
+///
+/// That is exactly the failure a passing test could not have caught, and the
+/// reason this project's founding rule is to drive the binary: both alphas
+/// were within their asserted bounds, the hue assertion passed, and the
+/// picture was wrong. The stroke went from 1.5 pt to 2.0 pt in the same change
+/// to carry the emphasis the alpha gave up.
+const CURRENT_ALPHA: u8 = 96;
+
+/// Paint the search hits on the page currently shown.
+///
+/// `hits` comes from [`crate::find::FindState::page_highlights`], which
+/// yields **nothing at all** when the results are not current — so an edit,
+/// a changed query or a closed bar all stop the highlights here by supplying
+/// an empty iterator rather than by a check in this function. That is the
+/// mechanism by which rule 4 is kept: this module cannot paint a mark over
+/// content the search no longer describes, because it is never handed one.
+///
+/// # Rule 4
+///
+/// A find highlight is a **pre-commit affordance in the second category** of
+/// this module's header — it describes what the operator is looking at, not a
+/// property of the content, and it disappears the instant the bar closes.
+/// Nothing here is keyed on a property of the document: it marks *the answer
+/// to a question the operator just asked*, which is the same class as a hover
+/// highlight. The one-line test still answers no — with the bar closed, this
+/// paints nothing at all.
+///
+/// # Why the rects are grown
+///
+/// Through [`visible_outline_rect`], for the same reason a selection outline
+/// is: a text run's quad can be degenerate on one axis (a page whose
+/// producer emitted a zero-height box, or a hit so small at the current zoom
+/// that it rounds to nothing), and a highlight that puts no pixels on the
+/// screen is indistinguishable from a search that did not work.
+pub fn draw_find_hits(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    hits: impl IntoIterator<Item = FindHighlight>,
+) {
+    let stroke = Stroke::new(2.0, visuals.selection.stroke.color);
+    for hit in hits {
+        let screen = visible_outline_rect(mapping.rect_to_screen(hit.rect), MIN_OUTLINE_EXTENT_PX);
+        let alpha = if hit.current {
+            CURRENT_ALPHA
+        } else {
+            HIT_ALPHA
+        };
+        painter.rect_filled(
+            screen,
+            CornerRadius::ZERO,
+            at_alpha(visuals.selection.bg_fill, alpha),
+        );
+        if hit.current {
+            painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
+        }
+    }
+}
+
+/// A themed colour at a chosen alpha.
+///
+/// Read back through `to_srgba_unmultiplied`, for the reason [`ghost`]
+/// documents at length and [`wash`] pre-dates:
+/// [`Color32`] stores **premultiplied** components, so the plain accessors
+/// return a hue already darkened by whatever alpha the source carried, and
+/// re-premultiplying that darkens it a second time.
+fn at_alpha(base: Color32, alpha: u8) -> Color32 {
+    let [r, g, b, _] = base.to_srgba_unmultiplied();
+    // NOT A THEME COLOUR: arithmetic on the theme's own colour, not a choice
+    // of one. The hue arrives from `visuals.selection.*` and only the alpha
+    // is set here, so a restyle still reaches every surface built on this —
+    // naming a role for each alpha would freeze them to palette entries and
+    // break the "these are all the selection colour" relationship they exist
+    // to keep.
+    Color32::from_rgba_unmultiplied(r, g, b, alpha)
+}
+
 /// Paint the rubber-band, given its **canvas-space** rect.
 ///
 /// A wash plus an outline. The wash matters on a dense drawing: an
@@ -402,6 +536,71 @@ mod tests {
         assert!(
             a > 64,
             "the ghost must be readable over dense linework, unlike the marquee wash"
+        );
+    }
+
+    /// ★ **The current find hit is distinguished by emphasis, not by hue.**
+    ///
+    /// Both halves are asserted because both are the design:
+    ///
+    /// - the two alphas differ by enough to read at a glance, so a page of
+    ///   hits shows *which one* the readout is counting;
+    /// - the hue is the theme's, unchanged, in both — a find highlight that
+    ///   borrowed `warn_fg_color` would say *warning* about something that is
+    ///   not a warning, and would break the first time somebody restyled the
+    ///   warning colour for warnings. `tools/gates/check-theme-colors.sh`
+    ///   enforces the general rule; this asserts the specific consequence.
+    ///
+    /// The second signal — the stroke on the current hit — is structural
+    /// rather than a colour and is asserted by reading [`draw_find_hits`],
+    /// which strokes if and only if `current`.
+    #[test]
+    fn the_current_find_hit_differs_by_emphasis_and_keeps_the_themes_hue() {
+        // NOT A THEME COLOUR: a test fixture standing in for whatever the
+        // theme supplies; the assertion is that the hue survives, so the exact
+        // input has to be a known literal.
+        let base = Color32::from_rgb(60, 120, 200);
+        let ordinary = at_alpha(base, HIT_ALPHA);
+        let current = at_alpha(base, CURRENT_ALPHA);
+
+        for colour in [ordinary, current] {
+            let [r, g, b, _] = colour.to_srgba_unmultiplied();
+            for (got, want) in [(r, 60u8), (g, 120), (b, 200)] {
+                assert!(
+                    got.abs_diff(want) <= 6,
+                    "a find highlight drifted off the theme's hue: {got} vs {want}"
+                );
+            }
+        }
+
+        // ★ The three relations between the two alphas are checked at
+        // COMPILE time rather than here.
+        //
+        // They are properties of two constants, so a run-time assertion would
+        // only re-discover what the compiler can refuse outright — the same
+        // argument `crate::app::status`'s `HEIGHT_PTS > ROW_HEIGHT_PTS`
+        // makes. They live inside this test rather than beside the constants
+        // so the whole colour argument is readable in one place.
+        const _: () = assert!(
+            CURRENT_ALPHA > HIT_ALPHA * 2,
+            // ui-text-exempt: compile-error text, never displayed in the UI
+            "the current hit must be obviously different from its neighbours; alpha is one \
+             of the two signals and it must not be a subtle one"
+        );
+        const _: () = assert!(
+            HIT_ALPHA < 96,
+            // ui-text-exempt: compile-error text, never displayed in the UI
+            "a highlight that hides the text it is highlighting defeats its own purpose"
+        );
+        // ★ The bound that came from a screenshot rather than from reasoning.
+        // At 168 the current hit was a solid block over its own word; see
+        // `CURRENT_ALPHA`'s docs. 112 is the ceiling that keeps ordinary black
+        // text legible through the theme's selection blue in both presets.
+        const _: () = assert!(
+            CURRENT_ALPHA <= 112,
+            // ui-text-exempt: compile-error text, never displayed in the UI
+            "the operator's next act after finding a hit is to READ it; a wash this \
+             opaque covers the word it is marking"
         );
     }
 

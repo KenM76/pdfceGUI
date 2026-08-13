@@ -703,6 +703,34 @@ pub const fn edit_form_flatten() -> CommandText {
     )
 }
 
+/// `edit.find`
+///
+/// ★ **The one command in this catalog whose only control is on the status
+/// bar.** `RIBBON_IA.md` §6 puts the Find toggle there rather than on the
+/// ribbon, so this label and tooltip are what that toggle's *command* says —
+/// reachable from a keymap, from a customized quick-access toolbar, and from
+/// the shortcut list — while `crate::text::find` holds the copy the bar's own
+/// controls own. The two are not duplicates: this one is keyed by command id
+/// and consumed by `crate::shell::commands`, that one is keyed by control and
+/// consumed by a widget.
+///
+/// The tooltip names `Ctrl+F` because the chord genuinely works: the manifest
+/// keymap binds it AND `crate::app::keyboard::DERIVED` can spell it. Both
+/// halves are required — `Ctrl+O` was in the keymap and printed in a tooltip
+/// for the whole of the ribbon's first life while pressing it did nothing,
+/// because the spelling table held only digits.
+///
+/// It also names the two limits an operator has no way to guess and that
+/// account for almost every surprising empty result: the search is over the
+/// text **drawn on the pages**, and it matches within one text run at a time.
+#[must_use]
+pub const fn edit_find() -> CommandText {
+    CommandText::new(
+        "Find",
+        "Search the text drawn on this document's pages, and highlight every hit (Ctrl+F).          Form fields, comments, bookmarks and attachments are not searched, and a word the          producer split across two text runs is not found.",
+    )
+}
+
 /// `edit.redact`
 #[must_use]
 pub const fn edit_redact() -> CommandText {

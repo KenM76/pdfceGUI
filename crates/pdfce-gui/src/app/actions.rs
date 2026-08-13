@@ -348,6 +348,39 @@ pub enum Action {
     /// Same nature as [`Self::SetLayerVisible`] — a view stance, tracked by
     /// `RenderKey`, invisible to a save.
     ToggleAnnotations,
+    /// **One thing the operator asked Find to do** — run the search, or step
+    /// to the adjacent hit.
+    ///
+    /// # Why a search goes through the funnel at all, when it changes nothing
+    ///
+    /// Because it needs `&mut EditSession`.
+    /// [`pdfce_core::edit::EditSession::find_text_with`] takes a mutable
+    /// borrow — it is a read that mutates the session's own working state —
+    /// and `OpenDoc::session` is an `Arc` precisely so the render worker can
+    /// hold a clone while it rasterizes. `Arc::get_mut` fails while any other
+    /// strong reference exists, so the worker has to be stopped first, and
+    /// stopping a render **in the middle of laying out a frame** is exactly
+    /// what this funnel exists to prevent. Applied after the frame, it is one
+    /// short pause in a rasterization that was going to restart anyway.
+    ///
+    /// So the rule this variant honours is not the letter of
+    /// "actions-not-mutations" (a search mutates no document) but its
+    /// *reason*: do no expensive or ordering-sensitive work in the middle of
+    /// a frame.
+    ///
+    /// # Why stepping is an action too, when it moves no bytes
+    ///
+    /// Because it **navigates**: moving to the next hit changes the page and
+    /// the scroll offset, which is `Action::GoToPage`'s territory. Doing it
+    /// in the widget would put a page change inside the frame that is already
+    /// drawing the old page — the one-frame-late class of defect
+    /// `crate::app`'s header describes for the whole apply phase.
+    ///
+    /// The operand is carried, exactly as [`Self::DeleteSelection`] carries
+    /// its index list, because an action is a complete statement of intent:
+    /// *which* way to step cannot be re-derived after the frame that asked.
+    /// See `crate::find` for what happens on the other end.
+    Find(crate::find::FindRequest),
     /// **One form-field edit**, as one undoable command.
     ///
     /// The variant `crate::panels::forms` raises for every one of its verbs —
@@ -433,6 +466,31 @@ impl PdfceApp {
                 self.close_document();
                 return;
             }
+            // ★ The third arm matched before the document guard, and it is
+            // here for a **borrow** reason rather than for the guard's.
+            //
+            // Applying a find request needs two of this struct's fields at
+            // once — `self.find` and the open document inside `self.status` —
+            // and the guard below takes `&mut self.status` for the rest of the
+            // function, after which `self.find` is unreachable. Splitting the
+            // borrow has to happen while `self` is still whole, which is here.
+            //
+            // It is *also* correct on the guard's own terms: with nothing
+            // open there is nothing to search, and saying so on the trace is
+            // more useful than the guard's silent drop, because a keymap can
+            // reach `edit.find` from any state and "the chord did nothing" and
+            // "the chord did nothing because no document is open" need
+            // different responses from whoever is reading the trace.
+            Action::Find(request) => {
+                match &mut self.status {
+                    Status::Open(doc) => crate::find::apply(&mut self.find, doc, request),
+                    _ => crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        format!("find-declined request={request:?} reason=no-document")
+                    }),
+                }
+                return;
+            }
             _ => {}
         }
 
@@ -495,7 +553,11 @@ impl PdfceApp {
             // new variant added to the enum still fails to compile here.
             // ui-text-exempt: a panic message, read from a stack trace by
             // whoever moved one of these two arms. Never rendered.
-            Action::Open(_) | Action::Close => unreachable!("handled before the document guard"),
+            Action::Open(_) | Action::Close | Action::Find(_) => {
+                // ui-text-exempt: a panic message, read from a stack trace by
+                // whoever moved one of these three arms. Never rendered.
+                unreachable!("handled before the document guard")
+            }
             Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),
             Action::ZoomIn => doc.view.zoom_in(max_zoom),
             Action::ZoomOut => doc.view.zoom_out(max_zoom),

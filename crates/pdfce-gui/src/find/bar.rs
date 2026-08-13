@@ -1,0 +1,1083 @@
+//! # `find::bar` — the Find overlay's controls, and the keys they own
+//!
+//! One compact box **floating over the top-right of the page**, which is
+//! where Acrobat Reader, Chrome's PDF viewer and Edge's all put theirs:
+//!
+//! ```text
+//!                          ┌────────────────────────────────────────────┐
+//!                          │ Find [ total       ] ⏴ ⏵ 3 of 47  Options ⏷  × │
+//!                          └────────────────────────────────────────────┘
+//! ```
+//!
+//! [`super`]'s header carries the placement note. The short version is that an
+//! overlay consumes **no layout space**, so opening Find does not resize the
+//! canvas and therefore does not re-fit the page under the operator's eyes.
+//! That is not a theoretical advantage: a docked version of this bar was built
+//! first and driven, and pressing Ctrl+F under Fit page took the zoom from
+//! 85 % to 81 % and back again on close — a page that jumps every time you go
+//! looking for a word on it.
+//!
+//! ## ★ The four search options live in a menu, not on the bar
+//!
+//! Match case, Whole word, Wildcards and the whole-word **rule** are behind
+//! the `Options` button. Three reasons, in order of weight:
+//!
+//! 1. **An overlay has to be narrow**, because it covers the page. Laid out in
+//!    a row, those four controls are wider than the search field, the step
+//!    buttons and the readout put together; the box would span most of the
+//!    window and hide the thing being searched for.
+//! 2. **It is what the reference product does.** Reader's Ctrl+F box is a
+//!    field, two arrows and a settings dropdown holding *Whole words only* and
+//!    *Case-Sensitive*. An operator arriving from Acrobat finds the options
+//!    where they left them.
+//! 3. **The rule chooser can then appear and disappear without moving
+//!    anything.** It is meaningful only while Whole word is on (see
+//!    [`options_menu`]), and inside a menu its arrival costs a row of a popup
+//!    rather than shifting every control to its right — which, on a bar the
+//!    operator is aiming at, is the difference between a tidy layout and a
+//!    mis-click.
+//!
+//! ## ★ The width is fixed, and nothing on the bar may move
+//!
+//! The box is anchored by its **top-right corner** to the canvas viewport, so
+//! its left edge is `right − width`: any change of width moves every control
+//! on it. The search field, the readout and the buttons therefore all have
+//! reserved widths ([`FIELD_WIDTH_PTS`], [`READOUT_WIDTH_PTS`]) and the
+//! options are in a menu — so `3 of 47` becoming `No matches`, or a search
+//! finding nothing at all, cannot slide the ⏴ ⏵ buttons out from under the
+//! pointer between two clicks. That is the same reason the status bar reserves
+//! a width for its zoom readout.
+//!
+//! The height is fixed too, at [`ROW_HEIGHT_PTS`], but for a much weaker
+//! reason: layout tidiness. **R128 does not reach this surface.** That rule is
+//! *a panel whose size feeds a fit-to-viewport computation has a fixed size*,
+//! and an `egui::Area` feeds no such computation because it consumes none of
+//! the layout. Docking the bar is what would have made R128 bind, and that is
+//! one of the reasons it is not docked.
+//!
+//! ## ★ The three keys, and the one that is shared
+//!
+//! | key | while the field has focus | otherwise |
+//! |---|---|---|
+//! | Enter | search, or step to the next hit | belongs to whatever has focus |
+//! | Shift+Enter | search, or step to the previous hit | as above |
+//! | **Escape** | close the bar | **belongs to the canvas** |
+//!
+//! Escape is the interesting one, because three surfaces want it: a canvas
+//! drag in flight wants to abandon itself, the selection ladder wants to
+//! ascend a rung, and this bar wants to close. There is no arbitration code,
+//! and there does not need to be — `crate::canvas::interact` already reads
+//! Escape as `!ctx.text_edit_focused() && …`, so while the operator is typing
+//! here the canvas is not offered the key at all. This file takes it only
+//! under the same condition, from the other side.
+//!
+//! The consequence is worth stating because it looks like a gap: **Escape does
+//! not close the bar after the operator has clicked on the page.** That is
+//! deliberate. At that moment Escape is the selection ladder's, and a bar that
+//! stole it would cost the operator the rung they were working in — the same
+//! one-press-one-effect rule `canvas::interact` applies between the gesture
+//! machine and the ladder. The close button and Ctrl+F are the routes out from
+//! there, and both are visible.
+//!
+//! ## ★ What Enter does depends on whether the answer is still current
+//!
+//! [`super::FindState::readout`] is the single test, and [`enter_intent`] is
+//! the whole decision as a pure function of it:
+//!
+//! | readout | Enter | Shift+Enter |
+//! |---|---|---|
+//! | `Idle` — nothing searched for what is in the box | **search** | **search** |
+//! | `Stale` — the document has been edited since | **search** | **search** |
+//! | `At` — there are hits | step **next** | step **previous** |
+//! | `Empty` — searched, nothing found | **nothing** | **nothing** |
+//!
+//! The last row is the one that needs defending. Re-running a search that just
+//! returned nothing would re-extract the whole document's text — **350 ms on
+//! the benchmark drawing, measured**; see [`super`]'s cost section — to
+//! produce the same empty answer, and an operator leaning on Enter would do it
+//! once per press. Nothing has changed since the search ran; if something had,
+//! the readout would be `Stale` and the first row would apply.
+//!
+//! ## Actions, not mutations
+//!
+//! Every commit leaves here as an [`Action::Find`]. The two exceptions are the
+//! ones `crate::app::status`'s page box already takes and for the same reason:
+//! the **text buffer** and the **option flags** are widget state, they describe
+//! the control rather than the document, and deferring a keystroke to after
+//! the frame would make typing lag by a frame.
+//!
+//! ## Where the strings are
+//!
+//! [`crate::text::find`], all of them. Nothing here is a literal an operator
+//! can read; `tools/gates/check-ui-strings.sh` is the mechanical half of that
+//! rule and [`crate::text`]'s header is the reason for it.
+
+use egui::{Align, Align2, Layout, Pos2, Rect, Vec2};
+
+use crate::app::actions::Action;
+use crate::app::state::Status;
+use crate::find::{FindOptions, FindRequest, FindState, Readout, Step};
+use crate::text::find as t;
+use pdfce_core::edit::WordBoundary;
+
+// ---------------------------------------------------------------------------
+// Geometry — see the "the width is fixed" section of the module docs
+// ---------------------------------------------------------------------------
+
+/// How wide the overlay's content row is, in egui points.
+///
+/// **Fixed, and load-bearing.** The box is anchored by its top-right corner,
+/// so its left edge is `right − width`; a width that varied with the readout's
+/// text would move every control on the bar every time a search ran.
+///
+/// Deliberately a little generous: a row that overflows its allocation *wraps*
+/// in egui, and a wrapped Find bar is two rows tall with its close button
+/// underneath its own search field.
+pub const BAR_WIDTH_PTS: f32 = 460.0;
+
+/// The height of the single row every control is laid out inside.
+///
+/// Layout tidiness rather than R128 — see the module docs on why that rule
+/// does not reach a surface which consumes no layout. What it does buy is that
+/// the box does not change shape as the readout changes, which matters for the
+/// same reason the width does.
+pub const ROW_HEIGHT_PTS: f32 = 24.0;
+
+/// The gap between the overlay and the canvas viewport's top-right corner.
+///
+/// Enough that the box reads as floating *over* the page rather than as
+/// something welded to the edge of the window, and enough that its shadow has
+/// somewhere to fall.
+const MARGIN_PTS: f32 = 12.0;
+
+/// How wide the search field is.
+///
+/// Wide enough for a part number or a short phrase — the two things drawing
+/// reviewers actually search for. Reserved rather than proportional, for the
+/// reason the module docs give: everything to its right is positioned from it.
+const FIELD_WIDTH_PTS: f32 = 190.0;
+
+/// How wide the position readout is.
+///
+/// `3 of 47`, `No matches` and `Document changed` are three very different
+/// widths, and without a reserve every search would shove its neighbours
+/// sideways — and, because the box is right-anchored, would move the search
+/// field the operator is typing into. Sized for the longest of the three at
+/// the default text size; anything longer elides, with the whole string on
+/// hover.
+const READOUT_WIDTH_PTS: f32 = 110.0;
+
+// ---------------------------------------------------------------------------
+// Named regions — see `crate::diag::ui_rect` for the contract and the naming
+// rule. These names are matched literally by `tools/ui-verify`, so renaming
+// one silently un-aims whatever check was measuring it.
+// ---------------------------------------------------------------------------
+
+/// The whole overlay, including its frame.
+///
+/// ★ Published so `ui-verify` can reach the bar at all. A check that wants to
+/// assert *"Ctrl+F produced a find bar, and its text is legible"* has exactly
+/// two honest sources for **where to look** — the application measures the
+/// rect on the frame it reports, or the harness hard-codes a fraction of the
+/// window and goes stale the first time a panel moves. This is the first
+/// source, and for a *floating* surface it is the only one: an overlay's
+/// position depends on the canvas viewport, which depends on the dock, so no
+/// constant a harness could hold would survive opening a panel.
+const REGION_BAR: &str = "find-bar"; // ui-text-exempt: trace region name, never displayed
+
+/// The search field itself.
+const REGION_FIELD: &str = "find-field"; // ui-text-exempt: trace region name, never displayed
+
+/// The step buttons and the position readout.
+const REGION_POSITION: &str = "find-position"; // ui-text-exempt: trace region name, never displayed
+
+/// The options menu button.
+const REGION_OPTIONS: &str = "find-options"; // ui-text-exempt: trace region name, never displayed
+
+/// Trace slot for the bar's steady state, de-duplicated on the rendered line.
+const FIND_SLOT: &str = "find-bar"; // ui-text-exempt: trace slot name, never displayed
+
+// ---------------------------------------------------------------------------
+// Widget ids
+// ---------------------------------------------------------------------------
+
+/// The overlay's `egui::Area` id.
+const AREA_ID: &str = "pdfce-find-bar"; // ui-text-exempt: widget id, never displayed
+
+/// The search field's id.
+///
+/// ★ **Stable and explicit, because defect D1 depends on it.**
+/// `crate::app::keyboard::collect` guards its unmodified bindings with
+/// `ctx.text_edit_focused()`, which resolves the focused id and asks whether a
+/// `TextEditState` exists *for that id*. The field therefore has to be a real
+/// [`egui::TextEdit`] with an id that does not move between frames, or
+/// `PageDown` would step the page while the operator was halfway through
+/// typing a search term. It also has to be stable for
+/// [`super::FindState::take_focus_request`] to be able to focus it.
+const FIELD_ID: &str = "pdfce-find-field"; // ui-text-exempt: widget id, never displayed
+
+// ---------------------------------------------------------------------------
+// The overlay
+// ---------------------------------------------------------------------------
+
+/// Draw the Find overlay, if it is open and there is a document to search.
+///
+/// Call it from `PdfceApp::ui` **after** the canvas and **before** the modal
+/// dialogs. Both halves are ordering decisions:
+///
+/// - **after the canvas**, because the box is positioned from the canvas
+///   viewport's own rect, which `crate::canvas::show` records through
+///   `zoom::remember_frame` as the last thing it does. Drawing first would
+///   position this frame's box from last frame's layout, which is visible as a
+///   one-frame lag every time a dock is resized;
+/// - **before the dialogs**, because a modal takes the frame and must be on
+///   top of everything, this included.
+///
+/// # Two states draw nothing at all, and neither is an oversight
+///
+/// - **Closed.** No area, no widgets, no hit-test region over the page.
+/// - **Open with no document.** `edit.find` is gated on `doc.pages`, so the
+///   bar cannot be *opened* without one; but a document can be closed while it
+///   is open, and a search box over nothing is a control whose every input is
+///   refused. The flag survives, so reopening a document brings the bar back
+///   exactly as the operator left it — the same courtesy the recent list
+///   extends, for the same reason.
+pub fn show(ui: &mut egui::Ui, state: &mut FindState, status: &Status, actions: &mut Vec<Action>) {
+    if !state.is_open() {
+        return;
+    }
+    let Status::Open(doc) = status else {
+        return;
+    };
+    let epoch = doc.edit_epoch;
+    let ctx = ui.ctx().clone();
+    let host = host_rect(&ctx);
+
+    let area = egui::Area::new(egui::Id::new(AREA_ID))
+        // `Middle` rather than `Foreground`: the box floats over the page and
+        // the docks, and is floated over in turn by its own options menu, by
+        // tooltips and by a modal — all of which egui puts in higher orders.
+        // Claiming `Foreground` here would put the Find bar over its own popup.
+        .order(egui::Order::Middle)
+        // ★ Anchored by its RIGHT-top corner, and that is a fix rather than a
+        // preference — found by driving the binary and reading the trace.
+        //
+        // With a LEFT-top pivot the position is `right − width`, and egui does
+        // not know an `Area`'s width until it has laid it out once. So on the
+        // frame Ctrl+F was first pressed the box appeared **108 points to the
+        // left** of where it belonged and snapped into place on the next
+        // frame: two `ui-rect name=find-bar` lines back to back, same size,
+        // different origin. Visible as a flinch every time the bar opened.
+        //
+        // A right-top pivot makes the corner this design actually cares about
+        // — the one MARGIN_PTS inside the canvas's top-right — the thing egui
+        // is given, so it is exact from the first frame whatever the measured
+        // width turns out to be. `default_width` closes the same gap for the
+        // constraint below, which would otherwise solve against a width of
+        // zero on that first frame.
+        .pivot(Align2::RIGHT_TOP)
+        .fixed_pos(anchor_right_top(host))
+        .default_width(BAR_WIDTH_PTS)
+        // A canvas viewport narrower than the box — reachable with both docks
+        // open on a minimum-size window — must not push the close button off
+        // the edge the operator is reaching for.
+        .constrain_to(host);
+
+    let response = area
+        .show(&ctx, |ui| {
+            // `Frame::popup` is the theme's own floating-surface frame — fill,
+            // stroke, rounding and shadow all read from `Style`. A hand-built
+            // frame here would be a second set of colours outside the theme
+            // module, which is exactly what `check-theme-colors.sh` exists to
+            // prevent.
+            egui::Frame::popup(ui.style()).show(ui, |ui| body(ui, state, epoch, actions));
+        })
+        .response;
+
+    crate::diag::ui_rect(REGION_BAR, response.rect);
+}
+
+/// The rect the overlay is positioned inside — the **canvas viewport**, not
+/// the window.
+///
+/// Read from `crate::canvas::zoom::last_frame`, which is the canvas's own
+/// record of where it drew. That matters as soon as a dock is open: anchoring
+/// to the window's top-right would put the box over the right-hand panel
+/// rather than over the page, and would move it every time a splitter was
+/// dragged even though the page had not moved.
+///
+/// The fallback is the whole screen rect, and it is reachable rather than
+/// defensive: a document with no pages, or one whose current page will not
+/// rasterize, makes `canvas::show` return before it records a frame — and
+/// both of those documents still have text worth searching. The box then sits
+/// at the window's top-right, over the sentence explaining why there is no
+/// page, which is the best available answer.
+fn host_rect(ctx: &egui::Context) -> Rect {
+    // `content_rect`, not `viewport_rect`: the former is what egui considers
+    // safe to draw content into (it subtracts an OS status bar or a display
+    // notch), and a Find box tucked under a notch is a Find box the operator
+    // cannot close.
+    crate::canvas::zoom::last_frame(ctx).map_or_else(|| ctx.content_rect(), |f| f.viewport_rect)
+}
+
+/// **The point the overlay's right-top corner is pinned to** — [`MARGIN_PTS`]
+/// inside `host`'s own top-right corner.
+///
+/// A free function, and taking no width, because that is the whole point of
+/// the right-top pivot: the placement is a corner, not a corner minus a
+/// measurement. See the pivot's comment in [`show`] for the frame-one defect
+/// that made it one.
+///
+/// Clamped into `host` on both axes so that a host smaller than the margin
+/// cannot produce a point outside the canvas. `constrain_to` would pull the
+/// box back anyway; this keeps the constraint a safety net rather than the
+/// thing deciding the layout.
+#[must_use]
+fn anchor_right_top(host: Rect) -> Pos2 {
+    Pos2::new(
+        (host.right() - MARGIN_PTS).max(host.left()),
+        (host.top() + MARGIN_PTS).min(host.bottom()),
+    )
+}
+
+/// Everything on the row.
+///
+/// Split from [`show`] so the placement and the layout are separately
+/// readable, and so the row can be driven by a test without an `Area` — what
+/// those tests are about is the controls and the keys, not where the box sits.
+fn body(ui: &mut egui::Ui, state: &mut FindState, epoch: u64, actions: &mut Vec<Action>) {
+    let row = Vec2::new(BAR_WIDTH_PTS, ROW_HEIGHT_PTS);
+    ui.allocate_ui_with_layout(row, Layout::left_to_right(Align::Center), |ui| {
+        // Claim the whole row even if the content uses less of it.
+        // `allocate_ui_with_layout` advances its parent by the child's
+        // *min_rect* — what the content actually used — so without these the
+        // box would breathe as the readout changed, and a right-anchored box
+        // that breathes moves its own search field.
+        ui.set_min_size(row);
+        ui.set_max_size(row);
+
+        field(ui, state, epoch, actions);
+        position(ui, state, epoch, actions);
+
+        // The options menu and the close button, hard right, in that order
+        // from the right edge inwards. A right-to-left layout over whatever is
+        // left cannot get this wrong; measuring the row and placing a button
+        // at `width − button` goes negative the moment the content is wider
+        // than the row, which `egui-shell`'s dock notes record as the fragile
+        // pattern.
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if ui
+                .button(t::close())
+                .on_hover_text(t::close_tooltip())
+                .clicked()
+            {
+                state.close();
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "find-closed by=button".to_owned()
+                });
+            }
+            options(ui, state, actions);
+        });
+    });
+
+    // `is_open()` rather than a literal `true`: a control drawn on this very
+    // row may have closed the bar during the frame — the close button does,
+    // and so does Escape — and a line reading `open=true` on the frame the bar
+    // closed would be the last thing in the trace and would be false.
+    crate::diag::trace_changed(FIND_SLOT, || {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "find-bar open={} query={:?} readout={:?}",
+            state.is_open(),
+            state.query(),
+            state.readout(epoch),
+        )
+    });
+}
+
+// ---------------------------------------------------------------------------
+// The field
+// ---------------------------------------------------------------------------
+
+/// The label, the search box, and the three keys the box owns.
+fn field(ui: &mut egui::Ui, state: &mut FindState, epoch: u64, actions: &mut Vec<Action>) {
+    let readout = state.readout(epoch);
+    let rect = ui
+        .scope(|ui| {
+            ui.label(t::field_label());
+
+            // Read the keys BEFORE the widget is built, so what is examined is
+            // the frame's raw input rather than whatever survived the
+            // `TextEdit` consuming it. egui's single-line `TextEdit` responds
+            // to Enter and Escape by surrendering focus, which is why both are
+            // recognised through `lost_focus()` below rather than through
+            // `has_focus()` alone.
+            let (enter, escape, shift) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::Enter),
+                    i.key_pressed(egui::Key::Escape),
+                    i.modifiers.shift,
+                )
+            });
+
+            let focus_wanted = state.take_focus_request();
+            let response = ui.add_sized(
+                Vec2::new(FIELD_WIDTH_PTS, ROW_HEIGHT_PTS),
+                egui::TextEdit::singleline(state.query_mut())
+                    .id(egui::Id::new(FIELD_ID))
+                    .hint_text(t::field_label()),
+            );
+            let response = response.on_hover_text(t::field_tooltip());
+            if focus_wanted {
+                response.request_focus();
+            }
+
+            let had_focus = response.has_focus() || response.lost_focus();
+            if had_focus && escape {
+                // See the module docs: this bar takes Escape ONLY while the
+                // field has focus, which is exactly the condition under which
+                // `canvas::interact` has already declined it.
+                state.close();
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "find-closed by=escape".to_owned()
+                });
+                return;
+            }
+            if response.lost_focus() && enter {
+                // Give the focus straight back, so a run of Enters walks the
+                // hits instead of the first one dropping the operator out of
+                // the box.
+                response.request_focus();
+                if let Some(request) = enter_intent(readout, shift) {
+                    actions.push(Action::Find(request));
+                }
+            }
+        })
+        .response
+        .rect;
+    crate::diag::ui_rect(REGION_FIELD, rect);
+}
+
+/// ★ **What Enter means**, as a pure function of the readout and the shift
+/// key.
+///
+/// The table is in this module's header; the argument for the `Empty` row —
+/// the only one that returns `None` — is there too, and it is about cost: a
+/// re-search of a query that just matched nothing re-extracts the whole
+/// document's text to produce the same answer, and nothing has changed since
+/// it did.
+///
+/// `Stale` searches rather than steps, which is the mechanism by which the
+/// bar's own "press Enter to search again" tooltip is true.
+#[must_use]
+fn enter_intent(readout: Readout, shift: bool) -> Option<FindRequest> {
+    match readout {
+        Readout::Idle | Readout::Stale => Some(FindRequest::Search),
+        Readout::At { .. } => Some(FindRequest::Step(if shift {
+            Step::Previous
+        } else {
+            Step::Next
+        })),
+        Readout::Empty => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stepping and the readout
+// ---------------------------------------------------------------------------
+
+/// `⏴ ⏵  3 of 47`.
+///
+/// The two buttons are **enabled only when there is something to step**, and
+/// each explains its greyed state on hover — P3 permits greying only for
+/// *temporarily* unavailable and only when it is always explained. Both
+/// conditions hold here: an empty or stale result set is a state that ends the
+/// moment the operator presses Enter, and
+/// [`crate::text::find::step_unavailable_tooltip`] says so.
+fn position(ui: &mut egui::Ui, state: &FindState, epoch: u64, actions: &mut Vec<Action>) {
+    let readout = state.readout(epoch);
+    let steppable = matches!(readout, Readout::At { .. });
+    let rect = ui
+        .scope(|ui| {
+            if ui
+                .add_enabled(steppable, egui::Button::new(t::previous()))
+                .on_hover_text(t::previous_tooltip())
+                .on_disabled_hover_text(t::step_unavailable_tooltip())
+                .clicked()
+            {
+                actions.push(Action::Find(FindRequest::Step(Step::Previous)));
+            }
+            if ui
+                .add_enabled(steppable, egui::Button::new(t::next()))
+                .on_hover_text(t::next_tooltip())
+                .on_disabled_hover_text(t::step_unavailable_tooltip())
+                .clicked()
+            {
+                actions.push(Action::Find(FindRequest::Step(Step::Next)));
+            }
+
+            // A reserved slot, drawn even when it is empty, so that running a
+            // search cannot move the box's own left edge. See the module docs.
+            let (text, hover) = readout_text(readout);
+            ui.allocate_ui_with_layout(
+                Vec2::new(READOUT_WIDTH_PTS, ROW_HEIGHT_PTS),
+                Layout::left_to_right(Align::Center),
+                |ui| {
+                    let label = ui.add(egui::Label::new(&text).truncate());
+                    if !hover.is_empty() {
+                        label.on_hover_text(hover);
+                    }
+                },
+            );
+        })
+        .response
+        .rect;
+    crate::diag::ui_rect(REGION_POSITION, rect);
+}
+
+/// The readout's text and its hover text, or two empty strings for
+/// [`Readout::Idle`].
+///
+/// Split out as a pure function so the four sentences can be asserted without
+/// a frame, and so the "Idle draws nothing" case is a value rather than a
+/// branch somebody has to notice in the layout code.
+#[must_use]
+fn readout_text(readout: Readout) -> (String, &'static str) {
+    match readout {
+        // Deliberately blank rather than `0 of 0`. Nothing has been asked, so
+        // there is nothing to answer.
+        Readout::Idle => (String::new(), ""),
+        Readout::Empty => (t::no_matches().to_owned(), t::no_matches_tooltip()),
+        Readout::Stale => (t::stale().to_owned(), t::stale_tooltip()),
+        Readout::At { current, total } => (t::position(current, total), t::position_tooltip()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+/// The `Options` menu button.
+///
+/// ★ **Changing an option re-runs the search**, when and only when a search
+/// has already been run for what is in the box. Both halves matter:
+///
+/// - re-running is what makes the control *do* something — a "Whole word"
+///   checkbox that left the old hit list on screen would be an inert control,
+///   which is the shape defect D1 took;
+/// - only after a search, because otherwise ticking a box on a bar the
+///   operator has not yet used would run a whole-document text extraction for
+///   a query they have not finished typing.
+///
+/// The test is [`super::FindState::answered`] *before* the change is applied —
+/// "the bar is currently showing an answer to what is in it", which is exactly
+/// the state in which leaving the old answer up would be wrong.
+fn options(ui: &mut egui::Ui, state: &mut FindState, actions: &mut Vec<Action>) {
+    let mut options = state.options();
+    let before = options;
+
+    let rect = ui
+        .menu_button(t::options(), |ui| options_menu(ui, &mut options))
+        .response
+        .on_hover_text(t::options_tooltip())
+        .rect;
+    crate::diag::ui_rect(REGION_OPTIONS, rect);
+
+    if options == before {
+        return;
+    }
+    // Asked BEFORE the new options are stored: afterwards the answer is
+    // `false` by construction, because the stored results were computed under
+    // the old options and would no longer match.
+    let was_showing_an_answer = state.answered();
+    state.set_options(options);
+    if was_showing_an_answer && !state.query().is_empty() {
+        actions.push(Action::Find(FindRequest::Search));
+    }
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "find-options case={} whole={} wildcards={} boundary={:?} research={was_showing_an_answer}",
+            options.case_sensitive, options.whole_word, options.wildcards, options.word_boundary,
+        )
+    });
+}
+
+/// The contents of the `Options` menu.
+///
+/// A free function taking `&mut FindOptions` so the whole menu is testable
+/// without a popup: what matters about it is which controls appear under which
+/// conditions, and that is a property of the options value.
+///
+/// ★ **The word-rule chooser exists only while it means something.**
+/// P3: an unavailable capability renders nothing, and greying is for
+/// *temporarily* unavailable with an explanation. A rule chooser beside an
+/// unticked *Whole word* is neither — it is a control that would change a value
+/// nothing reads, which is worse than a greyed one because it looks like it
+/// works. So it appears with the option and disappears with it, and
+/// [`crate::text::find::whole_word_tooltip`] warns the operator that it will.
+fn options_menu(ui: &mut egui::Ui, options: &mut FindOptions) {
+    ui.checkbox(&mut options.case_sensitive, t::match_case())
+        .on_hover_text(t::match_case_tooltip());
+    ui.checkbox(&mut options.whole_word, t::whole_word())
+        .on_hover_text(t::whole_word_tooltip());
+
+    if options.whole_word {
+        ui.separator();
+        ui.label(t::word_rule())
+            .on_hover_text(t::word_rule_tooltip());
+        for rule in FindOptions::WORD_RULES {
+            ui.radio_value(&mut options.word_boundary, *rule, word_rule_label(*rule))
+                .on_hover_text(word_rule_tooltip(*rule));
+        }
+        ui.separator();
+    }
+
+    ui.checkbox(&mut options.wildcards, t::wildcards())
+        .on_hover_text(t::wildcards_tooltip());
+}
+
+/// The label for one whole-word rule.
+///
+/// A free function rather than a method on [`WordBoundary`] because that type
+/// belongs to `pdfce-core` and its operator-facing wording belongs to this
+/// crate's catalog. `pub(crate)` so [`super`]'s test can assert that every rule
+/// the chooser offers has one.
+#[must_use]
+pub(crate) fn word_rule_label(rule: WordBoundary) -> &'static str {
+    match rule {
+        WordBoundary::NonSpace => t::word_rule_non_space(),
+        WordBoundary::NonSpaceOrDash => t::word_rule_non_space_or_dash(),
+        // `Alphanumeric`, plus any variant a future `pdfce-core` adds:
+        // `WordBoundary` is `#[non_exhaustive]`, so a wildcard arm is required
+        // and naming `Alphanumeric` beside it would be an unreachable pattern.
+        // It falls back to the DEFAULT's label rather than to a blank, because
+        // a new variant arriving from a core upgrade must not produce an empty
+        // row in a menu. `super::tests::every_word_rule_the_chooser_offers_has_a_label`
+        // is what keeps `FindOptions::WORD_RULES` honest.
+        _ => t::word_rule_alphanumeric(),
+    }
+}
+
+/// The hover text for one whole-word rule. See [`word_rule_label`].
+#[must_use]
+fn word_rule_tooltip(rule: WordBoundary) -> &'static str {
+    match rule {
+        WordBoundary::NonSpace => t::word_rule_non_space_tooltip(),
+        WordBoundary::NonSpaceOrDash => t::word_rule_non_space_or_dash_tooltip(),
+        _ => t::word_rule_alphanumeric_tooltip(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Context, RawInput};
+
+    // =======================================================================
+    // ★ Placement
+    // =======================================================================
+
+    /// ★ **The box is pinned inside the canvas viewport's top-right corner**,
+    /// not the window's.
+    ///
+    /// The distinction is invisible until a dock is open, and then it is the
+    /// whole difference between a find bar over the page and a find bar over
+    /// the Objects panel. Asserted against a host rect deliberately offset
+    /// from the origin, so an implementation that forgot `host.right()` or
+    /// `host.top()` and used the screen's still fails.
+    #[test]
+    fn the_overlay_is_pinned_inside_the_hosts_top_right_corner() {
+        let host = Rect::from_min_max(Pos2::new(200.0, 90.0), Pos2::new(1000.0, 700.0));
+        let at = anchor_right_top(host);
+
+        assert!(host.contains(at), "the pivot must be on the canvas: {at:?}");
+        assert!(at.y > host.top(), "it must not sit on the canvas's edge");
+        assert!(at.y < host.top() + 40.0, "…nor halfway down the page");
+        assert!(at.x < host.right(), "…nor flush against the right edge");
+        assert!(
+            at.x - BAR_WIDTH_PTS > host.left(),
+            "an ordinary canvas must be wide enough for the whole box, or the \
+             constraint rather than this function is deciding the layout"
+        );
+    }
+
+    /// A host far narrower than the box still yields a pivot on the canvas.
+    ///
+    /// Reachable: the canvas viewport shrinks with every dock the operator
+    /// opens, and `MIN_WINDOW_SIZE` is 640 points wide before any of them.
+    /// egui's `constrain_to` is what pulls the *box* back in that case; what
+    /// is asserted here is that it is not being handed a nonsense point to
+    /// start from.
+    #[test]
+    fn a_narrow_host_still_yields_a_pivot_on_the_canvas() {
+        for narrow in [
+            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 400.0)),
+            // Degenerate: a window dragged to nothing, which egui reports
+            // before it clamps.
+            Rect::from_min_max(Pos2::new(50.0, 50.0), Pos2::new(54.0, 54.0)),
+        ] {
+            let at = anchor_right_top(narrow);
+            assert!(
+                narrow.contains(at),
+                "{at:?} is outside {narrow:?}; the pivot must never leave the canvas"
+            );
+        }
+    }
+
+    // =======================================================================
+    // ★ What Enter means
+    // =======================================================================
+
+    /// ★ **Enter searches when the answer is not current and steps when it
+    /// is.**
+    ///
+    /// The whole of the bar's key behaviour, asserted without a frame. The
+    /// interesting rows are `Stale` — which must search rather than step,
+    /// because stepping through geometry the module has already declared
+    /// untrustworthy is exactly what the staleness rule exists to prevent —
+    /// and `Empty`, which must do nothing.
+    #[test]
+    fn enter_searches_when_there_is_no_current_answer_and_steps_when_there_is() {
+        assert_eq!(
+            enter_intent(Readout::Idle, false),
+            Some(FindRequest::Search)
+        );
+        assert_eq!(enter_intent(Readout::Idle, true), Some(FindRequest::Search));
+        assert_eq!(
+            enter_intent(Readout::Stale, false),
+            Some(FindRequest::Search),
+            "a stale bar must search again, not step through hits it has disowned"
+        );
+        assert_eq!(
+            enter_intent(
+                Readout::At {
+                    current: 1,
+                    total: 9
+                },
+                false
+            ),
+            Some(FindRequest::Step(Step::Next))
+        );
+        assert_eq!(
+            enter_intent(
+                Readout::At {
+                    current: 1,
+                    total: 9
+                },
+                true
+            ),
+            Some(FindRequest::Step(Step::Previous)),
+            "Shift+Enter goes backwards"
+        );
+    }
+
+    /// ★ **Enter on a fruitless search does nothing at all.**
+    ///
+    /// A search is a whole-document text extraction — 350 ms on the benchmark
+    /// drawing, measured. Re-running one that just matched nothing, once per
+    /// keypress, is how a viewer becomes unusable on the files it exists for
+    /// — and it would produce the same answer, because if anything had changed
+    /// the readout would be `Stale`.
+    #[test]
+    fn enter_does_not_re_run_a_search_that_found_nothing() {
+        assert_eq!(enter_intent(Readout::Empty, false), None);
+        assert_eq!(enter_intent(Readout::Empty, true), None);
+    }
+
+    // =======================================================================
+    // The readout's four sentences
+    // =======================================================================
+
+    /// The four states produce four different readouts, and only one of them
+    /// is blank.
+    #[test]
+    fn the_four_readouts_are_four_different_sentences() {
+        let idle = readout_text(Readout::Idle).0;
+        let empty = readout_text(Readout::Empty).0;
+        let stale = readout_text(Readout::Stale).0;
+        let at = readout_text(Readout::At {
+            current: 3,
+            total: 47,
+        })
+        .0;
+
+        assert!(idle.is_empty(), "nothing asked, nothing answered");
+        assert!(!empty.is_empty() && !stale.is_empty() && !at.is_empty());
+        assert_ne!(empty, stale, "`no matches` and `stale` are different facts");
+        assert_ne!(empty, at);
+        assert_eq!(at, "3 of 47");
+    }
+
+    /// Every readout that says something also explains itself on hover.
+    ///
+    /// The blank one does not, and must not: a hover target with no text is
+    /// worse than none.
+    #[test]
+    fn every_readout_that_says_something_explains_itself() {
+        for readout in [
+            Readout::Empty,
+            Readout::Stale,
+            Readout::At {
+                current: 1,
+                total: 1,
+            },
+        ] {
+            let (text, hover) = readout_text(readout);
+            assert!(!text.is_empty());
+            assert!(
+                !hover.is_empty(),
+                "{readout:?} says something and explains nothing"
+            );
+        }
+        assert!(readout_text(Readout::Idle).1.is_empty());
+    }
+
+    // =======================================================================
+    // The options menu
+    // =======================================================================
+
+    /// ★ **The word-rule chooser appears with Whole word and not before.**
+    ///
+    /// P3, applied to the one control on this surface whose availability is
+    /// conditional. Driven through a real `Ui` so what is asserted is what the
+    /// menu actually builds, and counted by *widgets that were laid out*
+    /// rather than by reading the branch — a test that read the branch would
+    /// pass on a build where the `if` had been inverted and the label moved.
+    #[test]
+    fn the_word_rule_chooser_appears_only_with_whole_word() {
+        let ctx = Context::default();
+        let widgets = |whole_word: bool| {
+            let mut options = FindOptions {
+                whole_word,
+                ..FindOptions::default()
+            };
+            let mut height = 0.0_f32;
+            let _ = ctx.run_ui(RawInput::default(), |ui| {
+                height = ui
+                    .scope(|ui| options_menu(ui, &mut options))
+                    .response
+                    .rect
+                    .height();
+            });
+            height
+        };
+        let plain = widgets(false);
+        let with_rule = widgets(true);
+        assert!(
+            with_rule > plain + 20.0,
+            "switching Whole word on must add the rule chooser to the menu \
+             ({plain} pt -> {with_rule} pt)"
+        );
+    }
+
+    // =======================================================================
+    // Legibility — the labels that are glyphs
+    // =======================================================================
+
+    /// ★ **Every glyph the bar draws exists in the bundled font set.**
+    ///
+    /// `⏴`, `⏵` and `×` are the entire visible text of three controls. A
+    /// codepoint egui's bundled fonts (Ubuntu-Light + NotoEmoji +
+    /// emoji-icon-font) cannot draw renders as a tofu box, which is defect
+    /// D2's shape — an invisible label — on a control the operator has to hit.
+    ///
+    /// The status bar has the identical test and it has already paid for
+    /// itself once: that catalog was written with `◀ ▶ ▸ ▾`, **all four of
+    /// which are missing**, and they would have shipped as tofu on the two
+    /// controls an operator touches most. This test is not a duplicate of it —
+    /// it cannot see this file's strings, and this file cannot see the status
+    /// bar's.
+    #[test]
+    fn every_glyph_the_find_bar_draws_has_a_glyph() {
+        let ctx = Context::default();
+        let labels: Vec<String> = vec![
+            t::field_label().to_owned(),
+            t::previous().to_owned(),
+            t::next().to_owned(),
+            t::close().to_owned(),
+            t::options().to_owned(),
+            t::position(3, 47),
+            t::no_matches().to_owned(),
+            t::stale().to_owned(),
+            t::match_case().to_owned(),
+            t::whole_word().to_owned(),
+            t::wildcards().to_owned(),
+            t::word_rule().to_owned(),
+            t::word_rule_alphanumeric().to_owned(),
+            t::word_rule_non_space().to_owned(),
+            t::word_rule_non_space_or_dash().to_owned(),
+            t::toggle().to_owned(),
+        ];
+
+        let mut missing = Vec::new();
+        let _ = ctx.run_ui(RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(14.0);
+            ui.ctx().fonts_mut(|f| {
+                for label in &labels {
+                    for c in label.chars() {
+                        if !f.has_glyph(&font, c) {
+                            missing.push((label.clone(), c));
+                        }
+                    }
+                }
+            });
+        });
+
+        assert!(
+            missing.is_empty(),
+            "these labels contain codepoints the bundled fonts cannot draw, so they would \
+             render as tofu boxes: {missing:?}"
+        );
+    }
+
+    // =======================================================================
+    // The bar as a whole
+    // =======================================================================
+
+    /// A bar showing the answer to a search for `query` that found `hits`
+    /// hits, all on page 0.
+    ///
+    /// Built by writing `super`'s private fields directly, which a child
+    /// module may do. The alternative — a constructor on `FindState` that only
+    /// tests call — would be a second way to assemble a result set, and the
+    /// currency key is exactly the thing that must have one.
+    fn searched(query: &str, hits: usize) -> FindState {
+        let mut state = FindState::default();
+        state.open();
+        state.query_mut().push_str(query);
+        state.results = Some(crate::find::Results {
+            query: query.to_owned(),
+            options: FindOptions::default(),
+            epoch: 0,
+            hits: (0..hits)
+                .map(|_| crate::find::Hit {
+                    page: 0,
+                    canvas: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(10.0, 10.0))),
+                    text: query.to_owned(),
+                })
+                .collect(),
+            current: 0,
+        });
+        state
+    }
+
+    /// Run one frame of the row and return the actions it raised.
+    fn frame(ctx: &Context, state: &mut FindState, epoch: u64, input: RawInput) -> Vec<Action> {
+        let mut actions = Vec::new();
+        let _ = ctx.run_ui(input, |ui| body(ui, state, epoch, &mut actions));
+        actions
+    }
+
+    /// ★ **The box is exactly the same size whatever the readout says.**
+    ///
+    /// The property the module docs argue for: the overlay is anchored by its
+    /// top-right corner, so a box that changed width would move the search
+    /// field the operator is typing into, and the ⏴ ⏵ buttons out from under
+    /// a pointer aimed between two clicks.
+    ///
+    /// Four readouts, four very different strings, one size.
+    #[test]
+    fn the_box_is_the_same_size_whatever_the_readout_says() {
+        let ctx = Context::default();
+        let size = |state: &mut FindState, epoch: u64| {
+            let mut got = Vec2::ZERO;
+            let _ = ctx.run_ui(RawInput::default(), |ui| {
+                let mut actions = Vec::new();
+                got = ui
+                    .scope(|ui| body(ui, state, epoch, &mut actions))
+                    .response
+                    .rect
+                    .size();
+            });
+            got
+        };
+
+        let mut idle = FindState::default();
+        idle.open();
+        let baseline = size(&mut idle, 0);
+        assert!(
+            (baseline.x - BAR_WIDTH_PTS).abs() < 1.0,
+            "the row must occupy exactly its reserved width, got {baseline:?}"
+        );
+
+        for (label, mut state) in [
+            ("empty", searched("zzz", 0)),
+            ("hits", searched("total", 47)),
+        ] {
+            let got = size(&mut state, 0);
+            assert!(
+                (got.x - baseline.x).abs() < 0.01 && (got.y - baseline.y).abs() < 0.01,
+                "the `{label}` readout resized the box ({baseline:?} -> {got:?}); a \
+                 right-anchored box that resizes moves every control on it"
+            );
+        }
+
+        // …and a stale one, which is the longest string of the three.
+        let mut stale = searched("total", 47);
+        let got = size(&mut stale, 1);
+        assert!(
+            (got.x - baseline.x).abs() < 0.01 && (got.y - baseline.y).abs() < 0.01,
+            "the stale readout resized the box ({baseline:?} -> {got:?})"
+        );
+    }
+
+    /// The step buttons raise nothing until there is something to step.
+    ///
+    /// Driven through a real frame rather than by calling the arm, so what is
+    /// under test is the wiring — the failure this catches is a button that
+    /// draws, is enabled, and reports nothing, which is the shape three of the
+    /// old shell's panels shipped in.
+    #[test]
+    fn the_step_buttons_are_inert_until_there_is_something_to_step() {
+        let ctx = Context::default();
+        let mut state = FindState::default();
+        state.open();
+
+        assert_eq!(state.readout(0), Readout::Idle);
+        let actions = frame(&ctx, &mut state, 0, RawInput::default());
+        assert!(
+            actions.is_empty(),
+            "an untouched bar must raise nothing at all"
+        );
+    }
+
+    /// ★ **Typing raises nothing.**
+    ///
+    /// The cost rule, from the other end: a search is a whole-document text
+    /// extraction — 350 ms on the benchmark drawing — so a bar that raised one
+    /// per keystroke would spend 1.4 seconds of blocked UI thread on the word
+    /// `part`. This is what "never searches on a keystroke" means in a test.
+    #[test]
+    fn typing_raises_no_search() {
+        let ctx = Context::default();
+        let mut state = FindState::default();
+        state.open();
+        state.query_mut().push_str("tot");
+
+        let input = RawInput {
+            events: vec![egui::Event::Text("a".to_owned())],
+            ..Default::default()
+        };
+        let actions = frame(&ctx, &mut state, 0, input);
+        assert!(
+            actions.is_empty(),
+            "a keystroke must not reach the engine; a search is a whole-document \
+             text extraction"
+        );
+    }
+
+    /// Closing the bar is a widget state change and raises no action.
+    ///
+    /// Closing touches no document, so it does not go through the funnel — the
+    /// same rule that keeps `show_panel` out of the action list.
+    #[test]
+    fn closing_the_bar_is_not_a_document_action() {
+        let mut state = FindState::default();
+        state.open();
+        state.close();
+        assert!(!state.is_open());
+    }
+}

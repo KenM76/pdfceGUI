@@ -227,8 +227,26 @@ pub fn built_in() -> Shell {
         //                        own keyboard layer against the view state.
         //                        They are not ribbon commands and putting
         //                        them here would give them a second owner.
-        //   Ctrl+F               Find lives in the status bar, which this
-        //                        manifest does not describe.
+        // ★ Ctrl+F IS bound here now, and the comment it replaces is worth
+        // keeping visible because it was right about the control and wrong
+        // about the chord:
+        //
+        //     Ctrl+F   Find lives in the status bar, which this manifest
+        //              does not describe.
+        //
+        // The first clause still holds — `RIBBON_IA.md` §6 puts the Find
+        // TOGGLE on the status bar, and `edit.find` is on no tab. The second
+        // does not follow from it. A keymap is not a description of controls;
+        // it is the ONE place a chord is bound to a meaning, which is the
+        // property the two-owner defect was fixed by establishing. Leaving
+        // Ctrl+F out of it would have meant binding it in
+        // `crate::app::keyboard` instead — a second owner, in the module whose
+        // whole header is about why there must not be one.
+        //
+        // So the rule is: the manifest binds every chord, whatever surface
+        // the control lives on; a surface this manifest does not describe is
+        // a reason for the command to be on no TAB, not a reason for its chord
+        // to be bound somewhere else.
         // -------------------------------------------------------------------
         .with_binding("Ctrl+O", "file.open")
         .with_binding("Ctrl+S", "file.save_copy")
@@ -238,6 +256,7 @@ pub fn built_in() -> Shell {
         .with_binding("Ctrl+E", "edit.text")
         .with_binding("Ctrl+Shift+E", "edit.add_text")
         .with_binding("Ctrl+Shift+C", "edit.copy_page_text")
+        .with_binding("Ctrl+F", "edit.find")
         .with_binding("Ctrl+0", "view.zoom_actual")
         .with_binding("[", "pages.rotate_left")
         .with_binding("]", "pages.rotate_right")

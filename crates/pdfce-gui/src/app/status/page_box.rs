@@ -622,7 +622,12 @@ mod tests {
             wants_keyboard = ctx.egui_wants_keyboard_input();
             text_focused = ctx.text_edit_focused();
             keyboard_actions = crate::app::keyboard::collect(ctx, Some(4));
-            show(ui, &status, &mut actions);
+            show(
+                ui,
+                &status,
+                &mut crate::find::FindState::default(),
+                &mut actions,
+            );
         });
 
         assert!(
@@ -663,7 +668,12 @@ mod tests {
         let mut actions = Vec::new();
         let _ = ctx.run_ui(key_press(Key::PageDown, Modifiers::NONE), |ui| {
             keyboard_actions = crate::app::keyboard::collect(ui.ctx(), Some(4));
-            show(ui, &status, &mut actions);
+            show(
+                ui,
+                &status,
+                &mut crate::find::FindState::default(),
+                &mut actions,
+            );
         });
         assert_eq!(keyboard_actions, vec![Action::NextPage]);
     }
@@ -811,7 +821,12 @@ mod tests {
         let mut actions = Vec::new();
         let _ = ctx.run_ui(key_press(Key::PageUp, Modifiers::NONE), |ui| {
             actions = crate::app::keyboard::collect(ui.ctx(), Some(4));
-            show(ui, &status, &mut actions);
+            show(
+                ui,
+                &status,
+                &mut crate::find::FindState::default(),
+                &mut actions,
+            );
         });
         assert_eq!(actions, vec![Action::PrevPage]);
     }

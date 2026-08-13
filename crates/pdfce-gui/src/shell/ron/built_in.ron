@@ -381,6 +381,7 @@
         "Ctrl+2": "mode.review",
         "Ctrl+3": "mode.edit",
         "Ctrl+E": "edit.text",
+        "Ctrl+F": "edit.find",
         "Ctrl+H": "view.read_mode",
         "Ctrl+O": "file.open",
         "Ctrl+S": "file.save_copy",

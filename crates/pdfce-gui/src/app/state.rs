@@ -253,6 +253,25 @@ pub struct OpenDoc {
     /// See [`ZoomAnchor`]. Written by the canvas, consumed by the canvas on
     /// the following frame.
     pub zoom_anchor: Option<ZoomAnchor>,
+    /// **A search hit that has been navigated to and is waiting to be
+    /// scrolled into view.** See [`crate::find::Reveal`].
+    ///
+    /// Sits here beside [`Self::zoom_anchor`] because it is the same *kind* of
+    /// thing for the same reason: per-document **view** bookkeeping that has
+    /// to span two frames, because the page it targets has not been navigated
+    /// to yet on the frame the request is made. Written by
+    /// `crate::find::apply` during the apply phase, consumed by
+    /// `crate::canvas::show` on the first frame that is actually showing the
+    /// hit's page, and abandoned if that frame never comes — the same
+    /// hold/solve/drop shape `zoom::anchor_step` documents, minus the zoom.
+    ///
+    /// On `OpenDoc` rather than on `FindState` — which owns everything else
+    /// about Find — by this struct's own rule: state that dies with the
+    /// document lives here. A pending scroll position is a fact about *this*
+    /// document's pages and means nothing in another one, and putting it here
+    /// makes forgetting it free rather than another `forget_document` line
+    /// somebody has to remember.
+    pub find_reveal: Option<crate::find::Reveal>,
     /// Bumped by **every action that changes the document's content**.
     ///
     /// Not a document version in any meaningful sense — it is a cheap "has
@@ -400,6 +419,10 @@ impl OpenDoc {
             zoom_commit_at: Instant::now(),
             zoom_commanded: false,
             zoom_anchor: None,
+            // Nothing to reveal on a document nobody has searched yet — and,
+            // like every other field here, fresh by construction rather than
+            // by a reset somebody has to call.
+            find_reveal: None,
             edit_epoch: 0,
             objects_traced_for: None,
             last_scroll_offset: egui::Vec2::ZERO,
@@ -839,6 +862,17 @@ impl PdfceApp {
         // gone either way, and stale expansion state over a document that
         // could not be read is the worse of the two states to leave behind.
         self.panels.forget_document();
+        // ★ …and the search results, for a stronger version of the same
+        // reason.
+        //
+        // A hit carries a page index and a page-space rectangle, both of which
+        // are positions in ONE file. Carrying them into another is not
+        // staleness — a freshly opened document's `edit_epoch` is 0, so the
+        // epoch test that catches an edit would happily declare them current —
+        // it is nonsense, and it would put highlights on whatever happens to
+        // be at those coordinates in the new file. The query and the operator's
+        // options survive; see `crate::find::FindState::forget_document`.
+        self.find.forget_document();
 
         // ★ Remember the file — but only if it actually opened.
         //
@@ -909,6 +943,14 @@ impl PdfceApp {
     ///   behind means the Objects panel keeps rows expanded for a file that is
     ///   no longer open, which is the same staleness `open_path` forgets for
     ///   the same reason.
+    /// - **The search results**, through
+    ///   [`crate::find::FindState::forget_document`], for a stronger version
+    ///   of that argument: a hit's page index and its page-space rectangle are
+    ///   positions in one file, and the epoch test that catches an *edit*
+    ///   cannot catch a *different document* — a freshly opened one's
+    ///   `edit_epoch` is 0, so stale hits would read as current. The query and
+    ///   the search options survive, because those describe the operator
+    ///   rather than the document.
     /// - **The de-duplicated trace slots**, so the next document opened in
     ///   this session gets its own canvas line and its own region
     ///   declarations rather than inheriting these because the numbers
@@ -937,6 +979,10 @@ impl PdfceApp {
         });
         self.status = Status::Empty;
         self.panels.forget_document();
+        // The hit list describes a document that is no longer open. See
+        // `open_path` for the argument; the two sites are deliberately
+        // symmetric.
+        self.find.forget_document();
         crate::diag::reset_change_gates();
     }
 
@@ -1088,13 +1134,16 @@ fn is_unsupported_structure(err: &DocError) -> bool {
 /// the same three calls in the same order, so what is under test is the state
 /// machine rather than an approximation of it.
 ///
-/// At module level rather than inside `mod tests`, and `pub(super)`, because
-/// [`crate::app::cache`]'s tests need the identical starting point: they assert
-/// against caches whose fields are declared on [`OpenDoc`], and a second
-/// fixture opener would be a second way to assemble one — exactly what
-/// [`OpenDoc::new`]'s own docs argue against.
+/// At module level rather than inside `mod tests`, and `pub(crate)`, because
+/// three other modules' tests need the identical starting point:
+/// [`crate::app::cache`]'s assert against caches whose fields are declared on
+/// [`OpenDoc`], `crate::app::status`'s drive the bar over a real document, and
+/// `crate::find`'s run a real search and a real reveal against real page
+/// geometry. A second fixture opener would be a second way to assemble an
+/// `OpenDoc` — exactly what [`OpenDoc::new`]'s own docs argue against — so the
+/// visibility widens rather than the function being copied.
 #[cfg(test)]
-pub(super) fn open_fixture(rel: &str) -> OpenDoc {
+pub(crate) fn open_fixture(rel: &str) -> OpenDoc {
     let path = crate::panels::objects::test_support::engine_fixture(rel);
     let doc = Document::load(&path).expect("the fixture loads");
     let pages = pdfce_core::page_tree::pages(&doc).expect("a page tree");
@@ -1103,7 +1152,7 @@ pub(super) fn open_fixture(rel: &str) -> OpenDoc {
 
 /// A four-page document, three objects on every page.
 #[cfg(test)]
-pub(super) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
+pub(crate) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
 /// Four optional-content groups: 4 and 7 on by default, 5 and 6 off.
 #[cfg(test)]
 pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";

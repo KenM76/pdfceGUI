@@ -123,6 +123,7 @@
 //! | PageDown / PageUp | next / previous page | here ([`OWNED`]) — the unmodified keys D1 killed |
 //! | Home / End | first / last page | here ([`OWNED`]) |
 //! | Ctrl+`O` | `file.open` → the file picker | the manifest keymap ([`DERIVED`]) |
+//! | Ctrl+`F` | `edit.find` → open or close the Find bar | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`0` | `view.zoom_actual` → actual size | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`1` / Ctrl+`2` / Ctrl+`3` | `mode.read` / `mode.review` / `mode.edit` | the manifest keymap ([`DERIVED`]) |
 //!
@@ -189,6 +190,18 @@ pub const DERIVED: &[(Key, &str)] = &[
     // dispatch arm would trace `command-unimplemented` on a keypress that
     // used to do nothing quietly. They land with their commands.
     (Key::O, "Ctrl+O"),
+    // ★ The second letter chord, and it is here because its command landed.
+    //
+    // The paragraph above says the keymap's letter chords are *"still
+    // unspellable, and deliberately: a chord here dispatches a command, and a
+    // command with no dispatch arm would trace `command-unimplemented` on a
+    // keypress that used to do nothing quietly. They land with their
+    // commands."* This is that rule being followed rather than broken:
+    // `edit.find` is registered, has a dispatch arm that toggles the Find bar,
+    // and has an operator-visible control on the status bar. Ctrl+S, Ctrl+Z,
+    // Ctrl+Y, Ctrl+E and the rest stay unspellable until the same is true of
+    // each of them.
+    (Key::F, "Ctrl+F"),
     (Key::Num0, "Ctrl+0"),
     (Key::Num1, "Ctrl+1"),
     (Key::Num2, "Ctrl+2"),

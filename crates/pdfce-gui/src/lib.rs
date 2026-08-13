@@ -36,6 +36,7 @@
 //! | [`viewer`] | page index, zoom ladder, fit math, raster ceiling | **yes** |
 //! | [`render`] | off-thread rasterization; pixmap → texture | worker keys only |
 //! | [`canvas`] | drawing the page, wheel/ctrl-wheel/middle-drag input | geometry only |
+//! | [`find`] | the search query, its options, stepping, staleness and the bar | mostly |
 //! | [`panels`] | the dock's panel bodies, and the page object model behind them | mostly |
 //! | [`text`] | every operator-visible string (the ui-text catalog) | n/a |
 //! | [`diag`] | the opt-in `PDFCE_DIAG` trace channel | n/a |
@@ -62,6 +63,11 @@ pub mod diag;
 // an end; a panel is somewhere you dip in and out of. See DIALOGS' own header
 // for that distinction and for why a print does not push an `Action`.
 pub mod dialogs;
+// Find: the query and its options, the one place a search is run, the rule
+// that decides what the position readout says, and the bar itself. See FIND's
+// own header for the `find_text` wildcard trap it exists to avoid, for why the
+// bar is docked rather than floating, and for what an edit does to a hit list.
+pub mod find;
 // The icon set: SVG path data, a subset parser, a tiny-skia rasterizer and
 // the painter `egui-shell`'s ribbon calls back into. Supplying that painter
 // is what stops the ribbon falling back to text labels — see `icons::paint`.
