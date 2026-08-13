@@ -233,9 +233,7 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
         let aspect = w / h;
         report.note(format!("{name}: {w:.1} x {h:.1} pt, aspect {aspect:.2}"));
         if aspect > MAX_ASPECT {
-            wide.push(format!(
-                "{name} is {w:.1} x {h:.1} pt (aspect {aspect:.2})"
-            ));
+            wide.push(format!("{name} is {w:.1} x {h:.1} pt (aspect {aspect:.2})"));
         }
     }
 
