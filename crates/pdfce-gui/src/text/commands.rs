@@ -283,6 +283,38 @@ pub const fn view_zoom_actual() -> CommandText {
     )
 }
 
+/// `view.zoom_selection`
+#[must_use]
+pub const fn view_zoom_selection() -> CommandText {
+    CommandText::new(
+        "Zoom to selection",
+        "Scale and centre the view on what is selected.",
+    )
+}
+
+/// `view.zoom_region`
+///
+/// The tooltip says *"drag"* because arming this command does not zoom
+/// anything — it changes what the next drag on the page means. A control
+/// that arms rather than acts has to say so, or its first press reads as
+/// broken.
+#[must_use]
+pub const fn view_zoom_region() -> CommandText {
+    CommandText::new(
+        "Zoom to region",
+        "Drag a rectangle on the page to zoom to it. The selection is left alone.",
+    )
+}
+
+/// `view.tool_hand`
+#[must_use]
+pub const fn view_tool_hand() -> CommandText {
+    CommandText::new(
+        "Hand",
+        "Drag to pan the page instead of selecting. Hold Space to pan without switching tools.",
+    )
+}
+
 /// `view.zoom_fit_page`
 #[must_use]
 pub const fn view_zoom_fit_page() -> CommandText {

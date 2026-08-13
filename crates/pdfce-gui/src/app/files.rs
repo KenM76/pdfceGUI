@@ -36,58 +36,38 @@
 //! | a path | [`Picked::Path`] — no dialog opens | a harness opening a second document |
 //! | set but **empty** | [`Picked::Cancelled`] — no dialog opens | a harness exercising the *cancel* path, which is the one that must change nothing |
 //!
-//! ## ★ Rule 2: `rfd` is the right dependency and this work may not add it
+//! ## The picker is `rfd`, and the version is not a choice
 //!
-//! The old shell picks files with [`rfd`](https://docs.rs/rfd) 0.17.2 — it is
-//! in `D:\Dev\pdfce\crates\pdfce-gui\Cargo.toml` and therefore already in
-//! pdfce's lockfile, licence-vetted, with no C dependency. It is **not** in
-//! this crate's manifest, and this crate's manifest is not this work's to
-//! edit, so the dependency is not added silently. The one line, verbatim,
-//! under `[dependencies]`:
+//! [`rfd`](https://docs.rs/rfd) 0.17.2 — the **exact** version in
+//! `D:\Dev\pdfce\crates\pdfce-gui\Cargo.toml`. Pinning to it is what makes
+//! this an *adoption* of a dependency already in pdfce's lockfile and already
+//! licence-vetted (MIT, no C dependency), rather than a new one this workspace
+//! introduced. The workspace root states the rule: a crate this workspace adds
+//! which is not already in pdfce's lockfile is an operator decision.
 //!
-//! ```toml
-//! # rfd: native file-open/save dialogs, no C dependency (docs/PRIOR_ART.md). MIT.
-//! rfd = "0.17.2"
-//! ```
+//! It opens the OS's real dialog, so the operator gets the picker they already
+//! know — their own places, recent folders and typing habits — and the dialog
+//! is owned by the pdfce window, so it travels with it and centres on it.
 //!
-//! and [`native_pick`] then becomes, in full:
+//! ### What was here first, and why it is worth recording
 //!
-//! ```ignore
-//! rfd::FileDialog::new()
-//!     .set_title(crate::text::files::open_dialog_title())
-//!     .add_filter(crate::text::files::filter_pdf(), &["pdf"])
-//!     .add_filter(crate::text::files::filter_all(), &["*"])
-//!     .pick_file()
-//!     .map_or(Picked::Cancelled, Picked::Path)
-//! ```
+//! This module was built while the manifest was not its to edit, and the
+//! obvious response to that — draw the Open button and leave it inert until
+//! the dependency arrives — is defect **D1**'s exact shape, on the command
+//! where it matters most: *a reader that cannot open a second file is not a
+//! reader*. So the first implementation shelled out to `powershell.exe` for
+//! WinForms' `OpenFileDialog`, returning the chosen path as **ASCII hex**
+//! because a redirected PowerShell stdout carries the console code page and
+//! `Übersicht.pdf` would otherwise arrive mangled — naming a different file,
+//! or none, while looking exactly like a real answer.
 //!
-//! Nothing else in this module, in `app`, or in `shell` changes when that
-//! happens: the seam, the action, the command and the dirty-document rule are
-//! all on this side of the call.
-//!
-//! ## What runs until then: the interim Windows picker
-//!
-//! A command that is drawn, enabled and inert is defect **D1**'s exact shape,
-//! and *"a reader that cannot open a second file is not a reader"*. So
-//! [`native_pick`] does not shrug: on Windows it asks the operating system
-//! for its own picker through `powershell.exe`, which is present on every
-//! supported Windows and needs no crate at all.
-//!
-//! What that costs, stated plainly rather than discovered later:
-//!
-//! - **It is Windows-only.** Every other platform gets
-//!   [`Picked::Unavailable`], because a `zenity`/`kdialog`/`osascript` arm
-//!   written on a Windows machine could not be compiled here, let alone run —
-//!   and untested code behind a `cfg` that this build never evaluates is
-//!   worse than an honest gap. `rfd` covers all three properly.
-//! - **The dialog is not owned by the pdfce window**, so it does not travel
-//!   with it and does not centre on it. `rfd` takes a parent handle.
-//! - **It costs a process launch** (tens of milliseconds) before the dialog
-//!   appears, and it blocks the UI thread while the dialog is open — which
-//!   `rfd::FileDialog::pick_file` also does, so only the first half is new.
-//! - **The path comes back hex-encoded.** See [`native_pick`]; console code
-//!   pages mangle non-ASCII file names and a mangled path names a different
-//!   file, or none, while looking exactly like a real answer.
+//! It worked, and it was verified against a live dialog. It was also
+//! Windows-only, unparented, and cost a process launch before anything
+//! appeared. It is gone now, and the reason to keep the paragraph is the
+//! judgement rather than the code: **an honest interim that works beats a
+//! placeholder that does not**, and the interim was built so that replacing it
+//! touched exactly one function — the seam, the action, the command and the
+//! dirty-document rule were all deliberately on this side of the call.
 //!
 //! ## ★ Rule 3: no test may dispatch `file.open`
 //!
@@ -95,12 +75,10 @@
 //! modal dialog** and blocks until a human dismisses it. A `cargo test` that
 //! did that would hang the suite with an invisible window behind the
 //! terminal. So the tests here cover [`from_env`], which is pure, and
-//! `crate::app`'s tests cover [`PdfceApp::open_picked`]
-//! ([`crate::app::PdfceApp`]) — the translation from a [`Picked`] to an
-//! action — with all three variants supplied directly. The only untested
-//! millimetre is the `env::var_os` read itself, and it cannot be tested:
-//! `std::env::set_var` is `unsafe` in edition 2024 and this crate is
-//! `#![forbid(unsafe_code)]`.
+//! [`raise`] — the translation from a [`Picked`] to an action — with all
+//! three variants supplied directly. The only untested millimetre is the
+//! `env::var_os` read itself, and it cannot be tested: `std::env::set_var` is
+//! `unsafe` in edition 2024 and this crate is `#![forbid(unsafe_code)]`.
 //!
 //! ## ★ The dirty-document rule, stated where it will be needed
 //!
@@ -145,9 +123,19 @@ pub enum Picked {
     /// traced beyond the fact — a cancelled Open is a complete, correct,
     /// uninteresting outcome.
     Cancelled,
-    /// This build has no way to ask. See the module header: on Windows this
-    /// means `powershell.exe` could not be run at all, which is close to
-    /// unreachable; elsewhere it is the honest state of the interim picker.
+    /// This build has no way to ask.
+    ///
+    /// **[`native_pick`] can no longer produce this** — `rfd::FileDialog`
+    /// answers `Some` or `None` and has no third case. It survives because
+    /// [`from_env`] can still answer it, and because the distinction is worth
+    /// more than the variant costs: the moment a build appears that cannot
+    /// open a picker (a headless target, a feature-stripped build under the
+    /// capability-modularity rule), the alternative is silence that looks
+    /// exactly like a cancelled dialog.
+    ///
+    /// Deleting it would be the sort of tidying that removes the only
+    /// difference between "the button does nothing" and "the operator changed
+    /// their mind" — which is the distinction this whole enum exists for.
     Unavailable,
 }
 
@@ -201,144 +189,202 @@ pub fn from_env(value: Option<OsString>) -> Option<Picked> {
     Some(Picked::Path(PathBuf::from(value)))
 }
 
-/// Ask the platform for its own file picker.
+/// **Turn what the picker said into what the application does about it.**
 ///
-/// Replaced wholesale by four lines of `rfd` the moment this crate's manifest
-/// may carry it — see the module header, which holds both the manifest line
-/// and the replacement body.
-#[cfg(windows)]
-fn native_pick() -> Picked {
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-
-    /// `CREATE_NO_WINDOW`. Without it the child gets a console that flashes
-    /// on screen in front of the operator's document for as long as
-    /// PowerShell takes to start — which is exactly long enough to see.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    // ui-text-exempt: this is a PowerShell program, not operator copy. Every
-    // string an operator can READ inside it — the dialog title and the two
-    // filter names — comes from `crate::text::files` and is interpolated
-    // below, which is the rule R1 actually states.
-    //
-    // Three details are load-bearing and none is decoration:
-    //
-    //   -STA          WinForms will not show a dialog from an MTA thread.
-    //                 `powershell.exe` (Windows PowerShell 5.1, present on
-    //                 every supported Windows) is STA by default; passing it
-    //                 explicitly means a machine where `pwsh` shadows the
-    //                 name still works.
-    //   BitConverter  The chosen path is returned as ASCII hex, NOT as text.
-    //                 A redirected PowerShell stdout is encoded with the
-    //                 console code page, so `C:\Zeichnungen\Übersicht.pdf`
-    //                 arrives mojibake — and a mojibake path names a
-    //                 different file, or none, while looking exactly like a
-    //                 real answer. Hex is immune to every encoding question
-    //                 and decodes in ten lines.
-    //   no output     on cancel, so empty stdout IS the cancel signal and
-    //                 needs no second channel.
-    let script = format!(
-        "$ErrorActionPreference='Stop';\
-         Add-Type -AssemblyName System.Windows.Forms;\
-         $d=New-Object System.Windows.Forms.OpenFileDialog;\
-         $d.Title='{title}';\
-         $d.Filter='{pdf} (*.pdf)|*.pdf|{all} (*.*)|*.*';\
-         $d.Multiselect=$false;\
-         $d.CheckFileExists=$true;\
-         if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){{\
-         [Console]::Out.Write([BitConverter]::ToString(\
-         [Text.Encoding]::UTF8.GetBytes($d.FileName)).Replace('-',''))}}",
-        title = crate::text::files::open_dialog_title(),
-        pdf = crate::text::files::filter_pdf(),
-        all = crate::text::files::filter_all(),
-    );
-
-    let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-STA", "-Command"])
-        .arg(&script)
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            let hex = String::from_utf8_lossy(&out.stdout);
-            let hex = hex.trim();
-            if hex.is_empty() {
-                return Picked::Cancelled;
-            }
-            match decode_hex(hex) {
-                // The bytes are UTF-8 by construction — the script encoded
-                // them that way — so a failure here means the output was not
-                // the script's, which is a broken picker rather than a
-                // cancelled one.
-                Some(bytes) => match String::from_utf8(bytes) {
-                    Ok(path) => Picked::Path(PathBuf::from(path)),
-                    Err(_) => Picked::Unavailable,
-                },
-                None => Picked::Unavailable,
-            }
-        }
-        // A non-zero exit or a launch failure both mean the same thing to the
-        // caller: this build could not ask. The reason goes to the trace,
-        // where whoever is looking at a machine they cannot see will find it.
-        Ok(out) => {
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    "open-picker-failed reason=exit status={:?}",
-                    out.status.code()
-                )
-            });
-            Picked::Unavailable
-        }
-        Err(error) => {
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    "open-picker-failed reason=spawn error={error}"
-                )
-            });
-            Picked::Unavailable
-        }
+/// The whole of the `file.open` dispatch arm, and it lives here rather than
+/// in [`crate::app::PdfceApp`] for one reason: it is the only part of that arm
+/// a test may run. Dispatching `file.open` itself opens a **real modal
+/// dialog** and blocks until a human dismisses it, so a test that did it would
+/// hang `cargo test` behind an invisible window (rule 3 above). Everything
+/// downstream of the answer is therefore reachable from a test with the answer
+/// supplied directly, and only the `env::var_os` read itself is not — and
+/// cannot be, because `std::env::set_var` is `unsafe` in edition 2024 and this
+/// crate forbids unsafe code.
+///
+/// A free function rather than a method because it touches no application
+/// state, which is itself the point: a picker's answer becomes an action and
+/// nothing else. The deciding, the loading and the three-way failure
+/// classification all happen after the frame, in
+/// [`crate::app::PdfceApp::apply_actions`].
+///
+/// The three answers get three different treatments, and the differences are
+/// the whole reason [`Picked`] is not an `Option<PathBuf>`:
+///
+/// | answer | what happens | why |
+/// |---|---|---|
+/// | a path | [`crate::app::actions::Action::Open`] | the ordinary case |
+/// | cancelled | nothing at all, not even a trace line | the operator changed their mind; that is a complete and correct outcome, and reporting it would put a line in the trace on every dismissed dialog |
+/// | unavailable | a trace naming the gap | a **build** limitation rather than an operator choice, and the one a reader of a trace from a machine they cannot see most needs told apart from "the click never arrived" |
+pub fn raise(picked: Picked, actions: &mut Vec<crate::app::actions::Action>) {
+    match picked {
+        Picked::Path(path) => actions.push(crate::app::actions::Action::Open(path)),
+        Picked::Cancelled => {}
+        Picked::Unavailable => crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "open-unavailable reason=no-picker-in-this-build".to_owned()
+        }),
     }
 }
 
 /// Ask the platform for its own file picker.
 ///
-/// There is no interim picker outside Windows, and the module header says why
-/// an untested `zenity` arm would be worse than this. `rfd` is the fix, and it
-/// is one manifest line away.
-#[cfg(not(windows))]
-fn native_pick() -> Picked {
-    Picked::Unavailable
-}
-
-/// Decode an even-length ASCII hex string into bytes.
+/// `rfd` opens the OS's real dialog — Windows' `IFileOpenDialog`, GTK/portal
+/// on Linux, `NSOpenPanel` on macOS — so the operator gets the picker they
+/// already know, with their own places, recent folders and typing habits.
 ///
-/// `None` for anything that is not one, which is how output that did not come
-/// from the script above is refused rather than turned into a plausible path.
-/// Written here rather than pulled in because it is ten lines and this crate
-/// may not grow a dependency.
-#[cfg(windows)]
-fn decode_hex(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
-        return None;
-    }
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
-        let hi = char::from(pair[0]).to_digit(16)?;
-        let lo = char::from(pair[1]).to_digit(16)?;
-        out.push(u8::try_from(hi * 16 + lo).ok()?);
-    }
-    Some(out)
+/// # Errors have exactly two shapes, and only one of them is an error
+///
+/// `pick_file` returns `Option<PathBuf>`: `Some` is a chosen file, `None` is
+/// a dismissed dialog. There is no third case, so [`Picked::Unavailable`]
+/// cannot arise here at all — it survives as a variant because
+/// [`Picked::from_env`] can still answer it, and because collapsing "the
+/// operator said no" into "this build cannot ask" is the distinction the
+/// type exists to keep.
+///
+/// # It blocks
+///
+/// The UI thread stops while the dialog is open. That is what a modal file
+/// dialog is, and it is what the previous implementation did too; nothing
+/// repaints behind it. `pick_file` is the blocking call deliberately rather
+/// than `pick_file().await` — an async picker would need the frame loop to
+/// keep running with an open document half-replaced, which is a larger
+/// change than opening a file should be.
+fn native_pick() -> Picked {
+    rfd::FileDialog::new()
+        .set_title(crate::text::files::open_dialog_title())
+        .add_filter(crate::text::files::filter_pdf(), &["pdf"])
+        .add_filter(crate::text::files::filter_all(), &["*"])
+        .pick_file()
+        .map_or(Picked::Cancelled, Picked::Path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::PdfceApp;
+    use crate::app::actions::Action;
+    use crate::app::state::Status;
+    use crate::panels::objects::test_support::engine_fixture;
+
+    /// A four-page fixture that really opens.
+    fn fixture() -> PathBuf {
+        engine_fixture("pageops/four-pages.pdf")
+    }
+
+    /// The handler token the ribbon would raise for `id`.
+    fn token_for(app: &PdfceApp, id: &str) -> egui_shell::commands::HandlerToken {
+        app.commands
+            .get(id)
+            .unwrap_or_else(|| panic!("`{id}` must be registered")) // ui-text-exempt: test panic, never displayed
+            .handler
+    }
+
+    /// ★ **The picker's answer becomes an action, and only a path does.**
+    ///
+    /// The `file.open` arm reduced to the part a test may run — see rule 3 in
+    /// this module's header for why dispatching the command itself is
+    /// forbidden here. All three answers are checked, because the interesting
+    /// failure is not "a path did nothing" but "a *cancel* opened something":
+    /// `Picked` exists as three variants precisely so a dismissed dialog
+    /// cannot be mistaken for a path, and an `Option<PathBuf>` collapsed with
+    /// `unwrap_or_default` would open `""`.
+    #[test]
+    fn only_a_picked_path_becomes_an_action() {
+        let mut actions = Vec::new();
+        raise(Picked::Path(PathBuf::from("D:\\sheet.pdf")), &mut actions);
+        assert_eq!(actions, vec![Action::Open(PathBuf::from("D:\\sheet.pdf"))]);
+
+        let mut actions = Vec::new();
+        raise(Picked::Cancelled, &mut actions);
+        assert!(actions.is_empty(), "a dismissed dialog opens nothing");
+
+        let mut actions = Vec::new();
+        raise(Picked::Unavailable, &mut actions);
+        assert!(actions.is_empty(), "a build with no picker opens nothing");
+    }
+
+    /// ★ **`file.close` raises the Close action, and applying it empties the
+    /// shell.**
+    ///
+    /// `file.close` was registered, drawn on the File tab, gated on
+    /// `doc.open` — and had no dispatch arm, exactly as `file.open` had none.
+    /// Driven through the real token lookup rather than by calling the arm, so
+    /// a command that stopped being registered fails here rather than silently
+    /// taking the `command-unimplemented` path.
+    #[test]
+    fn the_close_command_empties_the_shell() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
+        let mut app = PdfceApp::new();
+        app.open_path(fixture());
+        assert!(matches!(app.status, Status::Open(_)), "the fixture opens");
+        app.panels.set_focus(3);
+
+        let mut actions = Vec::new();
+        app.dispatch_token(&ctx, token_for(&app, "file.close"), &mut actions);
+        assert_eq!(actions, vec![Action::Close]);
+
+        app.apply_actions(actions, 1.0);
+        assert!(matches!(app.status, Status::Empty));
+        assert_eq!(
+            app.panels.focus(),
+            None,
+            "closing must forget the paint-order indices the panels held, exactly as \
+             opening does — they name positions in a document that is no longer open"
+        );
+    }
+
+    /// ★ **The Open action opens, from every starting state.**
+    ///
+    /// Including the one an operator meets most: nothing open at all.
+    /// [`crate::app::PdfceApp::apply`] refuses every other action when
+    /// `Status` is not `Open`, which is right for actions about the open
+    /// document and would be fatal here — so Open and Close are matched
+    /// *before* that guard, and this is the assertion that says so.
+    #[test]
+    fn the_open_action_opens_whether_or_not_something_is_already_open() {
+        let mut app = PdfceApp::new();
+        assert!(matches!(app.status, Status::Empty));
+
+        app.apply_actions(vec![Action::Open(fixture())], 1.0);
+        assert!(
+            matches!(app.status, Status::Open(_)),
+            "an Open with nothing open is the ordinary case, not a refused one"
+        );
+
+        // …and again over a document that is already open, which is the
+        // second-file case the whole command exists for.
+        app.apply_actions(vec![Action::Open(fixture())], 1.0);
+        assert!(matches!(app.status, Status::Open(_)));
+
+        // A Close with nothing open is a no-op rather than a panic: a
+        // customized keymap can reach any command from any state.
+        app.apply_actions(vec![Action::Close, Action::Close], 1.0);
+        assert!(matches!(app.status, Status::Empty));
+    }
+
+    /// ★ **Nothing is pending, so nothing is blocked — and the gate is real.**
+    ///
+    /// The dirty-document rule has one home,
+    /// [`crate::app::PdfceApp::save_pending`], consulted by both arms. This
+    /// build has no save, so it answers `false`, and the assertion is that the
+    /// two arms therefore proceed. It is not a tautology: it pins the
+    /// direction of the gate, so a future save subsystem that wired it
+    /// backwards — blocking an Open whenever a document is merely *dirty*,
+    /// which is not what the rule says — fails here rather than in an
+    /// operator's hands.
+    #[test]
+    fn the_dirty_document_gate_blocks_nothing_in_a_build_with_no_save() {
+        let mut app = PdfceApp::new();
+        app.open_path(fixture());
+        assert!(!app.save_pending(), "there is no save path in this build");
+
+        app.apply_actions(vec![Action::Close], 1.0);
+        assert!(matches!(app.status, Status::Empty));
+    }
 
     /// ★ **The diagnostic seam answers the dialog, in all three shapes.**
     ///
@@ -377,38 +423,5 @@ mod tests {
                 Some(Picked::Path(PathBuf::from(raw)))
             );
         }
-    }
-
-    /// ★ **The hex channel round-trips a non-ASCII path.**
-    ///
-    /// The reason the interim picker does not simply print the file name: a
-    /// redirected PowerShell stdout carries the console code page, so an
-    /// umlaut arrives as something else and the resulting path names a
-    /// different file — or none — while looking exactly like a real answer.
-    #[cfg(windows)]
-    #[test]
-    fn the_hex_channel_round_trips_a_path_with_an_umlaut() {
-        let path = "D:\\Zeichnungen\\Übersicht.pdf";
-        let hex: String = path
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{b:02X}"))
-            .collect();
-        let decoded = decode_hex(&hex).expect("valid hex");
-        assert_eq!(String::from_utf8(decoded).expect("utf-8"), path);
-    }
-
-    /// …and anything that is not hex is refused rather than guessed at.
-    #[cfg(windows)]
-    #[test]
-    fn output_that_did_not_come_from_the_script_is_refused() {
-        assert_eq!(decode_hex("4"), None, "an odd length is not a byte string");
-        assert_eq!(decode_hex("zz"), None, "not hex digits");
-        assert_eq!(
-            decode_hex("C:\\x.pdf"),
-            None,
-            "a plain path must not decode as though it were hex"
-        );
-        assert_eq!(decode_hex(""), Some(Vec::new()));
     }
 }

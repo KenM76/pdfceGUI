@@ -17,7 +17,7 @@
 //! |---|---|
 //! | [`assets`] | the art itself, verbatim, and its **provenance record** |
 //! | [`catalog`] | [`Icon`] — which glyphs exist, what each one means, and the key vocabulary |
-//! | [`svg`] | the SVG-subset parser and the tiny-skia rasterizer |
+//! | [`svg`] | the SVG element scanner and the tiny-skia rasterizer (the path `d` grammar is `svg::path`) |
 //! | [`cache`] | one raster per (icon, physical size, weight), memoized |
 //! | [`paint`] | the `egui-shell` painter seam, and the missing-icon mark |
 //!
@@ -185,7 +185,6 @@ pub enum IconWeight {
 /// (anything inside a laid-out widget); this returns an [`egui::Image`]
 /// widget for the case where the caller is composing a layout and wants the
 /// icon to take part in it.
-#[must_use]
 pub fn image_tinted(
     ui: &egui::Ui,
     icon: Icon,
@@ -208,7 +207,6 @@ pub fn image_tinted(
 /// lockstep with the text beside it, with no disabled-state logic of its
 /// own. It is also why no colour is chosen here: the theme already set that
 /// visual.
-#[must_use]
 pub fn image(ui: &egui::Ui, icon: Icon) -> egui::Image<'static> {
     image_tinted(ui, icon, IconWeight::Regular, ui.visuals().text_color())
 }
@@ -219,7 +217,6 @@ pub fn image(ui: &egui::Ui, icon: Icon) -> egui::Image<'static> {
 /// paints: the accent tint AND [`IconWeight::Bold`]. That layering is the
 /// standing "selected state is never colour alone" rule surviving the loss
 /// of a text label to embolden.
-#[must_use]
 pub fn selected_image(ui: &egui::Ui, icon: Icon) -> egui::Image<'static> {
     let tint = ui.visuals().selection.stroke.color;
     image_tinted(ui, icon, IconWeight::Bold, tint)
@@ -227,7 +224,6 @@ pub fn selected_image(ui: &egui::Ui, icon: Icon) -> egui::Image<'static> {
 
 /// The right image for a toggle in either state — the two-line helper that
 /// keeps every call site from re-deriving the same `if selected`.
-#[must_use]
 pub fn toggle_image(ui: &egui::Ui, icon: Icon, selected: bool) -> egui::Image<'static> {
     if selected {
         selected_image(ui, icon)
@@ -300,11 +296,11 @@ mod tests {
 
     /// ★ CRLF line endings must not change a single pixel.
     ///
-    /// The art now lives inside `.rs` source rather than in `.svg` files,
-    /// which makes this MORE relevant than it was in the salvage source, not
-    /// less: a repository with `* text=auto` converts Rust source to CRLF on
-    /// checkout under `core.autocrlf=true`, so on a fresh clone every raw
-    /// string constant in [`assets`] gains `\r` before every `\n`.
+    /// The assets are ordinary text files, so a repository with
+    /// `* text=auto` converts them to CRLF on checkout under
+    /// `core.autocrlf=true` — which means the `&'static str` every
+    /// `include_str!` in [`assets`] produces gains a `\r` before every `\n`
+    /// on a fresh clone, on a machine that has never built this tree before.
     ///
     /// SVG is text and CRLF is harmless *provided* the scanner treats `\r`
     /// as a separator everywhere `\n` is one. This pins that: the same asset

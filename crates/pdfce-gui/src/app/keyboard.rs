@@ -122,6 +122,7 @@
 //! | Ctrl+`-` | zoom out one rung | here ([`OWNED`]) |
 //! | PageDown / PageUp | next / previous page | here ([`OWNED`]) — the unmodified keys D1 killed |
 //! | Home / End | first / last page | here ([`OWNED`]) |
+//! | Ctrl+`O` | `file.open` → the file picker | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`0` | `view.zoom_actual` → actual size | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`1` / Ctrl+`2` / Ctrl+`3` | `mode.read` / `mode.review` / `mode.edit` | the manifest keymap ([`DERIVED`]) |
 //!
@@ -170,6 +171,24 @@ use crate::app::actions::Action;
 /// keymap grows a `Ctrl+4` this table cannot see, because a chord that
 /// cannot be spelled is a chord that silently does nothing.
 pub const DERIVED: &[(Key, &str)] = &[
+    // ★ Not a digit, and the first entry here that is not.
+    //
+    // `Ctrl+O` has been in the manifest keymap since the ribbon landed, and
+    // `crate::text::commands::file_open`'s tooltip has printed "(Ctrl+O)" on
+    // an operator-visible surface for just as long — while this table held
+    // only digits, so the chord could not be *spelled*, so nothing looked it
+    // up, so pressing it did nothing at all. That is the same lie the
+    // two-owner defect told, from the third direction: a keymap entry, a
+    // tooltip and a shortcut list all naming a chord no keypress delivers.
+    //
+    // `every_digit_chord_the_manifest_binds_can_be_spelled` could not catch
+    // it, by construction — it only sweeps `Ctrl+<digit>` — which is worth
+    // knowing before trusting it about `Ctrl+S`, `Ctrl+Z`, `Ctrl+E` and the
+    // rest of the keymap's letter chords. Those are still unspellable, and
+    // deliberately: a chord here dispatches a command, and a command with no
+    // dispatch arm would trace `command-unimplemented` on a keypress that
+    // used to do nothing quietly. They land with their commands.
+    (Key::O, "Ctrl+O"),
     (Key::Num0, "Ctrl+0"),
     (Key::Num1, "Ctrl+1"),
     (Key::Num2, "Ctrl+2"),
@@ -606,6 +625,36 @@ mod tests {
             actions_for(&ctx, key_press(Key::Num0, Modifiers::COMMAND), Some(3)).is_empty(),
             "`collect` must not bind a chord the manifest owns"
         );
+    }
+
+    /// ★ **`Ctrl+O` reaches the Open command.**
+    ///
+    /// The chord was in the keymap and printed in `file_open`'s tooltip from
+    /// the day the ribbon landed, and pressing it did **nothing**: [`DERIVED`]
+    /// held only digits, so the key could not be spelled, so nothing was
+    /// looked up. Two operator-visible surfaces named a chord that did not
+    /// exist — and `every_digit_chord_the_manifest_binds_can_be_spelled`
+    /// could not see it, because it only sweeps `Ctrl+<digit>`.
+    ///
+    /// Asserted through the real keymap rather than an invented one, so the
+    /// test fails if the binding is ever removed from the manifest as well as
+    /// if the spelling is removed from here.
+    #[test]
+    fn ctrl_o_names_the_open_command() {
+        let ctx = Context::default();
+        let keymap = built_in_keymap();
+        let mut ids = Vec::new();
+        let _ = ctx.run_ui(key_press(Key::O, Modifiers::COMMAND), |ui| {
+            ids = commands(ui.ctx(), Some(&keymap));
+        });
+        assert_eq!(ids, vec!["file.open".to_owned()]);
+
+        // A bare `O` is a letter somebody may be typing into the page box.
+        let mut unmodified = Vec::new();
+        let _ = ctx.run_ui(key_press(Key::O, Modifiers::NONE), |ui| {
+            unmodified = commands(ui.ctx(), Some(&keymap));
+        });
+        assert!(unmodified.is_empty());
     }
 
     /// The mode chords reach the mode commands.

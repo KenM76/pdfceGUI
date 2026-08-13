@@ -37,9 +37,7 @@
 use egui::Ui;
 
 use crate::dialogs::print::PrintDialog;
-use crate::dialogs::print::spooler::{
-    Duplex, JobResolution, Orientation, PageSubset, ScaleMode,
-};
+use crate::dialogs::print::spooler::{Duplex, JobResolution, Orientation, PageSubset, ScaleMode};
 use crate::text::print as t;
 
 /// Which group of settings the dialog is showing.

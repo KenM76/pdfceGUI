@@ -866,9 +866,12 @@ impl PdfceApp {
         // inheriting the previous document's because the numbers happened to
         // match. §4.3 requirement 1 is "at least once per document open", and
         // a consumer is entitled to read that as a line about *this*
-        // document. (S2 has no Open command — the path comes from argv — so
-        // this fires once today. It is written now because the second open is
-        // the one that would silently break it.)
+        // document. (Written before there was an Open command, when this
+        // fired once per process, precisely because the SECOND open is the one
+        // that would silently break it. There is an Open command now — this
+        // function is reached from `argv`, from `file.open`'s picker and from
+        // the Recent menu — so the second open happens routinely and the gate
+        // reset is load-bearing rather than anticipatory.)
         crate::diag::reset_change_gates();
         crate::diag::trace(|| {
             let kind = match &self.status {

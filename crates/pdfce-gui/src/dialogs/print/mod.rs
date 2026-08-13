@@ -260,7 +260,7 @@ impl PrintDialog {
     /// The guard against re-opening over a half-configured job is
     /// [`crate::dialogs::DialogsState::open_print`]'s, because it is the one
     /// place that can see whether a dialog already exists.
-    fn open(doc: &OpenDoc) -> Self {
+    pub(super) fn open(doc: &OpenDoc) -> Self {
         let (unavailable, printers) = match spooler::list_printers() {
             Ok(printers) => (None, printers),
             Err(error) => (Some(error), Vec::new()),
@@ -302,6 +302,7 @@ impl PrintDialog {
             preview_texture: None,
             outcome: None,
             commit_requested: false,
+            close_requested: false,
         }
     }
 
@@ -313,7 +314,7 @@ impl PrintDialog {
     /// affordable because planning is arithmetic over a page-size list; the
     /// two things that are *not* affordable per frame (enumerating printers,
     /// asking a driver about duplex) are the two that are not done here.
-    fn show(&mut self, ctx: &egui::Context, doc: &OpenDoc) -> bool {
+    pub(super) fn show(&mut self, ctx: &egui::Context, doc: &OpenDoc) -> bool {
         self.refresh_features();
 
         // ★ Page sizes come from the ROTATED device extent, not from the raw
@@ -396,7 +397,7 @@ impl PrintDialog {
         {
             self.outcome = Some(self.commit(&printer, doc, &job, &page_sizes));
         }
-        open
+        open && !std::mem::take(&mut self.close_requested)
     }
 
     /// Re-read the selected device's capabilities when the selection changed.
@@ -641,10 +642,6 @@ impl PrintDialog {
     fn footer(&mut self, ui: &mut Ui, job: Option<&Job>) {
         ui.horizontal(|ui| {
             if ui.button(t::close()).clicked() {
-                // Handled by the same `open` flag the window's own close
-                // button sets, so there is one close path rather than two.
-                ui.ctx().memory_mut(|_| {});
-                self.commit_requested = false;
                 self.close_requested = true;
             }
             if let Some(job) = job
@@ -759,13 +756,16 @@ impl PrintDialog {
         crate::diag::trace(|| {
             format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "print-plan printer={printer:?} driver={:?} sheets={:?} clipped={:?} \
-                 dpi={:?} capped={:?} orientation={:?} duplex={:?} scale={:?} tab={:?}",
+                "print-plan printer={printer:?} driver={:?} port={:?} sheets={:?} clipped={:?} \
+                 dpi={:?} capped={:?} uncapped_mb={:?} orientation={:?} duplex={:?} \
+                 scale={:?} tab={:?}",
                 self.printers.get(self.selected).map(|p| &p.driver),
+                self.printers.get(self.selected).map(|p| &p.port),
                 job.map(|j| j.plans.len()),
                 job.map(Job::clipped),
                 job.map(|j| j.resolution.dpi),
                 job.map(|j| j.resolution.capped),
+                job.map(|j| j.resolution.uncapped_page_mb),
                 self.device.orientation,
                 self.device.duplex,
                 job.and_then(|j| j.plans.first()).map(|p| p.placement.scale),
@@ -831,6 +831,18 @@ mod tests {
     /// the `set_width` call exists to fix.
     #[test]
     fn the_body_width_holds_both_columns() {
-        assert!(BODY_CONTENT_WIDTH_PTS > preview::COLUMN_WIDTH_PTS + OPTIONS_COLUMN_WIDTH_PTS);
+        // Bound to locals rather than compared as constant paths. The
+        // assertion is about a *relationship the three constants must keep*,
+        // and comparing the paths directly is const-folded
+        // (`clippy::assertions_on_constants`) — which would make the test pass
+        // by being erased rather than by being true.
+        let body = BODY_CONTENT_WIDTH_PTS;
+        let columns = preview::COLUMN_WIDTH_PTS + OPTIONS_COLUMN_WIDTH_PTS;
+        assert!(
+            body > columns,
+            "the body content width ({body}) must exceed both columns ({columns}) \
+             by enough for the separator and the two item gaps around it, or the \
+             scroll area sees content that fits and draws no horizontal bar"
+        );
     }
 }

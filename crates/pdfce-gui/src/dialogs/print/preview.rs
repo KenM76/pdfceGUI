@@ -203,7 +203,7 @@ const PREVIEW_TEXTURE_ID: &str = "pdfce-print-preview"; // ui-text-exempt: inter
 /// — and this key must gain both in the same commit as those surfaces, or the
 /// preview will keep showing a page rendered under the previous choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PreviewKey {
+pub(super) struct PreviewKey {
     /// Which document page (0-based).
     page: usize,
     /// Which annotation classes are painted.
@@ -380,12 +380,13 @@ pub(super) fn column(
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             "print-preview canvas=[{:.0},{:.0} {:.0}x{:.0}] fit={fit:.4} scale={scale:.4} \
-             sheet={:.0}x{:.0} printable={:.0}x{:.0} margin={:.0},{:.0} \
+             device_dpi={:?} sheet={:.0}x{:.0} printable={:.0}x{:.0} margin={:.0},{:.0} \
              sheet_of={}/{} zoom={:.3} pan=({:.1},{:.1}) tex={}",
             rect.min.x,
             rect.min.y,
             rect.width(),
             rect.height(),
+            job.device.dpi,
             job.device.physical_pt.0,
             job.device.physical_pt.1,
             job.device.printable_pt.0,
@@ -906,25 +907,41 @@ mod tests {
         );
     }
 
-    /// The office page sizes must all sit below the pixel ceiling.
+    /// ★ Where the pixel ceiling starts to bind, asserted from both sides.
     ///
-    /// The regression the ceiling's own doc comment records: a value of 1600
-    /// silently downgraded Letter, Legal and A4 — the common case — to bound
-    /// the rare one. This asserts the intent directly rather than trusting the
-    /// two constants to stay in step by inspection.
+    /// The regression the ceiling's own doc comment records is a value chosen
+    /// too low: 1600 px silently downgraded Letter, Legal and A4 — the common
+    /// case — in order to bound the rare one. Asserting only that those three
+    /// are uncapped would let the constant drift *upward* unnoticed instead,
+    /// so the boundary is pinned from both directions.
+    ///
+    /// **A3 is on the capped side, and that is correct rather than a
+    /// near-miss.** Its long edge is 1191 pt, which at the target DPI is
+    /// 2481 px — past the 2200 ceiling. A3 is a drafting sheet, not an office
+    /// page, so it belongs with the large-format population this bound exists
+    /// for; US Legal at 2100 px is the largest size that clears it. If either
+    /// constant moves, this test says which side of the line each size landed
+    /// on rather than merely that something changed.
     #[test]
-    fn no_office_page_size_is_capped() {
+    fn the_pixel_ceiling_binds_above_the_office_sizes() {
         for (name, size) in [
             ("A4", (595.0, 842.0)),
             ("Letter", (612.0, 792.0)),
             ("Legal", (612.0, 1008.0)),
-            ("A3", (842.0, 1191.0)),
         ] {
             let scale = raster_scale(size);
             assert!(
                 (scale - TARGET_DPI / 72.0).abs() < 1e-6,
-                "{name} was capped to {scale}; the ceiling is meant to bind only \
-                 on large-format sheets"
+                "{name} was capped to {scale}; the ceiling is meant to leave every \
+                 office page size at the full target DPI"
+            );
+        }
+        for (name, size) in [("A3", (842.0, 1191.0)), ("ANSI E", (2448.0, 3168.0))] {
+            let scale = raster_scale(size);
+            assert!(
+                scale < TARGET_DPI / 72.0,
+                "{name} was NOT capped ({scale}); the ceiling is meant to bind on \
+                 drafting and large-format sheets, which is where the memory goes"
             );
         }
     }

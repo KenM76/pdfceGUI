@@ -73,6 +73,27 @@ pub struct IconRequest<'a> {
     /// icons are multi-coloured cannot express "disabled" by tinting and
     /// needs to know.
     pub enabled: bool,
+    /// Whether the control is currently **selected** — an armed tool, an
+    /// active page-display mode, a panel that is open.
+    ///
+    /// Supplied for the same reason as [`Self::enabled`], and the reason
+    /// is stronger here. The shell already shows selection with the
+    /// button's frame, so an application could ignore this field and look
+    /// correct. But a frame is one cue, and an icon set that can render a
+    /// heavier weight when selected gives a second one that survives a
+    /// theme whose selected and unselected frames are close in value.
+    ///
+    /// The rule this exists to let an application keep is **selected
+    /// state is never colour alone**: the shell cannot honour that on the
+    /// application's behalf, because the second cue lives in the glyph,
+    /// which only the application can draw.
+    ///
+    /// For a control with no selected/unselected distinction — an
+    /// ordinary command button — this is `false`, which is the same thing
+    /// it means for a two-state control that is off. The two are not
+    /// distinguished, because an icon set has nothing different to draw
+    /// for them.
+    pub selected: bool,
 }
 
 /// Paints one icon. See [`IconRequest`] and this module's header.

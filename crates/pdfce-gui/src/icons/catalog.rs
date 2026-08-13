@@ -273,12 +273,12 @@ impl Icon {
 
     /// The asset's SVG source.
     ///
-    /// A compiled-in constant rather than a runtime file read because pdfce
-    /// ships single-folder portable: the executable must not depend on an
-    /// `assets/` directory travelling beside it, and an icon that fails to
-    /// load at startup is not a failure mode worth having when the whole set
-    /// is 34 KB of text. See [`super::assets`] for why the text is a Rust
-    /// constant rather than an `include_str!` of a sibling directory.
+    /// `include_str!` at compile time rather than a runtime file read,
+    /// because pdfce ships single-folder portable: the executable must not
+    /// depend on an `assets/` directory travelling beside it, and an icon
+    /// that fails to load at startup is not a failure mode worth having when
+    /// the whole set is 34 KB of text. See [`super::assets`] for why the
+    /// `.svg` files live inside `src/icons/`.
     #[must_use]
     pub const fn source(self) -> &'static str {
         match self {

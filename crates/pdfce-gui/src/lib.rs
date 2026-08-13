@@ -57,6 +57,11 @@
 pub mod app;
 pub mod canvas;
 pub mod diag;
+// The shell's stationary, screen-anchored surfaces — Print today, Properties
+// and the settings host to come. A dialog is one transaction with a start and
+// an end; a panel is somewhere you dip in and out of. See DIALOGS' own header
+// for that distinction and for why a print does not push an `Action`.
+pub mod dialogs;
 // The icon set: SVG path data, a subset parser, a tiny-skia rasterizer and
 // the painter `egui-shell`'s ribbon calls back into. Supplying that painter
 // is what stops the ribbon falling back to text labels — see `icons::paint`.

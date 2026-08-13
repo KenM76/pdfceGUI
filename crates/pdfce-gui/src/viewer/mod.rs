@@ -20,11 +20,25 @@
 //!   two ends drift apart.
 //! - Nothing else. No arithmetic changed, no test was weakened.
 //!
-//! Known future work, filed rather than done here:
-//! **cursor-anchored zoom for discrete commands** (`GUI_ROADMAP` Phase 3.1)
-//! and **a page *range* rather than a single `page_index`** (Phase 4.1, the
-//! continuous-scroll prerequisite). The wheel path already anchors on the
-//! cursor at S0 — see [`crate::canvas::zoom_anchor_offset`].
+//! Known future work, filed rather than done here: **a page *range* rather
+//! than a single `page_index`** (`GUI_ROADMAP` Phase 4.1, the
+//! continuous-scroll prerequisite).
+//!
+//! **Phase 3.1 is done and it needed nothing from this module.** Anchoring a
+//! zoom is a question about the *scroll offset*, not about the ladder, so the
+//! rule and the solve live in [`crate::canvas::zoom`] and
+//! [`crate::canvas::geometry`]. Two things here are reused rather than
+//! reimplemented, and that reuse is the point:
+//!
+//! * [`fit_scale`] under [`FitMode::Page`] computes the scale that frames a
+//!   **region** for zoom-to-selection and marquee-zoom, exactly as it computes
+//!   the scale that frames a page. One derivation, so a region zoom and a page
+//!   fit cannot disagree about what "fits" means;
+//! * [`max_zoom_for_page`] and [`clamp_zoom`] apply the per-page raster
+//!   ceiling to a framing zoom. A marquee dragged around a bolt head asks for
+//!   a scale no page-sized pixmap can supply, and the answer is the same
+//!   answer the zoom buttons give — stop at the ceiling, and let the status
+//!   bar's readout state the scale that was actually pinned.
 //!
 //! ---
 //!

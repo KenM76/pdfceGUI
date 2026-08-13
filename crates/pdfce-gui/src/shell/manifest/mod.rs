@@ -477,16 +477,6 @@ pub const PLANNED: &[(&str, &str)] = &[
         "N — as `view.rotate_view_left`, clockwise.",
     ),
     (
-        "view.zoom_selection",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — zoom to the selection's bounding box; needs the selection rect in document space.",
-    ),
-    (
-        "view.zoom_region",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — marquee zoom-to-region; needs a canvas drag that does not arm a tool.",
-    ),
-    (
         "view.rulers",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
         "N — rulers along the canvas edges, in the document's units.",
@@ -967,8 +957,8 @@ mod tests {
         assert_eq!(shell.contextual_tabs().len(), 1, "one contextual tab");
         assert_eq!(
             shell.all_tabs().flat_map(Tab::groups).count(),
-            31,
-            "thirty-one groups"
+            32,
+            "thirty-two groups"
         );
         assert_eq!(shell.modes().len(), 3, "three modes");
     }

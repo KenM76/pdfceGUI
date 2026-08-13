@@ -1,11 +1,13 @@
 //! # canvas — the page on screen, what is selected on it, and the gestures that move both
 //!
 //! The one place a rasterized page is drawn and the one place canvas input is
-//! read. Three navigation gestures — **wheel to scroll, Ctrl+wheel to zoom
-//! about the cursor, middle-drag to pan** — and, from stage S4, the
-//! **selection model**: click, Shift+click, double-click to descend, Escape to
-//! ascend, rubber-band marquee, eight grips plus move, **dragging a selection
-//! to move it**, and Delete.
+//! read. The navigation gestures — **wheel to scroll, Ctrl+wheel to zoom about
+//! the cursor, middle-drag to pan**, and from Phase 3 the **hand tool with
+//! space-to-pan**, **anchored discrete zoom**, **zoom to selection** and
+//! **marquee zoom to region** — and, from stage S4, the **selection model**:
+//! click, Shift+click, double-click to descend, Escape to ascend, rubber-band
+//! marquee, eight grips plus move, **dragging a selection to move it**, and
+//! Delete.
 //!
 //! ## Where the selection model lives
 //!
@@ -14,12 +16,15 @@
 //! | [`mapping`] | the ONE screen⟷page conversion, and the hit tolerance |
 //! | [`target`] | the provider seam, and the trait re-attached to the salvaged decomposition |
 //! | [`selection`] | selection as identity; the level ladder; re-resolution |
-//! | [`gesture`] | press / drag / release, the clear that must not happen on a press, and Escape's abort |
+//! | [`gesture`] | press / drag / release, the clear that must not happen on a press, Escape's abort, and the one rubber band's two intents |
 //! | [`moving`] | which move verb each rung reaches, the canvas→page delta, and the ghost's honesty rule |
 //! | [`handles`] | eight grips plus move, and the cursor over each |
 //! | [`menus`] | the right-click: which of the two canvas menus opens, and the select-first rule that makes it about the thing you pointed at |
 //! | [`overlay`] | what all of it looks like — and what rule 4 forbids it looking like |
 //! | [`geometry`] | the pan and zoom-anchor arithmetic |
+//! | [`keys`] | Escape and Delete, and which of Escape's three claimants gets it |
+//! | [`tool`] | select or hand, and the space bar that borrows the hand |
+//! | [`zoom`] | **the anchor rule**, the two-frame handshake, and the five zoom paths that route through it |
 //!
 //! Everything above is pure except this file, [`overlay`], and [`moving`]'s
 //! one wiring function ([`moving::drag`], which is the only thing there that
@@ -113,11 +118,13 @@
 //!    frame. It is only readable *after* the area is built, and the next
 //!    frame's pan needs it *before* the area is built. Storing it is what
 //!    lets a pan track the hand instead of lagging it by a frame.
-//! 2. **`zoom_anchor`** — where the pointer was over the page when a
-//!    Ctrl+wheel arrived. It has to span two frames because the new zoom is
-//!    not known when the wheel is seen: the zoom is an [`Action`], applied
-//!    after the UI is built, and it *clamps*. Recording the inputs and
-//!    solving next frame avoids predicting a clamp we do not control.
+//! 2. **`zoom_anchor`** — which page point a zoom step must hold still, and
+//!    where. It has to span two frames because the new zoom is not known when
+//!    the step is asked for: the zoom is an [`Action`], applied after the UI
+//!    is built, and it *clamps*. Recording the inputs and solving next frame
+//!    avoids predicting a clamp we do not control. [`zoom`] owns both ends —
+//!    which point ([`zoom::anchor_point`]) and when to spend it
+//!    ([`zoom::anchor_step`]).
 //!
 //! The third is **`selection`**, which arrived here when seam 1 above was
 //! closed, and it does not weaken the invariant: a selection *names* parts of
@@ -151,28 +158,25 @@
 //! - **Panning triggers no re-raster.** It moves the viewport over an
 //!   existing texture.
 //!
-//! ## The zoom anchor — what S0 fixes and what it does not
+//! ## The zoom anchor — decided once, in [`zoom`]
 //!
 //! `DEFECTS.md`'s "Not defects" table records that *"zoom buttons pin the
-//! page's top-left, not the centre or the cursor"*, and asks for it to be
-//! re-examined. The wheel path is fixed here: Ctrl+wheel anchors on the
-//! **cursor**, using the salvaged solve in [`geometry::zoom_anchor_offset`],
-//! whose tests assert the anchored point moves under 0.01 px.
-//!
-//! **TODO (`GUI_ROADMAP` Phase 3.1): the discrete zoom commands are still
-//! unanchored.** Ctrl+Plus / Ctrl+Minus / Ctrl+0 arrive with no pointer
-//! position and no gesture, so the honest anchor for them is the viewport
-//! *centre*, not the cursor — and choosing between "centre" and "last
-//! pointer position" is a UX decision, not an arithmetic one. It is left
-//! for Phase 3.1, where the zoom buttons and the zoom-to-selection /
-//! zoom-to-region commands land together and the anchor rule can be decided
-//! once for all four. The machinery is already in place: the same
-//! [`geometry::zoom_anchor_offset`] takes any `anchor_frac`, so the fix is
-//! a call site, not a solve.
+//! page's top-left, not the centre or the cursor"*. The wheel path was fixed
+//! at S0; Phase 3.1 closes the rest, and the rule that governs all five zoom
+//! paths (wheel, in, out, actual size, and the two framing commands) lives in
+//! [`zoom`]'s header and in [`zoom::anchor_point`] — **the pointer when it is
+//! over the canvas, the viewport's centre when it is not**. This file no
+//! longer decides an anchor; it arms one ([`zoom::arm_anchor`]) and consumes
+//! one ([`zoom::consume_anchor`]).
 
 pub mod geometry;
 pub mod gesture;
 pub mod handles;
+// Escape and Delete, and the precedence between the three things that would
+// like Escape. Split from this file along the seam every other split here
+// follows: that module is drivable by a headless `egui::Context`, this one
+// needs a window.
+pub mod keys;
 pub mod mapping;
 pub mod menus;
 // Dragging a selection: which verb each rung reaches, the canvas→page delta,
@@ -183,16 +187,25 @@ pub mod moving;
 pub mod overlay;
 pub mod selection;
 pub mod target;
+// Which pointer tool the canvas is in — select or hand — and the space bar
+// that borrows the hand for as long as it is held.
+pub mod tool;
+// The anchor rule, the two-frame handshake it rides on, and the five zoom
+// paths that route through it.
+pub mod zoom;
 
 use egui::{Key, PointerButton, Pos2, Rect, Sense, Vec2, scroll_area::ScrollSource, vec2};
 use egui_shell::HandlerToken;
 
 use crate::app::actions::Action;
-use crate::app::state::{OpenDoc, ZoomAnchor};
-use crate::canvas::gesture::{DragKind, GestureOutcome, GestureState, Phase, PointerFrame};
+use crate::app::state::OpenDoc;
+use crate::canvas::gesture::{
+    DragKind, GestureOutcome, GestureState, MarqueeIntent, Phase, PointerFrame,
+};
 use crate::canvas::mapping::PageMapping;
-use crate::canvas::selection::{ClickHit, SelectionLevel, SelectionState};
+use crate::canvas::selection::{ClickHit, SelectionState};
 use crate::canvas::target::CanvasTargetProvider;
+use crate::canvas::tool::CanvasTool;
 use crate::shell::menus::MenuHost;
 use crate::viewer;
 
@@ -203,7 +216,12 @@ use crate::viewer;
 /// than added as a layout margin afterwards, so "fit page" really does fit
 /// with the gap visible instead of fitting exactly and then being clipped
 /// by the gap.
-const CANVAS_MARGIN: f32 = 16.0;
+///
+/// `pub` because [`zoom::zoom_to_rect`] fits a *region* by the identical rule
+/// and must leave the identical gap — a framing command that pressed the
+/// region flush against the panel edges while "Fit page" left 16 points would
+/// read as two different ideas of what fitting means.
+pub const CANVAS_MARGIN: f32 = 16.0;
 
 /// The de-duplication slot every canvas-layout line shares.
 ///
@@ -264,6 +282,27 @@ const SELECTION_SLOT: &str = "canvas-selection"; // ui-text-exempt: trace slot n
 /// on. Keying it here means it cannot: `Memory` is per-`Context`, and every
 /// document change starts the next frame with no press in flight.
 const GESTURE_MEMORY_KEY: &str = "pdfce-canvas-gesture"; // ui-text-exempt: internal memory id, never displayed
+
+/// The three facts about *this frame's canvas* that [`interact`] needs, and
+/// that every part of it must agree on.
+///
+/// A struct rather than three parameters, and the reason is the same one that
+/// made [`PageMapping`] a struct: these are facts about one frame, they are
+/// settled together once the scroll area has laid out, and passing them
+/// separately invites a call site to compute one of them for itself. `tool` is
+/// the newest member and the most dangerous to re-derive — two readings of
+/// "is the hand active?" within one frame that disagreed would be a drag that
+/// panned **and** marquee'd, which is exactly what Phase 3.2 must not ship.
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    /// The frame's ONE screen ⟷ canvas map.
+    map: PageMapping,
+    /// The scroll viewport, which is both the painter's clip rect and the
+    /// region "is the pointer over the canvas?" is asked against.
+    clip: Rect,
+    /// What the primary button means this frame.
+    tool: CanvasTool,
+}
 
 /// Draw the page, read the canvas gestures, and attach the canvas context
 /// menus.
@@ -362,21 +401,22 @@ pub fn show(
         .id_salt("page-canvas") // ui-text-exempt: internal widget id, never displayed
         .scroll_source(scroll_source);
 
-    if let Some(anchor) = doc.zoom_anchor.take() {
-        // Zoom to cursor, half two: a wheel step was seen last frame and the
-        // new zoom is now known (post-clamp), so solve for the offset that
-        // keeps the anchored page point under the pointer and force it onto
-        // the area before it lays out. TAKEN, not peeked — one wheel step
-        // moves the view once.
-        let (x, y) = geometry::zoom_anchor_offset(
-            anchor.offset_before,
-            anchor.display_before,
-            (display_size.x, display_size.y),
-            anchor.viewport,
-            anchor.frac,
-        );
-        scroll_area = scroll_area.scroll_offset(vec2(x, y));
-    } else if let Some(pan) = middle_drag_delta(ui) {
+    // Which tool the primary button is in this frame — the select tool, or the
+    // hand (chosen, or borrowed for as long as the space bar is down). Read
+    // once, here, and passed down: two readings could disagree within a frame
+    // and the disagreement would be a drag that panned AND marquee'd.
+    let active_tool = tool::active(ui.ctx());
+
+    // Zoom to the anchor, half two: a zoom step was armed on an earlier frame
+    // and the new zoom is now known (post-clamp), so solve for the offset that
+    // keeps the anchored page point where the rule says it belongs, and force
+    // it onto the area before it lays out. `consume_anchor` owns the gate that
+    // decides whether the zoom has actually landed yet — see [`zoom`]'s header
+    // on the two-frame handshake, and on why an unconditional `take()` here
+    // made every *command*-driven zoom silently unanchored.
+    if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, (display_size.x, display_size.y)) {
+        scroll_area = scroll_area.scroll_offset(offset);
+    } else if let Some(pan) = pan_delta(ui, active_tool) {
         // Panning subtracts the pointer delta: the content follows the hand,
         // so the page moves WITH the pointer rather than under it.
         let vp = ui.available_size();
@@ -388,8 +428,8 @@ pub fn show(
         );
         scroll_area = scroll_area.scroll_offset(vec2(x, y));
         // The gesture has to look like what it is. Without a cursor change a
-        // middle-drag that hits the end of the scroll range is
-        // indistinguishable from a middle-drag that is not working.
+        // pan that hits the end of the scroll range is indistinguishable from
+        // a pan that is not working.
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
 
@@ -466,6 +506,23 @@ pub fn show(
     // for itself. See `mapping`'s header for why that matters twice over.
     let map = PageMapping::new(image_rect, extent, doc.view.zoom);
 
+    // ★ The frame's geometry, recorded for the commands that arrive with none.
+    // A zoom raised from a keyboard chord, the ribbon or the status bar has no
+    // `Ui` and no page rect, and it must describe its anchor against the view
+    // as it stands BEFORE the zoom is applied — which is exactly this. See
+    // [`zoom::CanvasFrame`].
+    zoom::remember_frame(
+        ui.ctx(),
+        zoom::CanvasFrame {
+            map,
+            extent,
+            display: (display_size.x, display_size.y),
+            viewport: (viewport_size.x, viewport_size.y),
+            viewport_rect: scroll_output.inner_rect,
+            offset: (scroll_offset.x, scroll_offset.y),
+        },
+    );
+
     // Selection, before the layout trace: the trace reports `sel=`, and a
     // count taken before the frame's click was applied would describe the
     // previous frame.
@@ -473,8 +530,11 @@ pub fn show(
         ui,
         doc,
         &image_response,
-        &map,
-        scroll_output.inner_rect,
+        &Frame {
+            map,
+            clip: scroll_output.inner_rect,
+            tool: active_tool,
+        },
         host,
         actions,
     );
@@ -497,23 +557,20 @@ pub fn show(
             // operator, worse the further off-centre they point — reported
             // as "jarring" on 2026-08-04.
             //
-            // Guarded on a positive drawn size because `frac` divides by it,
-            // and on a known pointer because a zoom gesture can also arrive
-            // from a trackpad pinch with the pointer off-window.
-            if let Some(p) = ui.ctx().pointer_latest_pos()
-                && display_size.x > 0.0
-                && display_size.y > 0.0
-            {
-                doc.zoom_anchor = Some(ZoomAnchor {
-                    frac: (
-                        (p.x - image_rect.min.x) / display_size.x,
-                        (p.y - image_rect.min.y) / display_size.y,
-                    ),
-                    offset_before: (scroll_offset.x, scroll_offset.y),
-                    display_before: (display_size.x, display_size.y),
-                    viewport: (viewport_size.x, viewport_size.y),
-                });
-            }
+            // ★ Through [`zoom::arm_anchor`], the same call the discrete
+            // commands make — which is what "the rule is decided once for all
+            // four" means in code. The wheel used to build its own `ZoomAnchor`
+            // inline from the pointer position; that inline version WAS the
+            // rule, in a place no command could reach, and duplicating it at
+            // three more call sites is how the four would have drifted apart.
+            //
+            // The pointer guard that used to live here has moved with it: a
+            // pointer off-window (a trackpad pinch can produce exactly that)
+            // falls back to the viewport centre rather than to nothing, and a
+            // zero drawn size can no longer produce a NaN because
+            // `zoom::frac_of` divides by the page EXTENT, which is finite and
+            // positive for any page that drew at all.
+            zoom::arm_anchor(ui.ctx(), doc);
             actions.push(Action::ZoomBy(factor));
         }
     }
@@ -594,15 +651,38 @@ pub fn show(
 /// * **a frame that panicked between the take and the put leaves an empty
 ///   selection**, not a half-updated one — a state the operator can see and
 ///   recover from with one click.
+///
+/// # ★ The hand tool suppresses the whole of step 1, and that is the fix
+///
+/// When [`tool::active`] reports `Hand` — chosen, or borrowed by a held space
+/// bar — the primary button pans, and a `PointerFrame` describing that drag
+/// would make it marquee **as well**. So the frame is built **blank** apart
+/// from Escape: no press, no drag, no click, no position. Not "the marquee arm
+/// checks the tool", not "the selection is restored afterwards" — the gesture
+/// simply is not offered, which is the only version of this that cannot leave
+/// a half-applied selection behind if a future arm forgets to ask.
+///
+/// A drag already in flight when the space bar goes down is therefore
+/// *interrupted*, and [`gesture::GestureState::update`]'s last branch already
+/// knows what to do with that: abandon it, commit nothing. An operator who
+/// starts a marquee and then reaches for space has changed their mind, and the
+/// worst outcome available is that nothing happened.
 fn interact(
     ui: &mut egui::Ui,
     doc: &mut OpenDoc,
     response: &egui::Response,
-    map: &PageMapping,
-    clip: Rect,
+    frame_ctx: &Frame,
     host: Option<&MenuHost<'_>>,
     actions: &mut Vec<Action>,
 ) -> (usize, Vec<HandlerToken>) {
+    // Destructured through the reference, so `map` stays a borrow — it is
+    // handed on to the overlay and the probe, both of which take one.
+    let Frame {
+        map,
+        clip,
+        tool: active_tool,
+    } = frame_ctx;
+    let (clip, active_tool) = (*clip, *active_tool);
     let ctx = ui.ctx().clone();
     let page_index = doc.view.page_index;
 
@@ -628,26 +708,40 @@ fn interact(
         .interact_pointer_pos()
         .or_else(|| ctx.pointer_latest_pos());
     let shift = ctx.input(|i| i.modifiers.shift);
-    let frame = PointerFrame {
-        // `..._by(PointerButton::Primary)` throughout: the bare forms are
-        // button-agnostic, and the middle button is the pan. See `gesture`.
-        drag_started: response.drag_started_by(PointerButton::Primary),
-        dragging: response.dragged_by(PointerButton::Primary),
-        drag_stopped: response.drag_stopped_by(PointerButton::Primary),
-        clicked: response.clicked_by(PointerButton::Primary),
-        double_clicked: response.double_clicked_by(PointerButton::Primary),
-        pos: screen_pos.map(|p| map.to_page(p)),
-        shift,
-        // Escape reaches the gesture machine BEFORE it reaches the ladder, so
-        // a drag in flight can abandon itself. The machine consumes the key
-        // only if there was a drag to abandon, and says so by returning
-        // `Cancelled` — which is what step 6 passes on to `canvas_keys`. The
-        // `text_edit_focused` guard is `DEFECTS.md` D1's, applied here for the
-        // same reason `canvas_keys` applies it: a focused field owns its keys.
-        cancel: !ctx.text_edit_focused() && ctx.input(|i| i.key_pressed(Key::Escape)),
+    // Escape is read whatever the tool is: a hand-tool frame still has to be
+    // able to abandon a drag the previous tool left in flight, and it is still
+    // the ladder's key when there is no drag. See this function's header.
+    let cancel = !ctx.text_edit_focused() && ctx.input(|i| i.key_pressed(Key::Escape));
+    let frame = if active_tool.pans_with_primary() {
+        PointerFrame {
+            cancel,
+            ..PointerFrame::default()
+        }
+    } else {
+        PointerFrame {
+            // `..._by(PointerButton::Primary)` throughout: the bare forms are
+            // button-agnostic, and the middle button is the pan. See `gesture`.
+            drag_started: response.drag_started_by(PointerButton::Primary),
+            dragging: response.dragged_by(PointerButton::Primary),
+            drag_stopped: response.drag_stopped_by(PointerButton::Primary),
+            clicked: response.clicked_by(PointerButton::Primary),
+            double_clicked: response.double_clicked_by(PointerButton::Primary),
+            pos: screen_pos.map(|p| map.to_page(p)),
+            shift,
+            // Escape reaches the gesture machine BEFORE it reaches the ladder,
+            // so a drag in flight can abandon itself. The machine consumes the
+            // key only if there was a drag to abandon, and says so by returning
+            // `Cancelled` — which is what step 6 passes on to `canvas_keys`.
+            cancel,
+        }
     };
 
     // ---- 2. what a press would land on -------------------------------
+    //
+    // The marquee's INTENT is sampled here, at press time, alongside what the
+    // press landed on — see `gesture`'s header on why a release must not
+    // re-read it. A grip drag is never a zoom: the grips belong to a selection,
+    // and a region zoom is about the paper.
     let grip_box = overlay::grip_box(map, &selection);
     let hovered_grip = grip_box
         .zip(screen_pos)
@@ -655,7 +749,8 @@ fn interact(
     let press_kind = match hovered_grip {
         Some(grip) if grip.is_resize() => DragKind::Resize(grip),
         Some(_) => DragKind::Move,
-        None => DragKind::Marquee,
+        None if zoom::region_zoom_armed(&ctx) => DragKind::Marquee(MarqueeIntent::Zoom),
+        None => DragKind::Marquee(MarqueeIntent::Select),
     };
 
     // ---- 3. advance the gesture --------------------------------------
@@ -698,6 +793,12 @@ fn interact(
     // without a decomposition, so `page_objects()` is a cache hit for the
     // whole gesture. The gate still buys what it always bought — a zoom or a
     // pan with nothing being dragged decomposes nothing.
+    //
+    // ★ A **zoom** marquee is deliberately NOT in the set. It selects nothing,
+    // so it hit-tests nothing, so it decomposes nothing — a region zoom over a
+    // 129,758-object drawing costs one scroll offset. That falls out of the
+    // intent being carried on the outcome rather than being asked for at the
+    // release, and it is the concrete payoff for sampling it at the press.
     let secondary_clicked = response.secondary_clicked();
     let needs_targets = secondary_clicked
         || matches!(
@@ -706,6 +807,7 @@ fn interact(
                 | GestureOutcome::Move { .. }
                 | GestureOutcome::Marquee {
                     phase: Phase::Complete,
+                    intent: MarqueeIntent::Select,
                     ..
                 }
         );
@@ -718,6 +820,7 @@ fn interact(
     // ---- 5. apply the gesture -----------------------------------------
     let mut marquee = None;
     let mut ghost = None;
+    let mut zoom_region = None;
     match outcome {
         GestureOutcome::Click {
             point,
@@ -734,6 +837,7 @@ fn interact(
         GestureOutcome::Marquee {
             rect,
             shift,
+            intent: MarqueeIntent::Select,
             phase: Phase::Complete,
         } => {
             let hits = targets
@@ -742,6 +846,31 @@ fn interact(
                 .unwrap_or_default();
             selection.marquee(page_index, &hits, shift);
             trace_selection_event(&selection, "marquee", shift);
+        }
+        // ★ The same rubber band, released with the other intent. **The
+        // selection is not touched** — not cleared, not replaced, not even
+        // read: a navigation gesture that rearranged the selection would break
+        // the invariant this whole stage is accountable for, and the way to not
+        // break it is to have no line of code here that could. `zoom_to_rect`
+        // takes the band in canvas space, which is the space it already
+        // arrived in.
+        //
+        // Disarmed on release, not on press: the one-shot has to survive the
+        // whole drag, or an Escape-cancelled zoom marquee would leave the
+        // operator with a disarmed tool and nothing to show for it.
+        GestureOutcome::Marquee {
+            rect,
+            intent: MarqueeIntent::Zoom,
+            phase: Phase::Complete,
+            ..
+        } => {
+            zoom::disarm_region_zoom(&ctx);
+            // Deferred to step 7b for one structural reason: `targets` is a
+            // `Ref` borrowed out of `doc`, and arming an anchor needs `&mut
+            // doc`. The same constraint the `drop(targets)` below exists for,
+            // and the same answer the marquee and the ghost already use —
+            // decide here, act once the borrow has ended.
+            zoom_region = Some(rect);
         }
         GestureOutcome::Marquee {
             rect,
@@ -822,7 +951,7 @@ fn interact(
     // press may have one effect: the ladder must not also ascend, or an
     // operator who cancels a move drag finds they have left the rung they were
     // working in as well.
-    canvas_keys(
+    keys::canvas_keys(
         &ctx,
         &mut selection,
         page_index,
@@ -861,6 +990,19 @@ fn interact(
     // decomposition.
     drop(targets);
 
+    // ---- 7b. the released zoom marquee ----------------------------------
+    //
+    // Here rather than in its arm because arming an anchor writes to `doc` and
+    // the decomposition's `Ref` has only just been released. The outcome is
+    // reported by `zoom` on the diagnostic channel; there is nothing for this
+    // frame to do with it, because a region zoom that hit the raster ceiling
+    // still zooms — to the ceiling, centred on the region — and the status
+    // bar's readout states the scale that was actually pinned. See
+    // [`zoom::ZoomOutcome::ceiling_changed_the_answer`].
+    if let Some(rect) = zoom_region {
+        let _ = zoom::zoom_to_rect(&ctx, doc, rect, CANVAS_MARGIN, actions);
+    }
+
     // ---- 8. draw --------------------------------------------------------
     let painter = ui.painter().with_clip_rect(clip);
     overlay::draw_selection(&painter, ui.visuals(), map, &selection);
@@ -880,9 +1022,32 @@ fn interact(
     // its own cursor even once the pointer has wandered off the thing it
     // started on — otherwise a drag that outruns its object looks like it
     // stopped working.
-    if let Some(kind) = gestures.active() {
+    //
+    // ★ The hand comes first, and it is the whole of "the cursor must change,
+    // and must change back". It changes because this branch is taken while the
+    // tool is active; it changes back because the branch is re-evaluated every
+    // frame from `tool::active` and there is no stored cursor to restore. A
+    // dropped key-up costs one frame of hand, not a canvas stuck showing a
+    // grab cursor over a select tool.
+    //
+    // Measured against `clip` — the scroll VIEWPORT — rather than the page's
+    // own rect, because the hand pans the grey surround as readily as the
+    // paper, and a hand tool that shows no hand over half the canvas reads as
+    // a tool that is not armed.
+    let hand_dragging = ctx.input(|i| i.pointer.primary_down() || i.pointer.middle_down());
+    let over_canvas = ctx.pointer_latest_pos().is_some_and(|p| clip.contains(p));
+    if let Some(icon) = active_tool
+        .cursor(hand_dragging)
+        .filter(|_| over_canvas || hand_dragging)
+    {
+        ctx.set_cursor_icon(icon);
+    } else if let Some(kind) = gestures.active() {
         ctx.set_cursor_icon(match kind {
-            DragKind::Marquee => egui::CursorIcon::Crosshair,
+            // One crosshair for both intents: the band is the same band and
+            // `gesture`'s header refuses a second set of pixels for it. What
+            // tells the operator a zoom is armed is the ribbon control that
+            // armed it, off-canvas, where a mode indicator belongs.
+            DragKind::Marquee(_) => egui::CursorIcon::Crosshair,
             DragKind::Move => egui::CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),
         });
@@ -899,111 +1064,6 @@ fn interact(
     doc.selection = selection;
     store_gesture(&ctx, gestures);
     (count, tokens)
-}
-
-/// Escape and Delete, for the canvas selection.
-///
-/// # ★ `DEFECTS.md` D1, from the other end
-///
-/// D1 is *"I can't even click on an object and delete it by hitting the
-/// delete key."* Its cause was `ctx.egui_wants_keyboard_input()` — which means
-/// *any* widget has focus, not *a text field has focus* — combined with a
-/// canvas that takes focus on click. `app::keyboard` already carries the fix
-/// (`ctx.text_edit_focused()`) and the regression test for it. This is the
-/// **verb** the fixed key now reaches: without it, D1 would be fixed and
-/// Delete would still do nothing, because there was no selection to delete
-/// and nothing to delete it with.
-///
-/// The same guard is applied here rather than inherited, because this reads
-/// the key itself. It has to: `app::keyboard::collect` runs before any widget
-/// is built, and although the selection now lives on `OpenDoc` and is
-/// therefore *reachable* from there (module docs, seam 1), moving these two
-/// bindings into the keymap is a change to `app::keyboard`'s key table and its
-/// tests — a separate change with its own argument about chord precedence,
-/// not a consequence of this one. What the move already bought is the ribbon's
-/// Delete: `PdfceApp::dispatch_token` can now read the selection, so
-/// `format.delete` raises the same action this does, from the same rule
-/// ([`SelectionState::deletable_objects_on`]).
-///
-/// Backspace is bound alongside Delete because a laptop keyboard without a
-/// dedicated Delete key is the common case, and every editor accepts both.
-///
-/// # `escape_consumed`, and why the gesture gets first refusal on the key
-///
-/// A drag in flight may be abandoned with Escape ([`gesture::GestureOutcome::Cancelled`]),
-/// and that is the *same press* the ladder would otherwise read. One press must
-/// have one effect — decision 025's L1, which is why Escape ascends exactly one
-/// rung rather than collapsing the ladder — so when the gesture machine has
-/// already spent the key, this is told and leaves it alone. The flag travels as
-/// an argument rather than being re-derived here because the machine is the only
-/// thing that knows whether there *was* a drag under the press; an Escape with an
-/// idle pointer arrives here untouched and ascends, as it always did.
-fn canvas_keys(
-    ctx: &egui::Context,
-    selection: &mut SelectionState,
-    page_index: usize,
-    actions: &mut Vec<Action>,
-    escape_consumed: bool,
-) {
-    // ★ D1: `text_edit_focused()`, NEVER `egui_wants_keyboard_input()`.
-    if ctx.text_edit_focused() {
-        return;
-    }
-    let (escape, delete) = ctx.input(|i| {
-        (
-            i.key_pressed(Key::Escape),
-            i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace),
-        )
-    });
-
-    if escape && !escape_consumed {
-        let outcome = selection.escape();
-        crate::diag::trace(|| {
-            format!(
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "canvas-escape outcome={outcome:?} sel={}",
-                selection.len()
-            )
-        });
-    }
-
-    if !delete {
-        return;
-    }
-
-    // ★ Delete acts at the OBJECT rung only, and the guard is not caution —
-    // without it this is a destructive wrong action. The rule itself lives on
-    // [`SelectionState::deletable_objects_on`], which carries the full
-    // argument, because the ribbon's `format.delete` needs the identical
-    // answer and a rule stated in two places is a rule that drifts.
-    //
-    // What is decided *here* is only how to report a refusal: a rung with no
-    // delete verb is a distinct event from an empty selection, and a harness
-    // reading `canvas-delete-declined` is entitled to know which happened.
-    let objects = selection.deletable_objects_on(page_index);
-    if objects.is_empty() {
-        if selection.level() != SelectionLevel::Object {
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    "canvas-delete-declined level={:?} reason=no-verb-for-rung",
-                    selection.level()
-                )
-            });
-        }
-        return;
-    }
-
-    // The selection is NOT cleared here. The delete is an action, applied
-    // after this frame; the epoch it bumps makes `SelectionState::resolve`
-    // drop exactly the entries whose objects no longer exist, on the next
-    // frame. Clearing here as well would be a second mechanism for the same
-    // outcome, and the two would disagree the first time the engine refused
-    // the edit.
-    actions.push(Action::DeleteSelection {
-        page: page_index,
-        objects,
-    });
 }
 
 /// Ask the provider what is under a click, at every rung at once.
@@ -1084,16 +1144,26 @@ fn trace_selection_event(selection: &SelectionState, kind: &str, modifier: bool)
     });
 }
 
-/// The pointer movement of an in-progress middle-drag over this canvas, or
-/// `None` when no pan is happening.
+/// The pointer movement of an in-progress pan over this canvas, or `None` when
+/// no pan is happening.
 ///
-/// Gated on the pointer being over the canvas so a middle-drag that began
-/// on some other surface does not yank the page sideways.
-fn middle_drag_delta(ui: &egui::Ui) -> Option<Vec2> {
+/// **Two buttons, one path.** The middle button always pans — the CAD /
+/// Inkscape / Illustrator / browser convention, requested on 2026-08-04 — and
+/// the primary button pans as well while the hand tool is active, whether the
+/// operator chose it or is borrowing it with the space bar. They share this
+/// function and therefore share [`geometry::pan_offset`], its clamp and its
+/// cursor: `GUI_ROADMAP` 3.2 asks for a hand tool, not for a second panning
+/// implementation that rounds differently at the edges of the scroll range.
+///
+/// Gated on the pointer being over the canvas so a drag that began on some
+/// other surface does not yank the page sideways.
+fn pan_delta(ui: &egui::Ui, tool: CanvasTool) -> Option<Vec2> {
     let rect = ui.max_rect();
     ui.input(|i| {
         let over = i.pointer.latest_pos().is_some_and(|p| rect.contains(p));
-        if i.pointer.middle_down() && over {
+        let panning =
+            i.pointer.middle_down() || (tool.pans_with_primary() && i.pointer.primary_down());
+        if panning && over {
             let delta = i.pointer.delta();
             (delta != Vec2::ZERO).then_some(delta)
         } else {
@@ -1270,184 +1340,4 @@ fn trace_pointer(ui: &egui::Ui, doc: &OpenDoc, image_rect: Rect, extent: (f32, f
             doc.view.zoom,
         )
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::canvas::selection::ClickHit;
-    use crate::canvas::target::TargetId;
-    use egui::{Context, Event, Modifiers, RawInput};
-
-    /// A selection holding one whole object on page 0.
-    fn object_selected() -> SelectionState {
-        let mut selection = SelectionState::default();
-        selection.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(3)),
-                ..ClickHit::default()
-            },
-            false,
-            false,
-        );
-        selection
-    }
-
-    /// …and the same one, descended a rung into part 1.
-    fn part_entered() -> SelectionState {
-        let mut selection = object_selected();
-        selection.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(3)),
-                part: Some(1),
-                node: None,
-            },
-            false,
-            true,
-        );
-        selection
-    }
-
-    /// `RawInput` carrying one unmodified key press.
-    fn key(key: Key) -> RawInput {
-        RawInput {
-            events: vec![Event::Key {
-                key,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: Modifiers::NONE,
-            }],
-            ..Default::default()
-        }
-    }
-
-    /// Run [`canvas_keys`] for one frame against a real `egui::Context`.
-    fn keys_for(input: RawInput, selection: &mut SelectionState) -> Vec<Action> {
-        let ctx = Context::default();
-        let mut actions = Vec::new();
-        let _ = ctx.run_ui(input, |ui| {
-            canvas_keys(ui.ctx(), selection, 0, &mut actions, false);
-        });
-        actions
-    }
-
-    /// ★ **Click, then Delete — the sequence `DEFECTS.md` D1 is about.**
-    ///
-    /// D1's own words: *"I can't even click on an object and delete it by
-    /// hitting the delete key."* `app::keyboard` proves the key survives a
-    /// canvas click; this proves the key now reaches a verb.
-    #[test]
-    fn delete_with_an_object_selected_raises_the_delete_action() {
-        let mut selection = object_selected();
-        assert_eq!(
-            keys_for(key(Key::Delete), &mut selection),
-            vec![Action::DeleteSelection {
-                page: 0,
-                objects: vec![3],
-            }]
-        );
-
-        // Backspace is bound too — a laptop without a Delete key is the
-        // common case.
-        let mut selection = object_selected();
-        assert_eq!(keys_for(key(Key::Backspace), &mut selection).len(), 1);
-    }
-
-    /// With nothing selected, Delete raises nothing rather than an empty
-    /// batch the engine would have to refuse.
-    #[test]
-    fn delete_with_nothing_selected_raises_nothing() {
-        let mut selection = SelectionState::default();
-        assert!(keys_for(key(Key::Delete), &mut selection).is_empty());
-    }
-
-    /// ★ **Delete inside an object deletes NOTHING, rather than the object.**
-    ///
-    /// The destructive wrong action this stage must not ship: the selection
-    /// names a subpath, the only wired verb removes whole objects, and one
-    /// measured CAD export holds an entire drawing view as a single path
-    /// object with 1,194 subpaths. "They can undo it" is not an answer to a
-    /// keypress that removes a drawing.
-    #[test]
-    fn delete_inside_an_object_refuses_rather_than_deleting_the_object() {
-        let mut selection = part_entered();
-        assert_eq!(selection.level(), SelectionLevel::Part);
-        assert!(
-            keys_for(key(Key::Delete), &mut selection).is_empty(),
-            "the Part rung has no delete verb wired, and must not borrow the Object rung's"
-        );
-        assert_eq!(selection.len(), 1, "and the selection is left alone");
-    }
-
-    /// ★ **An Escape already spent cancelling a drag does not also ascend a
-    /// rung.** One press, one effect: an operator who abandons a move drag
-    /// must still be standing where they were, or cancelling costs them the
-    /// part they were working in as well as the drag.
-    #[test]
-    fn an_escape_spent_on_a_drag_leaves_the_rung_alone() {
-        let mut selection = part_entered();
-        let ctx = Context::default();
-        let mut actions = Vec::new();
-        let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, true);
-        });
-        assert_eq!(selection.level(), SelectionLevel::Part);
-        assert!(actions.is_empty());
-    }
-
-    /// Escape ascends one rung and raises no action — the ladder is canvas
-    /// state, not a document change.
-    #[test]
-    fn escape_ascends_a_rung_and_raises_no_action() {
-        let mut selection = part_entered();
-        assert!(keys_for(key(Key::Escape), &mut selection).is_empty());
-        assert_eq!(selection.level(), SelectionLevel::Object);
-        assert_eq!(selection.len(), 1, "leaving a rung does not clear");
-
-        assert!(keys_for(key(Key::Escape), &mut selection).is_empty());
-        assert!(selection.is_empty(), "the next press clears");
-    }
-
-    /// ★ **A focused text field keeps its Delete key** — the guard D1 is
-    /// about, asserted in the direction that matters for correctness.
-    ///
-    /// `app::keyboard`'s regression test proves the *other* direction: a
-    /// focused NON-text widget must not suppress the key. Both are needed.
-    /// This one builds a real `TextEdit` and focuses it, because
-    /// `text_edit_focused()` resolves the focused id and looks for a
-    /// `TextEditState` under it — a hand-requested focus on a bare id would
-    /// pass vacuously.
-    #[test]
-    fn a_focused_text_field_keeps_delete_for_itself() {
-        let ctx = Context::default();
-        let mut buffer = String::from("x");
-        let mut selection = object_selected();
-        let mut actions = Vec::new();
-
-        // Frame 1: build the field and take focus.
-        let _ = ctx.run_ui(RawInput::default(), |ui| {
-            ui.add(egui::TextEdit::singleline(&mut buffer))
-                .request_focus();
-        });
-        // Frame 2: the field holds focus; Delete belongs to it.
-        let mut typing = false;
-        let _ = ctx.run_ui(key(Key::Delete), |ui| {
-            ui.add(egui::TextEdit::singleline(&mut buffer));
-            typing = ui.ctx().text_edit_focused();
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
-        });
-
-        assert!(
-            typing,
-            "the test is vacuous unless a TEXT field really holds focus"
-        );
-        assert!(
-            actions.is_empty(),
-            "a focused text field must keep Delete for itself"
-        );
-        assert_eq!(selection.len(), 1);
-    }
 }

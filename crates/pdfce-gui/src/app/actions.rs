@@ -348,6 +348,23 @@ pub enum Action {
     /// Same nature as [`Self::SetLayerVisible`] — a view stance, tracked by
     /// `RenderKey`, invisible to a save.
     ToggleAnnotations,
+    /// **One form-field edit**, as one undoable command.
+    ///
+    /// The variant `crate::panels::forms` raises for every one of its verbs —
+    /// fill, toggle, choose, reset, regenerate appearances, flatten — carrying
+    /// the whole intent so it is resolvable after the frame that raised it, in
+    /// the same way [`Self::DeleteSelection`] carries its operand list.
+    ///
+    /// # Why the arm below is one line and not four
+    ///
+    /// It does not go through [`vector_edit`], and `crate::panels::forms::edit`'s
+    /// own header carries the reason: the six form outcome types do not unify
+    /// into `Result<Vec<String>, EditError>`, so that module performs the
+    /// cancel-mutate-bump-invalidate protocol itself, once, for all of them.
+    /// A second copy of the protocol here would be the fifth hand-written
+    /// instance of a four-step sequence `vector_edit` exists to have exactly
+    /// one of.
+    Form(crate::panels::forms::edit::FormEdit),
 }
 
 impl PdfceApp {
@@ -533,6 +550,7 @@ impl PdfceApp {
                 let showing = doc.annotations_visible();
                 doc.set_annotations_visible(!showing);
             }
+            Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
         }
     }
 }

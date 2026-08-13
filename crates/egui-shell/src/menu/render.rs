@@ -477,6 +477,7 @@ fn command_row(
                 rect,
                 tint: visuals.fg_stroke.color,
                 enabled,
+                selected,
             },
         );
         ctx.icons = Some(painter);

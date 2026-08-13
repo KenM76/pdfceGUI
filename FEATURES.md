@@ -1,6 +1,6 @@
 # pdfceGUI — what is built, and what is next
 
-**Updated:** 2026-08-13. **Scope:** the new shell only. `pdfce-core` and
+**Updated:** 2026-08-13 (second revision). **Scope:** the new shell only. `pdfce-core` and
 `pdfce-cli` capabilities live in `D:\Dev\pdfce\docs\FEATURES.md`, whose
 **`gui` column is this project's acceptance criteria** — nothing there may
 regress at fold-in.
@@ -23,12 +23,12 @@ the blocker named.
 
 | | |
 |---|---|
-| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection |
-| **Tests** | 850 passing, 0 failing |
-| **Gates** | 6 of 6, 0 skipped |
-| **Source** | ~69,400 lines across three crates |
-| **Commands** | 76 registered · 99 declared-and-deferred (`PLANNED`) |
-| **Ribbon surface built** | ~44 % of `RIBBON_IA.md` §5 |
+| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3 navigation** |
+| **Tests** | 1,008 passing, 0 failing |
+| **Gates** | 8 of 8, 0 skipped — `check-theme-colors` added 2026-08-13, with a self-test |
+| **Source** | ~86,000 lines across three crates |
+| **Commands** | 80 registered · 97 declared-and-deferred (`PLANNED`) |
+| **Ribbon surface built** | ~48 % of `RIBBON_IA.md` §5 · 32 groups |
 
 ---
 
@@ -39,7 +39,8 @@ the blocker named.
 - ✅ **Ribbon, seven tabs** — File · View · Pages · Edit · Markup · Measure · Tools, plus the contextual **Format** tab that appears on selection
 - ✅ **The ribbon is data, not code** — a serializable manifest, which is what makes it customizable *and* reusable by another application
 - ✅ **Mode selector** — Read / Review / Edit, right-aligned on the tab row, driving both the tab set and the panel layout
-- ✅ **Quick access toolbar** — Open, Save a copy, Undo, Redo
+- ✅ **Quick access toolbar** — Open, Save a copy, Undo, Redo, drawn **icon-only** now that a painter exists
+- ✅ **Open, Recent, Close** — a second document can be opened. `Ctrl+O` was in the keymap and printed in the tooltip since the ribbon landed and **did nothing**: `DERIVED` held only digits, so the chord could not be spelled
 - ✅ **Keyboard chords derive from the manifest keymap** — `keyboard.rs` no longer knows what `Ctrl+0` *means*; it spells the key, looks it up, and returns a command id through the same dispatcher a ribbon click reaches. Rebind it in a customization layer and the keyboard follows
 - ✅ **`Ctrl+1/2/3` switch mode**, `Ctrl+0` is actual size — one owner per chord, with a test that fails naming any chord claimed twice
 - ✅ **Group captions, enforced by construction** — one closure draws every group, so a caption cannot be omitted
@@ -84,7 +85,7 @@ the blocker named.
 
 - ✅ **`ui-verify`** — drives the real binary through the OS, asserts on the diagnostic trace **and** the pixels
 - ✅ **Three checks**, each of which **fails against the old binary** and passes against the new one
-- ✅ **Six CI gates** — ui-strings (with a self-test proving it catches its own bug), file size, shell purity, fmt, clippy
+- ✅ **Eight CI gates** — ui-strings and theme-colours (each with a self-test proving it catches its own planted violation), file size, shell purity, fmt, clippy. The theme gate was **missing entirely** until 2026-08-13 and found five unmarked colours on its first run
 - ✅ **`PDFCE_DIAG`** — canvas layout, pointer in three coordinate spaces, object counts, named UI rects
 
 ---
@@ -113,12 +114,14 @@ the blocker named.
 
 | | |
 |---|---|
-| ⬜ | **Hand tool**, space-to-pan |
-| ⬜ | **Cursor-anchored discrete zoom** — Ctrl+Plus/Minus/0 still anchor top-left; deferred so the rule is decided once for all four |
-| ⬜ | **Zoom to selection**, marquee zoom to region |
-| ⬜ | **Recent files** |
+| ✅ | **Hand tool**, space-to-pan — Space is read by the canvas itself, so it needs no keymap entry and cannot be unbound by accident |
+| ✅ | **Cursor-anchored discrete zoom** — the rule was decided once, in `canvas::zoom::anchor_point`, and **all five** paths route through it: wheel, the three commands, and the framing verbs. Armed from one statement in the frame, not from the six sites that raise the actions |
+| ✅ | **Zoom to selection** — gated on `selection.bounds`, which is *not* `selection.any`: an identity can outlive the box it described, and framing nothing is a jump to the origin that looks like a bug |
+| ✅ | **Marquee zoom to region** — one rubber band shared with marquee-select, branched only at release; a zoom marquee never touches the selection and decomposes nothing |
+| ✅ | **Recent files** — `recent.txt` beside `layout.ron`, capped at 10, move-to-front; missing entries dropped at display time only, throttled so a dead network path cannot block the UI thread |
 | ⬜ | **Rulers, grid, guides** |
 | ⬜ | **Thumbnail grid** — the Pages panel is not registered yet |
+| ⬜ | **Worded decline** — zoom-to-selection with no bounds, and a region zoom the raster ceiling clamped, are *traced* and greyed but never worded. Blocked on the edit-disclosure surface below |
 
 ### Phase 4 — page display modes
 
@@ -179,12 +182,12 @@ Present in the old shell, not yet carried across. All are Class A or B in
 
 | | |
 |---|---|
-| ⬜ | **Print dialog** with live preview *(1,854 lines, self-contained, works)* |
+| ✅ | **Print dialog** with live preview — split 2,022 → five files at the three questions it answers. Fixed on the way: stale device capabilities after a printer change, `/Rotate` ignored so a rotated page was planned portrait and rendered landscape, and a texture-name collision |
 | ⬜ | **Measure tools** — dimension groups, Taubin best-fit circle, snapping *(1,230 lines)* |
 | ⬜ | **Redaction** — mark, review, apply, with the true-removal proof that **exists only in the old shell** |
-| ⬜ | **Forms** — fill, create field, flatten, FDF/XFDF/CSV |
+| 🔨 | **Forms** — **fill** ✅ (Review and Edit modes); create field, flatten and FDF/XFDF/CSV still ⬜. Filling found a genuine `pdfce-core` defect: `fill_refusal()` omits two of the three guards `fill_guards()` applies |
 | ⬜ | **Settings dialog** — the spec-ambiguity model, plus the new Render group |
-| ⬜ | **Icons** — SVG path data rasterized at physical size *(1,747 lines; the QAT falls back to labels without them)* |
+| ✅ | **Icons** — 47 glyphs, rasterized at physical pixel size, tinted from the theme. All 37 keys named by commands resolve, asserted against the live registry. An unknown key draws a **visible slashed mark**, never a blank: the label fallback is decided upstream of the painter, so drawing nothing silently reproduces the blank boxes it exists to prevent |
 | ⬜ | **Text editing** — the whole tool |
 
 ---

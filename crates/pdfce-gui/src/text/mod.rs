@@ -69,6 +69,8 @@ pub mod commands;
 /// filter names, and every string the Recent control draws. Consumed by
 /// `crate::app::files` and `crate::app::recent`.
 pub mod files;
+/// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
+pub mod forms;
 /// The copy the **context-menu** surface owns, as distinct from the copy
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
@@ -95,15 +97,23 @@ pub fn window_title() -> &'static str {
     "pdfce"
 }
 
-/// Shown on the canvas when the process was started with no file argument.
+/// Shown on the canvas when nothing is open.
 ///
-/// S0 has no Open dialog — the file comes from the command line — so this
-/// says exactly how to open one rather than pointing at a menu that does
-/// not exist yet. A message that names a control the operator cannot find
-/// is worse than no message.
+/// ★ **This sentence changed when `file.open` was wired**, and the change is
+/// the rule rather than an edit. It used to read *"No document open. Start
+/// pdfce with a PDF path, for example: pdfce-gui drawing.pdf"*, because at S0
+/// there was no Open command and *"a message that names a control the
+/// operator cannot find is worse than no message."* The command exists now —
+/// on the File tab, on the quick-access toolbar, and on Ctrl+O — so the
+/// message names it. The old wording would have been the same defect in
+/// reverse: telling an operator to restart the application to do something
+/// there is a button for.
+///
+/// The command line stays in the sentence because it is still true and is
+/// still how a file association or a shell "Open with" reaches pdfce.
 #[must_use]
 pub fn canvas_no_document() -> &'static str {
-    "No document open. Start pdfce with a PDF path, for example: pdfce-gui drawing.pdf"
+    "No document open. Choose File ▸ Open, press Ctrl+O, or start pdfce with a PDF path."
 }
 
 /// Shown when a document opened successfully but contains no pages.

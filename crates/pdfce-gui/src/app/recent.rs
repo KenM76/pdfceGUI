@@ -533,10 +533,7 @@ pub fn menu(ui: &mut egui::Ui, recent: &mut RecentFiles, now: Instant) -> Option
             // per-frame path. See the module header.
             let entries = recent.present_at(now);
             if entries.is_empty() {
-                ui.add_enabled(
-                    false,
-                    egui::Button::new(crate::text::files::recent_empty()),
-                );
+                ui.add_enabled(false, egui::Button::new(crate::text::files::recent_empty()));
                 return;
             }
             for path in entries {
@@ -593,7 +590,9 @@ mod tests {
         let recent = RecentFiles::load_in(&dir);
         assert_eq!(recent.path(), Some(dir.join(RECENT_FILE).as_path()));
         assert_eq!(
-            RecentFiles::default_path().as_deref().and_then(Path::parent),
+            RecentFiles::default_path()
+                .as_deref()
+                .and_then(Path::parent),
             crate::app::persistence::LayoutStore::default_path()
                 .as_deref()
                 .and_then(Path::parent),
@@ -776,7 +775,10 @@ mod tests {
             "a relative entry names a different file from a different working \
              directory: {stored:?}"
         );
-        assert_eq!(stored.file_name().and_then(|n| n.to_str()), Some("drawing.pdf"));
+        assert_eq!(
+            stored.file_name().and_then(|n| n.to_str()),
+            Some("drawing.pdf")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -823,6 +825,112 @@ mod tests {
         assert_eq!(recent.entries().len(), 1, "the session still remembers");
         assert_eq!(recent.saves(), 0, "…and nothing was written anywhere");
         assert_eq!(recent.save_error(), None);
+    }
+
+    // =======================================================================
+    // The application path: what records an entry, and what opens one
+    // =======================================================================
+
+    /// ★ **Opening a document records it; failing to open one does not.**
+    ///
+    /// The recording lives in [`crate::app::PdfceApp::open_path`] — the one
+    /// function that opens documents, and the one `argv` reaches without an
+    /// action, so the first document of a session is recorded too.
+    ///
+    /// The negative half is the decision worth pinning: a file that would not
+    /// open is not a *document* the operator had, and offering it from a menu
+    /// whose whole promise is "this worked before" invites the same failure
+    /// from the one surface that should be reliable.
+    #[test]
+    fn opening_a_document_records_it_and_a_failed_open_does_not() {
+        use crate::panels::objects::test_support::engine_fixture;
+
+        let mut app = crate::app::PdfceApp::new();
+        assert!(
+            app.recent.is_empty(),
+            "a test build starts with a store that points nowhere — see `PdfceApp::new`"
+        );
+
+        let fixture = engine_fixture("pageops/four-pages.pdf");
+        app.open_path(fixture.clone());
+        assert_eq!(
+            app.recent.entries(),
+            [std::path::absolute(&fixture).expect("absolute")]
+        );
+
+        app.open_path(engine_fixture("not-a-pdf.bin"));
+        assert!(
+            matches!(app.status, crate::app::state::Status::Failed { .. }),
+            "this fixture must fail to open, or the test proves nothing"
+        );
+        assert_eq!(
+            app.recent.entries().len(),
+            1,
+            "a file that would not open must not be offered as a recent DOCUMENT"
+        );
+
+        // …and closing does not forget it. Closing a document is the single
+        // most likely moment to reach for the one before it.
+        app.close_document();
+        assert_eq!(app.recent.entries().len(), 1);
+    }
+
+    /// ★ **`file.recent` opens the entry the menu parked, and falls back to
+    /// the newest reachable one when there is none.**
+    ///
+    /// Two routes into one command, which is the whole reason the menu is a
+    /// custom *item* rather than a command of its own: the item asks which,
+    /// the command acts. The fallback is not a guess — it is the defined
+    /// answer for an invocation that carries no operand, which an operator
+    /// reaches by binding a chord or adding the command to their quick-access
+    /// toolbar, neither of which draws a menu.
+    #[test]
+    fn the_recent_command_opens_the_parked_choice_or_the_newest_reachable() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
+        use crate::app::actions::Action;
+        use crate::panels::objects::test_support::engine_fixture;
+
+        let mut app = crate::app::PdfceApp::new();
+        let four = engine_fixture("pageops/four-pages.pdf");
+        let layers = engine_fixture("layers/painted-layers.pdf");
+        app.recent.remember(&four);
+        app.recent.remember(&layers);
+
+        // With nothing parked: the newest entry that can be seen.
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, crate::shell::commands::FILE_RECENT, &mut actions);
+        assert_eq!(
+            actions,
+            vec![Action::Open(
+                std::path::absolute(&layers).expect("absolute")
+            )]
+        );
+
+        // With a choice parked by the menu: that one, and the slot is emptied
+        // so the next invocation cannot re-open it by accident.
+        app.recent_choice = Some(four.clone());
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, crate::shell::commands::FILE_RECENT, &mut actions);
+        assert_eq!(actions, vec![Action::Open(four)]);
+        assert!(app.recent_choice.is_none(), "the operand is consumed");
+    }
+
+    /// An empty list raises nothing rather than an action naming nothing.
+    #[test]
+    fn the_recent_command_with_nothing_to_open_raises_nothing() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
+        let mut app = crate::app::PdfceApp::new();
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, crate::shell::commands::FILE_RECENT, &mut actions);
+        assert!(actions.is_empty());
     }
 
     /// An unreadable file is an empty list and a working session.

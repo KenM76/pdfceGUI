@@ -662,6 +662,7 @@ pub(crate) fn command_button(
                 rect,
                 tint: visuals.fg_stroke.color,
                 enabled,
+                selected,
             },
         );
         ctx.icons = Some(painter);

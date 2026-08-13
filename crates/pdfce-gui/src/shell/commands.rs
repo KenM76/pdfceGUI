@@ -1,7 +1,7 @@
 //! # shell::commands — every verb pdfce can perform
 //!
 //! [`register`] populates an `egui_shell::CommandRegistry` with the
-//! seventy-seven commands this build has: the seventy-six
+//! eighty commands this build has: the seventy-nine
 //! [`super::manifest::built_in`] names by id, plus the one whose ribbon
 //! control is a *custom item* rather than a button and which is therefore
 //! reachable without appearing in `command_references()` — see
@@ -47,7 +47,7 @@
 //! and cannot capture state that makes a command's availability depend on
 //! *when* it was registered.
 //!
-//! Five conditions are used, and the whole vocabulary is listed here
+//! Six conditions are used, and the whole vocabulary is listed here
 //! because every one of them is a promise the application has to keep:
 //!
 //! | Condition | True when | Used by |
@@ -57,6 +57,15 @@
 //! | `doc.pages` | …and it has at least one page | everything that acts on a page |
 //! | `undo.available` / `redo.available` | the corresponding stack is non-empty | Undo, Redo |
 //! | `selection.any` | something is selected | the contextual Format tab and its Delete |
+//! | `selection.bounds` | …and it still resolves to a box on the page shown | Zoom to selection |
+//!
+//! `selection.bounds` is separate from `selection.any` for the same shape
+//! of reason, one level down. A selection here is an **identity** — page,
+//! object, subpath, node — and an identity can outlive the box it once
+//! described: it may name an object on a page that is not shown, or one an
+//! edit has renumbered. Zoom to selection is the command where that gap is
+//! visible, because framing nothing is not a no-op; it is a jump to the
+//! origin that looks exactly like a bug.
 //!
 //! `doc.pages` is separate from `doc.open` because **a PDF with `/Count 0`
 //! is a legal document**. pdfce opens it, shows "This document has no
@@ -208,6 +217,19 @@ fn all() -> Vec<Command> {
         command("view.render_thin_lines", t::view_render_thin_lines(), 213),
         command("view.render_antialias", t::view_render_antialias(), 214),
         command("view.zoom_actual", t::view_zoom_actual(), 220).enabled_when("doc.pages"),
+        // Zoom to selection is gated on `selection.bounds`, not on
+        // `selection.any` — the two differ, and the difference is the
+        // command's whole failure mode. A selection can exist and resolve to
+        // no box (it names an object on another page, or one an edit has
+        // renumbered), and the honest answer there is a greyed control, not
+        // a press that silently frames nothing.
+        command("view.zoom_selection", t::view_zoom_selection(), 223)
+            .enabled_when("selection.bounds"),
+        // Arming, not acting: this changes what the next drag means. It
+        // renders pressed while armed through the `selected:` convention,
+        // and the canvas disarms it on release.
+        command("view.zoom_region", t::view_zoom_region(), 224).enabled_when("doc.pages"),
+        command("view.tool_hand", t::view_tool_hand(), 225).enabled_when("doc.pages"),
         command("view.zoom_fit_page", t::view_zoom_fit_page(), 221)
             .with_icon("fit-page")
             .enabled_when("doc.pages"),
@@ -413,7 +435,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 77);
+        assert_eq!(registry().len(), 80);
     }
 
     /// **★ No two commands share a handler token.**
@@ -485,6 +507,9 @@ mod tests {
             "undo.available",
             "redo.available",
             "selection.any",
+            // Not a refinement of `selection.any` — see `PdfceApp::conditions`.
+            // A selection can exist and resolve to no box.
+            "selection.bounds",
         ];
         for command in registry().iter() {
             if let egui_shell::commands::Enable::When(name) = &command.enable {

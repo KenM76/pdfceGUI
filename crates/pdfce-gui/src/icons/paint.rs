@@ -80,21 +80,29 @@
 //! offending string can be read out of a trace, rather than guessed at from
 //! a screenshot of a slashed box.
 //!
-//! ## What the painter cannot express yet, recorded
+//! ## The selected cue, and the seam that had to widen to carry it
 //!
 //! [`super::IconWeight::Bold`] — the "selected state is never colour alone"
 //! cue that replaces emboldening a text label on a control that has no text
-//! — is **not** applied here, because `IconRequest` does not carry the
-//! control's selected state. The shell knows it (it passes `selected` to
-//! `egui::Button::selected`) but does not forward it, so across this seam
-//! the selected cue is the button frame egui paints and the tint the shell
-//! derives, and not the stroke weight.
+//! — **is** applied here, for a selected control.
 //!
-//! This is a limitation of the seam, not of the pipeline: the weight cue is
-//! fully implemented and reachable through [`super::toggle_image`] for any
-//! control the application draws itself. Closing it is a one-field addition
-//! to `IconRequest` on the `egui-shell` side, and it is written down here so
-//! that whoever adds it can find the consumer already waiting.
+//! It could not be when this module first landed. `IconRequest` carried
+//! `enabled` but not `selected`: the shell knew the state (it passes
+//! `selected` to `egui::Button::selected`) and did not forward it, so
+//! across this seam the only selected cues were the button frame egui
+//! paints and the tint the shell derives — both of which a theme can make
+//! subtle, and neither of which is the glyph.
+//!
+//! That was recorded here as a limitation of the seam rather than of the
+//! pipeline, with a note that closing it was a one-field addition on the
+//! `egui-shell` side and that the consumer was already implemented and
+//! waiting. The field was then added for exactly this consumer.
+//!
+//! The general point is worth more than the fix. A reusable shell can
+//! reserve the slot, derive the tint and track the interaction state, but
+//! it **cannot** honour "never colour alone" on the application's behalf,
+//! because the second cue lives in the glyph and only the application can
+//! draw one. Every rule of that shape ends as a field on the request.
 
 use egui_shell::ribbon::IconRequest;
 
@@ -136,23 +144,46 @@ const ASSET_STROKE_UNITS: f32 = 2.5;
 /// * A key **not** in the catalogue is drawn as a visible missing-icon mark
 ///   and reported to [`crate::diag`]. See this module's header for why it is
 ///   emphatically not "draw nothing".
+/// * A **selected** control is drawn at [`IconWeight::Bold`].
+///
+/// # The Bold weight is a second cue, not decoration
+///
+/// The shell already shows selection with the button's frame, so drawing
+/// Regular for everything looks correct and would never be reported as a
+/// bug. The rule it would quietly break is **selected state is never
+/// colour alone**: a frame is one cue, and in a theme whose selected and
+/// unselected frames are close in value it can be a weak one. A heavier
+/// stroke is a second, achromatic cue that survives that.
+///
+/// This could not be done when the icon set landed —
+/// `egui_shell::ribbon::IconRequest` carried `enabled` but not `selected`,
+/// so the ribbon path had no way to know. The field was added afterwards
+/// for exactly this consumer; the shell cannot honour the rule on the
+/// application's behalf, because the second cue lives in the glyph, which
+/// only the application can draw.
 ///
 /// It never panics, and it never allocates layout.
 pub fn paint_ribbon_icon(painter: &egui::Painter, request: &IconRequest<'_>) {
+    let weight = if request.selected {
+        IconWeight::Bold
+    } else {
+        IconWeight::Regular
+    };
     match Icon::from_key(request.key) {
-        Some(icon) => paint_icon(
-            painter,
-            icon,
-            request.rect,
-            request.tint,
-            IconWeight::Regular,
-        ),
+        Some(icon) => paint_icon(painter, icon, request.rect, request.tint, weight),
         None => {
-            // ui-text-exempt: diagnostic trace, never displayed in the UI.
-            // `trace_changed` so a key that is missing on every frame is
+            // A diagnostic trace, never displayed in the UI. `trace_changed`
+            // rather than `trace` so a key that is missing on every frame is
             // reported once rather than sixty times a second.
+            //
+            // Both lines carry their own `ui-text-exempt` marker because
+            // `check-ui-strings.sh` excludes the body of a `diag::trace(`
+            // call by paren depth but matches that name literally, so
+            // `trace_changed(` is outside the exclusion — and its block-form
+            // marker only reaches the single line after the comment.
             crate::diag::trace_changed("icon-unknown-key", || {
-                format!("icon-unknown-key key={}", request.key)
+                // ui-text-exempt: diagnostic slot name
+                format!("icon-unknown-key key={}", request.key) // ui-text-exempt: diagnostic trace
             });
             paint_missing_mark(painter, request.rect, request.tint);
         }
@@ -313,34 +344,44 @@ mod tests {
         egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::Vec2::splat(side))
     }
 
-    /// Run one frame, calling `f` with a bare `Painter` — the same thing the
-    /// shell hands an [`egui_shell::ribbon::IconPainter`] — and report how
-    /// many shapes reached the frame's output.
+    /// Run one frame, calling `f` with the frame's `Painter` — the same
+    /// thing the shell hands an `egui_shell::ribbon::IconPainter` — and
+    /// report how many shapes reached the frame's output.
     ///
     /// Shape count is a coarse instrument, and deliberately so: asserting on
     /// `epaint`'s internal shape *variants* would pin this module to an
-    /// implementation detail of a dependency. "Did anything get drawn" is
-    /// the property that actually matters here, because the failure being
-    /// guarded against is *nothing* getting drawn.
+    /// implementation detail of a dependency, and the property that actually
+    /// matters here is "did anything get drawn at all", because the failure
+    /// being guarded against is *nothing* getting drawn.
     fn shapes_from(f: impl FnOnce(&egui::Painter)) -> usize {
         let ctx = egui::Context::default();
         let mut once = Some(f);
-        let output = ctx.run(egui::RawInput::default(), |ctx| {
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
             if let Some(f) = once.take() {
-                let painter =
-                    egui::Painter::new(ctx.clone(), egui::LayerId::debug(), egui::Rect::EVERYTHING);
-                f(&painter);
+                f(ui.painter());
             }
         });
         output.shapes.len()
     }
 
-    /// The control: a frame in which the painter is never asked to draw.
-    /// Everything below is measured against this, so "it drew something"
-    /// means something.
+    /// Shapes attributable to `f`, with the frame's own baseline removed.
+    ///
+    /// A bare egui frame is not guaranteed to emit zero shapes — plugins and
+    /// the root `Ui` may contribute — so every assertion below is a
+    /// *difference* against a frame that painted no icon. Asserting on the
+    /// raw total would make these tests depend on egui's internals rather
+    /// than on this module's behaviour.
+    fn painted(f: impl FnOnce(&egui::Painter)) -> usize {
+        shapes_from(f).saturating_sub(shapes_from(|_| {}))
+    }
+
+    /// The control, stated as a test rather than left implicit: two frames
+    /// that paint no icon agree. If this ever fails, every "it drew
+    /// something" assertion below is measuring noise.
     #[test]
-    fn an_untouched_painter_draws_nothing() {
-        assert_eq!(shapes_from(|_| {}), 0);
+    fn the_baseline_frame_is_stable() {
+        assert_eq!(shapes_from(|_| {}), shapes_from(|_| {}));
+        assert_eq!(painted(|_| {}), 0);
     }
 
     /// Every key a command can name resolves and draws.
@@ -350,7 +391,7 @@ mod tests {
     #[test]
     fn every_catalogue_key_paints_something() {
         for &icon in Icon::ALL {
-            let drawn = shapes_from(|painter| {
+            let drawn = painted(|painter| {
                 paint_ribbon_icon(
                     painter,
                     &IconRequest {
@@ -358,6 +399,7 @@ mod tests {
                         rect: slot(),
                         tint: theme_tint(),
                         enabled: true,
+                        selected: false,
                     },
                 );
             });
@@ -376,7 +418,7 @@ mod tests {
     /// application's side.
     #[test]
     fn an_unknown_key_draws_a_visible_mark_rather_than_nothing() {
-        let drawn = shapes_from(|painter| {
+        let drawn = painted(|painter| {
             paint_ribbon_icon(
                 painter,
                 &IconRequest {
@@ -384,6 +426,7 @@ mod tests {
                     rect: slot(),
                     tint: theme_tint(),
                     enabled: true,
+                    selected: false,
                 },
             );
         });
@@ -397,7 +440,7 @@ mod tests {
     /// icon field somehow arrived empty must still leave a visible control.
     #[test]
     fn an_empty_key_is_treated_as_unknown() {
-        let drawn = shapes_from(|painter| {
+        let drawn = painted(|painter| {
             paint_ribbon_icon(
                 painter,
                 &IconRequest {
@@ -405,6 +448,7 @@ mod tests {
                     rect: slot(),
                     tint: theme_tint(),
                     enabled: true,
+                    selected: false,
                 },
             );
         });
@@ -419,7 +463,7 @@ mod tests {
     #[test]
     fn a_near_miss_key_gets_the_mark_rather_than_the_nearest_glyph() {
         assert_eq!(Icon::from_key("fit_page"), None);
-        let drawn = shapes_from(|painter| {
+        let drawn = painted(|painter| {
             paint_ribbon_icon(
                 painter,
                 &IconRequest {
@@ -427,6 +471,7 @@ mod tests {
                     rect: slot(),
                     tint: theme_tint(),
                     enabled: true,
+                    selected: false,
                 },
             );
         });
@@ -439,7 +484,7 @@ mod tests {
     /// a greyed-out control belongs.
     #[test]
     fn a_disabled_control_still_gets_its_glyph() {
-        let drawn = shapes_from(|painter| {
+        let drawn = painted(|painter| {
             paint_ribbon_icon(
                 painter,
                 &IconRequest {
@@ -447,6 +492,7 @@ mod tests {
                     rect: slot(),
                     tint: theme_tint(),
                     enabled: false,
+                    selected: false,
                 },
             );
         });
@@ -460,7 +506,7 @@ mod tests {
     #[test]
     fn a_zero_sized_slot_draws_nothing_and_does_not_panic() {
         for key in ["open", "no-such-icon"] {
-            let drawn = shapes_from(|painter| {
+            let drawn = painted(|painter| {
                 paint_ribbon_icon(
                     painter,
                     &IconRequest {
@@ -468,6 +514,7 @@ mod tests {
                         rect: egui::Rect::from_min_size(egui::pos2(4.0, 4.0), egui::Vec2::ZERO),
                         tint: theme_tint(),
                         enabled: true,
+                        selected: false,
                     },
                 );
             });
@@ -498,15 +545,15 @@ mod tests {
         let mut f = paint_ribbon_icon;
         let painter: &mut egui_shell::ribbon::IconPainter<'_> = &mut f;
         let ctx = egui::Context::default();
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            let p = egui::Painter::new(ctx.clone(), egui::LayerId::debug(), egui::Rect::EVERYTHING);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
             painter(
-                &p,
+                ui.painter(),
                 &IconRequest {
                     key: "save",
                     rect: slot(),
                     tint: theme_tint(),
                     enabled: true,
+                    selected: false,
                 },
             );
         });

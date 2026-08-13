@@ -45,6 +45,9 @@
                     caption: "File",
                     items: [
                         Command("file.open"),
+                        Custom(
+                            kind: "recent_files",
+                        ),
                         Command("file.close"),
                     ],
                 ),
@@ -112,12 +115,21 @@
                     ],
                 ),
                 (
+                    id: "navigate",
+                    caption: "Navigate",
+                    items: [
+                        Command("view.tool_hand"),
+                    ],
+                ),
+                (
                     id: "zoom",
                     caption: "Zoom",
                     items: [
                         Command("view.zoom_actual"),
                         Command("view.zoom_fit_page"),
                         Command("view.zoom_fit_width"),
+                        Command("view.zoom_selection"),
+                        Command("view.zoom_region"),
                     ],
                 ),
                 (

@@ -121,8 +121,36 @@ pub(super) fn tab() -> Tab {
                 ],
             ),
             // ---------------------------------------------------------------
+            // Navigate — what a drag on the page does. One item today.
+            //
+            // Its own group rather than a fourth button in Zoom, because a
+            // tool is a MODE the page is in and a zoom level is an action
+            // taken on it: pressing Hand changes what every later drag
+            // means, while pressing Fit page happens once and is over.
+            //
+            // There is deliberately no `view.tool_select` beside it. The
+            // select tool is what the canvas does when nothing else is
+            // armed, so a button for it would be a control whose pressed
+            // state is "normal" — and Hand renders pressed while it is
+            // active through the `selected:` convention, which already says
+            // which of the two you are in. Space-to-pan needs no control at
+            // all: the canvas reads the key itself.
+            // ---------------------------------------------------------------
+            group(
+                "navigate",
+                ribbon::group_view_navigate(),
+                [command("view.tool_hand")],
+            ),
+            // ---------------------------------------------------------------
             // Zoom — the three named levels, mirrored from the status bar
-            // under P1a. Zoom to selection and zoom to region are **N**.
+            // under P1a, plus the two that frame something rather than
+            // stepping. Both of the latter were **N** until Phase 3.
+            //
+            // The order is deliberate: the three fixed levels first, because
+            // they answer "show me the whole page" and are what a reader
+            // reaches for; the two framing verbs after, because they answer
+            // "show me THIS" and require the operator to have already chosen
+            // a this.
             // ---------------------------------------------------------------
             group(
                 "zoom",
@@ -131,6 +159,8 @@ pub(super) fn tab() -> Tab {
                     command("view.zoom_actual"),
                     command("view.zoom_fit_page"),
                     command("view.zoom_fit_width"),
+                    command("view.zoom_selection"),
+                    command("view.zoom_region"),
                 ],
             ),
             // ---------------------------------------------------------------

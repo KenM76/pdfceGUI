@@ -948,6 +948,64 @@ fn the_builder_takes_plain_local_closures() {
     assert!(seen > 0, "the sink received nothing");
 }
 
+/// [`IconRequest::selected`] reports the control's selected state, and
+/// tracks the `selected:` condition rather than being wired to a
+/// constant.
+///
+/// # Why this needs a test at all
+///
+/// A field that is always `false` compiles, renders, and looks correct.
+/// The shell already draws selection with the button's frame, so an icon
+/// set that ignored a permanently-false flag would produce a ribbon
+/// nobody could tell was wrong by looking at it — and the whole reason
+/// the field exists is to let an application keep the rule *selected
+/// state is never colour alone*, which is precisely the rule whose
+/// violations are invisible in the preset you happen to be using.
+///
+/// So both polarities are asserted in one run, from one registry, with
+/// the only difference being the condition set. Asserting `true` alone
+/// would pass against a field hard-wired to `true`.
+#[test]
+fn the_icon_request_reports_selected_state() {
+    fn selected_flag_for(conditions: &ConditionSet) -> Option<bool> {
+        let ctx = egui::Context::default();
+        let shell = shell();
+        let registry = registry();
+        let mut state = RibbonState::new();
+        // `file.open` is the one command in the test registry with an
+        // icon, which is what puts a slot on screen for the painter to
+        // be called with in the first place.
+        let mut seen: Option<bool> = None;
+        let mut icons = |_: &egui::Painter, req: &IconRequest<'_>| {
+            if req.key == "open" {
+                seen = Some(req.selected);
+            }
+        };
+        frame(&ctx, 1200.0, |ui| {
+            let _ = Ribbon::new()
+                .with_conditions(conditions)
+                .with_icon_painter(&mut icons)
+                .render(ui, &shell, &registry, &mut state);
+        });
+        seen
+    }
+
+    let off = selected_flag_for(&ConditionSet::new());
+    let on = selected_flag_for(&ConditionSet::new().with(selected_condition("file.open")));
+
+    assert_eq!(
+        off,
+        Some(false),
+        "an unselected command must report selected = false; \
+         `None` means the painter was never called and the test proved nothing"
+    );
+    assert_eq!(
+        on,
+        Some(true),
+        "the `selected:file.open` condition must reach IconRequest::selected"
+    );
+}
+
 /// Two ribbons in one context do not share widget ids.
 ///
 /// Without a distinct base id the symptom is that hovering a control

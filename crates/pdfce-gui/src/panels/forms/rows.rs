@@ -476,7 +476,10 @@ fn check_row(ui: &mut egui::Ui, field: &Field, out: &mut Vec<FormEdit>) {
 /// Extracted so [`check_row`]'s two paths — the live control and the disabled
 /// one — read the same answer, rather than one of them re-deriving it.
 fn check_on_state(field: &Field) -> Option<Vec<u8>> {
-    field.widgets.iter().find_map(|w| w.on_states.first().cloned())
+    field
+        .widgets
+        .iter()
+        .find_map(|w| w.on_states.first().cloned())
 }
 
 /// A `/Btn` radio group.

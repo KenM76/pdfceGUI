@@ -311,9 +311,9 @@ mod tests {
     fn the_shared_cache_memoizes_too() {
         let ctx = egui::Context::default();
         let first = with_cache(|c| c.texture(&ctx, Icon::Stamp, 21, IconWeight::Regular));
-        let before = with_cache(IconCache::rasterizations);
+        let before = with_cache(|c| c.rasterizations());
         let again = with_cache(|c| c.texture(&ctx, Icon::Stamp, 21, IconWeight::Regular));
         assert_eq!(first.id(), again.id());
-        assert_eq!(with_cache(IconCache::rasterizations), before);
+        assert_eq!(with_cache(|c| c.rasterizations()), before);
     }
 }

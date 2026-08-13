@@ -230,6 +230,18 @@ pub fn group_view_render() -> &'static str {
     "Render"
 }
 
+/// View ▸ Navigate — how a drag on the page behaves.
+///
+/// Separate from Zoom because a tool is a *mode* the page is in, not an
+/// action taken on it: pressing Hand changes what every subsequent drag
+/// means, while pressing Fit page happens once and is over. Putting the
+/// two in one group would caption a radio and three buttons with one
+/// word that is true of neither.
+#[must_use]
+pub fn group_view_navigate() -> &'static str {
+    "Navigate"
+}
+
 /// View ▸ Zoom.
 #[must_use]
 pub fn group_view_zoom() -> &'static str {

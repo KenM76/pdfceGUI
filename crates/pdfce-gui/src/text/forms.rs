@@ -661,7 +661,9 @@ pub fn recompute_pending(changes: usize, coerced: usize) -> String {
     let blanks = if coerced == 0 {
         String::new()
     } else {
-        format!(" {coerced} operand(s) are blank or non-numeric and count as zero, matching Acrobat.")
+        format!(
+            " {coerced} operand(s) are blank or non-numeric and count as zero, matching Acrobat."
+        )
     };
     format!("{changes} field(s) would change.{blanks}")
 }
@@ -980,9 +982,18 @@ mod tests {
                 stripped.len() > 40,
                 "the sentence is carried by its glyph: {s}"
             );
+            // Alphanumeric rather than uppercase: several of these open with
+            // a count ("3 field(s) carry scripts…"), which is a sentence and
+            // not a fragment. What is being ruled out is a warning that opens
+            // with a dash, a colon or nothing — the shape a sentence takes
+            // when the glyph was doing the work.
             assert!(
-                stripped.starts_with(|c: char| c.is_uppercase()),
+                stripped.starts_with(|c: char| c.is_alphanumeric()),
                 "stripping the glyph must leave a sentence, not a fragment: {s}"
+            );
+            assert!(
+                stripped.trim_end().ends_with('.'),
+                "a disclosure must be a complete sentence: {s}"
             );
         }
     }
@@ -1028,6 +1039,11 @@ mod tests {
     fn emphasis_is_grouped_before_typography() {
         use pdfce_core::richtext::{Run, Style};
 
+        // `paragraph` is 0 on every run: the summary is about STYLE, and
+        // grouping runs by paragraph would not change which bucket a feature
+        // lands in. Stated rather than left as an unexplained zero, because
+        // `Run` is `#[non_exhaustive]`-adjacent — the field list has grown
+        // once already, and a future one may matter here.
         let bold_with_ds = Run {
             text: "Total".to_owned(),
             style: Style {
@@ -1036,10 +1052,12 @@ mod tests {
                 family: vec!["Helvetica".to_owned()],
                 ..Style::default()
             },
+            paragraph: 0,
         };
         let plain = Run {
             text: " is ".to_owned(),
             style: Style::default(),
+            paragraph: 0,
         };
         let italic = Run {
             text: "urgent".to_owned(),
@@ -1047,6 +1065,7 @@ mod tests {
                 italic: Some(true),
                 ..Style::default()
             },
+            paragraph: 0,
         };
 
         let summary = form_field_rich_text_summary(&[bold_with_ds, plain, italic]);

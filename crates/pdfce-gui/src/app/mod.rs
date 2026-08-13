@@ -50,15 +50,22 @@
 //! won, deliberately. The same trade will be made at S2, and it should be
 //! made with this paragraph in front of whoever makes it.
 //!
-//! ## What S0 does not have, stated so it is not mistaken for an oversight
+//! ## What this build does not have, stated so it is not mistaken for an
+//! oversight
 //!
-//! No ribbon, no QAT, no dock, no status bar, no find bar, no dialogs, no
-//! Open command. Every one of them is scheduled in `PROJECT_PLAN.md` §4.
-//! The "no placeholders" invariant applies: unavailable renders **nothing**
-//! rather than a greyed-out control that explains itself badly.
+//! The list S0 opened with — *"no ribbon, no QAT, no dock, no status bar, no
+//! find bar, no dialogs, no Open command"* — is down to the find bar and the
+//! save. **Open, Close and Recent are wired**: the picker and its
+//! diagnostics seam are [`files`], the list is [`recent`], and both arrive
+//! through [`actions::Action::Open`] like everything else. What is left of
+//! that sentence is scheduled in `PROJECT_PLAN.md` §4, and the
+//! "no placeholders" invariant still applies to all of it: unavailable
+//! renders **nothing** rather than a greyed-out control that explains itself
+//! badly.
 
 pub mod actions;
 pub mod cache;
+pub mod dispatch;
 /// How a path gets from an operator — or from a scripted harness — to
 /// [`actions::Action::Open`]. The picker, the diagnostics seam that answers
 /// it without a human, and the dirty-document rule.
@@ -214,6 +221,20 @@ pub struct PdfceApp {
     /// state: scroll positions, expansion, focus. `open_path` forgets it,
     /// which is why it needs no key of any kind.
     pub panels: crate::panels::PanelsState,
+
+    /// The modal dialogs — currently Print, and the place any other lands.
+    ///
+    /// Held on the application rather than inside the command arm that
+    /// opens it because a dialog outlives the click: it is shown once per
+    /// frame from [`Self::update`], **after** the canvas and the docks, so
+    /// that it draws over them rather than under.
+    ///
+    /// That ordering is the one thing about this field worth remembering.
+    /// It is also the single exception to the "nothing floats over the
+    /// canvas" stance, and an intentional one: a *modal* is not a floating
+    /// panel — it takes the frame, does one job, and leaves. The stance is
+    /// about surfaces that hover over a document you are still working in.
+    pub dialogs: crate::dialogs::DialogsState,
 }
 
 impl PdfceApp {
@@ -372,6 +393,7 @@ impl PdfceApp {
             recent,
             recent_choice: None,
             panels: crate::panels::PanelsState::default(),
+            dialogs: crate::dialogs::DialogsState::default(),
         }
     }
 
@@ -416,6 +438,25 @@ impl PdfceApp {
             if !doc.selection.is_empty() {
                 set.set("selection.any");
             }
+            // ★ `selection.bounds` is NOT `selection.any`, and the gap
+            // between them is a real state rather than a defensive check.
+            //
+            // A selection is an identity — page, object, subpath, node —
+            // and identities can outlive the box they described: the
+            // selection may name an object on a page that is no longer
+            // shown, or one whose index an edit renumbered. `selection.any`
+            // is then true and there is nothing to frame.
+            //
+            // Zoom-to-selection is the one command where that difference is
+            // visible, because framing "nothing" is not a no-op — it is a
+            // jump to the origin at some arbitrary scale, which looks
+            // exactly like a bug and loses the operator's place. So the
+            // control greys instead, and it asks the same function the
+            // grips are laid out on, so what greys and what is drawn can
+            // never disagree.
+            if crate::canvas::zoom::can_zoom_to_selection(doc) {
+                set.set("selection.bounds");
+            }
         }
         // `undo.available` and `redo.available` are still deliberately absent:
         // there is no undo stack to report on yet. Setting them would arm
@@ -428,24 +469,17 @@ impl PdfceApp {
     /// # ★ The one custom item, and why it is not a command
     ///
     /// `Item::Custom` is `egui-shell`'s extension point for a control that is
-    /// not a button, and its own doc names the case: *"a colour swatch, a zoom
-    /// slider, a scale picker, a split button with a gallery."* The Recent
-    /// control is the last of those. A `Command` item could only ever render
-    /// as a button, and a button cannot ask *which* of ten documents — so
-    /// modelling the list as a command would have meant either ten commands
-    /// or a command that opened whichever file it felt like.
-    ///
-    /// The renderer therefore does two things and no more: draw, and report.
-    /// The chosen path is parked in [`Self::recent_choice`] and the
-    /// `file.recent` token is returned, so the *command* goes through
-    /// [`Self::dispatch_command`] exactly as a ribbon click does. Parking
-    /// before dispatching is load-bearing and the order below says so.
-    ///
-    /// An item whose `kind` this application does not know draws **nothing**
-    /// and returns `None` — the same posture the shell takes towards an
-    /// unknown command id, and the reason the manifest's `colour_swatch`
-    /// (whose control is not built) leaves a gap rather than a mystery
-    /// widget.
+    /// not a button — its own doc names *"a split button with a gallery"* —
+    /// and the Recent menu is one: a `Command` item can only render as a
+    /// button, and a button cannot ask *which* of ten documents. The renderer
+    /// therefore draws and reports, nothing else: the path is parked in
+    /// [`Self::recent_choice`] and the `file.recent` token is returned, so the
+    /// command goes through [`Self::dispatch_command`] exactly as a ribbon
+    /// click does. See [`crate::app::recent::menu`] for the control itself and
+    /// [`crate::shell::manifest::CUSTOM_BACKED`] for why the command is on no
+    /// tab. An unknown `kind` draws **nothing** and returns `None`, which is
+    /// why the manifest's unbuilt `colour_swatch` leaves a gap rather than a
+    /// mystery widget.
     fn ribbon_band(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         let Some(shell) = self.shell.as_ref() else {
             return;
@@ -476,9 +510,14 @@ impl PdfceApp {
             if item.kind != crate::shell::manifest::RECENT_FILES {
                 return None;
             }
+            // A build whose registry has no `file.recent` draws no menu at
+            // all, rather than a menu whose choice nothing could act on. Same
+            // posture as `R8`: a capability that is not compiled in renders
+            // nothing.
+            let token = recent_token?;
             let picked = crate::app::recent::menu(ui, recent, std::time::Instant::now())?;
             chosen = Some(picked);
-            recent_token
+            Some(token)
         };
 
         let tokens = egui::Panel::top("ribbon")
@@ -501,7 +540,7 @@ impl PdfceApp {
         }
 
         for token in tokens {
-            self.dispatch_token(token, actions);
+            self.dispatch_token(ui.ctx(), token, actions);
         }
     }
 
@@ -585,7 +624,7 @@ impl PdfceApp {
             );
 
         for token in tokens.into_iter().chain(tab_tokens) {
-            self.dispatch_token(token, actions);
+            self.dispatch_token(ui.ctx(), token, actions);
         }
 
         // ★ Bind the mode selector to the dock, and the dock to disk.
@@ -638,286 +677,6 @@ impl PdfceApp {
                 report.layout_changed,
             )
         });
-    }
-
-    /// Turn one invoked command into whatever the application does about it.
-    ///
-    /// Resolved token → id → [`Self::dispatch_command`], rather than matching
-    /// on the raw token number. The numbers are assigned in per-tab blocks in
-    /// `crate::shell::commands` and are meaningful only there; duplicating
-    /// them here would create a second place to keep in step, and a silent
-    /// mis-dispatch is the failure that would result.
-    ///
-    /// **The id is cloned rather than borrowed**, and it is not an
-    /// oversight: the arms below need `&mut self` — a panel to activate, a
-    /// dock to reset, a mode to select — and a `&str` borrowed out of
-    /// `self.commands` would hold `self` shared for the whole match. One
-    /// short allocation per *invoked command* (an operator click, not a
-    /// frame) is the right price for arms that can act on the application.
-    fn dispatch_token(
-        &mut self,
-        token: egui_shell::commands::HandlerToken,
-        actions: &mut Vec<Action>,
-    ) {
-        let Some(id) = self
-            .commands
-            .iter()
-            .find(|c| c.handler == token)
-            .map(|c| c.id.clone())
-        else {
-            return;
-        };
-        self.dispatch_command(&id, actions);
-    }
-
-    /// Do whatever this build does about the command named `id`.
-    ///
-    /// **The one dispatcher.** A ribbon click, a QAT click, a context-menu
-    /// click and a keyboard chord all arrive here, which is what makes it
-    /// impossible for a chord and a button that share a command to do
-    /// different things — the defect `crate::app::keyboard`'s header is
-    /// about, closed structurally rather than by agreement.
-    ///
-    /// **A command with no arm is not an error.** At S2 most of the ribbon is
-    /// scaffolding for behaviour that lands at S3 and later, and the
-    /// honest thing is to say so once per invocation in the trace rather
-    /// than to pretend the click did something. Where a command is *known*
-    /// not to be implementable yet, its arm says why in the trace rather
-    /// than falling through to the generic line — a reader of a trace from a
-    /// machine they cannot see should not have to guess which kind of
-    /// nothing happened.
-    fn dispatch_command(&mut self, id: &str, actions: &mut Vec<Action>) {
-        match id {
-            // ★ Open. The command that makes pdfce a reader rather than a
-            // viewer of one file.
-            //
-            // It was registered, drawn on the File tab, drawn on the QAT,
-            // bound to Ctrl+O in the keymap — and had no arm, so the only way
-            // to open a document was `argv`. That is defect D1's shape with
-            // the most consequential verb in the application behind it.
-            //
-            // The dialog runs HERE, during dispatch, and only its *result*
-            // becomes an action. See `crate::app::files` for why that line is
-            // where it is, and for the `PDFCE_DIAG_OPEN_PATH` seam that lets
-            // a scripted harness answer the dialog without a human — a native
-            // dialog is a hard wall for synthetic input, and substituting the
-            // answer is the only thing that gets past it.
-            "file.open" => {
-                Self::open_picked(crate::app::files::pick_document(), actions);
-            }
-            // ★ Close. `doc.open` gates the control, so the no-document case
-            // is unreachable from the ribbon — and the action handles it
-            // anyway, because a customized keymap can reach any command from
-            // any state.
-            "file.close" => actions.push(Action::Close),
-            // ★ Recent. The operand comes from the `recent_files` custom item
-            // (see `Self::ribbon_band`), which parked it before returning this
-            // command's token.
-            //
-            // Reaching this arm with nothing parked is not an error and not
-            // unreachable: an operator may bind a chord to `file.recent` or
-            // put it on their quick-access toolbar, neither of which draws a
-            // menu. The defined answer is **the newest document that can be
-            // seen right now** — which is what "recent" means with no further
-            // qualification, and which skips an entry on a drive that is not
-            // connected rather than reporting a failure the operator did not
-            // cause.
-            crate::shell::commands::FILE_RECENT => {
-                let path = self
-                    .recent_choice
-                    .take()
-                    .or_else(|| self.recent.newest_present(std::time::Instant::now()));
-                match path {
-                    Some(path) => actions.push(Action::Open(path)),
-                    None => crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "recent-declined reason=nothing-reachable".to_owned()
-                    }),
-                }
-            }
-            "view.zoom_in" => actions.push(Action::ZoomIn),
-            "view.zoom_out" => actions.push(Action::ZoomOut),
-            // `ZoomTo(1.0)`, not `Fit(FitMode::None)`. The latter only stops the
-            // per-frame re-fit and leaves the zoom where it was, so this
-            // control used to pin whatever magnification happened to be
-            // showing while promising one PDF point per screen point.
-            "view.zoom_actual" => actions.push(Action::ZoomTo(1.0)),
-            "view.zoom_fit_page" => actions.push(Action::Fit(crate::viewer::FitMode::Page)),
-            "view.zoom_fit_width" => actions.push(Action::Fit(crate::viewer::FitMode::Width)),
-            "view.next_page" => actions.push(Action::NextPage),
-            "view.prev_page" => actions.push(Action::PrevPage),
-            // This control was drawn and enabled from the moment the ribbon
-            // landed, and did nothing — a live instance of D1's shape: an
-            // affordance that looks available and is inert. It became
-            // wirable when `RenderKey` gained `annotations`.
-            "view.show_annotations" => actions.push(Action::ToggleAnnotations),
-            // ★ The ribbon's Delete — the contextual Format tab's one command.
-            //
-            // The id is `format.delete`, not `edit.delete`: `RIBBON_IA.md`
-            // §5.8 puts Delete on the **Format** tab, which is contextual and
-            // appears only while something is selected, and
-            // `shell::commands` registers exactly that id gated on
-            // `selection.any`. There is no `edit.delete` in this build, and
-            // adding an arm for one would be an arm no token can ever reach —
-            // dead code wearing a design pattern, which is what the
-            // no-placeholders invariant forbids.
-            //
-            // It became wirable when the selection moved onto `OpenDoc`: this
-            // function has no `egui::Context`, so while the selection lived in
-            // `egui::Memory` there was no route from a ribbon click to the
-            // thing it was about to delete. That is the whole of why the
-            // control has been drawn-but-unwired until now.
-            //
-            // **The rule is not restated here.**
-            // `SelectionState::deletable_objects_on` decides what a Delete may
-            // act on — Object rung only, ascending, de-duplicated, this page
-            // only — and the canvas's Delete key reads the same method. Two
-            // statements of a destructive rule is one too many.
-            //
-            // An empty list raises nothing rather than an empty action the
-            // engine would have to refuse. That is reachable in practice: the
-            // Format tab is visible whenever *anything* is selected, including
-            // at a rung whose delete verb does not exist yet.
-            "format.delete" => {
-                if let Status::Open(doc) = &self.status {
-                    let page = doc.view.page_index;
-                    let objects = doc.selection.deletable_objects_on(page);
-                    if !objects.is_empty() {
-                        actions.push(Action::DeleteSelection { page, objects });
-                    }
-                }
-            }
-            // ★ The Properties panel. See [`Self::show_panel`] for the
-            // mount-versus-nothing decision, which is the only interesting
-            // part of this.
-            //
-            // `file.properties` rather than a `view.panel_*` id because
-            // `RIBBON_IA.md` §5.1 puts Properties in File ▸ Document — it
-            // describes the document, not the screen — and
-            // `crate::panels::Panel::command_id` is the one place that
-            // binding is written down.
-            "file.properties" => self.show_panel(crate::panels::Panel::Properties),
-            // ★ Reset layout. `ResetScope::All`, and the scope is a decision.
-            //
-            // `RIBBON_IA.md`'s rule is why a scope exists at all: *"an
-            // operator who only wanted the right dock back must not lose
-            // their left one."* Honouring that properly needs a **chooser**,
-            // and this build has no modal, no popup and no split-button
-            // affordance to put one in — see the note on
-            // `crate::text::commands::view_reset_layout`, which used to
-            // promise the choice in its tooltip and no longer does.
-            //
-            // Given one button and no chooser, `All` is the only scope whose
-            // behaviour matches the words on it: a control named "Reset
-            // layout" that reset half the layout would be the more surprising
-            // of the two failures. It is also the least destructive it looks:
-            // `Modes::reset` restores *this mode's* default and leaves every
-            // other mode's saved workspace alone.
-            //
-            // What a chooser needs, so the next hand does not have to
-            // re-derive it: three commands (`view.reset_layout_left`,
-            // `_right`, `_all`) with their own `CommandText`, an
-            // `egui_shell::manifest::Item` kind that renders a split button
-            // or a submenu, and this arm becoming three that pass the
-            // matching `ResetScope`. `ResetScope::ALL` already lists them
-            // narrowest-first, in the order such a menu should offer them.
-            "view.reset_layout" => {
-                let scope = egui_shell::layout::ResetScope::All;
-                let changed = self.modes.reset(
-                    scope,
-                    &mut self.dock,
-                    &mut self.layout,
-                    &self.panel_registry,
-                );
-                crate::diag::trace(|| {
-                    format!(
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "layout-reset scope={scope} changed={changed}"
-                    )
-                });
-            }
-            // ★ The mode selector's three keyboard positions.
-            //
-            // `RibbonState::set_mode`'s own doc commissions exactly this:
-            // *"This is what an application calls when the operator presses
-            // the Ctrl+1 its manifest bound to `mode.read` — the shell
-            // reports the command's token, the application dispatches it,
-            // and dispatching it means calling this."*
-            //
-            // Wired here because the keymap route now reaches it. The mode
-            // ids are the command ids without their `mode.` prefix, which is
-            // the manifest's own convention — see
-            // `crate::shell::manifest::built_in`'s mode list beside its
-            // keymap — and an id the manifest does not declare is declined
-            // rather than adopted, so a customized keymap naming a fourth
-            // mode cannot put the ribbon into a state it has no tab list for.
-            //
-            // Nothing else happens here: the dock follows on the same frame,
-            // in `Self::docks`, which compares `ribbon.mode()` against
-            // `modes.active()` and moves the workspace across. One place does
-            // that, and it must stay one place — see its ★ comment on why the
-            // order of *record* and *restore* is load-bearing.
-            "mode.read" | "mode.review" | "mode.edit" => {
-                if let Some(mode) = id.strip_prefix("mode.") {
-                    if self.modes.is_known(mode) {
-                        self.ribbon.set_mode(mode.to_owned());
-                    } else {
-                        crate::diag::trace(|| {
-                            format!(
-                                // ui-text-exempt: diagnostic trace, never displayed.
-                                "command-declined id={id} reason=mode-not-declared"
-                            )
-                        });
-                    }
-                }
-            }
-            other => {
-                crate::diag::trace(|| {
-                    format!(
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "command-unimplemented id={other}"
-                    )
-                });
-            }
-        }
-    }
-
-    /// **Turn what the picker said into what the application does about it.**
-    ///
-    /// Split out of the `file.open` arm for one reason: it is the only part
-    /// of that arm a test may run. Dispatching `file.open` itself opens a
-    /// **real modal dialog** and blocks until a human dismisses it, so a test
-    /// that did it would hang `cargo test` behind an invisible window — see
-    /// [`crate::app::files`]' third rule. Everything downstream of the answer
-    /// is therefore reachable from a test with the answer supplied directly,
-    /// and only the `env::var_os` read itself is not (and cannot be:
-    /// `std::env::set_var` is `unsafe` in edition 2024 and this crate forbids
-    /// unsafe code).
-    ///
-    /// Associated rather than a method because it touches nothing on `self`
-    /// — which is itself the point. A picker's answer becomes an action and
-    /// nothing else; the deciding, the loading and the failure classification
-    /// all happen after the frame, in [`Self::apply_actions`].
-    ///
-    /// The three answers get three different treatments, and the differences
-    /// are the whole reason [`crate::app::files::Picked`] is not an
-    /// `Option<PathBuf>`:
-    ///
-    /// | answer | what happens | why |
-    /// |---|---|---|
-    /// | a path | [`Action::Open`] | the ordinary case |
-    /// | cancelled | nothing at all, not even a trace line | the operator changed their mind; that is a complete and correct outcome and reporting it would be noise on every dismissed dialog |
-    /// | unavailable | a trace naming the gap | this is a **build** limitation, not an operator choice, and it is the one a reader of a trace from a machine they cannot see most needs told apart from "the click never arrived" |
-    fn open_picked(picked: crate::app::files::Picked, actions: &mut Vec<Action>) {
-        use crate::app::files::Picked;
-        match picked {
-            Picked::Path(path) => actions.push(Action::Open(path)),
-            Picked::Cancelled => {}
-            Picked::Unavailable => crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed.
-                "open-unavailable reason=no-picker-in-this-build".to_owned()
-            }),
-        }
     }
 
     /// **Put `panel` on screen, mounting it first if the operator's
@@ -1062,7 +821,7 @@ impl eframe::App for PdfceApp {
         let chord_commands =
             keyboard::commands(&ctx, self.shell.as_ref().and_then(|s| s.keymap.as_ref()));
         for id in chord_commands {
-            self.dispatch_command(&id, &mut actions);
+            self.dispatch_command(&ctx, &id, &mut actions);
         }
 
         // Step 1b — the ribbon, above the canvas.
@@ -1120,6 +879,37 @@ impl eframe::App for PdfceApp {
             self.central(ui, &mut actions);
         });
 
+        // Step 2b — modal dialogs, LAST among the surfaces.
+        //
+        // After the canvas and the docks, because egui draws in call order
+        // and a dialog shown before them would be painted under the very
+        // content it is modal over. It takes `&self.status` so it can close
+        // itself when the document does — a print dialog outliving its
+        // document would offer to print pages that are gone.
+        self.dialogs.show(&ctx, &self.status);
+
+        // Step 2c — give every pending zoom an anchor, in ONE place.
+        //
+        // `view.zoom_in`, `view.zoom_out` and `view.zoom_actual` are raised
+        // from six call sites — the dispatcher, the keyboard, and three
+        // status-bar controls. Anchoring them where they are raised would
+        // mean the same rule spelled six times, and a seventh surface added
+        // later would silently zoom to the top-left corner: the exact defect
+        // this closes, which is why it is one statement here rather than six
+        // there.
+        //
+        // The rule it applies lives in `canvas::zoom::anchor_point` and
+        // nowhere else: **a zoom holds one page point still, and that point
+        // is where the operator is looking** — the pointer when it is over
+        // the canvas, the viewport's centre when it is not.
+        //
+        // It skips an action whose anchor is already armed, so the framing
+        // verbs (fit, zoom-to-selection, region zoom) and the Ctrl+wheel keep
+        // the anchors they set deliberately.
+        if let Status::Open(doc) = &mut self.status {
+            crate::canvas::zoom::arm_for_actions(&ctx, doc, &actions);
+        }
+
         // Step 3 — apply, after the frame is drawn.
         let pixels_per_point = ctx.pixels_per_point();
         self.apply_actions(actions, pixels_per_point);
@@ -1173,7 +963,7 @@ impl PdfceApp {
             // intent and the application decides, which is the same seam the
             // ribbon and the dock already use.
             for token in tokens {
-                self.dispatch_token(token, actions);
+                self.dispatch_token(ui.ctx(), token, actions);
             }
             return;
         }
@@ -1306,19 +1096,24 @@ mod tests {
     /// skipped that step would pass even if the command were never registered.
     #[test]
     fn the_ribbon_delete_raises_the_delete_action() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
         let mut app = opened();
         let delete = token_for(&app, "format.delete");
 
         // Nothing selected: nothing raised. An empty batch would be an action
         // the engine has to refuse, reported as a failure the operator caused.
         let mut actions = Vec::new();
-        app.dispatch_token(delete, &mut actions);
+        app.dispatch_token(&ctx, delete, &mut actions);
         assert!(actions.is_empty());
 
         select_object(&mut app, 2, false);
         select_object(&mut app, 0, true);
         let mut actions = Vec::new();
-        app.dispatch_token(delete, &mut actions);
+        app.dispatch_token(&ctx, delete, &mut actions);
         assert_eq!(
             actions,
             vec![Action::DeleteSelection {
@@ -1342,6 +1137,11 @@ mod tests {
     /// apart.
     #[test]
     fn the_ribbon_delete_declines_inside_an_object_just_as_the_key_does() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
         let mut app = opened();
         select_object(&mut app, 1, false);
 
@@ -1363,7 +1163,7 @@ mod tests {
 
         let delete = token_for(&app, "format.delete");
         let mut actions = Vec::new();
-        app.dispatch_token(delete, &mut actions);
+        app.dispatch_token(&ctx, delete, &mut actions);
         assert!(
             actions.is_empty(),
             "the Part rung has no delete verb wired, and the ribbon must not \
@@ -1398,6 +1198,11 @@ mod tests {
     /// registered fails here rather than silently taking the `other` arm.
     #[test]
     fn the_properties_command_puts_the_panel_on_screen_in_every_mode() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
         let mut app = opened();
         let properties =
             egui_shell::dock::PanelId::new(crate::panels::Panel::Properties.command_id());
@@ -1408,7 +1213,7 @@ mod tests {
                 .on_mode_changed(mode, &mut app.dock, &mut app.layout, &app.panel_registry);
 
             let mut actions = Vec::new();
-            app.dispatch_token(token, &mut actions);
+            app.dispatch_token(&ctx, token, &mut actions);
             assert!(
                 app.dock.is_on_screen(&properties),
                 "`file.properties` must produce the panel in the `{mode}` arrangement, \
@@ -1423,7 +1228,7 @@ mod tests {
             // context menu offers this command to *describe the row just
             // clicked*, and a second invocation that hid the description
             // would be actively hostile.
-            app.dispatch_token(token, &mut Vec::new());
+            app.dispatch_token(&ctx, token, &mut Vec::new());
             assert!(app.dock.is_on_screen(&properties));
         }
     }
@@ -1453,6 +1258,11 @@ mod tests {
     /// layout would be the more surprising failure.
     #[test]
     fn the_reset_layout_command_restores_the_modes_default_arrangement() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
         let mut app = opened();
         app.modes
             .on_mode_changed("edit", &mut app.dock, &mut app.layout, &app.panel_registry);
@@ -1460,7 +1270,7 @@ mod tests {
         let reset = token_for(&app, "view.reset_layout");
 
         let mut actions = Vec::new();
-        app.dispatch_token(reset, &mut actions);
+        app.dispatch_token(&ctx, reset, &mut actions);
         assert_eq!(
             app.dock.layout(),
             &default,
@@ -1473,7 +1283,7 @@ mod tests {
         let objects = egui_shell::dock::PanelId::new(crate::panels::Panel::Objects.command_id());
         assert!(app.dock.layout_mut().close(&objects));
         assert_ne!(app.dock.layout(), &default);
-        app.dispatch_token(reset, &mut Vec::new());
+        app.dispatch_token(&ctx, reset, &mut Vec::new());
         assert_eq!(app.dock.layout(), &default);
     }
 
@@ -1491,6 +1301,11 @@ mod tests {
     /// the button raised `ZoomTo(1.0)`, which is the defect in one line.
     #[test]
     fn the_chord_and_the_button_raise_the_same_action() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
         let mut app = opened();
         let keymap = app
             .shell
@@ -1500,10 +1315,10 @@ mod tests {
         let bound = keymap.get("Ctrl+0").expect("Ctrl+0 is bound").to_owned();
 
         let mut from_chord = Vec::new();
-        app.dispatch_command(&bound, &mut from_chord);
+        app.dispatch_command(&ctx, &bound, &mut from_chord);
 
         let mut from_button = Vec::new();
-        app.dispatch_token(token_for(&app, &bound), &mut from_button);
+        app.dispatch_token(&ctx, token_for(&app, &bound), &mut from_button);
 
         assert_eq!(from_chord, from_button);
         assert_eq!(from_chord, vec![Action::ZoomTo(1.0)]);
@@ -1518,13 +1333,18 @@ mod tests {
     /// doing fit-width from `keyboard::collect`.
     #[test]
     fn the_mode_commands_move_the_ribbon_selector() {
+        // A bare context: these tests exercise the dispatcher, not a
+        // frame. `dispatch_command` needs one because three navigation arms
+        // write the armed tool and the zoom anchor into egui memory, which
+        // is where per-frame UI state lives.
+        let ctx = egui::Context::default();
         let mut app = opened();
         for (command, mode) in [
             ("mode.review", "review"),
             ("mode.edit", "edit"),
             ("mode.read", "read"),
         ] {
-            app.dispatch_command(command, &mut Vec::new());
+            app.dispatch_command(&ctx, command, &mut Vec::new());
             assert_eq!(app.ribbon.mode(), Some(mode));
         }
     }

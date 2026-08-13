@@ -164,14 +164,34 @@ mod tests {
     /// `menus::tests::every_menu_command_is_also_reachable_from_the_ribbon`
     /// states the same rule from the menu side, where the failure message
     /// can name the menu.
+    ///
+    /// # ★ …and a CUSTOM ITEM does count, because it is a ribbon control
+    ///
+    /// `command_references()` walks the places a command *id* can appear, and
+    /// an `egui_shell::manifest::Item::Custom` carries none — the shell
+    /// reserves the space and the application draws whatever it likes. A
+    /// command whose ribbon control is such an item is therefore reachable
+    /// (it is a control in a band on a tab, as discoverable as any button)
+    /// and invisible to the function this test is built on.
+    ///
+    /// Those are enumerated in [`manifest::CUSTOM_BACKED`], with the item
+    /// that draws each and the reason a button could not have. Consulting the
+    /// register keeps the rename check the test exists for — a command
+    /// reachable by *nothing* still fails — while not forcing a redundant
+    /// second button onto the tab to satisfy a check about ids.
     #[test]
     fn no_registered_command_is_orphaned() {
         let (shell, registry) = shell_and_registry();
-        let referenced: BTreeSet<String> = shell
+        let mut referenced: BTreeSet<String> = shell
             .command_references()
             .into_iter()
             .map(|(_, id)| id)
             .collect();
+        referenced.extend(
+            manifest::CUSTOM_BACKED
+                .iter()
+                .map(|(id, _, _)| (*id).to_owned()),
+        );
 
         let orphans: Vec<&str> = registry
             .ids()
@@ -180,8 +200,60 @@ mod tests {
         assert!(
             orphans.is_empty(),
             "these commands are registered but unreachable — no tab, no QAT slot, \
-             no key binding mentions them: {orphans:?}"
+             no key binding and no custom item mentions them: {orphans:?}"
         );
+    }
+
+    /// **★ Every `CUSTOM_BACKED` entry is real, in both directions.**
+    ///
+    /// The register buys an exemption from the orphan check above, so it has
+    /// to be worth exactly what it claims and no more:
+    ///
+    /// 1. **The command is registered.** An entry naming an id nothing
+    ///    registers would be excusing a command that does not exist.
+    /// 2. **The custom item is in the manifest.** This is the one that rots:
+    ///    delete the `Item::Custom` from a tab and the command silently
+    ///    becomes a genuine orphan while this register goes on excusing it —
+    ///    the exemption outliving the thing it was granted for.
+    /// 3. **The command is on no tab and no QAT slot.** An entry for a
+    ///    command that *is* referenced would be an exemption nobody needs,
+    ///    and the next reader would take it as evidence that custom items and
+    ///    buttons are interchangeable.
+    #[test]
+    fn every_custom_backed_command_has_its_item_and_needs_its_exemption() {
+        let (shell, registry) = shell_and_registry();
+        let referenced: BTreeSet<String> = shell
+            .command_references()
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+        let kinds: BTreeSet<&str> = shell
+            .all_tabs()
+            .flat_map(Tab::groups)
+            .flat_map(Group::items)
+            .filter_map(|item| match item {
+                Item::Custom { kind, .. } => Some(kind.as_str()),
+                Item::Command(_) | Item::Separator => None,
+            })
+            .collect();
+
+        for (id, kind, why) in manifest::CUSTOM_BACKED {
+            assert!(
+                registry.get(id).is_some(),
+                "`{id}` is listed as custom-backed ({why}) but is not registered"
+            );
+            assert!(
+                kinds.contains(kind),
+                "`{id}` is listed as custom-backed by the `{kind}` item, and no tab holds \
+                 such an item — so the command is a real orphan and this entry is excusing \
+                 a control that was deleted"
+            );
+            assert!(
+                !referenced.contains(*id),
+                "`{id}` is on a tab, the QAT or the keymap already, so it needs no \
+                 exemption from the orphan check"
+            );
+        }
     }
 
     /// **★ Read ⊂ Review ⊂ Edit.**

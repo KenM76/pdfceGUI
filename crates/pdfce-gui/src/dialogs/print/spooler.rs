@@ -448,7 +448,7 @@ impl Job {
 /// no conversion in between. The engine is explicit that this is the
 /// contract; re-encoding it here would be a second colour convention of
 /// exactly the kind [`crate::render::raster`]'s header exists to prevent.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PageBitmap {
     /// Width in device pixels.
     pub(crate) width: u32,
@@ -463,6 +463,18 @@ pub(crate) struct PageBitmap {
 }
 
 /// What a spool attempt did. Maps to `pdfce_print::SpoolReport`.
+///
+/// **Never constructed in this build**, because [`spool`] cannot succeed
+/// here. The `allow` is scoped to this one type and names the condition that
+/// removes it, following the precedent `crate::viewer` sets for salvaged
+/// items whose first consumer arrives in a later stage. Deleting the type
+/// instead would mean the footer had no shape to render a success into, and
+/// the day the manifest line lands the success path would be written from
+/// scratch rather than reviewed.
+#[allow(
+    dead_code,
+    reason = "constructed by the adapter once pdfce-print is linked; see the module header" // ui-text-exempt: lint justification, never displayed
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SpoolReport {
     /// Pages sent.
@@ -550,7 +562,31 @@ pub(crate) fn plan(
     page_sizes: &[(f64, f64)],
     spec: &JobSpec,
 ) -> Result<Job, Unavailable> {
-    let _ = (printer, settings, page_sizes, spec);
+    // Traced in full rather than discarded, for the same two reasons as
+    // [`spool`]: a refusal is what a harness needs to see, and reading every
+    // operand is what keeps the shape of [`JobSpec`] honest — a field nothing
+    // ever reads is a field that can quietly acquire the wrong units or stop
+    // being filled at all.
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "print-plan-refused printer={printer} pages={:?} mode={:?} max_dpi={} \
+             subset={:?} reverse={} copies={} collate={:?} orientation={:?} \
+             duplex={:?} tray={} sizes={} reason={}",
+            spec.pages,
+            spec.mode,
+            spec.max_dpi,
+            spec.subset,
+            spec.reverse,
+            spec.copies,
+            spec.collate,
+            settings.orientation,
+            settings.duplex,
+            settings.pick_tray_by_page_size,
+            page_sizes.len(),
+            Unavailable::NotLinked,
+        )
+    });
     Err(Unavailable::NotLinked)
 }
 

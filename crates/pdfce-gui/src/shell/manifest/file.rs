@@ -15,6 +15,12 @@
 //! the old reading of the one-command-one-tab rule forbade a tab from
 //! mirroring them.
 //!
+//! It also had no **Recent**, which is the absence an operator meets on the
+//! second document rather than the first: with no Open command at all, the
+//! only way to look at a file was to start the process with it on the command
+//! line. Both are here now — `Open…` as a command, `Recent ⌄` as the gallery
+//! §5.1 specifies (see the group below for why that is an `Item::Custom`).
+//!
 //! Three things therefore happen here:
 //!
 //! 1. **`Open…` and `Save a copy…` appear on a tab**, under amendment P1a
@@ -43,7 +49,7 @@
 
 use super::{command, group};
 use crate::text::ribbon;
-use egui_shell::manifest::Tab;
+use egui_shell::manifest::{Item, Tab};
 
 /// The File tab.
 pub(super) fn tab() -> Tab {
@@ -53,14 +59,35 @@ pub(super) fn tab() -> Tab {
             // ---------------------------------------------------------------
             // File — getting a document in and out of the application.
             //
-            // `New` and `Recent ⌄` are specified here and are **N**; see
-            // PLANNED. What is left is the pair that exists, and the pair
-            // that exists is the pair a first-time user looks for.
+            // `New` is specified here and is **N**; see PLANNED. What is left
+            // is what a first-time user looks for: open a document, reopen one
+            // they had, put it away.
+            //
+            // ★ `Recent ⌄` is an `Item::Custom`, not a command item, and that
+            // is the only structural oddity on this tab.
+            //
+            // §5.1 specifies it as `Recent ⌄` — a *gallery*, not a button —
+            // and a `Command` item can only ever render as a button. The
+            // command behind it (`file.recent`) is registered and does the
+            // opening; the item is what asks WHICH of the ten documents, and
+            // `crate::app::recent::menu` draws it through the renderer
+            // `egui_shell::ribbon::Ribbon::with_custom_items` exists for.
+            // `super::CUSTOM_BACKED` records the arrangement, so the command
+            // is not mistaken for an orphan by the reachability check that
+            // walks command ids.
+            //
+            // It sits BETWEEN Open and Close, which is the specified order and
+            // also the useful one: the two ways to get a document in, then the
+            // way to put one away.
             // ---------------------------------------------------------------
             group(
                 "file",
                 ribbon::group_file_file(),
-                [command("file.open"), command("file.close")],
+                [
+                    command("file.open"),
+                    Item::custom(super::RECENT_FILES),
+                    command("file.close"),
+                ],
             ),
             // ---------------------------------------------------------------
             // Save — see the module header on why this band has one item.

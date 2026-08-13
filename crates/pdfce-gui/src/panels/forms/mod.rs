@@ -1,0 +1,956 @@
+//! # `panels::forms` — filling this document's interactive form
+//!
+//! Salvaged from the old shell's `main.rs` (roughly lines 7843–9425, mapped
+//! here by `SALVAGE.md`'s Class C table). **The filling half came across; the
+//! authoring half did not** — see "What was deliberately left behind" below.
+//!
+//! ## What this panel is for
+//!
+//! The operator's goal for this build is *"replace Acrobat Reader first"*, and
+//! **a reader fills forms; it does not create fields.** So this panel offers
+//! text fields, check boxes, radio groups, choice lists, a reviewed reset, a
+//! reviewed native recompute of script-driven fields, an appearance redraw and
+//! a flatten. Nothing here adds, removes, renames or moves a field.
+//!
+//! ## ★ This is the first panel that changes the document
+//!
+//! Every other panel in [`crate::panels`] is a report, and two
+//! ([`crate::panels::layers`], [`crate::panels::bookmarks`]) change what is
+//! *drawn* without changing what would be *saved*. This one writes `/V`.
+//!
+//! It changes nothing about the discipline. The body is handed `&OpenDoc` — a
+//! **shared** reference, so this is a compile-time fact and not a convention —
+//! it reads, and it raises a [`crate::app::actions::Action`]. What is new is
+//! only that the action reaches an `EditSession` verb at the far end; see
+//! [`edit`] for the four-step mutation protocol that makes that safe, and for
+//! why nothing travels back.
+//!
+//! ## Rule 4, and the two places this panel had to move a disclosure
+//!
+//! `D:\Dev\FeatureRequests\pdfce_FeatureRequests\README.md`'s rule 4 in one
+//! clause: *"Disclosure lives off-canvas: a status line, a results panel, a
+//! report after the command, a properties field."* **A panel is the right
+//! home**, and this panel is nothing but disclosure and controls — it draws
+//! not one pixel on the page, and it must not start to. The one-line test is
+//! *would a screenshot of the editing canvas differ from a screenshot of the
+//! same document saved and reopened?*
+//!
+//! That is worth stating twice here because the old shell's Forms panel did
+//! draw on the canvas: hovering a row **highlighted the field's rectangle on
+//! the page** (its "Pass 47.3"), through a `self.highlighted_field` the canvas
+//! overlay read. It was answering a real question — *"which of these is the
+//! one I am about to type into?"* — and the answer is welcome under rule 4's
+//! fourth clause, which permits *"a snap indicator, a hover highlight, a
+//! rubber-band, a selection handle — these are the cursor"*. It is **not**
+//! carried here, because the mechanism it needs (a channel from a panel to the
+//! canvas overlay) does not exist in this build and `crate::canvas` is not
+//! this module's to extend. Named rather than silently dropped, and named as a
+//! *permitted* affordance so nobody later reads its absence as a rule.
+//!
+//! Two disclosures the old shell reported **after** an edit are reported
+//! **before** one here, and both moves are improvements rather than
+//! translations:
+//!
+//! | Fact | Old shell | Here |
+//! |---|---|---|
+//! | this form carries an XFA packet, so a fill may not stick | a status note after each fill, from `FillOutcome::xfa_may_disagree` | one line above the list, from `AcroForm::xfa` — a property of the FILE, knowable before anything is typed |
+//! | this check box has no appearance for the state you selected | a status note after the click | the control is **disabled**, because core would refuse the call — see [`rows`]' header for the defect this replaced |
+//!
+//! ## Two counts that are not the counts to display
+//!
+//! The README's third bite — *"a returned count is not always the count to
+//! display"* — lands twice in this panel, and neither instance is the worked
+//! example it uses:
+//!
+//! 1. **"N you can fill here"** is derived from what this panel will actually
+//!    draw a live control for, **not** from `Field::is_fillable`. The model's
+//!    predicate knows about read-only, signature and push-button fields; it
+//!    does not know that a certification signature disables the whole document
+//!    or that a rich-text field is offered a conversion rather than a box. See
+//!    [`crate::text::forms::forms_field_count`].
+//! 2. **`AcroForm::fields.len()` is not the number of fields in the file.** It
+//!    excludes `inline_field_roots` — `/Fields` entries written as direct
+//!    dictionaries, which Table 218 forbids and which have no object identity
+//!    a fill could write to. Disclosed rather than silently absorbed, because
+//!    an operator comparing pdfce's count against another reader's needs to be
+//!    able to find out why.
+//!
+//! ## JavaScript is never executed
+//!
+//! A standing project rule, not an unfinished feature. Script-driven fields
+//! are **recognised** (`Field::has_additional_actions`, surfaced as a
+//! disclosure above the list) and a whitelisted subset of Acrobat's built-in
+//! calculations is **recomputed natively** by
+//! `pdfce_core::form_script::recompute` — arithmetic pdfce reproduces itself,
+//! never a script it ran.
+//!
+//! The Calculated Fields section carries that whole posture across from the
+//! old shell, including its two rule-4 disclosures: a **derived evaluation
+//! order** when the form fails to list its calculated fields in `/CO` (pdfce
+//! inferred something, and another reader may compute different values), and
+//! **coerced operands** where a blank or non-numeric input counted as zero.
+//! Skips are listed **before** the changes, because a field pdfce declined to
+//! compute is the thing an operator most needs to notice and a list of
+//! successful changes above it reads as completeness.
+//!
+//! The section is collapsed by default and **never auto-runs**: merely opening
+//! a form must not change a computed `/V`.
+//!
+//! ## What was deliberately left behind
+//!
+//! Roughly half the salvaged range, all of it `Edit ▸ Forms` **authoring**:
+//! field creation, field deletion, widget deletion, field renaming with its
+//! ancestor breadcrumb, and the grouping-node roster. Also the FDF/XFDF/CSV
+//! import and export surface, which needs a file dialog this stage does not
+//! have. Each answers to a different ribbon command and, in the deletion and
+//! renaming cases, to a **different certification gate** — see
+//! [`crate::text::forms::forms_structural_certification_disabled_tooltip`].
+//! They land with the commands that name them.
+//!
+//! ## A note on very large forms
+//!
+//! `pdfce_core::forms::MAX_FORM_FIELDS` is 500,000, and this panel lays out
+//! every row inside one `ScrollArea` — so a pathological form would lay out
+//! half a million rows per frame. Not addressed, and stated rather than
+//! discovered: the fix is `ScrollArea::show_rows`, which needs a uniform row
+//! height, which these rows do not have (a multiline text field, a radio
+//! cluster and a one-line combo are three different heights). Every real form
+//! measured in `pdfce-core`'s corpus is under a thousand fields.
+
+/// The verbs this panel can ask for, and the one place they are applied.
+pub mod edit;
+/// One field, one row — the per-field controls.
+pub mod rows;
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::PathBuf;
+
+use pdfce_core::forms::{AcroForm, Field};
+use pdfce_core::object::ObjId;
+
+use crate::app::actions::Action;
+use crate::app::state::OpenDoc;
+use crate::panels::PanelsState;
+use crate::text::forms as t;
+
+use self::edit::FormEdit;
+use self::rows::RowContext;
+
+/// The ribbon command that opens this panel.
+///
+/// Named here as well as (eventually) on `crate::panels::Panel` so this
+/// module's own reachability test can assert it without waiting on the enum
+/// variant. See [`tests::the_forms_command_is_reachable_from_the_ribbon`] for
+/// what that test is defending against, and why a panel with no route from the
+/// ribbon is a defect three panels in the old shell actually shipped.
+pub const COMMAND_ID: &str = "edit.form_fill";
+
+/// Draw the Forms panel.
+///
+/// The one entry point. Shape and signature match every other panel body — see
+/// [`crate::panels::Panel::show`] — so wiring it is `Self::Forms =>
+/// forms::body(ui, doc, state, actions)` and nothing else.
+///
+/// `state` is unused: this panel's only inter-frame state is the set of text
+/// drafts, and that lives in [`FormsUi`] rather than on
+/// [`crate::panels::PanelsState`]. The reason is boundary rather than
+/// preference — `PanelsState` is defined in `crate::panels`' own `mod.rs`,
+/// which this work may not extend — and [`FormsUi`]'s own header sets out both
+/// why the chosen home is *sound* and what the better home would be.
+pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions: &mut Vec<Action>) {
+    // Read the SESSION, not the file on disk. An operator who has already
+    // filled three fields must see those three values; `EditSession::view` is
+    // the base revision with every unsaved edit applied, which is the same
+    // thing the canvas rasterizes.
+    let view = doc.session.view();
+    let Some(form) = pdfce_core::forms::parse_acroform(&view) else {
+        ui.label(t::forms_no_acroform());
+        return;
+    };
+    if form.fields.is_empty() {
+        ui.label(t::forms_empty_acroform());
+        return;
+    }
+
+    // Asked ONCE, before any control is drawn, and applied to every one: a
+    // certification signature forbids filling the whole DOCUMENT, not one
+    // field, so per-control re-asking would repeat a signature census per
+    // field and still say the same thing (R83 — know before you offer).
+    let fill_refusal: Option<&'static str> = doc
+        .session
+        .fill_refusal()
+        .map(|_| t::form_field_certification_disabled_tooltip());
+    // ★ FLATTEN ASKS A DIFFERENT GATE, and the difference is not academic.
+    //
+    // Filling takes core's `/P`-aware gate; flattening removes the form, which
+    // is a STRUCTURAL change and takes the strict one. On the ordinary
+    // real-world shape — a certified fillable form at `/P 2` — filling is
+    // permitted and flattening is refused, so reusing `fill_refusal` here
+    // would render an enabled Flatten button whose every press errors.
+    //
+    // `deletion_refusal` is asked because core exposes no `flatten_refusal`,
+    // and the two route through the identical check. That is a *borrowed*
+    // answer and it is named as one: the local binding says which gate it is,
+    // and [`edit`]'s KNOWN GAPS records the missing accessor as a boundary
+    // finding rather than leaving the workaround unreported.
+    let structural_refusal: Option<&'static str> = doc
+        .session
+        .deletion_refusal()
+        .map(|_| t::forms_structural_certification_disabled_tooltip());
+
+    header(ui, &form, fill_refusal);
+
+    // Collected while `form` is borrowed, converted to actions at the end —
+    // the actions-not-mutations discipline, and the same shape
+    // `crate::panels::layers` uses for its checkbox.
+    let mut edits: Vec<FormEdit> = Vec::new();
+
+    calculated_fields(ui, &view, fill_refusal, &mut edits);
+    reset_section(ui, doc, fill_refusal, &mut edits);
+    whole_form_controls(ui, &form, fill_refusal, structural_refusal, &mut edits);
+    ui.separator();
+    field_list(ui, doc, &form, fill_refusal, &mut edits);
+
+    for e in edits {
+        raise(actions, e);
+    }
+}
+
+/// The count line and every document-wide disclosure, in the order they are
+/// read.
+///
+/// **Above every control, without exception.** Each of these describes a
+/// condition under which what the operator sees here and what a different
+/// viewer shows can legitimately disagree, and a caveat below a list arrives
+/// after the operator has already drawn a conclusion.
+///
+/// The order is by how much it changes what the operator should do:
+/// the refusal first (nothing below it will work), then the two rendering
+/// divergences, then the scripts, then the malformed entries.
+fn header(ui: &mut egui::Ui, form: &AcroForm, fill_refusal: Option<&'static str>) {
+    // The count this panel will actually offer — see this module's header, and
+    // `text::forms::forms_field_count`'s, for why `Field::is_fillable` is the
+    // wrong number to put here.
+    let fillable = form.fields.iter().filter(|f| offers_a_control(f)).count();
+    let fillable = if fill_refusal.is_some() { 0 } else { fillable };
+    ui.label(t::forms_field_count(form.fields.len(), fillable));
+    if fillable == 0 {
+        ui.label(
+            egui::RichText::new(t::forms_no_fillable_fields())
+                .small()
+                .weak(),
+        );
+    }
+
+    if fill_refusal.is_some() {
+        ui.colored_label(ui.visuals().warn_fg_color, t::forms_certification_note());
+    }
+    if form.need_appearances {
+        ui.colored_label(ui.visuals().warn_fg_color, t::forms_need_appearances_note());
+    }
+    if form.xfa.is_present() {
+        ui.colored_label(ui.visuals().warn_fg_color, t::forms_xfa_note());
+    }
+    let scripted = form
+        .fields
+        .iter()
+        .filter(|f| f.has_additional_actions)
+        .count();
+    if scripted > 0 {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            t::forms_javascript_note(scripted),
+        );
+    }
+    if form.inline_field_roots > 0 {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            t::forms_inline_field_roots_note(form.inline_field_roots),
+        );
+    }
+}
+
+/// Whether this panel will draw a live control for `field`.
+///
+/// **The predicate behind the count line**, and it is deliberately expressed
+/// as "will a control be drawn?" rather than as a copy of the row dispatch,
+/// because the two would drift. It is exactly the negation of
+/// [`rows::block_reason`] plus the rich-text case, which is offered a
+/// *conversion* rather than a box and so is not somewhere the operator can
+/// type today.
+///
+/// [`tests::the_fillable_count_agrees_with_what_the_rows_offer`] pins it
+/// against `block_reason` itself so the two cannot come apart.
+fn offers_a_control(field: &Field) -> bool {
+    rows::block_reason(field).is_none() && !field.is_rich_text()
+}
+
+/// The Calculated Fields section — decision 009 posture B.
+///
+/// Above the field list and below the document-wide disclosures, because a
+/// recompute acts on the whole form and because its result changes what the
+/// rows below it show. An operator who scrolled past this and then read a
+/// stale total would have been misled by the layout.
+///
+/// **Collapsed by default and never auto-run.** Merely opening a form must not
+/// change a computed `/V`. The plan is computed on every frame the section is
+/// open — cheap on any real form, and always current with the fills the
+/// operator just made, which a cached plan would not be.
+fn calculated_fields(
+    ui: &mut egui::Ui,
+    view: &pdfce_core::view::DocumentView<'_>,
+    fill_refusal: Option<&'static str>,
+    edits: &mut Vec<FormEdit>,
+) {
+    egui::CollapsingHeader::new(t::recompute_heading())
+        .id_salt("pdfce-forms-recompute")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(t::recompute_explainer());
+            let plan = pdfce_core::form_script::recompute::plan(
+                view,
+                pdfce_core::form_script::calc::CommaPolicy::default(),
+            );
+
+            if plan.not_reproducible > 0 {
+                ui.label(t::recompute_not_considered(plan.not_reproducible));
+            }
+            // ★ A rule-4 disclosure: pdfce INFERRED an evaluation order the
+            // document was required to state, the inference decides the
+            // numbers below, and another reader may compute different ones.
+            if plan.order_source.is_pdfce_choice() {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    t::recompute_order_is_a_guess(plan.unlisted_calculations),
+                );
+            }
+            // Skips are listed BEFORE the changes, not after. A field pdfce
+            // declined to compute is the thing an operator most needs to
+            // notice, and a list of successful changes above it reads as
+            // completeness.
+            //
+            // `AlreadyCorrect` is filtered out because it is not a skip in the
+            // sense the operator cares about — it is a field pdfce checked and
+            // found right, which the summary line below already covers.
+            for skipped in &plan.skipped {
+                if skipped.reason == pdfce_core::form_script::recompute::Skip::AlreadyCorrect {
+                    continue;
+                }
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    t::recompute_skip_row(&skipped.field, &skipped.reason.to_string()),
+                );
+            }
+
+            if plan.is_empty() {
+                ui.label(if plan.skipped.is_empty() {
+                    t::recompute_nothing_recognised()
+                } else {
+                    t::recompute_up_to_date()
+                });
+                return;
+            }
+
+            ui.label(t::recompute_pending(
+                plan.changes.len(),
+                plan.coerced_operands(),
+            ));
+            // ★ EVERY PROPOSED VALUE IS ON SCREEN BEFORE THE BUTTON THAT
+            // COMMITS IT. Rule 4's disclosure obligation, satisfied by the
+            // values being visible and the commit being a deliberate click on
+            // a control at a fixed position — not by a confirm box anchored to
+            // the page, which decision 024 §4.4 forbids by name.
+            for change in &plan.changes {
+                ui.label(t::recompute_change_row(
+                    &change.field,
+                    &change.previous,
+                    &change.proposed,
+                ))
+                .on_hover_text(change.disclosure.message());
+            }
+
+            let button = ui.add_enabled(
+                fill_refusal.is_none(),
+                egui::Button::new(t::recompute_apply_button()),
+            );
+            let button = match fill_refusal {
+                Some(note) => button.on_disabled_hover_text(note),
+                None => button.on_hover_text(t::recompute_apply_tooltip()),
+            };
+            if button.clicked() {
+                edits.push(FormEdit::Recompute {
+                    changes: plan
+                        .changes
+                        .iter()
+                        .map(|c| (c.field.clone(), c.proposed.clone()))
+                        .collect(),
+                });
+            }
+        });
+}
+
+/// The Reset-to-defaults section (§12.7.5.3).
+///
+/// Beside the recompute section and collapsed for the same reason, but the
+/// disclosure is doing more work here: a recompute writes a number the
+/// operator can check, a reset **destroys what they typed**. So the section
+/// lists every field it would clear, with its current value, before offering
+/// the button — the loss is what has to be on screen, not the outcome.
+///
+/// # ★ The preview comes from core, and is filtered here
+///
+/// `EditSession::reset_preview` returns a row for **every** field in scope,
+/// including ones that are ineligible and ones that already hold their reset
+/// value; core's own doc calls filtering the shell's job. That is the third
+/// bite again in miniature — `preview.len()` is not the number to display, and
+/// the number that matters is the count of rows with `would_change` set, which
+/// core pins as equal to `ResetOutcome::fields_reset`.
+///
+/// Re-deriving the preview here instead would be a second reset algebra beside
+/// the engine's, and the two would disagree the first time `/DV` inheritance
+/// changed.
+fn reset_section(
+    ui: &mut egui::Ui,
+    doc: &OpenDoc,
+    fill_refusal: Option<&'static str>,
+    edits: &mut Vec<FormEdit>,
+) {
+    egui::CollapsingHeader::new(t::reset_heading())
+        .id_salt("pdfce-forms-reset")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.colored_label(ui.visuals().warn_fg_color, t::reset_explainer());
+
+            let preview = doc.session.reset_preview(None);
+            let mut clearing = 0usize;
+            let mut ineligible = 0usize;
+            let mut already = 0usize;
+            for row in &preview {
+                if row.ineligible.is_some() {
+                    ineligible += 1;
+                    continue;
+                }
+                if !row.would_change {
+                    already += 1;
+                    continue;
+                }
+                clearing += 1;
+                // `would_remove` is carried separately from an empty `target`
+                // because an absent `/V` and a `/V` set to the empty string are
+                // different bytes, and a panel that showed both as `""` would
+                // be describing the wrong edit.
+                let to = if row.would_remove {
+                    t::reset_to_empty().to_owned()
+                } else {
+                    row.target.clone()
+                };
+                ui.label(t::reset_row(&row.field, &row.current, &to));
+            }
+            if already > 0 {
+                ui.label(t::reset_already_default(already));
+            }
+            if clearing == 0 {
+                ui.label(t::reset_nothing_to_do());
+                return;
+            }
+            ui.label(t::reset_pending(clearing, ineligible));
+
+            let button =
+                ui.add_enabled(fill_refusal.is_none(), egui::Button::new(t::reset_button()));
+            let button = match fill_refusal {
+                Some(note) => button.on_disabled_hover_text(note),
+                None => button.on_hover_text(t::reset_tooltip()),
+            };
+            if button.clicked() {
+                edits.push(FormEdit::Reset);
+            }
+        });
+}
+
+/// The two controls that act on the whole form.
+///
+/// **Placed above the list, not below it**, because they act on everything
+/// beneath them: a control that acts on everything below it belongs above it,
+/// and a Flatten button under a forty-row list is a button an operator scrolls
+/// past without meeting.
+///
+/// # ★ Redraw comes first, and the order is load-bearing
+///
+/// Flatten works by invoking each widget's **existing** `/AP` as a page
+/// XObject. A field with no drawn appearance has nothing to invoke, so
+/// flattening burns nothing for it and then removes the field — the typed
+/// value disappears from the visible page. Core's own guidance is to
+/// regenerate first, and this panel both orders the buttons that way and says
+/// so, conditionally, when the document actually has fields at risk.
+fn whole_form_controls(
+    ui: &mut egui::Ui,
+    form: &AcroForm,
+    fill_refusal: Option<&'static str>,
+    structural_refusal: Option<&'static str>,
+    edits: &mut Vec<FormEdit>,
+) {
+    ui.horizontal(|ui| {
+        let redraw = ui.add_enabled(
+            fill_refusal.is_none(),
+            egui::Button::new(t::forms_regenerate_button()),
+        );
+        let redraw = match fill_refusal {
+            Some(note) => redraw.on_disabled_hover_text(note),
+            None => redraw.on_hover_text(t::forms_regenerate_tooltip()),
+        };
+        if redraw.clicked() {
+            edits.push(FormEdit::RegenerateAppearances);
+        }
+
+        // Delete-shaped weight: a rich, honest tooltip and one undo step — NOT
+        // redaction's blocking modal. Argued in `text::forms`'
+        // `forms_flatten_tooltip` against what each operation actually does:
+        // flatten APPENDS an overlay stream and leaves existing content
+        // byte-verbatim, so under the default incremental save the prior
+        // revision still holds the values. Its irreversibility is conditional
+        // on the save mode, not structural.
+        let flatten = ui.add_enabled(
+            structural_refusal.is_none(),
+            egui::Button::new(t::forms_flatten_button()),
+        );
+        let flatten = match structural_refusal {
+            Some(note) => flatten.on_disabled_hover_text(note),
+            None => flatten.on_hover_text(t::forms_flatten_tooltip()),
+        };
+        if flatten.clicked() {
+            edits.push(FormEdit::Flatten);
+        }
+    });
+
+    // Conditional, so it is a signal and not noise: a form whose every field
+    // is drawn says nothing about redrawing.
+    let undrawn = form.fields.iter().filter(|f| !f.has_appearance()).count();
+    if undrawn > 0 {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            t::forms_flatten_needs_redraw_note(undrawn),
+        );
+    }
+}
+
+/// The scrolling list of field rows.
+///
+/// The scroll area wraps **only** the rows. Everything above it — the
+/// disclosures, the two review sections, the whole-form controls — stays put,
+/// because a disclosure that scrolls out of sight while the operator works
+/// through a long form has stopped disclosing.
+fn field_list(
+    ui: &mut egui::Ui,
+    doc: &OpenDoc,
+    form: &AcroForm,
+    fill_refusal: Option<&'static str>,
+    edits: &mut Vec<FormEdit>,
+) {
+    // A page-object-id -> 1-based page number map, so a row can say WHICH page
+    // its field is on. Built once per frame rather than per row: a 400-field
+    // form would otherwise do 400 linear scans of the page list.
+    let page_numbers: HashMap<ObjId, usize> = doc
+        .pages
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.id, i + 1))
+        .collect();
+    let ctx = RowContext {
+        page_numbers: &page_numbers,
+        fill_refusal,
+    };
+
+    let mut ui_state = FormsUi::load(ui, doc);
+    ui_state.prune(form);
+
+    egui::ScrollArea::vertical()
+        .id_salt("pdfce-forms-rows")
+        .show(ui, |ui| {
+            for (index, field) in form.fields.iter().enumerate() {
+                rows::row(ui, field, index, &ctx, &mut ui_state.drafts, edits);
+                ui.separator();
+            }
+        });
+
+    ui_state.store(ui);
+}
+
+/// Turn one [`FormEdit`] into the action that carries it across the funnel.
+///
+/// **This is the single line of wiring this module is waiting on**, and it is
+/// isolated into a function of its own so that the change is one edit in one
+/// place rather than nine call sites.
+///
+/// # What `crate::app::actions` needs
+///
+/// One variant:
+///
+/// ```text
+/// /// One form-filling verb — see `crate::panels::forms::edit`.
+/// Form(crate::panels::forms::edit::FormEdit),
+/// ```
+///
+/// and one arm in `PdfceApp::apply`:
+///
+/// ```text
+/// Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
+/// ```
+///
+/// That is the whole of it. The mutation protocol, the epoch bump, the texture
+/// invalidation and the refusal trace all live in [`edit::apply`], for the
+/// reasons that module's header sets out — chiefly that the six form outcome
+/// types do not unify into `vector_edit`'s `Result<Vec<String>, EditError>`.
+fn raise(actions: &mut Vec<Action>, edit: FormEdit) {
+    actions.push(Action::Form(edit));
+}
+
+/// The Forms panel's own inter-frame state: one text draft per field.
+///
+/// # ★ Why this is not on `crate::panels::PanelsState`
+///
+/// It should be, and the constraint is a boundary rather than a design
+/// judgement: `PanelsState` is defined in `crate::panels`' own `mod.rs`, which
+/// this work may add exactly one `pub mod forms;` line to. The **preferred**
+/// shape, for whoever lifts that constraint, is a `forms: FormsUi` field
+/// beside `tree: ObjectTreeUi`, dropped by `PanelsState::forget_document`
+/// exactly as everything else there is.
+///
+/// # Why egui's memory is nonetheless a sound home, and not a smuggled mutation
+///
+/// The actions-not-mutations invariant is about **the document**. This is not
+/// document state and it is not derived from the document: it is what the
+/// operator has typed and not yet committed, which is the same category as the
+/// caret position `TextEdit` already keeps in exactly this store. Nothing here
+/// can change a pixel of the page; only [`FormEdit`] can, and only through the
+/// funnel.
+///
+/// # ★ The key is `(path, edit_epoch)`, which is what makes UNDO correct
+///
+/// This is [`crate::panels::PanelsState::sync`]'s discipline applied to a
+/// different kind of state, and the epoch half is the interesting one.
+///
+/// Without it: the operator types "Anna", tabs away (committed), presses
+/// Ctrl+Z. The document reverts to empty and the draft still says "Anna", so
+/// the panel shows a filled box over an empty field — it disagrees with the
+/// document it is describing, and the next thing the operator does re-commits
+/// the value they just undid.
+///
+/// With it, every draft is dropped the moment anything about the document
+/// changes and re-seeded from the stored value on the next frame. **Nothing is
+/// lost by that**, and the argument is worth writing down because it looks
+/// lossy: a draft that differs from the stored value belongs to a field that
+/// still has focus, and every gesture that can bump the epoch — clicking
+/// another field, a check box, a button — takes focus away first, which
+/// commits that field in the same frame. So by the time the epoch moves, every
+/// other draft already equals what the document holds.
+///
+/// The path half handles the plainer case: a different document makes every
+/// field name here meaningless.
+///
+/// # Cost
+///
+/// One clone of the map per frame, in and out of the store. A few hundred
+/// short strings, against a panel that is already laying out a few hundred
+/// egui widgets. Measure before trading it for an `Arc<Mutex<_>>`.
+#[derive(Clone, Default)]
+pub struct FormsUi {
+    /// The `(document path, edit epoch)` [`Self::drafts`] describes.
+    key: Option<(PathBuf, u64)>,
+    /// What the operator has typed into each text field, by fully-qualified
+    /// name, not yet written to the session.
+    ///
+    /// Keyed by NAME rather than by row index because several terminal fields
+    /// may share a fully-qualified name and a fill applies to all of them — so
+    /// they share one draft, which is correct, and a positional key would give
+    /// them two that could disagree.
+    drafts: BTreeMap<String, String>,
+}
+
+impl FormsUi {
+    /// The egui id this state is stored under.
+    ///
+    /// One id for the whole panel rather than one per field: the drafts are a
+    /// single coherent unit keyed on one document revision, and splitting them
+    /// would mean the key had to be checked per field.
+    fn id() -> egui::Id {
+        egui::Id::new("pdfce-forms-ui")
+    }
+
+    /// Read this frame's state, dropping it if it describes a different
+    /// document or a different revision.
+    fn load(ui: &egui::Ui, doc: &OpenDoc) -> Self {
+        let key = (doc.path.clone(), doc.edit_epoch);
+        let mut state: Self = ui
+            .data(|d| d.get_temp::<Self>(Self::id()))
+            .unwrap_or_default();
+        if state.key.as_ref() != Some(&key) {
+            state = Self {
+                key: Some(key),
+                drafts: BTreeMap::new(),
+            };
+        }
+        state
+    }
+
+    /// Write this frame's state back.
+    fn store(self, ui: &egui::Ui) {
+        ui.data_mut(|d| d.insert_temp(Self::id(), self));
+    }
+
+    /// Drop drafts for names this form no longer has.
+    ///
+    /// The epoch key already catches an edit, so this exists for the case the
+    /// key cannot see: a field that was never in this form to begin with,
+    /// which is reachable when the same path is reopened after being changed
+    /// elsewhere. Cheap, and it stops the map growing without bound across a
+    /// long session.
+    fn prune(&mut self, form: &AcroForm) {
+        let names: BTreeSet<&str> = form
+            .fields
+            .iter()
+            .map(|f| f.fully_qualified_name.as_str())
+            .collect();
+        self.drafts.retain(|k, _| names.contains(k.as_str()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::{commands, manifest};
+    use egui_shell::CommandRegistry;
+    use std::collections::BTreeSet;
+
+    /// **★ This panel is reachable from the ribbon.**
+    ///
+    /// The check three panels in the old shell shipped without. Its
+    /// `panels_structure.rs` header records what that cost:
+    ///
+    /// > All three shipped with a `PaneSubject`, a panel body, a rail entry
+    /// > and a diagnostic step — and no control an operator could click.
+    /// > Their only callers were the harness step handlers, so every
+    /// > verification passed while the panels were unreachable in a real
+    /// > build.
+    ///
+    /// Two assertions, and both are needed. A command **the manifest
+    /// references** is one the ribbon draws a control for; a command **the
+    /// registry holds** is one that has a label, a tooltip and an enable
+    /// predicate. Either alone is half a control.
+    ///
+    /// Written here rather than left to
+    /// `crate::panels::tests::every_panel_is_reachable_from_the_ribbon`
+    /// because that sweep iterates `Panel::ALL`, and this panel is not on that
+    /// enum yet — the enum lives in a file this work may not extend. When the
+    /// variant lands, the sweep covers this too and this test becomes the
+    /// belt to its braces; it is deliberately the *same* two assertions so
+    /// that is a clean duplication rather than a divergent one.
+    #[test]
+    fn the_forms_command_is_reachable_from_the_ribbon() {
+        let shell = manifest::built_in();
+        let mut registry = CommandRegistry::new();
+        commands::register(&mut registry);
+        let referenced: BTreeSet<String> = shell
+            .command_references()
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
+
+        assert!(
+            referenced.contains(COMMAND_ID),
+            "the Forms panel names `{COMMAND_ID}`, and no tab, QAT slot or key \
+             binding references it. An operator cannot open this panel."
+        );
+        assert!(
+            registry.get(COMMAND_ID).is_some(),
+            "the Forms panel names `{COMMAND_ID}`, which is not registered — so \
+             the ribbon has an id with no label, no tooltip and no enable \
+             predicate, and draws nothing for it."
+        );
+    }
+
+    /// **★ The "you can fill here" count agrees with what the rows draw.**
+    ///
+    /// The whole of the third bite, pinned. [`offers_a_control`] and
+    /// [`rows::row`]'s dispatch are two statements of one rule, and the
+    /// failure when they drift is silent: a count line promising twelve
+    /// fillable fields above twelve disabled boxes.
+    ///
+    /// Asserted against `block_reason` — the function the row actually calls —
+    /// rather than against a re-derivation, so the test cannot pass by
+    /// agreeing with a third copy of the rule.
+    #[test]
+    fn the_fillable_count_agrees_with_what_the_rows_offer() {
+        // `Quadding` is re-exported through `forms` only as a private `use`;
+        // its home is `vartext`, which is where a caller must name it.
+        use pdfce_core::forms::{ButtonKind, FieldFlags, FieldType, FieldValue};
+        use pdfce_core::vartext::Quadding;
+
+        // A minimal terminal field, built by hand: no fixture in the engine's
+        // corpus carries all five refusal shapes at once, and the point here
+        // is the PREDICATE rather than any one document.
+        let base = Field {
+            id: pdfce_core::object::ObjId::new(1, 0),
+            fully_qualified_name: "F".to_owned(),
+            partial_name: None,
+            alternate_name: None,
+            mapping_name: None,
+            rich_value: None,
+            default_style: None,
+            field_type: Some(FieldType::Text),
+            button_kind: None,
+            flags: FieldFlags(0),
+            value: FieldValue::Absent,
+            default_value: FieldValue::Absent,
+            default_appearance: None,
+            quadding: Quadding::Left,
+            max_len: None,
+            options: Vec::new(),
+            top_index: 0,
+            selected_indices: Vec::new(),
+            widgets: Vec::new(),
+            merged: false,
+            has_additional_actions: false,
+            shares_parent_name: false,
+            parent: None,
+        };
+
+        // An ordinary text field: counted, and offered a box.
+        assert!(offers_a_control(&base));
+
+        // Read-only, signature, push button: each blocked, each uncounted.
+        for blocked in [
+            Field {
+                flags: FieldFlags(FieldFlags::READ_ONLY),
+                ..base.clone()
+            },
+            Field {
+                field_type: Some(FieldType::Signature),
+                ..base.clone()
+            },
+            Field {
+                field_type: Some(FieldType::Button),
+                button_kind: Some(ButtonKind::Push),
+                ..base.clone()
+            },
+        ] {
+            assert!(
+                rows::block_reason(&blocked).is_some(),
+                "this field must be blocked for the assertion below to mean \
+                 anything"
+            );
+            assert!(
+                !offers_a_control(&blocked),
+                "a blocked field was counted as one the operator can fill"
+            );
+        }
+
+        // ★ Rich text is the case `block_reason` deliberately does NOT cover:
+        //   the row offers a CONVERSION, not a box, so it must not be counted
+        //   as somewhere the operator can type.
+        let rich = Field {
+            flags: FieldFlags(FieldFlags::RICH_TEXT),
+            ..base.clone()
+        };
+        assert!(rich.is_rich_text(), "the fixture must be rich text");
+        assert!(
+            rows::block_reason(&rich).is_none(),
+            "rich text must not be a blanket refusal — the row offers a \
+             disclosed conversion"
+        );
+        assert!(
+            !offers_a_control(&rich),
+            "a rich-text field was counted as one the operator can type into"
+        );
+
+        // ★ And the bit-26 overload: a radio group with RadiosInUnison set
+        //   carries the SAME bit as RichText. If the count asked the flag
+        //   directly it would drop every such group out of the fillable total.
+        let unison = Field {
+            field_type: Some(FieldType::Button),
+            button_kind: Some(ButtonKind::Radio),
+            flags: FieldFlags(FieldFlags::RADIOS_IN_UNISON),
+            ..base
+        };
+        assert!(
+            !unison.is_rich_text(),
+            "bit 26 on a /Btn field is RadiosInUnison, not RichText"
+        );
+        assert!(
+            offers_a_control(&unison),
+            "a radio group in unison must still be offered a control"
+        );
+    }
+
+    /// **★ An edit forgets the drafts, which is what makes undo correct.**
+    ///
+    /// The defect this prevents, in full: the operator types "Anna", tabs away
+    /// so it commits, then presses Ctrl+Z. The document reverts to empty. If
+    /// the draft survived, the panel would show "Anna" in a box over a field
+    /// holding nothing — disagreeing with the document it is describing, and
+    /// arming a re-commit of the value that was just undone.
+    ///
+    /// Exercised through the real key, without an egui context: [`FormsUi`]'s
+    /// key comparison is the whole mechanism, and it is a pure comparison.
+    #[test]
+    fn a_revision_change_forgets_every_draft() {
+        let path = PathBuf::from("form.pdf");
+        let mut state = FormsUi {
+            key: Some((path.clone(), 3)),
+            drafts: BTreeMap::from([("Name".to_owned(), "Anna".to_owned())]),
+        };
+
+        // Same document, same revision: the draft survives, or typing would be
+        // impossible.
+        assert_eq!(state.key, Some((path.clone(), 3)));
+        assert!(state.drafts.contains_key("Name"));
+
+        // An edit — a fill, a toggle, an undo, a redo — moves the epoch.
+        let stale = state.key.as_ref() != Some(&(path.clone(), 4));
+        assert!(stale, "an epoch change must invalidate the drafts");
+
+        // A different document, same epoch: also stale. The path half matters
+        // on its own because epochs restart at zero for each open.
+        let other = state.key.as_ref() != Some(&(PathBuf::from("other.pdf"), 3));
+        assert!(other, "a different document must invalidate the drafts");
+
+        // And the reset really empties it, rather than merely re-keying.
+        state = FormsUi {
+            key: Some((path, 4)),
+            drafts: BTreeMap::new(),
+        };
+        assert!(state.drafts.is_empty());
+    }
+
+    /// **Pruning drops a draft whose field no longer exists.**
+    ///
+    /// The case the epoch key cannot see — the same path reopened after being
+    /// changed elsewhere — and the thing that stops the map growing without
+    /// bound across a long session.
+    #[test]
+    fn a_draft_for_a_departed_field_is_dropped() {
+        let form = AcroForm {
+            fields: Vec::new(),
+            groups: Vec::new(),
+            need_appearances: false,
+            sig_flags: 0,
+            signatures_exist: false,
+            append_only: false,
+            calc_order_count: 0,
+            calc_order: Vec::new(),
+            has_default_resources: false,
+            default_appearance: None,
+            quadding: pdfce_core::vartext::Quadding::Left,
+            xfa: pdfce_core::forms::XfaPresence::None,
+            inline_field_roots: 0,
+        };
+        let mut state = FormsUi {
+            key: None,
+            drafts: BTreeMap::from([("Gone".to_owned(), "typed".to_owned())]),
+        };
+        state.prune(&form);
+        assert!(
+            state.drafts.is_empty(),
+            "a draft outlived the field it belongs to"
+        );
+    }
+}

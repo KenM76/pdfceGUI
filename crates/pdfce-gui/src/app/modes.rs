@@ -281,9 +281,33 @@ fn spec(mode_id: &str) -> ModeSpec {
         // through, and the properties of the markup you are placing.
         // Properties is scoped to markup in this mode by the *mode*, not by
         // the dock; the dock mounts one panel either way.
+        // Forms is mounted here, and the argument is the same one that put
+        // Pages in Review. Filling a field DOES write to the file — it sets
+        // `/V` and regenerates an appearance — so this is not the "changes
+        // nothing" case. It is the case where **the change is the one the
+        // document's author invited**: a field exists in order to be filled,
+        // and writing a value into it is using the file as designed rather
+        // than altering what it says. That is the same stance markup takes,
+        // which is why the two share a mode.
+        //
+        // It is deliberately NOT in Read. Read has no edit verbs at all, and
+        // its Edit tab is not shown, so a Forms panel there would list fields
+        // with no way to fill them — the failure this module's Read comment
+        // already names for Objects and Properties.
+        //
+        // ★ This is the mode taxonomy's answer, not a product decision about
+        // what a "Reader" is. If pdfce should fill forms without leaving
+        // Read — which is what Acrobat Reader does, and replacing it is the
+        // stated goal — the fix is this line plus a fill verb on Read's
+        // ribbon, and the taxonomy should be amended openly rather than
+        // quietly bent here.
         "review" => ModeSpec {
             left: vec![vec![PAGES, Panel::Bookmarks.command_id()]],
-            right: vec![vec![COMMENTS, Panel::Properties.command_id()]],
+            right: vec![vec![
+                COMMENTS,
+                Panel::Properties.command_id(),
+                Panel::Forms.command_id(),
+            ]],
             left_width: NAVIGATOR_WIDTH,
             right_width: INSPECTOR_WIDTH,
         },
@@ -305,7 +329,11 @@ fn spec(mode_id: &str) -> ModeSpec {
             ],
             right: vec![
                 vec![Panel::Objects.command_id()],
-                vec![Panel::Properties.command_id(), COMMENTS],
+                vec![
+                    Panel::Properties.command_id(),
+                    COMMENTS,
+                    Panel::Forms.command_id(),
+                ],
             ],
             left_width: NAVIGATOR_WIDTH,
             right_width: INSPECTOR_WIDTH,
@@ -747,10 +775,26 @@ mod tests {
                 .panels()
                 .map(PanelId::as_str)
                 .collect::<Vec<_>>(),
-            [COMMENTS, Panel::Properties.command_id()],
-            "Review adds Comments and Properties, and nothing else"
+            [
+                COMMENTS,
+                Panel::Properties.command_id(),
+                Panel::Forms.command_id()
+            ],
+            "Review adds Comments, Properties and Forms, and nothing else"
         );
+        // Objects stays out, and that is the line Forms had to be argued
+        // across rather than waved across: Review mounts what the document
+        // INVITES you to add — a comment, a field value — and not an
+        // inspector for content the mode gives you no verb to change.
         assert!(!review.contains(&PanelId::new(Panel::Objects.command_id())));
+        // Read gets neither, and this is asserted rather than left implied
+        // because Forms is the panel most likely to be added there by
+        // someone reasoning from "a reader should fill forms" without also
+        // adding the verb that would make the panel actionable.
+        assert!(
+            !layout_for("read").contains(&PanelId::new(Panel::Forms.command_id())),
+            "Read has no fill verb, so a Forms panel there lists fields nobody can fill"
+        );
 
         let edit = layout_for("edit");
         for panel in Panel::ALL {
@@ -810,8 +854,8 @@ mod tests {
                 .panels()
                 .map(PanelId::as_str)
                 .collect::<Vec<_>>(),
-            [Panel::Properties.command_id()],
-            "Comments went; Properties stayed"
+            [Panel::Properties.command_id(), Panel::Forms.command_id()],
+            "Comments went; Properties and Forms stayed"
         );
 
         // Read's whole left side is Pages + Bookmarks. A build with neither

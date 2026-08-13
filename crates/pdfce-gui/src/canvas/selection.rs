@@ -806,6 +806,28 @@ mod tests {
     /// change page-display mode, switch ribbon tab — and assert the selection
     /// is byte-identical afterwards.
     ///
+    /// # ★ Phase 3's gestures were added to THIS sweep, not to a parallel test
+    ///
+    /// The hand-tool pan, the anchored discrete zoom, the marquee zoom and
+    /// zoom-to-selection are navigation, so they belong to the invariant that
+    /// already governs navigation. A second test asserting the same property
+    /// about four more operations would be a second place for the property to
+    /// be stated — and the first one to be forgotten when a fifth arrives.
+    ///
+    /// **Zoom-to-selection is the interesting addition**, because it is the
+    /// only navigation that *reads* the selection: it resolves the selection's
+    /// bounds and frames them. Reading is exactly where a "helpful" edit —
+    /// normalise the entries, collapse to the outlined ones, drop what has no
+    /// bounds — would creep in, and it would be invisible until the operator
+    /// zoomed to a node and found they had selected the object instead.
+    ///
+    /// What this cannot reach is the *wiring*: that a released
+    /// `MarqueeIntent::Zoom` never calls [`SelectionState::marquee`] at all.
+    /// That is structural in `canvas::interact` — the two intents are separate
+    /// match arms over an exhaustive enum, and only one of them names the
+    /// selection — and it is asserted from the gesture side by
+    /// `canvas::gesture`'s `a_zoom_marquee_is_the_same_band_with_the_other_intent`.
+    ///
     /// It is expressed as *"drive the view state and then compare"* because
     /// that is the honest model of what navigation is: those operations act
     /// on [`crate::viewer::ViewState`], and the property being asserted is
@@ -858,6 +880,66 @@ mod tests {
         view.zoom_by(1.37, MAX_ZOOM);
         view.next_page(4);
         view.prev_page(4);
+
+        // ---- Phase 3's navigation gestures, in the same sweep -------------
+        use crate::canvas::geometry;
+        use crate::canvas::mapping::PageMapping;
+        use crate::canvas::zoom::{self, ZoomOutcome};
+
+        let extent = (200.0_f32, 300.0_f32);
+        let frame = zoom::CanvasFrame {
+            map: PageMapping::new(
+                Rect::from_min_size(Pos2::new(12.0, 7.0), egui::vec2(extent.0, extent.1)),
+                extent,
+                1.0,
+            ),
+            extent,
+            display: (extent.0, extent.1),
+            viewport: (400.0, 400.0),
+            viewport_rect: Rect::from_min_size(Pos2::new(10.0, 5.0), egui::vec2(400.0, 400.0)),
+            offset: (0.0, 0.0),
+        };
+
+        // A hand-tool / space-bar pan. The same arithmetic the middle drag
+        // uses, and it must move the view — a pan that clamped to a no-op
+        // would make the assertion below vacuous.
+        let panned = geometry::pan_offset(
+            (120.0, 80.0),
+            (30.0, -20.0),
+            (1_600.0, 1_600.0),
+            (800.0, 800.0),
+        );
+        assert_ne!(panned, (120.0, 80.0), "the pan must actually move the view");
+
+        // An anchored discrete zoom: arm on a page point, step the ladder,
+        // solve. This is Ctrl+Plus, end to end, minus the `egui::Context`.
+        let anchor = zoom::hold(zoom::frac_of(Pos2::new(50.0, 50.0), extent), &frame);
+        view.zoom_in(MAX_ZOOM);
+        let _ = geometry::zoom_anchor_offset(
+            anchor.offset_before,
+            anchor.display_before,
+            (extent.0 * view.zoom, extent.1 * view.zoom),
+            anchor.viewport,
+            anchor.frac,
+        );
+
+        // A marquee zoom to a region of the page.
+        let region = Rect::from_min_max(Pos2::new(10.0, 10.0), Pos2::new(90.0, 120.0));
+        if let ZoomOutcome::Zoomed { applied, .. } =
+            zoom::plan_framing(&frame, region, 16.0, 1.0).outcome
+        {
+            view.set_zoom(applied, MAX_ZOOM);
+        }
+
+        // ★ Zoom to the selection — the one navigation that reads it.
+        let bounds = sel
+            .outline_union()
+            .expect("a resolved selection has bounds to frame");
+        if let ZoomOutcome::Zoomed { applied, .. } =
+            zoom::plan_framing(&frame, bounds, 16.0, 1.0).outcome
+        {
+            view.set_zoom(applied, MAX_ZOOM);
+        }
 
         // The provider is rebuilt on the way — that is what a page step and a
         // ribbon-tab change do — and the selection must come through it.

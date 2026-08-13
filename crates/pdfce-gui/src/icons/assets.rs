@@ -1,50 +1,66 @@
 //! # icons::assets — the icon set itself, and its provenance record
 //!
-//! **Generated content.** Every constant below is one file of
-//! `D:\Dev\pdfce\crates\pdfce-gui\assets\icons\*.svg`, embedded byte for
-//! byte, XML rationale comments included. Nothing here was retyped,
-//! reformatted or "tidied": each asset's own comment is the primary record
-//! of what the glyph depicts and which neighbouring glyph it was drawn to
-//! stay distinguishable from, and a paraphrase would lose exactly the part
-//! that is expensive to re-derive.
+//! **Generated content.** Every constant below embeds one file of
+//! `src/icons/assets/*.svg`, which are byte-for-byte copies of the salvage
+//! source's `D:\Dev\pdfce\crates\pdfce-gui\assets\icons\*.svg` — XML
+//! rationale comments included. Nothing was retyped, reformatted or
+//! "tidied": each asset's own comment is the primary record of what the
+//! glyph depicts and which neighbouring glyph it was drawn to stay
+//! distinguishable from, and a paraphrase would lose exactly the part that
+//! is expensive to re-derive.
 //!
-//! ## ★ Why the art is a Rust constant rather than a file in `assets/`
+//! ## ★ Why the art lives in `src/icons/assets/` rather than a top-level
+//! ## `crates/pdfce-gui/assets/`
 //!
-//! The salvage source read its assets with
-//! `include_str!("../assets/icons/<name>.svg")` — still a compile-time
-//! embed, but sourced from a sibling directory. Here the SVG text is the
-//! constant. Three reasons, and the first is the one that decided it:
+//! The salvage source read its art with
+//! `include_str!("../assets/icons/<name>.svg")` — a sibling directory of
+//! `src/`. Here the same `include_str!` reaches a directory *inside* the
+//! icon module. Two reasons:
 //!
 //! 1. **This module's write territory is `src/icons/`.** The rebuild runs
 //!    several agents in parallel over one tree, and the boundaries between
 //!    them are directories. Creating `crates/pdfce-gui/assets/` would put
 //!    art outside the territory the icon work owns.
-//! 2. **It preserves, more strongly, the property `include_str!` was
-//!    chosen for.** pdfce ships single-folder portable: the executable must
-//!    not depend on an `assets/` directory travelling beside it. A constant
-//!    cannot be separated from the binary at all, so the failure mode
-//!    ("someone zipped the exe without the assets") stops existing rather
-//!    than being merely unlikely.
-//! 3. **The asset and its Rust-side role sit together.** Each constant
-//!    below names the [`super::Icon`] variants that draw it, so the
-//!    file→role mapping is readable in one place instead of being spread
-//!    across a `match` and a directory listing.
+//! 2. **Co-location.** The art, the catalogue that names it, the parser that
+//!    reads it and the painter that draws it are one subject. A reader who
+//!    opens `src/icons/` sees all of it.
 //!
-//! The cost is that editing a glyph means editing Rust rather than an
-//! `.svg` a vector editor could open. That is a real cost and it is
-//! accepted knowingly: these are 10-line hand-written outlines whose
-//! coordinates are meant to be read, and the parser
-//! ([`super::svg::IconArt::parse`]) refuses anything a vector editor would
-//! typically emit — `<g>`, `transform`, `<defs>`, CSS — so round-tripping
-//! through one was never available anyway.
+//! `include_str!` — rather than a runtime file read — is carried across
+//! unchanged, and its reason is unchanged: pdfce ships single-folder
+//! portable, so the executable must not depend on an `assets/` directory
+//! travelling beside it. The whole set is 34 KB of text and an icon that
+//! fails to load at startup is not a failure mode worth having.
+//!
+//! ## ★ Why the SVG text is NOT inlined into Rust source
+//!
+//! The obvious alternative — a `const FOLDER: &str = r##"<svg …>"##;` with
+//! the markup inline — was implemented first and then **withdrawn**,
+//! because it fails `tools/gates/check-ui-strings.sh` on 138 lines and
+//! cannot be exempted.
+//!
+//! That gate is a line-oriented scanner over `.rs` files looking for string
+//! literals containing whitespace, which is its proxy for "prose that
+//! belongs in the ui-text catalog". Almost every line of an SVG asset trips
+//! it, because SVG *attribute values* are quoted strings full of spaces:
+//! `viewBox="0 0 48 48"`, `d="M14 10h10M19 10v28"`. Its escape hatch is a
+//! `// ui-text-exempt:` marker on the offending line or in the comment block
+//! immediately above it — and neither can reach these lines, because they
+//! are **inside a raw string**: a marker written there would become part of
+//! the asset and be handed to the SVG parser.
+//!
+//! Keeping the art in `.svg` files is not a workaround for that gate; it is
+//! the arrangement that makes the gate's question meaningful. XML markup is
+//! not Rust source and should not be scanned as though it were. The finding
+//! is recorded here because the inline form *looks* simpler and someone will
+//! propose it again.
 //!
 //! ## ★ Regenerating
 //!
-//! This file is produced mechanically from the salvage source. If the
-//! upstream set gains an asset, re-run the generator rather than hand-adding
-//! a constant, then add the matching [`super::Icon`] variant — **and add it
-//! to [`super::Icon::ALL`]**, or it ships unverified (see
-//! `super::tests::every_icon_parses`).
+//! The `.svg` files are copied from the salvage source; the constants below
+//! are produced mechanically from the directory listing. If the set gains an
+//! asset, drop the `.svg` in and add a constant here — **and add the
+//! matching [`super::Icon`] variant to [`super::Icon::ALL`]**, or it ships
+//! unverified (see `super::tests::every_icon_parses`).
 //!
 //! ---
 //!
@@ -95,7 +111,7 @@
 //! * **Forbidden: asset-level copying.** No tracing, no importing, no
 //!   "adapting" of any Adobe or Inkscape SVG, icon font, or screenshot.
 //!   Every glyph here was constructed from primitives (rectangles, circles,
-//!   line segments, arcs), and every constant's embedded comment says which
+//!   line segments, arcs), and every asset's embedded comment says which
 //!   concept it depicts.
 //! * This mirrors the standing rule that Acrobat and Inkscape are
 //!   **behavioural** references only, never sources of GUI structure or art.
@@ -115,7 +131,7 @@
 //! ```
 //!
 //! * **48×48 viewBox**, content inset ~6–8 units from every edge. That edge
-//!   length is [`super::svg::VIEWBOX`], and every coordinate below is in it.
+//!   length is [`super::svg::VIEWBOX`], and every coordinate is in it.
 //! * **`fill="none"`, `stroke="currentColor"`** — pure outline, no baked
 //!   colour. This is the property the whole pipeline rests on: one raster per
 //!   icon, tinted per theme and per widget state at draw time. An asset with
@@ -166,10 +182,10 @@
 //! | `zoom-in.svg` | `icon-search.svg` | Same base, plus a cross instead of a bar |
 //!
 //! **Authored new for pdfce, in the §3 contract** — everything else. Each
-//! constant's embedded XML comment carries that glyph's own construction
-//! note and, where it has one, the distinction it is drawn to preserve
-//! against a neighbouring glyph. Those notes are the reason this file
-//! embeds the assets verbatim.
+//! asset's embedded XML comment carries that glyph's own construction note
+//! and, where it has one, the distinction it is drawn to preserve against a
+//! neighbouring glyph. Those notes are the reason the files were copied
+//! verbatim rather than re-emitted.
 //!
 //! ## §5 — Deviations from the ui-spec, recorded
 //!
@@ -219,745 +235,239 @@
 //! **rejected by the operator**, and pre-rasterizing to PNG at build time
 //! was rejected because it bakes in a resolution.
 //!
-//! Practical consequence for anyone editing a constant below: the parser
-//! refuses anything outside its subset rather than guessing, and
-//! `super::tests` parses and rasterizes every asset. **A new or edited icon
-//! that uses `<g>`, `<defs>`, a `transform`, a gradient, CSS, or an
-//! unsupported `stroke-linecap` value will fail `cargo test`, not fail
-//! silently at runtime.**
+//! Practical consequence for anyone editing an asset: the parser refuses
+//! anything outside its subset rather than guessing, and `super::tests`
+//! parses and rasterizes every asset. **A new or edited icon that uses
+//! `<g>`, `<defs>`, a `transform`, a gradient, CSS, or an unsupported
+//! `stroke-linecap` value will fail `cargo test`, not fail silently at
+//! runtime.**
 
 /// `add-text.svg` — the art for [`super::Icon::AddText`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const ADD_TEXT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic text-cursor-with-plus shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "text-cursor-plus": an I-beam insertion cursor with a small plus
-       badge. Pairs with edit.svg's pencil as "the page-text family": a pencil modifies
-       marks already on the page, a text cursor with a plus creates new ones. -->
-  <path d="M14 10h10M14 38h10M19 10v28" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M32 12v10M27 17h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const ADD_TEXT: &str = include_str!("assets/add-text.svg");
 
 /// `back.svg` — the art for [`super::Icon::Back`].
 ///
 /// Authored for pdfce in the header §3 style contract — replaces the tofu `←` (U+2190).
-pub(super) const BACK: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic left-arrow shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "back-arrow": a full-length SHAFT with an open arrowhead at the
-       leading end. The shaft is the whole distinction from chevron-left.svg, and it
-       is load-bearing: chevron-left's own note reserves the bare two-segment chevron
-       for "previous page", which must read as a STEP through a sequence. This reads
-       as a RETURN — leaving a surface you opened and going back to where you were —
-       which is a jump, not a step, so it earns the shaft.
-       Not a curved arrow either: chevron-left.svg reserves those for rotate
-       (rotate-ccw.svg) and history (undo.svg), and "back out of this panel" is
-       neither a rotation nor an undo. Straight-with-shaft is the untaken slot, and
-       the three shapes stay mutually distinguishable at 16 px.
-       Arrowhead is an OPEN chevron, matching undo.svg/rotate-ccw.svg, never a filled
-       triangle — nothing in this set is a filled arrowhead. -->
-  <path d="M38 24H12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M21 15l-9 9 9 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const BACK: &str = include_str!("assets/back.svg");
 
 /// `bookmarks.svg` — the art for [`super::Icon::Bookmarks`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #4.
-pub(super) const BOOKMARKS: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Bookmarks panel (Pass 52.x) — engineer-authored, same §1 style contract
-       as the rest of the set (see PROVENANCE.md, "spec gaps"). Generic
-       geometry, no trademark risk.
-
-       The classic ribbon-with-a-notch, which is the one shape a reader
-       already reads as "bookmark" without a label. Deliberately NOT a page
-       with lines: that is document.svg's territory, and the Bookmarks panel
-       is about places IN a document, not the document.
-
-       Stroked, not filled — redact.svg's fill is the set's one semantic
-       exception (`redaction_is_the_only_filled_icon` enforces it). -->
-  <path d="M14 8h20a2 2 0 0 1 2 2v30l-12-9-12 9V10a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const BOOKMARKS: &str = include_str!("assets/bookmarks.svg");
 
 /// `chevron-down.svg` — the art for [`super::Icon::ChevronDown`].
 ///
 /// Authored for pdfce in the header §3 style contract — replaces the tofu `▾` (U+25BE).
-pub(super) const CHEVRON_DOWN: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic chevron shape — generic, no trademark risk -->
-  <!-- Disclosure marker for a menu button, replacing the un-renderable
-       "▾" (U+25BE) text-glyph affordance. U+25BE is absent from every font
-       in egui's default Proportional chain (Ubuntu-Light -> NotoEmoji ->
-       emoji-icon-font), so it rendered as a tofu box on four shipped
-       toolbar controls. See docs/ui_specs/menu-affordance-and-glyph-coverage.md.
-       Same construction family as chevron-left.svg/chevron-right.svg
-       (icon-set spec §3.1 "chevron"), rotated: vertex points DOWN
-       instead of left/right, matching a native combo-box/dropdown
-       arrow's meaning ("this control opens something below it"). -->
-  <path d="M12 18L24 30l12-12" stroke="currentColor" stroke-width="2.5"
-        stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const CHEVRON_DOWN: &str = include_str!("assets/chevron-down.svg");
 
 /// `chevron-left.svg` — the art for [`super::Icon::ChevronLeft`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const CHEVRON_LEFT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic chevron shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "chevron": two segments meeting at a point. Deliberately lighter
-       than a full arrow so "previous page" reads as a STEP, never a jump — the full
-       curved arrows are reserved for rotate (rotate-ccw.svg) and history (undo.svg). -->
-  <path d="M30 12L18 24l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const CHEVRON_LEFT: &str = include_str!("assets/chevron-left.svg");
 
 /// `chevron-right.svg` — the art for [`super::Icon::ChevronRight`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const CHEVRON_RIGHT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic chevron shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "chevron", mirror of chevron-left.svg. -->
-  <path d="M18 12l12 12-12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const CHEVRON_RIGHT: &str = include_str!("assets/chevron-right.svg");
 
 /// `chevron-up.svg` — the art for [`super::Icon::ChevronUp`].
 ///
 /// Authored for pdfce in the header §3 style contract — replaces the tofu `▲` (U+25B2).
-pub(super) const CHEVRON_UP: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic chevron shape — generic, no trademark risk -->
-  <!-- "Move selection up" in the page rail and the Combine-files list,
-       replacing the un-renderable "▲" (U+25B2) text glyph. U+25B2/U+25BC
-       are in the same Geometric Shapes block as U+25BE and are absent from
-       egui's default Proportional font chain for the same reason — VERIFIED
-       tofu in the running build on 2026-08-03, not merely suspected.
-       Mirror of chevron-down.svg (vertex up instead of down); same
-       offset-6/arm-12 construction as chevron-left/right. -->
-  <path d="M12 30L24 18l12 12" stroke="currentColor" stroke-width="2.5"
-        stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const CHEVRON_UP: &str = include_str!("assets/chevron-up.svg");
 
 /// `close.svg` — the art for [`super::Icon::Close`].
 ///
 /// Authored for pdfce in the header §3 style contract — replaces the tofu `✕` (U+2715).
-pub(super) const CLOSE: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic X / dismiss cross — a universal shape, no trademark risk. -->
-  <!-- "Remove this option" in the Create Field pane's option editor (Pass
-       47.4), replacing the un-renderable "✕" (U+2715) text glyph. U+2715 is
-       in the Dingbats block and is absent from every font of the shipped
-       stack (Ubuntu-Light, NotoEmoji-Regular, emoji-icon-font) — caught by
-       `every_glyph_in_the_catalog_has_a_real_face`, which exists precisely so
-       a tofu box cannot ship, and whose remedy text carries the operator's
-       2026-08-06 ruling: author an icon, do not reword.
-       Same 12/36 extents and stroke-width/linecap construction as the
-       chevrons, so the two read as one family at the same optical weight. -->
-  <path d="M14 14l20 20M34 14L14 34" stroke="currentColor" stroke-width="2.5"
-        stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const CLOSE: &str = include_str!("assets/close.svg");
 
 /// `comment.svg` — the art for [`super::Icon::Comment`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const COMMENT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic comment/speech-balloon shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "comment-bubble": rounded balloon (rx=8) with an angular tail at
-       the bottom-left and TWO short text lines inside, so it reads as "text inside a
-       comment" rather than an empty balloon. -->
-  <rect x="8" y="9" width="32" height="22" rx="8" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M17 30l-3 9 10-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M16 17h16M16 23h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const COMMENT: &str = include_str!("assets/comment.svg");
 
 /// `copy.svg` — the art for [`super::Icon::Copy`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const COPY: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic copy/duplicate shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "copy": two overlapping rounded rects, offset diagonally like a
-       stack of two note cards. Outline only, both stroked, no fill. -->
-  <rect x="10" y="13" width="20" height="24" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <rect x="18" y="8" width="20" height="24" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const COPY: &str = include_str!("assets/copy.svg");
 
 /// `document.svg` — the art for [`super::Icon::Properties`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-document.svg` (the operator's own art; header §4).
-pub(super) const DOCUMENT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic document/page shape — placeholder, not a vendor trademark logo -->
-  <rect x="10" y="4" width="28" height="40" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M16 16h16M16 24h16M16 32h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const DOCUMENT: &str = include_str!("assets/document.svg");
 
 /// `edit-objects.svg` — the art for [`super::Icon::EditObjects`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #1.
-pub(super) const EDIT_OBJECTS: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic path-node-editing shape — generic, no trademark risk -->
-  <!-- NOT in the ui-spec: the Pass 9c-min "Obj" vector-edit toggle shipped after the
-       spec was written, so this icon is an engineer-authored addition in the same §1
-       style contract (see PROVENANCE.md, "spec gaps"). A Bezier segment with square
-       node handles at both ends — the tool moves objects and drags NODES, which is
-       exactly what the glyph shows, and it shares nothing with edit.svg's pencil
-       (page TEXT) or markup.svg's shapes (annotation authoring). -->
-  <path d="M10 34C10 18 24 34 38 14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <rect x="6" y="30" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <rect x="34" y="10" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const EDIT_OBJECTS: &str = include_str!("assets/edit-objects.svg");
 
 /// `edit.svg` — the art for [`super::Icon::EditText`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-edit.svg` (the operator's own art; header §4).
-pub(super) const EDIT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic edit/pencil shape — placeholder, not a vendor trademark logo -->
-  <path d="M30 8l10 10-23 23H7v-10z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M26 12l10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const EDIT: &str = include_str!("assets/edit.svg");
 
 /// `fit-page.svg` — the art for [`super::Icon::FitPage`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const FIT_PAGE: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic fit-to-frame shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "frame-fit": four independent L-shaped corner brackets, the
-       universal "fit within frame" glyph. Sibling of fit-width.svg, which shares the
-       bracket family but adds a horizontal double arrow. -->
-  <path d="M10 16v-6h6M32 10h6v6M38 32v6h-6M16 38h-6v-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const FIT_PAGE: &str = include_str!("assets/fit-page.svg");
 
 /// `fit-width.svg` — the art for [`super::Icon::FitWidth`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const FIT_WIDTH: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic fit-to-width shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "frame-fit-width": the LEFT/RIGHT corner-bracket pairs only (four
-       short strokes, not eight) plus a horizontal double-headed arrow at mid height.
-       Deliberately a sibling of fit-page.svg — same bracket family, unmistakably
-       different silhouette, so the two are never swapped by mistake. -->
-  <path d="M14 12h-4v6M10 30v6h4M34 12h4v6M38 30v6h-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M16 24h16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M20 20l-4 4 4 4M28 20l4 4-4 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const FIT_WIDTH: &str = include_str!("assets/fit-width.svg");
 
 /// `folder.svg` — the art for [`super::Icon::Open`], [`super::Icon::FontFolders`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-folder.svg` (the operator's own art; header §4). One asset, two roles — see [`super::Icon::Open`].
-pub(super) const FOLDER: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic folder shape — generic, no trademark risk -->
-  <path d="M6 14h12l4 4h20v22H6z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const FOLDER: &str = include_str!("assets/folder.svg");
 
 /// `fonts.svg` — the art for [`super::Icon::Fonts`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #5.
-pub(super) const FONTS: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Fonts panel (the document's font inventory) — engineer-authored, same
-       §1 style contract as the rest of the set. Generic letterform geometry,
-       no typeface is reproduced and no trademark risk.
-
-       A capital A sitting on a baseline rule. The letterform is what reads as
-       "type" without a label, and the rule under it is what turns "a letter"
-       into "a typeface" — an A alone would be ambiguous with a text tool.
-
-       Deliberately NOT any of: add-text.svg's I-beam-plus (that CREATES text,
-       this one only reports on it), edit.svg's pencil (same objection), or
-       text-freetext.svg's boxed lines (a text container, not a font). The
-       distinction matters because this panel changes nothing at all, and an
-       icon borrowed from an editing tool is a claim that it might. -->
-  <path d="M14 34 24 12l10 22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M18 27h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M9 40h30" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const FONTS: &str = include_str!("assets/fonts.svg");
 
 /// `form-field.svg` — the art for [`super::Icon::FormField`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #6.
-pub(super) const FORM_FIELD: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic input-box-with-plus shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "field-box-plus": an empty form-field rectangle carrying a
-       caret, with a small plus badge. Authored 2026-08-07 for the Create Field
-       tool under R158 (a missing glyph is authored, not worked around) — no
-       existing asset reads as "form field", and edit-objects.svg's node-handles
-       shape would have promised vector editing.
-
-       The FIELD half is the rectangle plus the caret, which is what an operator
-       recognises as an input on a form; the PLUS says this tool creates one
-       rather than filling one. That split matters here: filling is a different
-       capability living in a different ribbon group (RibbonGroup::Forms), and
-       an icon that showed only a box would read as the fill surface.
-
-       Same plus badge, same position and same 2.5 stroke as add-text.svg, so
-       the two placement tools read as one family — both answer a click on the
-       canvas by creating something new at that point. -->
-  <path d="M8 16h22M8 16v16M8 32h22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M14 21v6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M36 12v10M31 17h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const FORM_FIELD: &str = include_str!("assets/form-field.svg");
 
 /// `keyboard.svg` — the art for [`super::Icon::Keyboard`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const KEYBOARD: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic keyboard shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "keyboard": a wide rounded rect containing a 4x2 key grid (coarser
-       than chip.svg's fine pin array) plus a spacebar bar along the bottom third. -->
-  <rect x="6" y="14" width="36" height="20" rx="3" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M13 20h3M20 20h3M27 20h3M34 20h3M13 25h3M20 25h3M27 25h3M34 25h3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M17 30h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const KEYBOARD: &str = include_str!("assets/keyboard.svg");
 
 /// `layers.svg` — the art for [`super::Icon::Layers`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #4.
-pub(super) const LAYERS: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Layers panel (optional content, ISO 32000-1 §8.11) — engineer-authored,
-       same §1 style contract as the rest of the set. Generic geometry, no
-       trademark risk.
-
-       Three stacked parallelograms: the sheet-on-sheet reading is what makes
-       "layers" legible without a label, and the stack of THREE (rather than
-       two) keeps it distinct from combine.svg's linked pair at 16px.
-
-       The lower two are drawn as open edges rather than closed rhombi so the
-       glyph does not turn into a solid mass at small sizes — the top sheet
-       carries the shape, the two beneath carry the count. -->
-  <path d="M24 8 42 17 24 26 6 17z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M6 25l18 9 18-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M6 33l18 9 18-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const LAYERS: &str = include_str!("assets/layers.svg");
 
 /// `link.svg` — the art for [`super::Icon::Combine`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-link.svg` (the operator's own art; header §4). Its `a6 6 0 008 8` packed arc flags are the reason [`super::svg`]'s lexer reads a flag as one character.
-pub(super) const LINK: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic link/chain shape — placeholder, not a vendor trademark logo -->
-  <path d="M19 29l10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M16 24l-4 4a6 6 0 008 8l4-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M32 24l4-4a6 6 0 00-8-8l-4 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const LINK: &str = include_str!("assets/link.svg");
 
 /// `markup.svg` — the art for [`super::Icon::Markup`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const MARKUP: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic shapes/markup-tools shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "shapes": a square overlapping a circle, offset by roughly a
-       third. Draws on the same square-plus-circle vocabulary the menu's own rows use
-       (shape-rect.svg / shape-ellipse.svg), so the closed menu button previews what
-       the open menu contains. -->
-  <rect x="10" y="10" width="18" height="18" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <circle cx="30" cy="30" r="11" stroke="currentColor" stroke-width="2.5"/>
-</svg>
-"##;
+pub(super) const MARKUP: &str = include_str!("assets/markup.svg");
 
 /// `redact.svg` — the art for [`super::Icon::Redact`].
 ///
 /// Authored for pdfce in the header §3 style contract — the set's ONE filled glyph, an explicit rule-based exception (header §3).
-pub(super) const REDACT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic redaction-bar shape — generic, no trademark risk -->
-  <!-- ui-spec §8.1 — THE ONE DELIBERATE EXCEPTION to the outline-only style contract
-       (§1). Every other icon in this set is a pure outline; redaction's is SOLID
-       FILLED, because a solid bar is what redaction actually leaves behind. An
-       outline-only glyph would visually understate a feature that irreversibly
-       removes content (R35/R52/R58). A future icon audit must NOT "fix" this back to
-       an outline — the fill is load-bearing honesty, not style drift.
-       It must also never be scissors art (§2.1): an operator hunting for "redact"
-       must never land on Split by icon similarity. -->
-  <rect x="8" y="8" width="32" height="32" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M14 15h20" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <rect x="10" y="20" width="28" height="8" rx="1" fill="currentColor" stroke="none"/>
-  <path d="M14 34h13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const REDACT: &str = include_str!("assets/redact.svg");
 
 /// `redo.svg` — the art for [`super::Icon::Redo`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const REDO: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic history-arrow shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "history-arrow", the clockwise mirror of undo.svg (mirrored about
-       x=24, sweep flag flipped). -->
-  <path d="M24 10A14 14 0 1 1 10 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M15 29l-5-5-5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const REDO: &str = include_str!("assets/redo.svg");
 
 /// `rotate-ccw.svg` — the art for [`super::Icon::RotateCcw`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const ROTATE_CCW: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic rotate-page shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "rotate-page": a page square wrapped by a ~270deg curved arrow.
-       The PAGE SQUARE is load-bearing — it is the only thing distinguishing "rotate
-       THIS PAGE, saved into the document" from undo.svg's bare history arrow, and
-       rotate's own tooltip carries that same warning in words. -->
-  <rect x="17" y="17" width="14" height="14" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M24 8A16 16 0 1 0 40 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M35 29l5-5 5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const ROTATE_CCW: &str = include_str!("assets/rotate-ccw.svg");
 
 /// `rotate-cw.svg` — the art for [`super::Icon::RotateCw`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const ROTATE_CW: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic rotate-page shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "rotate-page", the clockwise mirror of rotate-ccw.svg (mirrored
-       about x=24, sweep flag flipped). -->
-  <rect x="17" y="17" width="14" height="14" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M24 8A16 16 0 1 1 8 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M13 29l-5-5-5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const ROTATE_CW: &str = include_str!("assets/rotate-cw.svg");
 
 /// `ruler.svg` — the art for [`super::Icon::Measure`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-ruler.svg` (the operator's own art; header §4).
-pub(super) const RULER: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic ruler/measure shape — placeholder, not a vendor trademark logo -->
-  <rect x="6" y="18" width="36" height="12" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M14 18v6M21 18v9M28 18v6M35 18v9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const RULER: &str = include_str!("assets/ruler.svg");
 
 /// `save.svg` — the art for [`super::Icon::Save`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const SAVE: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic save/file-with-cut-corner shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "save": rounded-rect body (rx=2, matching document.svg) with an
-       8x8 diagonal cut at the SAME top-right corner the page-fold motif uses, plus a
-       single horizontal "label slot" bar at 2/3 height (y=26). Deliberately NOT
-       upload/download art — that pair stays reserved for import/export. -->
-  <path d="M8 10a2 2 0 0 1 2-2h22l8 8v22a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M15 26h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const SAVE: &str = include_str!("assets/save.svg");
 
 /// `scissors.svg` — the art for [`super::Icon::Split`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-scissors.svg` (the operator's own art; header §4).
-pub(super) const SCISSORS: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic scissors/cut shape — placeholder, not a vendor trademark logo -->
-  <circle cx="14" cy="14" r="5" stroke="currentColor" stroke-width="2.5"/>
-  <circle cx="14" cy="34" r="5" stroke="currentColor" stroke-width="2.5"/>
-  <path d="M18 17l22 16M18 31L40 15" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const SCISSORS: &str = include_str!("assets/scissors.svg");
 
 /// `search.svg` — the art for [`super::Icon::Search`].
 ///
 /// Authored for pdfce in the header §3 style contract — the unmarked lens of the magnifier family.
-pub(super) const SEARCH: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic magnifier shape — universal, no trademark risk -->
-  <!-- Authored 2026-08-10 for the status-bar Find toggle, under R158: a
-       missing glyph gets CREATED as part of the work rather than the
-       feature reworded around it.
-
-       A circle with a handle, and the handle's ANGLE is the one decision
-       worth recording. Drawn down-right at 45 degrees, which is the
-       near-universal convention; down-LEFT reads as a mirror of the
-       expected shape and is what a left-handed rendering of the idiom
-       looks like, so it registers as slightly wrong without the viewer
-       being able to say why.
-
-       Distinct from zoom-in.svg / zoom-out.svg, which are the SAME
-       magnifier carrying a + or - in the lens. That is deliberate and is
-       the whole reason this one's lens stays EMPTY: the three read as one
-       family (magnify), and the lens is where the family member is named.
-       An empty lens says "search", which is the unmarked case.
-
-       Idiom matched from its neighbours before drawing: 48x48 viewBox,
-       stroke-width 2.5, round caps and joins, stroke="currentColor",
-       no fill anywhere in this set. -->
-  <circle cx="21" cy="21" r="10" stroke="currentColor" stroke-width="2.5"/>
-  <path d="M28.5 28.5L38 38" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const SEARCH: &str = include_str!("assets/search.svg");
 
 /// `shape-arrow.svg` — the art for [`super::Icon::ShapeArrow`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const SHAPE_ARROW: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic arrow-line shape — generic, no trademark risk -->
-  <!-- ui-spec §3.3: a single diagonal line with ONE open arrowhead at the upper-right
-       end (the arrow annotation is directional; the head says which end is the point). -->
-  <path d="M12 36L36 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M25 12h11v11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const SHAPE_ARROW: &str = include_str!("assets/shape-arrow.svg");
 
 /// `shape-ellipse.svg` — the art for [`super::Icon::ShapeEllipse`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const SHAPE_ELLIPSE: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic ellipse shape — generic, no trademark risk -->
-  <!-- ui-spec §3.3: a plain outlined circle, cx=24 cy=24 r=14. -->
-  <circle cx="24" cy="24" r="14" stroke="currentColor" stroke-width="2.5"/>
-</svg>
-"##;
+pub(super) const SHAPE_ELLIPSE: &str = include_str!("assets/shape-ellipse.svg");
 
 /// `shape-highlight.svg` — the art for [`super::Icon::ShapeHighlight`].
 ///
 /// Authored for pdfce in the header §3 style contract — the one asset with a 1-unit stroke (its 45° hatch is a texture, not a contour).
-pub(super) const SHAPE_HIGHLIGHT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic highlight-band shape — generic, no trademark risk -->
-  <!-- ui-spec §3.3: a wide flat rounded band with a 45deg hatch TEXTURE standing in
-       for "translucent highlighter colour" — these are single-colour mask icons with
-       no palette in which to show the operator's actual chosen highlight colour. The
-       hatch is deliberately stroke-width 1, not the set's usual 2.5: it is a texture,
-       not a contour, and at 2.5 it would fill the band solid and read as redaction. -->
-  <rect x="8" y="19" width="32" height="10" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M13 28l8-8M21 28l8-8M29 28l8-8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const SHAPE_HIGHLIGHT: &str = include_str!("assets/shape-highlight.svg");
 
 /// `shape-rect.svg` — the art for [`super::Icon::ShapeRect`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const SHAPE_RECT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic rectangle shape — generic, no trademark risk -->
-  <!-- ui-spec §3.3: a plain outlined square, x=12 y=12 w=24 h=24 rx=1. -->
-  <rect x="12" y="12" width="24" height="24" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const SHAPE_RECT: &str = include_str!("assets/shape-rect.svg");
 
 /// `show-points.svg` — the art for [`super::Icon::ShowPoints`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #5.
-pub(super) const SHOW_POINTS: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- "Show points" view toggle (Pass 36.3) — engineer-authored, same §1 style
-       contract as edit-objects.svg (see PROVENANCE.md, "spec gaps"). Generic
-       geometry, no trademark risk.
-
-       DELIBERATELY the same square node marks the canvas draws: the control's
-       glyph is a picture of what the control turns on. It differs from
-       edit-objects.svg by putting THREE nodes on a straight run rather than two
-       on a Bezier, so the pair stays distinguishable at 16px — the curve reads
-       as "shape editing", the run of points reads as "the points themselves".
-
-       The middle node was FILLED in the first draft, to preview the canvas's
-       selected-node vocabulary. `redaction_is_the_only_filled_icon` failed it,
-       correctly: redact.svg's fill is not a style, it is the set's one
-       semantic exception (that tool obliterates; every other one draws or
-       measures) and it is also the icon pipeline's only coverage of the fill
-       path. Borrowing the fill for emphasis would have cost both. All three
-       nodes are stroked; the middle one is offset ABOVE the run's ends
-       instead, which is a shape cue rather than a borrowed one. -->
-  <path d="M8 34L24 20L40 26" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="4" y="30" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <rect x="20" y="16" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <rect x="36" y="22" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const SHOW_POINTS: &str = include_str!("assets/show-points.svg");
 
 /// `sidebar.svg` — the art for [`super::Icon::Sidebar`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const SIDEBAR: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic sidebar/split-pane shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "sidebar": window frame (matching window.svg's rect) with ONE
-       vertical divider at x=18 — a narrow left pane + wide right pane. The divider
-       is vertical, unlike window.svg's horizontal title bar, so the two never read
-       as the same concept. -->
-  <rect x="6" y="8" width="36" height="32" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M18 8v32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const SIDEBAR: &str = include_str!("assets/sidebar.svg");
 
 /// `signatures.svg` — the art for [`super::Icon::Signatures`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #4, and emphatically not a seal, badge, shield or checkmark.
-pub(super) const SIGNATURES: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Signatures panel (ISO 32000-1 §12.8) — engineer-authored, same §1 style
-       contract as the rest of the set. Generic geometry, no trademark risk.
-
-       A written flourish above a signing rule. Deliberately NOT a seal, a
-       badge, a shield or a checkmark: every one of those reads as VALIDATED,
-       and pdfce performs no cryptographic verification whatsoever. The panel
-       says so in its first line, and the glyph must not contradict it before
-       the panel is even open — an icon is a claim too.
-
-       Distinct from stamp.svg (a bordered impression) by having no frame: the
-       mark itself, on a line. -->
-  <path d="M8 30c5-1 7-16 11-16 3 0 2 8 5 8 3 0 4-6 7-6 4 0 5 12 9 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M8 38h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const SIGNATURES: &str = include_str!("assets/signatures.svg");
 
 /// `stamp.svg` — the art for [`super::Icon::Stamp`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const STAMP: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic rubber-stamp shape — generic, no trademark risk -->
-  <!-- ui-spec §3.4: stamp head + narrow handle + wide base line. Deliberately SHARED
-       between the Text menu's Stamp row (one stamp placed once) and the future Bates
-       numbering feature (one stamp applied across a batch) — genuinely the same
-       "mark applied with a stamp" concept, invoked from two surfaces that are never
-       simultaneously visible. -->
-  <rect x="14" y="8" width="20" height="16" rx="3" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <rect x="20" y="24" width="8" height="14" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M12 40h24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const STAMP: &str = include_str!("assets/stamp.svg");
 
 /// `text-freetext.svg` — the art for [`super::Icon::TextFreeText`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const TEXT_FREETEXT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic text-box shape — generic, no trademark risk -->
-  <!-- ui-spec §3.3: a plain rect with THREE short text lines — a generic "text box".
-       The plain (unfolded) corner is what distinguishes it from text-sticky.svg. -->
-  <rect x="10" y="10" width="28" height="28" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M16 19h16M16 25h16M16 31h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const TEXT_FREETEXT: &str = include_str!("assets/text-freetext.svg");
 
 /// `text-sticky.svg` — the art for [`super::Icon::TextSticky`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const TEXT_STICKY: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic sticky-note shape — generic, no trademark risk -->
-  <!-- ui-spec §3.3: a smaller square with a folded BOTTOM-RIGHT corner — the literal
-       sticky-note silhouette. The fold is at the bottom-right, not the top-right, so
-       it never reads as text.svg's page fold. -->
-  <path d="M13 13h22v16l-6 6H13z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M35 29h-6v6" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const TEXT_STICKY: &str = include_str!("assets/text-sticky.svg");
 
 /// `text.svg` — the art for [`super::Icon::Text`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const TEXT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic note/page-with-fold shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "note": a squarer, smaller sibling of save.svg / document.svg with
-       an EXPLICIT folded corner (the fold lines are what distinguish it from save.svg's
-       plain cut corner) and three text lines. Text-authoring belongs to the
-       document-content family; markup.svg's geometric silhouette deliberately does not. -->
-  <path d="M9 10a2 2 0 0 1 2-2h20l8 8v22a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M31 8v8h8" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M15 24h18M15 30h18M15 36h11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const TEXT: &str = include_str!("assets/text.svg");
 
 /// `tool.svg` — the art for [`super::Icon::Tools`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-tool.svg` (the operator's own art; header §4).
-pub(super) const TOOL: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic wrench/utility shape — generic, no trademark risk -->
-  <path d="M31 11a7 7 0 0 0-9 9L10 32a3 3 0 0 0 4 4l12-12a7 7 0 0 0 9-9l-5 5-5-1-1-5z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const TOOL: &str = include_str!("assets/tool.svg");
 
 /// `undo.svg` — the art for [`super::Icon::Undo`].
 ///
 /// Authored for pdfce in the header §3 style contract.
-pub(super) const UNDO: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic history-arrow shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "history-arrow": a single BARE curved arrow, ~270deg counter-
-       clockwise, arrowhead at the terminal end. Deliberately the simplest construction
-       in the whole set — undo/redo are used constantly and must read at a glance, so
-       nothing (no page, no document) competes with the arrow shape. The absence of
-       rotate-ccw.svg's page square is the whole distinction between the two. -->
-  <path d="M24 10A14 14 0 1 0 38 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M33 29l5-5 5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const UNDO: &str = include_str!("assets/undo.svg");
 
 /// `upload.svg` — the art for [`super::Icon::InsertPages`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-upload.svg` (the operator's own art; header §4).
-pub(super) const UPLOAD: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic upload shape — placeholder, not a vendor trademark logo -->
-  <path d="M9 31v8h30v-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M24 38V16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M15 25l9-9 9 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-"##;
+pub(super) const UPLOAD: &str = include_str!("assets/upload.svg");
 
 /// `zoom-in.svg` — the art for [`super::Icon::ZoomIn`].
 ///
 /// Derived from ScripTree's `icon-search.svg`: the same magnifier, plus a cross in the lens (header §4).
-pub(super) const ZOOM_IN: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic magnifier shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "magnifier±", the plus twin of zoom-out.svg. -->
-  <circle cx="21" cy="21" r="13" stroke="currentColor" stroke-width="2.5"/>
-  <path d="M30 30l9 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M15 21h12M21 15v12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const ZOOM_IN: &str = include_str!("assets/zoom-in.svg");
 
 /// `zoom-out.svg` — the art for [`super::Icon::ZoomOut`].
 ///
 /// Derived from ScripTree's `icon-search.svg`: the same magnifier, plus a minus bar in the lens (header §4).
-pub(super) const ZOOM_OUT: &str = r##"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-  <!-- Generic magnifier shape — generic, no trademark risk -->
-  <!-- ui-spec §3.1 "magnifier±": search.svg's circle (cx=21,cy=21,r=13) and handle
-       (M30 30 l9 9) reused VERBATIM as the base, plus a minus bar inside. The one
-       place the spec asks to extend an existing ScripTree file rather than draw new. -->
-  <circle cx="21" cy="21" r="13" stroke="currentColor" stroke-width="2.5"/>
-  <path d="M30 30l9 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-  <path d="M15 21h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-"##;
+pub(super) const ZOOM_OUT: &str = include_str!("assets/zoom-out.svg");

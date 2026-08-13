@@ -118,5 +118,34 @@ egui.workspace = true
 # side, and this dependency is deliberately one-directional.
 egui-shell.workspace = true
 
+# rfd: native file-open/save dialogs, no C dependency (docs/PRIOR_ART.md). MIT.
+#
+# The version is `D:\Dev\pdfce\crates\pdfce-gui\Cargo.toml`'s **exactly**, so
+# this does not add a dependency to the project — it adopts one already in
+# pdfce's lockfile and already licence-vetted. That is what the workspace
+# root's rule asks for: a crate this workspace adds which is NOT already in
+# pdfce's lockfile is an operator decision, and this one is not that.
+#
+# It replaces an interim Windows-only picker that shelled out to
+# `powershell.exe`, written when this crate's manifest was not the file it
+# was safe to edit. That shim worked and was verified live, but it was
+# Windows-only, unparented to the pdfce window, and cost a process launch —
+# and at fold-in it would have been deleted in favour of exactly this line.
+rfd = "0.17.2"
+
 pdfce-core = { path = "../../../pdfce/crates/pdfce-core", default-features = false }
 pdfce-render = { path = "../../../pdfce/crates/pdfce-render", default-features = false }
+
+# pdfce-print — printer enumeration, device capabilities and spooling.
+#
+# No `default-features = false`, unlike its two siblings above, and the
+# asymmetry is not an oversight: `pdfce-print` declares no features at all,
+# so the flag would be a claim about a feature set that does not exist.
+#
+# Until this line existed the print dialog opened, said in one sentence that
+# this build cannot spool, and **omitted the commit button rather than greying
+# it** — the no-inert-controls rule. That sentence is deliberately distinct
+# from "no printers found": `pdfce-print` is explicit that a build which
+# cannot ask and a machine with nothing to ask about must never collapse into
+# one message.
+pdfce-print = { path = "../../../pdfce/crates/pdfce-print" }

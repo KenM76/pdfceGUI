@@ -146,6 +146,7 @@ use egui_shell::HandlerToken;
 
 pub mod bookmarks;
 pub mod fonts;
+pub mod forms;
 pub mod layers;
 pub mod objects;
 pub mod properties;
@@ -177,6 +178,13 @@ pub enum Panel {
     Objects,
     /// The read-only facts about one object.
     Properties,
+    /// The document's form fields, for **filling** — not for authoring.
+    ///
+    /// The distinction is the panel's whole scope and is worth stating at
+    /// the variant rather than only in its module: creating, deleting,
+    /// renaming and grouping fields are `Edit ▸ Forms` authoring work
+    /// behind a different certification gate, and are deliberately absent.
+    Forms,
 }
 
 impl Panel {
@@ -187,13 +195,14 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
         Self::Fonts,
         Self::Objects,
         Self::Properties,
+        Self::Forms,
     ];
 
     /// The ribbon command that shows this panel.
@@ -225,6 +234,14 @@ impl Panel {
             Self::Fonts => "file.fonts",
             Self::Objects => "view.panel_objects",
             Self::Properties => "file.properties",
+            // Third of the seven that is not on View ▸ Panels, and the
+            // placement is `RIBBON_IA.md`'s: a form panel answers "what
+            // can I fill in this file", which is an edit of the document
+            // rather than of the view. The command was registered and
+            // reachable from the Edit tab well before this panel existed
+            // — it had no dispatch arm, which is precisely the class of
+            // half-built surface this module's header is about.
+            Self::Forms => "edit.form_fill",
         }
     }
 
@@ -307,6 +324,7 @@ impl Panel {
             Self::Fonts => fonts::body(ui, doc, state, actions),
             Self::Objects => return objects::body(ui, doc, state, host, actions),
             Self::Properties => properties::body(ui, doc, state, actions),
+            Self::Forms => forms::body(ui, doc, state, actions),
         }
         Vec::new()
     }
@@ -728,6 +746,7 @@ mod tests {
                 Panel::Fonts => 3,
                 Panel::Objects => 4,
                 Panel::Properties => 5,
+                Panel::Forms => 6,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

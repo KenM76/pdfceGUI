@@ -272,6 +272,11 @@ pub fn draw_marquee(painter: &Painter, visuals: &Visuals, mapping: &PageMapping,
 /// stays readable, because the operator is choosing what to enclose *by
 /// looking at it*.
 fn wash(base: Color32) -> Color32 {
+    // NOT A THEME COLOUR: arithmetic on the theme's own colour, not a choice
+    // of one. The hue arrives from `visuals.selection.bg_fill` and only the
+    // alpha is set here, so a restyle still reaches this band — naming a role
+    // for it would freeze the wash to one palette entry and break the
+    // "the band is the selection colour" relationship it exists to keep.
     Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 48)
 }
 
@@ -287,6 +292,9 @@ fn wash(base: Color32) -> Color32 {
 /// from the outline it is a copy of.
 fn ghost(base: Color32) -> Color32 {
     let [r, g, b, _] = base.to_srgba_unmultiplied();
+    // NOT A THEME COLOUR: the same arithmetic-on-a-themed-colour case as
+    // `wash` — `base` is `visuals.selection.stroke.color` and only the alpha
+    // is chosen here.
     Color32::from_rgba_unmultiplied(r, g, b, GHOST_ALPHA)
 }
 
@@ -359,6 +367,9 @@ mod tests {
     ///   egui's colour storage rather than the property this function has.
     #[test]
     fn the_marquee_wash_is_translucent_and_keeps_the_themes_hue() {
+        // NOT A THEME COLOUR: a test fixture standing in for whatever the
+        // theme supplies; the assertion is that the hue survives, so the
+        // exact input has to be a known literal.
         let base = Color32::from_rgb(60, 120, 200);
         let [r, g, b, a] = wash(base).to_srgba_unmultiplied();
         for (got, want) in [(r, 60u8), (g, 120), (b, 200)] {
@@ -378,6 +389,7 @@ mod tests {
     /// out is lossy.
     #[test]
     fn the_move_ghost_is_translucent_and_keeps_the_themes_hue() {
+        // NOT A THEME COLOUR: test fixture, as above.
         let base = Color32::from_rgb(60, 120, 200);
         let [r, g, b, a] = ghost(base).to_srgba_unmultiplied();
         for (got, want) in [(r, 60u8), (g, 120), (b, 200)] {
@@ -397,6 +409,8 @@ mod tests {
     /// the accessor choice in [`ghost`] guards against.
     #[test]
     fn a_translucent_theme_colour_keeps_its_hue_through_the_ghost() {
+        // NOT A THEME COLOUR: test fixture — a deliberately translucent
+        // source, which is the input this test exists to exercise.
         let translucent = Color32::from_rgba_unmultiplied(60, 120, 200, 90);
         let [r, g, b, _] = ghost(translucent).to_srgba_unmultiplied();
         for (got, want) in [(r, 60u8), (g, 120), (b, 200)] {
