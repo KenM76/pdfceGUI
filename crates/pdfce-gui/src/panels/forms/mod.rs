@@ -188,14 +188,30 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // permitted and flattening is refused, so reusing `fill_refusal` here
     // would render an enabled Flatten button whose every press errors.
     //
-    // `deletion_refusal` is asked because core exposes no `flatten_refusal`,
-    // and the two route through the identical check. That is a *borrowed*
-    // answer and it is named as one: the local binding says which gate it is,
-    // and [`edit`]'s KNOWN GAPS records the missing accessor as a boundary
-    // finding rather than leaving the workaround unreported.
+    // ★ This asks `flatten_refusal`, and the borrowed answer it replaced is
+    // worth recording because the correction went both ways.
+    //
+    // This originally asked `deletion_refusal`, because core exposed no
+    // flatten query and the two routed through what looked like the identical
+    // check. It was named as a borrowed answer and reported as a boundary
+    // finding rather than left silent — and the report was **half wrong**.
+    //
+    // `flatten_refusal` was added (pdfce `fa243df`). But the accompanying
+    // claim that `deletion_refusal` under-reported was rejected, correctly:
+    // it predicts DELETION and matches `deletion_preflight` exactly. The
+    // comparison was against flatten, which is a different operation. Acting
+    // on it would have disabled a Delete control that would have worked — an
+    // over-reporting refusal query is a different bug, not a safe one, and
+    // there is now a test in core whose job is to stop exactly that.
+    //
+    // The two gates really do differ, just not the way it was reported:
+    // deletion and flatten share the strict certification gate, and flatten
+    // additionally CREATES page content, so it carries a suppression guard
+    // deletion does not. Two checks of three — which works until it does not,
+    // on documents that are not exotic.
     let structural_refusal: Option<&'static str> = doc
         .session
-        .deletion_refusal()
+        .flatten_refusal()
         .map(|_| t::forms_structural_certification_disabled_tooltip());
 
     header(ui, &form, fill_refusal);

@@ -111,15 +111,18 @@
 //!    refused at open, see `crate::text::open_needs_password` — and the
 //!    suppressed-object arm has no public accessor at all, so the panel cannot
 //!    compensate for it. `fill_refusal` should mirror `fill_guards`.
-//! 2. **There is no `EditSession::flatten_refusal`.** `flatten_fields` uses
-//!    core's STRICT certification gate, not fill's `/P`-aware one, and the
-//!    only public query for that gate is `deletion_refusal` — a *different
-//!    question* that happens to have the same answer today. `deletion_refusal`
-//!    documents at length why asking a gate through the wrong name stays
-//!    correct only until the two diverge. This module asks it anyway, under a
-//!    local name that says which gate it is, because the alternative is an
-//!    enabled Flatten button on a certified document; the honest fix is a
-//!    `flatten_refusal` accessor in core.
+//! 2. **RESOLVED — `EditSession::flatten_refusal` now exists** (pdfce
+//!    `fa243df`), and `panels::forms::mod` asks it. The gap was real:
+//!    flatten shares deletion's strict certification gate but additionally
+//!    creates page content, so it carries a suppression guard deletion does
+//!    not — two checks of three, which works until it does not.
+//!
+//!    The half of the same report that claimed `deletion_refusal`
+//!    under-reported was **rejected, and rightly**: it predicts DELETION and
+//!    matches `deletion_preflight` exactly. The comparison had been against
+//!    flatten. Acting on it would have disabled a Delete control that would
+//!    have worked, and core now carries a test whose job is to stop a future
+//!    reader "correcting" a correct function on the strength of it.
 
 use std::sync::Arc;
 
