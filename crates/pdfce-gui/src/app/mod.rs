@@ -520,12 +520,35 @@ impl PdfceApp {
             Some(token)
         };
 
+        // ★ The icon painter, and what supplying it actually changes.
+        //
+        // `egui_shell::ribbon::qat`'s `shows_label` draws a control icon-only
+        // only when three things hold: the command names an icon, it has a
+        // tooltip to be that icon's accessible name, and **the application
+        // supplied a painter**. The third clause exists because an earlier
+        // build registered icon keys, supplied no painter, and produced a row
+        // of blank boxes.
+        //
+        // So until this line the whole ribbon fell back to text buttons —
+        // which is exactly what the first packaged build did, and the trace
+        // said so plainly: `ribbon.qat.file.open` was 73 pt wide where an
+        // icon-only control is about 18. The icons had landed, the painter
+        // existed and was tested, and nothing drew a glyph, because the one
+        // line that connects them was never written.
+        //
+        // A plain `fn` item satisfies the `FnMut` bound, so there is no
+        // closure and no captured state — which is the property worth
+        // keeping: a painter with no state cannot be the thing that goes
+        // stale.
+        let mut icons = crate::icons::paint_ribbon_icon;
+
         let tokens = egui::Panel::top("ribbon")
             .show(ui, |ui| {
                 egui_shell::ribbon::Ribbon::new()
                     .with_conditions(&conditions)
                     .reporting_rects_to(&mut report_rect)
                     .with_custom_items(&mut custom)
+                    .with_icon_painter(&mut icons)
                     .render(ui, shell, &self.commands, &mut self.ribbon)
             })
             .inner;

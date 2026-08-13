@@ -124,6 +124,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -315,6 +316,30 @@ def run_verification(repo: Path) -> tuple[bool, str]:
     operator can reach a feature (`FEATURES.md`), so a build that quietly
     implies it was verified is exactly the wrong artifact to ship.
     """
+    # The spawned shell may not inherit cargo's directory.
+    #
+    # `tools/gates/run-all.sh` runs `cargo fmt` and `cargo clippy`. A bash
+    # spawned from here is neither a login nor an interactive shell, so it
+    # never reads the profile that puts `~/.cargo/bin` on PATH — and the gate
+    # runner then SKIPs both, which makes it exit 3, which fails `--verify`
+    # while every gate that actually ran was clean.
+    #
+    # ★ Honest provenance, because the next reader deserves it: this was
+    # OBSERVED under a nested, sandboxed shell where `python` and `rustc`
+    # were invisible too, so the sandbox — not the profile — was that
+    # instance's cause, and this prepend did NOT fix it there. It is kept
+    # because the non-login-shell case is real, independent, and costs two
+    # lines. It has not been verified against that case.
+    #
+    # The half that WAS verified and fixed is `run-all.sh`'s message: it
+    # reported `cargo: command not found` as "the workspace does not
+    # currently load", which was flatly false and pointed the reader at the
+    # one place the problem was not.
+    env = os.environ.copy()
+    cargo = shutil.which("cargo")
+    if cargo:
+        env["PATH"] = str(Path(cargo).parent) + os.pathsep + env.get("PATH", "")
+
     lines = []
     ok = True
     for label, cmd in (
@@ -325,6 +350,7 @@ def run_verification(repo: Path) -> tuple[bool, str]:
         r = subprocess.run(
             cmd,
             cwd=repo,
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",

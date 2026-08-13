@@ -114,7 +114,33 @@ run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
 # error has nothing to do with formatting or lints. Reporting that as a fmt
 # FAILURE would be a false accusation against whoever is mid-write, so it is
 # reported as a SKIP with the real reason.
-if [ "$RUN_CARGO" -eq 1 ]; then
+#
+# ★ "cargo is not on PATH" is NOT "the workspace does not load", and the two
+# are separated here because merging them produced a flatly false message.
+#
+# `tools/package-portable.py` runs this script through `subprocess`, and the
+# bash it spawns does not inherit the PATH entry for `~/.cargo/bin`. The probe
+# below then failed with `cargo: command not found` and this script reported
+# "the workspace does not currently load", followed by advice about a member
+# crate being mid-write. Every word of that was wrong: the workspace was fine,
+# nothing was mid-write, and the reader was pointed at the one place the
+# problem was not.
+#
+# A skip reason is read precisely when someone cannot see the machine. It has
+# to name the actual fact.
+if [ "$RUN_CARGO" -eq 1 ] && ! command -v cargo >/dev/null 2>&1; then
+    rule
+    echo ">> cargo fmt / cargo clippy"
+    rule
+    echo "SKIPPED — cargo is not on PATH in this shell."
+    echo ""
+    echo "  The workspace is not implicated: nothing was parsed, because the"
+    echo "  tool that would parse it was never found. If this ran from a script,"
+    echo "  the spawned shell probably did not inherit ~/.cargo/bin."
+    echo ""
+    SKIPPED+=("cargo fmt (cargo not on PATH)")
+    SKIPPED+=("cargo clippy (cargo not on PATH)")
+elif [ "$RUN_CARGO" -eq 1 ]; then
     if ! probe=$(cargo metadata --no-deps --format-version 1 2>&1 >/dev/null); then
         rule
         echo ">> cargo fmt / cargo clippy"
