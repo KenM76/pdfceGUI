@@ -78,6 +78,7 @@
 
 pub mod delete_key;
 pub mod legibility;
+pub mod qat_icons;
 pub mod ribbon_captions;
 pub mod settings_headings;
 
@@ -164,6 +165,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
     vec![
         Box::new(delete_key::DeleteKeyAfterCanvasClick),
         Box::new(ribbon_captions::RibbonGroupCaptionsLegible),
+        // Reads the trace only — no window is raised and no capture is taken,
+        // so it costs nothing and cannot take the operator's focus. Placed
+        // after the captions check because both launch, and a reader
+        // comparing two ribbon verdicts wants them adjacent.
+        Box::new(qat_icons::QatControlsAreIconOnly),
         Box::new(settings_headings::SettingsHeadingsLegible),
     ]
 }
