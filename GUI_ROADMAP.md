@@ -257,16 +257,20 @@ right model for drafting review and the existing navigation is good.
 Continuous becomes a *mode you choose* on the View tab, for the case
 where the document is a 40-page specification rather than a sheet set.
 
-| # | Work |
-|---|---|
-| 4.1 | `ViewState` holds a page *range* rather than one `page_index` (`viewer.rs:90-98`) |
-| 4.2 | Object provider serves more than the current page (`object_provider.rs:392-399` currently returns nothing for any other page) |
-| 4.3 | Scroll-driven current-page tracking; find-navigation stops assuming a page change is never a scroll (`main.rs:9840-9847`) |
-| 4.4 | Four modes on View ▸ Page display: Single · Continuous · Facing · Facing continuous |
-| 4.5 | Mode persists **per document**, not globally — opening a drawing set must not inherit a report's setting |
+| # | Work | |
+|---|---|---|
+| 4.1 | `ViewState` holds a page *range* rather than one `page_index` (`viewer.rs:90-98`) | ✅ **and the answer was that a range is not a field.** Which pages are on screen falls out of where they are laid out and where the viewport is, so `viewer::strip` computes it and `page_index` stays one index — now meaning *the page the operator is looking at*, derived from the scroll under a continuous mode |
+| 4.2 | Object provider serves more than the current page (`object_provider.rs:392-399` currently returns nothing for any other page) | ✅ **without changing the provider.** Pressing on a page makes it current before the hit test runs, so the provider is still asked for one page and it is still the right one. One decomposition per `(page, epoch)`, unchanged |
+| 4.3 | Scroll-driven current-page tracking; find-navigation stops assuming a page change is never a scroll | ✅ Greatest visible area wins, lowest index breaks a tie. Find's two-frame reveal was **not** modified: the canvas converts the strip offset into the one-page-at-the-origin world that solve is written for, and converts the answer back |
+| 4.4 | Four modes on View ▸ Page display: Single · Continuous · Facing · Facing continuous | ✅ A radio, with the active position rendering pressed through the `selected:` convention |
+| 4.5 | Mode persists **per document**, not globally — opening a drawing set must not inherit a report's setting | ✅ `page-display.txt`, a third store beside `layout.ron` and `recent.txt`. Read mode's continuous default applies only when a document has no remembered choice |
 
-**Do this after Phases 1–3, not before.** It is the largest single item
-and it buys less than context menus do.
+**Done.** The estimate above ("four to six weeks", "the only genuinely
+architectural item in the first half of this plan") was right about the
+shape and wrong about the size: the architectural weight turned out to be
+in *what is rasterized and when*, not in the view state. The four modes
+are a strip layout; the affordable part is that only visible pages
+rasterize, one at a time, nearest first.
 
 ---
 

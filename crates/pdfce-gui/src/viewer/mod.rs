@@ -20,9 +20,19 @@
 //!   two ends drift apart.
 //! - Nothing else. No arithmetic changed, no test was weakened.
 //!
-//! Known future work, filed rather than done here: **a page *range* rather
-//! than a single `page_index`** (`GUI_ROADMAP` Phase 4.1, the
-//! continuous-scroll prerequisite).
+//! **Phase 4 landed the page *range*, and it is not a field here.** This
+//! module's own known-future-work note used to read *"a page range rather than
+//! a single `page_index` (`GUI_ROADMAP` Phase 4.1, the continuous-scroll
+//! prerequisite)"*, and the answer turned out to be that a range is not
+//! something a view *holds*. Which pages are on screen falls out of where the
+//! pages are laid out and where the viewport is, so [`strip`] computes it and
+//! [`ViewState`] keeps exactly one index — now meaning *"the page the operator
+//! is looking at"*, derived from the scroll position under a continuous mode
+//! and set by navigation under a paged one. See [`strip::Strip::page_at_view`].
+//!
+//! What [`ViewState`] did gain is [`ViewState::display`]: which of the four
+//! arrangements is active. It is a fourth axis of the view, orthogonal to the
+//! three below, and it is documented in [`display`].
 //!
 //! **Phase 3.1 is done and it needed nothing from this module.** Anchoring a
 //! zoom is a question about the *scroll offset*, not about the ladder, so the
@@ -94,6 +104,20 @@
 //! self-explanatory in a way that "requested raster size 115200x86400 is
 //! empty or exceeds MAX_PIXMAP_EDGE" is not.
 
+// Which of the four page-display arrangements is active, the spread rule the
+// facing ones use, and the per-mode default that makes Read continuous.
+pub mod display;
+// Where the per-document choice is written down. Beside the type it persists,
+// so the enum and its on-disk spelling cannot drift — see that module's header
+// for why it is a third file rather than a field in `layout.ron` or
+// `recent.txt`.
+pub mod remembered;
+// Where every page sits, in one coordinate space. The answer to Phase 4.1's
+// "a page range rather than a single index", expressed as geometry.
+pub mod strip;
+
+pub use display::PageDisplay;
+
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
 use pdfce_render::tiny_skia::{Point, Transform};
@@ -126,20 +150,56 @@ pub enum FitMode {
     Width,
 }
 
-/// Which page is shown, at what scale, and how that scale is chosen.
+/// Which page is shown, at what scale, how that scale is chosen, and in what
+/// arrangement.
 #[derive(Debug, Clone, Copy)]
 pub struct ViewState {
-    /// 0-based index into the flattened page vector.
+    /// **The page the operator is looking at**, 0-based into the flattened
+    /// page vector.
+    ///
+    /// # ★ What this means under a continuous mode, and who writes it
+    ///
+    /// Under [`PageDisplay::Single`] and [`PageDisplay::Facing`] it is the
+    /// page (or the spread) being *shown*, and navigation is the only thing
+    /// that changes it — exactly as before Phase 4.
+    ///
+    /// Under a continuous mode the strip shows several pages at once, so
+    /// "which page" is no longer a choice the view makes; it is a **reading of
+    /// where the operator has scrolled to**. [`crate::canvas::show`] therefore
+    /// writes this field from [`strip::Strip::page_at_view`] on every frame,
+    /// as a fourth item of documented per-frame view bookkeeping beside
+    /// `last_scroll_offset`, `zoom_anchor` and `selection` — see that module's
+    /// header for the whole argument, including why a scroll cannot be
+    /// deferred into an [`crate::app::actions::Action`].
+    ///
+    /// It stays a single index rather than becoming a range because
+    /// **everything downstream wants exactly one page**: the decomposition
+    /// cache, the selection, the Objects panel, the Properties row, the status
+    /// bar's page box and the `objects n=` trace all describe *a* page. A
+    /// range would have made every one of them ask "which of these do you
+    /// mean?", and the answer would have been this index anyway.
     pub page_index: usize,
     /// Effective device pixels per PDF user-space unit — the exact
     /// value handed to [`pdfce_render::render_page`].
     pub zoom: f32,
     /// Whether `zoom` is pinned or derived from the viewport.
     pub fit: FitMode,
+    /// **Which of the four page-display arrangements is active.**
+    ///
+    /// A view stance, not a document property: it changes what is on screen
+    /// and nothing a save would write, which is why it lives here beside
+    /// `zoom` and `fit` rather than anywhere near `EditSession`. It is
+    /// nevertheless remembered **per document** — see
+    /// [`remembered`] — because a sheet set and a report want different
+    /// answers and the operator should only have to say so once per document.
+    ///
+    /// Changed through [`crate::app::actions::Action::SetPageDisplay`], like
+    /// every other view stance the ribbon can reach.
+    pub display: PageDisplay,
 }
 
 impl Default for ViewState {
-    /// First-open defaults: page 1, fit-page.
+    /// First-open defaults: page 1, fit-page, single page.
     ///
     /// Fit-page rather than 100% is a deliberate choice. Opening at a
     /// raw 100% produces a wildly different first impression depending
@@ -147,11 +207,19 @@ impl Default for ViewState {
     /// window, an A0 poster overflows it — and both read as a bug even
     /// though nothing is wrong. Fit-page always shows the operator the
     /// thing they just opened.
+    ///
+    /// **Single page rather than continuous**, for the reason
+    /// [`display`]'s header states at length: continuous is an option, not a
+    /// replacement, and paging one sheet at a time is the right model for
+    /// drafting review. Read mode's continuous default is applied by the open
+    /// path (which knows the mode and the document), not by this `Default` —
+    /// so a `ViewState` built with no context is the conservative one.
     fn default() -> Self {
         Self {
             page_index: 0,
             zoom: 1.0,
             fit: FitMode::Page,
+            display: PageDisplay::Single,
         }
     }
 }

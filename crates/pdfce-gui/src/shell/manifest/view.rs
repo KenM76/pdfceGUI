@@ -92,17 +92,39 @@ pub(super) fn tab() -> Tab {
             // set, and the choice persists per document so opening a
             // drawing set does not inherit a report's setting.
             //
-            // All three are **N** and absent. This is the one group where
-            // that leaves a single-item radio, which looks odd and is
-            // honest: the alternative is three buttons that do nothing.
-            // The build behind them is larger than it looks — the viewer
-            // holds a single page index, and the object provider returns
-            // nothing for any page but the current one.
+            // ★ **All four are present as of Phase 4**, and the note that
+            // used to sit here — *"the build behind them is larger than it
+            // looks: the viewer holds a single page index, and the object
+            // provider returns nothing for any page but the current one"* —
+            // was right and is discharged. The page range turned out not to
+            // be a field at all: `viewer::strip` computes which pages are
+            // on screen from where they are laid out and where the viewport
+            // is, and `view.page_index` keeps its single index, now meaning
+            // *"the page the operator is looking at"* — derived from the
+            // scroll position under a continuous mode. The provider still
+            // serves one page, and it is still the right one, because
+            // pressing on a page makes it current before the hit test runs.
+            //
+            // The order is the scale it describes: fewest pages on screen
+            // first, most last. Under P1a a radio's positions are ordered by
+            // what they do, not alphabetically.
+            //
+            // Each renders **pressed** while it is active, through the
+            // `selected:` convention `view.tool_hand` already documents —
+            // published by `PdfceApp::conditions` from
+            // `shell::commands::page_display_command`. Without that the group
+            // would be four buttons with no indication of which one you are
+            // in, which for a radio is the whole of the control.
             // ---------------------------------------------------------------
             group(
                 "page_display",
                 ribbon::group_view_page_display(),
-                [command("view.page_single")],
+                [
+                    command("view.page_single"),
+                    command("view.page_continuous"),
+                    command("view.page_facing"),
+                    command("view.page_facing_continuous"),
+                ],
             ),
             // ---------------------------------------------------------------
             // Render — see the module header. Five knobs, in the order the
@@ -190,6 +212,12 @@ pub(super) fn tab() -> Tab {
                 ribbon::group_view_panels(),
                 [
                     command("view.sidebar"),
+                    // ★ Pages is a panel like any other in this build. The
+                    // note above described the OLD shell's sidebar rail, in
+                    // which thumbnails were the rail's first pane rather than
+                    // an independently toggleable panel; this build has no
+                    // rail, so the panel needs — and now has — its own toggle.
+                    command("view.panel_pages"),
                     command("view.panel_bookmarks"),
                     command("view.panel_layers"),
                     command("view.panel_signatures"),

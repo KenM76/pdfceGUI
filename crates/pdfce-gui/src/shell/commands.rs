@@ -219,7 +219,29 @@ fn all() -> Vec<Command> {
         // ===================================================================
         // VIEW — tokens 200-299
         // ===================================================================
+        // ★ **Page display — a radio, not four toggles.**
+        //
+        // Exactly one is active at a time, and which one is published as a
+        // `selected:` condition by `PdfceApp::conditions` so the active
+        // position renders pressed (`egui_shell::ribbon::selected_condition`).
+        // Four independent toggles would admit states that mean nothing —
+        // "facing, but also single" — and would leave the ribbon reconstructing
+        // which of them is on.
+        //
+        // All four are gated on `doc.pages` rather than `doc.open`: an
+        // arrangement of pages is meaningless without pages, and a document
+        // with `/Count 0` is legal.
+        //
+        // The tokens are contiguous (200-203) because they are one control.
         command("view.page_single", t::view_page_single(), 200).enabled_when("doc.pages"),
+        command("view.page_continuous", t::view_page_continuous(), 201).enabled_when("doc.pages"),
+        command("view.page_facing", t::view_page_facing(), 202).enabled_when("doc.pages"),
+        command(
+            "view.page_facing_continuous",
+            t::view_page_facing_continuous(),
+            203,
+        )
+        .enabled_when("doc.pages"),
         // The Render group is settings, not actions. They are available
         // with no document open because they are what the *next* document
         // will be drawn with, and a setting you can only change while
@@ -261,6 +283,20 @@ fn all() -> Vec<Command> {
         command("view.panel_bookmarks", t::view_panel_bookmarks(), 241)
             .with_icon("bookmarks")
             .enabled_when("doc.open"),
+        // ★ **No icon**, and that is a decision rather than an omission.
+        //
+        // There is no `document` (or `pages`) key in
+        // `crate::icons::catalog`, and naming one would draw the catalogue's
+        // deliberate **visible slashed mark** for an unknown key on a control
+        // an operator uses constantly. A command with no icon renders as its
+        // label, which is a real answer and the right one here — the panel's
+        // name is a word, and the word is what makes it findable.
+        //
+        // `doc.open`, not `doc.pages`, unlike every other entry in this group:
+        // the Pages panel's own body handles a `/Count 0` document and says so,
+        // which is more useful than a greyed toggle that cannot explain why a
+        // legal PDF has no pages.
+        command("view.panel_pages", t::view_panel_pages(), 245).enabled_when("doc.open"),
         command("view.panel_layers", t::view_panel_layers(), 242)
             .with_icon("layers")
             .enabled_when("doc.open"),
@@ -454,6 +490,52 @@ fn all() -> Vec<Command> {
     ]
 }
 
+/// ★ **The command id that names a page-display mode**, and its inverse.
+///
+/// One binding between [`crate::viewer::PageDisplay`] and the ribbon, written
+/// down once. The two directions are used by different surfaces and would drift
+/// apart if each spelled the mapping for itself:
+///
+/// * `crate::app::dispatch` turns an invoked command into a mode;
+/// * `PdfceApp::conditions` turns the active mode into the `selected:`
+///   condition that makes its ribbon button render pressed.
+///
+/// It lives here rather than on the enum for the reason the enum's own
+/// `id`/`from_id` pair lives *there*: `viewer` must not know what a ribbon is.
+/// `viewer::PageDisplay::id` is the **on-disk** spelling and this is the
+/// **command** spelling, and keeping them separate is what lets either change
+/// without silently rewriting the other's files.
+///
+/// [`tests::every_page_display_mode_has_a_registered_command`] asserts both
+/// directions against the live registry, so a fifth mode that is added and not
+/// registered fails the suite rather than becoming a mode with no control.
+#[must_use]
+pub fn page_display_command(display: crate::viewer::PageDisplay) -> &'static str {
+    use crate::viewer::PageDisplay as D;
+    match display {
+        // ui-text-exempt: command ids, never displayed
+        D::Single => "view.page_single",
+        // ui-text-exempt: command ids, never displayed
+        D::Continuous => "view.page_continuous",
+        // ui-text-exempt: command ids, never displayed
+        D::Facing => "view.page_facing",
+        // ui-text-exempt: command ids, never displayed
+        D::FacingContinuous => "view.page_facing_continuous",
+    }
+}
+
+/// The page-display mode `id` names, or `None` if it names none.
+///
+/// The inverse of [`page_display_command`], derived from it rather than
+/// written out a second time — so the two cannot disagree even in principle.
+#[must_use]
+pub fn page_display_for_command(id: &str) -> Option<crate::viewer::PageDisplay> {
+    crate::viewer::PageDisplay::ALL
+        .iter()
+        .copied()
+        .find(|&m| page_display_command(m) == id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,7 +554,39 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 81);
+        assert_eq!(registry().len(), 85);
+    }
+
+    /// ★ **Every page-display mode has a registered command, and every one of
+    /// those commands names a mode.**
+    ///
+    /// Both directions, against the **live registry** rather than against the
+    /// mapping's own table — which is the difference between asserting the
+    /// code agrees with itself and asserting that the control exists. The
+    /// failure this catches is a fifth mode added to the enum with no
+    /// registration: the ribbon would draw three buttons, the fourth would be
+    /// unreachable, and nothing else in the suite would notice.
+    #[test]
+    fn every_page_display_mode_has_a_registered_command() {
+        let reg = registry();
+        for &mode in crate::viewer::PageDisplay::ALL {
+            let id = page_display_command(mode);
+            assert!(
+                reg.get(id).is_some(),
+                "`{id}` names {mode:?} and is not registered"
+            );
+            assert_eq!(page_display_for_command(id), Some(mode), "round trip");
+        }
+        // …and the ids are distinct, which the round trip alone would not
+        // prove if two modes shared one command.
+        let mut ids: Vec<&str> = crate::viewer::PageDisplay::ALL
+            .iter()
+            .map(|&m| page_display_command(m))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), crate::viewer::PageDisplay::ALL.len());
+        assert_eq!(page_display_for_command("view.zoom_actual"), None);
     }
 
     /// **★ No two commands share a handler token.**

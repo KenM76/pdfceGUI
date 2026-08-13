@@ -186,7 +186,13 @@ pub mod menus;
 pub mod moving;
 pub mod overlay;
 pub mod selection;
+// Which page the frame is about, in what order the rest should be drawn, and
+// where a navigated-to page lands. The canvas's half of Phase 4's strip.
+pub mod strip;
 pub mod target;
+// The three `PDFCE_DIAG` lines the canvas writes, and the shape contract
+// `tools/ui-verify` reads them under.
+pub mod trace;
 // Which pointer tool the canvas is in — select or hand — and the space bar
 // that borrows the hand for as long as it is held.
 pub mod tool;
@@ -294,9 +300,22 @@ const GESTURE_MEMORY_KEY: &str = "pdfce-canvas-gesture"; // ui-text-exempt: inte
 /// "is the hand active?" within one frame that disagreed would be a drag that
 /// panned **and** marquee'd, which is exactly what Phase 3.2 must not ship.
 #[derive(Debug, Clone, Copy)]
-struct Frame {
-    /// The frame's ONE screen ⟷ canvas map.
+struct Frame<'a> {
+    /// The frame's ONE screen ⟷ canvas map, **for the page being acted on**.
+    ///
+    /// Every gesture, every hit test and every selection outline goes through
+    /// this one. Phase 4 did not add a second: a strip shows several pages, but
+    /// input is about exactly one of them, and which one is settled before this
+    /// struct is built (see [`show`]).
     map: PageMapping,
+    /// One map per page this frame drew, for the **Find wash** — the single
+    /// thing that is legitimately about pages other than the one being acted
+    /// on, because a search describes the whole document and its hits have to
+    /// land on the pages they are on.
+    ///
+    /// Exactly one entry under [`viewer::PageDisplay::Single`], and it is the
+    /// same page `map` describes.
+    pages: &'a [strip::PageView],
     /// The scroll viewport, which is both the painter's clip rect and the
     /// region "is the pointer over the canvas?" is asked against.
     clip: Rect,
@@ -364,12 +383,36 @@ pub fn show(
     // `FitMode::None` this is a no-op, so it is safe to call always — and
     // calling it always is what makes "Fit page" a mode rather than a
     // one-shot: resize the window and the page re-fits.
-    let extent = doc.current_extent();
+    //
+    // ★ Against the current **row**, not the current page, and the ceiling
+    // against the row's tightest page. Under Single and Continuous a row is
+    // one page and both reduce to exactly what they were; under a facing mode
+    // a row is the spread, and fitting one half of a spread would leave the
+    // other half off screen from a control called "Fit page". See
+    // [`viewer::strip::row_metrics`] for why the row is measured without
+    // laying the strip out — the strip's geometry depends on the zoom this
+    // produces, so it cannot be the source of it.
     let pixels_per_point = ui.ctx().pixels_per_point();
-    let max_zoom = viewer::max_zoom_for_page(extent, pixels_per_point);
-    doc.view.apply_fit(extent, viewport, max_zoom);
+    let row = viewer::strip::row_metrics(
+        &doc.pages,
+        doc.view.display,
+        doc.view.page_index,
+        pixels_per_point,
+    );
+    doc.view.apply_fit(row.extent, viewport, row.max_zoom);
 
-    if let Some(message) = &doc.render_error {
+    // ★ The whole-canvas render failure is the **single-page** answer, and it
+    // stays exactly that.
+    //
+    // With one page on screen, "this page would not draw" is the only thing
+    // there is to say and a sentence in the middle of the canvas is the right
+    // way to say it. With several, replacing the entire strip with one
+    // sentence would hide thirty-nine sheets that drew perfectly because one
+    // did not — so every other mode draws the refusal **in the failing page's
+    // own rectangle** instead. See [`crate::render::strip::draw_page_state`].
+    if doc.view.display == viewer::PageDisplay::Single
+        && let Some(message) = &doc.render_error
+    {
         let text = crate::text::canvas_render_failed(message);
         let placeholder =
             ui.centered_and_justified(|ui| ui.colored_label(ui.visuals().error_fg_color, text));
@@ -385,8 +428,27 @@ pub fn show(
         return Vec::new();
     }
 
-    let display_size = vec2(extent.0 * doc.view.zoom, extent.1 * doc.view.zoom);
-    let texture = doc.page_texture.as_ref().map(|t| t.texture.clone());
+    // ★ **Where every page this view shows sits.** One page under `Single`,
+    // whose rect is `(0,0)..display_size` — so everything below is the
+    // arithmetic it already was. See [`viewer::strip`].
+    let layout = doc.strip();
+    let display_size = layout.size();
+    let current = doc.view.page_index;
+    // The current page's placement, which is the frame of reference every
+    // single-page solve in `canvas::zoom` and `find::reveal` is handed. Falls
+    // back to the whole strip for the degenerate case where the current page is
+    // not laid out at all, which the page-index clamp normally prevents.
+    let current_rect = layout
+        .rect_of(current)
+        .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, display_size));
+    let current_origin = (current_rect.min.x, current_rect.min.y);
+    let current_display = (current_rect.width(), current_rect.height());
+    // The scale every page on screen is rasterized at. Derived once, here, and
+    // used to look each visible page's raster up: deriving it a second time
+    // inside the draw loop is how a page could be *drawn* against one key while
+    // being *requested* against another, which would show as a page that never
+    // stops saying it is not drawn yet.
+    let raster_scale = viewer::raster_scale(doc.view.zoom, pixels_per_point);
 
     // `ScrollSource::ALL` = scroll bars + plain mouse wheel + drag-to-pan.
     // Ctrl+wheel never reaches this, because egui routes a modified wheel
@@ -426,11 +488,35 @@ pub fn show(
     // 3. **a middle-drag pan**, which is a live gesture — and a live gesture is
     //    LAST here for the reason it wins anyway: it re-arms itself on the next
     //    frame, while both of the others are spent once.
+    //
+    // ★ A **fourth** source arrives with Phase 4 — a page *command* under a
+    // continuous mode, which has to scroll the strip to the page it named —
+    // and it sits third, below the two one-shots and above the live gesture,
+    // by the same reasoning: it is a one-shot the operator asked for, and a
+    // live gesture re-arms itself while the one-shots are spent once.
+    //
+    // ★ Two of the three offsets below are solved by code this work does not
+    // own — `canvas::zoom`'s anchor handshake and `find::reveal`'s two-frame
+    // reveal — and both are written for a scroll area whose content is **one
+    // page at the origin**. Rather than teach either about a strip, the canvas
+    // converts: `geometry::page_local_offset` presents the world the way those
+    // solves expect, and `geometry::strip_offset` converts their answer back.
+    // The conversion is exact, and under `Single` it is the identity. See
+    // `geometry`'s header for the whole argument.
     let vp = ui.available_size();
-    if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, (display_size.x, display_size.y)) {
-        scroll_area = scroll_area.scroll_offset(offset);
-    } else if let Some(offset) =
-        crate::find::take_reveal_offset(doc, (display_size.x, display_size.y), (vp.x, vp.y))
+    let to_strip = |local: (f32, f32)| {
+        let (x, y) = geometry::strip_offset(
+            local,
+            current_origin,
+            (display_size.x, display_size.y),
+            current_display,
+            (vp.x, vp.y),
+        );
+        vec2(x, y)
+    };
+    if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, current_display) {
+        scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
+    } else if let Some(offset) = crate::find::take_reveal_offset(doc, current_display, (vp.x, vp.y))
     {
         // The other half of `Action::Find`'s navigation: the page change was
         // applied after the frame that asked for it, and this is the first
@@ -438,6 +524,14 @@ pub fn show(
         // on which the page's real drawn size is known and the offset can be
         // solved. `crate::find` owns both the gate and the solve; nothing
         // about a search is decided here.
+        //
+        // The reveal's gate is `reveal.page == view.page_index`, so the page it
+        // solves against is always the current one — which is exactly the page
+        // `to_strip` converts for. A reveal therefore lands on the right page
+        // of a continuous strip without `find::reveal` knowing a strip exists.
+        scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
+        doc.tracked_page = doc.view.page_index;
+    } else if let Some(offset) = strip::page_scroll_offset(doc, &layout, (vp.x, vp.y)) {
         scroll_area = scroll_area.scroll_offset(offset);
     } else if let Some(pan) = pan_delta(ui, active_tool) {
         // Panning subtracts the pointer delta: the content follows the hand,
@@ -456,12 +550,12 @@ pub fn show(
     }
 
     let scroll_output = scroll_area.show(ui, |ui| {
-        // Centre the page MANUALLY rather than with
+        // Centre the STRIP manually rather than with
         // `ui.centered_and_justified`, because that helper returns the
         // JUSTIFIED CONTAINER rect — the whole available area — while
         // drawing the image centred inside it. Taking that rect as
         // `image_rect` makes every page↔screen mapping wrong by the centring
-        // margin whenever the page is smaller than the viewport.
+        // margin whenever the content is smaller than the viewport.
         //
         // The symptom in the old GUI was severe and specific: at "Fit page"
         // on a page narrower/shorter than the canvas, selection outlines
@@ -473,75 +567,239 @@ pub fn show(
         // the zoom — and it was worst at exactly the zoom an operator uses
         // to see a whole page.
         //
-        // So: reserve `max(page, viewport)` so the ScrollArea still scrolls
-        // when the page is larger AND there is a margin to centre within
-        // when it is smaller, then place the image at an explicit centred
-        // rect. `Ui::put`/`allocate_rect` return a Response whose `.rect` IS
-        // that rect, so `image_rect` is the page's true drawn rect by
-        // construction rather than by coincidence.
-        //
-        // S0 draws no overlay, so nothing depends on that rect yet. It is
-        // built correctly now because the alternative is discovering at S4
-        // that the substrate every overlay sits on has a margin-sized error
-        // in it — which is precisely how the old GUI got there.
+        // So: reserve `max(strip, viewport)` so the ScrollArea still scrolls
+        // when the content is larger AND there is a margin to centre within
+        // when it is smaller, then place each page at an explicit rect
+        // derived from the strip's own. `Ui::put` and `allocate_rect` return
+        // a Response whose `.rect` IS that rect, so every page's screen rect
+        // is its true drawn rect by construction rather than by coincidence.
         let avail = ui.available_size();
         let outer = vec2(display_size.x.max(avail.x), display_size.y.max(avail.y));
         let (outer_rect, _) = ui.allocate_exact_size(outer, Sense::hover());
-        let page_rect = Rect::from_center_size(outer_rect.center(), display_size);
-        // `click_and_drag`, not `hover`: the page is the selection surface.
-        // Both branches must agree — a first frame that reserved the space
-        // with a different sense would swallow the click that opened the
-        // document, and the operator would experience it as "the first click
-        // never works".
+        // The strip's own rect on screen. Every page's rect is this origin
+        // plus its strip-space placement, which is what makes the strip the
+        // single owner of "where is page N".
+        let strip_rect = Rect::from_center_size(outer_rect.center(), display_size);
+        let strip_origin = strip_rect.min.to_vec2();
+
+        // The viewport, expressed in strip space — what decides which pages
+        // are drawn at all. `last_scroll_offset` is the previous frame's
+        // settled offset, which is the best estimate available *before* this
+        // frame's is known; a page that appears one frame late during a fast
+        // fling is the cost, and it is bounded by one frame.
+        let visible_rect = Rect::from_min_size(
+            Pos2::new(doc.last_scroll_offset.x, doc.last_scroll_offset.y),
+            avail,
+        );
+
+        // `click_and_drag`, not `hover`, on EVERY page — not only the current
+        // one. A press on a page the operator is not currently "on" is how
+        // they move to it under a continuous mode, and a page that did not
+        // sense the press would swallow the click entirely: the operator would
+        // have to click twice, once to arrive and once to act, with nothing on
+        // screen to say why. Both branches must also agree with each other —
+        // a first frame that reserved the space with a different sense would
+        // swallow the click that opened the document, experienced as "the
+        // first click never works".
         let sense = Sense::click_and_drag();
-        let response = if let Some(texture) = texture {
-            ui.put(
-                page_rect,
-                egui::Image::from_texture(&texture)
-                    .fit_to_exact_size(display_size)
-                    .sense(sense),
-            )
-        } else {
-            // First frame after an open: the texture is made at the END of
-            // this frame (see `PdfceApp::update`). Reserve the page's space —
-            // same rect, same sense — so nothing jumps when it arrives.
-            ui.allocate_rect(page_rect, sense)
-        };
-        // `avail` rides out with the response because it is the viewport the
+        let mut drawn: Vec<strip::DrawnPage> = Vec::new();
+        for placement in layout.visible(visible_rect) {
+            let rect = placement.rect.translate(strip_origin);
+            let key = doc.render_key_for(placement.page, raster_scale);
+            // The current page's raster lives in its own slot; every other
+            // page's lives in the strip cache. See `render::strip`'s header
+            // for why the split exists and why the rule is enforced rather
+            // than remembered.
+            let texture = if placement.page == current {
+                doc.page_texture.as_ref().map(|t| t.texture.clone())
+            } else {
+                doc.strip_page_texture(placement.page, key)
+                    .map(|t| t.texture.clone())
+            };
+            let has_raster = texture.is_some();
+            let response = match texture {
+                Some(texture) => ui.put(
+                    rect,
+                    egui::Image::from_texture(&texture)
+                        .fit_to_exact_size(rect.size())
+                        .sense(sense),
+                ),
+                None => {
+                    // No raster. Reserve the same rect with the same sense so
+                    // nothing jumps when one arrives, then SAY what is
+                    // happening rather than leaving white paper — see
+                    // `render::strip::draw_page_state` on why a blank
+                    // rectangle would be a placeholder and this is not.
+                    let response = ui.allocate_rect(rect, sense);
+                    let state = if placement.page == current {
+                        strip::current_page_state(doc)
+                    } else {
+                        doc.strip_page_state(placement.page, key)
+                    };
+                    if let Some(state) = state {
+                        crate::render::strip::draw_page_state(
+                            ui.painter(),
+                            ui.visuals(),
+                            rect,
+                            // The scroll viewport in SCREEN terms — which
+                            // inside a `ScrollArea` is exactly the `Ui`'s clip
+                            // rect. It is passed so the state sentence is
+                            // centred in the part of the page the operator can
+                            // actually see: a page whose top edge is showing
+                            // and whose middle is a metre below the window
+                            // would otherwise draw as a silent empty
+                            // rectangle. See `draw_page_state`.
+                            ui.clip_rect(),
+                            placement.page + 1,
+                            &state,
+                        );
+                    }
+                    response
+                }
+            };
+            drawn.push(strip::DrawnPage {
+                page: placement.page,
+                rect,
+                response,
+                has_raster,
+            });
+        }
+
+        // `avail` rides out with the pages because it is the viewport the
         // zoom-to-cursor solve needs, and it is only knowable in here — the
         // same `avail` that decided `outer` above, so the margin the solve
         // reconstructs is the margin this frame actually drew.
-        (response, avail)
+        (drawn, avail, strip_rect)
     });
 
-    let (image_response, viewport_size) = scroll_output.inner;
+    let (drawn, viewport_size, strip_rect) = scroll_output.inner;
     // The offset the area settled on THIS frame: the `offset_before` of any
     // zoom step the operator starts now, and the base the next frame's
     // middle-drag pan moves from.
     doc.last_scroll_offset = scroll_output.state.offset;
     let scroll_offset = scroll_output.state.offset;
-    let image_rect = image_response.rect;
 
-    // The frame's ONE screen⟷page map. Built here, immediately after the
-    // scroll area has settled and the page's true drawn rect is known, and
-    // handed to everything below — nothing past this line divides by the zoom
-    // for itself. See `mapping`'s header for why that matters twice over.
+    // ★ **Which page this frame's input is about**, and the two ways it is
+    // decided. Both write `view.page_index`, which is the fourth item of
+    // per-frame view bookkeeping the canvas is permitted to write (see the
+    // module header): a scroll position cannot be deferred into an `Action`,
+    // because the action would be applied after the frame that has already
+    // drawn from it.
+    //
+    // 1. **the scroll**, under a continuous mode: the page with the greatest
+    //    visible area, per `Strip::page_at_view`. This is `GUI_ROADMAP.md`
+    //    Phase 4.3's scroll-driven current-page tracking, and it is what makes
+    //    the status bar's page box, the Objects panel and the `objects n=`
+    //    trace describe the sheet the operator is actually reading.
+    // 2. **a press**, in any mode: pressing on a page makes it current, so a
+    //    click on the page below acts on the page below rather than missing.
+    //    A press outranks the scroll because it is deliberate, and it is read
+    //    from the pages' own responses so it costs nothing on a frame with no
+    //    input.
+    let view_rect = Rect::from_min_size(Pos2::new(scroll_offset.x, scroll_offset.y), viewport_size);
+    if doc.view.display.is_continuous()
+        && let Some(page) = layout.page_at_view(view_rect)
+    {
+        doc.view.page_index = page;
+        doc.tracked_page = page;
+    }
+    if let Some(page) = drawn
+        .iter()
+        .find(|d| {
+            d.response.drag_started_by(PointerButton::Primary)
+                || d.response.clicked_by(PointerButton::Primary)
+                || d.response.dragged_by(PointerButton::Primary)
+                || d.response.secondary_clicked()
+        })
+        .map(|d| d.page)
+    {
+        doc.view.page_index = page;
+        doc.tracked_page = page;
+    }
+
+    // The page being acted on: whatever the pointer acted on, else the current
+    // page. Its response and its rect are what everything below reads, which is
+    // what keeps `interact` a single-page function — the selection, the hit
+    // test and the decomposition all describe one page, and that page is this
+    // one.
+    let acting = doc.view.page_index;
+    let Some(active) = drawn
+        .iter()
+        .find(|d| d.page == acting)
+        .or_else(|| drawn.first())
+    else {
+        // Nothing was laid out at all: a strip whose visible window fell
+        // outside every page, which happens for one frame after a mode change
+        // before the scroll area has settled. Say so, and let the next frame
+        // sort it out rather than inventing a rect for a page nobody drew.
+        crate::diag::trace_changed(LAYOUT_SLOT, || {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-unavailable reason=nothing-visible".to_owned()
+        });
+        return Vec::new();
+    };
+    let image_response = active.response.clone();
+    let image_rect = active.rect;
+    let extent = viewer::page_extent_pts(&doc.pages[acting]);
+
+    // ★ **Publish what the renderer should work on**, nearest the viewport
+    // centre first — the order `render::settle` fills the strip in, and the
+    // whole of why a scroll feels like it is keeping up rather than starting
+    // from the top every time. Only knowable here, once the scroll area has
+    // settled, which is the same reason `last_scroll_offset` is stored.
+    let centres: Vec<(usize, f32)> = drawn.iter().map(|d| (d.page, d.rect.center().y)).collect();
+    doc.strip_visible = strip::nearest_first(&centres, scroll_output.inner_rect.center().y);
+
+    // The frame's screen⟷page map for the page being acted on. Built here,
+    // immediately after the scroll area has settled and the page's true drawn
+    // rect is known, and handed to everything below — nothing past this line
+    // divides by the zoom for itself. See `mapping`'s header for why that
+    // matters twice over.
     let map = PageMapping::new(image_rect, extent, doc.view.zoom);
+    // …and one map per drawn page, for the Find wash, which has to land on
+    // whichever page its hits are on rather than on the one being acted upon.
+    // See `interact`'s step 8.
+    let page_views: Vec<strip::PageView> = drawn
+        .iter()
+        .map(|d| strip::PageView {
+            page: d.page,
+            map: PageMapping::new(
+                d.rect,
+                viewer::page_extent_pts(&doc.pages[d.page]),
+                doc.view.zoom,
+            ),
+        })
+        .collect();
 
     // ★ The frame's geometry, recorded for the commands that arrive with none.
     // A zoom raised from a keyboard chord, the ribbon or the status bar has no
     // `Ui` and no page rect, and it must describe its anchor against the view
     // as it stands BEFORE the zoom is applied — which is exactly this. See
     // [`zoom::CanvasFrame`].
+    //
+    // ★ The offset recorded is the **page-local** one, not the strip's. Every
+    // consumer of this record — the anchor rule, both framing verbs — is
+    // written for a scroll area holding one page at the origin, and converting
+    // here is what lets all of them keep working unchanged over a strip. Under
+    // `Single` the conversion is the identity. See `geometry`'s header.
     zoom::remember_frame(
         ui.ctx(),
         zoom::CanvasFrame {
             map,
             extent,
-            display: (display_size.x, display_size.y),
+            display: (image_rect.width(), image_rect.height()),
             viewport: (viewport_size.x, viewport_size.y),
             viewport_rect: scroll_output.inner_rect,
-            offset: (scroll_offset.x, scroll_offset.y),
+            offset: geometry::page_local_offset(
+                (scroll_offset.x, scroll_offset.y),
+                (
+                    image_rect.min.x - strip_rect.min.x,
+                    image_rect.min.y - strip_rect.min.y,
+                ),
+                (display_size.x, display_size.y),
+                (image_rect.width(), image_rect.height()),
+                (viewport_size.x, viewport_size.y),
+            ),
         },
     );
 
@@ -554,6 +812,7 @@ pub fn show(
         &image_response,
         &Frame {
             map,
+            pages: &page_views,
             clip: scroll_output.inner_rect,
             tool: active_tool,
         },
@@ -562,10 +821,17 @@ pub fn show(
         actions,
     );
 
-    trace_layout(doc, image_rect, scroll_offset, selected);
+    trace::layout(
+        doc,
+        image_rect,
+        scroll_offset,
+        selected,
+        drawn.len(),
+        drawn.iter().filter(|d| d.has_raster).count(),
+    );
     crate::diag::ui_rect(REGION_PAGE, image_rect);
     crate::diag::ui_rect(REGION_CANVAS_VIEWPORT, scroll_output.inner_rect);
-    trace_pointer(ui, doc, image_rect, extent);
+    trace::pointer(ui, doc, image_rect, extent);
 
     // Ctrl+wheel over the canvas: multiply the zoom. Gated on hover so a
     // Ctrl+wheel aimed at some other surface does not zoom the page out from
@@ -703,6 +969,7 @@ fn interact(
     // handed on to the overlay and the probe, both of which take one.
     let Frame {
         map,
+        pages,
         clip,
         tool: active_tool,
     } = frame_ctx;
@@ -856,7 +1123,7 @@ fn interact(
                 .map(|t| probe(&**t, &selection, page_index, point, map))
                 .unwrap_or_default();
             selection.click(page_index, hit, shift, double);
-            trace_selection_event(&selection, "click", double);
+            trace::selection_event(&selection, "click", double);
         }
         GestureOutcome::Marquee {
             rect,
@@ -869,7 +1136,7 @@ fn interact(
                 .map(|t| t.hit_test_rect(page_index, rect))
                 .unwrap_or_default();
             selection.marquee(page_index, &hits, shift);
-            trace_selection_event(&selection, "marquee", shift);
+            trace::selection_event(&selection, "marquee", shift);
         }
         // ★ The same rubber band, released with the other intent. **The
         // selection is not touched** — not cleared, not replaced, not even
@@ -1042,12 +1309,26 @@ fn interact(
     // a check here. That is what keeps rule 4: this file cannot paint a mark
     // over content the search no longer describes, because it is never handed
     // one. See `crate::find`'s staleness section.
-    overlay::draw_find_hits(
-        &painter,
-        ui.visuals(),
-        map,
-        find.page_highlights(page_index, doc.edit_epoch),
-    );
+    //
+    // ★ **Once per drawn page, each through its own map** — the one place the
+    // canvas is legitimately about pages other than the one being acted on. A
+    // search describes the whole document, so under a continuous mode its hits
+    // are on several of the pages on screen at once, and painting them all
+    // through the acting page's map would stack every page's highlights onto
+    // one page. That is the failure this feature was most likely to ship
+    // silently: the hits are found, the wash is drawn, and it is drawn in the
+    // wrong place — which looks like a highlight bug rather than a mapping one.
+    //
+    // The loop reduces to exactly the previous call under `Single`, where
+    // `pages` holds one entry and it is the acting page.
+    for view in *pages {
+        overlay::draw_find_hits(
+            &painter,
+            ui.visuals(),
+            &view.map,
+            find.page_highlights(view.page, doc.edit_epoch),
+        );
+    }
     overlay::draw_selection(&painter, ui.visuals(), map, &selection);
     if let Some(rect) = marquee {
         overlay::draw_marquee(&painter, ui.visuals(), map, rect);
@@ -1167,26 +1448,6 @@ fn store_gesture(ctx: &egui::Context, gestures: GestureState) {
     ctx.data_mut(|d| d.insert_temp(id, gestures));
 }
 
-/// Report a selection-changing gesture on the `PDFCE_DIAG` channel.
-///
-/// De-duplicated on the rendered line, so a marquee dragged across a sheet
-/// does not bury the events around it — the lesson `canvas-pointer` taught
-/// when a stationary pointer emitted fifty identical lines in nine seconds.
-/// The count and the level are on the line because they are what a harness
-/// asserts on: *"the click landed"* is `sel=` moving, and *"the ladder
-/// descended"* is `level=` moving.
-fn trace_selection_event(selection: &SelectionState, kind: &str, modifier: bool) {
-    crate::diag::trace_changed(SELECTION_SLOT, || {
-        format!(
-            // ui-text-exempt: diagnostic trace, never displayed in the UI.
-            // Placed directly above the literal — see `trace_layout`.
-            "canvas-selection via={kind} mod={modifier} sel={} level={:?}",
-            selection.len(),
-            selection.level(),
-        )
-    });
-}
-
 /// The pointer movement of an in-progress pan over this canvas, or `None` when
 /// no pan is happening.
 ///
@@ -1213,174 +1474,4 @@ fn pan_delta(ui: &egui::Ui, tool: CanvasTool) -> Option<Vec2> {
             None
         }
     })
-}
-
-/// Report where the canvas is, at what magnification, on the `PDFCE_DIAG`
-/// channel — **unconditionally**, not only when something happens.
-///
-/// # The deadlock this removes
-///
-/// `PROJECT_PLAN.md` §4.3 requirement 1, discovered by building
-/// `tools/ui-verify` at S1 rather than by reading code:
-///
-/// > The old binary traces it only on pointer events, so the harness cannot
-/// > aim until it clicks and cannot click until it can aim.
-///
-/// The old shell's canvas line fires on `pressed || released || down ||
-/// zoom`. A freshly opened document is none of those, so it reports no canvas
-/// rect at all — and without a canvas rect there is no document-to-window
-/// mapping, and without that mapping there is no click that can be aimed. The
-/// harness worked around it with one documented *layout-probe* click at the
-/// client-area centre (`ui-verify`'s `WindowFrame::layout_probe_point`),
-/// whose only purpose was to make the application speak.
-///
-/// The workaround was safe but not free: it rests on the assumption that the
-/// centre of the client area is the canvas, it fires a real OS click into a
-/// document before any assertion has been made, and every check that used it
-/// had to count the events it produced so they were not mistaken for the
-/// check's own. All of that goes away if the application simply says where
-/// its canvas is.
-///
-/// # When this emits
-///
-/// Every frame builds the line; [`crate::diag::trace_changed`] emits it only
-/// when it differs from the last one. So in practice:
-///
-/// * **once per document open** — the first frame of a new document finds an
-///   empty gate (see [`crate::diag::reset_change_gates`], called from the open
-///   path), so there is always a line before any input is delivered;
-/// * **again on every layout change** — a window resize, a panel resize, a
-///   zoom step, a fit-mode re-derivation, a page change, a scroll;
-/// * **not at all** on the frames in between, which is what keeps a
-///   several-minute driven run from burying its own evidence.
-///
-/// # The line, field by field
-///
-/// ```text
-/// pdfce-diag canvas rect=[[240.0 96.0] - [1560.0 968.0]] zoom=1.5000 page=0 pages=3 off=[0.0 0.0]
-/// ```
-///
-/// * `rect=` — the **page raster's** rect in window logical points, printed
-///   as `egui::Rect`'s own `Debug`. Not the viewport, not the panel: the
-///   thing `viewer::screen_to_page` is the inverse of. `ui-verify`'s
-///   `CanvasMapping` computes `window = rect.min + canvas_point * zoom`, so
-///   handing it anything else would be a confidently wrong click.
-/// * `zoom=` — logical points per PDF user-space unit, the same number
-///   `viewer::screen_to_page` divides by. Four decimals because a fit scale
-///   is rarely round and two would quantise a 1320 pt page by a whole point.
-/// * `page=` — the 0-based page index `rect` shows. `ui-verify` refuses to
-///   convert a document point against a mapping for a different page, and it
-///   can only do that if the application says which page it drew.
-/// * `pages=` — the document's page count, so a check that walked off the end
-///   can tell "no such page" from "the application ignored the command".
-/// * `off=` — the scroll offset the area settled on. Reported because
-///   `ui-verify`'s `coords` module documents an **unverified assumption**
-///   that `rect=` already accounts for scrolling, names the experiment that
-///   would settle it, and holds a `scroll` correction at zero until someone
-///   runs it. It cannot be run against a binary that does not report the
-///   offset, so this field is what makes the assumption falsifiable.
-///
-/// # `sel=` — added here, in the commit that gave it something to count
-///
-/// The old binary's canvas line carries `sel=`, the current selection size,
-/// and `ui-verify` reads it as a fallback when a click produced no event of
-/// its own. Stages S0–S3 deliberately did **not** emit it, with the reason
-/// recorded rather than the field silently omitted: there was no hit test and
-/// no selection set, so `sel=0` would have been a measurement of something
-/// that did not exist, and it would have turned
-/// `delete_key_after_canvas_click` from an honest SKIP (*"the harness cannot
-/// tell whether the click landed"*) into a FAIL blaming a subsystem nobody
-/// had written. The stated condition for adding it was *"in the same commit
-/// as the selection model, at S4"* — this is that commit.
-///
-/// It is counted **after** the frame's gesture has been applied (see the call
-/// site), so a click and the `sel=` that describes it appear on the same
-/// frame rather than one apart.
-fn trace_layout(doc: &OpenDoc, image_rect: Rect, scroll_offset: Vec2, selected: usize) {
-    crate::diag::trace_changed(LAYOUT_SLOT, || {
-        format!(
-            // ui-text-exempt: diagnostic trace, never displayed in the UI.
-            // This comment sits directly above the literal, not above the
-            // enclosing call: the gate's scope is the line, and rustfmt is
-            // free to reflow a call's arguments out from under a comment
-            // placed further up.
-            "canvas rect={image_rect:?} zoom={:.4} page={} pages={} off={scroll_offset:?} sel={selected}",
-            doc.view.zoom,
-            doc.view.page_index,
-            doc.pages.len(),
-        )
-    });
-}
-
-/// Report the pointer's position in **document space** on the `PDFCE_DIAG`
-/// channel.
-///
-/// # Why this is here rather than in a later stage
-///
-/// `PROJECT_PLAN.md` §4.2 lists three prerequisites that *"belong in S1, not
-/// later"*, and the first is: **`ui-verify` scripts document-space
-/// coordinates, never absolute screen coordinates.** User-rearrangeable
-/// panels make widths arbitrary at runtime, and the project's own RAG
-/// records this exact class producing a filed-then-retracted false
-/// coordinate-space defect.
-///
-/// A harness cannot script in document space unless the application will
-/// *tell* it where a screen point lands in document space. This is that
-/// channel, and it exists from S0 so the harness written at S1 has
-/// something to read on its first run rather than needing the canvas
-/// reopened to add it.
-///
-/// Two spaces are reported because the harness needs both and the
-/// distinction is exactly where coordinate bugs live:
-/// `page=` is **canvas space** (Y-down, origin top-left, `/Rotate` applied),
-/// `pdf=` is genuine **PDF user space** (Y-up, un-rotated lower-left origin)
-/// — the frame an annotation `/Rect` is written in.
-///
-/// Costs nothing when tracing is off: [`crate::diag::trace_changed`] takes a
-/// closure and never calls it.
-///
-/// # Why this is gated on movement
-///
-/// It was not, and that was a real defect: `pointer_latest_pos` returns the
-/// **last known** position, not "the position it moved to this frame", so a
-/// stationary pointer over the canvas re-reported the same three coordinate
-/// pairs on every single frame. Measured on the S1 binary: **50 identical
-/// lines in 9 seconds.** A driven run is minutes long, so the events that
-/// actually matter — an open, a click, a deletion — end up separated by
-/// thousands of lines saying nothing, and `ui-verify` re-parses the whole
-/// capture after every settle.
-///
-/// The gate is [`crate::diag::trace_changed`] rather than a hand-rolled
-/// comparison against a stored `Pos2` for a specific reason: the printed line
-/// is the thing the consumer reads, so the printed line is the right unit of
-/// "changed". A movement too small to alter `{:.2}` is a movement no parser
-/// could have seen.
-///
-/// The line's *shape* is unchanged and must stay so — `screen=`, `page=`,
-/// `pdf=` and `zoom=` are the contract, and only how often it is written has
-/// been fixed.
-fn trace_pointer(ui: &egui::Ui, doc: &OpenDoc, image_rect: Rect, extent: (f32, f32)) {
-    if !crate::diag::enabled() {
-        return;
-    }
-    let Some(screen) = ui.ctx().pointer_latest_pos() else {
-        return;
-    };
-    let page = viewer::screen_to_page(screen, image_rect, extent, doc.view.zoom);
-    let pdf = doc
-        .current_page()
-        .and_then(|p| viewer::canvas_to_pdf_space(page, p));
-    crate::diag::trace_changed(POINTER_SLOT, || {
-        format!(
-            // ui-text-exempt: diagnostic trace, never displayed in the UI.
-            // Placed directly above the literal — see `trace_layout`.
-            "canvas-pointer screen=({:.1},{:.1}) page=({:.2},{:.2}) pdf={} zoom={:.4}",
-            screen.x,
-            screen.y,
-            page.x,
-            page.y,
-            pdf.map_or_else(|| "none".to_owned(), |p| format!("({:.2},{:.2})", p.x, p.y)),
-            doc.view.zoom,
-        )
-    });
 }

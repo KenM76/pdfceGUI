@@ -168,6 +168,15 @@ pub const DOCK_TAB: &str = "dock.tab";
 /// Right-click on an object row in the Objects panel.
 pub const OBJECTS_ROW: &str = "objects.row";
 
+/// Right-click on a page tile in the Pages panel.
+///
+/// Spelled here **and** in `crate::panels::pages::PAGES_ROW`, which is the one
+/// duplication this module tolerates and only because the panel attaches the
+/// menu before this file could hand it a constant: the two are asserted equal
+/// by that panel's own test, so a rename that touches one fails rather than
+/// silently detaching every tile's menu.
+pub const PAGES_ROW: &str = "pages.row";
+
 /// Every context id this module defines, for the sweeps in [`tests`].
 ///
 /// Hand-written, and pinned by
@@ -175,7 +184,13 @@ pub const OBJECTS_ROW: &str = "objects.row";
 /// [`built_in`] itself, so a menu added to the document without an entry
 /// here — or an entry here with no menu — fails rather than silently
 /// halving a test sweep.
-pub const CONTEXTS: &[&str] = &[CANVAS_OBJECT, CANVAS_EMPTY, DOCK_TAB, OBJECTS_ROW];
+pub const CONTEXTS: &[&str] = &[
+    CANVAS_OBJECT,
+    CANVAS_EMPTY,
+    DOCK_TAB,
+    OBJECTS_ROW,
+    PAGES_ROW,
+];
 
 // ===========================================================================
 // The document
@@ -310,6 +325,41 @@ pub fn built_in() -> Menus {
         // is the commit `ObjectTreeUi::focus` names.
         // -------------------------------------------------------------------
         .with(Menu::new(OBJECTS_ROW).with_items([Item::command("file.properties")]))
+        // -------------------------------------------------------------------
+        // pages.row — a page tile in the Pages panel.
+        //
+        // ★ Unlike `objects.row`, this menu carries **destructive** verbs, and
+        // that is right rather than inconsistent. The distinction is what the
+        // right-click is *about*:
+        //
+        // * an Objects row names a paint-order index the panel has *focused*,
+        //   which is deliberately not the canvas selection — so a Delete there
+        //   would be enabled by `selection.any` and would remove objects the
+        //   operator never pointed at (see that menu's own note);
+        // * a Pages tile names **the page selection**, which the panel owns and
+        //   which the `pages.*` commands already act on. The verbs below are
+        //   the same ones on the Pages tab, reaching the same selection, so a
+        //   right-click here cannot act on anything a click on the tab would
+        //   not.
+        //
+        // `RIBBON_IA.md` §5.8's rule — a context menu carries the same commands
+        // again, never new ones — is therefore literally true of this list:
+        // every id is registered, gated and drawn on Pages ▸ Organise or
+        // Pages ▸ Transform.
+        //
+        // The order is the order of use: move, then extract, then rotate, then
+        // the one that cannot be undone. Delete last, and separated from the
+        // rest by everything above it, because a menu that puts a destructive
+        // verb under the pointer's resting position gets pressed by accident.
+        // -------------------------------------------------------------------
+        .with(Menu::new(PAGES_ROW).with_items([
+            Item::command("pages.move_up"),
+            Item::command("pages.move_down"),
+            Item::command("pages.extract"),
+            Item::command("pages.rotate_left"),
+            Item::command("pages.rotate_right"),
+            Item::command("pages.delete"),
+        ]))
 }
 
 // ===========================================================================

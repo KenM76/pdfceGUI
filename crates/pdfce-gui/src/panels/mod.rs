@@ -12,6 +12,8 @@
 //! | [`fonts`] | `file.fonts` | `panels_structure.rs` |
 //! | [`objects`] | `view.panel_objects` | `main.rs` + `object_provider.rs` + `object_summary.rs` |
 //! | [`properties`] | `file.properties` | **new** — `RIBBON_IA.md` §5.8 |
+//! | [`forms`] | `edit.form_fill` | `panels_forms.rs` |
+//! | [`pages`] | `view.panel_pages` — **not registered; see that module** | `main.rs::thumbnail_rail` + `raster::ThumbnailCache` |
 //!
 //! ## ★ These panels once had no way in
 //!
@@ -149,6 +151,7 @@ pub mod fonts;
 pub mod forms;
 pub mod layers;
 pub mod objects;
+pub mod pages;
 pub mod properties;
 pub mod signatures;
 
@@ -185,6 +188,17 @@ pub enum Panel {
     /// renaming and grouping fields are `Edit ▸ Forms` authoring work
     /// behind a different certification gate, and are deliberately absent.
     Forms,
+    /// The document's pages, as pictures — navigate, pick, and act on
+    /// sheets.
+    ///
+    /// The only panel offered by **all three** modes, and the only one whose
+    /// body renders anything. Both facts are argued in [`pages`]' own header:
+    /// the first from `README.md`'s ruling that page operations do not alter
+    /// content, so a reviewer may rotate and extract without leaving the
+    /// stance Review takes; the second from `BENCHMARK.md`'s measurement that
+    /// a two-pixel render of a dense drawing costs 691 ms — which is why this
+    /// panel has a rendering *policy* rather than a loop.
+    Pages,
 }
 
 impl Panel {
@@ -195,7 +209,7 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
@@ -203,6 +217,7 @@ impl Panel {
         Self::Objects,
         Self::Properties,
         Self::Forms,
+        Self::Pages,
     ];
 
     /// The ribbon command that shows this panel.
@@ -242,6 +257,19 @@ impl Panel {
             // — it had no dispatch arm, which is precisely the class of
             // half-built surface this module's header is about.
             Self::Forms => "edit.form_fill",
+            // ★ **This command is not registered in this build**, and the
+            // panel is therefore filtered out of every arrangement by
+            // `SHELL_FRAMEWORK.md` §5b — see `pages`' own header, which
+            // carries the account and the exact lines needed.
+            //
+            // The id is `RIBBON_IA.md`'s and `crate::app::modes`' both:
+            // `modes::spec` has named it in all three default arrangements
+            // since before this panel existed, and `modes::ABSENT_PANELS`
+            // carried the matching "not built yet" entry, which this panel's
+            // arrival removes. It is on View ▸ Panels rather than anywhere
+            // else because a thumbnail grid answers *"what is on my
+            // screen"* — it is a navigator, and navigators live in View.
+            Self::Pages => "view.panel_pages",
         }
     }
 
@@ -292,10 +320,13 @@ impl Panel {
     /// [`MenuHost`]), in which case no panel attaches a menu and a
     /// right-click does nothing.
     ///
-    /// **Only the Objects panel has a menu today.** The other five return
-    /// an empty `Vec` because `crate::shell::menus` defines no context for
-    /// them, and a menu defined for a surface with nothing to offer would
-    /// not open anyway — which is the rule, not a workaround.
+    /// **Two panels attach a menu today**, and only one of them can open
+    /// one. Objects attaches `objects.row`, which `crate::shell::menus`
+    /// defines. [`pages`] attaches `pages.row`, which it does **not** — so
+    /// that right-click opens nothing at all, which is the correct behaviour
+    /// for a surface with nothing to offer and becomes the intended menu the
+    /// day the context is defined, with no edit in the panel. The other five
+    /// return an empty `Vec` because no context is defined for them either.
     #[must_use]
     pub fn show(
         self,
@@ -325,6 +356,9 @@ impl Panel {
             Self::Objects => return objects::body(ui, doc, state, host, actions),
             Self::Properties => properties::body(ui, doc, state, actions),
             Self::Forms => forms::body(ui, doc, state, actions),
+            // The second panel with a menu, and the second `return` for the
+            // same reason: it has tokens to hand back.
+            Self::Pages => return pages::body(ui, doc, state, host, actions),
         }
         Vec::new()
     }
@@ -395,6 +429,31 @@ pub struct PanelsState {
     /// derived from the document now lives on `OpenDoc`, and this is what was
     /// left when it went.
     tree: ObjectTreeUi,
+    /// The Pages panel's picked sheets and its thumbnail cache.
+    ///
+    /// # ★ Why this cache lives here and not on `OpenDoc`
+    ///
+    /// Every other derived cache moved to `crate::app::state::OpenDoc` at S4,
+    /// and the argument for that move — *"the document's own lifetime bounds
+    /// them and no identity key is needed at all"* — applies to thumbnails
+    /// word for word. It is still right for this one to be here, for a reason
+    /// that is about **borrowing** rather than about lifetime.
+    ///
+    /// A panel body is handed `&OpenDoc`, shared, which is the compile-time
+    /// half of actions-not-mutations. Filling a cache on `OpenDoc` would
+    /// therefore need interior mutability — which the two existing caches
+    /// have (`RefCell`) and which this module's own header permits for
+    /// *derived* data. But a thumbnail cache is not only filled: it is
+    /// **evicted from, and stopped**, by a control the operator clicks, and
+    /// `ThumbnailCache::force_on` is state that decides whether work happens
+    /// at all. Putting a `RefCell` around that would put an operator
+    /// instruction behind interior mutability, which is precisely the line
+    /// this module's header draws for the Layers panel.
+    ///
+    /// `&mut PanelsState` is already threaded to every body, so the panel's
+    /// own state needs no such device — and the forgetting is free, because
+    /// [`Self::forget_document`] resets this struct whole.
+    pages: pages::PagesUi,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -550,6 +609,34 @@ impl PanelsState {
     /// [`ObjectTreeUi::set_focus`].
     pub fn set_focus(&mut self, index: usize) {
         self.tree.set_focus(index);
+    }
+
+    /// The Pages panel's own state — its picked sheets and its thumbnails.
+    ///
+    /// Handed out whole for the same reason [`Self::tree_mut`] is: the body
+    /// reads the cache while it lays tiles out and writes the selection while
+    /// it reads the clicks, and splitting that into accessors per field would
+    /// cost it the ability to hold one borrow for the frame.
+    pub fn pages_mut(&mut self) -> &mut pages::PagesUi {
+        &mut self.pages
+    }
+
+    /// **The pages the operator has picked in the Pages panel.**
+    ///
+    /// ★ Read-only, and this is the accessor a `pages.*` dispatch arm must
+    /// use when the first one lands. The ribbon's Pages tab already promises
+    /// this set in every one of its tooltips — `pages.delete` is *"Remove
+    /// **the selected pages** from this document"* — and
+    /// `crate::shell::commands`' comment on that band says those verbs
+    /// *"respect the thumbnail rail's selection when there is one"*.
+    ///
+    /// It is exposed *before* anything reads it, deliberately, because the
+    /// alternative is that the first arm to arrive invents a second page
+    /// selection of its own — the exact drift [`ObjectTreeUi::focus`]'s docs
+    /// refuse for objects. Empty is a defined answer, not a missing one: with
+    /// nothing picked those commands act on the current page.
+    pub fn selected_pages(&self) -> &std::collections::BTreeSet<usize> {
+        self.pages.selection.pages()
     }
 }
 
@@ -747,6 +834,7 @@ mod tests {
                 Panel::Objects => 4,
                 Panel::Properties => 5,
                 Panel::Forms => 6,
+                Panel::Pages => 7,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

@@ -379,6 +379,87 @@ mod tests {
         assert!(page.contains(m.to_page(Pos2::new(200.0, 300.0))));
     }
 
+    /// ★ **Each page of a strip gets its OWN mapping, and they are not
+    /// interchangeable.**
+    ///
+    /// The failure this pins is the one Phase 4 was most likely to ship
+    /// silently: under a continuous mode the Find wash has to be painted for
+    /// several pages at once, and painting them all through the *acting*
+    /// page's mapping would stack every page's highlights onto one page. The
+    /// hits would still be found, the wash would still be drawn, and it would
+    /// be drawn in the wrong place — which reads as a highlight bug rather
+    /// than a mapping one, and is exactly the class `canvas/mod.rs`'s own
+    /// centring comment records the old GUI shipping.
+    ///
+    /// Asserted as the *outcome*: the same canvas point — the top-left corner
+    /// of a page — projects to each page's own screen origin through that
+    /// page's mapping, and to somewhere else entirely through its neighbour's.
+    /// The second half is what makes this a test rather than a tautology; a
+    /// build in which the two mappings were accidentally equal would pass the
+    /// first half.
+    #[test]
+    fn each_page_of_a_strip_has_its_own_mapping() {
+        use crate::viewer::PageDisplay;
+        use crate::viewer::strip::Strip;
+        use pdfce_core::object::{Dict, ObjId};
+        use pdfce_core::page_tree::{Page, Rect as PageRect};
+
+        let pages: Vec<Page> = (0..3)
+            .map(|_| Page {
+                id: ObjId::new(1, 0),
+                resources: Dict::new(),
+                media_box: PageRect::from_corners(0.0, 0.0, 612.0, 792.0),
+                crop_box: PageRect::from_corners(0.0, 0.0, 612.0, 792.0),
+                rotate: 0,
+                contents: Vec::new(),
+                contents_unresolved: 0,
+            })
+            .collect();
+        let zoom = 1.5_f32;
+        let strip = Strip::new(&pages, PageDisplay::Continuous, 0, zoom);
+        // The strip's own origin on screen, somewhere non-zero so a mapping
+        // that forgot it would still pass every *distance* assertion.
+        let strip_origin = egui::vec2(37.0, 11.0);
+        let extent = crate::viewer::page_extent_pts(&pages[0]);
+
+        let maps: Vec<(usize, PageMapping)> = strip
+            .placements()
+            .map(|p| {
+                (
+                    p.page,
+                    PageMapping::new(p.rect.translate(strip_origin), extent, zoom),
+                )
+            })
+            .collect();
+        assert_eq!(maps.len(), 3, "the strip must lay out every page");
+
+        // A hit at the top-left of its own page lands at that page's own
+        // screen origin — through that page's map.
+        for (page, map) in &maps {
+            let rect = strip
+                .rect_of(*page)
+                .expect("laid out")
+                .translate(strip_origin);
+            let landed = map.to_screen(Pos2::ZERO);
+            assert!(
+                (landed - rect.min).length() < 1e-2,
+                "page {page}: {landed:?} is not that page's origin {:?}",
+                rect.min
+            );
+        }
+
+        // …and through the WRONG page's map it lands somewhere else, by a
+        // whole page height plus the row gap. This is the defect, measured.
+        let wrong = maps[0].1.to_screen(Pos2::ZERO);
+        let right = maps[1].1.to_screen(Pos2::ZERO);
+        let apart = (right.y - wrong.y).abs();
+        assert!(
+            apart > 700.0,
+            "the two mappings differ by only {apart} pt; a highlight painted \
+             through the wrong one would look almost correct, which is worse"
+        );
+    }
+
     /// A degenerate page maps everything to the origin rather than to NaN —
     /// `viewer`'s "fail to a finite, harmless value" discipline, inherited
     /// rather than re-implemented.

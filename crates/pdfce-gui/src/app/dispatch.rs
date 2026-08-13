@@ -203,6 +203,24 @@ impl PdfceApp {
             "view.tool_hand" => {
                 let _ = crate::canvas::tool::toggle_hand(ctx);
             }
+            // ★ **The four positions of View ▸ Page display.**
+            //
+            // One arm for the whole radio, because the id *is* the operand:
+            // `crate::shell::commands::page_display_for_command` is the single
+            // binding between a command id and a
+            // `crate::viewer::PageDisplay`, and its inverse is what publishes
+            // the `selected:` condition that renders the active position
+            // pressed. Four arms would be four places for that mapping to be
+            // spelled, and the fifth mode would be added to three of them.
+            //
+            // An id the mapping does not know cannot reach here — the match is
+            // gated on the same function — so there is no "unknown mode" arm
+            // to write.
+            id if crate::shell::commands::page_display_for_command(id).is_some() => {
+                if let Some(display) = crate::shell::commands::page_display_for_command(id) {
+                    actions.push(Action::SetPageDisplay(display));
+                }
+            }
             "view.zoom_in" => actions.push(Action::ZoomIn),
             "view.zoom_out" => actions.push(Action::ZoomOut),
             // `ZoomTo(1.0)`, not `Fit(FitMode::None)`. The latter only stops the

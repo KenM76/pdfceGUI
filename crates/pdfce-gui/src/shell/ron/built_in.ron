@@ -101,6 +101,9 @@
                     caption: "Page display",
                     items: [
                         Command("view.page_single"),
+                        Command("view.page_continuous"),
+                        Command("view.page_facing"),
+                        Command("view.page_facing_continuous"),
                     ],
                 ),
                 (
@@ -145,6 +148,7 @@
                     caption: "Panels",
                     items: [
                         Command("view.sidebar"),
+                        Command("view.panel_pages"),
                         Command("view.panel_bookmarks"),
                         Command("view.panel_layers"),
                         Command("view.panel_signatures"),
@@ -419,6 +423,17 @@
             context: "objects.row",
             items: [
                 Command("file.properties"),
+            ],
+        ),
+        (
+            context: "pages.row",
+            items: [
+                Command("pages.move_up"),
+                Command("pages.move_down"),
+                Command("pages.extract"),
+                Command("pages.rotate_left"),
+                Command("pages.rotate_right"),
+                Command("pages.delete"),
             ],
         ),
     ],

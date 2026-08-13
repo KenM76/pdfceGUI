@@ -128,9 +128,11 @@ the blocker named.
 
 | | |
 |---|---|
-| ⬜ | **Continuous scroll**, and **Read defaults to it** |
-| ⬜ | **Facing** and **facing-continuous** |
-| ⬜ | Per-document persistence of the choice, so a sheet set does not inherit a report's setting |
+| ✅ | **Continuous scroll**, and **Read defaults to it**. Single page stays the default everywhere else and is unchanged — the strip lays out one row for it, so its size, scroll range and centring margin are the same arithmetic they were, asserted as an equality rather than as an intention |
+| ✅ | **Facing** and **facing-continuous**, cover page alone. Fit and the raster ceiling became per-*row*: a spread fits as a spread, and the ceiling is a minimum over the row's pages because a spread is two pixmaps rather than one |
+| ✅ | Per-document persistence of the choice, so a sheet set does not inherit a report's setting. A third store, `page-display.txt`, beside `layout.ron` and `recent.txt` — `recent.rs`'s own header had already refused to become one |
+| ✅ | **Only visible pages rasterize**, one at a time, nearest the viewport centre first, bounded by a texel budget. Measured: a scroll across four pages of a 20-page document whose pages cost ~460 ms each spent **four** renders, none cancelled and none evicted |
+| ✅ | **An undrawn page says so** — its real boundary, a fill that is visibly not paper, and a sentence naming the page and its state, centred in the part of the page on screen. Both the fill and the placement were corrected from a screenshot of a driven scroll after every test was green |
 
 ### Phase 5 — text editing
 

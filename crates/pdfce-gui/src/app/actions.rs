@@ -343,6 +343,37 @@ pub enum Action {
     /// default, and revealing those would be a different act from undoing
     /// the operator's own hiding.
     ResetLayers,
+    /// **Choose how many pages are on screen, and in what arrangement.**
+    ///
+    /// The four positions of View ▸ Page display, as one action carrying which
+    /// — because they are a radio and an action per position would be four
+    /// arms doing the same thing to four different constants.
+    ///
+    /// # It is a view stance, and it still goes through the funnel
+    ///
+    /// Same nature as [`Self::ToggleAnnotations`] and [`Self::SetLayerVisible`]:
+    /// it changes what is drawn and nothing a save would write, so it does not
+    /// bump `edit_epoch`. It goes through the funnel anyway for the reason the
+    /// funnel exists — the mode is changed from a ribbon button *while the
+    /// canvas is drawing the old arrangement*, and applying it mid-frame would
+    /// leave the frame's layout, its scroll offset and its texture lookups
+    /// describing two different modes at once.
+    ///
+    /// # ★ Applying it does three things, and the third is why this is not a
+    /// one-line arm
+    ///
+    /// 1. **sets `view.display`** — the arrangement itself;
+    /// 2. **remembers it against this document**, through
+    ///    [`crate::viewer::remembered`], which is the operator's requirement of
+    ///    2026-08-12: *"so a sheet set does not inherit a report's setting."*
+    ///    Recording it here rather than in the dispatcher is deliberate — a
+    ///    customized keymap can reach the command too, and a choice made by a
+    ///    chord must persist exactly as one made by a click;
+    /// 3. **drops the strip's cached rasters**, because a mode change is the
+    ///    one event that makes a *visible* page stop being visible. Leaving
+    ///    them would hold GPU memory for pages that cannot be reached until the
+    ///    operator switches back.
+    SetPageDisplay(crate::viewer::PageDisplay),
     /// Show or hide annotations as a class.
     ///
     /// Same nature as [`Self::SetLayerVisible`] — a view stance, tracked by
@@ -604,6 +635,37 @@ impl PdfceApp {
             } => {
                 vector_edit(doc, "move-node", page, 1, |session| {
                     session.move_node(page, object, node, to)
+                });
+            }
+            // ★ The three things a mode change does. See the variant's docs
+            // for why each one is here and not somewhere more convenient.
+            //
+            // The no-op guard is not an optimisation: the ribbon raises this
+            // on every click, including a click on the position that is
+            // already active, and without the guard each of those would drop
+            // every strip raster and re-render the visible pages.
+            Action::SetPageDisplay(display) => {
+                if doc.view.display != display {
+                    doc.view.display = display;
+                    doc.strip_rasters.clear();
+                    // `tracked_page` follows, so the new arrangement does not
+                    // read the current page as "navigated to" and scroll to it
+                    // on its first frame.
+                    doc.tracked_page = doc.view.page_index;
+                }
+                // Recorded unconditionally, because the operator has stated a
+                // choice and a document that was showing the mode by *default*
+                // has nothing on disk saying so. `remember` is itself a no-op
+                // when the file already says this, so a repeated click still
+                // costs no write.
+                crate::viewer::remembered::remember(&doc.path, display);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!(
+                        "page-display-set mode={} page={}",
+                        display.id(),
+                        doc.view.page_index
+                    )
                 });
             }
             Action::SetLayerVisible { group, visible } => doc.set_layer_visible(group, visible),

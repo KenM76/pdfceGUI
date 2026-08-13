@@ -62,17 +62,24 @@
 //!
 //! ## ★ Panels this build does not have
 //!
-//! The defaults above name `view.panel_pages` and `view.panel_comments`,
-//! and **this build registers neither** — see [`ABSENT_PANELS`]. That is
-//! deliberate, and it is the `SHELL_FRAMEWORK.md` §5b mechanism rather than
-//! an oversight: [`layout_for_build`] filters every default through the
-//! live [`PanelCatalog`], so an id nothing registers is simply not mounted,
-//! and the day a Pages panel is registered under that id it appears in the
-//! defaults with no edit here at all.
+//! The defaults above name `view.panel_pages` and `view.panel_comments`.
+//! **Comments has no panel at all** — see [`ABSENT_PANELS`]. **Pages now
+//! has one** (`crate::panels::Panel::Pages`) and is *still* not mounted,
+//! because its ribbon command is not registered and
+//! `crate::app::PdfceApp::new` registers a panel only if its command is.
+//!
+//! Both are the `SHELL_FRAMEWORK.md` §5b mechanism rather than an oversight,
+//! and the pair is worth keeping in view because they are the two halves of
+//! the same rule: [`layout_for_build`] filters every default through the
+//! live [`PanelCatalog`], so an id nothing registers is simply not mounted —
+//! whether what is missing is the body or the command.
 //!
 //! Writing the *intended* arrangement and filtering it is strictly better
 //! than writing only what exists today, because the alternative is that the
-//! intent lives in a document nobody re-reads when the panel lands.
+//! intent lives in a document nobody re-reads when the panel lands. The
+//! Pages panel is the worked proof of that: it was built long after these
+//! defaults were written, and the day its command is registered it appears
+//! in all three with **no edit in this file at all**.
 //! `every_default_panel_is_registered_or_declared_absent` is what keeps
 //! [`ABSENT_PANELS`] honest in both directions.
 //!
@@ -160,14 +167,26 @@ pub fn mode_of_workspace(name: &str) -> Option<&str> {
 /// panel lands, the suite fails until this entry is removed — which is the
 /// same commit in which the default starts mounting it.
 pub const ABSENT_PANELS: &[(&str, &str)] = &[
-    (
-        "view.panel_pages",
-        // ui-text-exempt: developer note about an ABSENT panel; never rendered.
-        "N — page thumbnails have no panel in this build; `shell::manifest::PLANNED` \
-         carries the matching command. Named here because Read and Review are \
-         thumbnail-first arrangements and the default should acquire it the day it \
-         is registered, not the day someone re-reads MODES_AND_PANELS.md.",
-    ),
+    // ★ `view.panel_pages` WAS here, and its removal is what
+    // `every_default_panel_is_registered_or_declared_absent` predicted:
+    // *"the day either panel lands, the suite fails until this entry is
+    // removed — which is the same commit in which the default starts
+    // mounting it."* `crate::panels::Panel::Pages` now implements it, so the
+    // entry had to go or that test would fail from the other direction.
+    //
+    // **The panel is still not reachable**, and the distinction is exactly
+    // the one this list is for. It is no longer an *absent panel* — the body
+    // exists, `Panel::ALL` enumerates it, and `layout_for` mounts it. What is
+    // absent is the **command** `view.panel_pages`, which lives in
+    // `crate::shell::manifest::PLANNED` and must be registered in
+    // `crate::shell::commands` and referenced by a `View ▸ Panels` control
+    // before `crate::app::PdfceApp::new`'s panel registry will accept it. See
+    // `crate::panels::pages`' header for the exact lines.
+    //
+    // Nothing here changes when that happens: `layout_for_build` filters
+    // through the live catalog, so the panel appears in all three defaults on
+    // the frame the command is registered and this file is untouched — which
+    // is what this whole mechanism was for.
     (
         "view.panel_comments",
         // ui-text-exempt: developer note about an ABSENT panel; never rendered.
@@ -207,10 +226,21 @@ struct ModeSpec {
     right_width: f32,
 }
 
-/// The Pages panel's id. Absent from this build — see [`ABSENT_PANELS`].
-const PAGES: &str = "view.panel_pages";
 /// The Comments panel's id. Absent from this build — see [`ABSENT_PANELS`].
 const COMMENTS: &str = "view.panel_comments";
+
+/// The Pages panel's id.
+///
+/// A function rather than the `const` it used to be, because the panel now
+/// exists and its id must come from [`Panel::command_id`] like every other
+/// one — a second spelling of the same string is a second thing to keep in
+/// step, and [`SideSpec`]'s own doc comment explains why that matters here.
+///
+/// It is a function and not an inline call only so the three arms below read
+/// the same way they did, and so this doc comment has somewhere to live.
+fn pages() -> &'static str {
+    Panel::Pages.command_id()
+}
 
 /// The default width of a navigator dock, in points.
 ///
@@ -271,7 +301,7 @@ fn spec(mode_id: &str) -> ModeSpec {
         // an inspector in a mode with no edit verbs is a panel whose every
         // row is a fact you cannot act on.
         "read" => ModeSpec {
-            left: vec![vec![PAGES, Panel::Bookmarks.command_id()]],
+            left: vec![vec![pages(), Panel::Bookmarks.command_id()]],
             right: Vec::new(),
             left_width: NAVIGATOR_WIDTH,
             right_width: INSPECTOR_WIDTH,
@@ -302,7 +332,7 @@ fn spec(mode_id: &str) -> ModeSpec {
         // ribbon, and the taxonomy should be amended openly rather than
         // quietly bent here.
         "review" => ModeSpec {
-            left: vec![vec![PAGES, Panel::Bookmarks.command_id()]],
+            left: vec![vec![pages(), Panel::Bookmarks.command_id()]],
             right: vec![vec![
                 COMMENTS,
                 Panel::Properties.command_id(),
@@ -320,7 +350,7 @@ fn spec(mode_id: &str) -> ModeSpec {
         // rather than two tabs of one.
         "edit" => ModeSpec {
             left: vec![
-                vec![PAGES, Panel::Bookmarks.command_id()],
+                vec![pages(), Panel::Bookmarks.command_id()],
                 vec![
                     Panel::Layers.command_id(),
                     Panel::Signatures.command_id(),
@@ -755,7 +785,7 @@ mod tests {
     #[test]
     fn the_three_defaults_are_the_specified_arrangements() {
         let read = layout_for("read");
-        assert_eq!(ids(&read), [PAGES, Panel::Bookmarks.command_id()]);
+        assert_eq!(ids(&read), [pages(), Panel::Bookmarks.command_id()]);
         assert!(
             read.right.is_empty(),
             "Read is a reader: no inspector at all"
@@ -768,7 +798,7 @@ mod tests {
         }
 
         let review = layout_for("review");
-        assert!(review.left.panels().any(|p| p.as_str() == PAGES));
+        assert!(review.left.panels().any(|p| p.as_str() == pages()));
         assert_eq!(
             review
                 .right
@@ -843,9 +873,31 @@ mod tests {
     #[test]
     fn a_default_drops_panels_this_build_does_not_register() {
         let registry = registry();
+        // `registry()` is *"the panel registry a full build would have"* —
+        // every panel this crate implements, which now includes Pages. The
+        // live build's registry is smaller, because it drops any panel whose
+        // command is unregistered; that filtering is the same code path, and
+        // asserting it here would test `PdfceApp::new`'s registry rather than
+        // this module's arrangement.
         let read = layout_for_build("read", &registry);
-        assert_eq!(ids(&read), [Panel::Bookmarks.command_id()]);
+        assert_eq!(
+            ids(&read),
+            [Panel::Pages.command_id(), Panel::Bookmarks.command_id()]
+        );
         assert!(read.right.is_empty());
+
+        // …and a registry WITHOUT Pages still drops it, which is the property
+        // the live build depends on today.
+        let mut without_pages = PanelRegistry::new();
+        for panel in Panel::ALL.into_iter().filter(|p| *p != Panel::Pages) {
+            let id = panel.command_id();
+            without_pages.register(PanelInfo::new(id, id));
+        }
+        assert_eq!(
+            ids(&layout_for_build("read", &without_pages)),
+            [Panel::Bookmarks.command_id()],
+            "a panel the catalog does not hold must not be mounted"
+        );
 
         let review = layout_for_build("review", &registry);
         assert_eq!(

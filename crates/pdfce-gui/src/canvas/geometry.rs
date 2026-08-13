@@ -140,6 +140,128 @@ pub fn offset_holding_anchor_at(
     )
 }
 
+// ---------------------------------------------------------------------------
+// The strip ⟷ page-local bridge  (Phase 4)
+// ---------------------------------------------------------------------------
+//
+// ★ **Why this pair exists, and what it buys.**
+//
+// Before Phase 4 the scroll area's content was one page, so a scroll offset and
+// a page-relative offset were the same number. Under a continuous mode the
+// content is a *strip* of pages and they are not — which threatens two solves
+// that are deliberately owned elsewhere and must not be reimplemented here:
+//
+// * [`crate::canvas::zoom`] anchors every zoom against `ZoomAnchor`, whose
+//   fields are a page fraction, a "before" offset and a "before" drawn size;
+// * `crate::find::reveal::take_reveal_offset` scrolls a search hit into the
+//   middle of the viewport from a page fraction and a page drawn size.
+//
+// Neither module is this work's to edit, and neither should be: the anchor
+// rule and the reveal handshake are correct and are each asserted by their own
+// suite. What they need is for the world to keep looking the way they expect —
+// **one page, at the origin of the scroll content** — and that is exactly what
+// these two functions provide. The canvas converts the real strip offset into
+// the offset those solves would see if the current page were the only thing in
+// the scroll area, hands it over, and converts the answer back.
+//
+// The conversion is exact, not an approximation, and
+// [`tests::the_strip_bridge_preserves_where_a_page_point_lands_on_screen`]
+// proves it the only way that matters: by asserting that a page point lands at
+// the same screen position measured either way.
+//
+// One consequence is worth naming rather than discovering. `zoom_anchor_offset`
+// clamps its answer to *the page's own* scroll range before the conversion
+// back, so under a continuous mode an anchored zoom cannot scroll further than
+// the current page's own extent in a single step. That is the same behaviour
+// single-page mode has always had — the clamp is what stops an anchor near an
+// edge from scrolling blank space into view — and applying it per page keeps
+// a zoom about the cursor from throwing the operator onto a different sheet.
+
+/// **Strip offset → the offset a single-page solve expects.**
+///
+/// `page_origin` is the current page's top-left in strip space (from
+/// [`crate::viewer::strip::Strip::rect_of`]); `strip` is the strip's whole
+/// drawn size; `page_display` is the current page's drawn size. Under
+/// [`crate::viewer::PageDisplay::Single`] the origin is `(0,0)` and `strip`
+/// equals `page_display`, so this is the identity — which is the mechanical
+/// form of "the single-page path is untouched", asserted by
+/// [`tests::the_strip_bridge_is_the_identity_for_a_single_page`].
+///
+/// Not clamped, deliberately: the result is fed to solves that do their own
+/// clamping ([`zoom_anchor_offset`]) or that are measuring a hypothetical
+/// (`offset_holding_anchor_at`), and a clamp here would quietly change what
+/// they were asked.
+#[must_use]
+pub fn page_local_offset(
+    strip_offset: (f32, f32),
+    page_origin: (f32, f32),
+    strip: (f32, f32),
+    page_display: (f32, f32),
+    viewport: (f32, f32),
+) -> (f32, f32) {
+    fn axis(off: f32, origin: f32, strip: f32, page: f32, v: f32) -> f32 {
+        let out = off - origin - margin(strip, v) + margin(page, v);
+        if out.is_finite() { out } else { 0.0 }
+    }
+    (
+        axis(
+            strip_offset.0,
+            page_origin.0,
+            strip.0,
+            page_display.0,
+            viewport.0,
+        ),
+        axis(
+            strip_offset.1,
+            page_origin.1,
+            strip.1,
+            page_display.1,
+            viewport.1,
+        ),
+    )
+}
+
+/// **The exact inverse of [`page_local_offset`]: back to a strip offset.**
+///
+/// Clamped to the strip's scrollable range, because *this* is the value that
+/// is handed to a `ScrollArea` — the same division of labour
+/// [`offset_holding_anchor_at`] and [`zoom_anchor_offset`] already observe
+/// between them, where the raw solve is unclamped and the offset that actually
+/// reaches the widget is not.
+#[must_use]
+pub fn strip_offset(
+    page_local: (f32, f32),
+    page_origin: (f32, f32),
+    strip: (f32, f32),
+    page_display: (f32, f32),
+    viewport: (f32, f32),
+) -> (f32, f32) {
+    fn axis(off: f32, origin: f32, strip: f32, page: f32, v: f32) -> f32 {
+        let out = off + origin + margin(strip, v) - margin(page, v);
+        if out.is_finite() {
+            out.clamp(0.0, (strip - v).max(0.0))
+        } else {
+            0.0
+        }
+    }
+    (
+        axis(
+            page_local.0,
+            page_origin.0,
+            strip.0,
+            page_display.0,
+            viewport.0,
+        ),
+        axis(
+            page_local.1,
+            page_origin.1,
+            strip.1,
+            page_display.1,
+            viewport.1,
+        ),
+    )
+}
+
 /// Where the canvas must be scrolled to so the page point under the pointer
 /// stays under the pointer across a zoom step — "zoom to cursor".
 ///
@@ -470,6 +592,118 @@ mod tests {
             offset_holding_anchor_at((f32::NAN, 0.5), (10.0, 10.0), (100.0, 100.0), (80.0, 80.0)),
             // y: margin(100,80) = 0, so 0 + 0.5*100 - 10 = 40.
             (0.0, 40.0)
+        );
+    }
+
+    // ---- the strip ⟷ page-local bridge --------------------------------
+
+    /// ★ **Under single page the bridge is the identity.**
+    ///
+    /// The mechanical form of "continuous is an option, not a replacement":
+    /// the default path must not merely *behave* the same, it must compute the
+    /// same number. With one page in the strip its origin is `(0,0)` and the
+    /// strip's size is the page's, so both terms cancel — at every zoom, and
+    /// with the page both larger and smaller than the viewport (the latter is
+    /// where the centring margin is non-zero and a sloppy conversion would
+    /// show).
+    #[test]
+    fn the_strip_bridge_is_the_identity_for_a_single_page() {
+        let v = (800.0_f32, 600.0_f32);
+        for &page in &[(400.0_f32, 300.0_f32), (1600.0, 2400.0), (800.0, 600.0)] {
+            for &off in &[(0.0_f32, 0.0_f32), (120.0, 55.0), (900.0, 1800.0)] {
+                assert_eq!(page_local_offset(off, (0.0, 0.0), page, page, v), off);
+                // The inverse clamps to the strip's range, which for a page
+                // smaller than the viewport is zero — so compare against the
+                // clamp rather than against the raw input.
+                let expected = (
+                    off.0.clamp(0.0, (page.0 - v.0).max(0.0)),
+                    off.1.clamp(0.0, (page.1 - v.1).max(0.0)),
+                );
+                assert_eq!(strip_offset(off, (0.0, 0.0), page, page, v), expected);
+            }
+        }
+    }
+
+    /// ★ **The bridge preserves where a page point lands on screen.**
+    ///
+    /// The property the whole pair exists for, asserted as an *outcome*: take
+    /// a fraction of the current page, work out where it appears on screen
+    /// from the real strip geometry, then work it out again through the
+    /// page-local view the zoom and reveal solves are handed — and require the
+    /// two to agree. A conversion that dropped either margin term would pass
+    /// every algebraic check and fail this one at exactly the zoom an operator
+    /// starts from.
+    #[test]
+    fn the_strip_bridge_preserves_where_a_page_point_lands_on_screen() {
+        let v = (800.0_f32, 600.0_f32);
+        for &strip in &[(612.0_f32, 4000.0_f32), (1200.0, 500.0), (300.0, 200.0)] {
+            for &page in &[(612.0_f32, 792.0_f32), (300.0, 200.0)] {
+                for &origin in &[(0.0_f32, 0.0_f32), (0.0, 1200.0), (294.0, 2400.0)] {
+                    for &off in &[(0.0_f32, 0.0_f32), (100.0, 900.0)] {
+                        for &frac in &[(0.0_f32, 0.0_f32), (0.5, 0.5), (1.0, 0.25)] {
+                            // Where it really is: the strip's own margin, plus
+                            // the page's origin in the strip, plus the point
+                            // inside the page, less the scroll offset.
+                            let truth = (
+                                (strip.0.max(v.0) - strip.0) / 2.0 + origin.0 + frac.0 * page.0
+                                    - off.0,
+                                (strip.1.max(v.1) - strip.1) / 2.0 + origin.1 + frac.1 * page.1
+                                    - off.1,
+                            );
+                            // Where the single-page solves think it is.
+                            let local = page_local_offset(off, origin, strip, page, v);
+                            let via_bridge = anchor_screen_pos(frac, local, page, v);
+                            assert!(
+                                (via_bridge.0 - truth.0).abs() < 1e-2
+                                    && (via_bridge.1 - truth.1).abs() < 1e-2,
+                                "strip={strip:?} page={page:?} origin={origin:?} off={off:?} \
+                                 frac={frac:?}: {via_bridge:?} vs {truth:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The two directions round-trip, so an offset handed to a single-page
+    /// solve and brought back is the offset it started as — within the strip's
+    /// scrollable range, which the return leg clamps to.
+    #[test]
+    fn the_strip_bridge_round_trips_within_the_scroll_range() {
+        let v = (800.0_f32, 600.0_f32);
+        let strip = (612.0_f32, 4000.0_f32);
+        let page = (612.0_f32, 792.0_f32);
+        let origin = (0.0_f32, 1200.0_f32);
+        for &off in &[(0.0_f32, 0.0_f32), (0.0, 1500.0), (0.0, 3400.0)] {
+            let local = page_local_offset(off, origin, strip, page, v);
+            let back = strip_offset(local, origin, strip, page, v);
+            assert!(
+                (back.0 - off.0).abs() < 1e-2 && (back.1 - off.1).abs() < 1e-2,
+                "{off:?} round-tripped to {back:?}"
+            );
+        }
+    }
+
+    /// The return leg never hands a `ScrollArea` an offset outside its range,
+    /// and a non-finite input yields the origin rather than a NaN that would
+    /// blank the canvas.
+    #[test]
+    fn the_return_leg_clamps_and_survives_a_nan() {
+        let v = (800.0_f32, 600.0_f32);
+        let strip = (612.0_f32, 4000.0_f32);
+        let page = (612.0_f32, 792.0_f32);
+        let out = strip_offset((99_000.0, 99_000.0), (0.0, 0.0), strip, page, v);
+        assert_eq!(out, (0.0, strip.1 - v.1));
+        let out = strip_offset((-9_000.0, -9_000.0), (0.0, 0.0), strip, page, v);
+        assert_eq!(out, (0.0, 0.0));
+        assert_eq!(
+            strip_offset((f32::NAN, 100.0), (0.0, 0.0), strip, page, v).0,
+            0.0
+        );
+        assert_eq!(
+            page_local_offset((f32::NAN, 100.0), (0.0, 0.0), strip, page, v).0,
+            0.0
         );
     }
 

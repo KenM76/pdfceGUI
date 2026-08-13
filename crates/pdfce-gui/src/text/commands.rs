@@ -216,6 +216,64 @@ pub const fn view_page_single() -> CommandText {
     )
 }
 
+/// `view.page_continuous`
+///
+/// The operator's instruction of 2026-08-12 is what this control is, and the
+/// tooltip carries its reasoning rather than a feature description: *"continuous
+/// scroll should be an option under the view tab as the way I move around a
+/// page is great when working with drafting drawings."* So the words say what
+/// it is **for** — a document you read through — and leave single page
+/// standing as the right answer for a sheet set, which it is.
+///
+/// The second sentence states the per-document persistence, because it is
+/// behaviour the operator cannot see until it surprises them: choosing this on
+/// a report and then opening a drawing set must not carry the setting across,
+/// and a control that silently remembers something should say so.
+#[must_use]
+pub const fn view_page_continuous() -> CommandText {
+    CommandText::new(
+        "Continuous",
+        "Scroll through every page in one run, for a document you read rather than a sheet set \
+         you page through. pdfce remembers this choice for this document, so another file keeps \
+         its own.",
+    )
+}
+
+/// `view.page_facing`
+#[must_use]
+pub const fn view_page_facing() -> CommandText {
+    CommandText::new(
+        "Facing",
+        "Show two pages side by side, as an open book. The first page sits alone, so every \
+         later spread pairs the way a bound document does.",
+    )
+}
+
+/// `view.page_facing_continuous`
+#[must_use]
+pub const fn view_page_facing_continuous() -> CommandText {
+    CommandText::new(
+        "Facing continuous",
+        "Scroll through every spread in one run — facing pages, without stopping at each one.",
+    )
+}
+
+/// `view.panel_pages`
+///
+/// The one panel toggle whose tooltip has to say what the panel is *for*
+/// rather than what it contains: a grid of thumbnails is self-explanatory to
+/// look at and not to read about, so the sentence spends its words on the two
+/// verbs — go to a page, and act on several at once — that are not obvious
+/// from the picture.
+#[must_use]
+pub const fn view_panel_pages() -> CommandText {
+    CommandText::new(
+        "Pages",
+        "Show or hide the panel of page thumbnails: click one to go there, and pick several to \
+         act on them together.",
+    )
+}
+
 /// `view.render_strategy`
 ///
 /// The operator decision of 2026-08-12, in one control. Measured on a
@@ -1044,6 +1102,9 @@ mod tests {
             file_settings(),
             file_shortcuts(),
             view_page_single(),
+            view_page_continuous(),
+            view_page_facing(),
+            view_page_facing_continuous(),
             view_render_strategy(),
             view_render_quality(),
             view_render_settle(),
@@ -1055,6 +1116,7 @@ mod tests {
             view_show_annotations(),
             view_show_points(),
             view_sidebar(),
+            view_panel_pages(),
             view_panel_bookmarks(),
             view_panel_layers(),
             view_panel_signatures(),

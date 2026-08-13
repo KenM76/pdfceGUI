@@ -311,6 +311,25 @@ impl RenderKey {
         }
     }
 
+    /// Which page this is a render of.
+    ///
+    /// Added at Phase 4, and it is what makes a strip's routing correct: a
+    /// finished render is labelled with the key it was run from, so
+    /// `crate::render::settle` can file it against the page it is *of* rather
+    /// than against whatever slot asked for it. Those differ exactly when the
+    /// operator scrolled while it was running, which under a continuous mode
+    /// is the common case rather than the rare one.
+    ///
+    /// It is deliberately a separate accessor from [`Self::discrete_inputs`]
+    /// even though that tuple's first element is the same number: that method
+    /// is a *staleness category* and its shape belongs to the debounce policy,
+    /// while this is an identity. A caller that reached for `.0` would be
+    /// reading a policy decision as a fact.
+    #[must_use]
+    pub fn page(&self) -> usize {
+        self.page_index
+    }
+
     /// The inputs whose change must re-rasterize **immediately**.
     ///
     /// See the type docs: none of these has a gesture behind it, so waiting
@@ -583,6 +602,27 @@ impl RenderWorker {
     /// Whether a render is currently running.
     pub fn is_rendering(&self) -> bool {
         self.in_flight.is_some()
+    }
+
+    /// **What the worker is rendering right now**, if anything.
+    ///
+    /// Two callers need it and both are Phase 4's:
+    ///
+    /// * a page that is being drawn *now* says so
+    ///   ([`crate::render::strip::PageState::Drawing`]) rather than saying it
+    ///   is waiting, because those are different promises to the operator;
+    /// * a **failure** arrives from the worker as a bare message with no key
+    ///   of its own, so the page it is about has to be read from the slot
+    ///   before [`Self::poll`] takes it. Without that, a strip page that would
+    ///   not draw would be attributed to the current page and blank the whole
+    ///   canvas.
+    ///
+    /// Returns the whole key rather than the page index because the second
+    /// caller files the failure under it, and a key rebuilt at that call site
+    /// could disagree with the one the render actually ran from.
+    #[must_use]
+    pub fn rendering_key(&self) -> Option<RenderKey> {
+        self.in_flight.as_ref().map(|f| f.key)
     }
 
     /// Stop any in-flight render and wait for the thread to exit.

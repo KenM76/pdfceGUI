@@ -35,5 +35,29 @@
 //!   explicitly post-fold-in work. It would replace what happens *inside*
 //!   the worker, not the worker.
 
+//! ## What Phase 4 added, and why it is two modules rather than one
+//!
+//! Continuous scroll puts several pages on screen. Two things follow, and they
+//! are different kinds of thing:
+//!
+//! | module | subject |
+//! |---|---|
+//! | [`strip`] | *storage* — the bounded cache of the other visible pages' textures, its pixel budget, and what a page with no texture draws instead of a white rectangle |
+//! | [`settle`] | *scheduling* — which page is rasterized next, what waits for a zoom to settle, and how a texture is rehomed when scrolling changes which page is current |
+//!
+//! Neither touches the single-page path: [`strip::StripRasters`] is empty for
+//! the whole of a single-page session, and [`settle`]'s strip pass returns on
+//! an `is_empty` check.
+//!
+//! [`settle`] also holds what used to be the second half of
+//! `crate::app::state` — the per-frame staleness decision — moved here when
+//! Phase 4 doubled its size. That file's header already named the seam: it
+//! answers *"what is open"*, and this answers *"what should the picture be"*.
+
 pub mod raster;
+// The per-frame raster decision, and the strip's scheduling.
+pub mod settle;
+// Several pages at once: the bounded texture cache, and what an undrawn page
+// says about itself.
+pub mod strip;
 pub mod worker;

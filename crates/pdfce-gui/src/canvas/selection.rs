@@ -941,8 +941,55 @@ mod tests {
             view.set_zoom(applied, MAX_ZOOM);
         }
 
-        // The provider is rebuilt on the way — that is what a page step and a
-        // ribbon-tab change do — and the selection must come through it.
+        // ---- Phase 4's page-display modes, in the same sweep ---------------
+        //
+        // ★ Added HERE rather than in a parallel test, for the reason this
+        // test's header already gives about Phase 3's gestures: a page-display
+        // change is navigation, and navigation is governed by this invariant.
+        // A second test asserting the same property about a fifth operation
+        // would be a second place for the property to live and the first one
+        // to be forgotten.
+        //
+        // `FEATURES.md` names "page-display mode" in the list of things the
+        // selection is asserted byte-identical across, and until Phase 4 there
+        // was only one mode — so the clause was true and untested. It is now
+        // exercised: every arrangement, including the two that put several
+        // pages on screen at once, and a full strip laid out for each so the
+        // geometry the mode produces is real rather than nominal.
+        use crate::viewer::{PageDisplay, strip::Strip};
+        use pdfce_core::object::{Dict, ObjId};
+        use pdfce_core::page_tree::{Page, Rect as PageRect};
+
+        let pages: Vec<Page> = (0..4)
+            .map(|_| Page {
+                id: ObjId::new(1, 0),
+                resources: Dict::new(),
+                media_box: PageRect::from_corners(0.0, 0.0, 612.0, 792.0),
+                crop_box: PageRect::from_corners(0.0, 0.0, 612.0, 792.0),
+                rotate: 0,
+                contents: Vec::new(),
+                contents_unresolved: 0,
+            })
+            .collect();
+        for &display in PageDisplay::ALL {
+            view.display = display;
+            let strip = Strip::new(&pages, display, view.page_index, view.zoom);
+            // The mode really does change the layout, or the loop asserts
+            // nothing about the modes it iterates.
+            assert!(!strip.is_empty());
+            let metrics = crate::viewer::strip::row_metrics(&pages, display, view.page_index, 1.0);
+            view.apply_fit(metrics.extent, (900.0, 700.0), metrics.max_zoom);
+        }
+        assert!(
+            Strip::new(&pages, PageDisplay::Continuous, 0, 1.0).size().y
+                > Strip::new(&pages, PageDisplay::Single, 0, 1.0).size().y,
+            "the continuous strip must be taller than one page, or the sweep \
+             above passed through four modes that all laid out the same thing"
+        );
+
+        // The provider is rebuilt on the way — that is what a page step, a
+        // page-display change and a ribbon-tab change do — and the selection
+        // must come through it.
         sel.resolve(Some(&stub(0)), 0, 0);
 
         assert_eq!(

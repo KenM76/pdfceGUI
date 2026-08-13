@@ -476,6 +476,23 @@ impl PdfceApp {
             if crate::canvas::zoom::can_zoom_to_selection(doc) {
                 set.set("selection.bounds");
             }
+            // ★ **The page-display radio's pressed position.**
+            //
+            // `egui_shell::ribbon::selected_condition` is the framework's
+            // convention for "this command is currently ON", and
+            // `render_command` reads it to draw the button pressed. Without
+            // this line View ▸ Page display is four buttons with no indication
+            // of which one you are in — which for a radio is not a cosmetic
+            // gap, it is the control's entire state.
+            //
+            // Exactly one is ever set, because `view.display` is one enum
+            // value and `page_display_command` is a total function over it.
+            // That is what makes it a radio rather than four toggles, and it
+            // is asserted from the registry side by
+            // `shell::commands::tests::every_page_display_mode_has_a_registered_command`.
+            set.set(egui_shell::ribbon::selected_condition(
+                crate::shell::commands::page_display_command(doc.view.display),
+            ));
         }
         // `undo.available` and `redo.available` are still deliberately absent:
         // there is no undo stack to report on yet. Setting them would arm

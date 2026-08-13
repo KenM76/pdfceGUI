@@ -1,15 +1,25 @@
-//! # `app::state` — what is open, and how its picture stays current
+//! # `app::state` — what is open
 //!
-//! Two things live here:
-//!
-//! 1. [`Status`] and [`OpenDoc`] — the shape of "what, if anything, is
-//!    open", and everything one open document owns.
-//! 2. The **raster bookkeeping** — [`PdfceApp::settle_and_rasterize`], the
-//!    per-frame decision about whether the cached page texture is still a
-//!    picture of what the operator is looking at, and if not whether to
-//!    re-rasterize now or wait for a zoom gesture to settle.
+//! One thing lives here: [`Status`] and [`OpenDoc`] — the shape of "what, if
+//! anything, is open", and everything one open document owns.
 //!
 //! ## What is NOT here, and where it went
+//!
+//! The **raster bookkeeping** — the per-frame decision about whether the
+//! cached page texture is still a picture of what the operator is looking at,
+//! and if not whether to re-rasterize now or wait for a zoom gesture to settle
+//! — was the second half of this file until Phase 4 and now lives in
+//! [`crate::render::settle`]. Phase 4 made it considerably larger (one texture
+//! became a texture plus a bounded strip cache, and one staleness question
+//! became two), and the seam is the one this header had already named:
+//! everything here answers *"what is open, and what is the operator looking
+//! at?"*, and everything there answers *"what does the picture need to be, and
+//! what should be done about it this frame?"*. Only the second belongs in
+//! `render/`, beside the worker it schedules.
+//!
+//! The **fields** it reads are still declared below, because that is what
+//! bounds their lifetime and is the whole point of their living on the
+//! document; only the methods moved.
 //!
 //! The two **derived caches** an open document owns — the page decomposition
 //! and the font inventory — live in [`crate::app::cache`], along with the
@@ -54,32 +64,19 @@
 //! ## Rendering happens on state change, never per frame
 //!
 //! egui redraws continuously; rasterizing a PDF page at 60 Hz would be
-//! absurd. The canvas holds one cached [`PageTexture`], and the texture
+//! absurd. The canvas holds one cached [`PageTexture`] for the **current
+//! page**, plus — under a continuous page-display mode only — a bounded cache
+//! of the *other* visible pages ([`OpenDoc::strip_rasters`]). Each texture
 //! carries the [`RenderKey`] it was rendered from — page, raster scale,
-//! annotation visibility, layer-override generation. Staleness is that key
-//! compared against the one the current view wants, and there is deliberately
-//! no second field list to keep in step with it (see [`RenderKey`]'s own
-//! docs; a key compared on one side and not the other is a control that
-//! ticks and redraws nothing).
+//! annotation visibility, layer-override generation — and staleness is that
+//! key compared against the one the view wants, with deliberately no second
+//! field list to keep in step with it (see [`RenderKey`]'s own docs; a key
+//! compared on one side and not the other is a control that ticks and redraws
+//! nothing).
 //!
-//! **Two staleness policies apply**, split by the key's own
-//! `discrete_inputs` / `scale_bits` categories, and the difference is the
-//! whole of why zoom feels smooth:
-//!
-//! - **Discrete change — commit immediately.** A page step, an annotation
-//!   toggle, a layer toggle. None has a gesture in flight and none has an
-//!   intermediate value on the way to it, so any delay is pure latency; for
-//!   a page change there is not even a stale texture worth showing, because
-//!   it is a picture of a different page.
-//! - **Zoom change — debounce by [`ZOOM_SETTLE`]**, drawing the existing
-//!   texture scaled to the new size in the meantime. A Ctrl+wheel gesture
-//!   emits dozens of zoom values on the way to the one the operator wants;
-//!   rasterizing each would burn CPU producing images nobody sees. The
-//!   interim scaled texture is soft, not blank or blocky — which is exactly
-//!   what every other document viewer does, so it reads as normal rather
-//!   than as a glitch. A **discrete** command (Ctrl+0, Ctrl+Plus) bypasses
-//!   the debounce through [`OpenDoc::zoom_commanded`]: there is no gesture in
-//!   flight, so waiting would just feel unresponsive.
+//! **The comparison, the zoom debounce and the strip's scheduling all live in
+//! [`crate::render::settle`]**, which carries the full argument for both
+//! staleness policies. What lives here is the state they read.
 //!
 //! [`OpenDoc`] also carries the page decomposition and the font inventory,
 //! moved off `crate::panels::PanelsState` at S4 so the document's own
@@ -91,7 +88,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use pdfce_core::document::{DocError, Document};
 use pdfce_core::edit::EditSession;
@@ -103,18 +100,9 @@ use pdfce_render::LayerVisibility;
 use crate::app::PdfceApp;
 use crate::app::cache::{FontCache, PageObjectCache};
 use crate::canvas::selection::SelectionState;
-use crate::render::raster::{self, PageTexture};
-use crate::render::worker::{RenderKey, RenderRequest, RenderWorker, RenderedPixels};
+use crate::render::raster::PageTexture;
+use crate::render::worker::{RenderKey, RenderRequest, RenderWorker};
 use crate::viewer::{self, ViewState};
-
-/// How long a zoom must stop changing before it is committed to a real
-/// rasterization.
-///
-/// Long enough to swallow a whole wheel gesture, short enough that a
-/// deliberate single step does not feel laggy. 150 ms is the value the old
-/// shell settled on against real CAD sheets; it is a constant rather than a
-/// literal so the next person to tune it does so once, with a paper trail.
-const ZOOM_SETTLE: Duration = Duration::from_millis(150);
 
 /// What, if anything, is open.
 ///
@@ -230,12 +218,68 @@ pub struct OpenDoc {
     pub pages: Vec<Page>,
     /// Which page, at what zoom, chosen how.
     pub view: ViewState,
-    /// The cached raster, or `None` before the first one arrives.
+    /// The **current page's** cached raster, or `None` before the first one
+    /// arrives.
+    ///
+    /// Its meaning is unchanged by Phase 4 and deliberately so: three surfaces
+    /// outside this module depend on this field and on this spelling —
+    /// `crate::app::status` reads its `diagnostics`, and both
+    /// `crate::app::actions`' `vector_edit` and `crate::panels::forms::edit`
+    /// invalidate it by assigning `None`. None is about a strip. The rule that
+    /// split buys, enforced rather than remembered: **the current page is never
+    /// in [`Self::strip_rasters`]** — see
+    /// [`crate::render::strip::StripRasters`], which carries the argument.
     pub page_texture: Option<PageTexture>,
+    /// **The other visible pages' rasters**, under a continuous mode.
+    ///
+    /// Empty for the whole of a single-page session — which is the mechanical
+    /// form of "continuous is an option, not a replacement": the default path
+    /// allocates nothing here and runs the code it ran before Phase 4. Bounded
+    /// by [`crate::render::strip::MAX_CACHED_TEXELS`] and pruned to the
+    /// visible set every frame by [`crate::render::settle`].
+    pub strip_rasters: crate::render::strip::StripRasters,
+    /// **Which pages the canvas drew this frame**, nearest the viewport
+    /// centre first.
+    ///
+    /// Published by [`crate::canvas::show`] during layout and read by
+    /// [`crate::render::settle`] after the frame, because "which pages are on
+    /// screen" is only knowable once the scroll area has settled — the same
+    /// reason [`Self::last_scroll_offset`] is stored rather than derived. It is
+    /// the **complete** input to the strip's scheduling: what to keep, what to
+    /// evict and what to render next all come from this list and the current
+    /// page index. Empty means single page, and the strip pass returns at once.
+    pub strip_visible: Vec<usize>,
+    /// **The page index the canvas last derived from the scroll position.**
+    ///
+    /// The one piece of state that tells a *navigation* apart from a *scroll*
+    /// under a continuous mode, which matters because both write
+    /// [`crate::viewer::ViewState::page_index`]: the canvas writes it every
+    /// frame from where the operator has scrolled to and records the same value
+    /// here, while a page **command** writes it and not this. So
+    /// `page_index != tracked_page` means exactly one thing — something other
+    /// than the scroll asked for a different page. See
+    /// [`crate::canvas::strip::page_scroll_offset`], which is its only reader
+    /// and carries the full argument.
+    pub tracked_page: usize,
+    /// What the render worker was rendering when this frame's poll took its
+    /// slot.
+    ///
+    /// Read *before* [`crate::render::worker::RenderWorker::poll`] and
+    /// consumed by the absorb, for one specific reason: a render **failure**
+    /// arrives as a bare message with no [`RenderKey`], so the page it is
+    /// about is only knowable from the slot it came out of. Without this a
+    /// strip page that would not draw would be attributed to the current page
+    /// and blank the whole canvas.
+    pub render_in_flight: Option<RenderKey>,
     /// Why the current page would not draw, if it would not.
     ///
     /// Held rather than propagated: the document is still open and the
     /// operator can still navigate away from a page that will not draw.
+    ///
+    /// **The current page's**, and only its. A strip page that will not draw
+    /// records its refusal in [`Self::strip_rasters`] and says so in its own
+    /// rect, because one bad sheet in a forty-page set must not replace the
+    /// other thirty-nine with a message.
     pub render_error: Option<String>,
     /// The single-slot background rasterizer.
     pub render_worker: RenderWorker,
@@ -412,6 +456,17 @@ impl OpenDoc {
             observed_zoom: view.zoom,
             view,
             page_texture: None,
+            // Empty by construction, like everything else here. A strip cache
+            // carried across an open would hold textures of another file's
+            // pages under this file's indices.
+            strip_rasters: crate::render::strip::StripRasters::default(),
+            strip_visible: Vec::new(),
+            // Equal to `view.page_index`, so a freshly opened document is not
+            // mistaken for one whose page was navigated to before the first
+            // frame — which would scroll a continuous strip on open for no
+            // reason the operator asked for.
+            tracked_page: 0,
+            render_in_flight: None,
             render_error: None,
             render_worker: RenderWorker::default(),
             // In the past, so the first zoom change commits at once rather
@@ -583,70 +638,75 @@ impl OpenDoc {
     /// next person to restore that checkbox learns which of its three
     /// preconditions is still open without re-deriving the answer.
     pub(crate) fn render_key(&self, raster_scale: f32) -> RenderKey {
+        self.render_key_for(self.view.page_index, raster_scale)
+    }
+
+    /// What a render of **any** page in this view's current settings would be
+    /// *of*.
+    ///
+    /// [`Self::render_key`]'s general form, and the one a continuous strip
+    /// needs: every visible page is rendered with the same scale, annotation
+    /// stance and layer override, so the only thing that varies between them
+    /// is the page index. Written as one function with the current page as a
+    /// special case, rather than two, because two would be two places for the
+    /// annotation stance to be forgotten — and a key that omitted it would
+    /// leave the strip's pages showing annotations after the operator turned
+    /// them off, while the current page obeyed.
+    pub(crate) fn render_key_for(&self, page_index: usize, raster_scale: f32) -> RenderKey {
         RenderKey::new(
-            self.view.page_index,
+            page_index,
             raster_scale,
             self.annotations,
             self.layers.generation,
         )
     }
 
-    /// Hand the current page to a worker and, if it beats the in-frame
-    /// budget, absorb the result immediately.
+    /// Everything a worker needs to rasterize `page_index`, or `None` if there
+    /// is no such page.
     ///
-    /// A failure is recorded in `render_error` rather than propagated: the
-    /// document is still open and the operator can still navigate away from
-    /// a page that will not draw.
-    fn rasterize_current(&mut self, ctx: &egui::Context, raster_scale: f32) {
-        let Some(page) = self.pages.get(self.view.page_index) else {
-            self.page_texture = None;
-            return;
-        };
-        // `spawn` waits a bounded number of milliseconds inline, so a page
-        // that rasterizes quickly returns its pixels here and never touches
-        // the asynchronous path — behaviour identical to a synchronous
-        // render. A page that misses that budget returns `None` and is
-        // collected by `poll_render` on a later frame, with the previous
-        // texture staying on screen meanwhile.
-        let outcome = self.render_worker.spawn(RenderRequest {
-            // The `Arc` is handed over rather than a `DocumentView`, which
-            // is what lets the borrow stay local to the worker thread.
+    /// The one constructor for a [`RenderRequest`], so the current page and a
+    /// strip page cannot be rendered with different options. It exists here,
+    /// on the document, rather than in [`crate::render::settle`] because the
+    /// annotation stance and the layer override are **private** fields of this
+    /// type — and they should stay private: they are changed through
+    /// [`Self::set_annotations_visible`] and [`Self::set_hidden_layers`],
+    /// which are the methods that keep the staleness keys moving.
+    pub(crate) fn render_request_for(
+        &self,
+        page_index: usize,
+        raster_scale: f32,
+    ) -> Option<RenderRequest> {
+        let page = self.pages.get(page_index)?;
+        Some(RenderRequest {
+            // The `Arc` is handed over rather than a `DocumentView`, which is
+            // what lets the borrow stay local to the worker thread.
             session: Arc::clone(&self.session),
             page: page.clone(),
-            page_index: self.view.page_index,
+            page_index,
             raster_scale,
             annotations: self.annotations,
             layers: self.layer_visibility(),
             layers_generation: self.layers.generation,
-        });
-        if let Some(result) = outcome {
-            self.absorb_render(ctx, result);
-        }
-        // Rasterization happens *after* the canvas has already been laid
-        // out this frame, so the new texture cannot be drawn until the next
-        // one. Without this the display would wait for whatever unrelated
-        // input happened to arrive next, which on an idle window is "until
-        // the operator wiggles the mouse" — the page would appear to take
-        // an arbitrarily long time to show up.
-        ctx.request_repaint();
+        })
     }
 
-    /// Turn a finished rasterization into the cached texture.
+    /// **Where every page this view is showing sits**, in one coordinate
+    /// space.
     ///
-    /// Shared by the in-frame fast path and the per-frame poll so the two
-    /// cannot drift: a render that beat the budget and one that took a
-    /// minute must produce exactly the same canvas state.
-    fn absorb_render(&mut self, ctx: &egui::Context, result: Result<RenderedPixels, String>) {
-        match result {
-            Ok(pixels) => {
-                self.page_texture = Some(raster::texture_from_pixels(ctx, &pixels));
-                self.render_error = None;
-            }
-            Err(message) => {
-                self.page_texture = None;
-                self.render_error = Some(message);
-            }
-        }
+    /// Built from the page vector and the view state, so it cannot disagree
+    /// with either. The convenience over calling
+    /// [`crate::viewer::strip::Strip::new`] at each site is not brevity: it is
+    /// that the three arguments after `pages` are all view state, and a call
+    /// site that passed its own idea of the display mode or the zoom would be
+    /// laying out a strip the rest of the frame does not agree with.
+    #[must_use]
+    pub fn strip(&self) -> crate::viewer::strip::Strip {
+        crate::viewer::strip::Strip::new(
+            &self.pages,
+            self.view.display,
+            self.view.page_index,
+            self.view.zoom,
+        )
     }
 
     /// Report how many objects the current page holds, on the `PDFCE_DIAG`
@@ -727,7 +787,7 @@ impl OpenDoc {
     /// gate is unchanged: nothing is built with tracing off, and with it on
     /// the page decomposes once per `(page, epoch)` — what the private
     /// decomposition already cost, minus the duplicate.
-    fn trace_object_count(&mut self) {
+    pub(crate) fn trace_object_count(&mut self) {
         if !crate::diag::enabled() {
             return;
         }
@@ -788,18 +848,6 @@ impl OpenDoc {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             format!("objects-unavailable page={page_index} reason=decompose-failed detail={detail}")
         });
-    }
-
-    /// Collect a background render, if one has finished.
-    ///
-    /// Called once per frame. Returns whether anything was absorbed, so the
-    /// caller can request the repaint that draws it.
-    fn poll_render(&mut self, ctx: &egui::Context) -> bool {
-        let Some(result) = self.render_worker.poll() else {
-            return false;
-        };
-        self.absorb_render(ctx, result);
-        true
     }
 }
 
@@ -893,6 +941,54 @@ impl PdfceApp {
         if let Status::Open(doc) = &self.status {
             let path = doc.path.clone();
             self.recent.remember(&path);
+        }
+
+        // ★ **The page-display mode this document opens in.**
+        //
+        // Two sources, in this precedence, and the order is the operator's
+        // requirement of 2026-08-12 rather than a convenience:
+        //
+        // 1. **what this document was last shown in**, from
+        //    `viewer::remembered` — *"so a sheet set does not inherit a
+        //    report's setting"*;
+        // 2. failing that, **the ribbon mode's default**, from
+        //    `PageDisplay::default_for_mode` — which is where
+        //    `MODES_AND_PANELS.md`'s "Read defaults to continuous scroll;
+        //    Review and Edit default to single page" lives.
+        //
+        // The two are genuinely different questions and the `Option` between
+        // them carries the difference: `None` from the store means "nobody has
+        // chosen for this document", which in Read mode must become
+        // continuous. A store that returned `Single` for an unknown document
+        // would silently invert the operator decision of 2026-08-13, and it is
+        // exactly the collapse `remembered::recall`'s own docs refuse.
+        //
+        // Placed here, in the one function that opens documents, for the same
+        // reason the recent-list call is: `argv` reaches this without an
+        // action, so a caller-side version would miss the first document of
+        // every session.
+        //
+        // The ribbon mode is read out first, as an owned `String`, so the
+        // `&mut self.status` borrow below does not have to be interleaved with
+        // a read of a sibling field inside a trace closure.
+        let ribbon_mode = self.ribbon.mode().unwrap_or_default().to_owned();
+        if let Status::Open(doc) = &mut self.status {
+            let remembered = viewer::remembered::recall(&doc.path);
+            let display =
+                remembered.unwrap_or_else(|| viewer::PageDisplay::default_for_mode(&ribbon_mode));
+            doc.view.display = display;
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "page-display mode={} source={} ribbon-mode={ribbon_mode}",
+                    display.id(),
+                    if remembered.is_some() {
+                        "document"
+                    } else {
+                        "mode-default"
+                    },
+                )
+            });
         }
 
         // Forget every de-duplicated trace slot, so this document gets its
@@ -1024,95 +1120,6 @@ impl PdfceApp {
     #[must_use]
     pub fn save_pending(&self) -> bool {
         false
-    }
-
-    /// Decide whether the cached page texture is still valid and, if not,
-    /// whether to re-rasterize now or wait for a zoom gesture to settle.
-    ///
-    /// See the module docs, "Rendering happens on state change".
-    pub fn settle_and_rasterize(&mut self, ctx: &egui::Context, pixels_per_point: f32) {
-        let Status::Open(doc) = &mut self.status else {
-            return;
-        };
-
-        // The page object count, if it can have changed since it was last
-        // reported. Here rather than in the open path because "on open" is
-        // only one of the three occasions §4.3 requirement 3 asks for — the
-        // others are a page change and an edit, both of which have already
-        // been applied by the time this runs (see the frame order in the
-        // module docs of `crate::app`). One call site that cannot be
-        // forgotten beats three that can.
-        doc.trace_object_count();
-
-        // Collect a background render FIRST, before deciding staleness.
-        // Order matters: a render that finished since the last frame has
-        // already updated `page_texture`'s keys, so polling first is what
-        // stops the staleness test below from seeing the pre-render state
-        // and spawning a second render for a page that just arrived.
-        if doc.poll_render(ctx) {
-            ctx.request_repaint();
-        }
-        // While one is in flight, keep the frames coming. Nothing else
-        // wakes egui when a worker finishes — without this the finished
-        // page would sit in the channel until the operator moved the mouse,
-        // which is the same "arbitrarily long wait" the request_repaint in
-        // `rasterize_current` exists to prevent.
-        if doc.render_worker.is_rendering() {
-            ctx.request_repaint();
-        }
-
-        // Did the zoom change since last frame, and by what route?
-        let now = Instant::now();
-        if (doc.observed_zoom - doc.view.zoom).abs() > f32::EPSILON {
-            doc.observed_zoom = doc.view.zoom;
-            doc.zoom_commit_at = if doc.zoom_commanded {
-                now // discrete command: no gesture in flight, do not wait
-            } else {
-                now + ZOOM_SETTLE
-            };
-        }
-        doc.zoom_commanded = false;
-
-        // ★ The staleness comparison, and why it is ONE key.
-        //
-        // "Is the picture on screen still a picture of what the operator is
-        // looking at?" is asked of the same `RenderKey` the worker labelled
-        // the texture with. Until S4 this compared two hand-picked fields
-        // while the worker compared its own two, and the lists had to be
-        // kept in step by review — and a key added to one and not the other
-        // compiles, runs, and produces a control that ticks and changes
-        // nothing. The categories below are the key's own, so the policy
-        // lives with the type rather than being re-derived here.
-        let wanted_scale = viewer::raster_scale(doc.view.zoom, pixels_per_point);
-        let wanted = doc.render_key(wanted_scale);
-        let current = doc.page_texture.as_ref().map(|t| t.key);
-        // No texture at all is "stale" in the discrete sense: there is
-        // nothing on screen worth waiting to replace.
-        let stale_discrete =
-            current.is_none_or(|k| k.discrete_inputs() != wanted.discrete_inputs());
-        let stale_scale = current.is_some_and(|k| k.scale_bits() != wanted.scale_bits());
-
-        // A page whose previous render failed must not be retried every
-        // frame: the failure is deterministic (same bytes, same code), so
-        // retrying would peg a core producing the same error. Any discrete
-        // change is a genuinely different request and clears the hold —
-        // hiding annotations can be exactly what makes a page that would not
-        // draw draw.
-        if doc.render_error.is_some() && !stale_discrete {
-            return;
-        }
-
-        if stale_discrete {
-            doc.rasterize_current(ctx, wanted_scale);
-        } else if stale_scale {
-            if now >= doc.zoom_commit_at {
-                doc.rasterize_current(ctx, wanted_scale);
-            } else {
-                // Nothing else will wake egui up when the debounce expires,
-                // so schedule it.
-                ctx.request_repaint_after(doc.zoom_commit_at - now);
-            }
-        }
     }
 }
 
@@ -1413,6 +1420,60 @@ mod tests {
             "a new document makes every paint-order index meaningless"
         );
         assert!(app.panels.tree_mut().objects_expanded.is_empty());
+    }
+
+    // =======================================================================
+    // Phase 4 — which arrangement a document opens in
+    // =======================================================================
+
+    /// ★ **Read mode opens a document continuous; every other mode opens it
+    /// single page.**
+    ///
+    /// `MODES_AND_PANELS.md`'s table and the operator decision of 2026-08-13,
+    /// asserted through the **open path** rather than through
+    /// `PageDisplay::default_for_mode` — which is already tested in its own
+    /// module. What this adds is that `open_path` actually consults it: the
+    /// rule existing and the rule being applied are two different facts, and
+    /// the second is the one an operator experiences.
+    ///
+    /// Driven with no remembered choice for the fixture (nothing has ever set
+    /// one for a path under the engine fixtures directory), so what is measured
+    /// is the mode default and not a leftover.
+    #[test]
+    fn read_mode_opens_a_document_continuous_and_the_others_paged() {
+        for (mode, expected) in [
+            ("read", viewer::PageDisplay::Continuous),
+            ("review", viewer::PageDisplay::Single),
+            ("edit", viewer::PageDisplay::Single),
+        ] {
+            let mut app = PdfceApp::new();
+            app.ribbon.set_mode(mode.to_owned());
+            app.open_path(engine_fixture(FOUR_PAGES));
+            let Status::Open(doc) = &app.status else {
+                panic!("the fixture opens");
+            };
+            assert_eq!(
+                doc.view.display, expected,
+                "{mode} mode opened the document in {:?}",
+                doc.view.display
+            );
+        }
+    }
+
+    /// A freshly opened document is not mistaken for one that has been
+    /// navigated to.
+    ///
+    /// `tracked_page` starting anywhere but at `view.page_index` would make
+    /// the canvas scroll a continuous strip on the first frame after an open,
+    /// which the operator did not ask for and which would fight a saved scroll
+    /// position the moment there is one.
+    #[test]
+    fn a_freshly_opened_document_is_not_mid_navigation() {
+        let doc = open_fixture(FOUR_PAGES);
+        assert_eq!(doc.tracked_page, doc.view.page_index);
+        assert!(doc.strip_visible.is_empty());
+        assert!(doc.strip_rasters.is_empty());
+        assert!(doc.render_in_flight.is_none());
     }
 
     /// …and a FAILED open forgets it too.

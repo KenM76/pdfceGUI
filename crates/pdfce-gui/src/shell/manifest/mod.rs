@@ -470,21 +470,14 @@ pub const PLANNED: &[(&str, &str)] = &[
     // ui-text-exempt: developer note about an ABSENT command; never rendered.
     ("file.about", "N — there is no about box."),
     // -- View -- `RIBBON_IA.md` §5.2 ----------------------------------------
-    (
-        "view.page_continuous",
-        "N — larger than it looks: the viewer holds a single page index and the object \
-         provider returns nothing for any page but the current one.",
-    ),
-    (
-        "view.page_facing",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — as `view.page_continuous`, plus spread pairing and a cover-page rule.",
-    ),
-    (
-        "view.page_facing_continuous",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — as `view.page_facing`, in a continuous scroll.",
-    ),
+    // ★ `view.page_continuous`, `view.page_facing` and
+    // `view.page_facing_continuous` were here until Phase 4, marked N with the
+    // note that the build was *"larger than it looks: the viewer holds a single
+    // page index and the object provider returns nothing for any page but the
+    // current one"*. All three are now emitted by `view.rs` and registered by
+    // `super::commands`, so they are removed from this list rather than left
+    // with a stale reason — `planned_commands_are_genuinely_absent` asserts in
+    // both directions and fails on an entry that has shipped.
     (
         "view.rotate_view_left",
         "N — rotates the VIEW without changing the document, which is a different command \
@@ -507,11 +500,17 @@ pub const PLANNED: &[(&str, &str)] = &[
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
         "N — draggable guides, which need a per-document store to survive a reopen.",
     ),
-    (
-        "view.panel_pages",
-        "N — page thumbnails are the sidebar rail's first pane and have no independent \
-         toggle. `view.sidebar` shows the rail.",
-    ),
+    // ★ `view.panel_pages` was here, with the reason *"page thumbnails are the
+    // sidebar rail's first pane and have no independent toggle;
+    // `view.sidebar` shows the rail"*. That reason described the OLD shell's
+    // rail, which this build does not have — the Pages panel is an ordinary
+    // dock panel like Bookmarks and Layers, so it needs an ordinary panel
+    // toggle. The entry was stale rather than early, and it is removed rather
+    // than reworded because the command is now registered and drawn.
+    //
+    // `every_panel_is_reachable_from_the_ribbon` is the test that made the
+    // staleness visible: the panel existed, was filtered out of every mode by
+    // the §5b capability rule, and no operator could open it.
     (
         "view.panel_forms",
         "N — there is no standalone Forms panel; the forms surface is reached from \

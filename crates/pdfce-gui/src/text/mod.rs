@@ -51,6 +51,7 @@
 //! | [`files`] | the open/close/recent surface: the file dialog's title and filters, and everything the Recent control draws |
 //! | [`find`] | the Find bar — the field, the step buttons, the position readout, the four search options, and the status bar's Find toggle |
 //! | [`menus`] | the copy a **context menu** owns rather than borrows. Empty by construction — a menu row's words are its command's — and its header is the argument for why |
+//! | [`pages`] | the Pages panel — the page counts, the tile tooltip, the **four sentences an undrawn thumbnail can say**, and the preview control that stops the grid |
 //! | [`panels`] | every string the dock's panel bodies show — Bookmarks, Layers, Signatures, Fonts, Objects, Properties |
 //! | [`print`] | the print dialog — three tabs, the preview, the device refusals, and the commit button whose label carries the clip count |
 //! | [`status`] | the status bar — the render-notes disclosure, the fit/zoom mirrors, and the editable page box |
@@ -79,6 +80,10 @@ pub mod forms;
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
 pub mod menus;
+/// Every string the Pages panel shows — the counts, the tile tooltip, the
+/// four sentences an *undrawn* thumbnail can say, and the preview control.
+/// Consumed by `crate::panels::pages`.
+pub mod pages;
 /// Every string the dock's panel bodies show. Consumed by `crate::panels`.
 pub mod panels;
 /// Every word the print dialog shows. Consumed by `crate::dialogs::print`.
@@ -147,6 +152,67 @@ pub fn canvas_no_pages() -> &'static str {
 #[must_use]
 pub fn canvas_render_failed(detail: &str) -> String {
     format!("This page could not be drawn. {detail}")
+}
+
+// ---------------------------------------------------------------------------
+// The three things a page with no picture says about itself
+// ---------------------------------------------------------------------------
+//
+// ★ These exist because `PROJECT_PLAN.md` §3 forbids placeholders, and a white
+// rectangle where a page will be is exactly one. Under a continuous
+// page-display mode several pages are on screen and the renderer fills them in
+// one at a time (see `crate::render::strip`), so at any moment some of them
+// have no raster. Drawing those as blank paper would be pdfce making a claim
+// about the operator's document — "sheet 12 is empty" — that it has no basis
+// for and that on a drawing set is simply false.
+//
+// So an undrawn page states which page it is and what is happening to it.
+// Three sentences rather than one, because the operator's response to each
+// differs: wait a moment, wait longer, and *this page has something wrong with
+// it*. The page number is 1-based, like every page number the operator sees.
+
+/// Shown on a page whose raster is being made right now.
+///
+/// Present tense and an ellipsis, because something is happening and it will
+/// finish. Distinguished from [`canvas_page_waiting`] so that a strip filling
+/// in slowly looks like progress rather than like a stall — on the benchmark
+/// CAD sheet one page takes over a second, and a row of identical "not drawn"
+/// labels would give the operator no way to tell a working renderer from a
+/// stuck one.
+#[must_use]
+pub fn canvas_page_drawing(page_number: usize) -> String {
+    format!("Page {page_number} — drawing…")
+}
+
+/// Shown on a visible page the renderer has not started yet.
+///
+/// "Not drawn yet" rather than "loading" or a bare page number: it says
+/// plainly that the absence is pdfce's doing and is temporary, which is the
+/// whole difference between this and a blank rectangle. No ellipsis, because
+/// nothing is happening to *this* page at this moment — the ellipsis belongs
+/// to [`canvas_page_drawing`], and spending it here would make the two
+/// indistinguishable.
+#[must_use]
+pub fn canvas_page_waiting(page_number: usize) -> String {
+    format!("Page {page_number} — not drawn yet")
+}
+
+/// Shown on a page that will not draw at all.
+///
+/// The per-page sibling of [`canvas_render_failed`], and the difference
+/// between them is which page is being talked about: that one is shown
+/// *instead of* the canvas when the current page fails, this one is shown *in
+/// the failing page's own rectangle* while the pages around it draw normally.
+/// One bad sheet in a forty-page set must not replace the other thirty-nine
+/// with a message.
+///
+/// `detail` is `pdfce-render`'s own error text, passed through rather than
+/// rewritten, for the reason [`canvas_render_failed`] gives: the renderer's
+/// errors are specific and replacing one with "an error occurred" throws away
+/// the only part of the sentence that helps.
+#[must_use]
+pub fn canvas_page_refused(page_number: usize, detail: &str) -> String {
+    format!("Page {page_number} could not be drawn. {detail}")
 }
 
 /// Shown when the background render thread died without reporting.
