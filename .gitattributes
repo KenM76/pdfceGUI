@@ -64,6 +64,17 @@
 *.html text eol=lf
 *.css text eol=lf
 
+# The icon assets. LF rather than `binary`, because they ARE text and a
+# readable diff on a glyph's path data is worth having — but pinned,
+# because two properties depend on their exact bytes:
+#
+#   * they are `include_str!`-embedded, so a line ending is compiled into
+#     the program and moves `package-portable.py`'s source digest; and
+#   * they were verified byte-identical to `D:\Dev\pdfce`'s copies with
+#     `cmp` at salvage time, and a checkout that silently inflated them to
+#     CRLF would end that property without touching a single glyph.
+*.svg text eol=lf
+
 # Binary fixtures and evidence: NEVER apply end-of-line normalization.
 # Marked explicitly so `* text=auto` above can never misdetect a NUL-free
 # synthetic PDF as text and mangle it. (`binary` == `-text -diff`.)
