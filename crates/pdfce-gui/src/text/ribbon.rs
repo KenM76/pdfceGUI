@@ -4,8 +4,8 @@
 //! captions, and the three mode labels. Everything a person reads on the
 //! ribbon that is **not** a command; command labels and tooltips live in
 //! [`crate::text::commands`], which is a much longer file for a reason
-//! that is worth stating: there are eight tabs and thirty-one groups, and
-//! there are seventy-odd commands. Splitting the catalog along that seam
+//! that is worth stating: there are eight tabs and thirty-two groups, and
+//! there are eighty-odd commands. Splitting the catalog along that seam
 //! keeps both halves navigable and both files inside the project's
 //! 1,500-line ceiling.
 //!

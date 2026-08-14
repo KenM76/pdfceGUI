@@ -1,7 +1,7 @@
 //! # shell::manifest — pdfce's ribbon, as an `egui_shell::Shell` value
 //!
 //! [`built_in`] returns the complete pdfce shell: eight tabs (seven
-//! ordinary plus the contextual Format tab), thirty-one groups, three
+//! ordinary plus the contextual Format tab), thirty-two groups, three
 //! modes, the quick-access toolbar and the keymap. It is the **built-in
 //! layer** of `SHELL_FRAMEWORK.md` §4's three-layer merge:
 //!
@@ -370,7 +370,7 @@ pub const CUSTOM_BACKED: &[(&str, &str, &str)] = &[(
 /// A captioned band of items.
 ///
 /// A two-line convenience over `Group::new(..).with_items(..)`, because
-/// this manifest writes thirty-one of them and the builder chain is the
+/// this manifest writes thirty-two of them and the builder chain is the
 /// noisiest thing on the page when every group is one expression.
 fn group(id: &str, caption: &str, items: impl IntoIterator<Item = Item>) -> Group {
     Group::new(id, caption).with_items(items)
@@ -967,11 +967,26 @@ mod tests {
 
     /// The shape of the ribbon, pinned.
     ///
-    /// Not a change-detector for its own sake: these three numbers are the
-    /// ones quoted in this module's own documentation and in
-    /// `RIBBON_IA.md`'s summary of what the layout is. A count that drifts
-    /// silently makes both wrong, and the failure message says which way
-    /// it moved.
+    /// Not a change-detector for its own sake: these numbers are quoted in
+    /// prose, in five module headers, as the description of the layout
+    /// `RIBBON_IA.md` §5 specifies. A count that drifts silently makes
+    /// every one of them wrong, and the failure message says which way it
+    /// moved.
+    ///
+    /// **Failing here means editing prose, not just the literal.** The
+    /// group count went 31 → 32 with this test passing on the new number
+    /// and five headers still saying "thirty-one", because pinning a value
+    /// does not pin the sentences that repeat it. The sites are:
+    ///
+    /// - this module's header, and [`group`]'s;
+    /// - [`crate::shell`]'s submodule table;
+    /// - [`crate::shell::ron`]'s header (groups **and** key bindings);
+    /// - [`crate::text::ribbon`]'s header.
+    ///
+    /// The keymap is counted here for the same reason: `ron`'s header
+    /// argues that the format can express *the real ribbon* and then lists
+    /// its parts, so a binding added without that list moving turns the
+    /// argument into a claim about a smaller shell than the one shipped.
     #[test]
     fn the_ribbon_has_the_documented_shape() {
         let shell = built_in();
@@ -983,6 +998,11 @@ mod tests {
             "thirty-two groups"
         );
         assert_eq!(shell.modes().len(), 3, "three modes");
+        assert_eq!(
+            shell.keymap.as_ref().expect("a keymap").len(),
+            19,
+            "nineteen key bindings"
+        );
     }
 
     /// The tabs are the seven of `RIBBON_IA.md` §4, in its order.

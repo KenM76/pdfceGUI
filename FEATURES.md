@@ -1,6 +1,6 @@
 # pdfceGUI — what is built, and what is next
 
-**Updated:** 2026-08-13 (third revision). **Scope:** the new shell only. `pdfce-core` and
+**Updated:** 2026-08-13 (fourth revision). **Scope:** the new shell only. `pdfce-core` and
 `pdfce-cli` capabilities live in `D:\Dev\pdfce\docs\FEATURES.md`, whose
 **`gui` column is this project's acceptance criteria** — nothing there may
 regress at fold-in.
@@ -23,11 +23,11 @@ the blocker named.
 
 | | |
 |---|---|
-| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails) · **Phase 4** (page display modes) |
-| **Tests** | 1,133 passing, 0 failing |
+| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) |
+| **Tests** | 1,183 passing, 0 failing |
 | **Gates** | 8 of 8, 0 skipped — `check-theme-colors` added 2026-08-13, with a self-test |
-| **Source** | ~96,600 lines across three crates |
-| **Commands** | 85 registered · 92 declared-and-deferred (`PLANNED`) |
+| **Source** | ~101,600 lines across three crates |
+| **Commands** | 88 registered · 89 declared-and-deferred (`PLANNED`) |
 | **Ribbon surface built** | ~52 % of `RIBBON_IA.md` §5 · 32 groups |
 
 ---
@@ -43,6 +43,7 @@ the blocker named.
 - ✅ **Open, Recent, Close** — a second document can be opened. `Ctrl+O` was in the keymap and printed in the tooltip since the ribbon landed and **did nothing**: `DERIVED` held only digits, so the chord could not be spelled
 - ✅ **Keyboard chords derive from the manifest keymap** — `keyboard.rs` no longer knows what `Ctrl+0` *means*; it spells the key, looks it up, and returns a command id through the same dispatcher a ribbon click reaches. Rebind it in a customization layer and the keyboard follows
 - ✅ **`Ctrl+1/2/3` switch mode**, `Ctrl+0` is actual size — one owner per chord, with a test that fails naming any chord claimed twice
+- ✅ **Every ribbon control that can be ON renders pressed** — the last two were the hand tool and marquee zoom, whose armed flag lives in `egui::Memory` rather than on the document, so `conditions()` now takes the `Context`. The obvious alternative, a shadow copy on `PdfceApp`, was refused: it fails as a ribbon claiming Hand while the canvas selects, and each half would be self-consistent so no test would catch it. Published outside the `Status::Open` arm on purpose — with no document the control is greyed **and** pressed, which is exactly "this is the tool you are in, and there is nothing to use it on"
 - ✅ **Group captions, enforced by construction** — one closure draws every group, so a caption cannot be omitted
 - ✅ **Band overflow** — reserved-space "⌄ N more", proven hit-testable at a width narrow enough to hide groups
 - ✅ **Tab-strip overflow** — active tab pinned; collapses to the affordance below ~47 pt rather than hiding the tab you are looking at
@@ -129,7 +130,7 @@ the blocker named.
 | ✅ | **Recent files** — `recent.txt` beside `layout.ron`, capped at 10, move-to-front; missing entries dropped at display time only, throttled so a dead network path cannot block the UI thread |
 | ✅ | **Rulers** — in **points**, or in the document's own unit at its own scale when its dimension sidecar carries one, through the *same* `pdfce-core` `format_measurement` a dimension label uses, so a ruler and a dimension across one span agree to the digit. The gutters take a **constant** bite out of the viewport (R128): switching them on costs exactly one re-fit, and the trace shows it. Zero is the current page's own top-left, which is the frame the pointer readout already reports |
 | ✅ | **Grid** — **per page, in page space**, clipped to the sheet, so it scrolls with the drawing and the row gaps between sheets carry none. Every numbered ruler tick has a grid line under it, because both come from one 1-2-5 ladder. Its pitch is bounded on the **drawn** step, which a measurement of the running binary corrected: bounding the labelled step put a line every 1.4 screen pixels on the benchmark A3 sheet, and neither a screenshot nor the suite saw it |
-| ✅ | **Guides** — belong to a **page**, dragged out of a ruler, moved on the canvas, deleted by dragging off it or by a double-click. A guide's catch band is registered after every page widget, so grabbing one cannot also rubber-band a selection. Persisted per document in `guides.txt` — a fourth store beside `layout.ron`, `recent.txt` and `page-display.txt` — and a document that has remembered guides opens showing them, because the presence of the work is the preference |
+| ✅ | **Guides** — belong to a **page**, dragged out of a ruler, moved on the canvas, deleted by dragging off it or by a double-click. A guide's catch band is registered after every page widget, so grabbing one cannot also rubber-band a selection. Persisted per document in `guides.txt` — a fourth store beside `layout.ron`, `recent.txt` and `page-display.txt` — and a document that has remembered guides opens showing them, because the presence of the work is the preference. **Escape abandons a guide drag and abandons exactly that**: it is the fourth claimant on Escape and it sits above an armed region zoom, because a drag following the pointer this frame is the more transient of the two. Nothing is rolled back — a drag holds a *proposed* position and only release raises `SetGuides` |
 | ✅ | **A new panel reaches an operator who upgrades** — a layout records which panels *existed* when it was written, so a genuinely new one appears while one closed on purpose stays closed. Verified against a real layout file written before the Pages panel existed |
 | ✅ | **Thumbnail grid** — one tile per frame, on-screen only, current page first, 64-texture cap, and a **hard stop past 400 ms** naming the page and its cost. Measured: 918 ms for the benchmark CAD sheet, 238 ms for one sheet of a 36-sheet set against 58–72 ms for its siblings |
 | ⬜ | **Worded decline** — zoom-to-selection with no bounds, and a region zoom the raster ceiling clamped, are *traced* and greyed but never worded. Blocked on the edit-disclosure surface below |
@@ -140,6 +141,7 @@ the blocker named.
 |---|---|
 | ✅ | **Continuous scroll**, and **Read defaults to it**. Single page stays the default everywhere else and is unchanged — the strip lays out one row for it, so its size, scroll range and centring margin are the same arithmetic they were, asserted as an equality rather than as an intention |
 | ✅ | **Facing** and **facing-continuous**, cover page alone. Fit and the raster ceiling became per-*row*: a spread fits as a spread, and the ceiling is a minimum over the row's pages because a spread is two pixmaps rather than one |
+| ✅ | **A continuous fit does not depend on where you scrolled to** — under a continuous mode the fit is taken over the document's tightest row, per axis; under Single and Facing it is the current row, which the operator chose. `page_index` is *derived* from the scroll in a continuous mode, so fitting the current row made the zoom depend on the scroll and the scroll depend on the zoom: a mixed-size document oscillated between `zoom=1.4773` and `zoom=0.9559` for as long as the wheel moved. `PROJECT_PLAN.md` R128 in a new place |
 | ✅ | Per-document persistence of the choice, so a sheet set does not inherit a report's setting. A third store, `page-display.txt`, beside `layout.ron` and `recent.txt` — `recent.rs`'s own header had already refused to become one |
 | ✅ | **Only visible pages rasterize**, one at a time, nearest the viewport centre first, bounded by a texel budget. Measured: a scroll across four pages of a 20-page document whose pages cost ~460 ms each spent **four** renders, none cancelled and none evicted |
 | ✅ | **An undrawn page says so** — its real boundary, a fill that is visibly not paper, and a sentence naming the page and its state, centred in the part of the page on screen. Both the fill and the placement were corrected from a screenshot of a driven scroll after every test was green |
