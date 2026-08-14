@@ -1,6 +1,6 @@
 # pdfceGUI — what is built, and what is next
 
-**Updated:** 2026-08-13 (second revision). **Scope:** the new shell only. `pdfce-core` and
+**Updated:** 2026-08-13 (third revision). **Scope:** the new shell only. `pdfce-core` and
 `pdfce-cli` capabilities live in `D:\Dev\pdfce\docs\FEATURES.md`, whose
 **`gui` column is this project's acceptance criteria** — nothing there may
 regress at fold-in.
@@ -23,12 +23,12 @@ the blocker named.
 
 | | |
 |---|---|
-| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3 navigation** |
-| **Tests** | 1,008 passing, 0 failing |
+| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails) · **Phase 4** (page display modes) |
+| **Tests** | 1,133 passing, 0 failing |
 | **Gates** | 8 of 8, 0 skipped — `check-theme-colors` added 2026-08-13, with a self-test |
-| **Source** | ~86,000 lines across three crates |
-| **Commands** | 81 registered · 96 declared-and-deferred (`PLANNED`) |
-| **Ribbon surface built** | ~48 % of `RIBBON_IA.md` §5 · 32 groups |
+| **Source** | ~96,600 lines across three crates |
+| **Commands** | 85 registered · 92 declared-and-deferred (`PLANNED`) |
+| **Ribbon surface built** | ~52 % of `RIBBON_IA.md` §5 · 32 groups |
 
 ---
 
@@ -64,18 +64,25 @@ the blocker named.
 - ✅ **Fonts** — inventory, embed status, byte cost, font-folder resolution
 - ✅ **Objects** — every object on the page, front-most first; 129,758 on the benchmark drawing
 - ✅ **Properties** — read-only facts for a selection
+- ✅ **Pages** — thumbnail grid, click to navigate, multi-select (click / Ctrl+click / Shift+extend), context menu of the six page verbs. Selection is marked by a *shape* change plus a written count, never colour alone
+- ✅ **Forms** — fill, in Review and Edit. Reading the session, so unsaved edits show
 
 ### Canvas
 
 - ✅ **Render** — off-thread, generation-counted, cancellable between content-stream operators
 - ✅ **Zoom ladder** with a per-page raster ceiling that accounts for `pixels_per_point`
 - ✅ **Cursor-anchored Ctrl+wheel zoom** — under 0.01 px drift
-- ✅ **Middle-drag pan**, wheel scroll
+- ✅ **Middle-drag pan**, wheel scroll, **hand tool and space-to-pan**
+- ✅ **Four page-display modes** — Single · Continuous · Facing · Facing-continuous, as a radio whose active position renders pressed. **Single page is provably unchanged**: its strip is one row with no gap, so the scroll range, centring margin, pan clamp and zoom anchor are the same arithmetic, asserted as an equality against the pre-Phase-4 expression
+- ✅ **An undrawn page says so** — its real boundary, a fill that is visibly not paper, and a sentence centred in the part of the page **on screen**
 - ✅ **Selection as identity, not position** — page + object + subpath + node, four integers and no coordinate
 - ✅ **Selection survives navigation** — zoom, pan, fit, view rotation, page-display mode and tab change, all asserted byte-identical
 - ✅ **Multi-select**, marquee, level ladder with Escape ascending one rung
 - ✅ **Delete** — click then Delete, verified end to end by `ui-verify` against the real binary
-- ✅ **Context menus** — canvas object, canvas empty, Objects row; a menu with nothing to offer never opens
+- ✅ **Context menus** — canvas object, canvas empty, Objects row, Pages row, dock tab; a menu with nothing to offer never opens
+- ✅ **Find** — `Ctrl+F` or the status-bar toggle. Case, whole-word (with a configurable word rule, because ISO 32000-1 declines to define "word"), and **wildcards off by default**: `find_text` enables them, which is why typing `?` into the old shell's Find bar matched every character on the page. Exactly one `TextSearchOptions` is constructed in the whole crate
+- ✅ **Find never searches on a keystroke** — measured at 331–449 ms per search on the benchmark sheet, because the engine re-extracts the document's text every call. Enter, the step buttons, or an option change after a search has run
+- ✅ **Stale hits are cleared and said** — an edit clears the highlights, keeps the query, and the readout reads *Document changed*. A quad recorded before a delete can cover different glyphs afterwards
 - ✅ **Move** — drag a selection; live ghost preview with no re-raster; multi-select moves as **one** command
 - ✅ **Subpath and node moves** — Part rung → `move_subpath`, Node rung → `move_node`; a text run declines rather than borrowing the Object rung's verb
 - ✅ **Escape cancels a drag in flight** without committing, and never both cancels and ascends a rung
@@ -97,6 +104,7 @@ the blocker named.
 
 | | |
 |---|---|
+| ⛔ | **A new panel never appears for an operator who upgrades** — `BUILD-INFO.txt` tells them to replace the binary and **keep `userdata/`**, so they keep a layout saved before the panel existed. Verified: `remembered=true panels=1` against `remembered=false panels=2` on a fresh profile. The honest fix records which panels a layout *knew about* when it was written, so a genuinely new panel appears while one the operator closed stays closed |
 | ⬜ | **Panel toggles** — `view.panel_bookmarks|_layers|_signatures|_objects` and `file.fonts` read as *toggles*; `show_panel` is show-only, so toggle semantics need deciding first |
 | ⬜ | **Edit-disclosure surface** — the move verbs return operator-facing disclosures when the surgery changed an operator's *form* (an `re` rectangle expanded into explicit segments). They are traced but **not surfaced**, and Rule 4 says tracing is not surfacing |
 | ⬜ | **Scoped reset chooser** — reset currently applies `All`; the scoped variants need three commands and a split-button item kind |
@@ -120,8 +128,8 @@ the blocker named.
 | ✅ | **Zoom to selection** — gated on `selection.bounds`, which is *not* `selection.any`: an identity can outlive the box it described, and framing nothing is a jump to the origin that looks like a bug |
 | ✅ | **Marquee zoom to region** — one rubber band shared with marquee-select, branched only at release; a zoom marquee never touches the selection and decomposes nothing |
 | ✅ | **Recent files** — `recent.txt` beside `layout.ron`, capped at 10, move-to-front; missing entries dropped at display time only, throttled so a dead network path cannot block the UI thread |
-| ⬜ | **Rulers, grid, guides** |
-| ⬜ | **Thumbnail grid** — the Pages panel is not registered yet |
+| 🔨 | **Rulers, grid, guides** — in progress |
+| ✅ | **Thumbnail grid** — one tile per frame, on-screen only, current page first, 64-texture cap, and a **hard stop past 400 ms** naming the page and its cost. Measured: 918 ms for the benchmark CAD sheet, 238 ms for one sheet of a 36-sheet set against 58–72 ms for its siblings |
 | ⬜ | **Worded decline** — zoom-to-selection with no bounds, and a region zoom the raster ceiling clamped, are *traced* and greyed but never worded. Blocked on the edit-disclosure surface below |
 
 ### Phase 4 — page display modes
