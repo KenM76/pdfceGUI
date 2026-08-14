@@ -524,6 +524,37 @@ Call `Theme::apply` once per frame from the application's update, which is what
 its doc prescribes (*"applied every frame rather than once at startup so a theme
 change takes effect immediately, with no restart and no cache to invalidate"*).
 
+### ★ Measured consequence: the ribbon's group captions were below the floor
+
+Established after the fix, by driving the **two packaged builds** and comparing
+— `ui-verify --check ribbon_group_captions_legible`, the same check against
+each binary:
+
+| build | measured | verdict |
+|---|---|---|
+| `pdfcegui-20260813-2248` (pre-theme) | **2.82:1 – 2.89:1** | **FAIL** — all five captions below the 3.0 floor |
+| `pdfcegui-20260814-0735` (themed) | 4.14:1 – 4.26:1 | PASS |
+
+So every group caption in every build this project has shipped was rendering
+below its own stated contrast floor, and installing the theme fixed it as a
+side effect rather than by design. The foreground moved `#959595 → #737374`
+against a background that also moved `#F8F8F8 → #F2F2F3`.
+
+**The check existed the whole time and would have caught it.** It is not one of
+the eight CI gates because it needs a display and drives the real cursor and
+keyboard — which is a legitimate reason, and it is also why nothing ran it
+between the theme landing unwired and today. Recorded rather than fixed by
+adding it to `run-all.sh`: a gate that cannot run headlessly would report
+SKIPPED, and *"told you nothing rendered as green"* is the exact failure that
+harness exists to remove.
+
+**Still worth someone's judgement:** 4.2:1 clears the 3.0 floor, which is WCAG
+AA for **large** text. A group caption is ~10 pt, i.e. small text, where AA asks
+**4.5:1**. The captions pass the bar this project set and would fail the bar
+their size implies. Not changed here — the palette is the theme's to decide and
+the contrast gate's floor is a deliberate constant — but the next person to
+touch either should know the margin is 0.3, not comfortable.
+
 ---
 
 ## D9 — Every imported reduced-opacity markup renders solid — **FIXED 2026-08-14**
