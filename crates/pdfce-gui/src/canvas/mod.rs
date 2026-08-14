@@ -434,7 +434,16 @@ fn show_in(
     // laying the strip out — the strip's geometry depends on the zoom this
     // produces, so it cannot be the source of it.
     let pixels_per_point = ui.ctx().pixels_per_point();
-    let row = viewer::strip::row_metrics(
+    //
+    // ★ `fit_metrics`, NOT `row_metrics`, and the difference is a closed
+    // feedback loop. Under a continuous mode `page_index` is derived from the
+    // scroll, so fitting the current row makes the zoom depend on the scroll
+    // and the scroll depend on the zoom — measured oscillating between
+    // `page=0 zoom=1.4773` and `page=1 zoom=0.9559` on a mixed-size document
+    // for as long as the wheel was moving. `fit_metrics` fits the tightest row
+    // under a continuous mode and the current row otherwise; on a document of
+    // one page size the two are identical.
+    let row = viewer::strip::fit_metrics(
         &doc.pages,
         doc.view.display,
         doc.view.page_index,

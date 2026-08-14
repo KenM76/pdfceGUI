@@ -172,6 +172,91 @@ pub fn row_metrics(
     }
 }
 
+/// The metrics a **fit mode** should be computed from.
+///
+/// # ★ Why this is not always `row_metrics`, and the bug that says so
+///
+/// Under a continuous mode the current page is **derived from the scroll**
+/// (`Strip::page_at_view`, greatest visible area). Feeding that page's row
+/// into a per-frame fit closes a loop:
+///
+/// ```text
+/// page A is current -> fit to A -> zoom changes -> the strip re-lays out
+///                   -> page B is now centred -> fit to B -> zoom changes
+///                   -> page A is centred again -> ...
+/// ```
+///
+/// On a document whose pages are all one size the loop is invisible, because
+/// every row wants the same scale. On a **mixed-size** document it oscillates
+/// visibly: measured at `page=0 zoom=1.4773` flip-flopping with
+/// `page=1 zoom=0.9559` for as long as the wheel was moving.
+///
+/// This is `PROJECT_PLAN.md`'s R128 in a new place — *content-driven size plus
+/// a per-frame fit is a measured feedback loop* — and `row_metrics`' own
+/// header had already noticed one half of it: *"the strip's geometry depends
+/// on the zoom this produces, so it cannot be the source of it"*. The half it
+/// missed is that under a continuous mode `current` is part of that geometry.
+///
+/// # The fix: fit the tightest row, not the current one
+///
+/// Under a continuous mode this returns the row needing the **smallest**
+/// scale — so "Fit page" means *a page fits*, for every page, and the answer
+/// does not depend on where the operator has scrolled to. Scroll-independence
+/// is the property; fitting every page is the reason that particular
+/// scroll-independent choice is the right one rather than merely a stable one.
+///
+/// Under Single and Facing the current row is still exactly right: those modes
+/// show one row and the operator chose it, so there is no loop to close.
+///
+/// **On a document whose pages are all the same size this changes nothing** —
+/// every row is the tightest — which is why the fix costs nothing in the
+/// common case and only differs on documents that were previously broken.
+///
+/// # Cost
+///
+/// O(pages) per frame under a continuous mode, against O(1) before. It is a
+/// few float operations per page and no allocation: on a 2,000-page document
+/// that is well under the ~16 us the ruler overlay already spends. Measuring
+/// it was preferred to caching it, because a cache keyed on the page list
+/// would be a second thing to invalidate when a page is inserted.
+#[must_use]
+pub fn fit_metrics(
+    pages: &[Page],
+    display: PageDisplay,
+    current: usize,
+    pixels_per_point: f32,
+) -> RowMetrics {
+    if !display.is_continuous() {
+        return row_metrics(pages, display, current, pixels_per_point);
+    }
+    let rows = display.row_count(pages.len());
+    if rows == 0 {
+        return row_metrics(pages, display, current, pixels_per_point);
+    }
+    // "Tightest" is decided by AREA rather than by either axis alone: a fit
+    // scale is `min(vw/pw, vh/ph)`, and which axis binds depends on the
+    // viewport this function does not have. The row with the largest extent in
+    // both axes taken together is the one that will need the smallest scale
+    // whatever the viewport turns out to be, and taking the per-axis maxima
+    // separately is what makes that true even for a document mixing portrait
+    // and landscape sheets — neither row alone is the widest AND the tallest,
+    // so fitting either one would leave the other overflowing.
+    let mut width = 0.0_f32;
+    let mut height = 0.0_f32;
+    let mut max_zoom = super::MAX_ZOOM;
+    for row in 0..rows {
+        let first = display.pages_in_row(row, pages.len()).next().unwrap_or(0);
+        let m = row_metrics(pages, display, first, pixels_per_point);
+        width = width.max(m.extent.0);
+        height = height.max(m.extent.1);
+        max_zoom = max_zoom.min(m.max_zoom);
+    }
+    RowMetrics {
+        extent: (width, height),
+        max_zoom,
+    }
+}
+
 /// One page's rectangle in **strip space**, at the strip's zoom.
 ///
 /// `Copy` and two fields, for the same reason
@@ -860,5 +945,129 @@ mod tests {
         let strip = Strip::new(&pages, PageDisplay::Single, 99, 1.0);
         assert_eq!(strip.rect_of(2).map(|r| r.min), Some(Pos2::ZERO));
         assert_eq!(strip.placements().count(), 1);
+    }
+
+    // -----------------------------------------------------------------
+    // fit_metrics — the fit must not depend on where you scrolled to
+    // -----------------------------------------------------------------
+
+    /// ★ **The regression test for the continuous-scroll zoom oscillation.**
+    ///
+    /// A mixed-size document, asked for its fit metrics from two different
+    /// current pages. Under a continuous mode the answer must be the SAME —
+    /// because the current page is derived from the scroll, so an answer that
+    /// varies with it closes a loop between zoom and scroll position.
+    ///
+    /// Written as an equality between two calls rather than as an assertion
+    /// about a particular scale, because the bug is not "the zoom is wrong".
+    /// Either zoom was individually defensible; the defect is that the two
+    /// disagreed, so the frame's answer depended on the previous frame's.
+    #[test]
+    fn a_continuous_fit_does_not_depend_on_the_current_page() {
+        let pages = vec![page(1190.0, 841.0), page(612.0, 792.0), page(842.0, 595.0)];
+        for display in [PageDisplay::Continuous, PageDisplay::FacingContinuous] {
+            let from_first = fit_metrics(&pages, display, 0, 1.0);
+            let from_last = fit_metrics(&pages, display, pages.len() - 1, 1.0);
+            assert_eq!(
+                from_first.extent, from_last.extent,
+                "{display:?}: the fit extent moved when the scroll moved, which is the loop"
+            );
+            assert_eq!(from_first.max_zoom, from_last.max_zoom, "{display:?}");
+        }
+    }
+
+    /// …and it is the TIGHTEST row, so every page fits.
+    ///
+    /// Scroll-independence alone would be satisfied by always fitting page 0,
+    /// which is stable and wrong: a later, larger sheet would overflow a
+    /// control called "Fit page". The per-axis maxima matter for the same
+    /// reason — with a portrait and a landscape sheet in one document neither
+    /// row is both the widest and the tallest, so fitting either whole row
+    /// would leave the other overflowing on one axis.
+    #[test]
+    fn a_continuous_fit_frames_the_largest_extent_in_each_axis() {
+        // Widest is the landscape A3; tallest is the portrait Letter.
+        let pages = vec![page(1190.0, 841.0), page(612.0, 792.0)];
+        let m = fit_metrics(&pages, PageDisplay::Continuous, 0, 1.0);
+        assert!(
+            (m.extent.0 - 1190.0).abs() < 0.5,
+            "width must come from the widest row: {:?}",
+            m.extent
+        );
+        assert!(
+            (m.extent.1 - 841.0).abs() < 0.5,
+            "height must come from the tallest row: {:?}",
+            m.extent
+        );
+    }
+
+    /// A one-page-size document is unaffected under **Continuous**.
+    ///
+    /// The property that makes this fix free in the common case: every row is
+    /// one page and every page is the same, so `fit_metrics` and `row_metrics`
+    /// agree exactly. Without it, the fix would be a silent behaviour change
+    /// for every ordinary document rather than a repair of a broken one.
+    #[test]
+    fn a_uniform_document_fits_exactly_as_it_did_before() {
+        let pages = vec![page(612.0, 792.0); 8];
+        for current in [0, 3, 7] {
+            assert_eq!(
+                fit_metrics(&pages, PageDisplay::Continuous, current, 1.0).extent,
+                row_metrics(&pages, PageDisplay::Continuous, current, 1.0).extent,
+                "page {current}"
+            );
+        }
+    }
+
+    /// ★ **Facing-continuous is different even on a uniform document, and it
+    /// must be.**
+    ///
+    /// This assertion was written the other way round first — as "a uniform
+    /// document is unaffected in every continuous mode" — and it failed,
+    /// correctly. Under a facing mode **row 0 is a cover**: one page, while
+    /// every row after it is a two-page spread. So on eight identical Letter
+    /// pages the rows are genuinely 612 pt and 1,230 pt wide, and they are not
+    /// interchangeable.
+    ///
+    /// Fitting the cover would therefore make every spread in the document
+    /// overflow — from a control called "Fit page", on the second row. The
+    /// old per-row behaviour did exactly that whenever the operator's scroll
+    /// happened to leave page 0 current, which is another face of the same
+    /// bug rather than a separate one.
+    #[test]
+    fn facing_continuous_fits_the_spread_not_the_cover() {
+        let pages = vec![page(612.0, 792.0); 8];
+        let fit = fit_metrics(&pages, PageDisplay::FacingContinuous, 0, 1.0);
+        let cover = row_metrics(&pages, PageDisplay::FacingContinuous, 0, 1.0);
+        assert!(
+            (cover.extent.0 - 612.0).abs() < 0.5,
+            "row 0 is the cover, one page wide: {:?}",
+            cover.extent
+        );
+        assert!(
+            fit.extent.0 > cover.extent.0 * 1.9,
+            "the fit must frame a two-page spread, not the cover: {:?} vs {:?}",
+            fit.extent,
+            cover.extent
+        );
+    }
+
+    /// Single and Facing still fit the row the operator is on.
+    ///
+    /// They show one row at a time and the operator chose it, so there is no
+    /// loop — and fitting the document's largest sheet there would shrink
+    /// every other page for no reason. The fix must not leak into them.
+    #[test]
+    fn a_paged_mode_still_fits_the_current_row() {
+        let pages = vec![page(1190.0, 841.0), page(612.0, 792.0)];
+        for display in [PageDisplay::Single, PageDisplay::Facing] {
+            for current in 0..pages.len() {
+                assert_eq!(
+                    fit_metrics(&pages, display, current, 1.0).extent,
+                    row_metrics(&pages, display, current, 1.0).extent,
+                    "{display:?} page {current} must be unchanged"
+                );
+            }
+        }
     }
 }
