@@ -13,7 +13,7 @@
 //!
 //! ## ★ Why a page panel sits in **Review**, and not only in Edit
 //!
-//! It is in all three default arrangements (`crate::app::modes::spec`), and
+//! It is in all three default arrangements (`crate::app::modes::defaults::spec`), and
 //! Review is the placement that needed an argument. `README.md` records the
 //! operator's, and it is the reason this panel offers page verbs rather than
 //! only navigation:
@@ -129,7 +129,7 @@ pub const PAGES_ROW: &str = "pages.row"; // ui-text-exempt: a menu context id, n
 ///
 /// Below roughly this width a drawing sheet's title block is no longer
 /// legible and one thumbnail stops being distinguishable from the next, which
-/// is the only job a thumbnail has. `crate::app::modes::NAVIGATOR_WIDTH` is
+/// is the only job a thumbnail has. `crate::app::modes::defaults::NAVIGATOR_WIDTH` is
 /// 280 pt *because* it fits two of these, and the two numbers are meant to
 /// stay in step.
 const MIN_TILE_WIDTH_PTS: f32 = 112.0;
@@ -614,7 +614,7 @@ mod tests {
     use super::*;
 
     /// The dock's default navigator width fits **two** columns, which is the
-    /// number `crate::app::modes::NAVIGATOR_WIDTH`'s own doc comment claims.
+    /// number `crate::app::modes::defaults::NAVIGATOR_WIDTH`'s own doc comment claims.
     ///
     /// Asserted here rather than trusted, because the two constants live in
     /// different modules and the claim is only true for a particular tile

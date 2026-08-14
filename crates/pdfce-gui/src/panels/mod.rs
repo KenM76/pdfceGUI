@@ -12,7 +12,7 @@
 //! | [`fonts`] | `file.fonts` | `panels_structure.rs` |
 //! | [`objects`] | `view.panel_objects` | `main.rs` + `object_provider.rs` + `object_summary.rs` |
 //! | [`properties`] | `file.properties` | **new** — `RIBBON_IA.md` §5.8 |
-//! | [`forms`] | `edit.form_fill` | `panels_forms.rs` |
+//! | [`forms`] | `view.panel_forms` — moved off Edit so Read can reach it | `panels_forms.rs` |
 //! | [`pages`] | `view.panel_pages` — **not registered; see that module** | `main.rs::thumbnail_rail` + `raster::ThumbnailCache` |
 //!
 //! ## ★ These panels once had no way in
@@ -249,21 +249,31 @@ impl Panel {
             Self::Fonts => "file.fonts",
             Self::Objects => "view.panel_objects",
             Self::Properties => "file.properties",
-            // Third of the seven that is not on View ▸ Panels, and the
-            // placement is `RIBBON_IA.md`'s: a form panel answers "what
-            // can I fill in this file", which is an edit of the document
-            // rather than of the view. The command was registered and
-            // reachable from the Edit tab well before this panel existed
-            // — it had no dispatch arm, which is precisely the class of
-            // half-built surface this module's header is about.
-            Self::Forms => "edit.form_fill",
+            // ★ **On View ▸ Panels since 2026-08-14**, and it was on Edit
+            // before that. `RIBBON_IA.md`'s placement was the Edit tab, on
+            // the argument that a form panel answers "what can I fill in
+            // this file", which is an edit of the document rather than of
+            // the view. That argument survives — filling still writes — but
+            // it was answering the wrong question. The operator's question
+            // was *which modes may fill*, and the answer is all three,
+            // because Acrobat Reader fills forms in its default view.
+            //
+            // Read is shown `file` and `view` alone, so the tab followed
+            // the mode. `crate::app::modes` carries the amended taxonomy;
+            // `crate::shell::manifest::edit` records what stayed behind.
+            //
+            // The command was registered and reachable from the ribbon well
+            // before this panel existed — it had no dispatch arm, which is
+            // precisely the class of half-built surface this module's
+            // header is about.
+            Self::Forms => "view.panel_forms",
             // ★ **This command is not registered in this build**, and the
             // panel is therefore filtered out of every arrangement by
             // `SHELL_FRAMEWORK.md` §5b — see `pages`' own header, which
             // carries the account and the exact lines needed.
             //
             // The id is `RIBBON_IA.md`'s and `crate::app::modes`' both:
-            // `modes::spec` has named it in all three default arrangements
+            // `modes::defaults::spec` has named it in all three default arrangements
             // since before this panel existed, and `modes::ABSENT_PANELS`
             // carried the matching "not built yet" entry, which this panel's
             // arrival removes. It is on View ▸ Panels rather than anywhere

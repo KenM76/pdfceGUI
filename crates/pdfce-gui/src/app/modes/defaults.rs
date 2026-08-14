@@ -1,0 +1,626 @@
+//! # `app::modes::defaults` — what a mode's arrangement *is*
+//!
+//! One subject: the **default arrangement per mode**. Which panels Read,
+//! Review and Edit mount, on which side, stacked with which others, and how
+//! wide those docks start. It is a pure function from a mode id to a
+//! [`DockLayout`], and nothing in it can reach a document, a dock, a layout
+//! file or a [`super::Modes`].
+//!
+//! [`super`] owns the other half of the same feature — how an arrangement is
+//! **remembered** once the operator has rearranged it.
+//!
+//! ## Why this is its own file
+//!
+//! Split from `app/modes.rs` when that file reached 1,512 lines against the
+//! 1,500-line gate (R2). `app/mod.rs` has been split twice under the same
+//! rule, into `crate::app::dispatch` and `crate::app::conditions`, and the
+//! standing instruction for this gate is the one written into the gate
+//! itself: *"the right response to this gate firing is to SPLIT THE MODULE,
+//! not to shrink the prose."* This project's documentation is the logic, so
+//! trimming it to fit is the one response that would make the file smaller
+//! and the program less well specified.
+//!
+//! **The seam is a real one rather than arithmetic**, and the test for that
+//! is whether the two halves change for different reasons. They demonstrably
+//! do:
+//!
+//! * This file changes when the **information architecture** changes — when
+//!   `MODES_AND_PANELS.md`'s table is amended, when a panel is invented, when
+//!   the operator answers a taxonomy question. Its most recent change was
+//!   exactly that: Read gained Forms on 2026-08-14 because the operator
+//!   answered the question the module had been carrying.
+//! * `super` changes when **persistence** changes — a new workspace naming
+//!   rule, a new upgrade-reconciliation case, a different start-up order.
+//!   Its most recent change was exactly that: the `Unseen` stamp, so a panel
+//!   added in a new release is not born invisible.
+//!
+//! The two are also readable at different times. Someone asking *"why does
+//! Read have no Objects panel"* never needs to know how a workspace is
+//! named; someone asking *"why did my arrangement come back wrong after an
+//! upgrade"* never needs the taxonomy. And the dependency runs one way only:
+//! `super` calls [`layout_for_build`], while this file calls nothing in
+//! `super` at all.
+//!
+//! ## ★ What `egui-shell` cannot supply
+//!
+//! `SHELL_FRAMEWORK.md` §4 and `egui-shell`'s workspace store between them
+//! make Read/Review/Edit a *configuration* rather than a built-in — see
+//! [`super`]'s header for that rule and for how [`super::Modes`] honours it.
+//!
+//! What *is* pdfce's business, and therefore is here, is the **default
+//! arrangement per mode** — see [`layout_for`]. `egui-shell` cannot supply
+//! that: it does not know what a panel is for, so a default arrangement
+//! invented there would be the framework inventing an application's
+//! information architecture.
+//!
+//! ## The three defaults, and where they come from
+//!
+//! `MODES_AND_PANELS.md` Part 1's table, reduced to what the *dock* does:
+//!
+//! | Mode | Left | Right |
+//! |---|---|---|
+//! | **Read** | Pages, Bookmarks | Forms |
+//! | **Review** | Pages, Bookmarks | Comments, Properties |
+//! | **Edit** | Pages, Bookmarks / Layers, Signatures, Fonts | Objects / Properties, Comments |
+//!
+//! Read is the point of the whole feature — *"a PDF viewer, with pdfce's
+//! inspection panels available but nothing that authors anything"* — so its
+//! default mounts the two surfaces that answer *where am I* and nothing that
+//! merely describes an object you are not allowed to edit. **Forms on its
+//! right is the one amendment to that sentence**, made on 2026-08-14 when
+//! the operator answered the open question; the arms of `spec` carry the
+//! full reasoning and it is not repeated here. Review adds the two surfaces
+//! markup work needs. Edit is everything, with **Objects on the right**,
+//! opposite the navigators, because an inspector and a navigator are
+//! consulted in different directions.
+//!
+//! A mode this module has never heard of gets the **full** arrangement: a
+//! mode with no opinion recorded about it should not have panels taken
+//! away, because removing is the opinionated act.
+//!
+//! ## ★ Panels this build does not have
+//!
+//! The defaults above name `view.panel_pages` and `view.panel_comments`.
+//! **Comments has no panel at all** — see [`ABSENT_PANELS`]. **Pages now
+//! has one** (`crate::panels::Panel::Pages`) and is *still* not mounted,
+//! because its ribbon command is not registered and
+//! `crate::app::PdfceApp::new` registers a panel only if its command is.
+//!
+//! Both are the `SHELL_FRAMEWORK.md` §5b mechanism rather than an oversight,
+//! and the pair is worth keeping in view because they are the two halves of
+//! the same rule: [`layout_for_build`] filters every default through the
+//! live [`PanelCatalog`], so an id nothing registers is simply not mounted —
+//! whether what is missing is the body or the command.
+//!
+//! Writing the *intended* arrangement and filtering it is strictly better
+//! than writing only what exists today, because the alternative is that the
+//! intent lives in a document nobody re-reads when the panel lands. The
+//! Pages panel is the worked proof of that: it was built long after these
+//! defaults were written, and the day its command is registered it appears
+//! in all three with **no edit in this file at all**.
+//! `every_default_panel_is_registered_or_declared_absent` is what keeps
+//! [`ABSENT_PANELS`] honest in both directions.
+
+use egui_shell::dock::{Column, DockLayout, PanelCatalog, PanelId, SideLayout, Stack};
+
+use crate::panels::Panel;
+
+/// **Panel ids the defaults name that this build does not register, and
+/// why.**
+///
+/// `(id, reason)`, in the shape and for the reasons
+/// `crate::shell::manifest::PLANNED` uses for absent *commands*: an
+/// omission that is data can be tested, enumerated and grepped, whereas an
+/// omission that is a comment becomes stale the day it stops being true.
+///
+/// Tested in both directions by
+/// `every_default_panel_is_registered_or_declared_absent`: nothing in a
+/// default layout may be missing from both `Panel::ALL` and this list, and
+/// nothing in this list may already exist as a panel. So the day either
+/// panel lands, the suite fails until this entry is removed — which is the
+/// same commit in which the default starts mounting it.
+pub const ABSENT_PANELS: &[(&str, &str)] = &[
+    // ★ `view.panel_pages` WAS here, and its removal is what
+    // `every_default_panel_is_registered_or_declared_absent` predicted:
+    // *"the day either panel lands, the suite fails until this entry is
+    // removed — which is the same commit in which the default starts
+    // mounting it."* `crate::panels::Panel::Pages` now implements it, so the
+    // entry had to go or that test would fail from the other direction.
+    //
+    // **The panel is still not reachable**, and the distinction is exactly
+    // the one this list is for. It is no longer an *absent panel* — the body
+    // exists, `Panel::ALL` enumerates it, and `layout_for` mounts it. What is
+    // absent is the **command** `view.panel_pages`, which lives in
+    // `crate::shell::manifest::PLANNED` and must be registered in
+    // `crate::shell::commands` and referenced by a `View ▸ Panels` control
+    // before `crate::app::PdfceApp::new`'s panel registry will accept it. See
+    // `crate::panels::pages`' header for the exact lines.
+    //
+    // Nothing here changes when that happens: `layout_for_build` filters
+    // through the live catalog, so the panel appears in all three defaults on
+    // the frame the command is registered and this file is untouched — which
+    // is what this whole mechanism was for.
+    (
+        "view.panel_comments",
+        // ui-text-exempt: developer note about an ABSENT panel; never rendered.
+        "N — annotation authoring does not exist yet, so neither does the panel that \
+         lists comments. It is what Review's right dock is FOR, per Part 1's table, \
+         so the arrangement names it and mounts nothing until it is real.",
+    ),
+];
+
+/// One side's default arrangement: a list of stacks, each a list of tabs.
+///
+/// A single column per side, deliberately. Multiple columns are what the
+/// dock is *for* — a narrow navigator beside a wide inspector — but they
+/// are an arrangement the operator reaches by widening and splitting, not
+/// one to hand somebody on their first launch. The model expresses them;
+/// the defaults do not use them.
+///
+/// **Owned rather than a `&'static` table**, for one reason worth stating
+/// because the static form is the obvious first attempt and does not
+/// compile: [`Panel::command_id`] is an ordinary function, so its result
+/// cannot be promoted into a `'static` slice literal. The alternative is a
+/// table of string literals plus a test asserting each one still matches
+/// its panel — a second spelling of every id, kept in step by a test rather
+/// than by construction. Two `Vec`s built on a mode change are cheaper than
+/// that, in every sense.
+type SideSpec = Vec<Vec<&'static str>>;
+
+/// Both sides of one mode's default arrangement.
+struct ModeSpec {
+    /// The leading-edge dock's stacks, top to bottom.
+    left: SideSpec,
+    /// The trailing-edge dock's stacks, top to bottom.
+    right: SideSpec,
+    /// The left dock's width in points.
+    left_width: f32,
+    /// The right dock's width in points.
+    right_width: f32,
+}
+
+/// The Comments panel's id. Absent from this build — see [`ABSENT_PANELS`].
+const COMMENTS: &str = "view.panel_comments";
+
+/// The Pages panel's id.
+///
+/// A function rather than the `const` it used to be, because the panel now
+/// exists and its id must come from [`Panel::command_id`] like every other
+/// one — a second spelling of the same string is a second thing to keep in
+/// step, and [`SideSpec`]'s own doc comment explains why that matters here.
+///
+/// It is a function and not an inline call only so the three arms below read
+/// the same way they did, and so this doc comment has somewhere to live.
+///
+/// `pub(super)` rather than private: it stayed with the arrangements when
+/// `app/modes.rs` was split, and `super`'s upgrade-reconciliation tests name
+/// the Pages panel the same way its own arms do. Deliberately not `pub` —
+/// outside this module the id comes from [`Panel::command_id`] directly.
+pub(super) fn pages() -> &'static str {
+    Panel::Pages.command_id()
+}
+
+/// The default width of a navigator dock, in points.
+///
+/// Wide enough for two columns of page thumbnails, which is the measurement
+/// that decides this number: a thumbnail rail one column wide wastes the
+/// dock, and three columns makes each too small to recognise a drawing by.
+const NAVIGATOR_WIDTH: f32 = 280.0;
+
+/// The default width of an inspector dock, in points.
+///
+/// Wider than a navigator because its rows are `label: value` pairs whose
+/// values are paths, font names and coordinate triples — content that wraps
+/// badly and reads terribly when it does.
+const INSPECTOR_WIDTH: f32 = 320.0;
+
+/// The default arrangement for `mode_id`, **before** this build's panels
+/// are taken into account.
+///
+/// The intended arrangement, naming every panel the mode is specified to
+/// offer whether or not this build has it. Almost every caller wants
+/// [`layout_for_build`] instead; this exists so the intent is expressible,
+/// testable and readable on its own.
+///
+/// An unrecognised `mode_id` gets the full arrangement — see the module
+/// header on why removing is the opinionated act.
+#[must_use]
+pub fn layout_for(mode_id: &str) -> DockLayout {
+    build(&spec(mode_id), None)
+}
+
+/// The default arrangement for `mode_id`, with panels this build does not
+/// register dropped and whatever they emptied pruned.
+///
+/// This is the one an application calls. `SHELL_FRAMEWORK.md` §5b: a
+/// capability's presence is expressed by registering it and by nothing
+/// else, so a default that mounts a panel nothing registers must mount
+/// nothing rather than produce a tab whose body cannot be drawn.
+///
+/// The filter runs over the same [`PanelCatalog`] the dock and the layout
+/// loader use, so "what a fresh profile starts with" and "what a saved
+/// layout is allowed to contain" cannot disagree.
+#[must_use]
+pub fn layout_for_build(mode_id: &str, catalog: &dyn PanelCatalog) -> DockLayout {
+    build(&spec(mode_id), Some(catalog))
+}
+
+/// The specification for one mode.
+///
+/// The `match` is the one place in this crate that knows what "read" means
+/// as an *arrangement*. Note what it is not: it is not a list of the modes
+/// that exist. [`super::Modes`] takes that from the manifest, so a mode with
+/// no arm here still works — it simply starts from the full arrangement.
+fn spec(mode_id: &str) -> ModeSpec {
+    match mode_id {
+        // Read — a reader. The two surfaces that answer "where am I", and
+        // nothing that describes an object the mode does not let you touch.
+        // No Objects, no Properties: Part 1's table gives Read neither, and
+        // an inspector in a mode with no edit verbs is a panel whose every
+        // row is a fact you cannot act on.
+        //
+        // ★ **Forms is here as of 2026-08-14, and it is the one exception
+        // to the sentence above.** The operator answered the question this
+        // module had been carrying: pdfce should fill forms without leaving
+        // Read, because Acrobat Reader does and replacing it is the stated
+        // goal. So the taxonomy is amended openly, as the old note asked.
+        //
+        // It does not contradict the "no panel whose rows you cannot act
+        // on" rule — it satisfies it. The rule keeps out surfaces that
+        // *describe* what a mode gives you no verb for; Forms carries its
+        // own verb in its own rows, and the fill verb moved to a tab Read
+        // is shown (`view.panel_forms`, View ▸ Panels) so the panel can be
+        // reopened after it is closed. Objects and Properties are still
+        // out, and for the unchanged reason: their verbs live on tabs Read
+        // does not have, and mounting them would put the operator in front
+        // of a list of facts with nothing to do about any of them.
+        //
+        // It is mounted **closed-side**, in the right dock Read otherwise
+        // does not have, rather than in the left navigator: a form is
+        // something you work *on*, beside the page, and putting it left
+        // would push Pages and Bookmarks — the two surfaces that answer
+        // "where am I" — down a tab bar in the mode that needs them most.
+        "read" => ModeSpec {
+            left: vec![vec![pages(), Panel::Bookmarks.command_id()]],
+            right: vec![vec![Panel::Forms.command_id()]],
+            left_width: NAVIGATOR_WIDTH,
+            right_width: INSPECTOR_WIDTH,
+        },
+        // Review — the markup stance. Read's navigators, plus the two
+        // surfaces markup work needs: the comment list you are working
+        // through, and the properties of the markup you are placing.
+        // Properties is scoped to markup in this mode by the *mode*, not by
+        // the dock; the dock mounts one panel either way.
+        // Forms is mounted here, and the argument is the same one that put
+        // Pages in Review. Filling a field DOES write to the file — it sets
+        // `/V` and regenerates an appearance — so this is not the "changes
+        // nothing" case. It is the case where **the change is the one the
+        // document's author invited**: a field exists in order to be filled,
+        // and writing a value into it is using the file as designed rather
+        // than altering what it says. That is the same stance markup takes,
+        // which is why the two share a mode.
+        //
+        // ★ **It used to say "deliberately NOT in Read", and that question
+        // was put to the operator and answered on 2026-08-14: Read fills
+        // forms.** The note that stood here said what the change would cost
+        // if the answer came back yes — *this line plus a fill verb on
+        // Read's ribbon, amended openly rather than quietly bent* — and
+        // that is exactly what it cost. The verb is `view.panel_forms`, on
+        // View ▸ Panels, moved off the Edit tab because P1 gives a command
+        // one tab and Read is shown `file` and `view` alone.
+        //
+        // Review's own argument for mounting Forms is untouched by that. It
+        // was never "only Review may fill"; it was "filling is the change
+        // the author invited, which is the Review stance". A stance Read
+        // now shares is not a stance Review has lost.
+        "review" => ModeSpec {
+            left: vec![vec![pages(), Panel::Bookmarks.command_id()]],
+            right: vec![vec![
+                COMMENTS,
+                Panel::Properties.command_id(),
+                Panel::Forms.command_id(),
+            ]],
+            left_width: NAVIGATOR_WIDTH,
+            right_width: INSPECTOR_WIDTH,
+        },
+        // Edit — everything. Two stacks per side rather than one long tab
+        // bar, because the previous implementation's reasoning still holds:
+        // *"reaching one surface must not hide another you are using AT THE
+        // SAME TIME"*. Navigating pages while reading the layer list is one
+        // such pair; picking an object while reading its properties is the
+        // other, and it is why Objects and Properties are separate stacks
+        // rather than two tabs of one.
+        "edit" => ModeSpec {
+            left: vec![
+                vec![pages(), Panel::Bookmarks.command_id()],
+                vec![
+                    Panel::Layers.command_id(),
+                    Panel::Signatures.command_id(),
+                    Panel::Fonts.command_id(),
+                ],
+            ],
+            right: vec![
+                vec![Panel::Objects.command_id()],
+                vec![
+                    Panel::Properties.command_id(),
+                    COMMENTS,
+                    Panel::Forms.command_id(),
+                ],
+            ],
+            left_width: NAVIGATOR_WIDTH,
+            right_width: INSPECTOR_WIDTH,
+        },
+        // A mode this module has no opinion about. The full arrangement,
+        // for the reason in the module header — and it is reachable: an
+        // operator's customized manifest may declare a fourth mode, and a
+        // fourth mode with an empty dock would look like a broken build.
+        _ => spec("edit"),
+    }
+}
+
+/// Turn a specification into a layout, optionally filtered by a catalog.
+fn build(spec: &ModeSpec, catalog: Option<&dyn PanelCatalog>) -> DockLayout {
+    let mut layout = DockLayout::new(
+        side(&spec.left, spec.left_width, catalog),
+        side(&spec.right, spec.right_width, catalog),
+    );
+    // Cheap, and it is what lets `layout_for` be asserted `is_normalized`
+    // rather than relying on `DockState::new` to repair a compiled-in
+    // constant — the posture the dock's own docs ask an application to
+    // take towards its defaults.
+    layout.normalize();
+    layout
+}
+
+/// Build one side, dropping unregistered panels and pruning what they
+/// empty.
+fn side(
+    stacks: &[Vec<&'static str>],
+    width: f32,
+    catalog: Option<&dyn PanelCatalog>,
+) -> SideLayout {
+    let kept: Vec<Stack> = stacks
+        .iter()
+        .filter_map(|tabs| {
+            let tabs: Vec<PanelId> = tabs
+                .iter()
+                .copied()
+                .filter(|id| catalog.is_none_or(|c| c.contains(id)))
+                .map(PanelId::new)
+                .collect();
+            (!tabs.is_empty()).then(|| Stack::tabbed(tabs))
+        })
+        .collect();
+
+    if kept.is_empty() {
+        // Not an empty visible side: a side with no columns that is still
+        // marked visible is how an application ends up with a permanent
+        // grey stripe nobody can remove.
+        return SideLayout::none();
+    }
+    SideLayout::new([Column::new(kept)]).with_width(width)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_shell::dock::{DockSide, PanelInfo, PanelRegistry};
+
+    /// The panel registry a full build would have: every panel this crate
+    /// actually implements.
+    ///
+    /// Duplicated in `super`'s own test module rather than shared, because
+    /// a `#[cfg(test)]` helper reachable across module boundaries has to be
+    /// made visible in the non-test build too. Six lines of fixture is the
+    /// cheaper of the two costs.
+    fn registry() -> PanelRegistry {
+        let mut r = PanelRegistry::new();
+        for panel in Panel::ALL {
+            let id = panel.command_id();
+            r.register(PanelInfo::new(id, id));
+        }
+        r
+    }
+
+    /// Every panel id in a mode's default layout.
+    fn ids(layout: &DockLayout) -> Vec<String> {
+        layout.panels().map(|p| p.as_str().to_owned()).collect()
+    }
+
+    /// ★ **Each mode's default is the arrangement `MODES_AND_PANELS.md`
+    /// specifies.**
+    ///
+    /// Asserted on the *unfiltered* defaults, because that is where the
+    /// intent lives: filtering is what this build's panel set does to it,
+    /// and asserting the filtered form would make the test say less every
+    /// time a panel is missing.
+    #[test]
+    fn the_three_defaults_are_the_specified_arrangements() {
+        let read = layout_for("read");
+        assert_eq!(
+            read.left.panels().map(PanelId::as_str).collect::<Vec<_>>(),
+            [pages(), Panel::Bookmarks.command_id()],
+            "Read's navigators, unchanged by the forms amendment"
+        );
+        assert_eq!(
+            read.right.panels().map(PanelId::as_str).collect::<Vec<_>>(),
+            [Panel::Forms.command_id()],
+            "Read's inspector side is Forms and nothing else"
+        );
+        for absent in [Panel::Objects, Panel::Properties] {
+            assert!(
+                !read.contains(&PanelId::new(absent.command_id())),
+                "{absent:?} must not be in Read's default"
+            );
+        }
+
+        let review = layout_for("review");
+        assert!(review.left.panels().any(|p| p.as_str() == pages()));
+        assert_eq!(
+            review
+                .right
+                .panels()
+                .map(PanelId::as_str)
+                .collect::<Vec<_>>(),
+            [
+                COMMENTS,
+                Panel::Properties.command_id(),
+                Panel::Forms.command_id()
+            ],
+            "Review adds Comments, Properties and Forms, and nothing else"
+        );
+        // Objects stays out, and that is the line Forms had to be argued
+        // across rather than waved across: Review mounts what the document
+        // INVITES you to add — a comment, a field value — and not an
+        // inspector for content the mode gives you no verb to change.
+        assert!(!review.contains(&PanelId::new(Panel::Objects.command_id())));
+        // ★ **Read has Forms and still has no Objects**, and asserting the
+        // pair together is the point. The rule was never "Read mounts
+        // nothing that writes" — it is "Read mounts nothing whose rows it
+        // gives you no verb for". Forms carries its verb in its own rows
+        // and its toggle is on a tab Read is shown; Objects' verbs are on
+        // the Edit tab, which Read is not.
+        //
+        // The assertion that would be wrong here is the tempting one — that
+        // Read's right side is empty — because it passes on a build that
+        // dropped Forms for the old reason, which the operator overruled.
+        assert!(
+            !layout_for("read").contains(&PanelId::new(Panel::Objects.command_id())),
+            "Read has no verb for an object, so an inspector for one lists facts nobody can act on"
+        );
+
+        let edit = layout_for("edit");
+        for panel in Panel::ALL {
+            assert!(
+                edit.contains(&PanelId::new(panel.command_id())),
+                "Edit is everything, and {panel:?} is missing"
+            );
+        }
+        let objects = edit
+            .find(&PanelId::new(Panel::Objects.command_id()))
+            .expect("Objects is mounted");
+        assert_eq!(objects.side, DockSide::Right, "Objects is on the right");
+    }
+
+    /// A mode with no arm gets the full arrangement rather than an empty
+    /// dock — a customized manifest's fourth mode must not look broken.
+    #[test]
+    fn an_unrecognised_mode_gets_the_full_arrangement() {
+        assert_eq!(ids(&layout_for("proofing")), ids(&layout_for("edit")));
+        assert_eq!(ids(&layout_for("")), ids(&layout_for("edit")));
+    }
+
+    /// Every default is already normalized, so a defect in a compiled-in
+    /// constant fails here rather than being quietly patched on every
+    /// machine that runs it.
+    #[test]
+    fn every_default_is_already_normalized() {
+        for mode in ["read", "review", "edit", "something-else"] {
+            let layout = layout_for(mode);
+            assert!(layout.is_normalized(), "{mode} needed repair: {layout:?}");
+            assert!(
+                layout_for_build(mode, &registry()).is_normalized(),
+                "{mode}, filtered, needed repair"
+            );
+        }
+    }
+
+    /// ★ **A panel this build does not have is not mounted, and takes
+    /// nothing else with it.**
+    ///
+    /// `SHELL_FRAMEWORK.md` §5b applied to the *defaults* rather than to a
+    /// saved file: the intended arrangement names Pages and Comments, this
+    /// build registers neither, and what the operator gets is the rest of
+    /// the arrangement — never a tab whose body cannot be drawn, and never
+    /// an empty compartment where one used to be.
+    #[test]
+    fn a_default_drops_panels_this_build_does_not_register() {
+        let registry = registry();
+        // `registry()` is *"the panel registry a full build would have"* —
+        // every panel this crate implements, which now includes Pages. The
+        // live build's registry is smaller, because it drops any panel whose
+        // command is unregistered; that filtering is the same code path, and
+        // asserting it here would test `PdfceApp::new`'s registry rather than
+        // this module's arrangement.
+        let read = layout_for_build("read", &registry);
+        assert_eq!(
+            ids(&read),
+            [
+                Panel::Pages.command_id(),
+                Panel::Bookmarks.command_id(),
+                Panel::Forms.command_id()
+            ]
+        );
+
+        // …and a registry WITHOUT Pages still drops it, which is the property
+        // the live build depends on today.
+        let mut without_pages = PanelRegistry::new();
+        for panel in Panel::ALL.into_iter().filter(|p| *p != Panel::Pages) {
+            let id = panel.command_id();
+            without_pages.register(PanelInfo::new(id, id));
+        }
+        assert_eq!(
+            ids(&layout_for_build("read", &without_pages)),
+            [Panel::Bookmarks.command_id(), Panel::Forms.command_id()],
+            "a panel the catalog does not hold must not be mounted"
+        );
+
+        let review = layout_for_build("review", &registry);
+        assert_eq!(
+            review
+                .right
+                .panels()
+                .map(PanelId::as_str)
+                .collect::<Vec<_>>(),
+            [Panel::Properties.command_id(), Panel::Forms.command_id()],
+            "Comments went; Properties and Forms stayed"
+        );
+
+        // Read's whole left side is Pages + Bookmarks. A build with neither
+        // must produce a side that draws NOTHING rather than an empty
+        // bordered stripe nobody can remove.
+        let empty = PanelRegistry::new();
+        let bare = layout_for_build("read", &empty);
+        assert!(bare.left.is_empty() && bare.right.is_empty());
+        assert!(!bare.left.visible, "an empty side must not be visible");
+    }
+
+    /// ★ **Every panel a default names either exists or is declared
+    /// absent.**
+    ///
+    /// [`ABSENT_PANELS`] is the `PLANNED` discipline applied to panels, and
+    /// this is what keeps it honest in both directions: a default may not
+    /// name an id that is neither implemented nor declared absent, and an
+    /// id declared absent may not already exist. The second half is the one
+    /// that matters over time — it makes the day a Pages panel lands a
+    /// failing test rather than a stale comment.
+    #[test]
+    fn every_default_panel_is_registered_or_declared_absent() {
+        let implemented: Vec<&str> = Panel::ALL.iter().map(|p| p.command_id()).collect();
+
+        for mode in ["read", "review", "edit"] {
+            for id in ids(&layout_for(mode)) {
+                assert!(
+                    implemented.contains(&id.as_str())
+                        || ABSENT_PANELS.iter().any(|(absent, _)| *absent == id),
+                    "`{id}` is mounted by {mode}'s default, is not a panel this build \
+                     implements, and is not declared in ABSENT_PANELS. Implement it, \
+                     remove it from the default, or declare it absent with a reason."
+                );
+            }
+        }
+
+        for (id, reason) in ABSENT_PANELS {
+            assert!(
+                !implemented.contains(id),
+                "`{id}` is declared absent and yet `Panel::ALL` implements it. Remove \
+                 the ABSENT_PANELS entry — the defaults will start mounting it."
+            );
+            assert!(
+                !reason.is_empty(),
+                "`{id}` is declared absent with no reason, which is the stale comment \
+                 this list exists to replace"
+            );
+        }
+    }
+}

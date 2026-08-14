@@ -66,7 +66,7 @@ the blocker named.
 - ✅ **Objects** — every object on the page, front-most first; 129,758 on the benchmark drawing
 - ✅ **Properties** — read-only facts for a selection
 - ✅ **Pages** — thumbnail grid, click to navigate, multi-select (click / Ctrl+click / Shift+extend), context menu of the six page verbs. Selection is marked by a *shape* change plus a written count, never colour alone
-- ✅ **Forms** — fill, in Review and Edit. Reading the session, so unsaved edits show
+- ✅ **Forms** — fill, **in all three modes including Read**. Reading the session, so unsaved edits show. Read was the operator's call on 2026-08-14 — *Acrobat Reader fills forms in its default view, and replacing it is the stated goal* — and it cost the taxonomy amendment plus a tab move: a command lives on exactly one tab and Read is shown File and View alone, so `edit.form_fill` became `view.panel_forms` in View ▸ Panels. Edit ▸ Forms keeps create, manage and flatten, which is the line the move draws: **filling is not authoring**
 
 ### Canvas
 

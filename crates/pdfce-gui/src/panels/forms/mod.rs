@@ -143,7 +143,7 @@ use self::rows::RowContext;
 /// variant. See [`tests::the_forms_command_is_reachable_from_the_ribbon`] for
 /// what that test is defending against, and why a panel with no route from the
 /// ribbon is a defect three panels in the old shell actually shipped.
-pub const COMMAND_ID: &str = "edit.form_fill";
+pub const COMMAND_ID: &str = "view.panel_forms";
 
 /// Draw the Forms panel.
 ///

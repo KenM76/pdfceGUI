@@ -335,6 +335,17 @@ fn all() -> Vec<Command> {
         command("view.panel_objects", t::view_panel_objects(), 244)
             .with_icon("edit-objects")
             .enabled_when("doc.pages"),
+        // ★ Was `edit.form_fill`, token 430, until the operator answered the
+        // question `crate::app::modes` had been carrying: Read should fill
+        // forms, because that is what Acrobat Reader does in its default
+        // view. Read is shown `file` and `view` alone, and P1 gives a
+        // command exactly one tab — so the verb moved to a tab Read has,
+        // which meant a new id and a token in the `view.` block.
+        //
+        // It keeps `doc.pages` rather than `doc.open`: an AcroForm's fields
+        // carry page-relative rectangles, so a document with no pages has
+        // nowhere for a field to be.
+        command("view.panel_forms", t::view_panel_forms(), 246).enabled_when("doc.pages"),
         command("view.read_mode", t::view_read_mode(), 250),
         command("view.fullscreen", t::view_fullscreen(), 251),
         command("view.floating_panels", t::view_floating_panels(), 252),
@@ -387,7 +398,11 @@ fn all() -> Vec<Command> {
         command("edit.copy_document_text", t::edit_copy_document_text(), 421)
             .with_icon("copy")
             .enabled_when("doc.pages"),
-        command("edit.form_fill", t::edit_form_fill(), 430).enabled_when("doc.pages"),
+        // `edit.form_fill` was here, token 430. It is now `view.panel_forms`
+        // — see that registration. Token 430 stays unused rather than being
+        // handed to the next Edit command: a token is what a trace prints,
+        // and reusing this one would make an old trace of a form fill read
+        // as whatever took its number.
         command("edit.form_create_field", t::edit_form_create_field(), 431)
             .with_icon("form-field")
             .enabled_when("doc.pages"),

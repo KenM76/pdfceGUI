@@ -537,6 +537,34 @@ pub const fn view_panel_objects() -> CommandText {
     )
 }
 
+/// `view.panel_forms`
+///
+/// ## ★ Was `edit.form_fill`, moved on the operator's answer (2026-08-14)
+///
+/// The taxonomy's argument for keeping form-filling out of Read is recorded
+/// in [`crate::app::modes`]; the operator's answer is that Acrobat Reader
+/// fills forms in its default view and replacing it is the stated goal. A
+/// command lives on exactly one tab (P1), and Read is shown `file` and
+/// `view` alone — so the fill verb had to move to a tab Read has, and this
+/// is that move.
+///
+/// **The label stays a verb while the id became a panel toggle**, which is
+/// the one thing about this that looks inconsistent and is not. The id
+/// names what the command *does to the shell* — it shows the Forms panel,
+/// exactly as its five siblings in View ▸ Panels do, and it inherits their
+/// mechanism rather than inventing a second one. The label names what the
+/// operator *came to do*, and nobody opens this panel to look at a list of
+/// field names. Renaming it "Forms" to match its neighbours would file the
+/// capability under a noun the person looking for it is not searching for.
+#[must_use]
+pub const fn view_panel_forms() -> CommandText {
+    CommandText::new(
+        "Fill form",
+        "List this document's fillable fields and type into them. Nothing is written to disk \
+         until you save.",
+    )
+}
+
 /// `view.read_mode`
 #[must_use]
 pub const fn view_read_mode() -> CommandText {
@@ -775,16 +803,6 @@ pub const fn edit_copy_document_text() -> CommandText {
         "Copy document text",
         "Copy every page's text to the clipboard. On a long document this can take a few \
          seconds, during which the window will not respond.",
-    )
-}
-
-/// `edit.form_fill`
-#[must_use]
-pub const fn edit_form_fill() -> CommandText {
-    CommandText::new(
-        "Fill form",
-        "List this document's fillable fields and type into them. Nothing is written to disk \
-         until you save.",
     )
 }
 
@@ -1179,6 +1197,7 @@ mod tests {
             view_panel_layers(),
             view_panel_signatures(),
             view_panel_objects(),
+            view_panel_forms(),
             view_read_mode(),
             view_fullscreen(),
             view_floating_panels(),
@@ -1199,7 +1218,6 @@ mod tests {
             edit_insert_image(),
             edit_copy_page_text(),
             edit_copy_document_text(),
-            edit_form_fill(),
             edit_form_create_field(),
             edit_form_manage_fields(),
             edit_form_flatten(),

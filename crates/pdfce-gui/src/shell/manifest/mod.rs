@@ -515,11 +515,19 @@ pub const PLANNED: &[(&str, &str)] = &[
     // `every_panel_is_reachable_from_the_ribbon` is the test that made the
     // staleness visible: the panel existed, was filtered out of every mode by
     // the §5b capability rule, and no operator could open it.
-    (
-        "view.panel_forms",
-        "N — there is no standalone Forms panel; the forms surface is reached from \
-         Edit ▸ Forms.",
-    ),
+    // ★ `view.panel_forms` was here too, with the reason *"there is no
+    // standalone Forms panel; the forms surface is reached from Edit ▸
+    // Forms"*. Both halves were true when written and the first stopped
+    // being true when the Forms panel shipped — the entry survived because
+    // `edit.form_fill` was still the way in, so nothing forced the question.
+    //
+    // What forced it was the operator's answer on 2026-08-14 that Read
+    // fills forms. Read is shown `file` and `view` alone, so this id — the
+    // one this list had reserved to say the panel had no toggle of its own
+    // — is now that toggle, and `edit.form_fill` is the entry that no
+    // longer exists. Recorded as a comment rather than silently deleted for
+    // the same reason as `file.recent` above: *"this used to be planned and
+    // is now built"* is the one transition this list exists to make legible.
     (
         "view.save_workspace",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.

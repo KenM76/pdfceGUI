@@ -245,6 +245,21 @@ pub(super) fn tab() -> Tab {
                     command("view.panel_layers"),
                     command("view.panel_signatures"),
                     command("view.panel_objects"),
+                    // ★ Last, and on this tab at all, because the operator
+                    // answered `crate::app::modes`' open question on
+                    // 2026-08-14: Read fills forms. Read is shown `file` and
+                    // `view` alone, so a fill verb the mode can reach had to
+                    // live on one of the two — and the Forms panel is a
+                    // panel, so it belongs beside the other panel toggles
+                    // rather than in a group of its own.
+                    //
+                    // Last in the group rather than in panel-name order:
+                    // this one is a *capability* the other five are not — it
+                    // opens the only panel here that writes to the document
+                    // — and the operator meets the read-only surfaces first.
+                    // Edit ▸ Forms keeps the three authoring verbs, which is
+                    // the line this move draws: filling is not authoring.
+                    command("view.panel_forms"),
                 ],
             ),
             // ---------------------------------------------------------------

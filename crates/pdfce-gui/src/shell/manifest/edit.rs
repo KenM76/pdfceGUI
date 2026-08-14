@@ -112,14 +112,31 @@ pub(super) fn tab() -> Tab {
                 ],
             ),
             // ---------------------------------------------------------------
-            // Forms — one band where the salvage source had two.
+            // Forms — one band where the salvage source had two, and now
+            // one band holding **three** steps of a form's life rather than
+            // four.
             //
-            // `Forms` (fill) and `Build Form` (author) were separate
-            // groups on the same tab, which asks the operator to already
-            // know which side of that line they are on before they can
-            // find the control. All four steps of a form's life —
-            // fill it, create a field, manage the fields, flatten the
-            // result — sit together.
+            // `Forms` (fill) and `Build Form` (author) were separate groups
+            // on the same tab, which asks the operator to already know which
+            // side of that line they are on before they can find the
+            // control. That argument put fill, create, manage and flatten
+            // together, and it was right about the operator who is *in this
+            // tab*.
+            //
+            // ★ **Fill left on 2026-08-14, and the argument that moved it is
+            // stronger than the one that kept it here.** The operator's
+            // answer to `crate::app::modes`' open question is that Read
+            // fills forms — Acrobat Reader does, and replacing it is the
+            // stated goal. Read is shown `file` and `view` alone, and P1
+            // gives a command exactly one tab, so `edit.form_fill` became
+            // `view.panel_forms` in View ▸ Panels.
+            //
+            // What is left is not a remnant. Filling a field is using the
+            // document as its author designed it; creating a field, renaming
+            // one and flattening the result are changes to the design
+            // itself. That line is real, it is the line the mode taxonomy
+            // already draws between Review and Edit, and the three verbs
+            // that stayed are on the authoring side of it together.
             //
             // `Flatten` moves out of the Forms pane for the same reason
             // `Export form data` moved to File ▸ Export: a command buried
@@ -130,7 +147,6 @@ pub(super) fn tab() -> Tab {
                 "forms",
                 ribbon::group_edit_forms(),
                 [
-                    command("edit.form_fill"),
                     command("edit.form_create_field"),
                     command("edit.form_manage_fields"),
                     command("edit.form_flatten"),
