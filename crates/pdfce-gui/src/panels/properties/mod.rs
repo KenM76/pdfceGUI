@@ -188,7 +188,8 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, _actions:
         .and_then(|f| f.base_font.as_deref())
         .map(|name| font_embedded(&doc.font_inventory(), name));
 
-    ui.label(egui::RichText::new(t::properties_object_heading()).strong());
+    // `.strong()` is unusable in this theme — see `DEFECTS.md` D11.
+    ui.label(egui::RichText::new(t::properties_object_heading()));
     ui.label(
         egui::RichText::new(t::properties_read_only_note())
             .small()
@@ -201,14 +202,14 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, _actions:
         .show(ui, |ui| {
             for (label, value) in property_rows(index, &described, embedded) {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new(label).strong());
+                    ui.label(egui::RichText::new(label));
                     ui.label(value);
                 });
             }
 
             if !described.notes.is_empty() {
                 ui.separator();
-                ui.label(egui::RichText::new(t::properties_notes_heading()).strong());
+                ui.label(egui::RichText::new(t::properties_notes_heading()));
                 for note in &described.notes {
                     // Ordinary weight, never warn-coloured: each of these is
                     // a fact about the FILE, and error styling would make it

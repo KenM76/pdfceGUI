@@ -148,6 +148,10 @@
 pub mod edit;
 /// One field, one row — the per-field controls.
 pub mod rows;
+/// The order this form is tabbed through, per page — a **read-only** second
+/// list beside the fill list. See that module's header for what it is, why it
+/// is a section rather than a panel, and why it offers no reorder affordance.
+pub mod tab_order;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -258,6 +262,27 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     calculated_fields(ui, &view, fill_refusal, &mut edits);
     reset_section(ui, doc, fill_refusal, &mut edits);
     whole_form_controls(ui, &form, fill_refusal, structural_refusal, &mut edits);
+    ui.separator();
+    // ★ THE SECOND LIST, and it answers a different question from the one
+    // below it — see [`tab_order`]'s header.
+    //
+    // It is placed BETWEEN the whole-form controls and the fill list, and the
+    // placement is argued rather than incidental. Below the fill list it would
+    // be unreachable: the fill list's `ScrollArea` takes the rest of the pane,
+    // so anything after it is laid out past the bottom of a container that does
+    // not scroll. Above the whole-form controls it would push Redraw and
+    // Flatten down, and "a control that acts on everything below it belongs
+    // above it" is why those two sit where they do.
+    //
+    // It is handed the SAME `view` and the SAME parsed `form` this body is
+    // already drawing from, rather than re-deriving either: two parses of one
+    // form per frame is a cost with no benefit, and a second parse could in
+    // principle disagree with the one the rows above came from.
+    //
+    // It takes `actions` directly rather than the `edits` vector, because the
+    // only thing it can raise is `Action::GoToPage` — navigation, not a form
+    // verb, and `FormEdit` has no variant that could carry it.
+    tab_order::section(ui, doc, &view, &form, actions);
     ui.separator();
     field_list(ui, doc, &form, fill_refusal, &mut edits);
 

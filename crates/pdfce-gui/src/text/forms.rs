@@ -1045,6 +1045,243 @@ pub fn forms_structural_certification_disabled_tooltip() -> &'static str {
      can still be filled in; the form itself cannot be removed."
 }
 
+// ---------------------------------------------------------------------------
+// Tab order — the read-only per-page widget sequence
+//
+// Every sentence here is a statement about the FILE. The argument behind each
+// lives in `crate::panels::forms::tab_order::model`'s header rather than being
+// repeated per function: §1 (why `/Annots` order, and why paint order is worth
+// saying), §4 (the primary-source reading of `/Tabs` — ISO 32000-2 Table 31 and
+// §12.5.1, the two PDF 2.0 values, and the finding that `/Tabs` is NOT
+// inheritable), §5 (the four things counted rather than listed).
+//
+// The rule that binds hardest: a list that silently showed the wrong sequence
+// would be worse than no list. Three sentences below exist only to say "this is
+// not the tab order", and each names where the real order comes from.
+// ---------------------------------------------------------------------------
+
+/// Heading for the tab-order section of the Forms panel.
+#[must_use]
+pub const fn tab_order_heading() -> &'static str {
+    "Tab order"
+}
+
+/// The standing explanation, shown whenever the section is open.
+///
+/// Three load-bearing clauses: what the order *is*; that it is also **paint**
+/// order, the fact that would make a future reorder consequential and that
+/// nothing else on screen could tell you; and that this view changes nothing —
+/// said in prose, because the alternative is a disabled control (`RIBBON_IA.md`
+/// P3 forbids one).
+#[must_use]
+pub const fn tab_order_explainer() -> &'static str {
+    "Each page below lists its form fields in the order the file lists the annotations on that \
+     page. That is also the order they are painted, so a field further down a page's list is \
+     drawn over one further up. This view reports the order; it does not change it."
+}
+
+/// The count line at the top of the section.
+#[must_use]
+pub fn tab_order_count(pages: usize, widgets: usize) -> String {
+    format!("{widgets} widget(s) listed across {pages} page(s).")
+}
+
+/// Shown when no page in the document lists a form-field widget.
+///
+/// Distinct from the panel's own empty states: this is reachable on a document
+/// that *has* an `/AcroForm` full of fields, none of whose widgets any page
+/// lists. Silence would read as a broken section rather than a fact.
+#[must_use]
+pub const fn tab_order_empty() -> &'static str {
+    "No form-field widget is listed on any page of this document."
+}
+
+/// Disclosure for fields that have no widget anywhere.
+#[must_use]
+pub fn tab_order_fields_without_widgets(count: usize) -> String {
+    format!(
+        "{count} field(s) in this form have no widget on any page. Tab order belongs to a page, \
+         so a field with nothing on a page has no position in one and is not listed here."
+    )
+}
+
+/// One page's heading.
+#[must_use]
+pub fn tab_order_page_heading(page_number: usize, widgets: usize) -> String {
+    format!("Page {page_number} — {widgets} field widget(s)")
+}
+
+/// Shown under a page heading when the page lists no form-field widget.
+///
+/// The page is still shown: its `/Tabs` state is a fact about the document, and
+/// a gap in the page numbering would read as a bug.
+#[must_use]
+pub const fn tab_order_page_no_widgets() -> &'static str {
+    "No form-field widget on this page."
+}
+
+/// The per-page navigation button.
+#[must_use]
+pub const fn tab_order_goto() -> &'static str {
+    "Go to"
+}
+
+/// Its tooltip.
+#[must_use]
+pub fn tab_order_goto_tooltip(page_number: usize) -> String {
+    format!("Show page {page_number} in the document view.")
+}
+
+/// One row: its position in the page's sequence, and what to call it.
+///
+/// `label` is the field's `/TU` when non-blank and its fully-qualified name
+/// otherwise — the fill rows' preference, so the operator reads the string an
+/// assistive technology speaks. The raw name is in [`form_field_row_tooltip`].
+#[must_use]
+pub fn tab_order_row(position: usize, label: &str) -> String {
+    format!("{position}. {label}")
+}
+
+/// The second line of a row: which page, and which of the field's widgets.
+///
+/// Always drawn, including for a single-widget field. A field with widgets on
+/// several pages **appears more than once** — correct rather than a duplicate,
+/// because tab order is per page and a field is document-level — and a row that
+/// named the widget only when there happened to be more than one would leave
+/// the operator working out which case they were looking at.
+#[must_use]
+pub fn tab_order_row_where(page_number: usize, widget: usize, widgets: usize) -> String {
+    format!("page {page_number} · widget {widget} of {widgets}")
+}
+
+// --- What the file's `/Tabs` entry says, one sentence per state -------------
+
+/// The page carries no `/Tabs`, and neither does any ancestor.
+///
+/// ★ **Reported as absent, and given no mode name** — not "manual", not
+/// "unspecified". `D:\Dev\pdfce`'s roadmap records what Acrobat's "Unspecified"
+/// tab-order state mechanically denotes as **unsourced after two attempts**, so
+/// a label here would assert what nobody has been able to support. What is said
+/// instead is what the file says, plus the operationally useful half.
+#[must_use]
+pub const fn tab_order_no_tabs_entry() -> &'static str {
+    "This page has no /Tabs entry, so the file does not say which tab order to use. In practice \
+     viewers follow the order the annotations are listed in, which is the order shown here."
+}
+
+/// `/Tabs /R` — row order, derived from where the fields sit.
+#[must_use]
+pub const fn tab_order_tabs_row() -> &'static str {
+    "⚠ This page asks for row order (/Tabs /R): a viewer visits the fields in rows across the \
+     page. That order is worked out from where the fields sit rather than stored in the file, so \
+     the sequence shown here is the order the annotations are listed in and is NOT the tab order."
+}
+
+/// `/Tabs /C` — column order, derived from where the fields sit.
+#[must_use]
+pub const fn tab_order_tabs_column() -> &'static str {
+    "⚠ This page asks for column order (/Tabs /C): a viewer visits the fields in columns down the \
+     page. That order is worked out from where the fields sit rather than stored in the file, so \
+     the sequence shown here is the order the annotations are listed in and is NOT the tab order."
+}
+
+/// `/Tabs /S` — structure order, derived from the tag tree.
+#[must_use]
+pub const fn tab_order_tabs_structure() -> &'static str {
+    "⚠ This page asks for structure order (/Tabs /S): a viewer visits the fields in the order \
+     they appear in the document's tag tree. That order is worked out from the tags rather than \
+     stored in the file, so the sequence shown here is the order the annotations are listed in \
+     and is NOT the tab order."
+}
+
+/// `/Tabs /A` — annotation-array order (PDF 2.0). This list *is* the order.
+#[must_use]
+pub const fn tab_order_tabs_annots_array() -> &'static str {
+    "This page asks for annotation-array order (/Tabs /A), which the PDF standard defines as the \
+     order the annotations are listed in — the order shown here."
+}
+
+/// `/Tabs /W` — widget order (PDF 2.0). This list *is* the order, for the
+/// fields.
+#[must_use]
+pub const fn tab_order_tabs_widgets() -> &'static str {
+    "This page asks for widget order (/Tabs /W): the form fields first, in the order the \
+     annotations are listed in, then everything else. The sequence shown here is that order."
+}
+
+/// A `/Tabs` name this build does not recognise, carried verbatim.
+///
+/// Says "may not be", not "is not": claiming the sequence wrong would be as
+/// much an invention as claiming it right, about a name nobody has defined.
+#[must_use]
+pub fn tab_order_tabs_unrecognised(name: &str) -> String {
+    format!(
+        "⚠ This page names a tab order pdfce does not recognise (/Tabs /{name}). The sequence \
+         shown here is the order the annotations are listed in, which may not be it."
+    )
+}
+
+/// A `/Tabs` on an ancestor page-tree node, which does **not** reach the page.
+///
+/// ★ The correction argued in `crate::panels::forms::tab_order::model`'s §4:
+/// ISO 32000-2 Table 31 marks `Rotate` "(Optional; inheritable)" and `Tabs`
+/// merely "(Optional; PDF 1.5)", and the table's preamble makes every unmarked
+/// attribute non-inheritable.
+///
+/// Both halves have to be said. Treating the ancestor's value as the page's own
+/// asserts an inheritance the standard denies; saying "no /Tabs" over a file
+/// that plainly has one two levels up hides a fact that changes what another
+/// viewer might do.
+#[must_use]
+pub fn tab_order_tabs_on_ancestor(name: &str) -> String {
+    format!(
+        "This page has no /Tabs entry of its own; a page-tree node above it carries /Tabs \
+         /{name}. The PDF standard lists only Resources, MediaBox, CropBox and Rotate as \
+         inheritable page attributes, so pdfce reads this page as naming no tab order — but a \
+         viewer that inherited the entry would use that one."
+    )
+}
+
+// --- What could not be listed, counted per page ----------------------------
+
+/// Widgets on this page that no listed field claims.
+///
+/// The final clause points at [`forms_inline_field_roots_note`] without
+/// re-counting it: a `/Fields` entry written as a direct dictionary is skipped
+/// by the parser, so its widgets arrive here unowned. Two numbers about two
+/// things, related out loud rather than added together.
+#[must_use]
+pub fn tab_order_unclaimed(count: usize) -> String {
+    format!(
+        "⚠ {count} widget(s) on this page belong to no field this form lists, so no row can name \
+         a field for them. If the form declares entries pdfce could not read, these may be theirs."
+    )
+}
+
+/// Widgets written into `/Annots` as values rather than as references.
+#[must_use]
+pub fn tab_order_anonymous(count: usize) -> String {
+    format!(
+        "⚠ {count} widget(s) on this page are written into the page as values rather than as \
+         references, which the PDF standard does not allow. They have no identity that could be \
+         matched to a field, so they are counted here rather than listed."
+    )
+}
+
+/// Non-widget annotations on the page, which are in the tab sequence too.
+///
+/// The one that stops the numbering reading as wrong. §12.5.1's tab order is
+/// over **annotations**, not form fields: a link occupies a position in the
+/// sequence, so a list of widgets is the fields *in* it, not the sequence.
+#[must_use]
+pub fn tab_order_other_annots(count: usize) -> String {
+    format!(
+        "{count} other annotation(s) on this page — links, notes, markup — are visited when \
+         tabbing as well. This list is form fields only, so the numbers above are their order \
+         among the fields rather than among everything on the page."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

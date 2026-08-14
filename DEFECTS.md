@@ -452,6 +452,70 @@ Forms panel at `main.rs:8112-8116`. The doc understates the build.
 
 ---
 
+## D11 — `RichText::strong()` is unusable in this theme, and six labels used it
+
+**Found 2026-08-14, by looking at a screenshot**, while building the
+tab-order view: a page heading drawn with `.strong()` came out near-white on
+a light panel.
+
+### The mechanism, which is a conflation in `egui` rather than a mistake here
+
+```rust
+// egui: style.rs
+pub fn strong_text_color(&self) -> Color32 {
+    self.widgets.active.text_color()      // == widgets.active.fg_stroke.color
+}
+```
+
+`egui` has **no separate role for emphasised text** — it borrows the *active
+widget* foreground. `egui-shell`'s theme sets that to `palette.on_accent`
+(`theme/mod.rs:624`), which is correct and necessary: `widgets.active` is the
+**accent-filled** state, and text on an accent fill must be `on_accent`.
+
+So in any theme whose active state is accent-filled — which is every theme
+this project ships — **`.strong()` on an ordinary panel is near-white on light
+grey.** The two uses cannot both be served by one colour, and `egui` gives
+only one.
+
+It also survives `override_text_color`, which the theme sets to
+`palette.text`: `.strong()` wins.
+
+### Why no gate saw it
+
+The contrast gate renders **pairs** — a foreground against the fill it is
+painted on — and by that measure `on_accent` on `accent` is exactly right. It
+has no way to know a `.strong()` label landed on a *panel* instead. This is
+`D2` reached from the opposite direction: D2 was a foreground with no fill
+assigned; this is a foreground assigned for a fill the text is not on.
+
+### Fixed
+
+Five panel labels drop `.strong()` and render as plain text — strictly better,
+since the emphasis they were asking for was invisible: `panels/comments`,
+`panels/properties` (×3), `panels/signatures`.
+
+The sixth is a different case and takes the ribbon-tab fix instead:
+`dialogs/print/mod.rs`'s selected tab is a `Button::selectable`, so it had
+**both** halves of the problem — the plate filled from `selection.bg_fill`
+(the translucent canvas tint, 27 % alpha) and the label from `on_accent`. It
+now paints `accent` + `on_accent` explicitly, exactly as `ribbon::tabs` does.
+
+**Verified for the panels, argued for the dialog.** The five panel labels are
+the observed case. The print dialog's tab was fixed by identical mechanism
+rather than by a second screenshot — the ribbon tab with the same two bugs was
+photographed before and after, and this is that fix applied to the one other
+`Button::selectable` + `.strong()` pair in the codebase. Someone opening the
+print dialog should confirm it.
+
+### The rule that follows
+
+**Do not use `RichText::strong()` in this application.** There is no colour it
+can resolve to that is correct on both an accent fill and a panel. Emphasis
+belongs to layout and wording, or to an explicit `palette` colour chosen for
+the surface the text is actually on.
+
+---
+
 ## D10 — The theme system is built, tested, gated, and never installed
 
 **Found 2026-08-14, by measuring pixels.** A `ui-verify` check needed to know

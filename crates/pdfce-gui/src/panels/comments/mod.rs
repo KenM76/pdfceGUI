@@ -340,7 +340,8 @@ fn row(ui: &mut egui::Ui, comment: &CommentRow, go: &mut Option<usize>) {
     } else {
         t::comment_row_heading(&comment.subtype, page_number)
     };
-    ui.label(egui::RichText::new(heading).strong());
+    // `.strong()` is unusable in this theme — see `DEFECTS.md` D11.
+    ui.label(egui::RichText::new(heading));
 
     // Author and modification date, when the annotation carries either.
     //

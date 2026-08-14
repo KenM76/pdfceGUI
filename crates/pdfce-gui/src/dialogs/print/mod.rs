@@ -599,16 +599,27 @@ impl PrintDialog {
         ui.horizontal_wrapped(|ui| {
             for tab in PrintTab::ALL {
                 let selected = tab == self.active_tab;
-                let text = if selected {
-                    egui::RichText::new(tab.label()).strong()
-                } else {
-                    egui::RichText::new(tab.label())
-                };
-                if ui
-                    .add(egui::Button::selectable(selected, text))
-                    .on_hover_text(tab.tooltip())
-                    .clicked()
-                {
+                // ★ The selected tab paints its own plate and label — the
+                // same fix as the ribbon's tab strip, and the same defect.
+                // See `DEFECTS.md` D11.
+                //
+                // `Button::selectable(true, …)` fills from
+                // `visuals.selection.bg_fill`, which this theme points at the
+                // translucent **canvas** object-selection tint (alpha
+                // 70/255); and `.strong()` resolves to `on_accent`, which is
+                // near-white. Together that is near-white text on a 27 %
+                // wash. The palette's `accent` / `on_accent` pair is what
+                // this state is for.
+                let theme = egui_shell::theme::Theme::of(ui.ctx());
+                let mut text = egui::RichText::new(tab.label());
+                if selected {
+                    text = text.color(theme.palette.on_accent);
+                }
+                let mut button = egui::Button::selectable(selected, text);
+                if selected {
+                    button = button.fill(theme.palette.accent);
+                }
+                if ui.add(button).on_hover_text(tab.tooltip()).clicked() {
                     self.active_tab = tab;
                 }
             }

@@ -111,7 +111,7 @@ pub fn body(
                     .field_name
                     .clone()
                     .unwrap_or_else(|| t::signature_unnamed().to_owned());
-                ui.label(egui::RichText::new(name).strong());
+                ui.label(egui::RichText::new(name));
 
                 // Malformed is reported BEFORE coverage, because it changes
                 // what the coverage numbers mean: a reader that rejects the
