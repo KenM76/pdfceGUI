@@ -444,7 +444,7 @@ feels final.
 | | Aligned | **partial G** — constraint exists, not a separate tool |
 | | Angular | **N** |
 | | Radius / Diameter | **G** |
-| | Two-line | **C** — *core + CLI done, gesture has no caller* |
+| | Two-line | **C** — *core + CLI done; the gesture exists in the OLD shell and must be salvaged (see the correction below)* |
 | **Quantity** | Distance · Perimeter · Area | **N** |
 | | Count | **N** |
 | **Scale** | Set scale | **G** |
@@ -458,8 +458,30 @@ does, and nothing here should dilute it. Area and Angular are the
 conspicuous absences for anyone doing takeoff on a drawing.
 
 **Two-line dimensioning is a C row and is at the top of the project's
-own queue** — core and CLI shipped and measured, `pick_line` has no
-caller. That is a shell-only task.
+own queue** — core and CLI shipped and measured. It is a shell-only task.
+
+> **★ Correction, 2026-08-14.** This paragraph used to end *"`pick_line`
+> has no caller"*, and the same sentence was in `FEATURES.md`,
+> `HANDOFF.md`, `SALVAGE.md` and `shell/manifest/mod.rs`'s `PLANNED`
+> entry. **It is false, and it was false when written.** The old shell
+> calls `pick_line_in_page` at `D:\Dev\pdfce\crates\pdfce-gui\src\main.rs:23564`
+> and takes the pick at `:23592`; the whole gesture is there — hover
+> highlight, picked-pair overlay, the verdict disclosure, Escape to clear
+> — with `TwoLinePick` in `measure_tool.rs:361` behind 814 lines of tests,
+> and pdfce's own `docs/FEATURES.md` marks the row `gui [x]`.
+>
+> The likely origin is a misread of pdfce's `ROADMAP.md:2778`, which
+> explains *why* `pick_line_in_page` exists, one paragraph above the
+> commit that added its caller.
+>
+> What changes: the caller that is missing is **ours**. The new shell has
+> no measure tool at all — `CanvasTool` has two variants, no `measure.*`
+> command has a dispatch arm, and nothing in `crates/pdfce-gui` mentions
+> `linepick`. So this is a **salvage** of `measure_tool.rs` (Class A,
+> 1,230 lines) plus the canvas hosting, not a one-line hookup, and the
+> "cheapest real feature in the backlog" claim that rode on it is
+> withdrawn. Recorded rather than deleted, because a wrong claim repeated
+> in five documents is worth knowing about.
 
 ---
 

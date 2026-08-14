@@ -16,24 +16,43 @@ them.
 
 | | |
 |---|---|
-| **Shell HEAD** | `a748414` — clean tree |
+| **Shell HEAD** | `3e27b79` — clean tree |
 | **Engine HEAD** | `D:\Dev\pdfce` at `b943ea1` |
-| **Tests** | 1,183 passing, 0 failing |
+| **Tests** | 1,184 passing, 0 failing |
 | **Gates** | 8 of 8, 0 skipped |
-| **Commands** | 88 registered · 89 declared-and-deferred |
+| **Commands** | 88 registered · 88 declared-and-deferred |
 | **Latest build** | `D:\builds\pdfcegui-20260813-2248-b943ea1-a748414\` |
-| **Requests owed by pdfce** | none — `open/` is empty |
+| **Requests owed by pdfce** | **three, filed 2026-08-14** — revision clouds, markup note text, markup opacity. All three block parts of Phase 6; the cloud one blocks its headline item. |
 
 **Everything the operator asked for is shipped.** Phase 3 and Phase 4 are
 complete, along with Print, Forms-fill, Icons, Open/Recent/Close and Find.
 Every loose end the build agents reported has been closed.
 
-**The next decision is the operator's**, and it has been put to them:
-whether to start **Phase 5 — text editing**. That is the defect that began
-this project (*"text editing is weird and doesn't just edit the existing
-box and move the text correctly as you type plus flow to the next line
-doesn't work"*), and it is the largest remaining phase. Do not start it
-without being asked.
+**The operator gave the order on 2026-08-14**, and it is:
+
+> **Phase 6 (markup) → Phase 7 (measure) → the three small unblocked items
+> → OCR → Phase 5 (text editing).**
+
+Phase 5 is therefore **last**, not next — which is worth stating plainly,
+because it is the defect that began this project (*"text editing is weird
+and doesn't just edit the existing box and move the text correctly as you
+type plus flow to the next line doesn't work"*) and every earlier version of
+this file treated it as the obvious next move. It is not. Do not start it
+early.
+
+Two things that order does not tell you, and that cost a day to find out:
+
+- **Phase 6 and Phase 7 are both bigger than their rows implied.** Neither
+  is "add kinds"; both begin by building a canvas tool substrate this shell
+  does not have. See §8.
+- **OCR is a licensing question before it is a GUI one.** The engine can
+  recognise text end to end (`ocr::layer` writes the invisible sandwich at
+  render mode 3, the `ocrs` weights ship at 12,240,008 B) and **no shell has
+  a surface**. But `GUI_ROADMAP.md` records the blocker as *shipping a
+  CC-BY-SA-4.0 model in an MIT repo* — "not a GUI problem". Settle that with
+  the operator before building anything, and note the engine also says
+  recognition quality is **unproven**: its only test documents are vector
+  PDFs that already contain text.
 
 ---
 
@@ -210,8 +229,8 @@ the results in `--note`.
 | | |
 |---|---|
 | **Phase 5 — text editing** | The defect that started the project. Three distinct problems, not one: the edit unit is a single show-text operator rather than a visual box; nothing re-lays-out while you type and aligned/rotated text is moved wrongly on commit; reflow is blocked behind three gates. `DEFECTS.md` D4 has the full chain. **Ask before starting.** |
-| **Phase 6 — markup** | Revision clouds are table stakes for drawing markup and were not even on the old shell's deferred list. |
-| **Phase 7 — measure** | The two-line ce dimension is the cheapest real feature in the backlog: core and CLI shipped it and measured it, and the canvas gesture has no caller. |
+| **Phase 6 — markup** | **In progress, and larger than this row used to imply.** The new shell has *no markup placement at all*: all eight `markup.*` commands draw and fall through to `command-unimplemented`, `CanvasTool` has two variants, and there is no `canvas/markup.rs`. So it is *build the tool substrate, then ten kinds*, plus the Comments panel (which does not exist here either). **Three of the items need engine changes and are filed** in `open/`: revision clouds (`/BE` is never written and `MarkupSpec` is `#[non_exhaustive]`), note text (`/Contents` on geometric markup), and opacity (`/CA`). Polyline, polygon, ink, underline, strikeout, squiggly, width and fill are engine-ready. |
+| **Phase 7 — measure** | A **salvage**, not a wiring job. This entry used to call the two-line ce dimension "the cheapest real feature in the backlog" because "the canvas gesture has no caller" — false in five documents at once, corrected 2026-08-14; see `SALVAGE.md`'s correction note. The gesture is built and tested in the *old* shell; this build has no measure tool at all, so the work is Class A `measure_tool.rs` (1,230 lines) plus ~900 lines of canvas hosting. Area and Count need engine changes; Angular is core-complete with no tool. |
 | **Salvage remaining** | Redaction (its true-removal proof exists **only** in the old shell), and the settings dialog. |
 | **S6 — deep zoom** | ⛔ Blocked on the reusable parsed handle, which pdfce has scheduled as `Pass 75.0`. Do not build tiling: measured as a 9× regression. |
 

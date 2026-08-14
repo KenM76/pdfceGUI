@@ -168,7 +168,7 @@ the blocker named.
 
 | | |
 |---|---|
-| ⬜ | **Two-line ce dimension** — core and CLI shipped and measured; the canvas gesture has no caller. Cheapest real feature in the backlog |
+| ⬜ | **Two-line ce dimension** — core and CLI shipped and measured. **Corrected 2026-08-14:** this row used to read *"the canvas gesture has no caller"*, which was false in five documents at once. The gesture is fully built in the **old** shell (`main.rs:23564` calls `pick_line_in_page`, `:23592` takes the pick; `TwoLinePick` in `measure_tool.rs:361`, 814 lines of tests) and pdfce's own ledger marks the row `gui [x]`. The caller that is missing is **ours** — this shell has no measure tool at all. So it is a salvage of Class A `measure_tool.rs` plus its canvas hosting, and it is **not** the cheapest feature in the backlog. See `RIBBON_IA.md` §5.6 |
 | ⬜ | **Area** and **Angular** — the two a takeoff needs |
 | ⬜ | Count tool and a takeoff schedule |
 

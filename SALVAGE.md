@@ -37,7 +37,7 @@ read-through and a `ui-verify` assertion before it is trusted.
 |---|---:|---:|---|---|
 | `print_flow.rs` | 1,854 | 168 | Three-tab print dialog with a zoomable live preview of real page content. Self-contained, works, nothing like it needs re-deriving. | Add imposition once `pdfce-print` shares the sheet composition (a **C**-row in `FEATURES.md`). |
 | `icons.rs` | 1,747 | 383 | SVG path data rasterized at physical pixel size rather than pre-baked PNGs. Mostly data. | New icons for the new commands. |
-| `measure_tool.rs` | 1,230 | 814 | Dimension **groups** with shared scale and drafting standard — better than the comparison product has. Taubin best-fit circle. Snapping. | Add Area, Angular; wire the Two-line gesture whose core is already done. |
+| `measure_tool.rs` | 1,230 | 814 | Dimension **groups** with shared scale and drafting standard — better than the comparison product has. Taubin best-fit circle. Snapping. **`TwoLinePick` (`:361`) is here, built and tested** — see the note below. | Add Area, Angular. **Carry the Two-line gesture across**; it does not need wiring, it needs salvaging. |
 | `diag.rs` | 819 | 144 | The `PDFCE_DIAG` key=value channel. Off by default, one atomic load, never load-bearing. This is what made the Delete-key and render analyses possible. | Extend with page complexity per `BENCHMARK.md` §"instrument before optimising". |
 | `settings_panel.rs` | 800 | 114 | The spec-ambiguity settings model — each row states what the standard leaves open and how well-founded the default is. A genuine differentiator. | Add the **Render** group (strategy, raster scale, settle delay, thin lines, antialias). Fix the heading contrast — `DEFECTS.md` D2. |
 | `object_provider.rs` | 694 | 313 | Front-to-back page object decomposition. Feeds the Objects panel, which is the single strongest thing pdfce has. | Serve more than the current page, for continuous mode (Phase 4). |
@@ -49,6 +49,48 @@ read-through and a `ui-verify` assertion before it is trusted.
 | `raster.rs` | 363 | 0 | Premultiplied alpha handled correctly; stale texture scaled `LINEAR` during settle. This is *why* zoom feels smooth. | None. |
 
 **Subtotal: 9,895 code lines, 3,158 test lines.**
+
+### ★ Correction, 2026-08-14 — the Two-line gesture is *built*, not pending
+
+The `measure_tool.rs` row used to say *"wire the Two-line gesture whose core
+is already done"*, and four other documents said the same thing in stronger
+words: **"the canvas gesture has no caller"** (`FEATURES.md`, `HANDOFF.md`,
+`RIBBON_IA.md` §5.6 twice, and `shell/manifest/mod.rs`'s `PLANNED` entry for
+`measure.two_line`).
+
+**It was false, and it was false when written.** In the old shell:
+
+| what | where |
+|---|---|
+| the `pick_line_in_page` call | `main.rs:23564` |
+| the pick itself | `main.rs:23592` — `st.two_lines.offer_line(h, parallel_epsilon)` |
+| hover highlight before any click | `main.rs:23574-23587` |
+| picked-pair overlay, verdict disclosure, Escape to clear | `:23597-23604`, `:23175-23187`, `:23857` |
+| the state type | `measure_tool.rs:361` `TwoLinePick`, tests at `:1717-2040` |
+
+pdfce's own `docs/FEATURES.md:104` marks that row **`gui [x]`**; the `[ ]` in
+it is the *Acrobat* column. The gesture landed in their commit `c4ec3f5`,
+2026-08-12 — the same day this file's survey was taken, which is the most
+likely reason it was missed. The probable textual origin is a misread of
+pdfce's `ROADMAP.md:2778`, which explains why `pick_line_in_page` exists, one
+paragraph above the commit heading that added its caller.
+
+**What it changes.** The missing caller is *ours*, not theirs. This shell has
+no measure tool at all: `canvas/tool.rs` has two `CanvasTool` variants, no
+`measure.*` command has a dispatch arm, and `crates/pdfce-gui` contains zero
+occurrences of `linepick`, `PickedLine` or `author_from_two_lines`. So the
+work is this row — carry `measure_tool.rs` across — plus the ~900 lines of
+Class C canvas hosting at `main.rs:23100-23900`. The *"cheapest real feature
+in the backlog"* claim that rode on the false premise is withdrawn.
+
+**The lesson is the same one the `deletion_refusal` filing taught**, pointed
+the other way: that time a claim about *their* code was wrong because it was
+checked against the wrong function; this time a claim about *our own*
+backlog was wrong because it was never checked at all, and it then travelled
+into four more documents by being quoted. **A status word in a table is a
+claim, and it decays.**
+
+---
 
 ### ★ `redact_apply.rs` is load-bearing in a way the table understates
 

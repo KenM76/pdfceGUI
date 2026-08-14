@@ -699,10 +699,17 @@ pub const PLANNED: &[(&str, &str)] = &[
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
         "N — angular dimensions. One of the two conspicuous absences for takeoff work.",
     ),
+    // ★ Corrected 2026-08-14. This entry read "the pick gesture has no
+    // caller", which was false — the old shell calls `pick_line_in_page` at
+    // `main.rs:23564` and takes the pick at `:23592`, and pdfce's own ledger
+    // marks the row `gui [x]`. The caller that is missing is ours. See
+    // `SALVAGE.md`'s correction note for the full account; the practical
+    // difference is salvage-plus-hosting rather than one line of wiring.
     (
         "measure.two_line",
-        "C — core and CLI shipped and were measured; the pick gesture has no caller. \
-         Shell-only work and the top of the project's own queue.",
+        "C — core and CLI shipped and were measured, and the pick gesture is BUILT in the \
+         old shell (`measure_tool.rs` `TwoLinePick`). Shell-only work, but a salvage: this \
+         build has no measure tool to arm at all.",
     ),
     (
         "measure.calibrate",
