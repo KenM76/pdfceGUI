@@ -488,18 +488,22 @@ pub const PLANNED: &[(&str, &str)] = &[
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
         "N — as `view.rotate_view_left`, clockwise.",
     ),
-    (
-        "view.rulers",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — rulers along the canvas edges, in the document's units.",
-    ),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("view.grid", "N — a drawing grid drawn over the page."),
-    (
-        "view.guides",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — draggable guides, which need a per-document store to survive a reopen.",
-    ),
+    // ★ `view.rulers`, `view.grid` and `view.guides` were here until the
+    // rulers landed, marked N. Their notes were *"rulers along the canvas
+    // edges, in the document's units"*, *"a drawing grid drawn over the
+    // page"*, and — the one with a condition attached — *"draggable guides,
+    // which need a per-document store to survive a reopen."*
+    //
+    // All three are now emitted by `view.rs` and registered by
+    // `super::commands`, so they are removed from this list rather than left
+    // with a stale reason: `planned_commands_are_genuinely_absent` asserts in
+    // both directions and fails on an entry that has shipped. The condition on
+    // the third is discharged by `crate::canvas::guides`, whose header records
+    // why `guides.txt` is a fourth store beside `layout.ron`, `recent.txt` and
+    // `page-display.txt` rather than a field in any of them.
+    //
+    // "The document's units" turned out to be the interesting half of that
+    // first note; `crate::canvas::rulers`' header §1 is the answer.
     // ★ `view.panel_pages` was here, with the reason *"page thumbnails are the
     // sidebar rail's first pane and have no independent toggle;
     // `view.sidebar` shows the rail"*. That reason described the OLD shell's

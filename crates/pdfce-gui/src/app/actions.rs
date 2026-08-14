@@ -109,6 +109,58 @@ use crate::app::PdfceApp;
 use crate::app::state::{OpenDoc, Status};
 use crate::viewer::{self, FitMode};
 
+/// Which piece of View ▸ Display chrome a [`Action::ToggleViewChrome`] is
+/// about.
+///
+/// An enum rather than three action variants — see that variant's own docs —
+/// and it lives here rather than in `canvas` because it is the *operand of an
+/// action*, and `shell::commands` (which maps ids to it) must not have to
+/// reach into the canvas to name one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewChrome {
+    /// `view.rulers` — the gutters along the canvas edges.
+    Rulers,
+    /// `view.grid` — the drawing grid over each page.
+    Grid,
+    /// `view.guides` — whether the operator's guides are shown and draggable.
+    Guides,
+}
+
+impl ViewChrome {
+    /// Every variant, in the order View ▸ Display lists them.
+    ///
+    /// Iterated by the tests that assert each has a command and each command
+    /// has a `selected:` condition — the same both-directions check
+    /// `PageDisplay::ALL` exists for, and for the same reason: a fourth toggle
+    /// added to the enum with no registration would draw nothing and nothing
+    /// else in the suite would notice.
+    pub const ALL: &'static [ViewChrome] =
+        &[ViewChrome::Rulers, ViewChrome::Grid, ViewChrome::Guides];
+
+    /// Read this toggle out of a view state.
+    #[must_use]
+    pub fn read(self, view: &crate::viewer::ViewState) -> bool {
+        match self {
+            ViewChrome::Rulers => view.rulers,
+            ViewChrome::Grid => view.grid,
+            ViewChrome::Guides => view.guides,
+        }
+    }
+
+    /// Write this toggle into a view state.
+    ///
+    /// The pair with [`Self::read`], so the enum's mapping onto
+    /// [`crate::viewer::ViewState`]'s three fields is stated exactly twice, in
+    /// adjacent functions, instead of once per consumer.
+    pub fn write(self, view: &mut crate::viewer::ViewState, on: bool) {
+        match self {
+            ViewChrome::Rulers => view.rulers = on,
+            ViewChrome::Grid => view.grid = on,
+            ViewChrome::Guides => view.guides = on,
+        }
+    }
+}
+
 /// One operator intent, applied after the frame that raised it.
 ///
 /// Every variant is reachable from a real control today. A variant nothing
@@ -379,6 +431,48 @@ pub enum Action {
     /// Same nature as [`Self::SetLayerVisible`] — a view stance, tracked by
     /// `RenderKey`, invisible to a save.
     ToggleAnnotations,
+    /// **The three View ▸ Display chrome toggles** — rulers, grid, guides.
+    ///
+    /// One variant carrying which, rather than three variants, for the reason
+    /// [`Self::SetPageDisplay`] gives about the page-display radio: the
+    /// operand *is* the command, `crate::shell::commands::chrome_for_command`
+    /// is the single binding between an id and a [`ViewChrome`], and its
+    /// inverse is what publishes the `selected:` condition that renders each
+    /// one pressed. Three arms would be three places for that mapping to be
+    /// spelled and a fourth toggle would be added to two of them.
+    ///
+    /// # Why it goes through the funnel when it changes nothing a save writes
+    ///
+    /// The same reason `SetPageDisplay` does, and it is sharper here: the
+    /// rulers change how much room the canvas has. Applying that in the middle
+    /// of the frame that is *already laying the strip out into the old
+    /// viewport* would leave the frame's fit scale, its scroll offset and its
+    /// page rects describing two different canvases at once. Deferred, the
+    /// next frame reserves the gutters once and everything downstream is
+    /// consistent with them.
+    ///
+    /// Deliberately does **not** bump `edit_epoch`: nothing about the document
+    /// has changed, only what is drawn beside and over it. Bumping would throw
+    /// away the decomposition and the font inventory to no purpose.
+    ToggleViewChrome(ViewChrome),
+    /// **The operator's guides for this document, after a gesture changed
+    /// them.**
+    ///
+    /// Carries the whole next collection rather than an add / move / remove
+    /// verb. Three reasons, and the first is the one that decided it:
+    ///
+    /// 1. **The gesture already computes it.** `canvas::guides::release`
+    ///    resolves create, move and delete through one table, and handing over
+    ///    the result is the same "compute the next value from the previous one
+    ///    and store it" shape the canvas already uses for the selection.
+    /// 2. **The apply has exactly one thing to persist.** `guides.txt` is
+    ///    rewritten from the whole set either way — it is a
+    ///    read-modify-write of one line — so a verb would be decomposed here
+    ///    and recomposed there.
+    /// 3. **The operand is small.** Bounded by
+    ///    `canvas::guides::MAX_PER_DOCUMENT`, twelve bytes each, and raised
+    ///    once per *release* rather than once per frame of a drag.
+    SetGuides(crate::canvas::guides::Guides),
     /// **One thing the operator asked Find to do** — run the search, or step
     /// to the adjacent hit.
     ///
@@ -673,6 +767,35 @@ impl PdfceApp {
             Action::ToggleAnnotations => {
                 let showing = doc.annotations_visible();
                 doc.set_annotations_visible(!showing);
+            }
+            Action::ToggleViewChrome(chrome) => {
+                let on = !chrome.read(&doc.view);
+                chrome.write(&mut doc.view, on);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!("view-chrome {chrome:?} on={on}")
+                });
+            }
+            // The guides are stored and written to disk in one step, because
+            // the file IS the store's authority: `remember` is a
+            // read-modify-write of the whole line, so there is no half-applied
+            // state to guard against and nothing to reconcile on the next
+            // open. Unconditional, exactly as `SetPageDisplay`'s `remember` is
+            // — a `Guides` that equals what is already there is a gesture that
+            // raised no action at all (`canvas::guides::release` compares
+            // before it pushes), so a redundant write is unreachable rather
+            // than merely cheap.
+            Action::SetGuides(guides) => {
+                doc.guides = guides;
+                crate::canvas::guides::remember(&doc.path, &doc.guides);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!(
+                        "guides-set n={} page={}",
+                        doc.guides.len(),
+                        doc.view.page_index
+                    )
+                });
             }
             Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
         }

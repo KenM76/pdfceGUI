@@ -171,7 +171,20 @@
 
 pub mod geometry;
 pub mod gesture;
+// Draggable alignment lines: what a guide belongs to, where it lives on disk,
+// and why grabbing one cannot also start a marquee.
+pub mod guides;
+// The drawing grid, in each page's own space. Split from `rulers` under R2
+// along the seam that module's header already drew: a ruler is chrome beside
+// the canvas that reserves layout space, a grid is chrome over the page that
+// reserves none.
+pub mod grid;
 pub mod handles;
+// Reading this frame's pointer — what a click landed on at every rung, which
+// of the two panning gestures is in flight, and where the in-flight press is
+// kept between frames. Split out under R2 when the rulers landed; see its
+// header on why the forced seam is a real one.
+pub mod input;
 // Escape and Delete, and the precedence between the three things that would
 // like Escape. Split from this file along the seam every other split here
 // follows: that module is drivable by a headless `egui::Context`, this one
@@ -185,6 +198,11 @@ pub mod menus;
 // *what happens when you drag it*.
 pub mod moving;
 pub mod overlay;
+// The ruler gutters, the 1-2-5 tick ladder they and the grid share, and what
+// unit the whole thing reads in. Its header carries the three decisions this
+// feature turns on: the unit, the space the grid lives in, and why the
+// reservation it takes out of the viewport is a constant (R128).
+pub mod rulers;
 pub mod selection;
 // Which page the frame is about, in what order the rest should be drawn, and
 // where a navigated-to page lands. The canvas's half of Phase 4's strip.
@@ -200,16 +218,15 @@ pub mod tool;
 // paths that route through it.
 pub mod zoom;
 
-use egui::{Key, PointerButton, Pos2, Rect, Sense, Vec2, scroll_area::ScrollSource, vec2};
+use egui::{Key, PointerButton, Pos2, Rect, Sense, scroll_area::ScrollSource, vec2};
 use egui_shell::HandlerToken;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
-use crate::canvas::gesture::{
-    DragKind, GestureOutcome, GestureState, MarqueeIntent, Phase, PointerFrame,
-};
+use crate::canvas::gesture::{DragKind, GestureOutcome, MarqueeIntent, Phase, PointerFrame};
+use crate::canvas::input::{load_gesture, pan_delta, probe, store_gesture};
 use crate::canvas::mapping::PageMapping;
-use crate::canvas::selection::{ClickHit, SelectionState};
+use crate::canvas::rulers::CanvasGeometry;
 use crate::canvas::target::CanvasTargetProvider;
 use crate::canvas::tool::CanvasTool;
 use crate::shell::menus::MenuHost;
@@ -278,17 +295,6 @@ const REGION_PAGE_MESSAGE: &str = "canvas-message"; // ui-text-exempt: trace reg
 /// selection*. Sharing a slot would let each silence the other.
 const SELECTION_SLOT: &str = "canvas-selection"; // ui-text-exempt: trace slot name, never displayed
 
-/// `egui::Memory` key for the in-flight pointer gesture.
-///
-/// ★ **The one thing that stayed in `Memory` when the selection left**, and the
-/// distinction is the point rather than an omission. A gesture is genuinely
-/// frame-local UI state — the drag that is happening *right now* — not
-/// document-scoped state. It has no meaning across a document, and a gesture
-/// that survived one would be a drag continuing over a file it did not start
-/// on. Keying it here means it cannot: `Memory` is per-`Context`, and every
-/// document change starts the next frame with no press in flight.
-const GESTURE_MEMORY_KEY: &str = "pdfce-canvas-gesture"; // ui-text-exempt: internal memory id, never displayed
-
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
 /// that every part of it must agree on.
 ///
@@ -347,6 +353,16 @@ struct Frame<'a> {
 /// Beyond those two, everything this function decides lands in the three
 /// documented bookkeeping fields (see the module docs). The document itself
 /// is never touched.
+///
+/// # ★ The rulers wrap this, and the wrapping is three statements
+///
+/// [`rulers::reserve`] takes a **constant** bite out of `ui` before anything
+/// measures the viewport (rule R128 — see that module's header §3), the whole
+/// of the canvas is then drawn into a child `Ui` covering what is left, and
+/// the gutters are painted afterwards from the geometry [`show_in`] hands
+/// back. Painting them *after* is what puts a guide preview over the page
+/// rather than under it, and what lets the ruler mark the page's own edges —
+/// neither of which is knowable until the scroll area has settled.
 #[must_use]
 pub fn show(
     ui: &mut egui::Ui,
@@ -355,6 +371,31 @@ pub fn show(
     find: &crate::find::FindState,
     actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
+    let gutters = rulers::reserve(ui, doc.view.rulers && !doc.pages.is_empty());
+    let mut content = gutters.content_ui(ui);
+    let (tokens, geometry) = show_in(&mut content, doc, host, find, actions);
+    rulers::draw(ui, doc, gutters, geometry.as_ref());
+    // Starting a guide drag needs a ruler to drag out of; *finishing* one does
+    // not, because it may have started on the canvas. So the two halves are
+    // separate calls and only the first is conditional — see `guides::settle`.
+    guides::ruler_drag(ui, doc, gutters);
+    guides::settle(ui, doc, geometry.as_ref(), actions);
+    tokens
+}
+
+/// [`show`]'s body, drawn into the canvas region the rulers left.
+///
+/// Returns the context-menu tokens *and* what the frame learned about where
+/// its pages ended up — see [`CanvasGeometry`] on why that has to travel
+/// outwards rather than be read again.
+#[must_use]
+fn show_in(
+    ui: &mut egui::Ui,
+    doc: &mut OpenDoc,
+    host: Option<&MenuHost<'_>>,
+    find: &crate::find::FindState,
+    actions: &mut Vec<Action>,
+) -> (Vec<HandlerToken>, Option<CanvasGeometry>) {
     if doc.pages.is_empty() {
         let placeholder = ui.centered_and_justified(|ui| ui.label(crate::text::canvas_no_pages()));
         // Say so on the trace rather than staying silent. A consumer that
@@ -366,7 +407,7 @@ pub fn show(
             "canvas-unavailable reason=no-pages".to_owned()
         });
         crate::diag::ui_rect(REGION_PAGE_MESSAGE, placeholder.inner.rect);
-        return Vec::new();
+        return (Vec::new(), None);
     }
 
     // The viewport the fit modes are measured against, minus the margin the
@@ -425,7 +466,7 @@ pub fn show(
             "canvas-unavailable reason=render-failed".to_owned()
         });
         crate::diag::ui_rect(REGION_PAGE_MESSAGE, placeholder.inner.rect);
-        return Vec::new();
+        return (Vec::new(), None);
     }
 
     // ★ **Where every page this view shows sits.** One page under `Single`,
@@ -736,7 +777,7 @@ pub fn show(
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             "canvas-unavailable reason=nothing-visible".to_owned()
         });
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let image_response = active.response.clone();
     let image_rect = active.rect;
@@ -770,6 +811,15 @@ pub fn show(
             ),
         })
         .collect();
+
+    // ★ The guides' catch bands, registered AFTER every page widget and before
+    // the gesture layer runs. The order is the whole mechanism: a later widget
+    // in the same layer is the topmost one under the pointer, so a press on a
+    // guide never reaches the page's `Response` and therefore never reaches
+    // the gesture machine — a guide drag cannot also rubber-band a selection.
+    // See `guides`' header §3. Registers nothing when the toggle is off or the
+    // document has no guides.
+    guides::canvas_drag(ui, doc, &page_views, actions);
 
     // ★ The frame's geometry, recorded for the commands that arrive with none.
     // A zoom raised from a keyboard chord, the ribbon or the status bar has no
@@ -864,7 +914,18 @@ pub fn show(
         }
     }
 
-    tokens
+    // ★ What the frame learned, handed outwards so the rulers can be drawn
+    // against it. Only knowable here — after the scroll area has settled — for
+    // the same reason `last_scroll_offset` is stored and `strip_visible` is
+    // published during layout. See [`CanvasGeometry`].
+    (
+        tokens,
+        Some(CanvasGeometry {
+            pages: page_views,
+            current: acting,
+            viewport: scroll_output.inner_rect,
+        }),
+    )
 }
 
 /// Read the frame's canvas gestures and keys, update the selection, draw it,
@@ -1296,6 +1357,15 @@ fn interact(
 
     // ---- 8. draw --------------------------------------------------------
     let painter = ui.painter().with_clip_rect(clip);
+    // ★ The grid goes UNDER everything, including the find wash. It is the
+    // only thing painted here that is about the *paper* rather than about
+    // something the operator has selected, searched for or is dragging, so
+    // anything drawn over it is a statement about the drawing and must win.
+    // Draws nothing at all with the toggle off. See `rulers`' header §2 for
+    // why it is per page rather than across the viewport.
+    if doc.view.grid {
+        grid::draw(ui, doc, pages, clip);
+    }
     // ★ The find highlights go on FIRST, under everything else.
     //
     // They are a wash over page content — an answer to "where is the text I
@@ -1338,6 +1408,12 @@ fn interact(
     // `moving::drag` has already established that the release will commit — a
     // preview of a move that will be refused is the thing rule 4 and the
     // no-placeholders invariant both forbid.
+    // The guides sit on TOP of the selection, and the order is the point: a
+    // guide is a line the operator has to see while they align something to
+    // it, and a selection outline is a box a few points across that a hairline
+    // crossing it does not hide. The reverse order would hide a guide behind
+    // exactly the object the operator is aligning to it.
+    guides::draw(ui, doc, pages, clip);
     if let Some(delta) = ghost {
         overlay::draw_move_ghost(&painter, ui.visuals(), map, &selection, delta);
     }
@@ -1388,90 +1464,4 @@ fn interact(
     doc.selection = selection;
     store_gesture(&ctx, gestures);
     (count, tokens)
-}
-
-/// Ask the provider what is under a click, at every rung at once.
-///
-/// # Why the part and node queries are scoped to the ENTERED object
-///
-/// Because that is what makes the deeper rungs predictable. A node query
-/// against an object's whole flat anchor list is the hazard decision 028 found
-/// already shipped: one measured CAD object holds **6,681 anchors**, so "the
-/// nearest anchor to the press" can easily belong to a subpath the operator is
-/// not pointing at, with nothing drawn beforehand to say which.
-///
-/// When nothing is entered yet, the subject is the object under the pointer —
-/// which is what a double-click needs, since it descends into whatever it
-/// landed on.
-fn probe(
-    targets: &dyn CanvasTargetProvider,
-    selection: &SelectionState,
-    page_index: usize,
-    point: Pos2,
-    map: &PageMapping,
-) -> ClickHit {
-    // ONE tolerance, converted once, in page units. Passing
-    // `SELECT_SCREEN_TOLERANCE_PX` here would compile, run, and merely drift
-    // with zoom — see `mapping`.
-    let tolerance = map.tolerance();
-    let object = targets.hit_test(page_index, point, tolerance);
-
-    let subject = selection
-        .entered_object()
-        .map(|e| e.object)
-        .or(object)
-        .and_then(|t| usize::try_from(t.0).ok());
-    let (part, node) = match subject {
-        Some(index) => {
-            let part = targets
-                .part_hits(page_index, index, point, tolerance)
-                .first()
-                .copied();
-            let node =
-                part.and_then(|p| targets.nearest_node(page_index, index, p, point, tolerance));
-            (part, node)
-        }
-        None => (None, None),
-    };
-    ClickHit { object, part, node }
-}
-
-/// Read the in-flight pointer gesture.
-fn load_gesture(ctx: &egui::Context) -> GestureState {
-    let id = egui::Id::new(GESTURE_MEMORY_KEY);
-    ctx.data_mut(|d| d.get_temp::<GestureState>(id).unwrap_or_default())
-}
-
-/// Write the in-flight pointer gesture back.
-fn store_gesture(ctx: &egui::Context, gestures: GestureState) {
-    let id = egui::Id::new(GESTURE_MEMORY_KEY);
-    ctx.data_mut(|d| d.insert_temp(id, gestures));
-}
-
-/// The pointer movement of an in-progress pan over this canvas, or `None` when
-/// no pan is happening.
-///
-/// **Two buttons, one path.** The middle button always pans — the CAD /
-/// Inkscape / Illustrator / browser convention, requested on 2026-08-04 — and
-/// the primary button pans as well while the hand tool is active, whether the
-/// operator chose it or is borrowing it with the space bar. They share this
-/// function and therefore share [`geometry::pan_offset`], its clamp and its
-/// cursor: `GUI_ROADMAP` 3.2 asks for a hand tool, not for a second panning
-/// implementation that rounds differently at the edges of the scroll range.
-///
-/// Gated on the pointer being over the canvas so a drag that began on some
-/// other surface does not yank the page sideways.
-fn pan_delta(ui: &egui::Ui, tool: CanvasTool) -> Option<Vec2> {
-    let rect = ui.max_rect();
-    ui.input(|i| {
-        let over = i.pointer.latest_pos().is_some_and(|p| rect.contains(p));
-        let panning =
-            i.pointer.middle_down() || (tool.pans_with_primary() && i.pointer.primary_down());
-        if panning && over {
-            let delta = i.pointer.delta();
-            (delta != Vec2::ZERO).then_some(delta)
-        } else {
-            None
-        }
-    })
 }

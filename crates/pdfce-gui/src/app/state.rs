@@ -126,27 +126,12 @@ pub enum Status {
 
 /// Where the pointer was over the page when a Ctrl+wheel arrived.
 ///
-/// Recorded on the frame the wheel is seen, consumed on the next one, so
-/// the scroll offset can be moved to keep that point still. See
-/// [`crate::canvas::geometry::zoom_anchor_offset`].
-///
-/// **It has to span two frames**, and that is not an implementation
-/// detail: the new zoom is not known when the wheel is seen. The zoom is an
-/// [`crate::app::actions::Action`] applied after the UI is built, and it
-/// *clamps* — so the only honest source of "how big is the page now" is the
-/// next frame's own display size. Recording the *inputs* and solving later
-/// avoids predicting a clamp we do not control.
-#[derive(Debug, Clone, Copy)]
-pub struct ZoomAnchor {
-    /// The pointer's position as a fraction of the page's drawn size.
-    pub frac: (f32, f32),
-    /// The scroll offset before the zoom step.
-    pub offset_before: (f32, f32),
-    /// The page's drawn size before the zoom step.
-    pub display_before: (f32, f32),
-    /// The scroll viewport, needed for the centring-margin term.
-    pub viewport: (f32, f32),
-}
+/// ★ **Re-exported, not declared here.** The type moved to [`crate::viewer`]
+/// when the rulers landed — R2's ceiling forced a split out of this file, and
+/// a zoom fact belongs beside `ViewState::zoom` and `ZOOM_LADDER`; that
+/// module's own docs carry the argument. The re-export keeps it a *move*
+/// rather than a rename, so `canvas::zoom` still names it by this path.
+pub use crate::viewer::ZoomAnchor;
 
 /// Which optional-content groups the operator has hidden, if any.
 ///
@@ -407,6 +392,18 @@ pub struct OpenDoc {
     /// selection model, which is precisely what
     /// `panels::PanelsState::focus`'s docs refuse to become.
     pub selection: SelectionState,
+    /// ★ **The operator's guide lines**, per page, in canvas space.
+    ///
+    /// View state, not document content — a guide changes nothing a save would
+    /// write — so it sits here beside [`Self::selection`] rather than anywhere
+    /// near `EditSession`. It is nevertheless **remembered per document**, in
+    /// `guides.txt`, because a guide is *work the operator did* rather than a
+    /// switch they flicked; [`crate::canvas::guides`]' header §2 carries the
+    /// argument, including why that is a fourth store beside `layout.ron`,
+    /// `recent.txt` and `page-display.txt`. Changed through
+    /// [`crate::app::actions::Action::SetGuides`], which is what makes the
+    /// file write happen once per gesture rather than once per frame of a drag.
+    pub guides: crate::canvas::guides::Guides,
     /// The current page's decomposition. Read through
     /// [`Self::page_objects`]; see [`crate::app::cache`] for why it is a cache,
     /// why it is behind a `RefCell`, and why the accessors live there while the
@@ -448,7 +445,10 @@ impl OpenDoc {
     /// would be a second way to assemble an `OpenDoc`, which is precisely
     /// what this function's own argument says not to have.
     pub(crate) fn new(path: PathBuf, session: EditSession, pages: Vec<Page>) -> Self {
-        let view = ViewState::default();
+        // ★ The one field read from disk here rather than started empty, and
+        // the one `ViewState` default it overrides. `canvas::guides::opening`
+        // owns both halves and the rule joining them.
+        let (guides, view) = crate::canvas::guides::opening(&path);
         Self {
             path,
             session: Arc::new(session),
@@ -485,6 +485,8 @@ impl OpenDoc {
             // mechanism by which a selection can never refer to a previous
             // file. See the field's own docs.
             selection: SelectionState::default(),
+            // Read above, before `path` was moved into the struct.
+            guides,
             page_objects: PageObjectCache::default(),
             fonts: FontCache::default(),
             // What a reader shows. `pdfce_render::RenderOptions` defaults the

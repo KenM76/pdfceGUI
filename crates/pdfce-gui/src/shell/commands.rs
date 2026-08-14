@@ -277,6 +277,35 @@ fn all() -> Vec<Command> {
         command("view.show_points", t::view_show_points(), 231)
             .with_icon("show-points")
             .enabled_when("doc.pages"),
+        // ★ **The three chrome toggles**, and all three render pressed while
+        // they are on, through the `selected:` convention `view.tool_hand`
+        // documents and the page-display radio uses.
+        //
+        // They *can*, where the hand tool and the region zoom still cannot,
+        // and the difference is worth naming because it is the reason the
+        // state lives where it does: a `selected:` condition is published from
+        // `PdfceApp::conditions`, which is handed `&self` and **no
+        // `egui::Context`** — so a toggle whose state lives in `egui::Memory`
+        // has no route to the ribbon. These three live on
+        // `crate::viewer::ViewState`, which `conditions` can read, so no
+        // second mechanism was needed.
+        //
+        // No icons: there is no ruler, grid or guide key in
+        // `crate::icons::catalog`, and naming one would draw the catalogue's
+        // deliberate slashed mark for an unknown key. A command with no icon
+        // renders as its label, which is the right answer here for the same
+        // reason it is for `view.panel_pages` — the control's name is a word,
+        // and the word is what makes it findable.
+        //
+        // `doc.pages`, like the rest of the Display group: a ruler with no
+        // page to measure and a grid with no paper to rule are both chrome
+        // about nothing.
+        //
+        // The tokens are contiguous (232-234) because they are one row of the
+        // specification.
+        command("view.rulers", t::view_rulers(), 232).enabled_when("doc.pages"),
+        command("view.grid", t::view_grid(), 233).enabled_when("doc.pages"),
+        command("view.guides", t::view_guides(), 234).enabled_when("doc.pages"),
         // The sidebar is the application's own furniture and toggles with
         // or without a document; the panels inside it need one to describe.
         command("view.sidebar", t::view_sidebar(), 240).with_icon("sidebar"),
@@ -536,6 +565,47 @@ pub fn page_display_for_command(id: &str) -> Option<crate::viewer::PageDisplay> 
         .find(|&m| page_display_command(m) == id)
 }
 
+/// ★ **The command id that names a piece of View ▸ Display chrome**, and its
+/// inverse.
+///
+/// Exactly the shape [`page_display_command`] has, and here for exactly the
+/// same reasons: two surfaces need the mapping in opposite directions —
+/// `crate::app::dispatch` turns an invoked command into a
+/// [`crate::app::actions::ViewChrome`], and `PdfceApp::conditions` turns each
+/// toggle's state into the `selected:` condition that renders its button
+/// pressed — and a mapping spelled twice is a mapping that drifts.
+///
+/// The difference from the page-display pair is that these three are
+/// **independent toggles rather than a radio**: all, none or any two may be
+/// on at once, so `conditions` publishes between zero and three of these
+/// conditions where it publishes exactly one page-display condition. That is
+/// the whole of what makes them read as three switches instead of one
+/// three-position control.
+#[must_use]
+pub fn chrome_command(chrome: crate::app::actions::ViewChrome) -> &'static str {
+    use crate::app::actions::ViewChrome as C;
+    match chrome {
+        // ui-text-exempt: command ids, never displayed
+        C::Rulers => "view.rulers",
+        // ui-text-exempt: command ids, never displayed
+        C::Grid => "view.grid",
+        // ui-text-exempt: command ids, never displayed
+        C::Guides => "view.guides",
+    }
+}
+
+/// The chrome toggle `id` names, or `None` if it names none.
+///
+/// Derived from [`chrome_command`] rather than written out a second time, so
+/// the two cannot disagree even in principle.
+#[must_use]
+pub fn chrome_for_command(id: &str) -> Option<crate::app::actions::ViewChrome> {
+    crate::app::actions::ViewChrome::ALL
+        .iter()
+        .copied()
+        .find(|&c| chrome_command(c) == id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,7 +624,41 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 85);
+        assert_eq!(registry().len(), 88);
+    }
+
+    /// ★ **Every chrome toggle has a registered command, and every one of
+    /// those commands names a toggle.**
+    ///
+    /// The twin of [`every_page_display_mode_has_a_registered_command`], and
+    /// it catches the same failure: a fourth toggle added to
+    /// [`crate::app::actions::ViewChrome`] with no registration would be a
+    /// piece of chrome no operator could reach, and nothing else in the suite
+    /// would notice. Asserted against the **live registry** rather than
+    /// against the mapping's own table, which is the difference between the
+    /// code agreeing with itself and the control existing.
+    #[test]
+    fn every_chrome_toggle_has_a_registered_command() {
+        let reg = registry();
+        for &chrome in crate::app::actions::ViewChrome::ALL {
+            let id = chrome_command(chrome);
+            assert!(
+                reg.get(id).is_some(),
+                "`{id}` names {chrome:?} and is not registered"
+            );
+            assert_eq!(chrome_for_command(id), Some(chrome), "round trip");
+        }
+        let mut ids: Vec<&str> = crate::app::actions::ViewChrome::ALL
+            .iter()
+            .map(|&c| chrome_command(c))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), crate::app::actions::ViewChrome::ALL.len());
+        // …and the two mappings do not overlap, which is what keeps a
+        // page-display click from toggling a ruler.
+        assert_eq!(chrome_for_command("view.page_single"), None);
+        assert_eq!(page_display_for_command("view.rulers"), None);
     }
 
     /// ★ **Every page-display mode has a registered command, and every one of

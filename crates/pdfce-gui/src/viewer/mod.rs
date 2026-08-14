@@ -150,6 +150,38 @@ pub enum FitMode {
     Width,
 }
 
+/// Where the pointer was over the page when a Ctrl+wheel arrived.
+///
+/// Lives here rather than on `crate::app::state` — where it was declared
+/// until the rulers landed — because it is a fact about **zoom**, and this
+/// module already owns [`ViewState::zoom`], [`FitMode`], [`ZOOM_LADDER`],
+/// [`MAX_ZOOM`] and [`raster_scale`]. `app::state` re-exports it, so
+/// `canvas::zoom` still names it by its old path and the move cost that
+/// module nothing. See `app::state`'s re-export for the R2 argument that
+/// prompted it.
+///
+/// Recorded on the frame the wheel is seen, consumed on the next one, so
+/// the scroll offset can be moved to keep that point still. See
+/// [`crate::canvas::geometry::zoom_anchor_offset`].
+///
+/// **It has to span two frames**, and that is not an implementation
+/// detail: the new zoom is not known when the wheel is seen. The zoom is an
+/// [`crate::app::actions::Action`] applied after the UI is built, and it
+/// *clamps* — so the only honest source of "how big is the page now" is the
+/// next frame's own display size. Recording the *inputs* and solving later
+/// avoids predicting a clamp we do not control.
+#[derive(Debug, Clone, Copy)]
+pub struct ZoomAnchor {
+    /// The pointer's position as a fraction of the page's drawn size.
+    pub frac: (f32, f32),
+    /// The scroll offset before the zoom step.
+    pub offset_before: (f32, f32),
+    /// The page's drawn size before the zoom step.
+    pub display_before: (f32, f32),
+    /// The scroll viewport, needed for the centring-margin term.
+    pub viewport: (f32, f32),
+}
+
 /// Which page is shown, at what scale, how that scale is chosen, and in what
 /// arrangement.
 #[derive(Debug, Clone, Copy)]
@@ -196,6 +228,39 @@ pub struct ViewState {
     /// Changed through [`crate::app::actions::Action::SetPageDisplay`], like
     /// every other view stance the ribbon can reach.
     pub display: PageDisplay,
+    /// **Whether the ruler gutters are drawn along the canvas edges.**
+    ///
+    /// `RIBBON_IA.md` §5.2's View ▸ Display row. It is here rather than in
+    /// `egui::Memory` for the reason `view.tool_hand` is *not*: the pressed
+    /// state of a toggle has to be published from
+    /// `crate::app::PdfceApp::conditions`, which is handed `&self` and no
+    /// `egui::Context` — so a toggle whose state lives in `Memory` cannot
+    /// render pressed, which is exactly the gap the hand tool and the region
+    /// zoom still carry. Living on the view state closes it for all three of
+    /// these with no second mechanism.
+    ///
+    /// **This is what the ruler costs, and it is a constant.** Switching it on
+    /// takes [`crate::canvas::rulers::THICKNESS_PTS`] off each of two edges of
+    /// the viewport that [`Self::apply_fit`] divides by. A *variable*
+    /// reservation there would be rule R128's fit-to-viewport feedback loop;
+    /// see that module's header §3.
+    pub rulers: bool,
+    /// **Whether a drawing grid is drawn over each page.**
+    ///
+    /// Per page and in page space — [`crate::canvas::rulers`]' header §2
+    /// carries the argument, which is the same one that makes a guide belong
+    /// to a page.
+    pub grid: bool,
+    /// **Whether the operator's guides are drawn, and draggable.**
+    ///
+    /// The guides *themselves* live on [`crate::app::state::OpenDoc::guides`]
+    /// and persist per document; this is only whether they are shown. The
+    /// split is deliberate and [`crate::canvas::guides`]' header §2 argues it:
+    /// a switch is cheap to flick again and a placed guide is work, so one is
+    /// remembered and the other is not — and a document that *has* remembered
+    /// guides opens with this already `true`, because the presence of the work
+    /// is the preference.
+    pub guides: bool,
 }
 
 impl Default for ViewState {
@@ -214,12 +279,29 @@ impl Default for ViewState {
     /// drafting review. Read mode's continuous default is applied by the open
     /// path (which knows the mode and the document), not by this `Default` —
     /// so a `ViewState` built with no context is the conservative one.
+    /// **All three View ▸ Display toggles start off**, and that is not
+    /// timidity. A ruler, a grid and a set of guides are all chrome drawn over
+    /// or beside the drawing, and pdfce's first duty on opening a sheet is to
+    /// show the sheet. Defaulting the rulers on would also take
+    /// `THICKNESS_PTS` off two edges of every canvas for every operator who
+    /// never wanted them, which is the one default that has a measurable cost
+    /// (see the field's own docs and rule R128).
+    ///
+    /// `guides` is the one that is *overridden* at open — by
+    /// [`crate::app::state::OpenDoc::new`], when the document turns out to
+    /// have remembered guides. That override lives there rather than here for
+    /// the same reason Read mode's continuous default does: a `ViewState`
+    /// built with no context is the conservative one, and the path that knows
+    /// the document is the path that may know better.
     fn default() -> Self {
         Self {
             page_index: 0,
             zoom: 1.0,
             fit: FitMode::Page,
             display: PageDisplay::Single,
+            rulers: false,
+            grid: false,
+            guides: false,
         }
     }
 }

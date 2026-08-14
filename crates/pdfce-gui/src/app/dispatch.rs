@@ -221,6 +221,24 @@ impl PdfceApp {
                     actions.push(Action::SetPageDisplay(display));
                 }
             }
+            // ★ **The three View ▸ Display chrome toggles**, one arm, for the
+            // identical reason the page-display radio has one: the id IS the
+            // operand, `chrome_for_command` is the single binding between an
+            // id and a `ViewChrome`, and its inverse is what publishes the
+            // `selected:` condition that renders each one pressed. Three arms
+            // would be three places to spell one mapping.
+            //
+            // Unlike the radio these are independent — a click means "flip
+            // this one", not "select this position" — so the action carries
+            // which toggle and the apply reads the current value. Reading it
+            // *there* rather than here is what keeps the dispatcher free of
+            // `self.status`: a chord can reach this command with no document
+            // open, and the arm must not have to decide what that means.
+            id if crate::shell::commands::chrome_for_command(id).is_some() => {
+                if let Some(chrome) = crate::shell::commands::chrome_for_command(id) {
+                    actions.push(Action::ToggleViewChrome(chrome));
+                }
+            }
             "view.zoom_in" => actions.push(Action::ZoomIn),
             "view.zoom_out" => actions.push(Action::ZoomOut),
             // `ZoomTo(1.0)`, not `Fit(FitMode::None)`. The latter only stops the

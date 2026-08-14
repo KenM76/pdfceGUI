@@ -411,6 +411,61 @@ pub const fn view_show_points() -> CommandText {
     )
 }
 
+/// `view.rulers`
+///
+/// The tooltip states the unit, because the unit is the thing an operator
+/// cannot see until they have already trusted a number. `crate::canvas::rulers`'
+/// header §1 carries the decision in full: points is what the file itself
+/// says, and a document that has been given a measurement scale reads in that
+/// scale's units instead — through the same formatter a dimension label uses,
+/// so the ruler and a dimension across the same span agree to the digit.
+///
+/// The second sentence also does the discoverability work for the guides:
+/// dragging out of a ruler is how a guide is made, and that is not something
+/// an operator finds by looking at the guides button.
+#[must_use]
+pub const fn view_rulers() -> CommandText {
+    CommandText::new(
+        "Rulers",
+        "Show rulers along the top and left of the page, reading in points — or in this \
+         document's own units if a measurement scale has been set for it. Drag out of a ruler \
+         to place a guide.",
+    )
+}
+
+/// `view.grid`
+///
+/// "Over the page" rather than "over the canvas", deliberately: the grid is
+/// anchored to each sheet and scrolls with it, which is the whole of the
+/// decision in `crate::canvas::rulers`' header §2, and the wording is what
+/// tells an operator that before they scroll and find out.
+#[must_use]
+pub const fn view_grid() -> CommandText {
+    CommandText::new(
+        "Grid",
+        "Draw a grid over each page, spaced to match the rulers so its heavier lines fall on \
+         the numbered marks. The grid belongs to the sheet and scrolls with it.",
+    )
+}
+
+/// `view.guides`
+///
+/// Names all three verbs — place, move, remove — because a guide is the one
+/// control in this group that the operator *does something to*, and a toggle
+/// whose tooltip only says "show or hide" would leave them with lines they
+/// cannot get rid of. The persistence is stated for the same reason
+/// `view.page_continuous`' tooltip states its own: it is behaviour the
+/// operator cannot see until it surprises them.
+#[must_use]
+pub const fn view_guides() -> CommandText {
+    CommandText::new(
+        "Guides",
+        "Show the guide lines placed on this document's pages, and let them be moved. Drag one \
+         out of a ruler to place it, drag it off the page to remove it, or double-click it. \
+         pdfce remembers a document's guides for the next time you open it.",
+    )
+}
+
 /// `view.sidebar`
 #[must_use]
 pub const fn view_sidebar() -> CommandText {
@@ -1115,6 +1170,9 @@ mod tests {
             view_zoom_fit_width(),
             view_show_annotations(),
             view_show_points(),
+            view_rulers(),
+            view_grid(),
+            view_guides(),
             view_sidebar(),
             view_panel_pages(),
             view_panel_bookmarks(),

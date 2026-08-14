@@ -186,8 +186,28 @@ pub(super) fn tab() -> Tab {
                 ],
             ),
             // ---------------------------------------------------------------
-            // Display — what is drawn over the page. Rulers, grid and
-            // guides are **N**; thin lines lives in Render (see header).
+            // Display — what is drawn over and beside the page. Thin lines
+            // lives in Render (see header).
+            //
+            // ★ **Rulers, grid and guides were N and are now built**, which
+            // completes `RIBBON_IA.md` §5.2's Display row and the last unbuilt
+            // line of `FEATURES.md`'s Phase 3. The note that used to sit here
+            // is discharged rather than reworded, and the three entries are
+            // removed from `super::PLANNED` — where `view.guides` carried the
+            // condition it was waiting on, *"needs a per-document store to
+            // survive a reopen"*, which `crate::canvas::guides` now is.
+            //
+            // ORDER: rulers, grid, guides — which is the specification's, and
+            // is also a dependency order the operator can feel. A grid is read
+            // against the ruler's numbers (both come from one tick ladder),
+            // and a guide is *dragged out of* a ruler, so the control that
+            // makes the other two make sense comes first.
+            //
+            // Each renders **pressed** while it is on, through the `selected:`
+            // convention — published by `PdfceApp::conditions` from
+            // `shell::commands::chrome_command`. Independent toggles rather
+            // than a radio: any combination of the three is meaningful, unlike
+            // "facing, but also single".
             // ---------------------------------------------------------------
             group(
                 "display",
@@ -195,6 +215,9 @@ pub(super) fn tab() -> Tab {
                 [
                     command("view.show_annotations"),
                     command("view.show_points"),
+                    command("view.rulers"),
+                    command("view.grid"),
+                    command("view.guides"),
                 ],
             ),
             // ---------------------------------------------------------------

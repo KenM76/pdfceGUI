@@ -493,6 +493,28 @@ impl PdfceApp {
             set.set(egui_shell::ribbon::selected_condition(
                 crate::shell::commands::page_display_command(doc.view.display),
             ));
+            // ★ **The three View ▸ Display toggles' pressed state.**
+            //
+            // Between zero and three of these are set, where exactly one
+            // page-display condition above always is — which is the whole
+            // difference between three switches and one three-position
+            // control, expressed in the conditions rather than in the drawing.
+            //
+            // These *can* be published where `view.tool_hand` and
+            // `view.zoom_region` still cannot, and the reason is worth stating
+            // because it is the shape of the gap those two carry: this
+            // function is handed `&self` and **no `egui::Context`**, so a
+            // toggle whose state lives in `egui::Memory` — which is where the
+            // canvas tool and the armed region zoom live — has no route here
+            // at all. Rulers, grid and guides live on `doc.view`, which is
+            // reachable, so no second mechanism was invented for them.
+            for &chrome in crate::app::actions::ViewChrome::ALL {
+                if chrome.read(&doc.view) {
+                    set.set(egui_shell::ribbon::selected_condition(
+                        crate::shell::commands::chrome_command(chrome),
+                    ));
+                }
+            }
         }
         // `undo.available` and `redo.available` are still deliberately absent:
         // there is no undo stack to report on yet. Setting them would arm

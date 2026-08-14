@@ -372,7 +372,17 @@ pub fn draw_find_hits(
 /// [`Color32`] stores **premultiplied** components, so the plain accessors
 /// return a hue already darkened by whatever alpha the source carried, and
 /// re-premultiplying that darkens it a second time.
-fn at_alpha(base: Color32, alpha: u8) -> Color32 {
+///
+/// `pub(super)` rather than private since the rulers landed: [`super::rulers`]
+/// needs the theme's hairline at two grid alphas and [`super::guides`] needs
+/// the selection hue at two guide alphas, and every one of those is the same
+/// premultiplication trap. Four more spellings of it would be four more
+/// chances to reach for `.r()` and produce a colour that is subtly wrong in
+/// exactly the theme nobody tests in — which is the failure `wash`'s and
+/// `ghost`'s own docs were written after. The *alphas* stay with the surfaces
+/// that chose them, because each is an argument about legibility over
+/// linework and belongs beside that argument.
+pub(super) fn at_alpha(base: Color32, alpha: u8) -> Color32 {
     let [r, g, b, _] = base.to_srgba_unmultiplied();
     // NOT A THEME COLOUR: arithmetic on the theme's own colour, not a choice
     // of one. The hue arrives from `visuals.selection.*` and only the alpha

@@ -141,6 +141,9 @@
                     items: [
                         Command("view.show_annotations"),
                         Command("view.show_points"),
+                        Command("view.rulers"),
+                        Command("view.grid"),
+                        Command("view.guides"),
                     ],
                 ),
                 (
