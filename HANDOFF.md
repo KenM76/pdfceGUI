@@ -245,19 +245,36 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
   keyboard input does not reach the target window from the session that
   wrote it. It reports SKIP rather than blaming Find, on purpose.
 
-  **★ That belief is now doubtful, and it is worth someone's afternoon.**
-  On 2026-08-14 the canvas form-filling work drove typing, Enter *and*
-  Escape into the real binary and had them land — the whole editor was
-  verified with real `keybd_event` input rather than by test. The reported
-  difference is **`SetForegroundWindow` on the target PID, plus checking
-  the foreground PID actually changed before sending.** Nothing else.
+  **★ A lead was raised against this on 2026-08-14 and then failed to
+  reproduce. Recorded because the next reader will otherwise have it
+  again.**
 
-  If that holds, this SKIP is not an environment limit but a missing two
-  lines in `ui-verify`'s input layer, and **every check that reports SKIP
-  for keyboard reasons is recoverable** — including the Escape rules for
-  markup and for a focused form field, which are currently asserted by
-  test alone for exactly this reason. Nobody has yet tried it *from
-  `ui-verify`*, so this is a lead, not a finding.
+  The canvas form-filling work reported driving typing, Enter *and*
+  Escape into the real binary successfully, and attributed it to
+  `SetForegroundWindow` on the target PID plus verifying the foreground
+  actually changed. That would have made this SKIP a two-line gap in
+  `ui-verify` rather than an environment limit, and would have recovered
+  every keyboard-blocked check — including the Escape rules for markup
+  and for a focused form field, both currently asserted by test alone.
+
+  **I tried to reproduce it directly and could not.** With the foreground
+  PID confirmed equal to the target's, `keybd_event` for `Ctrl+2` produced
+  no `chord-command` line and no mode change. A **mouse** click sent by
+  the same mechanism moments later landed and traced
+  `canvas-selection via=click`, so the window was live, the process was
+  reading input, and the pointer half of the same API worked — **only the
+  keystrokes went nowhere.** Sending a click *first*, on the theory that a
+  real click confers something `SetForegroundWindow` does not, changed
+  nothing.
+
+  `ui-verify` already does the raise and already checks `is_foreground`
+  before typing; its own SKIP text says the window reported itself
+  foreground. So the missing ingredient, if there is one, is **not**
+  foreground rights and **not** a prior click. Two candidates remain
+  untested: the harness's 48-frame wait may be too short, and the
+  successful report may have used a different injection API
+  (`SendInput` rather than `keybd_event`). Worth an hour if keyboard
+  coverage ever becomes the blocker; **not** worth treating as solved.
 
 ---
 
