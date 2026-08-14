@@ -58,4 +58,32 @@ pub mod vk {
     /// and suppressed by the same guard, so a check that presses one should
     /// usually be able to press the other.
     pub const BACKSPACE: u16 = 0x08;
+    /// `Enter` — steps to the next Find hit, commits the page box.
+    pub const ENTER: u16 = 0x0D;
+
+    /// `Ctrl`, as a **modifier** for [`super::key_stroke_with`].
+    ///
+    /// Named `CONTROL` rather than `CTRL` because that is what Windows calls
+    /// it (`VK_CONTROL`), and a constant that renames a platform's own
+    /// vocabulary makes the next person check twice.
+    pub const CONTROL: u16 = 0x11;
+    /// `Shift`, as a modifier. `Ctrl+Shift+…` is two entries in the slice.
+    pub const SHIFT: u16 = 0x10;
+
+    /// `F` — the letter, for `Ctrl+F`.
+    ///
+    /// Letters are their ASCII uppercase code point on Windows, which is why
+    /// this is `0x46` and not something derived. Only the letters the harness
+    /// actually presses are listed: the closed-list rule above applies to
+    /// letters more than to anything else, because `pub const A..Z` would be
+    /// exactly the "can press any key" the doc comment refuses.
+    pub const F: u16 = 0x46;
+    /// `2` — the digit, for the `Ctrl+2` mode chord.
+    ///
+    /// Present only as a **control probe**: `Ctrl+2` is bound to
+    /// `mode.review` and is a chord the application's key table has always
+    /// been able to spell, so a check that gets nothing from it learns that
+    /// the keystroke never arrived, rather than that the feature under test
+    /// is broken.
+    pub const DIGIT_2: u16 = 0x32;
 }

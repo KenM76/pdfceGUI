@@ -69,6 +69,16 @@ pub fn mouse_button(_down: bool) {}
 /// No-op: there is no window to type into.
 pub fn key_stroke(_vk: u16) {}
 
+/// Does nothing.
+pub fn key_stroke_with(_modifiers: &[u16], _vk: u16) {}
+
+/// Always `false` — there is no window server here, so nothing can be
+/// confirmed to be in front. `false` rather than `true` so a caller that
+/// gates typing on it refuses rather than types blind.
+pub fn is_foreground(_w: WindowHandle) -> bool {
+    false
+}
+
 /// Always refuses.
 pub fn capture_screen(_region: PixRect) -> Result<Vec<u8>> {
     refuse("capturing the screen")

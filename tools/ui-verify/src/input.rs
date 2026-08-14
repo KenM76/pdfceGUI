@@ -175,6 +175,71 @@ impl Driver {
         Ok(())
     }
 
+    /// Press a **chord** — a virtual key with modifiers held — in the target
+    /// window.
+    ///
+    /// The reason this exists: `Ctrl+F` and every other letter chord in the
+    /// manifest keymap were unreachable from this harness, so the checks that
+    /// would have driven them could not be written. `press` sends a bare
+    /// virtual key with no modifiers, and a shell that binds a command to
+    /// `Ctrl+F` cannot be reached by sending `F`.
+    ///
+    /// # Errors
+    ///
+    /// If there is no target window, for exactly the reason [`Self::press`]
+    /// refuses — and more sharply. A bare keystroke into the operator's editor
+    /// types a character. **A chord into the operator's editor runs a
+    /// command**, and `Ctrl+W`, `Ctrl+Q` and `Ctrl+S` are all one letter away
+    /// from a chord a UI test might plausibly send.
+    ///
+    /// Modifiers are released by [`sys::key_stroke_with`] on every path; see
+    /// its docs for why that is not merely tidy.
+    pub fn press_chord(&self, modifiers: &[u16], vk: u16) -> Result<()> {
+        self.raise_and_confirm()?;
+        sys::key_stroke_with(modifiers, vk);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    /// Raise the target and confirm it is actually in front.
+    ///
+    /// ★ **`raise()` is a request, not a result.** `SetForegroundWindow` is
+    /// refused outright for a process without foreground rights — silently,
+    /// via a boolean return nobody is obliged to read — so a window that was
+    /// created behind an already-active one can stay behind it through any
+    /// number of raise calls. Windows' foreground lock exists precisely to
+    /// stop background processes stealing focus, and this harness IS a
+    /// background process.
+    ///
+    /// Without this check the failure is not "the keystroke did not arrive".
+    /// It is:
+    ///
+    /// * the keystroke arriving **in the operator's own window** — and for a
+    ///   chord that means running one of their commands, not typing a
+    ///   character; and
+    /// * the check reporting that the FEATURE is broken, when the truth is
+    ///   that nothing was ever typed at it. A false failure naming the wrong
+    ///   subsystem is worse than no check, because somebody then goes and
+    ///   looks at working code.
+    ///
+    /// Both were observed: a `find_opens_and_finds` run reported "Ctrl+F did
+    /// not dispatch `edit.find`" against a build in which Ctrl+F works.
+    fn raise_and_confirm(&self) -> Result<()> {
+        let Some(w) = self.target else {
+            return Err(Error::new(
+                "refusing to send input with no target window: it would go to whatever window                  is in front, which may be the operator's own",
+            ));
+        };
+        self.raise();
+        std::thread::sleep(MOVE_SETTLE);
+        if !sys::is_foreground(w) {
+            return Err(Error::new(
+                "the target window could not be brought to the front, so anything typed now                  would go to the operator's own window. Windows refuses SetForegroundWindow to                  a process without foreground rights, and this harness is a background process.                  Reported rather than typed: sending the keystroke anyway would both corrupt                  whatever IS in front and make this check report the feature as broken when                  nothing was ever typed at it.",
+            ));
+        }
+        Ok(())
+    }
+
     fn raise(&self) {
         if let Some(w) = self.target {
             sys::raise_window(w);

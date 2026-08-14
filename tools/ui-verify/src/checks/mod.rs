@@ -77,6 +77,7 @@
 //! both cases the check says in its own output which one it used.
 
 pub mod delete_key;
+pub mod find_bar;
 pub mod legibility;
 pub mod qat_icons;
 pub mod ribbon_captions;
@@ -170,6 +171,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // after the captions check because both launch, and a reader
         // comparing two ribbon verdicts wants them adjacent.
         Box::new(qat_icons::QatControlsAreIconOnly),
+        // Last, because it is the only check that TYPES. Everything above
+        // either reads a trace or captures a window; this one presses a
+        // chord, types a needle and presses Enter into a real foreground
+        // window, so it costs the operator their focus for a few seconds.
+        // A run that fails earlier should fail before paying that.
+        Box::new(find_bar::FindOpensAndFinds),
         Box::new(settings_headings::SettingsHeadingsLegible),
     ]
 }

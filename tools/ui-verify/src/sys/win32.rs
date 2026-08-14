@@ -44,8 +44,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, keybd_event, mouse_event,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClientRect, GetCursorPos, GetWindowThreadProcessId, IsWindowVisible, SW_SHOW,
-    SetCursorPos, SetForegroundWindow, ShowWindow,
+    EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId,
+    IsWindowVisible, SW_SHOW, SetCursorPos, SetForegroundWindow, ShowWindow,
 };
 
 use crate::coords::WindowFrame;
@@ -229,6 +229,61 @@ pub fn key_stroke(vk: u16) {
     unsafe {
         keybd_event(vk as u8, 0, 0, 0);
         keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
+}
+
+/// Whether `w` is the window that will receive keystrokes right now.
+///
+/// # Why this is asked rather than assumed
+///
+/// [`raise_window`] is **best-effort by Windows' own rules**: a process
+/// without foreground rights is refused, and the refusal is silent — it
+/// returns a boolean nobody was obliged to read. So "we called
+/// `SetForegroundWindow`" is not "the window is in front", and the gap between
+/// those two is where a keystroke lands in the operator's editor.
+///
+/// `key_stroke`'s own doc comment has said since it was written that "the
+/// input driver refuses to type when the foreground window is not the one
+/// under test". That was a description of an intent, not of the code: the
+/// driver checked only that a target *existed*. This is the function that
+/// makes the sentence true.
+pub fn is_foreground(w: WindowHandle) -> bool {
+    // SAFETY: no pointers, no ownership; returns a handle or null.
+    unsafe { GetForegroundWindow() == w.hwnd() }
+}
+
+/// Press and release a virtual key **while modifiers are held**.
+///
+/// `modifiers` are virtual-key codes (`VK_CONTROL` 0x11, `VK_SHIFT` 0x10,
+/// `VK_MENU` 0x12) held down for the duration of the stroke.
+///
+/// # ★ Every modifier is released, on every path, in reverse order
+///
+/// A modifier left down is not a failed keystroke — it is a **stuck key on
+/// the operator's real keyboard**, applied to whatever they do next, until
+/// they happen to press and release that key themselves. Ctrl left down turns
+/// their next `s` into a save and their next `w` into a close-window. This
+/// harness already refuses to type when the target window is not in front for
+/// the same class of reason; leaking a modifier is the same hazard with a
+/// longer tail, because the wrong window is at least visible and a stuck Ctrl
+/// is not.
+///
+/// So the releases are unconditional and there is no early return between the
+/// press and the release. Reverse order because that is what a human hand
+/// does, and because a shell watching for a chord may key on the release
+/// sequence.
+pub fn key_stroke_with(modifiers: &[u16], vk: u16) {
+    // SAFETY: no pointers; the scan-code argument is 0, which tells Windows to
+    // derive it from the virtual key. Same contract as `key_stroke`.
+    unsafe {
+        for m in modifiers {
+            keybd_event(*m as u8, 0, 0, 0);
+        }
+        keybd_event(vk as u8, 0, 0, 0);
+        keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
+        for m in modifiers.iter().rev() {
+            keybd_event(*m as u8, 0, KEYEVENTF_KEYUP, 0);
+        }
     }
 }
 
