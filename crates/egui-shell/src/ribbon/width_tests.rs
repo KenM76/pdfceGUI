@@ -16,7 +16,7 @@
 //! - the tab-strip row always fits, so it never grows the enclosing `Ui`
 //!   and the band is never told a width the window did not have;
 //! - the mode selector's track is always narrower than the row;
-//! - `"⌄ 8 more"` and `"⌄ 9 more"` are the same width, so a reservation
+//! - `"⏷ 8 more"` and `"⏷ 9 more"` are the same width, so a reservation
 //!   sized for the wrong one of them is indistinguishable from a correct
 //!   one.
 //!

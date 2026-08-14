@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic download shape — placeholder, not a vendor trademark logo -->
+  <!-- ui-spec §3.1 "save", closing paragraph: "symmetrically reserve `icon-download`
+       for a future Export-data/Extract-pages action, so the download/upload pair
+       stays meaningful as an 'in/out of this document' pair rather than being spent
+       on Save". This is that action arriving. The geometry is ScripTree's
+       `icon-download.svg` unmodified (the operator's own art, PROVENANCE §1); only
+       this citation comment was added.
+
+       The exact mirror of upload.svg (Insert pages from a file…) about y=24: arrow
+       INTO the tray is import, arrow OUT of the tray is export, and the pair only
+       carries that meaning while both halves stay reserved for it. Shared by both
+       export verbs (DXF, form data) — a family sharing one glyph is how a ribbon
+       reads as grouped, and neither is ever adjacent to the other. -->
+  <path d="M9 31v8h30v-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 8v22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M15 22l9 9 9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

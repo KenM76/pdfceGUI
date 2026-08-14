@@ -12,7 +12,7 @@
 //! - the overflow reservation is exactly [`plan::MIN_TAB_WIDTH`] too,
 //!   so a reservation sized for the wrong label is indistinguishable
 //!   from a correct one;
-//! - `"⌄ 8 more"` and `"⌄ 9 more"` are the same width, so the
+//! - `"⏷ 8 more"` and `"⏷ 9 more"` are the same width, so the
 //!   non-monotonicity [`plan::overflow_width`] exists to handle never
 //!   occurs;
 //! - and no row can overflow its parent, so the `max_rect` inflation
@@ -238,7 +238,7 @@ fn the_dock_measures_real_proportional_text() {
 /// ★ **The reservation is sized for the widest label the control can ever
 /// show, and with real metrics that is not the longest one.**
 ///
-/// `"⌄ 8 more"` is wider than `"⌄ 9 more"` in any face whose digits are
+/// `"⏷ 8 more"` is wider than `"⏷ 9 more"` in any face whose digits are
 /// not tabular. With no font installed the two measure the same and this
 /// test is vacuous, which is exactly why it lives in this file.
 #[test]

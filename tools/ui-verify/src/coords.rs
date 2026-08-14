@@ -432,6 +432,55 @@ impl WindowFrame {
         PixRect::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
     }
 
+    /// The **centre of a rectangle the application declared this frame**, as a
+    /// screen point the input driver can be aimed at.
+    ///
+    /// # Why this does not break this module's rule
+    ///
+    /// The rule is that a check may write only a [`DocPoint`] or a
+    /// [`crate::geom::FracRect`] literal, and the enforcement is that
+    /// [`ScreenPoint`] has no public constructor. That rule is about
+    /// **literals** — a number somebody typed, which was true when they typed
+    /// it and goes quietly wrong the first time a panel moves.
+    ///
+    /// An [`LRect`] parsed out of a `ui-rect` line is the opposite of a
+    /// literal. It is the application stating, on the frame it drew the
+    /// control, where it put it; there is no interval between the measurement
+    /// and the claim, so there is nothing for a layout change to invalidate. A
+    /// ribbon that reflows, collapses to an icon rail or gains an eighth tab
+    /// publishes different rects and a check aiming through this function
+    /// follows it with no edit. That is region source 1 from [`crate::profile`]
+    /// — the *preferred* source — applied to aiming rather than to measuring.
+    ///
+    /// So the constructor stays private and this is the second and last way
+    /// through it. [`Self::layout_probe_point`] is the first, and the two are
+    /// different in kind: that one is an assumption about where the canvas
+    /// probably is, this one is a fact the application published.
+    ///
+    /// # Why the centre
+    ///
+    /// A control's rect includes its border stroke and its rounded corners, so
+    /// a point on the edge can miss the hit area or land on the neighbour a
+    /// gutter away. The centre is the only point in a convex control that is
+    /// inside it under every corner radius, padding and rounding error the
+    /// theme can produce.
+    ///
+    /// # Degenerate rects
+    ///
+    /// A zero-area rect still yields a point, and that is deliberate: the
+    /// caller is the one who knows whether "the application declared this
+    /// control at no size" is a SKIP or a FAIL, and silently returning `None`
+    /// here would turn a finding into a missing measurement. Callers are
+    /// expected to test the rect before aiming at it —
+    /// [`crate::geom::LRect::is_substantial`] is the question.
+    #[must_use]
+    pub fn declared_center(&self, r: LRect) -> ScreenPoint {
+        self.to_screen(WindowPoint {
+            x: (r.min.x + r.max.x) / 2.0,
+            y: (r.min.y + r.max.y) / 2.0,
+        })
+    }
+
     /// The client area as a desktop-pixel rectangle, for the screen grabber.
     #[must_use]
     pub fn client_pixels(&self) -> PixRect {
@@ -602,6 +651,31 @@ mod tests {
             r,
             PixRect::new(12, 12, 150, 30),
             "the window's desktop position must not appear in a capture-relative rect"
+        );
+    }
+
+    /// Aiming at a declared rect goes through the origin **and** the scale,
+    /// unlike measuring one, which goes through the scale alone.
+    ///
+    /// The two conversions are next to each other and differ by exactly the
+    /// origin term, which is the mistake worth pinning: a capture is of the
+    /// client area and shares its corner, whereas the input driver works in
+    /// desktop pixels and does not. Getting them the wrong way round is
+    /// invisible on a maximised window at the top-left of the primary monitor —
+    /// i.e. on the machine anybody would test it on.
+    #[test]
+    fn aiming_at_a_declared_rect_takes_its_centre_in_desktop_pixels() {
+        let f = WindowFrame {
+            client_origin: (400, 300),
+            client_size: (2400, 1500),
+            scale: 1.5,
+        };
+        // A control at 100..180 x 30..54 logical: centre (140, 42).
+        let p = f.declared_center(LRect::new(Pt::new(100.0, 30.0), Pt::new(180.0, 54.0)));
+        assert_eq!(
+            (p.x(), p.y()),
+            (400 + 210, 300 + 63),
+            "a click is aimed in desktop pixels, so the window's position IS part of it"
         );
     }
 

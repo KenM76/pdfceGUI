@@ -410,7 +410,7 @@ fn draw_tab(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, tab: &Tab, is_active: bool) ->
     false
 }
 
-/// The tabs that did not fit, as a menu behind the strip's "⌄ N more"
+/// The tabs that did not fit, as a menu behind the strip's "⏷ N more"
 /// affordance.
 ///
 /// The menu is a vertical run of the *same* tab buttons the strip draws —

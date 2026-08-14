@@ -153,7 +153,7 @@ pub(crate) struct RowPlan {
 /// may shrink. So the row is divided in one pass, outermost first:
 ///
 /// ```text
-/// [ QAT ][ tabs … ⌄ N more ][ mode selector ]
+/// [ QAT ][ tabs … ⏷ N more ][ mode selector ]
 ///    1              3              2
 /// ```
 ///
@@ -369,7 +369,7 @@ impl StripPlan {
 /// | | Strip shows | Consequence |
 /// |---|---|---|
 /// | keep the pin | the active tab, no affordance | every other tab is **unreachable** — failure mode #8, exactly |
-/// | drop the pin | "⌄ N more", nothing else | every tab reachable, including the active one |
+/// | drop the pin | "⏷ N more", nothing else | every tab reachable, including the active one |
 ///
 /// So the strip **collapses**: [`StripPlan::collapsed`] is set, `shown` is
 /// empty, and the menu holds every tab — the active one included, drawn
@@ -501,7 +501,7 @@ pub(crate) fn plan_tab_strip(
 
     if hidden.is_empty() {
         // One tab, pinned, wider than the area. Nothing is hidden, so
-        // nothing may be reserved: a "⌄ 0 more" button opens an empty
+        // nothing may be reserved: a "⏷ 0 more" button opens an empty
         // menu. The tab gets the whole area and truncates into it.
         return nothing_hidden(shown, true);
     }
@@ -1046,7 +1046,7 @@ mod tests {
     /// The corner where the pin and the biconditional could contradict
     /// each other. There is exactly one tab, it does not fit, and it is
     /// active. Nothing is hidden, so nothing may be reserved: a
-    /// "⌄ 0 more" button would be a control that opens an empty menu.
+    /// "⏷ 0 more" button would be a control that opens an empty menu.
     #[test]
     fn one_over_wide_tab_truncates_rather_than_growing_an_empty_menu() {
         let p = plan(60.0, &[200.0], Some(0));

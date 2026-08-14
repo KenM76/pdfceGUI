@@ -73,14 +73,14 @@
 //! | 0 | `.notdef` | 480 |
 //! | 1 – 95 | U+0020 – U+007E, one glyph each | 250 – 700, by character |
 //! | 96 | `…` U+2026 | 900 |
-//! | 97 | `⌄` U+2304 (the overflow chevron) | 700 |
+//! | 97 | `⏷` U+2304 (the overflow chevron) | 700 |
 //! | 98 | `�` U+FFFD (epaint's replacement char) | 700 |
 //!
 //! Advances are **proportional, not monospaced** — `W` is 700 units and
 //! `l` is 280 — because a monospaced synthetic font would hide precisely
 //! the class of bug real proportional text causes: a string whose width
-//! is not a function of its character count. `"⌄ 8 more"` being wider than
-//! `"⌄ 9 more"` is exactly that class, and [`super::plan::overflow_width`]
+//! is not a function of its character count. `"⏷ 8 more"` being wider than
+//! `"⏷ 9 more"` is exactly that class, and [`super::plan::overflow_width`]
 //! is written against it.
 //!
 //! Every glyph carries a real outline (a rectangle, one closed contour,
@@ -115,12 +115,12 @@ const ASCII_LAST: u32 = 0x7E;
 /// Characters outside the ASCII run that the ribbon actually draws, each
 /// with its own glyph appended after the run.
 ///
-/// `…` appears in command labels ("Open…"), `⌄` is the overflow
+/// `…` appears in command labels ("Open…"), `⏷` is the overflow
 /// affordance's chevron, and `�` is what `epaint` looks for as its
 /// replacement character — supplying it keeps a "failed to find
 /// replacement characters" warning out of the test log and gives any
 /// unmapped character a visible, measurable width rather than nothing.
-const EXTRAS: [(char, u16); 3] = [('…', 900), ('⌄', 700), ('\u{FFFD}', 700)];
+const EXTRAS: [(char, u16); 3] = [('…', 900), ('⏷', 700), ('\u{FFFD}', 700)];
 
 /// The name this face is registered under in [`egui::FontDefinitions`].
 pub(crate) const FAMILY_NAME: &str = "egui-shell-test-face";
@@ -324,7 +324,7 @@ fn glyf_and_loca(advances: &[u16]) -> (Vec<u8>, Vec<u8>) {
 /// |---|---|---|
 /// | 0 | U+0020 – U+007E | 1 – 95 |
 /// | 1 | `…` | 96 |
-/// | 2 | `⌄` | 97 |
+/// | 2 | `⏷` | 97 |
 /// | 3 | `�` | 98 |
 /// | 4 | U+FFFF | 0 (required end marker) |
 ///
@@ -555,7 +555,7 @@ mod tests {
         // replacement character rather than to nothing, so this asserts
         // proportionality rather than mere presence.
         assert!(
-            width("⌄ 3 more") > width("⌄ 3"),
+            width("⏷ 3 more") > width("⏷ 3"),
             "the chevron string scales"
         );
         assert!(width("Open…") > width("Open"), "the ellipsis has a width");

@@ -36,7 +36,7 @@
 //!    unvalidated manifest cannot produce a bare band — it produces an
 //!    ugly caption that names the group that needs fixing.
 //! 2. **Overflowed groups go through the same closure.** A group that
-//!    moved into the "⌄ N more" menu is still a group and still gets its
+//!    moved into the "⏷ N more" menu is still a group and still gets its
 //!    caption. Routing the menu through a second, simpler drawing path is
 //!    exactly how the two shipped defects happened.
 //! 3. **The counts are returned and asserted.** `BandOutcome` carries
@@ -441,7 +441,7 @@ fn captioned_group(
         .report(whole, || report::group(tab_id, &group.id));
 }
 
-/// The "⌄ N more" affordance and the menu behind it.
+/// The "⏷ N more" affordance and the menu behind it.
 ///
 /// The rectangle is supplied by the caller, computed from the band's
 /// right edge before any group was laid out — see [`render_band`].
@@ -572,6 +572,35 @@ fn render_command(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, id: &str) {
     // has learned the glyphs; in the band there are forty and the label
     // is the only thing that makes one findable.
     let response = command_button(ui, ctx, &command, true, selected, enabled, false);
+
+    // ★ **Where this control was drawn** — published on the frame it was
+    // drawn, under the stable name [`report::band_item`] builds.
+    //
+    // The band used to report its groups and their captions and nothing
+    // else, which made every *command* in the ribbon unlocatable from
+    // outside the process. A caption's rect answers "is this label
+    // legible"; it cannot answer "did clicking Rectangle arm anything",
+    // because nothing outside the window could find the Rectangle button
+    // in order to click it. So the only evidence available for a ribbon
+    // click's whole chain — click → dispatch → tool armed → control
+    // renders pressed — was a set of unit tests, one per link, none of
+    // which observes the links being connected. That is precisely the
+    // shape of the icon-painter defect this crate already shipped: every
+    // part tested, the join untested, the join wrong.
+    //
+    // Reported for **every** command, enabled or disabled, selected or
+    // not, in the band and in the overflow menu alike — because the
+    // question a consumer asks is *where is this control*, and a control
+    // that is greyed is still a control that was drawn somewhere. A
+    // report conditioned on state would go quiet in exactly the cases a
+    // harness most wants to look at.
+    //
+    // The shell learns nothing about what the id *means*. It publishes
+    // that a control registered under some id occupied some rectangle;
+    // what `markup.rectangle` is for is the application's business, and
+    // this crate could not name it without becoming a PDF viewer.
+    ctx.reporter
+        .report(response.rect, || report::band_item(&command.id));
 
     a11y::describe_command(&response, &command, true, enabled);
     let response = match (&command.tooltip, enabled) {

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic page-layout shape — generic, no trademark risk -->
+  <!-- No ui-spec row: the page-display radio (RIBBON_IA.md §5.2, built in Phase 4)
+       postdates the icon spec, so this is an addition in the §3 style contract.
+
+       page-facing.svg's spread, shortened, plus the TOP EDGES of the NEXT spread
+       arriving from below and running off the viewBox — exactly the operation
+       page-continuous.svg performs on page-single.svg, at the same coordinates
+       (pages end y=31, slivers begin y=37, verticals cut flush at y=48).
+
+       That the two continuous glyphs are the same edit of their two static siblings
+       is what makes the four read as one radio rather than four unrelated pictures:
+       the LEFT-RIGHT axis says how many pages are across, the CUT BOTTOM says
+       whether they keep coming. An operator who learns one axis has learned all
+       four positions. -->
+  <rect x="6" y="5" width="15" height="26" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="27" y="5" width="15" height="26" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M6 48v-9a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v9" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M27 48v-9a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v9" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

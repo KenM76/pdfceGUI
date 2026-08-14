@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic page-layout shape — generic, no trademark risk -->
+  <!-- No ui-spec row: the page-display radio (RIBBON_IA.md §5.2, built in Phase 4)
+       postdates the icon spec, so this is an addition in the §3 style contract.
+
+       FAMILY RULE, and it is the whole design: the four page-display glyphs are BARE
+       page silhouettes and nothing else. The arrangement IS the information, so any
+       interior detail — text lines, a folded corner — would compete with the one
+       thing the operator has to read, and would also drag the glyph into
+       document.svg's territory (a page ABOUT which something is true) when this
+       family is about how pages are ARRANGED on screen. Single is therefore one
+       upright page, centred, alone: the unmarked case of the four.
+
+       Distinct from shape-rect.svg, which is a SQUARE (12,12,24,24) and lives on
+       Markup; this is a 18x32 portrait, the proportion of a page. -->
+  <rect x="15" y="8" width="18" height="32" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

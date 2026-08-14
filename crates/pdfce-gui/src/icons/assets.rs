@@ -28,8 +28,12 @@
 //! `include_str!` — rather than a runtime file read — is carried across
 //! unchanged, and its reason is unchanged: pdfce ships single-folder
 //! portable, so the executable must not depend on an `assets/` directory
-//! travelling beside it. The whole set is 34 KB of text and an icon that
-//! fails to load at startup is not a failure mode worth having.
+//! travelling beside it. The whole set is **71 files, 70 KB** of text and an
+//! icon that fails to load at startup is not a failure mode worth having.
+//! (It was 46 files and 34 KB when this module landed; the 2026-08-14 pass
+//! that filled the ribbon's remaining text buttons added 25. Roughly half of
+//! the growth is the embedded rationale comments, which are the point of
+//! copying assets verbatim rather than re-emitting them — see §4.)
 //!
 //! ## ★ Why the SVG text is NOT inlined into Rust source
 //!
@@ -181,6 +185,26 @@
 //! | `zoom-out.svg` | `icon-search.svg` | Magnifier circle and handle reused verbatim; a minus bar added inside |
 //! | `zoom-in.svg` | `icon-search.svg` | Same base, plus a cross instead of a bar |
 //!
+//! ### §4b — Copied from ScripTree with ONE comment added
+//!
+//! Five more of the operator's own files were brought across on 2026-08-14.
+//! Their **geometry is unmodified** — every `path`/`rect`/`circle` element is
+//! byte-identical to the ScripTree original, and so is the original's own
+//! `<!-- Generic … -->` comment. What was added to each is a **second XML
+//! comment naming the ui-spec clause that assigns it**, because §3's style
+//! contract as this module now states it wants both: the trademark
+//! disclaimer *and* the citation. The §4 files above predate that and keep
+//! their single comment; a mass edit to "harmonise" them would break the
+//! byte-for-byte claim those rows make, which is the more valuable property.
+//!
+//! | Here | ScripTree source | Role | Assigned by |
+//! |---|---|---|---|
+//! | `printer.svg` | `icon-printer.svg` | Print | ui-spec §8.12 |
+//! | `settings.svg` | `icon-settings.svg` | Settings | no spec row — see the asset |
+//! | `download.svg` | `icon-download.svg` | Export DXF **and** Export form data | ui-spec §3.1 "save", closing paragraph |
+//! | `image.svg` | `icon-image.svg` | Insert image | ui-spec §8.5 (reserved for OCR; see the asset for why Insert image is the primary claim) |
+//! | `convert.svg` | `icon-convert.svg` | Set scale | ui-spec §8.2 |
+//!
 //! **Authored new for pdfce, in the §3 contract** — everything else. Each
 //! asset's embedded XML comment carries that glyph's own construction note
 //! and, where it has one, the distinction it is drawn to preserve against a
@@ -190,7 +214,7 @@
 //! ## §5 — Deviations from the ui-spec, recorded
 //!
 //! The standing convention is that the engineer implements a UI spec and
-//! deviates only with a recorded reason. Six:
+//! deviates only with a recorded reason. Eight:
 //!
 //! 1. **`edit-objects.svg` is an addition the spec does not cover.** The
 //!    ui-spec was written 2026-08-01 and audited the toolbar as it then
@@ -224,6 +248,57 @@
 //!    four each replace a text character that was verified to have no face
 //!    in the shipped font stack — `←` (U+2190), `✕` (U+2715), `▲` (U+25B2)
 //!    and `▾` (U+25BE) — and so rendered as a tofu box on real controls.
+//! 7. **Twenty-five glyphs were added on 2026-08-14 for controls the spec
+//!    never saw**, and they are one deviation rather than twenty-five
+//!    because they all have the same cause: the spec's §0 audited the OLD
+//!    shell's toolbar, and this shell's ribbon carries controls that toolbar
+//!    did not have. The page-display radio, the rulers/grid/guides row, the
+//!    Window group (read mode, full screen, floating panels, reset layout),
+//!    the Pages and Forms panel toggles, marquee zoom and zoom-to-selection,
+//!    the Hand tool, Delete, Extract, Flatten and the two "manage a list"
+//!    dialogs are all in that category. Each asset's own comment names which
+//!    of them it is and what it was drawn to stay distinguishable from.
+//!
+//!    The occasion was the ribbon reading as half-finished: of 88 registered
+//!    commands, 47 named an icon and 41 did not, so a band mixed glyphs and
+//!    bare words with no rule behind which was which. Thirty of the 41 now
+//!    have one; the other eleven are **recorded refusals** — deviation #8.
+//!
+//!    `list.svg` is the one of the twenty-five that contradicts a spec row
+//!    rather than filling a gap: ui-spec §8.2 assigns `icon-ring.svg` to
+//!    Manage Dimension Groups, and two concentric circles read as a target
+//!    or a radio button at 16 px, not as a list of named things. That row
+//!    was written at reservation depth before the Measure surface existed
+//!    and offers no reasoning to weigh against; the asset carries the
+//!    replacement's.
+//! 8. **Eleven commands are deliberately left with no icon**, which is a
+//!    deviation from the operator's "icons for all GUI features" instruction
+//!    and is therefore recorded rather than assumed. Each is also stated at
+//!    its own registration in `crate::shell::commands`:
+//!
+//!    * `view.zoom_actual` — ui-spec §3.2 is an explicit, reasoned
+//!      recommendation AGAINST iconifying it ("a numeral read at a glance is
+//!      clearer than any glyph substitute could be… both add a decode step a
+//!      bare percentage does not need"). Honoured as written.
+//!    * The five **Render** knobs (`view.render_strategy`, `render_quality`,
+//!      `render_settle`, `render_thin_lines`, `render_antialias`) — their
+//!      labels are the parameter names ("Strategy", "Raster scale", "Settle
+//!      delay"), there is no industry-conventional glyph for any of them,
+//!      and an invented one on a control whose whole content is its value is
+//!      decoration. This is §3.2's reasoning applied to a whole group.
+//!    * `view.app_initiative` — a three-position policy (Never · Ask ·
+//!      Allowed) about whether the application may float a surface over the
+//!      page on its own. Any honest drawing of it is a picture of the
+//!      floating surface, i.e. of what the default FORBIDS. An icon is a
+//!      claim (§5.4), and that one would be the wrong claim.
+//!    * `file.recent` — predates this pass, and its reason is unchanged:
+//!      reusing `open` would draw two adjacent controls in one band as
+//!      though they were one control drawn twice.
+//!    * `mode.read`, `mode.review`, `mode.edit` — not ribbon buttons at all.
+//!      `egui_shell::ribbon::mode_selector` renders the three as **text
+//!      segments** of a segmented control, and that module contains no icon
+//!      path whatsoever (verified by reading it: the string `icon` does not
+//!      appear in the file). A key on these would be art nothing can draw.
 //!
 //! ## §6 — Rendering, and why no new dependency appears here
 //!
@@ -287,15 +362,30 @@ pub(super) const CLOSE: &str = include_str!("assets/close.svg");
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const COMMENT: &str = include_str!("assets/comment.svg");
 
+/// `convert.svg` — the art for [`super::Icon::SetScale`].
+///
+/// Copied from ScripTree's `icon-convert.svg` (the operator's own art; header §4b) — the reuse ui-spec §8.2 assigns to Set Group Scale.
+pub(super) const CONVERT: &str = include_str!("assets/convert.svg");
+
 /// `copy.svg` — the art for [`super::Icon::Copy`].
 ///
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const COPY: &str = include_str!("assets/copy.svg");
 
+/// `delete.svg` — the art for [`super::Icon::Delete`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7, and shared by both delete verbs.
+pub(super) const DELETE: &str = include_str!("assets/delete.svg");
+
 /// `document.svg` — the art for [`super::Icon::Properties`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-document.svg` (the operator's own art; header §4).
 pub(super) const DOCUMENT: &str = include_str!("assets/document.svg");
+
+/// `download.svg` — the art for [`super::Icon::Export`].
+///
+/// Copied from ScripTree's `icon-download.svg` (the operator's own art; header §4b) — the export half of ui-spec §3.1's reserved upload/download pair.
+pub(super) const DOWNLOAD: &str = include_str!("assets/download.svg");
 
 /// `edit-objects.svg` — the art for [`super::Icon::EditObjects`].
 ///
@@ -317,6 +407,11 @@ pub(super) const FIT_PAGE: &str = include_str!("assets/fit-page.svg");
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const FIT_WIDTH: &str = include_str!("assets/fit-width.svg");
 
+/// `floating-panels.svg` — the art for [`super::Icon::FloatingPanels`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const FLOATING_PANELS: &str = include_str!("assets/floating-panels.svg");
+
 /// `folder.svg` — the art for [`super::Icon::Open`], [`super::Icon::FontFolders`].
 ///
 /// Copied **verbatim** from ScripTree's `icon-folder.svg` (the operator's own art; header §4). One asset, two roles — see [`super::Icon::Open`].
@@ -331,6 +426,41 @@ pub(super) const FONTS: &str = include_str!("assets/fonts.svg");
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #6.
 pub(super) const FORM_FIELD: &str = include_str!("assets/form-field.svg");
+
+/// `form-flatten.svg` — the art for [`super::Icon::FormFlatten`].
+///
+/// Authored for pdfce in the header §3 style contract — drawn to ui-spec §8.14's own construction for the Flatten action.
+pub(super) const FORM_FLATTEN: &str = include_str!("assets/form-flatten.svg");
+
+/// `forms.svg` — the art for [`super::Icon::Forms`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const FORMS: &str = include_str!("assets/forms.svg");
+
+/// `fullscreen.svg` — the art for [`super::Icon::Fullscreen`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const FULLSCREEN: &str = include_str!("assets/fullscreen.svg");
+
+/// `grid.svg` — the art for [`super::Icon::Grid`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const GRID: &str = include_str!("assets/grid.svg");
+
+/// `guides.svg` — the art for [`super::Icon::Guides`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const GUIDES: &str = include_str!("assets/guides.svg");
+
+/// `hand.svg` — the art for [`super::Icon::Hand`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const HAND: &str = include_str!("assets/hand.svg");
+
+/// `image.svg` — the art for [`super::Icon::InsertImage`].
+///
+/// Copied from ScripTree's `icon-image.svg` (the operator's own art; header §4b) — ui-spec §8.5 reserved the picture metaphor, and Insert image is its primary claim.
+pub(super) const IMAGE: &str = include_str!("assets/image.svg");
 
 /// `keyboard.svg` — the art for [`super::Icon::Keyboard`].
 ///
@@ -347,10 +477,55 @@ pub(super) const LAYERS: &str = include_str!("assets/layers.svg");
 /// Copied **verbatim** from ScripTree's `icon-link.svg` (the operator's own art; header §4). Its `a6 6 0 008 8` packed arc flags are the reason [`super::svg`]'s lexer reads a flag as one character.
 pub(super) const LINK: &str = include_str!("assets/link.svg");
 
+/// `list.svg` — the art for [`super::Icon::ManageList`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 deviation #7b (ui-spec §8.2's `icon-ring` reuse, refused with a reason).
+pub(super) const LIST: &str = include_str!("assets/list.svg");
+
 /// `markup.svg` — the art for [`super::Icon::Markup`].
 ///
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const MARKUP: &str = include_str!("assets/markup.svg");
+
+/// `page-continuous.svg` — the art for [`super::Icon::PageContinuous`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7, one of the four-glyph page-display radio.
+pub(super) const PAGE_CONTINUOUS: &str = include_str!("assets/page-continuous.svg");
+
+/// `page-extract.svg` — the art for [`super::Icon::PageExtract`].
+///
+/// Authored for pdfce in the header §3 style contract — the Extract-pages half of ui-spec §3.1's reserved download direction.
+pub(super) const PAGE_EXTRACT: &str = include_str!("assets/page-extract.svg");
+
+/// `page-facing-continuous.svg` — the art for [`super::Icon::PageFacingContinuous`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7, one of the four-glyph page-display radio.
+pub(super) const PAGE_FACING_CONTINUOUS: &str = include_str!("assets/page-facing-continuous.svg");
+
+/// `page-facing.svg` — the art for [`super::Icon::PageFacing`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7, one of the four-glyph page-display radio.
+pub(super) const PAGE_FACING: &str = include_str!("assets/page-facing.svg");
+
+/// `page-single.svg` — the art for [`super::Icon::PageSingle`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7, one of the four-glyph page-display radio.
+pub(super) const PAGE_SINGLE: &str = include_str!("assets/page-single.svg");
+
+/// `pages.svg` — the art for [`super::Icon::Pages`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7, and the glyph that retires `view.panel_pages`' recorded "no icon" decision.
+pub(super) const PAGES: &str = include_str!("assets/pages.svg");
+
+/// `printer.svg` — the art for [`super::Icon::Print`].
+///
+/// Copied from ScripTree's `icon-printer.svg` (the operator's own art; header §4b) — the reuse ui-spec §8.12 assigns to Print.
+pub(super) const PRINTER: &str = include_str!("assets/printer.svg");
+
+/// `read-mode.svg` — the art for [`super::Icon::ReadMode`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const READ_MODE: &str = include_str!("assets/read-mode.svg");
 
 /// `redact.svg` — the art for [`super::Icon::Redact`].
 ///
@@ -361,6 +536,11 @@ pub(super) const REDACT: &str = include_str!("assets/redact.svg");
 ///
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const REDO: &str = include_str!("assets/redo.svg");
+
+/// `reset-layout.svg` — the art for [`super::Icon::ResetLayout`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7.
+pub(super) const RESET_LAYOUT: &str = include_str!("assets/reset-layout.svg");
 
 /// `rotate-ccw.svg` — the art for [`super::Icon::RotateCcw`].
 ///
@@ -377,6 +557,11 @@ pub(super) const ROTATE_CW: &str = include_str!("assets/rotate-cw.svg");
 /// Copied **verbatim** from ScripTree's `icon-ruler.svg` (the operator's own art; header §4).
 pub(super) const RULER: &str = include_str!("assets/ruler.svg");
 
+/// `rulers.svg` — the art for [`super::Icon::Rulers`].
+///
+/// Authored for pdfce in the header §3 style contract — header §5 addition #7. Two ruled bands meeting at a corner; deliberately NOT [`RULER`]'s single band.
+pub(super) const RULERS: &str = include_str!("assets/rulers.svg");
+
 /// `save.svg` — the art for [`super::Icon::Save`].
 ///
 /// Authored for pdfce in the header §3 style contract.
@@ -391,6 +576,11 @@ pub(super) const SCISSORS: &str = include_str!("assets/scissors.svg");
 ///
 /// Authored for pdfce in the header §3 style contract — the unmarked lens of the magnifier family.
 pub(super) const SEARCH: &str = include_str!("assets/search.svg");
+
+/// `settings.svg` — the art for [`super::Icon::Settings`].
+///
+/// Copied from ScripTree's `icon-settings.svg` (the operator's own art; header §4b) — sliders rather than a cogwheel, for the reason the asset records.
+pub(super) const SETTINGS: &str = include_str!("assets/settings.svg");
 
 /// `shape-arrow.svg` — the art for [`super::Icon::ShapeArrow`].
 ///
@@ -471,3 +661,13 @@ pub(super) const ZOOM_IN: &str = include_str!("assets/zoom-in.svg");
 ///
 /// Derived from ScripTree's `icon-search.svg`: the same magnifier, plus a minus bar in the lens (header §4).
 pub(super) const ZOOM_OUT: &str = include_str!("assets/zoom-out.svg");
+
+/// `zoom-region.svg` — the art for [`super::Icon::ZoomRegion`].
+///
+/// Authored for pdfce in the header §3 style contract — the fourth member of ui-spec §3.1's magnifier family, carrying a BOX in the lens.
+pub(super) const ZOOM_REGION: &str = include_str!("assets/zoom-region.svg");
+
+/// `zoom-selection.svg` — the art for [`super::Icon::ZoomSelection`].
+///
+/// Authored for pdfce in the header §3 style contract — ui-spec §3.1's corner-bracket family, reduced to a diagonal PAIR so it cannot be read as [`FIT_PAGE`].
+pub(super) const ZOOM_SELECTION: &str = include_str!("assets/zoom-selection.svg");

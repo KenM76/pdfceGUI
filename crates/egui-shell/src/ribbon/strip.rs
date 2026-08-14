@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! ┌──────────────────────────────────────────────────────────────────────┐
-//! │ [Open][Save] │ File View Pages ⌄ 3 more   ( Read │ Review │ Edit )   │
+//! │ [Open][Save] │ File View Pages ⏷ 3 more   ( Read │ Review │ Edit )   │
 //! └──────────────────────────────────────────────────────────────────────┘
 //!   └── QAT ───┘  └──── tabs ────┘└affordance┘ └──── mode selector ────┘
 //!        1                4            3                    2
@@ -105,7 +105,7 @@
 //! no `TabList`, so a ribbon tab announces as a *selectable label that is
 //! or is not selected* rather than as "tab 2 of 7". That ceiling extends
 //! to this module's affordance and menu: a screen-reader user is told
-//! there is a button called "⌄ 3 more ribbon tabs" and, on opening it,
+//! there is a button called "⏷ 3 more ribbon tabs" and, on opening it,
 //! hears three more selectable labels. **The set relationship is not
 //! announced** — nothing says the menu's contents belong to the same tab
 //! list as the strip's. The count in the label is what carries that
@@ -357,7 +357,7 @@ fn island<R>(
     .inner
 }
 
-/// The "⌄ N more" affordance and the menu of hidden tabs behind it.
+/// The "⏷ N more" affordance and the menu of hidden tabs behind it.
 ///
 /// Modelled on [`super::band`]'s, deliberately, down to the `min_size` and
 /// the `truncate()`:

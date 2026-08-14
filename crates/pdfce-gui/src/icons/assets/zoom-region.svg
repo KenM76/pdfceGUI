@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic magnifier shape — universal, no trademark risk -->
+  <!-- No ui-spec row: marquee zoom is marked N in RIBBON_IA.md §5.2 and shipped in
+       Phase 3, after the icon spec was written. Authored in the §3 style contract.
+
+       ui-spec §3.1 "magnifier±" established the family and its grammar: ONE circle
+       (cx=21, cy=21, r=13) with ONE handle (M30 30 l9 9), and the LENS is where the
+       family member is named — empty is search.svg, a minus is zoom-out.svg, a plus
+       is zoom-in.svg. A BOX in the lens is the fourth member and says "magnify the
+       box you drag", which is precisely what this tool arms.
+
+       Chosen over corner brackets, which would have been the other obvious marquee
+       glyph and is refused: fit-page.svg IS four corner brackets and sits two
+       buttons away in the same View ▸ Zoom group. Two controls in one group whose
+       glyphs differ only by an interior mark is the ❌-grade collision ui-spec §2.1
+       names, and the whole reason the magnifier family exists is that it can absorb
+       a fourth member without one.
+
+       The box is 10x8 in a 26-unit lens, not the 12x10 of the first draft: rendered
+       at 16 px beside zoom-in.svg and zoom-out.svg, the larger box left too little
+       lens around it and the glyph read as a filled disc rather than as a marked
+       lens. The family only works while the mark is clearly INSIDE something. -->
+  <circle cx="21" cy="21" r="13" stroke="currentColor" stroke-width="2.5"/>
+  <rect x="16" y="17" width="10" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M30 30l9 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

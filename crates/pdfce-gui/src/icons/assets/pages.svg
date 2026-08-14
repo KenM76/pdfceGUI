@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic page-stack shape — generic, no trademark risk -->
+  <!-- No ui-spec row: the Pages panel is a panel this build invented (the old shell
+       had a thumbnail RAIL, not a toggleable panel), so this is an addition in the
+       §3 style contract — the same class as bookmarks.svg, layers.svg and
+       signatures.svg, and authored for the same reason: the panel shipped with a
+       ribbon control that had no glyph, and §5 addition #6's ruling is that a
+       missing glyph is AUTHORED rather than worked around.
+
+       ★ This retires a recorded decision rather than merely filling a gap.
+       `shell::commands`' registration of `view.panel_pages` carried a note reading
+       "No icon, and that is a decision rather than an omission — there is no
+       `document` (or `pages`) key in `crate::icons::catalog`, and naming one would
+       draw the catalogue's deliberate visible slashed mark". That reasoning was
+       sound and is now spent: the key exists, so the note has been rewritten to say
+       so. A decision whose premise has been removed must not be left standing as
+       though it were still load-bearing.
+
+       Three sheets, front one whole and the two behind showing only the edges that
+       clear it. Three, not two, and only the edges — both borrowed from layers.svg,
+       which made the same two choices against the same two risks: TWO complete rects
+       offset diagonally is copy.svg (the Edit tab's duplicate glyph), and three
+       fully-drawn sheets is a solid mass at 16 px.
+
+       Distinct from layers.svg itself, which is ISOMETRIC — parallelograms seen from
+       above, because a layer is a plane you look through. These are square-on,
+       because a page is a thing you look at. -->
+  <path d="M20 6h20a2 2 0 0 1 2 2v26" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M14 10h20a2 2 0 0 1 2 2v26" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="8" y="14" width="22" height="28" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

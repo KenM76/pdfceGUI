@@ -7,9 +7,9 @@
 //!
 //! | Function | File | Plans | Reservation it protects |
 //! |---|---|---|---|
-//! | [`plan_band`] | this one | the band's groups | the band's "⌄ N more" affordance |
+//! | [`plan_band`] | this one | the band's groups | the band's "⏷ N more" affordance |
 //! | [`plan_strip_row`] | [`row`] | the tab-strip row's three regions | the tab area itself |
-//! | [`plan_tab_strip`] | [`row`] | the tabs within that area | the strip's own "⌄ N more" affordance **and the active tab** |
+//! | [`plan_tab_strip`] | [`row`] | the tabs within that area | the strip's own "⏷ N more" affordance **and the active tab** |
 //!
 //! Both are re-exported here, so every call site says `plan::…` and the
 //! split is an organisational fact rather than something a caller has to
@@ -312,7 +312,7 @@ impl BandPlan {
 /// Step 3 can place **zero** groups — at a width narrower than one group
 /// plus the reservation, `shown` is 0 and every group is in the menu.
 /// That is the correct answer and it is the case the reservation exists
-/// for: the band degrades to a single "⌄ N more" control that still
+/// for: the band degrades to a single "⏷ N more" control that still
 /// reaches everything, rather than to a band of clipped groups with no
 /// route to the rest.
 pub(crate) fn plan_band(
@@ -380,8 +380,36 @@ pub(crate) fn plan_band(
 /// The chevron is part of the label rather than a separate glyph so the
 /// control is one measurable string, and so a build with no icon set
 /// still shows an affordance rather than an empty button.
+///
+/// ## ★ The chevron is `⏷` U+23F7, and the obvious choices are all tofu
+///
+/// This read `⌄` (U+2304, DOWNWARDS ARROWHEAD) until 2026-08-14 and
+/// **rendered as an empty box in every shipped build** — `□ 1 more`,
+/// `□ 2 more` — because egui's bundled font stack (Ubuntu-Light +
+/// NotoEmoji + emoji-icon-font) has no face for it.
+///
+/// It is worth naming the near misses, because every one of them is what
+/// somebody reaches for first and **four of them were already known to be
+/// missing** by a test in the consuming application:
+///
+/// | codepoint | in the font? |
+/// |---|---|
+/// | `⌄` U+2304 | **no** — what this was |
+/// | `▾` U+25BE, `▼` U+25BC, `⌃` U+2303, `˅` U+02C5 | **no** |
+/// | `⏷` U+23F7 | **yes** — and its siblings `⏴` U+23F4 / `⏵` U+23F5 are already in use |
+///
+/// Measured with `Fonts::has_glyph`, not assumed.
+///
+/// **Why this crate cannot test it and the application must.** `cargo test
+/// -p egui-shell` compiles without egui's `default_fonts`, so `has_glyph`
+/// here would answer about a font set that does not exist in any real
+/// build — the test would pass, vacuously, for the whole life of the
+/// defect. The assertion therefore lives with the fonts, in the
+/// application, beside the two that already guard the status bar and the
+/// find bar. That is also why this shipped: the crate that owns the string
+/// is structurally unable to check it.
 pub(crate) fn overflow_label(hidden: usize) -> String {
-    format!("⌄ {hidden} more")
+    format!("⏷ {hidden} more")
 }
 
 /// The width to reserve for the overflow affordance, given how many
@@ -394,11 +422,11 @@ pub(crate) fn overflow_label(hidden: usize) -> String {
 /// broken by reserving for a label that has not been chosen yet, and the
 /// only safe direction is the worst case.
 ///
-/// An earlier version measured `"⌄ N more"` for `N = total_groups` alone,
+/// An earlier version measured `"⏷ N more"` for `N = total_groups` alone,
 /// reasoning that more hidden groups means a longer string. That is true
 /// of the *character count* and false of the *width*: with no font
 /// installed every label measures zero and the two agree, but with real
-/// metrics `"⌄ 8 more"` is wider than `"⌄ 9 more"` in any face whose
+/// metrics `"⏷ 8 more"` is wider than `"⏷ 9 more"` in any face whose
 /// digits are not tabular, and a band of nine groups showing one would
 /// then draw a control wider than the space reserved for it — the
 /// affordance overhanging the band's right edge, which is failure mode #8
@@ -687,8 +715,8 @@ mod tests {
     /// character count.**
     ///
     /// The trap this pins is the one real text springs and zero-width
-    /// text cannot: in a face whose digits are not tabular, `"⌄ 8 more"`
-    /// can be wider than `"⌄ 9 more"` even though the counts and the
+    /// text cannot: in a face whose digits are not tabular, `"⏷ 8 more"`
+    /// can be wider than `"⏷ 9 more"` even though the counts and the
     /// lengths say otherwise. Reserving for `N = total_groups` alone —
     /// which reads as obviously sufficient, and is what this function used
     /// to do — then draws a control wider than the space held for it, and
@@ -746,7 +774,46 @@ mod tests {
     /// between an affordance and a mystery chevron.
     #[test]
     fn the_overflow_label_states_the_count() {
-        assert_eq!(overflow_label(3), "⌄ 3 more");
-        assert_eq!(overflow_label(1), "⌄ 1 more");
+        assert_eq!(overflow_label(3), "⏷ 3 more");
+        assert_eq!(overflow_label(1), "⏷ 1 more");
+    }
+
+    /// ★ **The chevron is the pinned codepoint — one half of a two-sided
+    /// pin, and this half cannot check the thing that actually matters.**
+    ///
+    /// Whether the character is *drawable* is asserted in the consuming
+    /// application (`pdfce_gui::shell`'s
+    /// `the_ribbon_overflow_chevron_has_a_glyph`), because `cargo test -p
+    /// egui-shell` compiles without egui's `default_fonts` — a `has_glyph`
+    /// call here would answer about a font set no real build has, and would
+    /// pass for the whole life of a defect. It did: `⌄` U+2304 shipped as a
+    /// tofu box on every ribbon band and dock tab bar this project has
+    /// produced.
+    ///
+    /// So this test does the half it *can* do honestly: pin the codepoint,
+    /// so that changing it is a deliberate act which fails a named test and
+    /// sends the next reader to the other half. Both docks and both rows
+    /// are covered, because [`crate::dock::plan::overflow_label`] promises
+    /// to stay identical and identical wording means identical codepoints.
+    #[test]
+    fn the_overflow_label_uses_the_pinned_chevron() {
+        const PINNED: char = '\u{23F7}';
+        let label = overflow_label(2);
+        let first = label.chars().next().expect("a non-empty label");
+        assert_eq!(
+            first, PINNED,
+            "the overflow chevron changed to U+{:04X}. That is allowed, but the \
+             bundled fonts must be able to draw it — see this module's own note on \
+             which near misses are missing, and update \
+             `pdfce_gui::shell::tests::the_ribbon_overflow_chevron_has_a_glyph`, \
+             which is the only place that can check.",
+            first as u32
+        );
+        assert_eq!(
+            crate::dock::plan::overflow_label(2),
+            label,
+            "the dock and the ribbon must spell the affordance identically; an \
+             operator should not have to learn two overflow idioms in one window"
+        );
     }
 }

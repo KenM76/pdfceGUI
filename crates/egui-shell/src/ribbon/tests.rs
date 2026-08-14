@@ -284,6 +284,115 @@ fn every_rendered_group_emits_a_caption() {
     );
 }
 
+/// **★ Every command control in the band publishes where it was drawn.**
+///
+/// # The gap this closes
+///
+/// The band reported its *groups* and their *captions* and nothing else,
+/// so the forty controls an operator actually clicks were invisible to
+/// anything outside the process. A caption rect answers "is this label
+/// legible"; it cannot answer "did clicking this button do anything",
+/// because nothing outside the window could find the button in order to
+/// click it. The whole chain from a ribbon click to a control rendering
+/// pressed was therefore covered only by unit tests, one per link — which
+/// is exactly the state the icon painter was in when it shipped drawing
+/// nothing: every part tested, the join untested, the join wrong.
+///
+/// # What is asserted, and why each part
+///
+/// 1. **One rect per `Item::Command` in the drawn tab**, under
+///    [`report::band_item`]'s name. Catches the report being conditioned
+///    on something — enabled, selected, having an icon — which would make
+///    it go quiet in the states a harness most wants to inspect.
+/// 2. **Inside its own group's rect.** Catches a control reported at a
+///    rectangle that is not where it was drawn, which would aim a click
+///    at empty chrome and make a working command look broken.
+/// 3. **Nothing is published for `Item::Separator` or `Item::Custom`.**
+///    Neither is a command and neither has an id to report under; a rect
+///    appearing for one would mean the name is being built from
+///    something other than a command id.
+/// 4. **`ribbon.item.` and `ribbon.qat.` stay disjoint.** `file.open` is
+///    on the File tab *and* on the quick-access toolbar in this fixture,
+///    so the two surfaces genuinely draw the same command twice on one
+///    frame. A harness filtering for band controls must not pick up the
+///    QAT's copy, and `qat_icons`' aspect-ratio assertion must not pick
+///    up the band's — a band control legitimately shows a label and is
+///    legitimately wide.
+///
+/// Sizes are deliberately not asserted: this crate builds `egui` with
+/// `default-features = false`, so a test process has no font data and
+/// every galley measures zero. What a control *looks* like is
+/// `ui-verify`'s question, against a real window, using precisely these
+/// rects.
+#[test]
+fn every_band_command_publishes_the_rect_it_was_drawn_in() {
+    let (_, seen, _) = render_view_tab(1600.0);
+
+    // The View tab's three groups and every command in them, from
+    // `shell()` above. Written out rather than derived from the manifest,
+    // so a command silently disappearing from the fixture cannot make
+    // this test vacuous.
+    let expected: [(&str, &[&str]); 3] = [
+        (
+            "page_display",
+            &["view.single", "view.continuous", "view.facing"],
+        ),
+        ("render", &["view.thin_lines"]),
+        ("window", &["view.fullscreen", "view.reset_layout"]),
+    ];
+
+    for (group, commands) in expected {
+        let group_name = report::group("view", group);
+        let (_, whole) = seen
+            .iter()
+            .find(|(n, _)| n == &group_name)
+            .unwrap_or_else(|| panic!("no rect was published for `{group}`"));
+        for id in commands {
+            let name = report::band_item(id);
+            let (_, rect) = seen.iter().find(|(n, _)| n == &name).unwrap_or_else(|| {
+                panic!(
+                    "`{id}` was drawn in `{group}` and published no rect under `{name}`. \
+                     A control nothing outside the process can locate is a control no \
+                     check can click; see this test's header."
+                )
+            });
+            assert!(
+                whole.contains_rect(*rect),
+                "`{id}` reported {rect:?}, which is outside its own group at {whole:?} — \
+                 a click aimed at that rectangle would land on something else"
+            );
+        }
+    }
+
+    // 3: the two non-command item kinds report nothing. `render` holds a
+    // `quality_slider` custom item and `file`'s group holds a separator;
+    // neither has a command id, so neither may appear in this namespace.
+    let items: Vec<&str> = seen
+        .iter()
+        .map(|(n, _)| n.as_str())
+        .filter(|n| n.starts_with("ribbon.item."))
+        .collect();
+    assert_eq!(
+        items.len(),
+        6,
+        "exactly the six commands on the View tab, and nothing for the custom item \
+         or the separators: {items:?}"
+    );
+
+    // 4: the QAT's copy of a command is a different control on a
+    // different surface, and the two namespaces must not overlap.
+    assert!(
+        seen.iter()
+            .any(|(n, _)| n == &report::qat_item("file.open")),
+        "the fixture puts `file.open` on the QAT, so this frame should carry both \
+         namespaces and be able to prove they are disjoint"
+    );
+    assert!(
+        !items.iter().any(|n| n.starts_with("ribbon.qat.")),
+        "a QAT control leaked into the band namespace: {items:?}"
+    );
+}
+
 /// **★ `MODES_AND_PANELS.md` failure mode #8: at a width narrow
 /// enough to hide groups, the overflow control is still there and
 /// still hit-testable.**

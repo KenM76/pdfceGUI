@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic open-hand shape — universal, no trademark risk -->
+  <!-- No ui-spec row: the Hand tool is marked N in RIBBON_IA.md §5.2 and shipped in
+       Phase 3, after the icon spec was written. Authored in the §3 style contract.
+
+       The pan hand: four fingers as rounded 6-unit columns, a thumb sweeping in from
+       the left, one palm outline closing the shape. It is the most conventional
+       glyph in the entire application — every map, every page viewer, every drawing
+       program uses it for "drag the sheet around" — and the command's own label is
+       the word Hand, so a cleverer metaphor would only have made the button harder
+       to find.
+
+       Rejected: a four-way arrow cross. It is simpler and would have read at a
+       smaller size, but it says MOVE THIS OBJECT, and this tool moves the viewport
+       and nothing else. On a page where an operator can also drag markup around,
+       that is a lie worth four extra strokes to avoid.
+
+       The finger tips step 13/11/13/16 left to right rather than all landing on one
+       line — a flat top reads as a comb. -->
+  <path d="M20 34V16a3 3 0 0 0-6 0v12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20 26V14a3 3 0 0 1 6 0v10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M26 24v-8a3 3 0 0 1 6 0v8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M32 24v-5a3 3 0 0 1 6 0v13c0 6-5 11-11 11h-4c-3 0-5-1-7-3l-8-8a3 3 0 0 1 4-4l8 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

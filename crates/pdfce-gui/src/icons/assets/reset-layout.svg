@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic panel-returns-to-its-dock shape — generic, no trademark risk -->
+  <!-- No ui-spec row: reset layout arrived with the dock (MODES_AND_PANELS.md),
+       after the icon spec was written. Authored in the §3 style contract.
+
+       A window with a dock down its left side and an arrow travelling back into it:
+       the panel goes home. The command's own tooltip is "Put both panel docks back
+       where this mode started them", and a returning arrow is the one motion that
+       says "back" without needing a second element to say "layout".
+
+       ★ FIRST DRAFT REJECTED, and the reason is worth keeping. The obvious
+       construction was ui-spec §3.1 "rotate-page"'s — an object with a curved arrow
+       wrapping it, exactly as rotate-ccw.svg does — with a two-pane window as the
+       object. Rendered at 16/24/48 and looked at, it read as an UMBRELLA: a 14-unit
+       arc over a small box is a canopy and a handle, not an operation on a frame.
+       It also sat one interior detail away from rotate-ccw.svg. Both faults are
+       invisible in the path data and obvious in the picture, which is this project's
+       founding rule arriving in an asset file.
+
+       The arrow therefore travels right-to-left INSIDE the frame rather than around
+       it: against reading order, which is the direction every restore glyph runs and
+       the opposite of redo.svg's.
+
+       Distinct from sidebar.svg (the dock's own toggle, one group above this on the
+       same tab) by the arrow, which is a whole element rather than a changed
+       proportion — the two must not differ only by a measurement at 16 px. -->
+  <rect x="6" y="12" width="36" height="24" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M17 12v24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M35 24H23" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M27 20l-4 4 4 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

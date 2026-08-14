@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic printer shape — placeholder, not a vendor trademark logo -->
+  <!-- ui-spec §8.12 "Print & prepress": REUSE `icon-printer.svg`, "exact conceptual
+       match". The geometry below is ScripTree's `icon-printer.svg` unmodified (the
+       operator's own art, PROVENANCE §1); only this citation comment was added.
+
+       It replaces NO icon: `file.print` shipped with none, because the salvage
+       source drew Print with the *stamp* glyph and that was a mis-assignment
+       rather than a convention worth carrying — stamp.svg means "a mark applied
+       with a stamp" (ui-spec §3.4) and Print puts ink on paper. Paper feed, body,
+       output tray: the three parts an operator recognises without a label. -->
+  <path d="M14 18V8h20v10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="8" y="18" width="32" height="14" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="14" y="30" width="20" height="10" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

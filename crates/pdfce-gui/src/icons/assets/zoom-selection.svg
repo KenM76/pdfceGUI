@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic frame-this-object shape — generic, no trademark risk -->
+  <!-- No ui-spec row: zoom-to-selection is marked N in RIBBON_IA.md §5.2 and shipped
+       in Phase 3, after the icon spec was written. Authored in the §3 style contract.
+
+       An object with two corner brackets closing on it diagonally: "frame THIS".
+       ui-spec §3.1 "frame-fit" made corner brackets the fit vocabulary, and this is
+       the member of it that fits to a thing rather than to the sheet.
+
+       TWO brackets, not four, and that is the load-bearing decision. fit-page.svg is
+       four brackets at 10/38 with an EMPTY interior and sits in the same View ▸ Zoom
+       group; four brackets here would differ from it only by the small rect inside,
+       which is the ❌-grade same-group collision ui-spec §2.1 forbids. A diagonal
+       PAIR reads as a different gesture at 16 px — a caliper closing on something —
+       while still belonging to the bracket family.
+
+       Also deliberately not four arrows fanning outward: that is fullscreen.svg,
+       three groups along the same tab. -->
+  <rect x="18" y="18" width="12" height="12" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M12 20v-8h8M36 28v8h-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

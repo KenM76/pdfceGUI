@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic page-layout shape — generic, no trademark risk -->
+  <!-- No ui-spec row: the page-display radio (RIBBON_IA.md §5.2, built in Phase 4)
+       postdates the icon spec, so this is an addition in the §3 style contract.
+
+       page-single.svg's page, shortened, plus the TOP EDGE of the next page arriving
+       from below and running off the viewBox. The two vertical strokes are cut flush
+       by the edge (butt caps, deliberately — a round cap would bulge past the
+       boundary and read as a finished shape rather than a clipped one), and being
+       cut is the entire message: the pages do not stop, you scroll into them.
+
+       Only the page BELOW is drawn, not one above as well. Three shapes at this size
+       is a smudge, and the pair (this and page-facing-continuous.svg) has to use the
+       same construction or the family stops being systematic:
+         single   = the page(s)          facing              = the page(s)
+         continuous = the page(s) + what comes next
+       so exactly one sliver, always below, in both continuous glyphs. -->
+  <rect x="15" y="5" width="18" height="26" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M15 48v-9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v9" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

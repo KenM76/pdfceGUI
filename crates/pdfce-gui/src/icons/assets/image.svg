@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic picture shape — generic, no trademark risk -->
+  <!-- ui-spec §8.5 reserves `icon-image.svg` for OCR ("a scanned page is
+       fundamentally an image"). `edit.insert_image` is the earlier and the
+       PRIMARY claim on the picture metaphor: it places an actual raster image on
+       the page, where OCR merely reads one. OCR is unbuilt and, when it lands, it
+       sits in a Tools-dock row with a text label beside it (§8.5's own note), so a
+       ⚠️-grade share is available there — but it must be a conscious re-use, not an
+       assumption. The geometry is ScripTree's `icon-image.svg` unmodified (the
+       operator's own art, PROVENANCE §1); only this citation comment was added.
+
+       Frame, sun and horizon: the one composition that reads as "a picture" rather
+       than as "a page" at 16 px. Deliberately not document.svg's ruled page — the
+       thing being inserted is not text. -->
+  <rect x="6" y="8" width="36" height="32" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <circle cx="16" cy="18" r="3" stroke="currentColor" stroke-width="2.5"/>
+  <path d="M9 38l11-12 7 7 6-6 7 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

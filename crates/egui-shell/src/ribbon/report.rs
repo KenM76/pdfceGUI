@@ -143,6 +143,69 @@ pub fn qat_item(command_id: &str) -> String {
     format!("{PREFIX}.qat.{command_id}")
 }
 
+/// The name under which one **band command control** — a button inside a
+/// captioned group on the active tab — is published.
+///
+/// # Why this exists at all
+///
+/// Until this landed, the ribbon published a rect for every *group
+/// caption*, every *tab*, every *mode segment* and every *QAT control*,
+/// and **nothing for the forty controls an operator actually clicks**. So
+/// no process outside the application could say where the `Rectangle`
+/// button was, and therefore nothing outside the application could click
+/// it and observe what happened.
+///
+/// That gap has a precise cost, and this crate has already paid it once.
+/// The icon painter existed, was tested, and was never handed to the
+/// ribbon — a defect invisible to every unit test in two crates, found
+/// only by reading the width of a rect the *running* window declared (see
+/// [`qat_item`]'s consumer, `tools/ui-verify`'s `qat_icons` check). A
+/// control whose rect is unpublished is a control no such check can ever
+/// be written for.
+///
+/// # The name: `ribbon.item.<command_id>`
+///
+/// Two decisions, both deliberate.
+///
+/// **`item`** is [`crate::manifest::Item`]'s own word. The band draws a
+/// group's `Item`s, and `Item::Command` is the variant this reports; a
+/// reader who greps the manifest for what a band contains finds the same
+/// noun. It also stays clear of `ribbon.group.` — a *group* rect is the
+/// block, a *caption* rect is its label, and an *item* rect is one control
+/// inside it, so the three namespaces answer three different questions and
+/// a filter for one cannot catch another.
+///
+/// **The command id alone**, with no tab or group segment, exactly as
+/// [`qat_item`] spells a QAT control. A command id is unique in a
+/// [`crate::commands::Registry`] — that is what a registry *is* — so the
+/// name is already unambiguous, and it survives the one event that would
+/// otherwise break every selector built on it: `SHELL_FRAMEWORK.md` §5
+/// permits an operator to **move a command between groups**, and a name
+/// carrying `.<tab>.<group>.` would change out from under a harness the
+/// first time somebody reorganised their ribbon. The identity being
+/// reported is the control's, not its current address.
+///
+/// # The one ambiguity this leaves, stated
+///
+/// A manifest that places the *same command id in two groups of one tab*
+/// publishes two rects under one name, and a consumer keeping the last
+/// occurrence per name would see them alternate. Nothing here forbids
+/// that, because nothing here can: the manifest is the application's. It
+/// is a manifest defect rather than a naming defect — the same command
+/// twice on one tab is two controls the operator cannot tell apart — and
+/// the alternative spelling would trade a visible ambiguity in a
+/// diagnostic name for an invisible one in the ribbon itself.
+///
+/// # Zero cost when nobody is listening
+///
+/// Called once per drawn command per frame, which is the busiest reporting
+/// site in this module — hence the closure discipline [`Reporter::report`]
+/// documents. With no sink installed, no name is built.
+#[must_use]
+pub fn band_item(command_id: &str) -> String {
+    format!("{PREFIX}.item.{command_id}")
+}
+
 /// Holds the application's rect sink, if there is one.
 ///
 /// A struct rather than a bare `Option` so that [`Self::report`] can own
@@ -234,6 +297,19 @@ mod tests {
         assert_eq!(overflow(), "ribbon.overflow");
         assert_eq!(tab_overflow(), "ribbon.tabs.overflow");
         assert_eq!(qat_item("file.open"), "ribbon.qat.file.open");
+        assert_eq!(
+            band_item("markup.rectangle"),
+            "ribbon.item.markup.rectangle"
+        );
+
+        // A band control, a QAT control and a group are three different
+        // things about the same command, and a harness filtering for one
+        // must never catch another. `ribbon.item.` is disjoint from both
+        // `ribbon.qat.` and `ribbon.group.`, in both directions.
+        assert!(!band_item("file.open").starts_with("ribbon.qat."));
+        assert!(!qat_item("file.open").starts_with("ribbon.item."));
+        assert!(!band_item("file.open").starts_with("ribbon.group."));
+        assert!(!band_item("view.zoom").starts_with("ribbon.tab."));
 
         // The two overflow affordances are different controls on the same
         // ribbon and must never be confused for one another, in either
@@ -256,6 +332,7 @@ mod tests {
             overflow().to_owned(),
             tab_overflow().to_owned(),
             qat_item("c"),
+            band_item("c"),
         ] {
             assert!(
                 name.starts_with(PREFIX),

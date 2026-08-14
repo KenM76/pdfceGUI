@@ -394,9 +394,15 @@ pub(crate) fn tab_width(label_width: f32) -> f32 {
 /// still shows an affordance rather than an empty button. Identical in
 /// spirit and in wording to the ribbon's, because an operator should not
 /// have to learn two overflow idioms in one window.
+///
+/// ★ The chevron is `⏷` U+23F7 and **must stay in step with the ribbon's**
+/// — see `crate::ribbon::plan::overflow_label`, which carries the account
+/// of why `⌄` U+2304 was tofu in every shipped build and which near misses
+/// are also missing from the font. "Identical in wording" is the promise
+/// above, and identical *codepoints* is what keeps it.
 #[must_use]
 pub(crate) fn overflow_label(hidden: usize) -> String {
-    format!("⌄ {hidden} more")
+    format!("⏷ {hidden} more")
 }
 
 /// The width to reserve for the overflow affordance, given how many tabs
@@ -409,11 +415,11 @@ pub(crate) fn overflow_label(hidden: usize) -> String {
 /// broken by reserving for a label that has not been chosen yet, and the
 /// only safe direction is the worst case.
 ///
-/// Reserving for `"⌄ N more"` at `N = total` alone is the intuitive
+/// Reserving for `"⏷ N more"` at `N = total` alone is the intuitive
 /// choice and it is **wrong**: that is true of the *character count* and
 /// false of the *width*. With no font installed every label measures zero
-/// and the two agree; with real metrics `"⌄ 8 more"` is wider than
-/// `"⌄ 9 more"` in any face whose digits are not tabular, and a stack of
+/// and the two agree; with real metrics `"⏷ 8 more"` is wider than
+/// `"⏷ 9 more"` in any face whose digits are not tabular, and a stack of
 /// nine tabs showing one would then draw a control wider than the space
 /// reserved for it — the affordance overhanging the tab bar's right edge,
 /// which is failure mode #8 with the control present but partly
@@ -449,7 +455,7 @@ pub(crate) struct TabPlan {
     /// How many consecutive tabs are visible, starting at [`Self::start`].
     ///
     /// May be **zero**: at a width narrower than the reservation plus one
-    /// minimum tab, the bar degrades to a lone "⌄ N more" control that
+    /// minimum tab, the bar degrades to a lone "⏷ N more" control that
     /// still reaches every panel. That is the correct answer and it is
     /// the case the reservation exists for — a bar of clipped tabs with
     /// no route to the rest is the defect.
@@ -1029,8 +1035,8 @@ mod tests {
     /// the label for the largest count.
     ///
     /// Exercised here with a deliberately non-monotonic measure — the
-    /// shape a real proportional face has, where `"⌄ 8 more"` is wider
-    /// than `"⌄ 9 more"`. A `max` over `1..=total` is right; measuring
+    /// shape a real proportional face has, where `"⏷ 8 more"` is wider
+    /// than `"⏷ 9 more"`. A `max` over `1..=total` is right; measuring
     /// `total` alone is wrong, and the difference is invisible with no
     /// font installed. [`super::width_tests`] repeats this against real
     /// metrics.

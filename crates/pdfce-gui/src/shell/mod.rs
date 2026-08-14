@@ -488,4 +488,69 @@ mod tests {
             );
         }
     }
+
+    /// ★ **The ribbon's overflow chevron exists in the bundled fonts.**
+    ///
+    /// The third of this family — `crate::app::status` and
+    /// `crate::find::bar` each guard their own glyphs, and the reason there
+    /// are three rather than one is that none of them can see the others'
+    /// strings. This one guards a string neither can see and **neither
+    /// crate could have guarded**.
+    ///
+    /// # What shipped, and why nothing caught it
+    ///
+    /// `egui_shell::ribbon::plan::overflow_label` built `"⌄ N more"` from
+    /// U+2304, which egui's bundled stack cannot draw — so the affordance
+    /// rendered as `□ 1 more` in **every build this project has ever
+    /// produced**, on both the ribbon band and the dock tab bar. Found by
+    /// an agent reading its own screenshots, not by a test.
+    ///
+    /// It is the same defect that produced `chevron-down.svg` and the same
+    /// one `every_glyph_the_status_bar_draws_has_a_glyph` was written after
+    /// — that catalog was drafted with `◀ ▶ ▸ ▾`, all four missing. Three
+    /// separate sightings of one hazard.
+    ///
+    /// **The structural reason it survived all three:** `cargo test -p
+    /// egui-shell` compiles without egui's `default_fonts`, so a
+    /// `has_glyph` assertion *inside* the crate that owns the string would
+    /// answer about a font set no real build has, and would pass for the
+    /// whole life of the defect. The crate cannot check its own string.
+    /// This is the test it delegates.
+    ///
+    /// # The coupling, stated rather than hidden
+    ///
+    /// `overflow_label` is `pub(crate)` there, so this spells the character
+    /// itself. That is a two-sided pin, the same shape as the
+    /// `ribbon.item.*` name contract: `egui-shell`'s own
+    /// `the_overflow_label_uses_the_pinned_chevron` asserts the label
+    /// *contains* this codepoint, and this asserts the codepoint is
+    /// *drawable*. Changing the character fails one; changing it to
+    /// something undrawable fails the other.
+    #[test]
+    fn the_ribbon_overflow_chevron_has_a_glyph() {
+        // ui-text-exempt: a codepoint under test, never a rendered string.
+        const CHEVRON: char = '⏷';
+
+        let ctx = egui::Context::default();
+        let mut has = None;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(14.0);
+            ui.ctx()
+                .fonts_mut(|f| has = Some(f.has_glyph(&font, CHEVRON)));
+        });
+
+        // `Some(false)` rather than `None` — `HANDOFF.md` §10's rule.
+        // Under `cargo test -p egui-shell` there are no fonts at all, and a
+        // bare `assert!(has_glyph)` written as `unwrap_or(true)` would be
+        // vacuous in exactly the command a developer runs most.
+        assert_eq!(
+            has,
+            Some(true),
+            "the ribbon and dock overflow affordances draw U+{:04X}, and the bundled \
+             fonts cannot; it renders as a tofu box on every one of them. If a \
+             measurement did not happen at all this is `None`, which is the other \
+             failure and is not a pass.",
+            CHEVRON as u32
+        );
+    }
 }

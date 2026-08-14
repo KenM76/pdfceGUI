@@ -211,6 +211,244 @@ pub enum Icon {
     /// and this one obliterates, so its glyph reads as a solid bar rather
     /// than an outline of one.
     Redact,
+
+    // =======================================================================
+    // ★ The 2026-08-14 pass — twenty-five glyphs for the ribbon's remaining
+    // text buttons.
+    //
+    // They are kept together, in one dated block, rather than interleaved
+    // with their subject neighbours above. The block IS the record: of 88
+    // registered commands, 47 named an icon and 41 did not, so a ribbon band
+    // mixed glyphs and bare words with no rule behind which was which.
+    // Thirty of the 41 are answered here. The remaining eleven are recorded
+    // refusals, stated at their registrations in `crate::shell::commands`
+    // and summarised in [`super::assets`] §5 deviation #8 — that list is the
+    // other half of this one and neither is complete without it.
+    //
+    // Every variant below is an addition the ui-spec does not cover, for the
+    // single reason [`super::assets`] §5 deviation #7 gives: the spec's §0
+    // audited the OLD shell's toolbar, and these are controls that toolbar
+    // did not have. Where a spec row DID reserve something, the asset cites
+    // it; where this pass overrode one, the asset carries the reason.
+    // =======================================================================
+    /// Print. ScripTree `icon-printer.svg` (ui-spec §8.12).
+    ///
+    /// Explicitly **not** [`Icon::Stamp`], which is what the salvage source
+    /// drew Print with. That was a mis-assignment rather than a convention
+    /// worth carrying: stamp art means "a mark applied with a stamp"
+    /// (ui-spec §3.4) and is shared with the reserved Bates-numbering glyph.
+    Print,
+    /// Export — **both** Export DXF and Export form data.
+    ///
+    /// ScripTree `icon-download.svg`, which ui-spec §3.1 reserved for
+    /// exactly this ("reserve `icon-download` for a future Export-data /
+    /// Extract-pages action, so the download/upload pair stays meaningful as
+    /// an 'in/out of this document' pair"). The mirror of
+    /// [`Icon::InsertPages`]'s upload art, and it only carries that meaning
+    /// while both halves stay reserved for it.
+    ///
+    /// One key on two commands is the deliberate convention
+    /// `crate::shell::commands`' header states: a family sharing a glyph is
+    /// how a ribbon reads as grouped, and uniqueness is a property of ids.
+    Export,
+    /// Settings. ScripTree `icon-settings.svg` — three sliders.
+    ///
+    /// Deliberately not a cogwheel: at 16 px a cog's teeth close into a
+    /// disc, and "machinery" is the wrong reading for a preferences dialog.
+    Settings,
+    /// Insert an image. ScripTree `icon-image.svg`.
+    ///
+    /// ui-spec §8.5 reserved the picture metaphor for OCR. This is the
+    /// earlier and the primary claim: it places an actual raster on the
+    /// page, where OCR merely reads one. See the asset for why the eventual
+    /// share is available but must be conscious.
+    InsertImage,
+    /// Set the dimension group's scale. ScripTree `icon-convert.svg`
+    /// (ui-spec §8.2).
+    ///
+    /// Deliberately not a second ruler: [`Icon::Measure`] already means
+    /// "measure something", and this command measures nothing — it changes
+    /// what measurements are read against.
+    SetScale,
+
+    /// Page display → one page at a time.
+    ///
+    /// ★ The four page-display glyphs are ONE control and are drawn as one:
+    /// bare page silhouettes with no interior detail, because the
+    /// arrangement is the information. Two axes carry all four positions —
+    /// **left-to-right** says how many pages are across, and a **cut bottom
+    /// edge** says whether they keep coming. An operator who learns one axis
+    /// has learned the radio.
+    ///
+    /// That is also why all four exist or none would: a radio with three
+    /// glyphs and one bare word does not read as a radio at all.
+    PageSingle,
+    /// Page display → one column, scrolling.
+    PageContinuous,
+    /// Page display → two pages side by side.
+    ///
+    /// Distinct from [`Icon::ReadMode`]'s open book, the other two-page
+    /// glyph and two groups away on the same tab: these are straight-edged
+    /// sheets with a gutter, the book's leaves curve and meet at a spine.
+    PageFacing,
+    /// Page display → two pages side by side, scrolling.
+    PageFacingContinuous,
+
+    /// Marquee zoom — drag a box, magnify it.
+    ///
+    /// The fourth member of ui-spec §3.1's magnifier family, whose grammar
+    /// is that the LENS names the member: empty is [`Icon::Search`], a minus
+    /// is [`Icon::ZoomOut`], a plus is [`Icon::ZoomIn`], a **box** is this.
+    ///
+    /// Corner brackets would have been the other obvious marquee glyph and
+    /// are refused: [`Icon::FitPage`] *is* four corner brackets and sits two
+    /// buttons away in the same group.
+    ZoomRegion,
+    /// Zoom to the selection.
+    ///
+    /// ui-spec §3.1's corner-bracket family, reduced to a **diagonal pair**
+    /// closing on an object. Four brackets would differ from
+    /// [`Icon::FitPage`] only by the small rect inside — a same-group
+    /// collision of the ❌ grade ui-spec §2.1 names.
+    ZoomSelection,
+    /// The Hand (pan) tool.
+    ///
+    /// Deliberately not a four-way arrow cross, which is simpler and reads
+    /// at a smaller size but says MOVE THIS OBJECT. This tool moves the
+    /// viewport and nothing else, and markup on the same page *can* be
+    /// dragged — so the cheaper glyph would have been a lie.
+    Hand,
+
+    /// Rulers toggle — the canvas's ruled edges.
+    ///
+    /// Two graduated bands meeting at a corner, and the L is the whole
+    /// distinction from [`Icon::Measure`]'s single band. One ruler is a tool
+    /// you measure with; two ruled edges framing a corner are furniture the
+    /// window wears. The two live on different tabs, but an operator carries
+    /// the vocabulary between them.
+    Rulers,
+    /// Grid toggle.
+    ///
+    /// Three cells a side, not four or five: at four the ladder closes to
+    /// about 2.5 px in a 16 pt slot and the glyph becomes the wash
+    /// `DEFECTS.md` #8 records — a grid so fine it is a tint rather than a
+    /// grid. The icon must not repeat the feature's own defect.
+    Grid,
+    /// Guides toggle.
+    ///
+    /// Two lines, off-centre, **overshooting** the page on every side. Both
+    /// properties separate it from [`Icon::Grid`] and both are true of a
+    /// real guide: it is dragged out of a ruler and belongs to the window,
+    /// so it does not stop where the paper does. Centring them would draw a
+    /// crosshair, which means "target" everywhere else.
+    Guides,
+
+    /// Pages panel toggle.
+    ///
+    /// ★ This variant **retires a recorded decision**. `view.panel_pages`
+    /// carried a note reading "No icon, and that is a decision rather than
+    /// an omission — there is no `document` (or `pages`) key in
+    /// `crate::icons::catalog`, and naming one would draw the catalogue's
+    /// deliberate visible slashed mark". That was true and is now spent: the
+    /// key exists. The note has been rewritten at the registration rather
+    /// than left standing as though its premise still held.
+    ///
+    /// Three sheets, front one whole and the two behind showing only the
+    /// edges that clear it — both choices borrowed from [`Icon::Layers`],
+    /// which faced the same two risks: two complete offset rects is
+    /// [`Icon::Copy`], and three fully-drawn sheets is a solid mass at 16 px.
+    /// Distinct from `Layers` itself, which is isometric because a layer is
+    /// a plane you look *through*; these are square-on because a page is a
+    /// thing you look *at*.
+    Pages,
+    /// Forms panel toggle.
+    ///
+    /// A page carrying two input boxes. Boxes rather than [`Icon::Properties`]'s
+    /// ruled lines is the distinction: lines are text somebody wrote, boxes
+    /// are places left empty for you.
+    ///
+    /// Carries no tick or check mark, for [`Icon::Signatures`]' reason — a
+    /// check reads as VALIDATED and nothing here validates anything. And it
+    /// does not contradict ui-spec §8.14's "no dedicated toolbar icon" for
+    /// form *filling*: that ruling is about there being no fill TOOL to arm,
+    /// and this is a panel toggle, a control §8.14 never contemplated.
+    Forms,
+
+    /// Read mode — the chrome gets out of the way.
+    ///
+    /// An open book. `RIBBON_IA.md` §3 named this and [`Icon::Fullscreen`]
+    /// as the two commands with "no ribbon control at all", on a tab
+    /// literally called View — "the single most confusing thing in the
+    /// current ribbon". They have controls now, so they have glyphs.
+    ReadMode,
+    /// Full screen.
+    ///
+    /// Four arrows fanning outward. The **shafts** are what keep it apart
+    /// from [`Icon::FitPage`]'s four bare brackets on the same tab: brackets
+    /// alone say "bring the content inside this frame", brackets with a
+    /// shaft running out to each say "push the frame out to the screen", and
+    /// those are opposite motions.
+    Fullscreen,
+    /// Floating panels — whether the operator may tear a panel out.
+    ///
+    /// A docked frame with a smaller window straddling its corner. The
+    /// **title bar** on that window is load-bearing: without it the glyph is
+    /// two overlapping rounded rects, which is [`Icon::Copy`] exactly.
+    FloatingPanels,
+    /// Reset layout.
+    ///
+    /// A two-pane window with an arrow sweeping back over it — the
+    /// object-plus-arrow construction ui-spec §3.1 "rotate-page"
+    /// established and [`Icon::RotateCcw`] uses. That paragraph is also why
+    /// the pane divider is not optional: an arrow alone is history
+    /// ([`Icon::Undo`]), an arrow around a thing is an operation on that
+    /// thing.
+    ResetLayout,
+
+    /// Delete — **both** Delete pages and the Format tab's Delete.
+    ///
+    /// A lidded bin. Boring on purpose: this sits on the two commands that
+    /// remove something an operator can see, and a clever picture on a
+    /// destructive verb is one somebody has to stop and decode.
+    ///
+    /// One key on two commands, per `crate::shell::commands`' shared-key
+    /// convention. The verb is genuinely the same; what differs is the
+    /// target, which the label beside the glyph names, and the two are never
+    /// drawn together (Format is contextual, and one tab's band shows at a
+    /// time).
+    ///
+    /// Deliberately not [`Icon::Close`]'s bare cross, which means DISMISS,
+    /// and not scissors — ui-spec §2.1 keeps scissors on Split and off
+    /// anything that removes content.
+    Delete,
+    /// Extract pages to a new file.
+    ///
+    /// The Extract-pages half of the download direction ui-spec §3.1
+    /// reserved; [`Icon::Export`] is the other half. The **page** is what
+    /// separates the two: both say "out", this one says what is going out.
+    PageExtract,
+
+    /// Flatten form fields.
+    ///
+    /// Drawn to ui-spec §8.14's own construction — "a form-field rectangle
+    /// with a small downward chevron pressing onto it (burn-in metaphor)".
+    /// The caret inside the rectangle is borrowed from [`Icon::FormField`],
+    /// so the thing being pressed is unmistakably a field.
+    FormFlatten,
+    /// Manage a list — **both** Manage fields and Manage dimension groups.
+    ///
+    /// ★ A recorded **deviation**: ui-spec §8.2 assigns `icon-ring.svg` to
+    /// Manage Dimension Groups, and two concentric circles read as a target
+    /// or a radio button at 16 px, not as a list of named things. That row
+    /// was written at reservation depth before the Measure surface existed
+    /// and states no reasoning to weigh against.
+    ///
+    /// The family here is one of **action, not of subject**: the two
+    /// commands have nothing to do with each other, but both answer a click
+    /// by opening a managed list, and that is the only thing an icon can
+    /// honestly promise where "fields" and "dimension groups" are words only
+    /// the label can say. They sit on different tabs.
+    ManageList,
 }
 
 impl Icon {
@@ -269,6 +507,32 @@ impl Icon {
         Icon::InsertPages,
         Icon::FontFolders,
         Icon::Redact,
+        // The 2026-08-14 pass, in the enum's own order.
+        Icon::Print,
+        Icon::Export,
+        Icon::Settings,
+        Icon::InsertImage,
+        Icon::SetScale,
+        Icon::PageSingle,
+        Icon::PageContinuous,
+        Icon::PageFacing,
+        Icon::PageFacingContinuous,
+        Icon::ZoomRegion,
+        Icon::ZoomSelection,
+        Icon::Hand,
+        Icon::Rulers,
+        Icon::Grid,
+        Icon::Guides,
+        Icon::Pages,
+        Icon::Forms,
+        Icon::ReadMode,
+        Icon::Fullscreen,
+        Icon::FloatingPanels,
+        Icon::ResetLayout,
+        Icon::Delete,
+        Icon::PageExtract,
+        Icon::FormFlatten,
+        Icon::ManageList,
     ];
 
     /// The asset's SVG source.
@@ -277,7 +541,7 @@ impl Icon {
     /// because pdfce ships single-folder portable: the executable must not
     /// depend on an `assets/` directory travelling beside it, and an icon
     /// that fails to load at startup is not a failure mode worth having when
-    /// the whole set is 34 KB of text. See [`super::assets`] for why the
+    /// the whole set is 70 KB of text. See [`super::assets`] for why the
     /// `.svg` files live inside `src/icons/`.
     #[must_use]
     pub const fn source(self) -> &'static str {
@@ -328,6 +592,31 @@ impl Icon {
             Icon::Split => assets::SCISSORS,
             Icon::InsertPages => assets::UPLOAD,
             Icon::Redact => assets::REDACT,
+            Icon::Print => assets::PRINTER,
+            Icon::Export => assets::DOWNLOAD,
+            Icon::Settings => assets::SETTINGS,
+            Icon::InsertImage => assets::IMAGE,
+            Icon::SetScale => assets::CONVERT,
+            Icon::PageSingle => assets::PAGE_SINGLE,
+            Icon::PageContinuous => assets::PAGE_CONTINUOUS,
+            Icon::PageFacing => assets::PAGE_FACING,
+            Icon::PageFacingContinuous => assets::PAGE_FACING_CONTINUOUS,
+            Icon::ZoomRegion => assets::ZOOM_REGION,
+            Icon::ZoomSelection => assets::ZOOM_SELECTION,
+            Icon::Hand => assets::HAND,
+            Icon::Rulers => assets::RULERS,
+            Icon::Grid => assets::GRID,
+            Icon::Guides => assets::GUIDES,
+            Icon::Pages => assets::PAGES,
+            Icon::Forms => assets::FORMS,
+            Icon::ReadMode => assets::READ_MODE,
+            Icon::Fullscreen => assets::FULLSCREEN,
+            Icon::FloatingPanels => assets::FLOATING_PANELS,
+            Icon::ResetLayout => assets::RESET_LAYOUT,
+            Icon::Delete => assets::DELETE,
+            Icon::PageExtract => assets::PAGE_EXTRACT,
+            Icon::FormFlatten => assets::FORM_FLATTEN,
+            Icon::ManageList => assets::LIST,
         }
     }
 
@@ -397,6 +686,31 @@ impl Icon {
             Icon::InsertPages => "insert-pages",
             Icon::FontFolders => "font-folders",
             Icon::Redact => "redact",
+            Icon::Print => "print",
+            Icon::Export => "export",
+            Icon::Settings => "settings",
+            Icon::InsertImage => "insert-image",
+            Icon::SetScale => "set-scale",
+            Icon::PageSingle => "page-single",
+            Icon::PageContinuous => "page-continuous",
+            Icon::PageFacing => "page-facing",
+            Icon::PageFacingContinuous => "page-facing-continuous",
+            Icon::ZoomRegion => "zoom-region",
+            Icon::ZoomSelection => "zoom-selection",
+            Icon::Hand => "hand",
+            Icon::Rulers => "rulers",
+            Icon::Grid => "grid",
+            Icon::Guides => "guides",
+            Icon::Pages => "pages",
+            Icon::Forms => "forms",
+            Icon::ReadMode => "read-mode",
+            Icon::Fullscreen => "fullscreen",
+            Icon::FloatingPanels => "floating-panels",
+            Icon::ResetLayout => "reset-layout",
+            Icon::Delete => "delete",
+            Icon::PageExtract => "page-extract",
+            Icon::FormFlatten => "form-flatten",
+            Icon::ManageList => "list",
         }
     }
 
@@ -411,7 +725,7 @@ impl Icon {
     /// two copies of a mapping is exactly how a rename lands in one of them.
     /// [`Icon::name`] stays the single source of truth and this walks it.
     ///
-    /// The cost is 47 pointer-length comparisons with an early exit, for the
+    /// The cost is 72 pointer-length comparisons with an early exit, for the
     /// handful of icons a ribbon draws per frame — comfortably under a
     /// microsecond, against a frame budget of 16 ms. A `HashMap` would need
     /// a lazily-initialised static, would hash the key anyway, and would buy
@@ -448,9 +762,17 @@ mod tests {
             Icon::ALL.len(),
             "Icon::ALL contains a duplicate variant"
         );
+        // 47 until 2026-08-14, when the pass that filled the ribbon's
+        // remaining text buttons added 25. If this fails, the fix is not to
+        // edit the number: it is to check that the variant you added is in
+        // `ALL`, and then to update this count AND the two prose figures
+        // that quote it — `from_key`'s "N pointer-length comparisons" and
+        // `super::cache`'s "N icons x 2 weights". A count in a doc comment
+        // that has drifted from the count in a test is how this project has
+        // twice shipped a paragraph that was quietly false.
         assert_eq!(
             Icon::ALL.len(),
-            47,
+            72,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

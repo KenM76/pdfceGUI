@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic page-layout shape — generic, no trademark risk -->
+  <!-- No ui-spec row: the page-display radio (RIBBON_IA.md §5.2, built in Phase 4)
+       postdates the icon spec, so this is an addition in the §3 style contract.
+
+       Two upright pages side by side with a gutter between them — the spread. Same
+       bare-silhouette family rule as page-single.svg: no interior detail, the
+       arrangement is the information.
+
+       Deliberately NOT read-mode.svg's open book, which is the OTHER two-page glyph
+       in this build and sits two groups away on the same tab. The separation is
+       carried by the outer edges: these are straight and parallel with a real gutter
+       between two independent sheets; the book's outer edges CURVE away from a
+       central spine and the two halves meet. One is "the viewer shows two pages",
+       the other is "the application gets out of the way". -->
+  <rect x="6" y="8" width="15" height="32" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="27" y="8" width="15" height="32" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

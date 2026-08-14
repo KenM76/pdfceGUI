@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic list shape — universal, no trademark risk -->
+  <!-- ui-spec §8.2 assigned `icon-ring.svg` to Manage Dimension Groups. **Deviated
+       from, with the reason recorded**, which is the standing spec convention:
+       `icon-ring.svg` is two concentric circles, and at 16 px two concentric circles
+       read as a target or a radio button — neither of which is a list of named
+       things. That row was written at reservation depth before the Measure surface
+       existed and states no reasoning to override; this one does.
+
+       Three rows, each a marker and a rule: the universal "here is a list you can
+       add to, rename in and remove from", which is what both dialogs behind this
+       glyph literally are.
+
+       SHARED by `edit.form_manage_fields` and `measure.manage_groups` under
+       `shell::commands`' "keys are shared" convention. The family here is a family
+       of ACTION rather than of subject — the two commands have nothing to do with
+       each other, but both answer a click by opening a managed list, and that is the
+       thing an icon can honestly promise where "fields" and "dimension groups" are
+       words only the label can say. They sit on different tabs and are never drawn
+       together.
+
+       Distinct from document.svg and text-freetext.svg, whose rules are TEXT on a
+       page and therefore have a page around them. This has no frame at all: it is
+       not a document, it is an inventory. -->
+  <rect x="8" y="10" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="8" y="20" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="8" y="30" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M22 14h18M22 24h18M22 34h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

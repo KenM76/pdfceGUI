@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic press-onto-field shape — generic, no trademark risk -->
+  <!-- ui-spec §8.14, final sentence: the Flatten action "gets a NEW icon: a form-
+       field rectangle with a small downward chevron pressing onto it (burn-in
+       metaphor)". Drawn to that description, and note the word SMALL.
+
+       Flattening burns a field's current value into the page and destroys the field,
+       so the glyph is a downward press onto a field rather than anything that
+       suggests the field survives. The CARET inside the rectangle is borrowed from
+       form-field.svg, which uses the same mark to say "this is an input" — so the
+       thing being pressed is unmistakably a field and not a button or a box.
+
+       ★ FIRST DRAFT REJECTED. It used a full arrow — a long shaft with a head —
+       pressing onto the field, and rendered beside download.svg at 16/24/48 the two
+       were the same picture: a vertical arrow descending into a horizontal
+       receptacle. Export writes a file and Flatten alters this document
+       irreversibly, so that is not a collision worth tolerating for a shaft.
+
+       The fix is the spec's own word. A STACKED PAIR OF CHEVRONS has no shaft at all,
+       reads as "press down / collapse" everywhere it is used, and shares no
+       silhouette with an arrow. The pair rather than one chevron because a single
+       one is chevron-down.svg, whose job is menu disclosure.
+
+       Distinct from page-extract.svg (a page above, an arrow below) by both halves:
+       chevrons rather than an arrow, a field rather than a page. -->
+  <path d="M15 4l9 8 9-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 15l9 8 9-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="8" y="28" width="32" height="14" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M15 32v6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

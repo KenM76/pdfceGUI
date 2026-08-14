@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic convert/transform shape — placeholder, not a vendor trademark logo -->
+  <!-- ui-spec §8.2, Measure row: "Set Group Scale = REUSE `icon-convert.svg`". The
+       geometry is ScripTree's `icon-convert.svg` unmodified (the operator's own art,
+       PROVENANCE §1); only this citation comment was added.
+
+       Two arrows chasing each other round a circle — a conversion between two
+       systems of measure, which is exactly what a drawing scale is: it says how
+       much real-world length one unit on the page stands for. Deliberately NOT a
+       second ruler: ruler.svg already means "measure something", and this command
+       measures nothing — it changes what the measurements are read against. -->
+  <path d="M11 19a14 14 0 0124-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M37 29a14 14 0 01-24 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M30 9l6 3-3 6M18 39l-6-3 3-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

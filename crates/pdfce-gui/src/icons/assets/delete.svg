@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic waste-bin shape — universal, no trademark risk -->
+  <!-- No ui-spec row: §2's audit found no delete control anywhere in the old
+       toolbar, and neither `pages.delete` nor the contextual Format tab's
+       `format.delete` existed. Authored in the §3 style contract.
+
+       A lidded bin with a handle and two ribs. Boring on purpose: this glyph sits on
+       the two commands in the application that remove something an operator can see,
+       and a clever picture on a destructive verb is a picture somebody has to stop
+       and decode.
+
+       SHARED by `pages.delete` and `format.delete`, which is the "keys are shared"
+       convention `shell::commands`' header states — one glyph for a family of
+       related commands is how a ribbon reads as grouped, and uniqueness is a
+       property of ids. The two are never on screen together (Format is contextual
+       and only one tab's band is drawn at a time), and the verb really is the same
+       one; what differs is the target, which the label beside the glyph names.
+
+       Deliberately NOT close.svg's bare cross, which means DISMISS — put this
+       control away — and is one keystroke away from meaning "throw the pages out"
+       if it were reused here. Deliberately not scissors either: ui-spec §2.1 keeps
+       scissors on Split and off anything that removes content. -->
+  <path d="M8 14h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M19 14v-4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M12 14v24a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2V14" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M20 22v10M28 22v10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

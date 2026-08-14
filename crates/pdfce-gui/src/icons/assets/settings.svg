@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic sliders/settings shape — generic, no trademark risk -->
+  <!-- No ui-spec row: `file.settings` did not exist when the icon spec was written
+       (§0 audited the OLD shell's toolbar, which had no settings surface at all), so
+       this is an addition in the §3 style contract, the same class as `bookmarks.svg`
+       and `fonts.svg`. The geometry is ScripTree's `icon-settings.svg` unmodified
+       (the operator's own art, PROVENANCE §1); only this citation comment was added.
+
+       Three slider rows with their knobs at different positions. Deliberately NOT a
+       cogwheel: a cog reads as "machinery/engine settings", and at 16 px a cog's
+       teeth close up into a disc. Sliders read as "preferences you set", which is
+       what this dialog is, and three rows of two elements survive the size. -->
+  <path d="M8 14h32M8 24h32M8 34h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="18" cy="14" r="3.5" stroke="currentColor" stroke-width="2.5"/>
+  <circle cx="30" cy="24" r="3.5" stroke="currentColor" stroke-width="2.5"/>
+  <circle cx="16" cy="34" r="3.5" stroke="currentColor" stroke-width="2.5"/>
+</svg>

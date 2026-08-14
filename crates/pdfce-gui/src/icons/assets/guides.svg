@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic guide-line shape — generic, no trademark risk -->
+  <!-- No ui-spec row: guides are marked N in RIBBON_IA.md §5.2 and shipped in Phase
+       3, after the icon spec was written. Authored in the §3 style contract.
+
+       A page with one vertical and one horizontal guide laid across it. Two
+       properties do all the work of separating it from grid.svg, and both are true
+       of a real guide rather than chosen for contrast:
+
+       * The lines OVERSHOOT the page on every side. A guide is dragged out of a
+         ruler and belongs to the window, not to the sheet, so it does not stop where
+         the paper does.
+       * They are OFF-CENTRE (x=19, y=30) and there are exactly two. An operator puts
+         a guide where the work is; centring them would draw a crosshair, which means
+         "target" in every other program, and evenly spacing more of them would draw
+         grid.svg. -->
+  <rect x="10" y="10" width="28" height="28" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M19 4v40M4 30h40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

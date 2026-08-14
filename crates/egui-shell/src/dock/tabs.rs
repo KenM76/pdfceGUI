@@ -31,7 +31,7 @@
 //!
 //! ```text
 //! 1. measure every label                 (cheap: memoized galleys)
-//! 2. overflow_width  = max over EVERY reachable "⌄ N more" label
+//! 2. overflow_width  = max over EVERY reachable "⏷ N more" label
 //! 3. tab_budget      = bar_width − overflow_width − gap        ← FIRST
 //! 4. choose the visible window within tab_budget
 //! 5. lay the tabs into a rect that IS tab_budget wide
@@ -329,7 +329,7 @@ fn draw_tab(
     ctx.reporter.report(response.rect, || report::tab(panel));
 }
 
-/// Draw the "⌄ N more" affordance and the menu behind it.
+/// Draw the "⏷ N more" affordance and the menu behind it.
 #[allow(clippy::too_many_arguments)]
 fn draw_overflow(
     ui: &mut egui::Ui,

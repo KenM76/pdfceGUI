@@ -63,17 +63,33 @@ use super::{Icon, IconWeight};
 
 /// Hard cap on live cache entries before the whole cache is dropped.
 ///
-/// The cache grows only along three axes — 47 icons × 2 weights × however
+/// The cache grows only along three axes — 72 icons × 2 weights × however
 /// many distinct physical sizes the display scale has taken this session —
 /// so in normal use it settles well under this and never reaches it. The cap
 /// exists solely so that a session that repeatedly changes display scale
 /// (dragging a window between a 100% and a 150% monitor) cannot accumulate
 /// stale textures without bound.
 ///
+/// # ★ Raised from 256 to 512 on 2026-08-14, and the arithmetic is the reason
+///
+/// The set grew from 47 glyphs to 72 in the pass that filled the ribbon's
+/// remaining text buttons. At 47 the first axis was 94 entries a size, so two
+/// display scales fitted inside 256 with room to spare; at 72 it is **144**,
+/// and two scales is **288** — over the old cap. The failure that would
+/// produce is not a crash or a wrong pixel, which is exactly why it is worth
+/// writing down: the cache would clear wholesale and re-rasterize the entire
+/// visible ribbon on a frame, repeatedly, on any machine whose window is
+/// dragged between two monitors of different scale. A hitch, blamed on the
+/// renderer, caused by a constant nobody re-derived when the set changed
+/// size.
+///
+/// 512 holds three scales at the present count. Anything that grows the set
+/// again should re-run this arithmetic rather than trusting the number.
+///
 /// Clearing wholesale rather than evicting least-recently-used is
 /// deliberate: it is one line, it happens approximately never, and the
 /// recovery cost is one frame of re-rasterization.
-const CACHE_CAPACITY: usize = 256;
+const CACHE_CAPACITY: usize = 512;
 
 /// What uniquely identifies a raster.
 ///

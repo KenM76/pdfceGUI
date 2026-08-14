@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic torn-out-window shape — generic, no trademark risk -->
+  <!-- No ui-spec row: floating panels is one of the two Window settings
+       MODES_AND_PANELS.md added after the icon spec was written (see the View tab's
+       manifest header, "Status note"). Authored in the §3 style contract.
+
+       A docked frame with a second, smaller window straddling its corner — half in,
+       half out. The setting governs whether an operator MAY tear a panel out, and
+       straddling is the only state that shows both the dock it came from and the
+       fact that it left; a window drawn wholly outside would say "panels are
+       separate windows", which is not what the setting means.
+
+       The TITLE BAR on the small window is load-bearing. Without it this is two
+       overlapping rounded rects, which is copy.svg exactly (ui-spec §3.1 "copy":
+       "two overlapping rounded rects... like a stack of two note-cards"). One bar
+       turns a card into a window.
+
+       Deliberately not sidebar.svg's frame-plus-divider either: that one is the
+       dock's own toggle and sits in the group immediately above this one on the same
+       tab. This frame is left undivided so the only interior detail in the glyph is
+       the thing that has come loose. -->
+  <rect x="4" y="8" width="28" height="28" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="22" y="24" width="22" height="16" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M22 30h22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

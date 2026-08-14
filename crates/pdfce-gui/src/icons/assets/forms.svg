@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic filled-form shape — generic, no trademark risk -->
+  <!-- ui-spec §8.14 ruled that form FILLING gets "no dedicated toolbar icon, by
+       design", because pass-7-form-fill.md chose direct-click-no-mode: there is no
+       fill TOOL to arm. That ruling stands and this glyph does not contradict it —
+       `view.panel_forms` is not a tool, it is the PANEL toggle, a control §8.14
+       never contemplated because the panel did not exist. What §8.14 forbids is an
+       icon that implies entering a fill mode; a page carrying two field boxes
+       implies a document that has fields.
+
+       A page with two input boxes on it. Boxes rather than document.svg's ruled
+       lines is the whole distinction: lines are text somebody wrote, boxes are
+       places left empty for you.
+
+       Distinct from form-field.svg (Edit ▸ Create field), which is a single field
+       with a caret and a plus badge and NO page around it — that one makes a field,
+       this one opens the list of fields a page already has. Deliberately carries no
+       tick or check mark: a check reads as VALIDATED, which is the constraint
+       signatures.svg records, and nothing here validates anything. -->
+  <rect x="10" y="6" width="28" height="36" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="16" y="15" width="16" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="16" y="28" width="16" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

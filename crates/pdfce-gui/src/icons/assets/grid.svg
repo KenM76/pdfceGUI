@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic grid shape — universal, no trademark risk -->
+  <!-- No ui-spec row: the grid is marked N in RIBBON_IA.md §5.2 and shipped in Phase
+       3, after the icon spec was written. Authored in the §3 style contract.
+
+       A square ruled into 3x3 cells: the universal grid glyph, and here a literal
+       picture of the thing the toggle draws.
+
+       THREE cells a side, not four or five. Cell edges 10 units apart survive the
+       16 pt slot (about 3.3 px, against a 0.8 px stroke); at four a side the ladder
+       closes to 2.5 px and the glyph turns into the wash that DEFECTS.md #8 records
+       — a grid so fine it is a tint rather than a grid. The icon must not make the
+       mistake the feature made.
+
+       Distinct from guides.svg, whose two lines are OFF-CENTRE and OVERSHOOT their
+       frame; a grid is regular and stops at its edges. -->
+  <rect x="9" y="9" width="30" height="30" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M9 19h30M9 29h30M19 9v30M29 9v30" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

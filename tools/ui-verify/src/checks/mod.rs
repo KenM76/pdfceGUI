@@ -14,6 +14,22 @@
 //! specific defects that shipped past a green suite, turned into the tests
 //! that would have caught them.
 //!
+//! ## What has been added since, and on what principle
+//!
+//! The suite is no longer three. [`all`] is the list; the additions are not a
+//! drift away from the founding three but the same rule applied to each new
+//! surface as it landed — [`qat_icons`] for the icon painter that was never
+//! passed to the ribbon, [`find_bar`] for the chord that was in the keymap and
+//! bound to nothing, [`markup_rectangle`] for a ribbon click whose whole
+//! four-link chain had unit tests and had never been performed.
+//!
+//! The principle each satisfies, and the one to hold a proposed check to:
+//! **it must fail against a build where the wiring is absent, and the wiring
+//! must be something no unit test in the workspace can observe.** Every check
+//! here has been run against such a build and seen to fail; that is what
+//! `PROJECT_PLAN.md` §4 stage S1's acceptance criterion below asks for, and it
+//! is not optional.
+//!
 //! ## The acceptance criterion for the harness
 //!
 //! > The three assertions **fail** against the old GUI (proving they detect
@@ -79,6 +95,7 @@
 pub mod delete_key;
 pub mod find_bar;
 pub mod legibility;
+pub mod markup_rectangle;
 pub mod qat_icons;
 pub mod ribbon_captions;
 pub mod settings_headings;
@@ -171,6 +188,13 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // after the captions check because both launch, and a reader
         // comparing two ribbon verdicts wants them adjacent.
         Box::new(qat_icons::QatControlsAreIconOnly),
+        // Clicks and captures, so it takes the desktop — but only with the
+        // mouse, and only for a few seconds. Placed after the three ribbon
+        // chrome checks because it depends on the same rects they read and a
+        // reader comparing ribbon verdicts wants them together; placed before
+        // the two typing checks because a run that fails here should fail
+        // before paying for a keystroke that may never arrive.
+        Box::new(markup_rectangle::MarkupRectangleArmsFromTheRibbon),
         // Last, because it is the only check that TYPES. Everything above
         // either reads a trace or captures a window; this one presses a
         // chord, types a needle and presses Enter into a real foreground

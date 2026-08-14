@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic open-book shape — universal, no trademark risk -->
+  <!-- No ui-spec row: RIBBON_IA.md §3 names read mode as one of the two commands
+       with "no ribbon control at all — keyboard-only (Ctrl+H) on a tab literally
+       named View", which it calls "the single most confusing thing in the current
+       ribbon". The control now exists, so this is an addition in the §3 style
+       contract.
+
+       An open book: two leaves curving away from a spine. The oldest and least
+       ambiguous glyph for "get out of my way and let me read", and it belongs to no
+       other command in this build.
+
+       Distinct from page-facing.svg, the OTHER two-page glyph, which sits two groups
+       away on the same tab. The separation is deliberate and is carried entirely by
+       the silhouette: facing is two straight-edged sheets with a real gutter between
+       them, this one has curved outer edges and the two halves MEET at a spine.
+       "Two pages are shown" and "the chrome goes away" must not be one picture. -->
+  <path d="M24 14c-3.5-2.5-8-4-14-4v24c6 0 10.5 1.5 14 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 14c3.5-2.5 8-4 14-4v24c-6 0-10.5 1.5-14 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 14v24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

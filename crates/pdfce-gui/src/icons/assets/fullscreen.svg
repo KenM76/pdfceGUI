@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic expand-to-corners shape — universal, no trademark risk -->
+  <!-- No ui-spec row: RIBBON_IA.md §3 names full screen alongside read mode as a
+       command with no ribbon control at all (F11, keyboard-only). The control now
+       exists, so this is an addition in the §3 style contract.
+
+       Four arrows fanning outward to the four corners: the universal full-screen
+       glyph, unchanged in every media player and browser an operator has used.
+
+       The SHAFTS are what keep it apart from fit-page.svg, which is four bare corner
+       brackets and shares this tab. Brackets alone say "bring the content inside
+       this frame"; brackets with a shaft running out to each of them say "push the
+       frame out to the screen". Those are opposite motions, and at 16 px the four
+       diagonals are the only thing carrying the difference — which is why they run
+       the full 10 units from the centre block rather than being a token stub. -->
+  <path d="M20 20L10 10M10 18V10h8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M28 20L38 10M38 18V10h-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M28 28L38 38M38 30v8h-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20 28L10 38M10 30v8h8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
