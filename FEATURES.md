@@ -159,10 +159,16 @@ the blocker named.
 
 | | |
 |---|---|
-| ⬜ | **Revision clouds** — table stakes for drawing markup, and not even on the old shell's deferred list |
-| ⬜ | Polyline, polygon, ink, underline, strikeout, squiggly |
-| ⬜ | **Note text** — markup cannot carry `/Contents` |
-| ⬜ | Style: width, fill, opacity *(colour works)* |
+**★ The substrate comes first, and it does not exist.** This shell can place **no markup at all** today: the eight `markup.*` commands are registered and drawn, and every one falls through to `command-unimplemented`. `CanvasTool` has two variants and there is no `canvas/markup.rs`. So Phase 6 is *build the tool, then the kinds* — the six "engine-ready" rows below are blocked on our own substrate, not on pdfce.
+
+| | |
+|---|---|
+| 🔨 | **Markup tool substrate** — a third `CanvasTool` variant carrying a kind (one variant, not one per shape), a rubber-band gesture, `Action::CommitMarkup`, an apply arm calling `EditSession::add_markup`. Proven with rectangle, ellipse and arrow |
+| ⬜ | Polyline, polygon, ink, underline, strikeout, squiggly — **engine-ready**, `MarkupSpec` has every one |
+| ⛔ | **Revision clouds** — table stakes for drawing markup, and not even on the old shell's deferred list. **Filed and accepted 2026-08-14, scheduled, not started.** `/BE` appears nowhere in `pdfce-core`, `MarkupSpec` is `#[non_exhaustive]`, and there is no verb taking a caller-built appearance — so all three routes were closed. Landing as `MarkupSpec::Cloud` **plus `Square { border_effect }`, and the rectangular cloud ships first**: drag-a-box-make-it-cloudy is the gesture, the free-form polygon is what people reach for second |
+| ⛔ | **Note text** — markup cannot carry `/Contents`. **Filed and accepted 2026-08-14**, landing as `/Contents` + `/T` + `/M` **together**, on the argument that a note with no author reads as a broken panel rather than an absent field. `/M` is engine-stamped (a caller-supplied date is a caller-supplied lie); `/T` is optional and `None` omits the key — **no placeholder author is invented** |
+| ⬜ | Style: **width and fill** *(colour works)* — both engine-ready |
+| ⛔ | Style: **opacity** — `/CA` is never written. **Filed and answered 2026-08-14: write `/CA` alone, never `/ca` in the appearance stream.** The control must not be drawn until the renderer lands, because a control that visibly does nothing is not a partial feature (P3). The question uncovered a live viewer defect — see **`DEFECTS.md` D9** |
 
 ### Phase 7 — measure completeness
 

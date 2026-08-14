@@ -452,6 +452,69 @@ Forms panel at `main.rs:8112-8116`. The doc understates the build.
 
 ---
 
+## D9 — Every imported reduced-opacity markup renders solid
+
+**Found 2026-08-14, on the pdfce side, by asking a question about
+authoring.** Not observed here first — which is the notable part, and the
+reason it is written down rather than left in the request channel.
+
+`pdfce-render` **does not read an annotation's `/CA`** (§12.5.2 constant
+opacity) at all. Their measurement, quoted from
+`archive/2026-08-14-markup-opacity-reply.md`:
+
+> ```
+> grep '/CA' in pdfce-render        -> ONE hit, interpret.rs:2050
+>                                      and it is ExtGState /CA (stroking alpha)
+> annotation paint path (annot.rs)  -> ZERO reads of the annotation dict's /CA
+> ```
+>
+> `paint_appearance` interprets the form XObject straight into the page
+> pixmap. Nothing consults the annotation's constant alpha.
+
+### Why it costs more than it looks
+
+The question that uncovered it was about markup **this shell would author**,
+and in that framing it is a Phase 6 prerequisite. It is not. **This shell is
+a viewer before it is an editor, and the defect is shipping in that role
+today.**
+
+Reduced opacity is the house style for a shaded area or a fill placed over a
+drawing — the whole point being that the drawing underneath stays readable.
+Markup arriving from Bluebeam and Acrobat uses it constantly, and the stated
+audience is drawing review. Rendered solid, it does not read as "the opacity
+is wrong"; it reads as **the markup covered the drawing**, and the drawing is
+what the operator opened the file for.
+
+### Status
+
+**Filed and scheduled on the pdfce side as its own piece of work**, deliberately
+not folded into the opacity feature — their words: *"it is a correctness bug
+with a blast radius wider than this request and it should not be discovered
+later as 'the opacity feature also changed how imported markup looks'."* The
+fix is a real change to `paint_appearance` (composite the appearance through a
+scratch pixmap at alpha rather than interpreting it into the page), not a line.
+
+### What this shell must NOT do about it
+
+**Do not compensate.** When markup opacity authoring lands, write `/CA` alone
+and leave the appearance stream's `ExtGState` at `1.0`. Writing `/ca` into the
+AP would make the markup look right in pdfce and **half as opaque as intended
+in every other viewer, permanently, in documents that outlive the bug**. That
+is encoding a render defect into the file format. The full three-way table is
+in the archived reply.
+
+Nor should the Style group draw an Opacity control before the renderer lands:
+a control that visibly does nothing in the application you are using is not a
+partial feature (`RIBBON_IA.md` P3).
+
+### Not measured
+
+How much of the operator's own corpus carries reduced-opacity markup is
+**unknown and is not asserted anywhere**. If that number would change
+anyone's priority, it needs counting on a real corpus rather than estimating.
+
+---
+
 ## D8 — Housekeeping
 
 A stale worktree at
