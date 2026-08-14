@@ -22,7 +22,7 @@ them.
 | **Gates** | 8 of 8, 0 skipped |
 | **Commands** | 88 registered · 88 declared-and-deferred |
 | **Latest build** | `D:\builds\pdfcegui-20260813-2248-b943ea1-a748414\` |
-| **Requests owed by pdfce** | **none.** Three were filed and answered on 2026-08-14 — revision clouds, markup note text, markup opacity. All three **accepted and scheduled, none started**. They block *items within* Phase 6, not Phase 6 itself: the substrate is blocked on nothing. |
+| **Requests owed by pdfce** | **none.** Four filed and answered on 2026-08-14 — revision clouds, markup note text, markup opacity, tab-order authoring. Three are **accepted and scheduled, none started**; they block *items within* Phase 6, not Phase 6 itself. From the fourth, **`widget_rects(page_index)` shipped immediately** (engine `e8e9881`) and canvas form filling uses it. Tab-order *writing* stays blocked on their F4 — see §8. |
 
 **Everything the operator asked for is shipped.** Phase 3 and Phase 4 are
 complete, along with Print, Forms-fill, Icons, Open/Recent/Close and Find.
