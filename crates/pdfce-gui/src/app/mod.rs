@@ -66,6 +66,7 @@
 
 pub mod actions;
 pub mod cache;
+pub mod conditions;
 pub mod dispatch;
 /// How a path gets from an operator — or from a scripted harness — to
 /// [`actions::Action::Open`]. The picker, the diagnostics seam that answers
@@ -416,112 +417,6 @@ impl PdfceApp {
         }
     }
 
-    /// The conditions the ribbon evaluates its predicates against.
-    ///
-    /// Rebuilt every frame because that is what it describes — the state
-    /// *this* frame is drawn from. Five conditions, and the set is closed:
-    /// `crate::shell::commands` has a test asserting no predicate names
-    /// anything outside it, so a typo in a manifest cannot silently
-    /// produce a control that is disabled forever.
-    ///
-    /// # ★ `selection.any` is published from here, and only now
-    ///
-    /// It was deliberately absent while the selection lived in
-    /// `egui::Memory`: this function has no `egui::Context`, so it could not
-    /// have read the selection even if it wanted to, and publishing a
-    /// condition it could not evaluate would have armed a **destructive**
-    /// control that could not work — the inverse of the no-placeholders rule
-    /// and the exact shape of defect D1.
-    ///
-    /// The selection now lives on [`state::OpenDoc`], so the answer is one
-    /// field read. Two surfaces come alive with it, both of which the manifest
-    /// has been carrying unpowered: the contextual **Format** tab
-    /// (`visible_when: "selection.any"`, which is the appear-on-selection
-    /// affordance `RIBBON_IA.md` §5.8 calls the single largest usability
-    /// change) and the **Delete** inside it (`enabled_when` the same). One
-    /// spelling, one source — see `shell::manifest::format::VISIBLE_WHEN`.
-    ///
-    /// **The Objects panel's focus is not a selection and must never satisfy
-    /// this**, which is what `panels::PanelsState::focus`'s own test asserts
-    /// through the enable machinery: a panel row being focused must not arm a
-    /// destructive command, because the operator would have no way to tell
-    /// which of two "selections" it was about to act on. This reads
-    /// `doc.selection` and nothing else.
-    fn conditions(&self) -> egui_shell::commands::ConditionSet {
-        let mut set = egui_shell::commands::ConditionSet::new();
-        if let Status::Open(doc) = &self.status {
-            set.set("doc.open");
-            if !doc.pages.is_empty() {
-                set.set("doc.pages");
-            }
-            if !doc.selection.is_empty() {
-                set.set("selection.any");
-            }
-            // ★ `selection.bounds` is NOT `selection.any`, and the gap
-            // between them is a real state rather than a defensive check.
-            //
-            // A selection is an identity — page, object, subpath, node —
-            // and identities can outlive the box they described: the
-            // selection may name an object on a page that is no longer
-            // shown, or one whose index an edit renumbered. `selection.any`
-            // is then true and there is nothing to frame.
-            //
-            // Zoom-to-selection is the one command where that difference is
-            // visible, because framing "nothing" is not a no-op — it is a
-            // jump to the origin at some arbitrary scale, which looks
-            // exactly like a bug and loses the operator's place. So the
-            // control greys instead, and it asks the same function the
-            // grips are laid out on, so what greys and what is drawn can
-            // never disagree.
-            if crate::canvas::zoom::can_zoom_to_selection(doc) {
-                set.set("selection.bounds");
-            }
-            // ★ **The page-display radio's pressed position.**
-            //
-            // `egui_shell::ribbon::selected_condition` is the framework's
-            // convention for "this command is currently ON", and
-            // `render_command` reads it to draw the button pressed. Without
-            // this line View ▸ Page display is four buttons with no indication
-            // of which one you are in — which for a radio is not a cosmetic
-            // gap, it is the control's entire state.
-            //
-            // Exactly one is ever set, because `view.display` is one enum
-            // value and `page_display_command` is a total function over it.
-            // That is what makes it a radio rather than four toggles, and it
-            // is asserted from the registry side by
-            // `shell::commands::tests::every_page_display_mode_has_a_registered_command`.
-            set.set(egui_shell::ribbon::selected_condition(
-                crate::shell::commands::page_display_command(doc.view.display),
-            ));
-            // ★ **The three View ▸ Display toggles' pressed state.**
-            //
-            // Between zero and three of these are set, where exactly one
-            // page-display condition above always is — which is the whole
-            // difference between three switches and one three-position
-            // control, expressed in the conditions rather than in the drawing.
-            //
-            // These *can* be published where `view.tool_hand` and
-            // `view.zoom_region` still cannot, and the reason is worth stating
-            // because it is the shape of the gap those two carry: this
-            // function is handed `&self` and **no `egui::Context`**, so a
-            // toggle whose state lives in `egui::Memory` — which is where the
-            // canvas tool and the armed region zoom live — has no route here
-            // at all. Rulers, grid and guides live on `doc.view`, which is
-            // reachable, so no second mechanism was invented for them.
-            for &chrome in crate::app::actions::ViewChrome::ALL {
-                if chrome.read(&doc.view) {
-                    set.set(egui_shell::ribbon::selected_condition(
-                        crate::shell::commands::chrome_command(chrome),
-                    ));
-                }
-            }
-        }
-        // `undo.available` and `redo.available` are still deliberately absent:
-        // there is no undo stack to report on yet. Setting them would arm
-        // controls that cannot work. They arrive with their subsystem.
-        set
-    }
-
     /// Draw the ribbon and translate what the operator invoked.
     ///
     /// # ★ The one custom item, and why it is not a command
@@ -542,7 +437,7 @@ impl PdfceApp {
         let Some(shell) = self.shell.as_ref() else {
             return;
         };
-        let conditions = self.conditions();
+        let conditions = self.conditions(ui.ctx());
 
         // The rect sink. Every group caption and mode segment publishes its
         // rect under a stable name, which is what lets `ui-verify` assert
@@ -640,7 +535,7 @@ impl PdfceApp {
         // cannot reach through `self` for them.
         // Conditions are computed before the destructure, because building
         // them needs `&self` and the destructure takes it apart.
-        let conditions = self.conditions();
+        let conditions = self.conditions(ui.ctx());
 
         let Self {
             status,
@@ -1048,7 +943,7 @@ impl PdfceApp {
         // to prevent.
         // Built before the `&mut self.status` borrow, because the host reads
         // the shell and the registry that live beside it.
-        let conditions = self.conditions();
+        let conditions = self.conditions(ui.ctx());
         let host = self
             .shell
             .as_ref()
@@ -1163,23 +1058,83 @@ mod tests {
     /// Both directions matter. Publishing it when nothing is selected would
     /// arm a **destructive** command over an empty operand list, which is
     /// defect D1's shape with the worst possible verb behind it.
+    /// ★ **The hand tool and the armed region zoom report a pressed state.**
+    ///
+    /// The two controls that had none. Both halves are asserted: unarmed must
+    /// be *unset*, armed must be set. Asserting only the armed half would pass
+    /// on a condition wired to a constant, which is precisely how a toggle
+    /// comes to render pressed forever.
+    #[test]
+    fn the_memory_backed_toggles_report_their_pressed_state() {
+        let app = PdfceApp::new();
+        let ctx = egui::Context::default();
+
+        let hand = egui_shell::ribbon::selected_condition("view.tool_hand");
+        let region = egui_shell::ribbon::selected_condition("view.zoom_region");
+
+        assert!(
+            !app.conditions(&ctx).is_set(&hand),
+            "the select tool is the default, so Hand must not read as pressed"
+        );
+        assert!(!app.conditions(&ctx).is_set(&region));
+
+        crate::canvas::tool::select(&ctx, crate::canvas::tool::CanvasTool::Hand);
+        crate::canvas::zoom::arm_region_zoom(&ctx);
+
+        assert!(app.conditions(&ctx).is_set(&hand), "Hand is armed");
+        assert!(
+            app.conditions(&ctx).is_set(&region),
+            "the region zoom is armed"
+        );
+    }
+
+    /// …and they keep reporting it with **no document open**.
+    ///
+    /// Deliberate, and the opposite of the other conditions in this function:
+    /// the armed tool survives closing a document, so a ribbon that forgot
+    /// which tool you were in the moment you closed a file would be reporting
+    /// something untrue about its own state. The commands are gated on
+    /// `doc.pages` separately, so the control is greyed *and* pressed — which
+    /// is exactly "this is the tool you are in, and there is nothing to use it
+    /// on".
+    #[test]
+    fn an_armed_tool_stays_pressed_with_nothing_open() {
+        let app = PdfceApp::new();
+        let ctx = egui::Context::default();
+        crate::canvas::tool::select(&ctx, crate::canvas::tool::CanvasTool::Hand);
+
+        assert!(matches!(app.status, Status::Empty), "nothing is open");
+        assert!(
+            app.conditions(&ctx)
+                .is_set(&egui_shell::ribbon::selected_condition("view.tool_hand")),
+        );
+    }
+
     #[test]
     fn the_selection_condition_follows_the_selection() {
         let mut app = PdfceApp::new();
         assert!(
-            !app.conditions().is_set("selection.any"),
+            !app.conditions(&egui::Context::default())
+                .is_set("selection.any"),
             "nothing is open, so nothing can be selected"
         );
 
         app = opened();
-        assert!(app.conditions().is_set("doc.pages"));
         assert!(
-            !app.conditions().is_set("selection.any"),
+            app.conditions(&egui::Context::default())
+                .is_set("doc.pages")
+        );
+        assert!(
+            !app.conditions(&egui::Context::default())
+                .is_set("selection.any"),
             "a freshly opened document has nothing selected"
         );
 
         select_object(&mut app, 1, false);
-        assert!(app.conditions().is_set("selection.any"));
+        assert!(
+            app.conditions(&egui::Context::default())
+                .is_set("selection.any")
+        );
 
         // Escape at the Object rung clears, and the condition follows it back
         // down — a tab that stayed visible over an empty selection would offer
@@ -1188,7 +1143,10 @@ mod tests {
             unreachable!()
         };
         doc.selection.escape();
-        assert!(!app.conditions().is_set("selection.any"));
+        assert!(
+            !app.conditions(&egui::Context::default())
+                .is_set("selection.any")
+        );
     }
 
     /// ★ **The ribbon's Delete raises the same action the Delete key does.**
@@ -1281,7 +1239,10 @@ mod tests {
 
         // …and the tab is still visible, which is why the decline has to be
         // handled rather than made unreachable: something IS selected.
-        assert!(app.conditions().is_set("selection.any"));
+        assert!(
+            app.conditions(&egui::Context::default())
+                .is_set("selection.any")
+        );
     }
 
     // -----------------------------------------------------------------------
