@@ -243,6 +243,7 @@ use crate::app::actions::Action;
 use crate::app::state::{OpenDoc, Status};
 use crate::find::FindState;
 use crate::text::find as t_find;
+use crate::text::forms as t_forms;
 use crate::text::status as t;
 use crate::viewer::FitMode;
 
@@ -314,6 +315,13 @@ const REGION_BAR: &str = "status-bar"; // ui-text-exempt: trace region name, nev
 /// The disclosure triangle, plus its one line of render notes when open.
 const REGION_NOTES: &str = "status-group:notes"; // ui-text-exempt: trace region name, never displayed
 
+/// The last fill's rule-4 disclosure, when one is live for this revision.
+///
+/// Named as a region so `ui-verify` can assert it is **on screen and
+/// legible** rather than merely constructed — which for a disclosure is the
+/// whole of the requirement.
+const REGION_FILL_DISCLOSURE: &str = "status-group:fill-disclosure"; // ui-text-exempt: trace region name, never displayed
+
 /// `Actual size · Fit width · Fit page`.
 const REGION_FIT: &str = "status-group:fit"; // ui-text-exempt: trace region name, never displayed
 
@@ -384,6 +392,30 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
         // Left: the narrator, demoted behind a disclosure.
         notes(ui, doc);
 
+        // ★ …and beside it, what the last fill INFERRED — which is not
+        // demoted, because it is not narration.
+        //
+        // Rule 4's surviving half: an inference the operator **cannot see**
+        // still owes an off-canvas report. `applied_autosize` (pdfce chose
+        // the point size) and `unencodable_chars` (characters replaced with
+        // `?`) are the only two facts a fill produces that are **not
+        // re-derivable from the saved document** — afterwards they look
+        // exactly like the author's own decision.
+        //
+        // The Forms panel shows them too, and that was enough while the
+        // panel was the only way to fill. It stopped being enough on
+        // 2026-08-14, when filling arrived on the canvas: a fill can now
+        // happen in **Read mode with the panel closed**, and the disclosure
+        // would be reachable only by an operator who thought to switch
+        // modes and open a panel to look for a message they were never told
+        // existed. That is a silent inference, which is the one thing rule
+        // 4 forbids outright.
+        //
+        // It is keyed on `edit_epoch`, so it says nothing about a document
+        // that has moved on — an undo or any later edit retires it without
+        // anything having to remember to.
+        fill_disclosure(ui, doc);
+
         // Right: the controls that must never move.
         //
         // ★ Laid out RIGHT-TO-LEFT, so the group added FIRST is drawn
@@ -437,6 +469,81 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
 // ---------------------------------------------------------------------------
 // Left — the narrator
 // ---------------------------------------------------------------------------
+
+/// What the last fill **inferred**, in the bar, until the document moves on.
+///
+/// # Why this is not behind the disclosure triangle beside it
+///
+/// The render notes are *narration* — a census of what a raster contained —
+/// and `DEFECTS.md` §5's complaint was their prominence: the first thing an
+/// operator read was the application talking about itself. Demoting them was
+/// right.
+///
+/// These two sentences are the opposite kind of thing. They are the surviving
+/// half of rule 4: **an inference the operator cannot see still owes a
+/// report.** `applied_autosize` means pdfce chose a point size the document
+/// asked it to choose; `unencodable_chars` means the operator's own typing is
+/// not what the page now says. Neither is re-derivable from the saved file
+/// afterwards — both look exactly like the author's decision — so a
+/// disclosure the operator has to *open something* to find is a disclosure
+/// that did not happen.
+///
+/// # Why the status bar rather than the Forms panel alone
+///
+/// The panel shows them, and that was sufficient while the panel was the only
+/// way to fill. Canvas filling landed 2026-08-14 and broke the assumption: a
+/// fill can now happen in **Read mode with the panel closed**, and Read's
+/// dock does not mount Forms unless the operator put it there. The bar is the
+/// one surface present in every mode.
+///
+/// # It retires itself
+///
+/// Keyed on [`OpenDoc::edit_epoch`] **after** the fill, so any later edit —
+/// including an undo — moves the document past it and the sentence
+/// disappears with no code remembering to clear it. That is deliberate:
+/// state that must be cleared is state that will one day be shown against
+/// the wrong document.
+///
+/// Elided at the same fraction as the notes line, whole text on hover, and
+/// **it does not make the bar taller** — R128, exactly as for its neighbour.
+fn fill_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
+    let Some(d) = crate::panels::forms::edit::last_fill_disclosure(doc.edit_epoch) else {
+        return;
+    };
+
+    // Both can be true of one fill. Joined rather than shown as two lines,
+    // because two lines is two rows, which is the R128 loop.
+    let mut line = String::new();
+    if let Some(size) = d.applied_autosize {
+        line.push_str(&t_forms::forms_fill_autosize_note(&d.field, size));
+    }
+    if d.unencodable_chars > 0 {
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(&t_forms::forms_fill_unencodable_note(
+            &d.field,
+            d.unencodable_chars,
+        ));
+    }
+    if line.is_empty() {
+        return;
+    }
+
+    let width = (ui.available_width() * NOTES_WIDTH_FRACTION).max(0.0);
+    let rect = ui
+        .allocate_ui_with_layout(
+            Vec2::new(width, ROW_HEIGHT_PTS),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.add(egui::Label::new(egui::RichText::new(&line).small()).truncate())
+                    .on_hover_text(line.clone());
+            },
+        )
+        .response
+        .rect;
+    crate::diag::ui_rect(REGION_FILL_DISCLOSURE, rect);
+}
 
 /// The render-notes disclosure, and its one line when open.
 ///
@@ -817,6 +924,48 @@ mod tests {
             "the bar's content ({closed} pt) overflowed its allocated row \
              ({ROW_HEIGHT_PTS} pt); either the row is too short or something \
              here is laying out vertically"
+        );
+
+        // ★ …and as tall with a live fill disclosure as without one.
+        //
+        // Added 2026-08-14 with `fill_disclosure`, and it is the case most
+        // likely to break R128 in future: unlike the render notes, this line
+        // appears **without the operator doing anything** — a fill they made
+        // on the canvas puts a sentence in the bar on the next frame. If it
+        // grew the bar, the page would silently re-fit at the moment the
+        // operator finished typing into a field, and the symptom would be
+        // "the page jumped when I filled in the form", investigated in the
+        // form code, where nothing would be wrong.
+        //
+        // Two sentences at once is the worst case: both are joined onto one
+        // line precisely so this stays a single row.
+        let Status::Open(doc) = &status else {
+            unreachable!("`opened()` returns an open document");
+        };
+        crate::panels::forms::edit::plant_fill_disclosure_for_test(
+            crate::panels::forms::edit::FillDisclosure {
+                field: "A field with a long enough name to need eliding".to_owned(),
+                epoch: doc.edit_epoch,
+                applied_autosize: Some(12.0),
+                unencodable_chars: 3,
+            },
+        );
+        // The precondition, asserted rather than assumed. Without this the
+        // test passes just as well when `fill_disclosure` returned early and
+        // drew nothing — measuring that an absent line did not change the
+        // height, which is true and worthless. `HANDOFF.md` §10's rule: assert
+        // the measurement HAPPENED, not only its value.
+        assert!(
+            crate::panels::forms::edit::last_fill_disclosure(doc.edit_epoch).is_some(),
+            "the planted disclosure is not live for this document's epoch, so \
+             the bar drew no line and the height comparison below proves nothing"
+        );
+        let disclosing = bar_height(&ctx, &status);
+        assert!(
+            (disclosing - closed).abs() < 0.01,
+            "a fill disclosure changed the bar's height ({closed} → \
+             {disclosing}); that re-fits the page on the frame an operator \
+             finishes typing into a field"
         );
     }
 

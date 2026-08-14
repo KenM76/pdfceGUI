@@ -16,6 +16,7 @@
 //! | [`mapping`] | the ONE screen⟷page conversion, and the hit tolerance |
 //! | [`target`] | the provider seam, and the trait re-attached to the salvaged decomposition |
 //! | [`selection`] | selection as identity; the level ladder; re-resolution |
+//! | [`forms`] | filling a form where it is drawn: why it is not a tool, why its hit test takes no tolerance, and what its editor cannot promise |
 //! | [`gesture`] | press / drag / release, the clear that must not happen on a press, Escape's abort, and the one rubber band's two intents |
 //! | [`moving`] | which move verb each rung reaches, the canvas→page delta, and the ghost's honesty rule |
 //! | [`handles`] | eight grips plus move, and the cursor over each |
@@ -169,6 +170,9 @@
 //! longer decides an anchor; it arms one ([`zoom::arm_anchor`]) and consumes
 //! one ([`zoom::consume_anchor`]).
 
+// Filling an interactive form where it is drawn: the boxes, the hit test that
+// deliberately takes no tolerance, and the one editor a focused field gets.
+pub mod forms;
 pub mod geometry;
 pub mod gesture;
 // Draggable alignment lines: what a guide belongs to, where it lives on disk,
@@ -248,55 +252,6 @@ use crate::viewer;
 /// region flush against the panel edges while "Fit page" left 16 points would
 /// read as two different ideas of what fitting means.
 pub const CANVAS_MARGIN: f32 = 16.0;
-
-/// The de-duplication slot every canvas-layout line shares.
-///
-/// One slot for all of them — the `canvas` line and both
-/// `canvas-unavailable` variants — because they answer **one** question
-/// ("where is the canvas, and is there one?"), and a consumer reads the
-/// answer as the most recent line about it. Splitting them would let a stale
-/// `canvas` line sit after the page stopped rendering, with nothing in the
-/// trace to say the situation had changed.
-const LAYOUT_SLOT: &str = "canvas"; // ui-text-exempt: trace slot name, never displayed
-
-/// The de-duplication slot for the document-space pointer report.
-///
-/// Separate from [`LAYOUT_SLOT`]: the pointer moves constantly while the
-/// layout does not, and sharing a slot would make each silence the other.
-const POINTER_SLOT: &str = "canvas-pointer"; // ui-text-exempt: trace slot name, never displayed
-
-/// Named region: the page raster's own rect, in window logical points.
-///
-/// This is the rect every canvas coordinate conversion is relative to, so it
-/// is the one a screenshot oracle needs in order to crop the page out of a
-/// window capture. See [`crate::diag::ui_rect`] on naming.
-const REGION_PAGE: &str = "page"; // ui-text-exempt: trace region name, never displayed
-
-/// Named region: the scrollable viewport the page sits inside.
-///
-/// Distinct from [`REGION_PAGE`], and the difference is exactly where the
-/// old GUI's selection-offset defect lived (see the centring comment inside
-/// [`show`]): at fit-page on a small page the two rects differ by the
-/// centring margin, and a check that measured one while meaning the other
-/// would sample the grey surround.
-const REGION_CANVAS_VIEWPORT: &str = "canvas-viewport"; // ui-text-exempt: trace region name, never displayed
-
-/// Named region: the one-sentence message shown instead of a page.
-///
-/// Shares a name across the no-pages and render-failed arms on purpose: it
-/// is the same region of the screen serving the same purpose, and a
-/// legibility check asking "is the canvas's explanatory text readable?"
-/// should not have to enumerate every reason the text might be there.
-const REGION_PAGE_MESSAGE: &str = "canvas-message"; // ui-text-exempt: trace region name, never displayed
-
-/// Trace slot for what the selection layer did — a click, a marquee, an
-/// Escape, a Delete.
-///
-/// Separate from [`LAYOUT_SLOT`] because the two answer different questions
-/// and de-duplicate on different timescales: the layout line reports *where
-/// the canvas is*, this one reports *what the operator just did to the
-/// selection*. Sharing a slot would let each silence the other.
-const SELECTION_SLOT: &str = "canvas-selection"; // ui-text-exempt: trace slot name, never displayed
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
 /// that every part of it must agree on.
@@ -405,11 +360,11 @@ fn show_in(
         // finds no `canvas` line otherwise has to guess between "this build
         // does not trace its layout" and "there was no layout to trace", and
         // those need opposite responses. See `trace_layout`.
-        crate::diag::trace_changed(LAYOUT_SLOT, || {
+        crate::diag::trace_changed(trace::LAYOUT_SLOT, || {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             "canvas-unavailable reason=no-pages".to_owned()
         });
-        crate::diag::ui_rect(REGION_PAGE_MESSAGE, placeholder.inner.rect);
+        crate::diag::ui_rect(trace::REGION_PAGE_MESSAGE, placeholder.inner.rect);
         return (Vec::new(), None);
     }
 
@@ -473,11 +428,11 @@ fn show_in(
         // this frame, and saying that is more useful than silence. `reason=`
         // is a fixed token, not the operator-facing message — the message can
         // be reworded and a consumer keying on it would break.
-        crate::diag::trace_changed(LAYOUT_SLOT, || {
+        crate::diag::trace_changed(trace::LAYOUT_SLOT, || {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             "canvas-unavailable reason=render-failed".to_owned()
         });
-        crate::diag::ui_rect(REGION_PAGE_MESSAGE, placeholder.inner.rect);
+        crate::diag::ui_rect(trace::REGION_PAGE_MESSAGE, placeholder.inner.rect);
         return (Vec::new(), None);
     }
 
@@ -785,7 +740,7 @@ fn show_in(
         // outside every page, which happens for one frame after a mode change
         // before the scroll area has settled. Say so, and let the next frame
         // sort it out rather than inventing a rect for a page nobody drew.
-        crate::diag::trace_changed(LAYOUT_SLOT, || {
+        crate::diag::trace_changed(trace::LAYOUT_SLOT, || {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             "canvas-unavailable reason=nothing-visible".to_owned()
         });
@@ -832,6 +787,11 @@ fn show_in(
     // See `guides`' header §3. Registers nothing when the toggle is off or the
     // document has no guides.
     guides::canvas_drag(ui, doc, &page_views, actions);
+
+    // ★ Form filling on the page, registered in that same layer and for the
+    // same reason: the focused field's editor must be topmost, and nothing is
+    // registered for an unfocused one. See `forms`' header §4.
+    forms::overlay(ui, doc, &page_views, &drawn, active_tool, actions);
 
     // ★ The frame's geometry, recorded for the commands that arrive with none.
     // A zoom raised from a keyboard chord, the ribbon or the status bar has no
@@ -891,8 +851,8 @@ fn show_in(
         drawn.len(),
         drawn.iter().filter(|d| d.has_raster).count(),
     );
-    crate::diag::ui_rect(REGION_PAGE, image_rect);
-    crate::diag::ui_rect(REGION_CANVAS_VIEWPORT, scroll_output.inner_rect);
+    crate::diag::ui_rect(trace::REGION_PAGE, image_rect);
+    crate::diag::ui_rect(trace::REGION_CANVAS_VIEWPORT, scroll_output.inner_rect);
     trace::pointer(ui, doc, image_rect, extent);
 
     // Ctrl+wheel over the canvas: multiply the zoom. Gated on hover so a

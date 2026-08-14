@@ -897,6 +897,139 @@ pub fn forms_flatten_needs_redraw_note(count: usize) -> String {
     )
 }
 
+// ---------------------------------------------------------------------------
+// What the page can and cannot be filled from — see `crate::canvas::forms`
+// ---------------------------------------------------------------------------
+
+/// The panel's note for fields that **cannot be clicked on the page** because
+/// nothing is drawn for them.
+///
+/// # Why this sentence exists at all
+///
+/// `crate::canvas::forms` lets an operator click a field where it is drawn.
+/// The word *drawn* is load-bearing: a widget with no `/AP` `/N` paints
+/// nothing, so a click target over it would be an invisible affordance — the
+/// operator can only find it by accident and cannot find it again. The canvas
+/// therefore declines it, and this is the panel telling them **where the field
+/// went**, which is the whole difference between a routing decision and a
+/// capability that quietly disappeared.
+///
+/// # ★ The remedy sentence was wrong on its first draft, and driving the
+/// binary is what caught it
+///
+/// It read: *"Use “Redraw values” to draw them, and they can then be clicked
+/// where they sit."* That is **false for the case the sentence is about.**
+///
+/// Measured on `demo-form.pdf`, which carries exactly one undrawn field
+/// (`Full name`, with no value): pressing Redraw values traced
+/// `form-regenerate-appearances commands=0 (nothing to do)` and the field
+/// stayed undrawn. `EditSession::regenerate_appearances` walks the fields and
+/// `continue`s on any text field whose `/V` is not `FieldValue::Text` — an
+/// **absent** value has nothing to draw, so an empty field is skipped by
+/// design. Redraw only helps a field that is undrawn *and already holds a
+/// value*, which is a real and common case (a form filled by another program
+/// that never generated appearances, which is what `/NeedAppearances`
+/// announces) but is not this one.
+///
+/// The remedy that always works is the one this panel is: `fill_text_field`
+/// writes `/V` **and** regenerates the `/AP` of every widget of the field, so
+/// filling an undrawn field here once makes it drawn — and therefore clickable
+/// on the page from then on. So the sentence names both, in the order they
+/// apply.
+///
+/// Recorded rather than quietly reworded because the first draft is the shape
+/// of mistake `HANDOFF.md` §2 exists for: it was plausible, it read well, no
+/// test could contradict it, and it was a promise to the operator that the
+/// engine would not keep.
+#[must_use]
+pub fn forms_canvas_undrawn_note(count: usize) -> String {
+    format!(
+        "{count} field(s) are not drawn on the page, so they cannot be clicked there. Fill one \
+         here and it becomes drawn — and clickable on the page from then on. “{}” does the same \
+         for fields that already hold a value.",
+        forms_regenerate_button()
+    )
+}
+
+/// The panel's note for fields that are drawn but still cannot be **typed
+/// into** on the page.
+///
+/// Two causes, said as one sentence because they have one remedy — fill it
+/// here — and because an operator does not need to know which of them applies
+/// to which field in order to act:
+///
+/// 1. **A rotated page.** `egui` cannot rotate a text box, so on a `/Rotate 90`
+///    page an in-place editor would run horizontally across text the
+///    appearance draws vertically. The click and the *placement* are both
+///    correct at every rotation; it is only the editor that cannot be.
+/// 2. **The file does not say which page the field is on.** `/P` is optional
+///    on a widget annotation, and without it there is no page to put a box on.
+///
+/// Deliberately **not** phrased as a limitation to be fixed ("pdfce cannot
+/// yet…"), because one half of it is a property of the file rather than of
+/// pdfce, and a sentence that promised a future version would be a promise
+/// only half of which could ever be kept.
+#[must_use]
+pub fn forms_canvas_unreachable_note(count: usize) -> String {
+    format!(
+        "{count} field(s) sit on a rotated page, or on no page this file names, so they are \
+         filled here rather than by clicking them."
+    )
+}
+
+// ---------------------------------------------------------------------------
+// What the last fill decided on the operator's behalf
+// ---------------------------------------------------------------------------
+
+/// Rule-4 disclosure: **pdfce chose the point size**, because the field asked
+/// it to.
+///
+/// A `/DA` of `0 Tf` means auto-size (§12.7.3.3): the field declines to state a
+/// size and leaves the writer to pick one that fits. pdfce picks one, and the
+/// number it picked is what lands in the file — so **nothing in the saved
+/// document says the number was pdfce's rather than the author's**, and no
+/// amount of re-reading the field afterwards can recover the distinction. That
+/// is precisely the shape of thing rule 4 exists for: an inference, made on the
+/// operator's behalf, invisible in the result.
+///
+/// It matters because another writer, filling the same field, will choose its
+/// own number — so a form filled here and a form filled elsewhere can legibly
+/// differ, and the operator is entitled to know why before they compare the
+/// two.
+///
+/// The field is named because the disclosure is read somewhere other than
+/// where the value was typed — in a panel, possibly beside forty other rows,
+/// possibly after a fill made by clicking the page.
+#[must_use]
+pub fn forms_fill_autosize_note(field: &str, size: f64) -> String {
+    format!(
+        "⚠ “{field}” asks for an automatic text size and pdfce chose {size:.1} pt. Another \
+         program filling this field may choose differently."
+    )
+}
+
+/// Rule-4 disclosure: **characters were replaced**, and the operator's own
+/// text is not what the page now says.
+///
+/// The field's font is a Base-14 Latin face and `pdfce-core` encodes into
+/// `WinAnsi`; a character with no code there is written as `?`. The saved value
+/// **is** the substituted one, so re-reading the field tells the operator what
+/// pdfce wrote and never that it wrote something other than what they typed.
+///
+/// This is the more serious of the two fill disclosures and is worded as such:
+/// an auto-size is a difference of appearance, this is a difference of
+/// *content*. The count is given rather than the characters, because listing
+/// them would mean echoing the operator's own typing back into a surface that
+/// may be screenshotted, and because the count is what tells them whether it
+/// was a stray character or the whole name.
+#[must_use]
+pub fn forms_fill_unencodable_note(field: &str, count: usize) -> String {
+    format!(
+        "⚠ {count} character(s) of “{field}” could not be written in this field's font and were \
+         stored as “?”. The page now shows those question marks."
+    )
+}
+
 /// Tooltip on a form-wide control disabled by a certification signature.
 ///
 /// Distinct from [`form_field_certification_disabled_tooltip`], and the

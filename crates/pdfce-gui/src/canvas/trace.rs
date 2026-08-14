@@ -34,6 +34,68 @@ use crate::app::state::OpenDoc;
 use crate::canvas::selection::SelectionState;
 use crate::viewer;
 
+// ---------------------------------------------------------------------------
+// The names the diagnostic channel is keyed on
+// ---------------------------------------------------------------------------
+//
+// ★ These six lived in `canvas/mod.rs` until form filling landed, and three of
+// them were already being reached back for as `LAYOUT_SLOT`,
+// `POINTER_SLOT` and `SELECTION_SLOT` — which is the module
+// boundary saying out loud where they belonged. They are the *vocabulary* of
+// the contract this module's header describes, so they sit with the functions
+// that spend them rather than with the wiring that happens to call those
+// functions. `canvas/mod.rs` now names them `trace::LAYOUT_SLOT`, which reads
+// as what it is.
+
+/// The de-duplication slot every canvas-layout line shares.
+///
+/// One slot for all of them — the `canvas` line and both
+/// `canvas-unavailable` variants — because they answer **one** question
+/// ("where is the canvas, and is there one?"), and a consumer reads the
+/// answer as the most recent line about it. Splitting them would let a stale
+/// `canvas` line sit after the page stopped rendering, with nothing in the
+/// trace to say the situation had changed.
+pub(super) const LAYOUT_SLOT: &str = "canvas"; // ui-text-exempt: trace slot name, never displayed
+
+/// The de-duplication slot for the document-space pointer report.
+///
+/// Separate from [`LAYOUT_SLOT`]: the pointer moves constantly while the
+/// layout does not, and sharing a slot would make each silence the other.
+pub(super) const POINTER_SLOT: &str = "canvas-pointer"; // ui-text-exempt: trace slot name, never displayed
+
+/// Named region: the page raster's own rect, in window logical points.
+///
+/// This is the rect every canvas coordinate conversion is relative to, so it
+/// is the one a screenshot oracle needs in order to crop the page out of a
+/// window capture. See [`crate::diag::ui_rect`] on naming.
+pub(super) const REGION_PAGE: &str = "page"; // ui-text-exempt: trace region name, never displayed
+
+/// Named region: the scrollable viewport the page sits inside.
+///
+/// Distinct from [`REGION_PAGE`], and the difference is exactly where the
+/// old GUI's selection-offset defect lived (see the centring comment inside
+/// [`super::show`]): at fit-page on a small page the two rects differ by the
+/// centring margin, and a check that measured one while meaning the other
+/// would sample the grey surround.
+pub(super) const REGION_CANVAS_VIEWPORT: &str = "canvas-viewport"; // ui-text-exempt: trace region name, never displayed
+
+/// Named region: the one-sentence message shown instead of a page.
+///
+/// Shares a name across the no-pages and render-failed arms on purpose: it
+/// is the same region of the screen serving the same purpose, and a
+/// legibility check asking "is the canvas's explanatory text readable?"
+/// should not have to enumerate every reason the text might be there.
+pub(super) const REGION_PAGE_MESSAGE: &str = "canvas-message"; // ui-text-exempt: trace region name, never displayed
+
+/// Trace slot for what the selection layer did — a click, a marquee, an
+/// Escape, a Delete.
+///
+/// Separate from [`LAYOUT_SLOT`] because the two answer different questions
+/// and de-duplicate on different timescales: the layout line reports *where
+/// the canvas is*, this one reports *what the operator just did to the
+/// selection*. Sharing a slot would let each silence the other.
+pub(super) const SELECTION_SLOT: &str = "canvas-selection"; // ui-text-exempt: trace slot name, never displayed
+
 /// Report a selection-changing gesture on the `PDFCE_DIAG` channel.
 ///
 /// De-duplicated on the rendered line, so a marquee dragged across a sheet
@@ -43,7 +105,7 @@ use crate::viewer;
 /// asserts on: *"the click landed"* is `sel=` moving, and *"the ladder
 /// descended"* is `level=` moving.
 pub(super) fn selection_event(selection: &SelectionState, kind: &str, modifier: bool) {
-    crate::diag::trace_changed(super::SELECTION_SLOT, || {
+    crate::diag::trace_changed(SELECTION_SLOT, || {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI.
             // Placed directly above the literal — see `trace_layout`.
@@ -168,7 +230,7 @@ pub(super) fn layout(
     visible: usize,
     with_raster: usize,
 ) {
-    crate::diag::trace_changed(super::LAYOUT_SLOT, || {
+    crate::diag::trace_changed(LAYOUT_SLOT, || {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI.
             // This comment sits directly above the literal, not above the
@@ -243,7 +305,7 @@ pub(super) fn pointer(ui: &egui::Ui, doc: &OpenDoc, image_rect: Rect, extent: (f
     let pdf = doc
         .current_page()
         .and_then(|p| viewer::canvas_to_pdf_space(page, p));
-    crate::diag::trace_changed(super::POINTER_SLOT, || {
+    crate::diag::trace_changed(POINTER_SLOT, || {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI.
             // Placed directly above the literal — see `trace_layout`.

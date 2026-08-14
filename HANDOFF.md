@@ -245,15 +245,38 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
   keyboard input does not reach the target window from the session that
   wrote it. It reports SKIP rather than blaming Find, on purpose.
 
+  **★ That belief is now doubtful, and it is worth someone's afternoon.**
+  On 2026-08-14 the canvas form-filling work drove typing, Enter *and*
+  Escape into the real binary and had them land — the whole editor was
+  verified with real `keybd_event` input rather than by test. The reported
+  difference is **`SetForegroundWindow` on the target PID, plus checking
+  the foreground PID actually changed before sending.** Nothing else.
+
+  If that holds, this SKIP is not an environment limit but a missing two
+  lines in `ui-verify`'s input layer, and **every check that reports SKIP
+  for keyboard reasons is recoverable** — including the Escape rules for
+  markup and for a focused form field, which are currently asserted by
+  test alone for exactly this reason. Nobody has yet tried it *from
+  `ui-verify`*, so this is a lead, not a finding.
+
 ---
 
 ## 9. Two open questions worth putting to the operator
 
-1. **Should Read mode fill forms?** The Forms panel is mounted in Review and
-   Edit, not Read. The taxonomy's argument is that filling writes the change
-   the *author invited*, which is the Review stance — but Acrobat Reader
-   fills forms in its default view, and replacing it is the stated goal. One
-   line plus a verb if the answer is yes. Flagged in `app/modes.rs`.
+1. ~~**Should Read mode fill forms?**~~ **Answered by the operator on
+   2026-08-14: yes.** Acrobat Reader fills forms in its default view and
+   replacing it is the stated goal. It cost the taxonomy amendment plus a
+   tab move — `edit.form_fill` became `view.panel_forms` on View ▸ Panels,
+   because Read is shown File and View alone and a command lives on exactly
+   one tab. Edit ▸ Forms kept create, manage and flatten: **filling is not
+   authoring** is the line that move draws.
+
+   Canvas filling then arrived the same day with **no mode gate at all**,
+   which means Read fills forms on the page as well as in the panel. That
+   is the same answer reached twice by different routes, so it stands — but
+   note it was reached the second time *by omission* rather than by
+   argument, and if anyone ever wants a mode to be genuinely read-only,
+   `canvas::forms` is the second place that would have to learn about it.
 2. **Per-mode memory of the page-display choice.** Deliberately not built:
    it is a second axis that collides with per-document, which is what was
    actually asked for.

@@ -120,7 +120,7 @@ const MENU_MEMORY_KEY: &str = "pdfce-canvas-menu"; // ui-text-exempt: internal m
 
 /// Trace slot for what a right-click on the canvas resolved to.
 ///
-/// Separate from `super::SELECTION_SLOT`, which reports what the *selection*
+/// Separate from `super::trace::SELECTION_SLOT`, which reports what the *selection*
 /// did. The two answer different questions and de-duplicate on different
 /// timescales — a right-click that lands on an already-selected object
 /// changes no selection at all and would otherwise be invisible.

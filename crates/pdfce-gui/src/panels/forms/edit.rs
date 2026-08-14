@@ -59,7 +59,9 @@
 //!    Without this the page keeps showing the empty box until the operator
 //!    zooms or pages away.
 //!
-//! ## ★ Nothing travels back — and that is a design decision, not a shortfall
+//! ## ★ Almost nothing travels back — and the exception is the interesting part
+//!
+//! ### The rule
 //!
 //! The old shell wrote an operator-facing note into `doc.pending_note` after
 //! every one of these verbs: *"Filled X"*, *"X changed, but this document has
@@ -83,6 +85,27 @@
 //! subtly wrong. Deriving from the document is both simpler and more correct
 //! than carrying a note, because a note can outlive the fact it describes and
 //! a derivation cannot.
+//!
+//! ### ★ The exception: two facts a fill knows and the document does not
+//!
+//! The argument above has one precondition — *the fact is re-derivable from the
+//! document next frame* — and exactly two things `FillOutcome` reports fail it:
+//!
+//! | fact | why it is not re-derivable |
+//! |---|---|
+//! | `applied_autosize` | the field's `/DA` asked for size 0 and **pdfce chose a number**. What lands in the file is the chosen size; the fact that pdfce chose it, rather than the document stating it, is gone the moment the command returns. |
+//! | `unencodable_chars` | characters with no `WinAnsi` code were **silently replaced with `?`**. The saved value is the substituted one, so re-reading the field tells you what pdfce wrote and never that it wrote something else. |
+//!
+//! Both are inferences pdfce made on the operator's behalf, and rule 4's whole
+//! subject is inferences: *"pdfce inferred something, and another reader may do
+//! otherwise"*. So both are captured — see [`FillDisclosure`] — and shown
+//! **off-canvas**, in the panel, where rule 4 says a disclosure belongs.
+//!
+//! The four remaining `FillOutcome` fields stay discarded, and each for the
+//! reason above: `widgets_updated` is `Field::widgets.len()`, `top_index` is
+//! `/TI` and is in the file, `xfa_may_disagree` is `AcroForm::xfa` and is
+//! stated **before** anything is typed, and `field_id` is the field the panel
+//! is already looking at.
 //!
 //! **What is left over is a refusal**, and it is traced rather than surfaced —
 //! the same posture, and the same acknowledged gap, as
@@ -124,11 +147,122 @@
 //!    have worked, and core now carries a test whose job is to stop a future
 //!    reader "correcting" a correct function on the strength of it.
 
+use std::cell::RefCell;
 use std::sync::Arc;
 
-use pdfce_core::edit::{EditError, EditSession};
+use pdfce_core::edit::{EditError, EditSession, FillOutcome};
 
 use crate::app::state::OpenDoc;
+
+/// What a fill decided that the document cannot afterwards be asked.
+///
+/// See this module's header, "The exception". Two facts, both **inferences
+/// pdfce made** rather than instructions the file gave, and both invisible in
+/// the saved bytes: an auto-size pdfce chose, and characters it replaced with
+/// `?` because the field's font could not encode them.
+///
+/// # Why the field name travels with them
+///
+/// A fill raised from the **canvas** happens where the operator is looking and
+/// a fill raised from the **panel** happens in a list of forty rows. In both
+/// cases the disclosure is read somewhere other than where the value was
+/// typed, so a sentence that said only *"the size was chosen for you"* would
+/// leave the operator to guess which field it was about.
+///
+/// The **value** is deliberately absent, exactly as it is absent from
+/// [`FormEdit::label`]: a `/Ff` `Password` field's contents must not travel any
+/// further than the box they were typed into.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FillDisclosure {
+    /// The field's fully-qualified name.
+    pub field: String,
+    /// The revision this describes — [`OpenDoc::edit_epoch`] **after** the
+    /// fill. A disclosure whose epoch is not the document's current one
+    /// describes an edit that has since been undone or superseded, and must
+    /// not be shown.
+    pub epoch: u64,
+    /// `Some(size)` when the field's `/DA` asked for auto-size and pdfce
+    /// picked this one.
+    pub applied_autosize: Option<f64>,
+    /// How many characters had no `WinAnsi` code and were replaced with `?`.
+    pub unencodable_chars: usize,
+}
+
+impl FillDisclosure {
+    /// Whether there is anything here worth a sentence.
+    ///
+    /// The overwhelmingly common fill discloses nothing, and a panel that drew
+    /// an empty disclosure line under every edit would train the operator to
+    /// stop reading the ones that matter — the same argument
+    /// `crate::app::status::page_box`'s `Note` makes for having no `Ok`
+    /// variant.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.applied_autosize.is_none() && self.unencodable_chars == 0
+    }
+}
+
+thread_local! {
+    /// The most recent fill's disclosures, waiting to be read by the panel.
+    ///
+    /// # ★ Why a thread-local and not a field on `OpenDoc`
+    ///
+    /// It should be a field on [`OpenDoc`], beside `edit_epoch`, dropped with
+    /// the document — and the constraint is a **boundary rather than a design
+    /// judgement**, the same one [`crate::panels::forms::FormsUi`]'s header
+    /// records for the drafts: `OpenDoc` is declared in `crate::app::state`,
+    /// which this work may not extend. Stated here rather than left for
+    /// somebody to find, so that whoever lifts the constraint knows what the
+    /// preferred shape is.
+    ///
+    /// Why it is nonetheless sound rather than a smuggled mutation: this is
+    /// **not document state**. It is a note about an edit that has already
+    /// happened through the funnel, it cannot change a pixel of the page, and
+    /// nothing reads it except a panel deciding whether to draw a sentence.
+    /// It is also correctly scoped — `eframe`'s update loop is one thread, so
+    /// the writer and the reader are the same thread, and a test running on
+    /// another one gets its own empty slot rather than another test's leftovers
+    /// (which a `static Mutex` would hand it).
+    ///
+    /// Staleness is handled by the `epoch` rather than by clearing: a
+    /// disclosure is shown only while it describes the revision on screen, so
+    /// an undo silences it without anything having to remember to.
+    static LAST_FILL: RefCell<Option<FillDisclosure>> = const { RefCell::new(None) };
+}
+
+/// What the last fill disclosed, if it still describes the open document.
+///
+/// **The panel's read** — see [`crate::panels::forms::body`]. Returns `None`
+/// when the last fill was on another document, has been undone, or had nothing
+/// to disclose.
+#[must_use]
+pub fn last_fill_disclosure(epoch: u64) -> Option<FillDisclosure> {
+    LAST_FILL.with_borrow(|slot| {
+        slot.as_ref()
+            .filter(|d| d.epoch == epoch && !d.is_empty())
+            .cloned()
+    })
+}
+
+/// Record a fill's disclosures.
+fn record_fill_disclosure(disclosure: Option<FillDisclosure>) {
+    LAST_FILL.with_borrow_mut(|slot| *slot = disclosure);
+}
+
+/// Plant a disclosure, for tests in other modules that must draw one.
+///
+/// `#[cfg(test)]` so it cannot become a second way to record one — the real
+/// path is [`record_fill_disclosure`], called from `apply` with the epoch the
+/// fill produced, and a second entry point is how two callers come to
+/// disagree about what "the last fill" means.
+///
+/// It exists because the status bar draws this and must prove it does not
+/// grow the bar while doing so (R128), and that measurement has to happen in
+/// `crate::app::status`, which cannot reach a `thread_local` here.
+#[cfg(test)]
+pub(crate) fn plant_fill_disclosure_for_test(disclosure: FillDisclosure) {
+    record_fill_disclosure(Some(disclosure));
+}
 
 /// One thing an operator asked the Forms panel to do.
 ///
@@ -305,7 +439,10 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
     };
 
     match run(session, edit) {
-        Ok(commands) => {
+        Ok(Applied {
+            commands,
+            disclosed,
+        }) => {
             // A verb that changed nothing must not invalidate anything. This
             // is reachable and not defensive: `Recompute` with an empty plan
             // is the obvious case, and bumping the epoch for it would drop
@@ -325,6 +462,17 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
             // 4. Nothing else notices an edit — the render key compares page
             //    index and raster scale, and a fill changes neither.
             doc.page_texture = None;
+            // ★ Stamped with the epoch bumped two lines above, NOT the one the
+            // fill ran against. The panel shows a disclosure only while it
+            // describes the revision on screen, and the revision on screen from
+            // now until the next edit is this one — so an undo silences the
+            // sentence by moving the epoch past it, with nothing anywhere that
+            // has to remember to clear it. A disclosure stamped with the *old*
+            // epoch would be invisible from the moment it was written.
+            record_fill_disclosure(disclosed.map(|d| FillDisclosure {
+                epoch: doc.edit_epoch,
+                ..d
+            }));
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
                 format!("{label} commands={commands} epoch={}", doc.edit_epoch)
@@ -339,6 +487,48 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             format!("{label}-refused detail={error}")
         }),
+    }
+}
+
+/// What one [`FormEdit`] did: how many undo commands it pushed, and whatever
+/// it disclosed that the document cannot afterwards be asked.
+///
+/// A struct rather than a tuple because the two travel for different reasons —
+/// the count decides whether to invalidate the page, the disclosure decides
+/// whether the panel says a sentence — and a `(usize, Option<_>)` at four call
+/// sites is four chances to read the pair in the wrong order.
+#[derive(Debug, PartialEq)]
+struct Applied {
+    /// How many undo commands were pushed. See [`run`] on why a count.
+    commands: usize,
+    /// The inferences this fill made, if it made any.
+    ///
+    /// `None` for every verb that is not a fill: a reset, a flatten and an
+    /// appearance regeneration all change the document without pdfce choosing
+    /// anything on the operator's behalf.
+    disclosed: Option<FillDisclosure>,
+}
+
+impl Applied {
+    /// A verb that changed `commands` things and inferred nothing.
+    const fn plain(commands: usize) -> Self {
+        Self {
+            commands,
+            disclosed: None,
+        }
+    }
+}
+
+/// Build a [`FillDisclosure`] from a fill's outcome.
+///
+/// `epoch` is filled in by [`apply`], which is the only place that knows the
+/// revision the disclosure will be read against — see the ★ comment there.
+fn disclosure_of(field: &str, out: &FillOutcome) -> FillDisclosure {
+    FillDisclosure {
+        field: field.to_owned(),
+        epoch: 0,
+        applied_autosize: out.applied_autosize,
+        unencodable_chars: out.unencodable_chars,
     }
 }
 
@@ -367,26 +557,32 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
 /// `pdfce_FeatureRequests/README.md` warns about in general terms — a number a
 /// verb hands back is not automatically the number the caller wanted — so the
 /// unit is named in the return type's doc rather than left to the reader.
-fn run(session: &mut EditSession, edit: &FormEdit) -> Result<usize, EditError> {
+fn run(session: &mut EditSession, edit: &FormEdit) -> Result<Applied, EditError> {
     match edit {
         FormEdit::FillText { field, value } => {
-            session.fill_text_field(field, value)?;
-            Ok(1)
+            let out = session.fill_text_field(field, value)?;
+            Ok(Applied {
+                commands: 1,
+                disclosed: Some(disclosure_of(field, &out)),
+            })
         }
         FormEdit::ConvertRichTextToPlain { field, value } => {
-            session.fill_text_field_downgrading_rich_text(field, value)?;
-            Ok(1)
+            let out = session.fill_text_field_downgrading_rich_text(field, value)?;
+            Ok(Applied {
+                commands: 1,
+                disclosed: Some(disclosure_of(field, &out)),
+            })
         }
         FormEdit::SetButtonState { field, state } => {
             session.set_button_state(field, state)?;
-            Ok(1)
+            Ok(Applied::plain(1))
         }
         FormEdit::SetChoice { field, values } => {
             // `&[&str]` is what the verb takes; the borrow has to be
             // materialised because a `Vec<String>` cannot coerce to it.
             let refs: Vec<&str> = values.iter().map(String::as_str).collect();
             session.set_choice_value(field, &refs)?;
-            Ok(1)
+            Ok(Applied::plain(1))
         }
         FormEdit::Recompute { changes } => {
             // ★ STOPS AT THE FIRST REFUSAL, and leaves what landed.
@@ -405,19 +601,35 @@ fn run(session: &mut EditSession, edit: &FormEdit) -> Result<usize, EditError> {
             // implementation of the undo stack. The operator's route back is
             // Ctrl+Z, once per field written — which is exactly what
             // `crate::text::forms::recompute_apply_tooltip` tells them.
+            //
+            // ★ The disclosure carried out of a recompute is the LAST fill's,
+            // and that is a deliberate narrowing rather than an oversight: the
+            // slot holds one, a plan can write forty, and a panel line naming
+            // one of forty fields would be worse than one naming none. What
+            // saves it from being a silent loss is that a recompute writes
+            // *numbers pdfce computed* — every one of them ASCII digits, a
+            // separator and a sign — so `unencodable_chars` cannot fire, and
+            // the only reachable disclosure is an auto-size, which is a
+            // property of the field rather than of the value. Whoever gives
+            // this a real home should make the slot a `Vec`.
             let mut written = 0usize;
+            let mut last = None;
             for (field, value) in changes {
-                session.fill_text_field(field, value)?;
+                let out = session.fill_text_field(field, value)?;
+                last = Some(disclosure_of(field, &out));
                 written += 1;
             }
-            Ok(written)
+            Ok(Applied {
+                commands: written,
+                disclosed: last.filter(|d| !d.is_empty()),
+            })
         }
         FormEdit::Reset => {
             let out = session.reset_form(None)?;
             // `fields_reset` and not 1: a reset on a form that already holds
             // its defaults commits a command that writes nothing, and the
             // caller uses this to decide whether to invalidate the page.
-            Ok(out.fields_reset)
+            Ok(Applied::plain(out.fields_reset))
         }
         FormEdit::RegenerateAppearances => {
             let out = session.regenerate_appearances()?;
@@ -426,11 +638,13 @@ fn run(session: &mut EditSession, edit: &FormEdit) -> Result<usize, EditError> {
             // it is the whole point of the control on a form whose values were
             // already drawn — so a run that regenerated nothing and cleared
             // the flag must still count as having done something.
-            Ok(out.regenerated + usize::from(out.need_appearances_cleared))
+            Ok(Applied::plain(
+                out.regenerated + usize::from(out.need_appearances_cleared),
+            ))
         }
         FormEdit::Flatten => {
             let out = session.flatten_fields(None)?;
-            Ok(out.fields_flattened)
+            Ok(Applied::plain(out.fields_flattened))
         }
     }
 }
@@ -527,7 +741,7 @@ mod tests {
         let mut session = EditSession::new(doc);
 
         let before = session.undo_depth();
-        let commands = run(
+        let applied = run(
             &mut session,
             &FormEdit::Recompute {
                 changes: Vec::new(),
@@ -535,7 +749,11 @@ mod tests {
         )
         .expect("an empty plan cannot fail");
 
-        assert_eq!(commands, 0, "an empty plan must report no commands");
+        assert_eq!(applied.commands, 0, "an empty plan must report no commands");
+        assert_eq!(
+            applied.disclosed, None,
+            "a plan that wrote nothing cannot have inferred anything"
+        );
         assert_eq!(
             session.undo_depth(),
             before,
@@ -587,5 +805,134 @@ mod tests {
             0,
             "a refused verb must leave the undo stack alone"
         );
+    }
+
+    /// ★ **A fill carries back exactly the two facts the document cannot be
+    /// asked again — and only when there is something to say.**
+    ///
+    /// Driven through a real `EditSession` and a real form, because the whole
+    /// claim is about what `FillOutcome` reports rather than about what this
+    /// module remembers.
+    ///
+    /// Both halves matter:
+    ///
+    /// * an **ordinary** fill discloses nothing, so the panel draws no
+    ///   sentence. A disclosure line under every edit would train the operator
+    ///   to stop reading the ones that matter — the same argument
+    ///   `crate::app::status::page_box`'s `Note` makes for having no `Ok`
+    ///   variant;
+    /// * a fill of text the field's font **cannot encode** discloses the
+    ///   substitution. That is the one this exists for: the saved value IS the
+    ///   substituted one, so re-reading the field afterwards reports what pdfce
+    ///   wrote and never that it wrote something else.
+    #[test]
+    fn a_fill_discloses_a_substitution_and_an_ordinary_fill_says_nothing() {
+        use crate::panels::objects::test_support::engine_fixture;
+
+        let path = engine_fixture("forms/demo-form.pdf");
+        let doc = pdfce_core::document::Document::load(&path).expect("the fixture loads");
+        let mut session = EditSession::new(doc);
+
+        // The first fillable text field, found rather than named — the
+        // fixture's fully-qualified names are not the `/TU` labels the panel
+        // shows, and a test that hard-coded one would break the day the
+        // fixture is regenerated.
+        let target = {
+            let view = session.view();
+            let form = pdfce_core::forms::parse_acroform(&view).expect("the fixture has a form");
+            form.fields
+                .iter()
+                .find(|f| {
+                    f.field_type == Some(pdfce_core::forms::FieldType::Text) && !f.flags.read_only()
+                })
+                .map(|f| f.fully_qualified_name.clone())
+                .expect("the fixture has a text field")
+        };
+
+        // ★ Text every WinAnsi font can carry: nothing was substituted.
+        let plain = run(
+            &mut session,
+            &FormEdit::FillText {
+                field: target.clone(),
+                value: "Anna".to_owned(),
+            },
+        )
+        .expect("a plain fill succeeds");
+        assert_eq!(plain.commands, 1);
+        let plain = plain.disclosed.expect("a fill always reports an outcome");
+        assert_eq!(
+            plain.unencodable_chars, 0,
+            "ASCII must not be reported as unencodable"
+        );
+        assert_eq!(plain.field, target);
+
+        // ★ Text it cannot: two CJK characters with no WinAnsi code, written
+        // as `?` and counted.
+        let substituted = run(
+            &mut session,
+            &FormEdit::FillText {
+                field: target.clone(),
+                value: "\u{5341}\u{4e00}".to_owned(),
+            },
+        )
+        .expect("an unencodable fill still succeeds — it substitutes")
+        .disclosed
+        .expect("a fill always reports an outcome");
+        assert_eq!(
+            substituted.unencodable_chars, 2,
+            "both characters had to be replaced, and the operator has to be \
+             told: the SAVED value is the substituted one, so nothing about \
+             the document afterwards says this happened"
+        );
+        assert!(
+            !substituted.is_empty(),
+            "a substitution must reach the panel"
+        );
+        assert_eq!(substituted.field, target);
+
+        // …and a verb that infers nothing carries nothing back.
+        let regen = run(&mut session, &FormEdit::RegenerateAppearances)
+            .expect("a regeneration succeeds on this form");
+        assert_eq!(
+            regen.disclosed, None,
+            "only a FILL makes an inference on the operator's behalf"
+        );
+    }
+
+    /// ★ **A disclosure is shown only while it describes the revision on
+    /// screen.**
+    ///
+    /// The staleness rule, which is what lets an undo silence the sentence with
+    /// nothing anywhere having to remember to clear it. Verified by driving as
+    /// well — an unrelated check-box toggle made a live auto-size line
+    /// disappear — and pinned here because the epoch comparison is the whole
+    /// mechanism.
+    #[test]
+    fn a_disclosure_is_hidden_once_the_document_moves_past_it() {
+        record_fill_disclosure(Some(FillDisclosure {
+            field: "Name".to_owned(),
+            epoch: 7,
+            applied_autosize: Some(12.0),
+            unencodable_chars: 0,
+        }));
+        assert!(last_fill_disclosure(7).is_some());
+        assert!(
+            last_fill_disclosure(8).is_none(),
+            "a later revision must not show a note about an earlier one"
+        );
+        assert!(last_fill_disclosure(6).is_none());
+
+        // A fill with nothing to say is never shown, at any epoch.
+        record_fill_disclosure(Some(FillDisclosure {
+            field: "Name".to_owned(),
+            epoch: 7,
+            applied_autosize: None,
+            unencodable_chars: 0,
+        }));
+        assert!(
+            last_fill_disclosure(7).is_none(),
+            "an empty disclosure must draw no sentence"
+        );
+        record_fill_disclosure(None);
     }
 }

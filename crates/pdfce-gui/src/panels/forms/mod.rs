@@ -41,11 +41,38 @@
 //! overlay read. It was answering a real question — *"which of these is the
 //! one I am about to type into?"* — and the answer is welcome under rule 4's
 //! fourth clause, which permits *"a snap indicator, a hover highlight, a
-//! rubber-band, a selection handle — these are the cursor"*. It is **not**
-//! carried here, because the mechanism it needs (a channel from a panel to the
-//! canvas overlay) does not exist in this build and `crate::canvas` is not
-//! this module's to extend. Named rather than silently dropped, and named as a
-//! *permitted* affordance so nobody later reads its absence as a rule.
+//! rubber-band, a selection handle — these are the cursor"*. It is still not
+//! carried, and the reason has **changed**: the mechanism now exists (see
+//! [`crate::canvas::forms`], which places every fillable widget in canvas
+//! space and is `pub(crate)`), so what is missing is only the panel→canvas
+//! channel for *which row is hovered*. Named rather than silently dropped, and
+//! named as a *permitted* affordance so nobody later reads its absence as a
+//! rule.
+//!
+//! ## ★ The page is now a second way in, and this panel is still the first
+//!
+//! [`crate::canvas::forms`] lets an operator click a field where it is drawn
+//! and type into it — the gesture every reader has and this build did not.
+//! Nothing about this panel changed to make room for it: the two surfaces share
+//! [`rows::block_reason`], [`rows::commit`] and the whole [`edit::FormEdit`]
+//! vocabulary, so there is one rule for what is fillable, one rule for when a
+//! draft is written, and one place a form verb is called.
+//!
+//! What this panel gained is two obligations, both of them disclosure:
+//!
+//! 1. **[`fill_disclosure`]** — the two things a fill decides that the document
+//!    cannot afterwards be asked (an auto-size pdfce chose, characters it
+//!    replaced). Those were previously discarded on the argument that
+//!    everything is re-derivable next frame; that argument is true of six of
+//!    `FillOutcome`'s eight facts and false of these two. See [`edit`]'s header.
+//! 2. **[`canvas_routing`]** — which fields the page cannot be clicked for, and
+//!    why. Without it the canvas silently shrinks the capability from the
+//!    operator's point of view.
+//!
+//! **This panel remains the accessible surface, and that is not a courtesy.**
+//! Its rows are real widgets with tab order, AccessKit exposure and `/TU`
+//! labels; a box projected onto a page raster has none of those, because the
+//! thing underneath it is a picture with no text alternative.
 //!
 //! Two disclosures the old shell reported **after** an edit are reported
 //! **before** one here, and both moves are improvements rather than
@@ -215,6 +242,13 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
         .map(|_| t::forms_structural_certification_disabled_tooltip());
 
     header(ui, &form, fill_refusal);
+    // ★ Directly under the header, above every control: what the LAST edit
+    // decided on the operator's behalf, and which fields the page cannot be
+    // clicked for. Both are answers to "why did that not happen where I
+    // expected?", and both belong before the thing they are about rather than
+    // after it — the same placement rule the document-wide disclosures follow.
+    fill_disclosure(ui, doc);
+    canvas_routing(ui, doc, fill_refusal);
 
     // Collected while `form` is borrowed, converted to actions at the end —
     // the actions-not-mutations discipline, and the same shape
@@ -282,6 +316,109 @@ fn header(ui: &mut egui::Ui, form: &AcroForm, fill_refusal: Option<&'static str>
         ui.colored_label(
             ui.visuals().warn_fg_color,
             t::forms_inline_field_roots_note(form.inline_field_roots),
+        );
+    }
+}
+
+/// **The off-canvas home for the two things a fill decides and the document
+/// cannot afterwards be asked.**
+///
+/// Rule 4 in one clause: *"disclosure lives off-canvas — a status line, a
+/// results panel, a report after the command, a properties field."* This is
+/// the panel half of that, and it is the half this build can reach: a status
+/// line would be better still for a fill made by clicking the **page**, when
+/// this panel may not even be open, and wiring one is a change to
+/// `crate::app::status` that this work does not own. Named rather than
+/// silently absent — see [`edit::last_fill_disclosure`].
+///
+/// # Why the panel used to discard these, and why that argument does not
+/// survive
+///
+/// [`edit`]'s header carries the original reasoning — *"every fact those notes
+/// carried is derivable from the document the panel re-reads on the next
+/// frame"* — and it is correct for six of `FillOutcome`'s eight facts. It is
+/// **false** for the two below, and the falsity is exactly the point: an
+/// auto-size pdfce chose and a character pdfce replaced both look, in the saved
+/// file, precisely like an author's decision. Re-reading the field cannot
+/// distinguish them, so there is nothing to derive and the note has to be
+/// carried.
+///
+/// Shown only while it describes the revision on screen, which is what the
+/// epoch comparison inside [`edit::last_fill_disclosure`] is for: an undo moves
+/// the epoch past the disclosure and the sentence stops being drawn, with
+/// nothing anywhere that has to remember to clear it.
+fn fill_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
+    let Some(disclosure) = edit::last_fill_disclosure(doc.edit_epoch) else {
+        return;
+    };
+    // Unencodable characters FIRST, because it is the more serious of the two:
+    // an auto-size changes how the value looks, this changes what the value
+    // *is*. Same ordering rule the recompute section uses when it lists skips
+    // above changes.
+    if disclosure.unencodable_chars > 0 {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            t::forms_fill_unencodable_note(&disclosure.field, disclosure.unencodable_chars),
+        );
+    }
+    if let Some(size) = disclosure.applied_autosize {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            t::forms_fill_autosize_note(&disclosure.field, size),
+        );
+    }
+}
+
+/// **Where the fields that cannot be clicked on the page went.**
+///
+/// `crate::canvas::forms` lets the operator fill a form by clicking it. Five
+/// reasons a field is not offered there are listed in that module's header, and
+/// every one of them ends in *"fill it in the panel"* — so the panel is where
+/// they have to be said, or the capability has silently shrunk from the
+/// operator's point of view and they have no way to find out why.
+///
+/// # ★ The counts come from the canvas's own walk, not from a second one
+///
+/// [`crate::canvas::forms::placed`] is **the** classification of this form —
+/// the one whose boxes the canvas hit-tests — and it hands back
+/// [`crate::canvas::forms::boxes::Routing`] from the same pass. This panel reads that, and
+/// deliberately does not repeat the rule.
+///
+/// The first draft did repeat it, and repeating it was wrong twice over. Once
+/// for the ordinary reason: two statements of one rule drift, and a panel
+/// promising "3 fields can only be filled here" over a canvas that declined
+/// four is worse than no count. And once for a reason no review would have
+/// caught — the re-derivation asked each widget's `/P` to work out which page
+/// it was on, which is the silent defect
+/// [`crate::canvas::forms::boxes::place`]'s ★ section describes and which **no test against
+/// the fixture corpus can reach**.
+///
+/// It is also free: the walk is cached per `(document, revision)` and the
+/// canvas has already paid for it this frame.
+///
+/// Conditional, so it is a signal rather than furniture: a form every one of
+/// whose fields can be clicked says nothing at all.
+fn canvas_routing(ui: &mut egui::Ui, doc: &OpenDoc, fill_refusal: Option<&'static str>) {
+    if fill_refusal.is_some() {
+        // Nothing can be filled anywhere, which the header has already said in
+        // stronger words. A second sentence about *where* would be noise on
+        // top of a refusal.
+        return;
+    }
+    let routing = crate::canvas::forms::placed(ui.ctx(), doc).routing;
+
+    if routing.undrawn > 0 {
+        ui.label(
+            egui::RichText::new(t::forms_canvas_undrawn_note(routing.undrawn))
+                .small()
+                .weak(),
+        );
+    }
+    if routing.unreachable > 0 {
+        ui.label(
+            egui::RichText::new(t::forms_canvas_unreachable_note(routing.unreachable))
+                .small()
+                .weak(),
         );
     }
 }

@@ -202,7 +202,16 @@ fn row_label(field: &Field, ctx: &RowContext<'_>) -> String {
 /// which gates on the resolved `/FT` first. Stated here as well as at the use
 /// site because this is the function someone extends when a new refusal is
 /// added.
-pub(super) fn block_reason(field: &Field) -> Option<&'static str> {
+///
+/// # ★ `pub(crate)`, because a second surface asks it rather than restating it
+///
+/// [`crate::canvas::forms::classify`] decides whether a field may be clicked
+/// **on the page**, and the first thing it must decide is whether the field may
+/// be filled at all. That is this question, and it now has exactly one answer
+/// for both surfaces. Re-deriving it in `canvas/` would be a second statement
+/// of one rule, whose failure is silent and specific: an operator clicking a
+/// field on the page that the panel beside it says is read-only.
+pub(crate) fn block_reason(field: &Field) -> Option<&'static str> {
     if field.flags.read_only() {
         return Some(t::form_field_readonly_tooltip());
     }
@@ -409,7 +418,16 @@ fn text_row(
 /// A pure function, so both conditions are tested without an egui context.
 /// They are the sort of thing that stays correct for months and then gets
 /// "simplified" into `if response.changed()`.
-pub(super) fn commit(ended: bool, draft: &str, stored: &str) -> Option<String> {
+///
+/// # ★ `pub(crate)`, because the canvas commits by the identical rule
+///
+/// [`crate::canvas::forms`] fills the same fields from the page, and both of
+/// the conditions above bind there for exactly the reasons they bind here —
+/// one word must not be a dozen undo entries, and moving the caret through a
+/// field without typing must not write a command. So it **calls this** rather
+/// than restating it, and the three tests below are the tests for both
+/// surfaces.
+pub(crate) fn commit(ended: bool, draft: &str, stored: &str) -> Option<String> {
     if !ended || draft == stored {
         return None;
     }

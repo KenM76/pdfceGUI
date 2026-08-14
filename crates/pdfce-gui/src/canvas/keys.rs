@@ -8,20 +8,43 @@
 //! Its tests came with it, which is the test for whether a split was along a
 //! seam.
 //!
-//! ## ★ Five claimants for Escape, one press, one effect
+//! ## ★ Six claimants for Escape, one press, one effect
 //!
 //! Decision 025's L1 is that Escape ascends **exactly one rung** rather than
 //! collapsing the ladder, and the same discipline governs everything else that
-//! would like the key. By Phase 6 there are five claimants, and the precedence
+//! would like the key. By Phase 6 there are six claimants, and the precedence
 //! is *"retire the most transient thing first"*:
 //!
 //! | # | claimant | who decides | how it says it took the key |
 //! |---|---|---|---|
+//! | 0 | a **form field being typed into** | [`crate::canvas::forms`] | [`crate::canvas::forms::escape_spent`]: `true` when a draft was abandoned |
 //! | 1 | a **drag in flight**, including a markup band | [`crate::canvas::gesture::GestureState::update`] — the only thing that knows whether there is one | [`crate::canvas::gesture::GestureOutcome::Cancelled`], arriving here as `escape_consumed` |
 //! | 2 | a **guide drag in flight** | [`crate::canvas::guides::cancel_drag`] | its return value: `true` when there was one |
 //! | 3 | an **armed markup tool** | [`crate::canvas::tool::disarm_markup`] | its return value: `true` when there was one armed |
 //! | 4 | an **armed region zoom** | [`crate::canvas::zoom::disarm_region_zoom`] | its return value: `true` when there was something to retire |
 //! | 5 | the **selection ladder** | [`crate::canvas::selection::SelectionState::escape`] | it is last, so it acts only when none above did |
+//!
+//! ### ★ Why a focused form field is rung 0, and why its rung is unlike every
+//! other
+//!
+//! It is numbered 0 rather than 1 because it does not merely *outrank* the
+//! others — while it is live, **none of them can see the key at all**. A
+//! focused field is an `egui::TextEdit`, so `Context::text_edit_focused` is
+//! true, and that predicate is the first line of this very function
+//! (`DEFECTS.md` D1's guard) as well as the gate `interact` builds the gesture
+//! machine's `cancel` flag from. So the exclusion is **mechanical**, not
+//! ordered, and there is no version of this table in which a marquee and a
+//! half-typed field compete for one press.
+//!
+//! What the rung is actually for is the *other* direction, and it is a real
+//! hazard rather than a formality. `egui`'s own `TextEdit` surrenders focus on
+//! Escape, and it does so **before** this function runs — so by the time the
+//! guard above is asked, `text_edit_focused` is already false and the key
+//! falls straight through to the selection ladder. One press would abandon the
+//! draft *and* ascend a rung: exactly the double effect L1 forbids, and exactly
+//! the shape the `escape_consumed` flag was invented for one row down.
+//! [`crate::canvas::forms::escape_spent`] is the same report-rather-than-
+//! re-derive contract, read once and cleared by the reading.
 //!
 //! ### ★ Where the markup tool sits, and why the transience rule does not
 //! settle it
@@ -131,6 +154,18 @@ pub(super) fn canvas_keys(
     actions: &mut Vec<Action>,
     escape_consumed: bool,
 ) {
+    // ★ Claimant 0, and it is read BEFORE the D1 guard rather than after it.
+    //
+    // That order is the whole point: `egui`'s `TextEdit` has already
+    // surrendered focus by the time this runs, so the guard below no longer
+    // sees a focused field and would let the press reach the ladder. Reading
+    // the flag here — and clearing it, which `escape_spent` does — is what
+    // makes one press one effect. See the header's own section on this rung.
+    //
+    // With nothing focused it is `false` and costs one map lookup, exactly as
+    // an un-armed `disarm_region_zoom` costs one.
+    let form_abandoned = crate::canvas::forms::escape_spent(ctx);
+
     // ★ D1: `text_edit_focused()`, NEVER `egui_wants_keyboard_input()`.
     if ctx.text_edit_focused() {
         return;
@@ -144,9 +179,10 @@ pub(super) fn canvas_keys(
 
     // ★ Escape retires the most transient thing first, and exactly one thing.
     //
-    // The precedence is: a drag in flight (spent at step 3, and reported here
-    // as `escape_consumed`) → a guide drag → an armed markup tool → an armed
-    // region zoom → the selection ladder. Every rung obeys the same rule,
+    // The precedence is: a focused form field (spent above) → a drag in flight
+    // (spent at step 3, and reported here as `escape_consumed`) → a guide drag
+    // → an armed markup tool → an armed region zoom → the selection ladder.
+    // Every rung obeys the same rule,
     // decision 025's L1: **one press, one effect.** An operator who
     // arms a marquee zoom and changes their mind presses Escape once and is
     // back in the select tool — with the rung they were working in intact,
@@ -155,7 +191,13 @@ pub(super) fn canvas_keys(
     // `disarm_region_zoom` reports whether there was anything armed, so an
     // Escape on an un-armed canvas falls straight through and still ascends,
     // exactly as it did before this branch existed.
-    let escape_available = escape && !escape_consumed;
+    let escape_available = escape && !escape_consumed && !form_abandoned;
+    if form_abandoned {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-escape outcome=AbandonedFormDraft".to_owned()
+        });
+    }
 
     // Claimant 2: a guide being dragged right now. Ahead of the region zoom
     // because it is the more transient of the two — it is following the
