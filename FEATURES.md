@@ -1,6 +1,6 @@
 # pdfceGUI — what is built, and what is next
 
-**Updated:** 2026-08-13 (fourth revision). **Scope:** the new shell only. `pdfce-core` and
+**Updated:** 2026-08-14 (fifth revision). **Scope:** the new shell only. `pdfce-core` and
 `pdfce-cli` capabilities live in `D:\Dev\pdfce\docs\FEATURES.md`, whose
 **`gui` column is this project's acceptance criteria** — nothing there may
 regress at fold-in.
@@ -23,11 +23,11 @@ the blocker named.
 
 | | |
 |---|---|
-| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) |
-| **Tests** | 1,183 passing, 0 failing |
+| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) · **Phase 6 begun** (markup substrate, four kinds, Comments panel) |
+| **Tests** | 1,241 passing, 0 failing |
 | **Gates** | 8 of 8, 0 skipped — `check-theme-colors` added 2026-08-13, with a self-test |
-| **Source** | ~101,600 lines across three crates |
-| **Commands** | 88 registered · 89 declared-and-deferred (`PLANNED`) |
+| **Source** | ~106,300 lines across three crates |
+| **Commands** | 88 registered · 88 declared-and-deferred (`PLANNED`) |
 | **Ribbon surface built** | ~52 % of `RIBBON_IA.md` §5 · 32 groups |
 
 ---
@@ -66,6 +66,7 @@ the blocker named.
 - ✅ **Objects** — every object on the page, front-most first; 129,758 on the benchmark drawing
 - ✅ **Properties** — read-only facts for a selection
 - ✅ **Pages** — thumbnail grid, click to navigate, multi-select (click / Ctrl+click / Shift+extend), context menu of the six page verbs. Selection is marked by a *shape* change plus a written count, never colour alone
+- ✅ **Comments** — every annotation in the document, page order then `/Annots` order, reusing `pdfce-cli list-annotations`' ordering by name. `/Widget` excluded because Forms owns it, `/Popup` excluded as an implementation detail of another annotation, and **ce dimensions deliberately *not* excluded** — they are `/Line` annotations, and filtering that subtype would also hide a real `/Line` markup. Every exclusion is disclosed **in numbers**, so nothing is silently omitted; the old shell stated the rule only on the empty case. Reads the session, so unsaved edits show. A markup with no note says so as a fact about the document, not as an error — pdfce cannot write `/Contents` on geometric markup yet, which is filed and accepted
 - ✅ **Forms** — fill, **in all three modes including Read**. Reading the session, so unsaved edits show. Read was the operator's call on 2026-08-14 — *Acrobat Reader fills forms in its default view, and replacing it is the stated goal* — and it cost the taxonomy amendment plus a tab move: a command lives on exactly one tab and Read is shown File and View alone, so `edit.form_fill` became `view.panel_forms` in View ▸ Panels. Edit ▸ Forms keeps create, manage and flatten, which is the line the move draws: **filling is not authoring**
 
 ### Canvas
@@ -163,8 +164,10 @@ the blocker named.
 
 | | |
 |---|---|
-| 🔨 | **Markup tool substrate** — a third `CanvasTool` variant carrying a kind (one variant, not one per shape), a rubber-band gesture, `Action::CommitMarkup`, an apply arm calling `EditSession::add_markup`. Proven with rectangle, ellipse and arrow |
-| ⬜ | Polyline, polygon, ink, underline, strikeout, squiggly — **engine-ready**, `MarkupSpec` has every one |
+| ✅ | **Markup tool substrate, and four kinds placing** — Rectangle, Ellipse, Arrow, Highlight. One `CanvasTool::Markup(MarkupKind)` carrying a kind rather than one variant per shape, so a tool that is two kinds at once is unrepresentable and the four ribbon controls behave as a radio with nothing enforcing it. Rubber-band preview, `Action::CommitMarkup`, an apply arm calling `EditSession::add_markup`. **A click with no drag places nothing** — the old shell dropped a 120×60 default box justified as "a placeholder the operator will resize", and there is no resize verb here, so that box could only be corrected by undo. Arrow keeps **raw** endpoints rather than a normalised rect, verified by driving a reversed drag and getting the same two page points in the opposite order — which a normalising implementation cannot produce |
+| ✅ | **Drag origins are the button-down point** — `Response::drag_started()` fires only once egui has *decided* an interaction is a drag, by which time `interact_pointer_pos()` reports where the pointer has travelled to. Measured at **94 PDF points** of error on A1 at 0.21× zoom. The fix went into `PointerFrame::press_origin`, not into markup, because **the marquee and the move drag had it too**: a marquee that starts late encloses less than the operator drew round, and a move under-shoots by the same distance. Neither had ever been reported, because both fail by a plausible amount rather than a visible one |
+| ⬜ | Polyline, polygon, ink — **engine-ready**, but not drag-shaped; each needs its own gesture |
+| ⬜ | Underline, strikeout, squiggly — **engine-ready**, but they mark *text* and there is no text-selection gesture yet |
 | ⛔ | **Revision clouds** — table stakes for drawing markup, and not even on the old shell's deferred list. **Filed and accepted 2026-08-14, scheduled, not started.** `/BE` appears nowhere in `pdfce-core`, `MarkupSpec` is `#[non_exhaustive]`, and there is no verb taking a caller-built appearance — so all three routes were closed. Landing as `MarkupSpec::Cloud` **plus `Square { border_effect }`, and the rectangular cloud ships first**: drag-a-box-make-it-cloudy is the gesture, the free-form polygon is what people reach for second |
 | ⛔ | **Note text** — markup cannot carry `/Contents`. **Filed and accepted 2026-08-14**, landing as `/Contents` + `/T` + `/M` **together**, on the argument that a note with no author reads as a broken panel rather than an absent field. `/M` is engine-stamped (a caller-supplied date is a caller-supplied lie); `/T` is optional and `None` omits the key — **no placeholder author is invented** |
 | ⬜ | Style: **width and fill** *(colour works)* — both engine-ready |
