@@ -112,6 +112,7 @@ program keeps working for the whole life of the project.
 
 | Document | What it is |
 |---|---|
+| **`HANDOFF.md`** | **Start here in a new session.** Current state, the standing instructions, how the parallel agent work was actually run, the five obligations of registering a command, and what is left in order. It carries what the other documents cannot: the working agreements and the judgement calls. |
 | **`FEATURES.md`** | **What works today, and what is next in order.** A row is ticked only when an operator can reach it in a real build — not when the code exists or a test passes. Start here for status. |
 | **`PROJECT_PLAN.md`** | The charter: topology, module architecture, eight build stages, the fold-in procedure, risks, open questions. **Review this first.** |
 | **`SALVAGE.md`** | What carries over from the old GUI's 49,837 code lines, file by file, in four classes. ~45 % comes across with little change. |
