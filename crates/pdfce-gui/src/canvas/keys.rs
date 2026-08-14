@@ -18,8 +18,24 @@
 //! | # | claimant | who decides | how it says it took the key |
 //! |---|---|---|---|
 //! | 1 | a **drag in flight** | [`crate::canvas::gesture::GestureState::update`] — the only thing that knows whether there is one | [`crate::canvas::gesture::GestureOutcome::Cancelled`], arriving here as `escape_consumed` |
-//! | 2 | an **armed region zoom** | [`crate::canvas::zoom::disarm_region_zoom`] | its return value: `true` when there was something to retire |
-//! | 3 | the **selection ladder** | [`crate::canvas::selection::SelectionState::escape`] | it is last, so it acts only when neither above did |
+//! | 2 | a **guide drag in flight** | [`crate::canvas::guides::cancel_drag`] | its return value: `true` when there was one |
+//! | 3 | an **armed region zoom** | [`crate::canvas::zoom::disarm_region_zoom`] | its return value: `true` when there was something to retire |
+//! | 4 | the **selection ladder** | [`crate::canvas::selection::SelectionState::escape`] | it is last, so it acts only when none above did |
+//!
+//! ### Why a guide drag outranks an armed region zoom
+//!
+//! Both are "something in flight", so the tie is broken by the rule itself:
+//! **retire the most transient thing first.** A guide drag ends the moment
+//! the pointer is released, and it is following the pointer *now*; an armed
+//! region zoom persists across frames waiting for a drag that has not started.
+//! An operator dragging a guide who presses Escape means the guide, and there
+//! is no reading of that press under which they meant a zoom they armed
+//! earlier and have not used.
+//!
+//! A guide drag also does **not** reach [`crate::canvas::gesture`] — see that
+//! module's header for why: a drag that did would move a guide *and* the
+//! selection. So claimant 1 cannot speak for it, which is exactly why it needs
+//! a row of its own rather than folding into `escape_consumed`.
 //!
 //! Each claimant reports whether it took the key rather than the caller
 //! guessing, because the caller cannot know: whether a drag exists is the
@@ -104,7 +120,23 @@ pub(super) fn canvas_keys(
     // Escape on an un-armed canvas falls straight through and still ascends,
     // exactly as it did before this branch existed.
     let escape_available = escape && !escape_consumed;
-    let disarmed = escape_available && zoom::disarm_region_zoom(ctx);
+
+    // Claimant 2: a guide being dragged right now. Ahead of the region zoom
+    // because it is the more transient of the two — it is following the
+    // pointer this frame, while an armed zoom is waiting for a drag that has
+    // not started. Abandoning it leaves nothing behind: the drag holds a
+    // *proposed* position and the committed set only changes on release, so
+    // there is no half-applied state to undo.
+    let guide_cancelled = escape_available && crate::canvas::guides::cancel_drag(ctx);
+    if guide_cancelled {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-escape outcome=CancelledGuideDrag".to_owned()
+        });
+    }
+
+    // Claimant 3.
+    let disarmed = escape_available && !guide_cancelled && zoom::disarm_region_zoom(ctx);
     if disarmed {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -112,7 +144,8 @@ pub(super) fn canvas_keys(
         });
     }
 
-    if escape_available && !disarmed {
+    // Claimant 4, and only if none of the three above took the key.
+    if escape_available && !guide_cancelled && !disarmed {
         let outcome = selection.escape();
         crate::diag::trace(|| {
             format!(
@@ -413,5 +446,74 @@ mod tests {
             "a focused text field must keep Delete for itself"
         );
         assert_eq!(selection.len(), 1);
+    }
+
+    /// ★ **A guide drag outranks an armed region zoom, and only one of the
+    /// two is retired.**
+    ///
+    /// The tie-break the precedence table states: retire the most transient
+    /// thing first. Both are "in flight", and the guide is the one following
+    /// the pointer *this frame* while the zoom is waiting for a drag that has
+    /// not started.
+    ///
+    /// Both are armed at once deliberately. Asserting the guide is cancelled
+    /// would pass on a build that cancelled everything; asserting the zoom
+    /// SURVIVES is what makes it a precedence test rather than a "something
+    /// happened" test.
+    #[test]
+    fn escape_abandons_a_guide_drag_before_it_touches_the_region_zoom() {
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        zoom::arm_region_zoom(&ctx);
+        crate::canvas::guides::plant_drag_for_test(&ctx);
+
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+        });
+
+        assert!(
+            zoom::region_zoom_armed(&ctx),
+            "the armed zoom must SURVIVE: one press, one effect"
+        );
+        assert_eq!(
+            selection.level(),
+            SelectionLevel::Part,
+            "and the selection rung must be untouched"
+        );
+        assert!(
+            actions.is_empty(),
+            "an abandoned drag holds a proposal, so it raises no action"
+        );
+    }
+
+    /// …and a second Escape then retires the zoom, so nothing is stranded.
+    ///
+    /// Without this, the test above would pass on a build where a guide drag
+    /// permanently swallowed Escape — which is a worse bug than the one being
+    /// fixed, because it would leave the operator unable to leave any tool.
+    #[test]
+    fn a_second_escape_retires_the_zoom_the_guide_drag_protected() {
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        zoom::arm_region_zoom(&ctx);
+        crate::canvas::guides::plant_drag_for_test(&ctx);
+
+        for _ in 0..2 {
+            let _ = ctx.run_ui(key(Key::Escape), |ui| {
+                canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            });
+        }
+
+        assert!(
+            !zoom::region_zoom_armed(&ctx),
+            "the second press must reach the zoom"
+        );
+        assert_eq!(
+            selection.level(),
+            SelectionLevel::Part,
+            "two presses, two effects — and neither of them the ladder"
+        );
     }
 }

@@ -686,6 +686,28 @@ struct Drag {
     moving: Option<(usize, usize)>,
 }
 
+/// Plant a drag in flight, for tests in sibling modules.
+///
+/// `canvas::keys` owns Escape's precedence and has to assert that a guide
+/// drag outranks an armed region zoom. It cannot start a real one — that
+/// needs a pointer press inside a laid-out ruler gutter — so the state it
+/// must react to is planted directly.
+///
+/// `#[cfg(test)]` so it cannot become a second way for production code to
+/// begin a drag: the real one is [`ruler_drag`] and [`canvas_drag`], and a
+/// second entry point is how two code paths come to disagree about what a
+/// drag means.
+#[cfg(test)]
+pub(super) fn plant_drag_for_test(ctx: &Context) {
+    store(
+        ctx,
+        Some(Drag {
+            axis: GuideAxis::Horizontal,
+            moving: None,
+        }),
+    );
+}
+
 /// Read the in-flight guide drag.
 fn load(ctx: &Context) -> Option<Drag> {
     ctx.data(|d| d.get_temp::<Drag>(Id::new(DRAG_KEY)))
@@ -700,6 +722,37 @@ fn store(ctx: &Context, drag: Option<Drag>) {
         }
         None => d.remove::<Drag>(id),
     });
+}
+
+/// **Abandon a guide drag in flight.** Returns whether there was one.
+///
+/// # ★ It reports rather than being asked
+///
+/// The return value is the whole interface. `canvas::keys` cannot know
+/// whether a guide is being dragged — the drag lives in this module's own
+/// `egui::Memory` slot — and a version that re-derived it there would be the
+/// version that cancels a drag *and* ascends a selection rung, which is the
+/// defect that module's three-claimant table exists to prevent. Each claimant
+/// says whether it took the key; none of them guesses about another.
+///
+/// # Why a cancelled drag leaves nothing behind
+///
+/// Clearing the memory slot is the entire operation, and that is a property
+/// of how the drag was built rather than a convenience. A guide being dragged
+/// is not a guide that has moved: the drag holds the *proposed* position, and
+/// the committed set only changes when [`settle`] raises
+/// `Action::SetGuides` on release. So there is no half-applied state to roll
+/// back — abandoning the drag abandons a proposal.
+///
+/// That is why this is safe to call unconditionally on Escape, and why it
+/// cannot be reached by anything else: a *committed* guide is removed by
+/// double-clicking it, which is a different verb with a different undo story.
+pub(super) fn cancel_drag(ctx: &Context) -> bool {
+    if load(ctx).is_none() {
+        return false;
+    }
+    store(ctx, None);
+    true
 }
 
 /// Where the pointer is, and which page it is over — the two facts every
