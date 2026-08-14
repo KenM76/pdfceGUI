@@ -526,7 +526,23 @@ change takes effect immediately, with no restart and no cache to invalidate"*).
 
 ---
 
-## D9 — Every imported reduced-opacity markup renders solid
+## D9 — Every imported reduced-opacity markup renders solid — **FIXED 2026-08-14**
+
+> **Closed.** `pdfce-render` now reads §12.5.2 `/CA` and composites the
+> annotation's appearance through a scratch pixmap at that alpha — engine
+> commit `a84bdc3`, carried by the `pdfcegui-20260814-0735-e8e9881-9c81b04`
+> build. `alpha >= 1.0` short-circuits, so the common path allocates nothing.
+>
+> Their commit records why it jumped their queue, and it is this document's
+> argument returned: *"reported by the `pdfceGUI` session, which correctly
+> ranked it as a **fidelity defect in the current product** rather than a
+> prerequisite of a future authoring control."* The entry below is kept
+> because the reasoning is the durable part — a question asked about
+> *authoring* that turned out to be about *viewing*.
+>
+> Still open, and unchanged: **do not compensate.** When markup opacity
+> authoring lands, write `/CA` alone and leave the appearance stream's
+> `ExtGState` at `1.0`.
 
 **Found 2026-08-14, on the pdfce side, by asking a question about
 authoring.** Not observed here first — which is the notable part, and the
