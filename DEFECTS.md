@@ -452,6 +452,80 @@ Forms panel at `main.rs:8112-8116`. The doc understates the build.
 
 ---
 
+## D10 — The theme system is built, tested, gated, and never installed
+
+**Found 2026-08-14, by measuring pixels.** A `ui-verify` check needed to know
+what colour a pressed ribbon button is, sampled it, and got
+`#90D1FF` — which is `egui`'s stock `visuals.selection.bg_fill`, not the
+`quiet` preset's composited `#C1CFE6`. The unpressed fill measured `#E6E6E6`,
+`egui`'s `widgets.inactive.weak_bg_fill`, where the preset specifies `#E8E8EA`.
+
+`egui_shell::theme::Theme::apply` (`theme/mod.rs:456`) **is never called from
+`pdfce-gui`.** The only mention of `egui_shell::theme` in the whole crate is
+inside a test module in `icons/paint.rs`. Three presets, a palette, a
+role-per-colour discipline, a rendered-pair contrast gate over all five widget
+states, and its own self-test — compiled into the binary, never handed to the
+`Context`.
+
+### It is worse than "the colours are egui's defaults"
+
+`apply` does two things, and the second is the one that bites:
+
+```rust
+ctx.all_styles_mut(move |style| Self::write_style(style, &p, &m, preset));
+ctx.data_mut(|d| d.insert_temp(egui::Id::new(Self::CTX_ID), *self));
+```
+
+The stash is how `Theme::of(ctx)` — called by `ribbon/render.rs:210`,
+`dock/mod.rs:472` and the splitter — reaches roles that have nowhere to live in
+`egui`'s `Style`, such as the content backdrop and the label plate. With
+`apply` never called, `Theme::of` returns the **default** theme, so the
+framework's own chrome paints from one palette while every `egui` widget paints
+from another.
+
+`apply`'s doc comment describes precisely this and calls it the thing the
+module exists to prevent:
+
+> a dark theme with light-theme overlays, which is the two-thirds-of-a-theme
+> failure this module exists to prevent, **and no test would see it**.
+
+It was right. No test saw it.
+
+### Why every guard missed it
+
+- **The theme gate (`check-theme-colors`) passes**, correctly. It asserts every
+  colour is a **named role in the theme module** rather than a literal at a
+  call site. That is a property of the source, and it is true. Whether the
+  resulting theme is ever *installed* is a different question that no grep can
+  ask.
+- **The contrast gate passes**, because it renders pairs *from the theme* and
+  measures those. It never asks the running application what it actually drew.
+- **`FEATURES.md` ticked the row**, which is the part that stings: this file's
+  own bar is *"a row is ticked only when an operator can reach it in a real
+  build."* Three themes an operator cannot reach were ticked for the whole of
+  their shipped life — the exact failure the bar was written against, in the
+  document that wrote it.
+
+### Blast radius
+
+Everything the operator has ever seen in this shell is `egui`'s stock light
+style. There is also **no way to choose a preset**: the settings dialog is one
+of the unsalvaged Class-B surfaces, so even once `apply` is wired, the preset is
+whatever the code picks until that dialog lands.
+
+Note this also means **every screenshot in `evidence/`, and every legibility and
+contrast assertion `ui-verify` has ever made against the running binary, was
+measured against the wrong palette.** The assertions were not wrong — the
+contrast they measured was real — but they were measuring `egui`, not pdfce.
+
+### Fix
+
+Call `Theme::apply` once per frame from the application's update, which is what
+its doc prescribes (*"applied every frame rather than once at startup so a theme
+change takes effect immediately, with no restart and no cache to invalidate"*).
+
+---
+
 ## D9 — Every imported reduced-opacity markup renders solid
 
 **Found 2026-08-14, on the pdfce side, by asking a question about

@@ -770,6 +770,40 @@ impl eframe::App for PdfceApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
+        // ★ Step 0 — install the theme. See `DEFECTS.md` D10.
+        //
+        // **This call did not exist until 2026-08-14**, and the whole theme
+        // subsystem — three presets, a palette, a role per colour, a
+        // rendered-pair contrast gate over five widget states, and a gate
+        // self-test — was compiled into the binary and never handed to the
+        // `Context`. Every colour an operator has ever seen in this shell was
+        // `egui`'s stock light style. Found by a `ui-verify` check sampling a
+        // pressed ribbon button and getting `egui`'s `selection.bg_fill`
+        // instead of the preset's.
+        //
+        // Two things are installed, and the second is the one whose absence
+        // was invisible: `apply` writes the palette into **both** of egui's
+        // light and dark `Style`s, and it stashes the whole `Theme` in
+        // `ctx.data` where `Theme::of` retrieves it. `egui-shell`'s ribbon,
+        // dock and splitter all call `Theme::of` for roles that have nowhere
+        // to live in an `egui::Style` — the content backdrop, the label
+        // plate. Without the stash they silently got the DEFAULT theme, so
+        // the framework's chrome and egui's widgets painted from two
+        // different palettes. `apply`'s own doc comment names that failure
+        // and calls it the thing the module exists to prevent.
+        //
+        // **Per frame, not once at startup**, which is what that doc
+        // prescribes: a theme change then takes effect immediately, with no
+        // restart and no cache to invalidate. It is a handful of field writes
+        // against a struct egui already owns.
+        //
+        // The preset is the default until the settings dialog is salvaged —
+        // it is the surface that would let an operator choose one, and it is
+        // still Class B in `SALVAGE.md`. A hard-coded preset here is
+        // therefore a placeholder in the honest sense: the *mechanism* is
+        // real and reachable, and only the chooser is missing.
+        egui_shell::theme::Theme::default().apply(&ctx);
+
         // Step 1 — keyboard, before any widget can consume a key.
         let page_count = match &self.status {
             Status::Open(doc) => Some(doc.pages.len()),

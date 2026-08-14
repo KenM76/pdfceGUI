@@ -324,13 +324,46 @@ fn draw_tab(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, tab: &Tab, is_active: bool) ->
     let cues = tab_cues(is_active);
     let label = tab_label(tab);
 
-    let text = if cues.emphasised_text {
+    // ★ The active tab's plate and label are painted from the CHROME roles,
+    // not from `egui`'s selection visuals. See `DEFECTS.md` D10's second
+    // half.
+    //
+    // `Button::selectable(true, …)` fills from `visuals.selection.bg_fill`
+    // and colours its label from the same family — and this theme points
+    // `selection.bg_fill` at `palette.selection_fill`, which is the
+    // **canvas object-selection tint**: a deliberately translucent blue
+    // (alpha 70/255) designed to sit *over page content* without hiding it.
+    // Used as a chrome plate it is a 27 % wash, and the label keeps its
+    // ordinary foreground — so the active tab rendered as pale blue-grey
+    // text on pale blue, while the inactive tab beside it stayed crisp.
+    // That is `DEFECTS.md` D2's failure — a label invisible in the default
+    // theme — in the one place D2's fix did not reach.
+    //
+    // The palette has the right pair and has had it all along:
+    // `accent` is *"the single accent — selection, focus, the active tab"*
+    // and `on_accent` is *"text and icons drawn ON accent"*. Two roles
+    // exist here on purpose, and the bug was borrowing a third from a
+    // different concept.
+    //
+    // `super::mode_selector` already does exactly this and looks correct on
+    // screen — it paints `palette.accent` and picks `palette.on_accent` for
+    // its label. This is that, applied to the tab that sits beside it.
+    // Keeping `Button::selectable` rather than hand-painting preserves the
+    // inactive tab's *unplated* look, the truncation promise, the sizing
+    // and the `Response`; only the two colours are taken back.
+    let mut text = if cues.emphasised_text {
         RichText::new(label).strong()
     } else {
         RichText::new(label)
     };
+    if cues.filled {
+        text = text.color(ctx.theme.palette.on_accent);
+    }
 
     let mut button = egui::Button::selectable(cues.filled, text).truncate();
+    if cues.filled {
+        button = button.fill(accent);
+    }
     if cues.outlined {
         // R84's second non-colour cue. A stroke's *presence* is a
         // shape difference and reads with no colour information; the
