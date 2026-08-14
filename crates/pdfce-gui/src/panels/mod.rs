@@ -1,6 +1,6 @@
 //! # `panels` — the dock's panel bodies
 //!
-//! Six panels, each a **function the dock can call**. This module owns the
+//! Nine panels, each a **function the dock can call**. This module owns the
 //! set, the dispatch, the little state the bodies share, and the two layout
 //! rules that every one of them has to get right.
 //!
@@ -14,6 +14,7 @@
 //! | [`properties`] | `file.properties` | **new** — `RIBBON_IA.md` §5.8 |
 //! | [`forms`] | `view.panel_forms` — moved off Edit so Read can reach it | `panels_forms.rs` |
 //! | [`pages`] | `view.panel_pages` — **not registered; see that module** | `main.rs::thumbnail_rail` + `raster::ThumbnailCache` |
+//! | [`comments`] | `markup.comments` — **not** a `view.panel_*` id; see that variant | `main.rs::comments_panel` |
 //!
 //! ## ★ These panels once had no way in
 //!
@@ -48,10 +49,14 @@
 //! `crate::app::actions`' own header explains why retrofitting it is
 //! expensive.
 //!
-//! **Two** panels can act on the document, and the count is worth stating
+//! **Three** panels can act on the document, and the count is worth stating
 //! plainly rather than discovering. Bookmarks pushes [`Action::GoToPage`].
 //! Layers pushes [`Action::SetLayerVisible`] and [`Action::ResetLayers`],
-//! which arrived at S4 and are what restored its visibility checkbox. Every
+//! which arrived at S4 and are what restored its visibility checkbox.
+//! [`comments`] pushes [`Action::GoToPage`] as well, and *only* that: the old
+//! shell's Comments panel could also delete an annotation, and that half is
+//! deliberately absent here because no [`Action`] variant can carry the
+//! intent — see that module's header for what the day it lands needs. Every
 //! other panel is still a report — and where the old shell had a control that
 //! this build does not (the Fonts unembed and embed buttons), that panel's
 //! own module docs say which control is missing and what it is waiting for,
@@ -147,6 +152,7 @@ use crate::shell::menus::MenuHost;
 use egui_shell::HandlerToken;
 
 pub mod bookmarks;
+pub mod comments;
 pub mod fonts;
 pub mod forms;
 pub mod layers;
@@ -199,6 +205,21 @@ pub enum Panel {
     /// a two-pixel render of a dense drawing costs 691 ms — which is why this
     /// panel has a rendering *policy* rather than a loop.
     Pages,
+    /// Every annotation on the document — the comment list a reviewer works
+    /// through.
+    ///
+    /// **The only panel whose command is not a `view.panel_*` or a `file.*`
+    /// id**, and the reason is worth stating at the variant rather than only
+    /// in its module: `RIBBON_IA.md` names Comments in two places, and §7's
+    /// migration map — the more specific of the two — sends it to Markup ▸
+    /// Comments. See [`Self::command_id`].
+    ///
+    /// It is a **report with one verb**, like [`Self::Bookmarks`]: it raises
+    /// [`Action::GoToPage`] and nothing else. The old shell's panel could also
+    /// delete an annotation; that half is deliberately absent here because no
+    /// [`Action`] variant can carry the intent, and a control with nothing
+    /// behind it is the defect this module's header is about.
+    Comments,
 }
 
 impl Panel {
@@ -209,7 +230,7 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
@@ -218,6 +239,7 @@ impl Panel {
         Self::Properties,
         Self::Forms,
         Self::Pages,
+        Self::Comments,
     ];
 
     /// The ribbon command that shows this panel.
@@ -229,7 +251,7 @@ impl Panel {
     /// `crate::shell::manifest::built_in`. A panel with no route from the
     /// ribbon cannot get past that.
     ///
-    /// Two of the six are **not** on View ▸ Panels, and both placements are
+    /// Three of the nine are **not** on View ▸ Panels, and every placement is
     /// `RIBBON_IA.md`'s:
     ///
     /// - **Fonts is `file.fonts`.** §7's migration map moves it from View ▸
@@ -280,6 +302,38 @@ impl Panel {
             // else because a thumbnail grid answers *"what is on my
             // screen"* — it is a navigator, and navigators live in View.
             Self::Pages => "view.panel_pages",
+            // ★ **The third panel whose command is not on View ▸ Panels**, and
+            // the only one whose placement had to be *chosen* between two
+            // sentences of `RIBBON_IA.md` rather than read off one.
+            //
+            // §5.2 lists `Comments` among View ▸ Panels. §5.5 gives the Markup
+            // tab a `Comments` group containing `Comments panel`. P1 gives a
+            // command one tab, so both cannot be honoured — and §7's migration
+            // map settles it by naming the control: `Review ▸ Comments ▸
+            // Comments` → `Markup ▸ Comments`. A per-control ruling is more
+            // specific than a list of panel names, so Markup wins.
+            //
+            // `crate::shell::manifest::markup` reached the same conclusion in
+            // the same words when that tab was built, which is why this
+            // command was **already registered and already on the ribbon**
+            // before this panel existed — a control with no body, the mirror
+            // image of the defect in this module's header, and the reason
+            // `crate::panels::comments` is the last panel the taxonomy names
+            // to acquire one.
+            //
+            // The mode taxonomy agrees, which is what makes it safe: Comments
+            // is mounted by Review and Edit alone, and both are shown the
+            // `markup` tab. Contrast [`Self::Forms`], which had to move off
+            // Edit precisely because Read mounts it and Read is shown `file`
+            // and `view` only.
+            //
+            // ★ `crate::app::modes::defaults` still names the panel by the
+            // OTHER id — `view.panel_comments`, with a matching
+            // `ABSENT_PANELS` entry — so the default arrangements will not
+            // mount this panel until both are changed. That file is not this
+            // panel's to edit; the two lines it needs are in this work's
+            // report to the shell owner.
+            Self::Comments => "markup.comments",
         }
     }
 
@@ -303,9 +357,9 @@ impl Panel {
     /// Draw this panel.
     ///
     /// The one entry point a dock calls. `doc` is `None` when nothing is
-    /// open, and that case is handled **here** rather than six times: the
-    /// answer does not vary by panel, and six bespoke "open a document to…"
-    /// sentences would be six chances for one of them to drift.
+    /// open, and that case is handled **here** rather than nine times: the
+    /// answer does not vary by panel, and nine bespoke "open a document to…"
+    /// sentences would be nine chances for one of them to drift.
     ///
     /// The bodies below therefore all have the shape
     /// `fn body(ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>)`
@@ -369,6 +423,7 @@ impl Panel {
             // The second panel with a menu, and the second `return` for the
             // same reason: it has tokens to hand back.
             Self::Pages => return pages::body(ui, doc, state, host, actions),
+            Self::Comments => comments::body(ui, doc, state, actions),
         }
         Vec::new()
     }
@@ -378,7 +433,7 @@ impl Panel {
 ///
 /// # Why this exists at all, and why it is not on `PdfceApp`
 ///
-/// Two of the six panels are not pure functions of the document: the Objects
+/// Two of the nine panels are not pure functions of the document: the Objects
 /// panel remembers which rows are expanded and which row was last picked, and
 /// the Properties panel reads that pick. None of it is document state, and
 /// none of it is derivable from anything — but all of it has to outlive a
@@ -805,7 +860,7 @@ mod tests {
     /// A shared id would make the reachability test above pass for both
     /// while only one of them could ever be opened — the failure hiding
     /// inside the fix. It is a live hazard rather than a hypothetical: two
-    /// of the six panels are commissioned by one `RIBBON_IA.md` sentence
+    /// of the nine panels are commissioned by one `RIBBON_IA.md` sentence
     /// (`file.properties` names both the document's metadata and the
     /// selection's properties), and the temptation to hang both off that one
     /// id is exactly what this refuses.
@@ -845,6 +900,7 @@ mod tests {
                 Panel::Properties => 5,
                 Panel::Forms => 6,
                 Panel::Pages => 7,
+                Panel::Comments => 8,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

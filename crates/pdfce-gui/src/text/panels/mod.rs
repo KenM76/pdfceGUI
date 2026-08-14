@@ -1,12 +1,14 @@
 //! # `text::panels` — every string the dock's panels show
 //!
 //! One area of the catalog described in [`crate::text`]'s header. It covers
-//! the six panel bodies in [`crate::panels`]: Bookmarks, Layers, Signatures,
-//! Fonts, Objects and Properties.
+//! the panel bodies in [`crate::panels`]. The three document-structure
+//! panels are in this file; Comments, Fonts, Objects and Properties each have
+//! their own module, and Forms and Pages have their own areas one level up.
 //!
 //! | Module | Panel |
 //! |---|---|
 //! | `mod.rs` (this file) | the three **document-structure** panels — Bookmarks, Layers, Signatures — plus [`byte_size`], which two areas share |
+//! | [`comments`] | the Comments panel — every annotation on the document, what each one is, and the five disclosures a row can carry |
 //! | [`fonts`] | the Fonts panel's inventory report |
 //! | [`objects`] | the Objects panel, and the wording of every [`crate::panels::objects::summary::ObjectSummary`] fact |
 //! | [`properties`] | the Properties panel |
@@ -57,6 +59,8 @@
 //!   below were amended at salvage for exactly this reason, and each says so
 //!   in its own doc comment rather than being quietly reworded.
 
+/// The Comments panel — every annotation on the document, listed.
+pub mod comments;
 /// The Fonts panel's inventory report.
 pub mod fonts;
 /// The Objects panel, and the wording of every object fact.
@@ -98,9 +102,9 @@ pub fn byte_size(bytes: usize) -> String {
 
 /// Shown in any panel when no document is open.
 ///
-/// **One sentence for all six panels**, deliberately. A panel is never
-/// blanked — a blank region is indistinguishable from a broken one — and six
-/// bespoke "open a document to…" sentences would be six chances for one of
+/// **One sentence for every panel**, deliberately. A panel is never
+/// blanked — a blank region is indistinguishable from a broken one — and a
+/// bespoke "open a document to…" sentence per panel would be nine chances for one of
 /// them to drift into a different voice, for no gain: at the moment nothing
 /// is open, which panel the operator is looking at does not change the
 /// answer.

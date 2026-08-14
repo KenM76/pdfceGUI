@@ -178,6 +178,20 @@ impl PdfceApp {
         if crate::canvas::zoom::region_zoom_armed(ctx) {
             set.set(egui_shell::ribbon::selected_condition("view.zoom_region"));
         }
+        // ★ The armed markup tool, published the same way and outside the
+        // `Status::Open` arm for the same reason as the two above.
+        //
+        // **At most one**, because `CanvasTool::Markup` carries the kind
+        // rather than there being one variant per shape — so the four
+        // controls behave as a radio without anything having to enforce it.
+        // That is the payoff of the enum shape the canvas chose: a tool that
+        // could be two kinds at once is unrepresentable, so a ribbon showing
+        // two pressed shape buttons is unrepresentable too.
+        if let Some(kind) = crate::canvas::tool::selected(ctx).markup_kind() {
+            set.set(egui_shell::ribbon::selected_condition(
+                crate::shell::commands::markup_command(kind),
+            ));
+        }
 
         // `undo.available` and `redo.available` are still deliberately absent:
         // there is no undo stack to report on yet. Setting them would arm

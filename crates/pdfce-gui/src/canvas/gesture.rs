@@ -71,6 +71,8 @@
 use egui::{Pos2, Rect, Vec2};
 
 use crate::canvas::handles::Grip;
+use crate::canvas::markup::MarkupKind;
+use crate::canvas::tool::CanvasTool;
 
 /// What the pointer did over the page this frame, already converted to
 /// **canvas space**.
@@ -97,6 +99,42 @@ pub struct PointerFrame {
     /// Where the pointer is, in canvas space, if it is anywhere the canvas
     /// can see. `None` for a gesture whose pointer has left the window.
     pub pos: Option<Pos2>,
+    /// **Where the button actually went down**, in canvas space — the corner
+    /// the operator chose.
+    ///
+    /// # ★ Why this exists, and the defect it closes
+    ///
+    /// `Response::drag_started()` does **not** fire on the frame of the press.
+    /// It fires once the pointer has travelled far enough for egui to call the
+    /// interaction a drag rather than a click — which is the right rule, and it
+    /// is what makes [`GestureOutcome::Click`] and a drag mutually exclusive.
+    /// But by then `interact_pointer_pos()` reports where the pointer has
+    /// **already travelled to**, so a gesture anchored on it starts short of
+    /// the press by however far the hand moved in that first interval.
+    ///
+    /// **Measured on this build, not reasoned about.** An arrow drawn on
+    /// `fixtures/a1-titleblock.pdf` at zoom 0.2131 through a real OS-injected
+    /// drag reported its tail at PDF `(807.18, 649.37)` when the button had
+    /// gone down at `(713.3, 588.4)` — the shape began **94 points** along the
+    /// drag from the corner the operator picked. The magnitude is
+    /// `first-interval travel ÷ zoom`, so it is worst exactly where it is least
+    /// forgivable: on a large sheet zoomed out to see all of it. The old shell
+    /// measured the same thing from the other end (`main.rs:19716`) — a drag
+    /// that should have spanned 50.5 points produced 42.0 — and fixed it the
+    /// same way.
+    ///
+    /// It is carried on the frame rather than read inside
+    /// [`GestureState::update`] for the reason every other signal here is: this
+    /// module is drivable with no window, and a hidden read of
+    /// `egui::InputState` would take that away. `None` is the honest answer for
+    /// a frame that has no press behind it, and [`GestureState::update`] falls
+    /// back to [`Self::pos`] — which is exactly the previous behaviour, so a
+    /// caller that does not supply it loses accuracy and never correctness.
+    ///
+    /// All four drag kinds get the fix, not just the markup band: a marquee
+    /// that starts late encloses less than the operator drew round, and a move
+    /// whose origin is late under-moves the object by the same distance.
+    pub press_origin: Option<Pos2>,
     /// Whether Shift was held. Read once, here, so every gesture agrees about
     /// what "extend" means.
     pub shift: bool,
@@ -175,6 +213,57 @@ pub enum DragKind {
     Move,
     /// The press was on one of the eight resize grips.
     Resize(Grip),
+    /// The markup tool was armed: **draw**, in the carried shape.
+    ///
+    /// The kind is carried on the drag rather than re-read at the release, for
+    /// the identical reason [`MarqueeIntent`] is — *a gesture means what it
+    /// meant when it started*. It also gives the markup tool, for free, the
+    /// property the old shell had to write code for: changing the armed kind
+    /// mid-drag cannot reach a drag already in flight, so there is no
+    /// in-progress gesture to discard.
+    Markup(MarkupKind),
+}
+
+/// What a press means, given the tool, what it landed on and what is armed —
+/// **the whole precedence, in one pure function.**
+///
+/// Lifted out of `canvas::interact` when the markup tool arrived, because it
+/// stopped being a two-case question the moment there were three tools and it
+/// is exactly the kind of rule this module exists to hold: it is a decision
+/// about what the pointer means, it is drivable with no window, and leaving it
+/// as a `match` in the middle of the wiring is how the ordering below becomes
+/// three separate opinions.
+///
+/// # The order is the rule
+///
+/// 1. **An armed markup tool outranks everything**, including the grips. A
+///    markup drag that started on a selected object's resize handle must draw a
+///    shape, not resize — the operator armed a pen, and grips belong to a
+///    selection they are not currently acting on. (There is no resize verb to
+///    reach anyway; see [`crate::canvas::handles`].) It outranks the region
+///    zoom for the same reason: only one of the two can own the primary drag,
+///    and the one the operator armed *last* is not knowable here — but the one
+///    that authors content is the one whose loss would be silent.
+/// 2. **A grip** — resize on the six that resize, move on the two that do not.
+/// 3. **An armed region zoom**, which turns the marquee's release into a zoom.
+/// 4. **A plain marquee**, which is what an un-armed canvas does.
+///
+/// The hand tool is deliberately **absent** from this list, and its absence is
+/// load-bearing: `canvas::interact` hands the gesture machine a *blank* frame
+/// while the hand is active, so no press ever reaches this function to be
+/// classified. One state machine, one meaning per frame — see the module
+/// header.
+#[must_use]
+pub fn press_kind(tool: CanvasTool, grip: Option<Grip>, zoom_armed: bool) -> DragKind {
+    if let Some(kind) = tool.markup_kind() {
+        return DragKind::Markup(kind);
+    }
+    match grip {
+        Some(grip) if grip.is_resize() => DragKind::Resize(grip),
+        Some(_) => DragKind::Move,
+        None if zoom_armed => DragKind::Marquee(MarqueeIntent::Zoom),
+        None => DragKind::Marquee(MarqueeIntent::Select),
+    }
 }
 
 /// What the canvas should do about the pointer this frame.
@@ -244,6 +333,33 @@ pub enum GestureOutcome {
         /// Draw, or commit.
         phase: Phase,
     },
+    /// A markup band: the shape being authored, and its two **raw** endpoints
+    /// in canvas space.
+    ///
+    /// # ★ Why this carries two points and not a `Rect`
+    ///
+    /// Because a `Rect` cannot express which corner the operator started at,
+    /// and for an arrow that is the entire content of the gesture. `Rect` has
+    /// exactly one normalised form; [`Rect::from_two_pos`] discards the drag
+    /// direction on the way in, and no downstream code can recover it. An arrow
+    /// built from a normalised rect points up-and-left for every drag,
+    /// whichever way the operator went — silently, because the annotation that
+    /// lands is a perfectly valid arrow.
+    ///
+    /// So the pair travels raw and the normalisation happens at the one place
+    /// that needs a rectangle: [`crate::canvas::markup::spec`], per kind. This
+    /// is the same shape of decision as `Marquee` carrying its `MarqueeIntent`
+    /// — the release must not have to re-derive something the press knew.
+    Markup {
+        /// Which shape is being authored, sampled at the press.
+        kind: MarkupKind,
+        /// Canvas-space position of the press — the arrow's **tail**.
+        from: Pos2,
+        /// Canvas-space position of the pointer now — the arrow's **head**.
+        to: Pos2,
+        /// Draw the band, or commit the annotation.
+        phase: Phase,
+    },
 }
 
 /// A primary-button drag in flight.
@@ -282,6 +398,17 @@ impl Drag {
             },
             DragKind::Move => GestureOutcome::Move { delta, phase },
             DragKind::Resize(grip) => GestureOutcome::Resize { grip, delta, phase },
+            // Raw, and in that order: `origin` is where the press landed and
+            // `latest` is where the pointer is. Passing them through
+            // `Rect::from_two_pos` here — which is what the marquee above does
+            // one line up, and what a reader tidying this file would reach for —
+            // is exactly the reversal `GestureOutcome::Markup`'s docs describe.
+            DragKind::Markup(kind) => GestureOutcome::Markup {
+                kind,
+                from: self.origin,
+                to: self.latest,
+                phase,
+            },
         }
     }
 }
@@ -331,10 +458,14 @@ impl GestureState {
         }
 
         if frame.drag_started {
-            if let Some(pos) = frame.pos {
+            // ★ The press, not the position the drag was RECOGNISED at — see
+            // `PointerFrame::press_origin` for the measurement. `latest` is
+            // still the live position, so the very first in-flight frame
+            // already describes a band from the true corner to the pointer.
+            if let Some(origin) = frame.press_origin.or(frame.pos) {
                 self.drag = Some(Drag {
-                    origin: pos,
-                    latest: pos,
+                    origin,
+                    latest: frame.pos.unwrap_or(origin),
                     kind: press_kind,
                     shift: frame.shift,
                 });
@@ -755,6 +886,303 @@ mod tests {
             None,
             "the gesture must not survive the tool change"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The markup band
+    // -----------------------------------------------------------------
+
+    /// ★ **A markup band reports its endpoints RAW, in drag order** — the
+    /// property an arrow's head depends on.
+    ///
+    /// Asserted against a drag that goes **up and to the left**, because that
+    /// is the case a normalising implementation gets wrong: `from` would come
+    /// back as the smaller corner, which for this drag is the *head*.
+    #[test]
+    fn a_markup_band_reports_its_endpoints_in_drag_order() {
+        let mut g = GestureState::default();
+        let kind = DragKind::Markup(MarkupKind::Arrow);
+        g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: at(400.0, 500.0),
+                ..PointerFrame::default()
+            },
+            kind,
+        );
+        let mid = g.update(
+            PointerFrame {
+                dragging: true,
+                pos: at(120.0, 90.0),
+                ..PointerFrame::default()
+            },
+            kind,
+        );
+        assert_eq!(
+            mid,
+            GestureOutcome::Markup {
+                kind: MarkupKind::Arrow,
+                from: Pos2::new(400.0, 500.0),
+                to: Pos2::new(120.0, 90.0),
+                phase: Phase::InFlight,
+            },
+            "the band must not be normalised: an arrow's head is its `to`"
+        );
+        let end = g.update(
+            PointerFrame {
+                drag_stopped: true,
+                pos: at(120.0, 90.0),
+                ..PointerFrame::default()
+            },
+            kind,
+        );
+        assert_eq!(
+            end,
+            GestureOutcome::Markup {
+                kind: MarkupKind::Arrow,
+                from: Pos2::new(400.0, 500.0),
+                to: Pos2::new(120.0, 90.0),
+                phase: Phase::Complete,
+            }
+        );
+    }
+
+    /// ★ **A markup drag keeps the kind it was armed with**, even if the
+    /// caller reports a different one on every later frame — which is what
+    /// would happen if the operator's next click landed on another Markup
+    /// button while the button was still down.
+    #[test]
+    fn a_markup_drag_keeps_the_kind_it_started_with() {
+        let mut g = GestureState::default();
+        g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: at(0.0, 0.0),
+                ..PointerFrame::default()
+            },
+            DragKind::Markup(MarkupKind::Ellipse),
+        );
+        let out = g.update(
+            PointerFrame {
+                drag_stopped: true,
+                pos: at(30.0, 40.0),
+                ..PointerFrame::default()
+            },
+            DragKind::Markup(MarkupKind::Rectangle),
+        );
+        assert!(
+            matches!(
+                out,
+                GestureOutcome::Markup {
+                    kind: MarkupKind::Ellipse,
+                    ..
+                }
+            ),
+            "the release must honour the kind the press carried, got {out:?}"
+        );
+    }
+
+    /// ★ **Escape abandons a markup drag without authoring anything.**
+    ///
+    /// The existing cancellation test covers the three older kinds; this adds
+    /// the one where an un-cancelled release would write to the document. A
+    /// `Complete` here would be an annotation in the file that the operator
+    /// explicitly abandoned.
+    #[test]
+    fn escape_abandons_a_markup_drag_without_committing() {
+        let mut g = GestureState::default();
+        let kind = DragKind::Markup(MarkupKind::Rectangle);
+        g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: at(10.0, 10.0),
+                ..PointerFrame::default()
+            },
+            kind,
+        );
+        g.update(
+            PointerFrame {
+                dragging: true,
+                pos: at(200.0, 160.0),
+                ..PointerFrame::default()
+            },
+            kind,
+        );
+        let out = g.update(
+            PointerFrame {
+                dragging: true,
+                pos: at(200.0, 160.0),
+                cancel: true,
+                ..PointerFrame::default()
+            },
+            kind,
+        );
+        assert_eq!(out, GestureOutcome::Cancelled);
+        assert_eq!(g.active(), None);
+        // …and the release that follows commits nothing either.
+        assert_eq!(
+            g.update(
+                PointerFrame {
+                    drag_stopped: true,
+                    pos: at(200.0, 160.0),
+                    ..PointerFrame::default()
+                },
+                kind,
+            ),
+            GestureOutcome::Idle
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // What a press means
+    // -----------------------------------------------------------------
+
+    /// ★ **The armed markup tool outranks the grips and the region zoom.**
+    ///
+    /// Both rows matter and both are failure modes with teeth: a markup drag
+    /// classified as a `Resize` would be consumed and author nothing (a tool
+    /// that arms and does nothing over any selected object), and one classified
+    /// as a zoom marquee would zoom the page instead of drawing.
+    #[test]
+    fn an_armed_markup_tool_outranks_the_grips_and_the_region_zoom() {
+        let armed = CanvasTool::Markup(MarkupKind::Rectangle);
+        for grip in [None, Some(Grip::SouthEast), Some(Grip::Move)] {
+            for zoom in [false, true] {
+                assert_eq!(
+                    press_kind(armed, grip, zoom),
+                    DragKind::Markup(MarkupKind::Rectangle),
+                    "grip={grip:?} zoom_armed={zoom}"
+                );
+            }
+        }
+    }
+
+    /// …and with no markup armed, the precedence is exactly what it was before
+    /// the markup tool existed. Without this, the test above would pass on a
+    /// build where every press had become a markup.
+    #[test]
+    fn without_a_markup_tool_the_press_precedence_is_unchanged() {
+        let select = CanvasTool::Select;
+        assert_eq!(
+            press_kind(select, Some(Grip::SouthEast), false),
+            DragKind::Resize(Grip::SouthEast)
+        );
+        assert_eq!(press_kind(select, Some(Grip::Move), false), DragKind::Move);
+        assert_eq!(
+            press_kind(select, None, true),
+            DragKind::Marquee(MarqueeIntent::Zoom)
+        );
+        assert_eq!(
+            press_kind(select, None, false),
+            DragKind::Marquee(MarqueeIntent::Select)
+        );
+        // A grip beats an armed zoom, as it always did.
+        assert_eq!(
+            press_kind(select, Some(Grip::SouthEast), true),
+            DragKind::Resize(Grip::SouthEast)
+        );
+    }
+
+    /// ★ **A drag is anchored at the press, not at the frame the drag was
+    /// recognised on.**
+    ///
+    /// The regression test for the 94-point offset measured on a real drag —
+    /// see [`PointerFrame::press_origin`]. It is stated as a **magnitude**
+    /// against the press point rather than as "the band is on the page",
+    /// because the defective build put the band on the page too.
+    ///
+    /// The fallback is asserted in the same test: a frame with no press origin
+    /// behaves exactly as it did before the field existed, so supplying it is
+    /// an accuracy improvement and never a behaviour change.
+    #[test]
+    fn a_drag_is_anchored_at_the_press_not_at_the_frame_it_was_recognised_on() {
+        for kind in [
+            DragKind::Markup(MarkupKind::Arrow),
+            DragKind::Marquee(MarqueeIntent::Select),
+            DragKind::Move,
+        ] {
+            let mut g = GestureState::default();
+            // egui reports the drag one interval late: the button went down at
+            // (100, 100) and by this frame the pointer is already at (120, 88).
+            g.update(
+                PointerFrame {
+                    drag_started: true,
+                    pos: at(120.0, 88.0),
+                    press_origin: at(100.0, 100.0),
+                    ..PointerFrame::default()
+                },
+                kind,
+            );
+            let out = g.update(
+                PointerFrame {
+                    drag_stopped: true,
+                    pos: at(300.0, 40.0),
+                    ..PointerFrame::default()
+                },
+                kind,
+            );
+            match out {
+                GestureOutcome::Markup { from, to, .. } => {
+                    assert_eq!(from, Pos2::new(100.0, 100.0), "{kind:?}");
+                    assert_eq!(to, Pos2::new(300.0, 40.0), "{kind:?}");
+                }
+                GestureOutcome::Marquee { rect, .. } => {
+                    assert_eq!(
+                        rect,
+                        Rect::from_two_pos(Pos2::new(100.0, 100.0), Pos2::new(300.0, 40.0)),
+                        "{kind:?}"
+                    );
+                }
+                GestureOutcome::Move { delta, .. } => {
+                    assert_eq!(delta, Vec2::new(200.0, -60.0), "{kind:?}");
+                }
+                other => panic!("{kind:?} produced {other:?}"),
+            }
+        }
+
+        // …and with no press origin reported, the origin is the position on the
+        // recognised frame, exactly as before.
+        let mut g = GestureState::default();
+        g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: at(120.0, 88.0),
+                ..PointerFrame::default()
+            },
+            DragKind::Move,
+        );
+        assert_eq!(
+            g.update(
+                PointerFrame {
+                    drag_stopped: true,
+                    pos: at(300.0, 40.0),
+                    ..PointerFrame::default()
+                },
+                DragKind::Move,
+            ),
+            GestureOutcome::Move {
+                delta: Vec2::new(180.0, -48.0),
+                phase: Phase::Complete,
+            }
+        );
+    }
+
+    /// A press with no position **and** no press origin starts nothing, and a
+    /// press origin with no current position still anchors correctly — the two
+    /// halves of the fallback, so neither can be dropped silently.
+    #[test]
+    fn a_press_origin_without_a_current_position_still_anchors() {
+        let mut g = GestureState::default();
+        g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: None,
+                press_origin: at(50.0, 60.0),
+                ..PointerFrame::default()
+            },
+            DragKind::Markup(MarkupKind::Rectangle),
+        );
+        assert_eq!(g.active(), Some(DragKind::Markup(MarkupKind::Rectangle)));
     }
 
     /// A drag keeps the kind it started with, even when the pointer leaves

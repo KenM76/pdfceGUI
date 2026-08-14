@@ -8,19 +8,55 @@
 //! Its tests came with it, which is the test for whether a split was along a
 //! seam.
 //!
-//! ## ★ Three claimants for Escape, one press, one effect
+//! ## ★ Five claimants for Escape, one press, one effect
 //!
 //! Decision 025's L1 is that Escape ascends **exactly one rung** rather than
 //! collapsing the ladder, and the same discipline governs everything else that
-//! would like the key. By Phase 3.4 there are three claimants, and the
-//! precedence is *"retire the most transient thing first"*:
+//! would like the key. By Phase 6 there are five claimants, and the precedence
+//! is *"retire the most transient thing first"*:
 //!
 //! | # | claimant | who decides | how it says it took the key |
 //! |---|---|---|---|
-//! | 1 | a **drag in flight** | [`crate::canvas::gesture::GestureState::update`] — the only thing that knows whether there is one | [`crate::canvas::gesture::GestureOutcome::Cancelled`], arriving here as `escape_consumed` |
+//! | 1 | a **drag in flight**, including a markup band | [`crate::canvas::gesture::GestureState::update`] — the only thing that knows whether there is one | [`crate::canvas::gesture::GestureOutcome::Cancelled`], arriving here as `escape_consumed` |
 //! | 2 | a **guide drag in flight** | [`crate::canvas::guides::cancel_drag`] | its return value: `true` when there was one |
-//! | 3 | an **armed region zoom** | [`crate::canvas::zoom::disarm_region_zoom`] | its return value: `true` when there was something to retire |
-//! | 4 | the **selection ladder** | [`crate::canvas::selection::SelectionState::escape`] | it is last, so it acts only when none above did |
+//! | 3 | an **armed markup tool** | [`crate::canvas::tool::disarm_markup`] | its return value: `true` when there was one armed |
+//! | 4 | an **armed region zoom** | [`crate::canvas::zoom::disarm_region_zoom`] | its return value: `true` when there was something to retire |
+//! | 5 | the **selection ladder** | [`crate::canvas::selection::SelectionState::escape`] | it is last, so it acts only when none above did |
+//!
+//! ### ★ Where the markup tool sits, and why the transience rule does not
+//! settle it
+//!
+//! Row 1 needed **no change at all**, and that is the first thing to notice: a
+//! markup band is a [`DragKind`](crate::canvas::gesture::DragKind), so a markup
+//! drag in flight is already the *drag in flight* claimant, cancelled by the
+//! existing branch, with no new mechanism and no second rule. Abandoning it
+//! authors nothing — the annotation is only written by
+//! [`crate::app::actions::Action::CommitMarkup`], which the release raises and
+//! a cancellation never does.
+//!
+//! Retiring the armed **tool** is a different act, and it needed a row. Its
+//! placement is the one judgement call here, because the table's own rule does
+//! not decide it: an armed markup tool is *less* transient than an armed region
+//! zoom, not more. The zoom arming is a one-shot, spent by the very next drag;
+//! the markup tool is a mode the operator stays in while they draw five
+//! rectangles. On transience alone it would sit **below** the zoom.
+//!
+//! It sits above it, and the deciding argument is the one the guide-versus-zoom
+//! row already makes in the paragraph below: *"there is no reading of that press
+//! under which they meant a zoom they armed earlier and have not used."* That
+//! is true here twice over, and the second reason is mechanical rather than a
+//! matter of intent — **while the markup tool is armed, the region zoom cannot
+//! be reached at all.** [`crate::canvas::gesture::press_kind`] gives an armed
+//! markup tool the primary drag unconditionally, so the armed zoom is inert for
+//! as long as the pen is down. Spending the operator's Escape on retiring
+//! something inert, while they are looking at an armed Rectangle button that
+//! does not un-press, is one press with no visible effect — and the effect it
+//! *does* have is on a control that lives on a different ribbon tab, where they
+//! cannot see it.
+//!
+//! So the ordering rule is unchanged and is simply not the one that applies to
+//! this pair. What applies is the rule underneath it: **retire the thing the
+//! operator could have meant.**
 //!
 //! ### Why a guide drag outranks an armed region zoom
 //!
@@ -109,9 +145,9 @@ pub(super) fn canvas_keys(
     // ★ Escape retires the most transient thing first, and exactly one thing.
     //
     // The precedence is: a drag in flight (spent at step 3, and reported here
-    // as `escape_consumed`) → an armed region zoom → the selection ladder. The
-    // middle rung is new with Phase 3.4 and it obeys the same rule the other
-    // two do, decision 025's L1: **one press, one effect.** An operator who
+    // as `escape_consumed`) → a guide drag → an armed markup tool → an armed
+    // region zoom → the selection ladder. Every rung obeys the same rule,
+    // decision 025's L1: **one press, one effect.** An operator who
     // arms a marquee zoom and changes their mind presses Escape once and is
     // back in the select tool — with the rung they were working in intact,
     // because this returns before the ladder is touched.
@@ -135,8 +171,24 @@ pub(super) fn canvas_keys(
         });
     }
 
-    // Claimant 3.
-    let disarmed = escape_available && !guide_cancelled && zoom::disarm_region_zoom(ctx);
+    // Claimant 3: an armed markup tool. Above the region zoom deliberately —
+    // see the header's own section on why the transience rule does not settle
+    // that pair and what does. Note this is `disarm`, not "cancel a markup
+    // drag": a drag in flight was already spent at claimant 1, and by the time
+    // control reaches here `escape_available` is false in that case, so one
+    // press can never both abandon the band AND put the pen down.
+    let markup_disarmed =
+        escape_available && !guide_cancelled && crate::canvas::tool::disarm_markup(ctx);
+    if markup_disarmed {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-escape outcome=DisarmedMarkupTool".to_owned()
+        });
+    }
+
+    // Claimant 4.
+    let disarmed =
+        escape_available && !guide_cancelled && !markup_disarmed && zoom::disarm_region_zoom(ctx);
     if disarmed {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -144,8 +196,8 @@ pub(super) fn canvas_keys(
         });
     }
 
-    // Claimant 4, and only if none of the three above took the key.
-    if escape_available && !guide_cancelled && !disarmed {
+    // Claimant 5, and only if none of the four above took the key.
+    if escape_available && !guide_cancelled && !markup_disarmed && !disarmed {
         let outcome = selection.escape();
         crate::diag::trace(|| {
             format!(
@@ -446,6 +498,104 @@ mod tests {
             "a focused text field must keep Delete for itself"
         );
         assert_eq!(selection.len(), 1);
+    }
+
+    /// ★ **Escape retires an armed markup tool before it touches the region
+    /// zoom or the ladder — and retires exactly one thing.**
+    ///
+    /// Both are armed at once deliberately, for the reason the guide-versus-zoom
+    /// test below states: asserting the markup tool is retired would pass on a
+    /// build that retired everything. Asserting the zoom **survives** is what
+    /// makes it a precedence test.
+    #[test]
+    fn escape_retires_the_markup_tool_before_the_region_zoom() {
+        use crate::canvas::markup::MarkupKind;
+        use crate::canvas::tool;
+
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        zoom::arm_region_zoom(&ctx);
+        tool::arm_markup(&ctx, MarkupKind::Rectangle);
+
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+        });
+
+        assert_eq!(
+            tool::selected(&ctx),
+            tool::CanvasTool::Select,
+            "the pen must be put down"
+        );
+        assert!(
+            zoom::region_zoom_armed(&ctx),
+            "the armed zoom must SURVIVE: one press, one effect"
+        );
+        assert_eq!(
+            selection.level(),
+            SelectionLevel::Part,
+            "and the selection rung must be untouched"
+        );
+        assert!(actions.is_empty());
+    }
+
+    /// ★ **An Escape already spent abandoning a markup band does NOT also put
+    /// the pen down.**
+    ///
+    /// The sharpest form of one-press-one-effect for this feature: an operator
+    /// who mis-drags a rectangle and cancels it is still holding the rectangle
+    /// tool, so their next drag draws a rectangle. Retiring the tool as well
+    /// would make every abandoned drag cost a trip back to the ribbon.
+    #[test]
+    fn an_escape_spent_on_a_markup_drag_leaves_the_tool_armed() {
+        use crate::canvas::markup::MarkupKind;
+        use crate::canvas::tool;
+
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        tool::arm_markup(&ctx, MarkupKind::Ellipse);
+
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            // `true`: the gesture machine already spent the key cancelling the
+            // band, exactly as `canvas::interact` reports it.
+            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, true);
+        });
+
+        assert_eq!(
+            tool::selected(&ctx),
+            tool::CanvasTool::Markup(MarkupKind::Ellipse),
+            "the drag consumed the key; the tool must survive for the retry"
+        );
+        assert_eq!(selection.level(), SelectionLevel::Part);
+    }
+
+    /// …and with no markup armed, Escape reaches the zoom and then the ladder
+    /// exactly as it did before this claimant existed. Without this, the two
+    /// tests above would pass on a build where the markup claimant swallowed
+    /// every Escape.
+    #[test]
+    fn escape_still_reaches_the_zoom_and_the_ladder_with_no_markup_armed() {
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        zoom::arm_region_zoom(&ctx);
+
+        for _ in 0..2 {
+            let _ = ctx.run_ui(key(Key::Escape), |ui| {
+                canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            });
+        }
+
+        assert!(
+            !zoom::region_zoom_armed(&ctx),
+            "the first press took the zoom"
+        );
+        assert_eq!(
+            selection.level(),
+            SelectionLevel::Object,
+            "and the second reached the ladder"
+        );
     }
 
     /// ★ **A guide drag outranks an armed region zoom, and only one of the

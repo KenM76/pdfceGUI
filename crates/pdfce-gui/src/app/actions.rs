@@ -38,8 +38,9 @@
 //! ## Scope
 //!
 //! Zoom, page navigation, and — from stage S4 — **the actions that change the
-//! document**: [`Action::DeleteSelection`] and the three move verbs
-//! ([`Action::MoveSelection`], [`Action::MoveSubpath`], [`Action::MoveNode`]).
+//! document**: [`Action::DeleteSelection`], the three move verbs
+//! ([`Action::MoveSelection`], [`Action::MoveSubpath`], [`Action::MoveNode`])
+//! and, from Phase 6, [`Action::CommitMarkup`].
 //! Those are why this module has a mutation path, and the path is short and
 //! deliberately in one place; see [`vector_edit`], which every one of them goes
 //! through so the cancel-mutate-bump-invalidate protocol is written once rather
@@ -370,6 +371,54 @@ pub enum Action {
         node: usize,
         /// Where the anchor ends up, in PDF user space.
         to: pdfce_core::vector::Point,
+    },
+    /// **Author one markup annotation on `page`**, from the drag that drew it.
+    ///
+    /// Raised by [`crate::canvas::markup::drag`] when a markup band is
+    /// released, and by nothing else — there is no path from a ribbon button to
+    /// an annotation, which is the whole point of the substrate. A `markup.*`
+    /// command *arms a tool*; the tool draws; the drag raises this.
+    ///
+    /// # ★ Why that matters more here than for any other action
+    ///
+    /// The old shell had the other arrangement and it produced the defect the
+    /// markup work exists to fix: its `Action::AddMarkupShape` derived a
+    /// rectangle from the page's own media-box centre and inserted it, so the
+    /// shape appeared in the middle of the page *"no matter where the operator
+    /// had been pointing"*. The operator's report was exact — **"they just drop
+    /// things into the center of the pdf window."** An action that carries
+    /// geometry the operator never supplied is not a shortcut; it is the
+    /// feature not working, and it passes any test that asks whether an
+    /// annotation was added.
+    ///
+    /// # Units, and why the endpoints are RAW
+    ///
+    /// `start` and `end` are **PDF user-space** points, Y-**up**, produced by
+    /// [`crate::canvas::markup::endpoints`] — the one place a markup drag
+    /// crosses out of canvas space. They are the drag's endpoints **in drag
+    /// order**, deliberately un-normalised: for an arrow, `start` is the tail
+    /// and `end` is the head, and normalising them into a rectangle here would
+    /// silently reverse every arrow drawn up-and-left or up-and-right.
+    /// [`crate::canvas::markup::spec`] normalises per kind, at the one moment a
+    /// rectangle is actually needed, and carries the full argument.
+    ///
+    /// # Why the page travels
+    ///
+    /// The same reason it does on [`Self::DeleteSelection`]: an action is a
+    /// complete statement of intent, resolvable after the frame that raised it.
+    /// Re-deriving the page from `doc.view.page_index` in the apply would be a
+    /// second source of truth that is right until a page step raised in the
+    /// same frame is applied first.
+    CommitMarkup {
+        /// The 0-based page the annotation is authored onto.
+        page: usize,
+        /// Which shape — and therefore which `/Subtype`, pen and normalisation
+        /// rule. See [`crate::canvas::markup::spec`].
+        kind: crate::canvas::markup::MarkupKind,
+        /// Where the drag began, PDF user space. An arrow's **tail**.
+        start: (f64, f64),
+        /// Where the drag ended, PDF user space. An arrow's **head**.
+        end: (f64, f64),
     },
     /// Show or hide one optional-content group.
     ///
@@ -731,6 +780,34 @@ impl PdfceApp {
                     session.move_node(page, object, node, to)
                 });
             }
+            // ★ One markup annotation, through the same four-step protocol
+            // every other document change uses.
+            //
+            // The arm routes; it does not compute. `markup::spec` is a pure,
+            // unit-tested function of the kind and the two endpoints — which is
+            // where the per-kind normalisation rule lives, and where it must
+            // live, because "an arrow keeps its raw endpoints" is a rule with a
+            // test rather than a line of wiring.
+            //
+            // `.map(|_| Vec::new())` adapts `add_markup`'s `ObjId` to the
+            // disclosure list `vector_edit` traces, and the empty vec is a
+            // statement rather than a placeholder: authoring an annotation
+            // rewrites no existing operator, so there is nothing whose *form*
+            // changed and therefore nothing rule 4 obliges us to disclose. The
+            // new object's id is discarded because nothing here addresses it —
+            // the Comments panel that will is a separate surface with its own
+            // way of finding annotations on a page.
+            Action::CommitMarkup {
+                page,
+                kind,
+                start,
+                end,
+            } => {
+                let spec = crate::canvas::markup::spec(kind, start, end);
+                vector_edit(doc, "add-markup", page, 1, |session| {
+                    session.add_markup(page, &spec).map(|_| Vec::new())
+                });
+            }
             // ★ The three things a mode change does. See the variant's docs
             // for why each one is here and not somewhere more convenient.
             //
@@ -804,8 +881,20 @@ impl PdfceApp {
 
 /// Apply **one** vector-geometry edit to `doc`, as one undoable command.
 ///
-/// The shared body of every arm above that changes the document — Delete and
-/// the three move verbs. It exists as one function rather than four copies for
+/// The shared body of every arm above that changes the document — Delete, the
+/// three move verbs, and [`Action::CommitMarkup`].
+///
+/// **Markup joins it rather than getting its own copy**, and the name is now a
+/// little narrow for what it does. That is the better trade: `add_markup` needs
+/// the identical four steps in the identical order — the worker cancelled
+/// first, the mutation through `Arc::get_mut`, the epoch bumped so the canvas
+/// re-resolves and the raster is rebuilt, the texture dropped — and the only
+/// thing it does differently is return an `ObjId` where the vector verbs return
+/// a disclosure list. That is one `.map` at the call site, against a whole
+/// second hand-written copy of a protocol whose entire reason for existing is
+/// that four hand-written copies would be four chances to omit a step.
+///
+/// It exists as one function rather than five copies for
 /// the reason the ordering below is load-bearing: each of the four steps is a
 /// separate way to end up with an edit that is silently declined or a page that
 /// silently keeps drawing what was just changed, and four hand-written copies

@@ -621,6 +621,53 @@ pub fn chrome_for_command(id: &str) -> Option<crate::app::actions::ViewChrome> {
         .find(|&c| chrome_command(c) == id)
 }
 
+/// The command id that arms `kind`.
+///
+/// The **single** binding between a `markup.*` id and a
+/// [`crate::canvas::markup::MarkupKind`], in the shape [`chrome_command`]
+/// established and for the same reason: a match here plus a derived inverse
+/// cannot disagree, where two hand-written tables can.
+///
+/// ## Why these four and not the ten `RIBBON_IA.md` §5.5 names
+///
+/// [`crate::canvas::markup::MarkupKind`] enumerates what the rubber-band
+/// gesture can draw and the engine can author — nothing else. Underline,
+/// strikeout and squiggly mark **text** and need a text-selection gesture
+/// that does not exist; polygon, polyline and ink are not drag-shaped;
+/// clouds are blocked on `MarkupSpec::Cloud`, which pdfce accepted on
+/// 2026-08-14 and has not started.
+///
+/// Declaring the other six here early would put six dead arms in a type
+/// whose job is to say what the tool is doing — the same argument the old
+/// shell made about its own tool enum, applied at the gesture boundary.
+/// They arrive with the gestures that can draw them.
+#[must_use]
+pub fn markup_command(kind: crate::canvas::markup::MarkupKind) -> &'static str {
+    use crate::canvas::markup::MarkupKind as K;
+    match kind {
+        // ui-text-exempt: command ids, never displayed
+        K::Rectangle => "markup.rectangle",
+        // ui-text-exempt: command ids, never displayed
+        K::Ellipse => "markup.ellipse",
+        // ui-text-exempt: command ids, never displayed
+        K::Arrow => "markup.arrow",
+        // ui-text-exempt: command ids, never displayed
+        K::Highlight => "markup.highlight",
+    }
+}
+
+/// The markup kind `id` arms, or `None` if it names none.
+///
+/// Derived from [`markup_command`] rather than written out a second time, so
+/// the two cannot disagree even in principle.
+#[must_use]
+pub fn markup_for_command(id: &str) -> Option<crate::canvas::markup::MarkupKind> {
+    crate::canvas::markup::MarkupKind::ALL
+        .iter()
+        .copied()
+        .find(|&k| markup_command(k) == id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -674,6 +721,56 @@ mod tests {
         // page-display click from toggling a ruler.
         assert_eq!(chrome_for_command("view.page_single"), None);
         assert_eq!(page_display_for_command("view.rulers"), None);
+    }
+
+    /// ★ **Every markup kind the canvas can draw has a registered command,
+    /// and no other mapping claims a `markup.*` id.**
+    ///
+    /// The third of this family, and the one with the most room to go wrong,
+    /// because the kinds and the commands were built by different hands: the
+    /// canvas enumerates what the *gesture* can draw, the manifest enumerates
+    /// what `RIBBON_IA.md` §5.5 *names*, and those two sets are deliberately
+    /// different sizes today — ten names, four kinds. This asserts the four
+    /// are a genuine subset and reach real controls, not that the sets match.
+    ///
+    /// The failure it exists to catch is a fifth kind added to `MarkupKind`
+    /// with no registration: a tool an operator could not arm, which is
+    /// precisely the class of half-built surface `panels`' header is about.
+    /// Asserted against the **live registry** rather than the mapping's own
+    /// table — the difference between the code agreeing with itself and the
+    /// control existing.
+    #[test]
+    fn every_markup_kind_has_a_registered_command() {
+        let reg = registry();
+        for &kind in crate::canvas::markup::MarkupKind::ALL {
+            let id = markup_command(kind);
+            assert!(
+                reg.get(id).is_some(),
+                "`{id}` names {kind:?} and is not registered"
+            );
+            assert_eq!(markup_for_command(id), Some(kind), "round trip");
+        }
+        let mut ids: Vec<&str> = crate::canvas::markup::MarkupKind::ALL
+            .iter()
+            .map(|&k| markup_command(k))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            crate::canvas::markup::MarkupKind::ALL.len(),
+            "two kinds sharing one id would arm the wrong tool from one button"
+        );
+        // …and no other mapping answers to a markup id, nor this one to
+        // theirs. The dispatch arm for markup is a GUARD arm — `id if
+        // markup_for_command(id).is_some()` — so an overlap here would not
+        // merely confuse a lookup, it would swallow another command's arm
+        // entirely, and the arm it swallowed would simply stop happening.
+        assert_eq!(markup_for_command("view.rulers"), None);
+        assert_eq!(markup_for_command("view.tool_hand"), None);
+        assert_eq!(markup_for_command("markup.comments"), None);
+        assert_eq!(chrome_for_command("markup.rectangle"), None);
+        assert_eq!(page_display_for_command("markup.rectangle"), None);
     }
 
     /// ★ **Every page-display mode has a registered command, and every one of

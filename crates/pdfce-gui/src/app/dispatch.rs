@@ -203,6 +203,31 @@ impl PdfceApp {
             "view.tool_hand" => {
                 let _ = crate::canvas::tool::toggle_hand(ctx);
             }
+            // ★ **The markup shape tools — one arm for all four.**
+            //
+            // The same shape as the page-display radio below, for the same
+            // reason: the id *is* the operand, and
+            // `crate::shell::commands::markup_for_command` is the single
+            // binding between an id and a kind. Four literal arms would be
+            // four places to forget the fifth.
+            //
+            // **It arms a tool; it authors nothing.** The canvas draws the
+            // band, the release raises `Action::CommitMarkup`, and pressing
+            // the armed button again puts the pen down — `arm_markup`
+            // toggles on the same kind and re-arms on a different one, so a
+            // second press of Rectangle leaves the select tool rather than
+            // arming Rectangle twice.
+            //
+            // The returned tool is discarded for the reason the `tool_hand`
+            // arm above states: the pressed state is published from
+            // `conditions` by asking `tool::selected`, never from a copy
+            // kept on the app. A shadow copy is how a ribbon comes to say
+            // Rectangle while the canvas is selecting.
+            id if crate::shell::commands::markup_for_command(id).is_some() => {
+                if let Some(kind) = crate::shell::commands::markup_for_command(id) {
+                    let _ = crate::canvas::tool::arm_markup(ctx, kind);
+                }
+            }
             // ★ **The four positions of View ▸ Page display.**
             //
             // One arm for the whole radio, because the id *is* the operand:
@@ -339,6 +364,26 @@ impl PdfceApp {
             // `crate::panels::Panel::command_id` is the one place that
             // binding is written down.
             "file.properties" => self.show_panel(crate::panels::Panel::Properties),
+            // ★ The Comments panel, and its id is the interesting part.
+            //
+            // `markup.comments` rather than `view.panel_comments`, which is
+            // what `crate::app::modes::defaults` named for the whole time the
+            // panel did not exist. `RIBBON_IA.md` §5.2 lists Comments among
+            // View ▸ Panels' toggles AND §5.5 gives Markup a `Comments` group;
+            // §7's migration map settles it by naming the control —
+            // `Review ▸ Comments ▸ Comments` → `Markup ▸ Comments`. A ruling
+            // about one control beats a list that merely contains its name.
+            //
+            // Unlike `view.panel_forms`, this needed no move and no tab
+            // argument: Comments mounts in Review and Edit only, and both are
+            // shown the `markup` tab, so no mode can mount this panel without
+            // being able to reopen it. Forms had the opposite problem.
+            //
+            // The command has been registered and drawn since the Markup tab
+            // was built (`shell::commands`, token 540) with nothing behind it.
+            // This arm is the body arriving, which is why none of the five
+            // registration obligations apply here.
+            "markup.comments" => self.show_panel(crate::panels::Panel::Comments),
             // ★ Reset layout. `ResetScope::All`, and the scope is a decision.
             //
             // `RIBBON_IA.md`'s rule is why a scope exists at all: *"an

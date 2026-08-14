@@ -80,16 +80,28 @@
 //!
 //! ## ★ Panels this build does not have
 //!
-//! The defaults above name `view.panel_pages` and `view.panel_comments`.
-//! **Comments has no panel at all** — see [`ABSENT_PANELS`]. **Pages now
-//! has one** (`crate::panels::Panel::Pages`) and is *still* not mounted,
-//! because its ribbon command is not registered and
-//! `crate::app::PdfceApp::new` registers a panel only if its command is.
+//! **As of 2026-08-14, none — and [`ABSENT_PANELS`] is empty.** Both entries
+//! that lived there have now landed, and the pair is worth keeping in view
+//! because they failed in *opposite* directions and the same mechanism
+//! caught both.
 //!
-//! Both are the `SHELL_FRAMEWORK.md` §5b mechanism rather than an oversight,
-//! and the pair is worth keeping in view because they are the two halves of
-//! the same rule: [`layout_for_build`] filters every default through the
-//! live [`PanelCatalog`], so an id nothing registers is simply not mounted —
+//! **Comments** (`markup.comments`) was declared absent with the reason
+//! *"annotation authoring does not exist yet, so neither does the panel that
+//! lists comments"*. That was wrong on its merits: listing what a document
+//! already carries needs no authoring, and the panel shipped against
+//! `pdfce_core::annot` while this shell still cannot place a single markup.
+//! A blocker recorded from the wrong end held back a surface that was never
+//! blocked. Note also that the id changed — the defaults named
+//! `view.panel_comments` for the whole time nothing implemented it, and
+//! `RIBBON_IA.md` §7's migration map puts the control on Markup ▸ Comments.
+//! An id no code has ever resolved is a guess, and this one was wrong.
+//!
+//! **Pages** went the other way: the body existed and the *command* did not,
+//! so it was correctly not an absent panel and still not reachable.
+//!
+//! Both are the `SHELL_FRAMEWORK.md` §5b mechanism rather than an oversight:
+//! [`layout_for_build`] filters every default through the live
+//! [`PanelCatalog`], so an id nothing registers is simply not mounted —
 //! whether what is missing is the body or the command.
 //!
 //! Writing the *intended* arrangement and filtering it is strictly better
@@ -140,13 +152,31 @@ pub const ABSENT_PANELS: &[(&str, &str)] = &[
     // through the live catalog, so the panel appears in all three defaults on
     // the frame the command is registered and this file is untouched — which
     // is what this whole mechanism was for.
-    (
-        "view.panel_comments",
-        // ui-text-exempt: developer note about an ABSENT panel; never rendered.
-        "N — annotation authoring does not exist yet, so neither does the panel that \
-         lists comments. It is what Review's right dock is FOR, per Part 1's table, \
-         so the arrangement names it and mounts nothing until it is real.",
-    ),
+    // ★ `view.panel_comments` was the last entry, and it is gone for the
+    // reason this list predicted of itself. It read:
+    //
+    //   "N — annotation authoring does not exist yet, so neither does the
+    //    panel that lists comments. It is what Review's right dock is FOR,
+    //    per Part 1's table, so the arrangement names it and mounts nothing
+    //    until it is real."
+    //
+    // `crate::panels::Panel::Comments` landed 2026-08-14 and the panel is
+    // reachable, so the entry had to go or
+    // `every_default_panel_is_registered_or_declared_absent` would fail from
+    // the other direction — exactly as it did for `view.panel_pages` before
+    // it, and exactly as the doc comment above promised.
+    //
+    // Note the reason was ALSO wrong on its merits, and that is worth more
+    // than the entry was. It said the panel waits on annotation *authoring*.
+    // It did not: listing what a document already carries needs no authoring
+    // at all, and the panel shipped against `pdfce_core::annot` while this
+    // shell still cannot place a single markup. A blocker recorded from the
+    // wrong end delayed a surface that was never blocked.
+    //
+    // **The list is now empty, and empty is a valid state** — it means every
+    // panel the defaults name exists. Do not delete the list: it is the
+    // discipline, not the entries, and the next intended-but-unbuilt panel
+    // belongs here rather than in a document nobody re-reads.
 ];
 
 /// One side's default arrangement: a list of stacks, each a list of tabs.
@@ -179,8 +209,23 @@ struct ModeSpec {
     right_width: f32,
 }
 
-/// The Comments panel's id. Absent from this build — see [`ABSENT_PANELS`].
-const COMMENTS: &str = "view.panel_comments";
+/// The Comments panel's id.
+///
+/// ★ **Was `const COMMENTS: &str = "view.panel_comments"` until 2026-08-14**,
+/// when the panel landed — and both halves of that line were wrong by then,
+/// which is why this is a function like [`pages`] rather than a corrected
+/// constant.
+///
+/// The *value* was wrong: the panel's command is `markup.comments`, because
+/// `RIBBON_IA.md` §7's migration map sends the control to Markup ▸ Comments
+/// by name, and a ruling about one control beats §5.2's list that merely
+/// contains its name. The *form* was wrong for the reason [`pages`] records:
+/// a literal here is a second spelling of an id that
+/// [`Panel::command_id`] already owns, kept in step by a test instead of by
+/// construction. Asking the panel is how the two cannot drift.
+fn comments() -> &'static str {
+    Panel::Comments.command_id()
+}
 
 /// The Pages panel's id.
 ///
@@ -316,7 +361,7 @@ fn spec(mode_id: &str) -> ModeSpec {
         "review" => ModeSpec {
             left: vec![vec![pages(), Panel::Bookmarks.command_id()]],
             right: vec![vec![
-                COMMENTS,
+                comments(),
                 Panel::Properties.command_id(),
                 Panel::Forms.command_id(),
             ]],
@@ -343,7 +388,7 @@ fn spec(mode_id: &str) -> ModeSpec {
                 vec![Panel::Objects.command_id()],
                 vec![
                     Panel::Properties.command_id(),
-                    COMMENTS,
+                    comments(),
                     Panel::Forms.command_id(),
                 ],
             ],
@@ -463,7 +508,7 @@ mod tests {
                 .map(PanelId::as_str)
                 .collect::<Vec<_>>(),
             [
-                COMMENTS,
+                comments(),
                 Panel::Properties.command_id(),
                 Panel::Forms.command_id()
             ],
@@ -565,6 +610,18 @@ mod tests {
             "a panel the catalog does not hold must not be mounted"
         );
 
+        // ★ This assertion used to read "Comments went; Properties and Forms
+        // stayed", and Comments going was the *point* of it — the panel was
+        // declared in `ABSENT_PANELS`, so a real absent panel demonstrated
+        // the filtering against the real registry.
+        //
+        // The Comments panel landed 2026-08-14 and `ABSENT_PANELS` is now
+        // empty, so **nothing real is filtered here any more**. That is a
+        // better state to be in and a weaker test, and both halves are worth
+        // saying: the property is still proven above, by the constructed
+        // `without_pages` registry, which is the form it must keep now that
+        // there is no absent panel to borrow. If a future panel is declared
+        // absent, this is the assertion that will notice.
         let review = layout_for_build("review", &registry);
         assert_eq!(
             review
@@ -572,8 +629,12 @@ mod tests {
                 .panels()
                 .map(PanelId::as_str)
                 .collect::<Vec<_>>(),
-            [Panel::Properties.command_id(), Panel::Forms.command_id()],
-            "Comments went; Properties and Forms stayed"
+            [
+                comments(),
+                Panel::Properties.command_id(),
+                Panel::Forms.command_id()
+            ],
+            "every panel Review's default names now exists, so none is filtered"
         );
 
         // Read's whole left side is Pages + Bookmarks. A build with neither

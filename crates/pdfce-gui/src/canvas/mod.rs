@@ -191,6 +191,9 @@ pub mod input;
 // needs a window.
 pub mod keys;
 pub mod mapping;
+// Drawing a markup annotation where the operator points: the rubber band, the
+// four kinds it can author, and the raw endpoints an arrow's head depends on.
+pub mod markup;
 pub mod menus;
 // Dragging a selection: which verb each rung reaches, the canvas→page delta,
 // and the ghost's honesty rule. Kept out of `selection` deliberately — that
@@ -223,7 +226,7 @@ use egui_shell::HandlerToken;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
-use crate::canvas::gesture::{DragKind, GestureOutcome, MarqueeIntent, Phase, PointerFrame};
+use crate::canvas::gesture::{GestureOutcome, MarqueeIntent, Phase, PointerFrame};
 use crate::canvas::input::{load_gesture, pan_delta, probe, store_gesture};
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::rulers::CanvasGeometry;
@@ -1088,6 +1091,13 @@ fn interact(
             clicked: response.clicked_by(PointerButton::Primary),
             double_clicked: response.double_clicked_by(PointerButton::Primary),
             pos: screen_pos.map(|p| map.to_page(p)),
+            // ★ Where the button actually went down, through the frame's ONE
+            // map. Without it every drag begins wherever the pointer had got to
+            // by the frame egui called it a drag — measured at 94 page points
+            // on an A1 sheet. See `gesture::PointerFrame::press_origin`.
+            press_origin: ctx
+                .input(|i| i.pointer.press_origin())
+                .map(|p| map.to_page(p)),
             shift,
             // Escape reaches the gesture machine BEFORE it reaches the ladder,
             // so a drag in flight can abandon itself. The machine consumes the
@@ -1099,20 +1109,16 @@ fn interact(
 
     // ---- 2. what a press would land on -------------------------------
     //
-    // The marquee's INTENT is sampled here, at press time, alongside what the
-    // press landed on — see `gesture`'s header on why a release must not
-    // re-read it. A grip drag is never a zoom: the grips belong to a selection,
-    // and a region zoom is about the paper.
+    // The armed tool and the marquee's INTENT are sampled here, at press time,
+    // alongside what the press landed on — see `gesture`'s header on why a
+    // release must not re-read either. The precedence between the four answers
+    // lives in `gesture::press_kind`, which is pure and tested; this is the one
+    // call that supplies it with the frame's facts.
     let grip_box = overlay::grip_box(map, &selection);
     let hovered_grip = grip_box
         .zip(screen_pos)
         .and_then(|(bounds, p)| handles::grip_at(bounds, p));
-    let press_kind = match hovered_grip {
-        Some(grip) if grip.is_resize() => DragKind::Resize(grip),
-        Some(_) => DragKind::Move,
-        None if zoom::region_zoom_armed(&ctx) => DragKind::Marquee(MarqueeIntent::Zoom),
-        None => DragKind::Marquee(MarqueeIntent::Select),
-    };
+    let press_kind = gesture::press_kind(active_tool, hovered_grip, zoom::region_zoom_armed(&ctx));
 
     // ---- 3. advance the gesture --------------------------------------
     let outcome = gestures.update(frame, press_kind);
@@ -1181,6 +1187,7 @@ fn interact(
     // ---- 5. apply the gesture -----------------------------------------
     let mut marquee = None;
     let mut ghost = None;
+    let mut band = None;
     let mut zoom_region = None;
     match outcome {
         GestureOutcome::Click {
@@ -1251,6 +1258,30 @@ fn interact(
                 &selection,
                 page_index,
                 targets.as_deref(),
+                doc.current_page(),
+                actions,
+            );
+        }
+        // ★ The markup band. `markup::drag` owns every rule — the canvas→page
+        // conversion, the degenerate-drag refusal, which endpoints stay raw —
+        // and hands back a band only when the release would commit, which is
+        // the same honesty contract the move ghost is held to. Nothing about a
+        // markup is decided here: this arm is wiring, and the rules are
+        // unit-tested without a window in `markup`. Note what it does NOT need:
+        // a decomposition. A markup hit-tests nothing, which is why this
+        // outcome is absent from `needs_targets` above.
+        GestureOutcome::Markup {
+            kind,
+            from,
+            to,
+            phase,
+        } => {
+            band = markup::drag(
+                kind,
+                from,
+                to,
+                phase,
+                page_index,
                 doc.current_page(),
                 actions,
             );
@@ -1426,44 +1457,28 @@ fn interact(
     if let Some(delta) = ghost {
         overlay::draw_move_ghost(&painter, ui.visuals(), map, &selection, delta);
     }
+    // Last, and over everything: the band IS the cursor for as long as it
+    // exists, and a guide or an outline drawn over the shape being authored
+    // would obscure the one thing the operator is aiming.
+    if let Some(band) = band {
+        markup::draw_preview(&painter, map, band);
+    }
 
-    // The cursor states what the gesture is, and an in-flight gesture keeps
-    // its own cursor even once the pointer has wandered off the thing it
-    // started on — otherwise a drag that outruns its object looks like it
-    // stopped working.
-    //
-    // ★ The hand comes first, and it is the whole of "the cursor must change,
-    // and must change back". It changes because this branch is taken while the
-    // tool is active; it changes back because the branch is re-evaluated every
-    // frame from `tool::active` and there is no stored cursor to restore. A
-    // dropped key-up costs one frame of hand, not a canvas stuck showing a
-    // grab cursor over a select tool.
-    //
-    // Measured against `clip` — the scroll VIEWPORT — rather than the page's
-    // own rect, because the hand pans the grey surround as readily as the
-    // paper, and a hand tool that shows no hand over half the canvas reads as
-    // a tool that is not armed.
-    let hand_dragging = ctx.input(|i| i.pointer.primary_down() || i.pointer.middle_down());
+    // ★ The cursor — the whole precedence in one pure function, in `tool`,
+    // where the first rung of it already lived. See [`tool::cursor_for`]; this
+    // is only the gathering of the four facts that are knowable nowhere but
+    // here. `clip` is the scroll VIEWPORT rather than the page's rect, because
+    // the hand pans the grey surround as readily as the paper.
+    let pointer_down = ctx.input(|i| i.pointer.primary_down() || i.pointer.middle_down());
     let over_canvas = ctx.pointer_latest_pos().is_some_and(|p| clip.contains(p));
-    if let Some(icon) = active_tool
-        .cursor(hand_dragging)
-        .filter(|_| over_canvas || hand_dragging)
-    {
+    if let Some(icon) = tool::cursor_for(
+        active_tool,
+        gestures.active(),
+        hovered_grip.filter(|_| response.hovered()),
+        pointer_down,
+        over_canvas,
+    ) {
         ctx.set_cursor_icon(icon);
-    } else if let Some(kind) = gestures.active() {
-        ctx.set_cursor_icon(match kind {
-            // One crosshair for both intents: the band is the same band and
-            // `gesture`'s header refuses a second set of pixels for it. What
-            // tells the operator a zoom is armed is the ribbon control that
-            // armed it, off-canvas, where a mode indicator belongs.
-            DragKind::Marquee(_) => egui::CursorIcon::Crosshair,
-            DragKind::Move => egui::CursorIcon::Grabbing,
-            DragKind::Resize(grip) => grip.cursor(),
-        });
-    } else if response.hovered()
-        && let Some(grip) = hovered_grip
-    {
-        ctx.set_cursor_icon(grip.cursor());
     }
 
     let count = selection.len();
