@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 
 use super::skip::{LayoutSite, LayoutSkipReason, LoadReport};
 use super::{LayoutDocument, Scope, sanitize};
-use crate::dock::model::{DockLayout, PanelCatalog};
+use crate::dock::model::{DockLayout, PanelCatalog, PanelId};
 
 /// One named arrangement.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -62,6 +62,44 @@ pub struct Workspace {
     pub name: String,
     /// The arrangement it restores.
     pub layout: DockLayout,
+    /// **Which panels existed when this arrangement was saved.**
+    ///
+    /// Not the panels it *mounts* — the panels the application had
+    /// registered at the moment it was written, mounted or not. That
+    /// distinction is the whole point: it is what lets a later load tell
+    /// *"the operator closed this"* from *"this did not exist yet"*, two
+    /// states that are otherwise identical in a saved layout.
+    ///
+    /// # The defect this exists to fix
+    ///
+    /// A consumer that adds a panel in a new release ships it **invisible
+    /// to everyone who already uses the program**. Their saved layout does
+    /// not mount it, so it is not shown; and it is not shown, so nobody
+    /// finds out. Worse, the usual advice for a portable build — *replace
+    /// the binary, keep your settings* — is exactly what preserves the
+    /// stale layout, so the more carefully an operator upgrades, the more
+    /// reliably they miss the new feature.
+    ///
+    /// Neither obvious fix works. Forcing the default arrangement over a
+    /// remembered one discards the operator's own work, which is the
+    /// entire feature this module exists to provide. Leaving it means
+    /// every panel added from now on is born hidden.
+    ///
+    /// # `None` means "written before anyone recorded this"
+    ///
+    /// Deliberately an `Option`, not an empty `Vec`. An empty set is a
+    /// real, different answer — *"no panels were registered"* — and
+    /// conflating the two would make every panel look new to every old
+    /// file, re-opening panels the operator had deliberately closed. That
+    /// is a worse bug than the one being fixed, because it undoes a
+    /// decision the operator actually made.
+    ///
+    /// [`LayoutDocument::unseen_panels`] reports the distinction rather
+    /// than resolving it: what to do about `None` is a product decision
+    /// about a specific application's upgrade path, and this crate does
+    /// not have the standing to make it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_panels: Option<Vec<PanelId>>,
 }
 
 impl Workspace {
@@ -71,8 +109,48 @@ impl Workspace {
         Self {
             name: name.into(),
             layout,
+            known_panels: None,
         }
     }
+
+    /// Record which panels existed when this arrangement was saved.
+    ///
+    /// A consumer calls this with **every id it has registered**, not with
+    /// the ids the layout mounts. See [`Self::known_panels`].
+    #[must_use]
+    pub fn knowing(mut self, registered: impl IntoIterator<Item = PanelId>) -> Self {
+        let mut ids: Vec<PanelId> = registered.into_iter().collect();
+        // Sorted and deduplicated so the serialized form is stable: a file
+        // that reordered its own list every save would produce a diff on
+        // every write and make a real change impossible to spot in one.
+        ids.sort();
+        ids.dedup();
+        self.known_panels = Some(ids);
+        self
+    }
+}
+
+/// What a workspace can say about panels registered *now*.
+///
+/// Returned by [`LayoutDocument::unseen_panels`], which reports rather than
+/// decides — see [`Workspace::known_panels`] for why the decision is the
+/// application's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unseen {
+    /// The workspace predates the record, so nothing can be concluded.
+    ///
+    /// **Not the same as `New(vec![])`.** That would say "every registered
+    /// panel was already known", which is a claim; this says there is no
+    /// evidence either way. An application deciding what to do here is
+    /// choosing a one-time upgrade policy, and the two cases want opposite
+    /// answers: `New(vec![])` means do nothing, `Unknown` means decide.
+    Unknown,
+    /// These registered panels did not exist when the workspace was saved.
+    ///
+    /// Empty when the application has registered nothing the workspace had
+    /// not already seen — the ordinary case on every launch after the
+    /// first.
+    New(Vec<PanelId>),
 }
 
 impl LayoutDocument {
@@ -114,6 +192,73 @@ impl LayoutDocument {
             .iter()
             .find(|w| w.name == name)
             .map(|w| &w.layout)
+    }
+
+    /// **Which currently-registered panels a saved workspace has never
+    /// seen.**
+    ///
+    /// `registered` is every panel id the application has registered right
+    /// now — not the ids the layout mounts, and not the ids it *would*
+    /// mount by default. The comparison is against what EXISTED, which is
+    /// the only thing that separates "closed on purpose" from "did not
+    /// exist yet".
+    ///
+    /// Returns [`Unseen::Unknown`] for a workspace saved before the record
+    /// existed, and for a name that is not in the store at all — in both
+    /// cases the honest answer is that this document cannot say. A caller
+    /// that wants to distinguish them can check
+    /// [`Self::workspace`] first.
+    ///
+    /// # This reports; it does not act
+    ///
+    /// Consistent with [`Self::workspace`] returning a reference rather
+    /// than applying it: the store does not own the live state, and a
+    /// method here that mounted a panel would be a second path by which
+    /// the arrangement changes. What to do with the answer — mount it,
+    /// mention it in a status line, ignore it — is the application's, and
+    /// it is a product decision rather than a framework one.
+    #[must_use]
+    pub fn unseen_panels(&self, name: &str, registered: &[PanelId]) -> Unseen {
+        let Some(workspace) = self.workspaces.iter().find(|w| w.name == name) else {
+            return Unseen::Unknown;
+        };
+        let Some(known) = &workspace.known_panels else {
+            return Unseen::Unknown;
+        };
+        Unseen::New(
+            registered
+                .iter()
+                .filter(|id| !known.contains(id))
+                .cloned()
+                .collect(),
+        )
+    }
+
+    /// Stamp `name` with the panels registered now, without touching its
+    /// arrangement.
+    ///
+    /// For the moment **after** an application has acted on an
+    /// [`Unseen`] answer: having decided what to do about the new panels,
+    /// it records that it has seen them, so the next launch reports
+    /// `New(vec![])` rather than offering the same ones again.
+    ///
+    /// Separate from [`Self::save_workspace`] because the two happen at
+    /// different times and for different reasons — saving is the operator
+    /// rearranging something, stamping is the application acknowledging a
+    /// release. Folding them together would mean an application could only
+    /// record what it had seen by also rewriting a layout it had no reason
+    /// to touch.
+    ///
+    /// Returns whether the workspace existed.
+    pub fn mark_panels_seen(&mut self, name: &str, registered: &[PanelId]) -> bool {
+        let Some(workspace) = self.workspaces.iter_mut().find(|w| w.name == name) else {
+            return false;
+        };
+        let mut ids = registered.to_vec();
+        ids.sort();
+        ids.dedup();
+        workspace.known_panels = Some(ids);
+        true
     }
 
     /// Every workspace name, in the order they were first saved.
@@ -402,6 +547,143 @@ mod tests {
             LayoutDocument::new(one("pages"))
                 .workspace_names()
                 .is_empty()
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // known_panels — telling "closed on purpose" from "did not exist yet"
+    // -----------------------------------------------------------------
+
+    fn ids(names: &[&str]) -> Vec<PanelId> {
+        names.iter().map(|n| PanelId::new(*n)).collect()
+    }
+
+    /// ★ **`Unknown` and `New(vec![])` are different answers.**
+    ///
+    /// The single most important property here, because collapsing them is
+    /// the tempting simplification and it is the one that reintroduces a
+    /// worse bug than the one this fixes. `New(vec![])` says *every
+    /// registered panel was already known* — act on nothing. `Unknown` says
+    /// *this file predates the record* — there is no evidence, decide.
+    ///
+    /// If `Unknown` were represented as an empty list, every workspace
+    /// written before this field existed would report "nothing is new",
+    /// and the upgrade case this whole mechanism exists for would silently
+    /// do nothing. If instead it were represented as "everything is new",
+    /// every panel the operator had deliberately closed would spring back
+    /// open — undoing a decision they actually made.
+    #[test]
+    fn an_unstamped_workspace_is_unknown_not_empty() {
+        let mut doc = LayoutDocument::default();
+        doc.save_workspace("mode:read", DockLayout::default());
+        assert_eq!(
+            doc.unseen_panels("mode:read", &ids(&["pages", "bookmarks"])),
+            Unseen::Unknown,
+            "a workspace saved without a stamp cannot report what it knew"
+        );
+        assert_ne!(
+            doc.unseen_panels("mode:read", &ids(&["pages"])),
+            Unseen::New(Vec::new()),
+            "Unknown must not be confused with 'nothing is new'"
+        );
+    }
+
+    /// A stamped workspace names exactly the panels registered since.
+    #[test]
+    fn a_stamped_workspace_reports_only_what_it_never_saw() {
+        let mut doc = LayoutDocument::default();
+        doc.save_workspace("mode:read", DockLayout::default());
+        doc.mark_panels_seen("mode:read", &ids(&["bookmarks", "layers"]));
+
+        assert_eq!(
+            doc.unseen_panels("mode:read", &ids(&["bookmarks", "layers"])),
+            Unseen::New(Vec::new()),
+            "nothing registered since the stamp"
+        );
+        assert_eq!(
+            doc.unseen_panels("mode:read", &ids(&["bookmarks", "layers", "pages"])),
+            Unseen::New(ids(&["pages"])),
+            "a panel registered after the stamp is the one reported"
+        );
+    }
+
+    /// A panel the operator CLOSED is not reported as new.
+    ///
+    /// The behaviour the whole design is for, stated as a test rather than
+    /// left to follow from the definition: `known_panels` records what
+    /// EXISTED, not what was mounted, so a panel that was registered and
+    /// deliberately left out of the arrangement is known — and stays out.
+    #[test]
+    fn a_panel_the_operator_closed_stays_closed() {
+        let mut doc = LayoutDocument::default();
+        // An arrangement mounting nothing at all: the operator closed
+        // every panel. All three were registered when they did it.
+        doc.save_workspace("mode:read", DockLayout::default());
+        doc.mark_panels_seen("mode:read", &ids(&["bookmarks", "layers", "pages"]));
+        assert_eq!(
+            doc.unseen_panels("mode:read", &ids(&["bookmarks", "layers", "pages"])),
+            Unseen::New(Vec::new()),
+            "an empty arrangement must not make every panel look new"
+        );
+    }
+
+    /// An absent workspace answers `Unknown`, not an empty list.
+    #[test]
+    fn a_workspace_that_is_not_there_is_unknown() {
+        let doc = LayoutDocument::default();
+        assert_eq!(
+            doc.unseen_panels("mode:nope", &ids(&["pages"])),
+            Unseen::Unknown
+        );
+    }
+
+    /// The stamp is sorted and deduplicated, so a save does not churn the
+    /// file.
+    ///
+    /// A list that reordered itself on every write would produce a diff
+    /// every time and make a real change impossible to spot in one.
+    #[test]
+    fn the_stamp_is_stable_regardless_of_registration_order() {
+        let mut a = LayoutDocument::default();
+        a.save_workspace("w", DockLayout::default());
+        a.mark_panels_seen("w", &ids(&["pages", "bookmarks", "pages"]));
+
+        let mut b = LayoutDocument::default();
+        b.save_workspace("w", DockLayout::default());
+        b.mark_panels_seen("w", &ids(&["bookmarks", "pages"]));
+
+        assert_eq!(a.workspaces, b.workspaces);
+    }
+
+    /// `mark_panels_seen` reports an absent workspace rather than creating
+    /// one.
+    #[test]
+    fn stamping_a_missing_workspace_says_so_and_creates_nothing() {
+        let mut doc = LayoutDocument::default();
+        assert!(!doc.mark_panels_seen("mode:read", &ids(&["pages"])));
+        assert!(doc.workspace_names().is_empty());
+    }
+
+    /// An old file with no `known_panels` key still loads, and reports
+    /// `Unknown`.
+    ///
+    /// The compatibility property the `#[serde(default)]` buys, asserted
+    /// against real serialized text rather than against a constructed
+    /// value — a `Default` impl cannot prove that a file written by an
+    /// older build parses.
+    #[test]
+    fn a_file_written_before_this_field_still_loads() {
+        let mut old = LayoutDocument::default();
+        old.save_workspace("mode:read", DockLayout::default());
+        let text = ron::ser::to_string(&old).expect("serializes");
+        assert!(
+            !text.contains("known_panels"),
+            "an unstamped workspace must not write the key at all: {text}"
+        );
+        let back: LayoutDocument = ron::from_str(&text).expect("parses");
+        assert_eq!(
+            back.unseen_panels("mode:read", &ids(&["pages"])),
+            Unseen::Unknown
         );
     }
 }

@@ -123,7 +123,7 @@ use crate::dock::model::{DockLayout, DockSide, PanelCatalog, PanelId, SideLayout
 
 pub use reset::ResetScope;
 pub use skip::{LayoutSite, LayoutSkip, LayoutSkipReason, LoadReport};
-pub use workspaces::Workspace;
+pub use workspaces::{Unseen, Workspace};
 
 /// Why a layout could not be written.
 ///
