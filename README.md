@@ -1,39 +1,31 @@
 # pdfceGUI — GUI design and remediation workspace
 
-Design work for the **`D:\Dev\pdfce`** GUI (`crates/pdfce-gui`). This
-folder holds specifications, diagnoses and mockups. It contains no code;
-the code lives in the pdfce repo.
+The **GUI rebuild** for **`D:\Dev\pdfce`**: a new `pdfce-gui` crate that
+will replace `D:\Dev\pdfce\crates\pdfce-gui\` when complete, built on a
+new reusable `egui-shell` crate that knows nothing about PDF and will be
+extracted for use by other projects.
 
-Started 2026-08-12, after a comparison of pdfce against **Open PDF
-Studio 1.82.0** (openaec / OpenAEC Foundation, LGPL, Tauri 2 + SolidJS
-over a multi-process PDFium worker pool) installed on this machine.
+Started 2026-08-12 as a design workspace, after a comparison of pdfce
+against **Open PDF Studio 1.82.0** (openaec / OpenAEC Foundation, LGPL,
+Tauri 2 + SolidJS over a multi-process PDFium worker pool) installed on
+this machine. It became the code on 2026-08-13.
 
-## The project
-
-This folder is the home of the **GUI rebuild**: a new `pdfce-gui` crate
-that will replace `D:\Dev\pdfce\crates\pdfce-gui\` when complete, built
-on a new reusable `egui-shell` crate that will be extracted for use by
-other projects.
-
-**Started 2026-08-13. S0 and S1 are done.**
+**➡ New session? Read `HANDOFF.md` first.**
 
 ```
-cargo build --workspace        # green
-cargo test --workspace         # 166 tests, 0 failed
-bash tools/gates/run-all.sh    # 6 passed, 0 failed, 0 skipped
+cargo test --workspace         # 1,183 tests, 0 failed
+bash tools/gates/run-all.sh    # 8 passed, 0 failed, 0 skipped
 ```
 
-- **S0** — `target/release/pdfce-gui.exe` opens a PDF and renders it.
-  1,193 ms first raster on the 5.6 MB benchmark CAD drawing; 68 MB
-  working set; exactly one render generation over 45 s of running.
-- **S1** — `ui-verify` drives the built binary and asserts on both its
-  trace and its pixels. **It reproduces D1 against the real old binary**
-  — the first empirical confirmation of a defect whose own regression
-  commit said "analysis-confirmed, NOT empirically verified".
+Stages **S0–S5** are complete, along with **Phase 3** (viewer conventions,
+Find, thumbnails, rulers/grid/guides) and **Phase 4** (page display
+modes). The application opens documents, navigates, selects, edits,
+measures nothing yet, prints, fills forms and finds text. `FEATURES.md`
+is the authoritative list, and a row there is ticked **only when an
+operator can reach it in a real build**.
 
-Next: **S2 — the ribbon**, per `RIBBON_IA.md` and `SHELL_FRAMEWORK.md`,
-plus the three application requirements in `PROJECT_PLAN.md` §4.3 that
-the harness needs.
+Next is **Phase 5 — text editing**, which is the defect that began the
+project. It has not been started.
 
 `PROJECT_PLAN.md` §4 has the eight-stage plan.
 
