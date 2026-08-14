@@ -118,8 +118,10 @@
 //!   setting; today `crate::app::PdfceApp::new` starts in the manifest's
 //!   first mode and [`start`] adopts whatever it is handed.
 
-use egui_shell::dock::{Column, DockLayout, DockState, PanelCatalog, PanelId, SideLayout, Stack};
-use egui_shell::layout::ResetScope;
+use egui_shell::dock::{
+    Column, DockLayout, DockSide, DockState, PanelCatalog, PanelId, SideLayout, Stack,
+};
+use egui_shell::layout::{ResetScope, Unseen};
 use egui_shell::manifest::Shell;
 
 use crate::app::persistence::LayoutStore;
@@ -530,12 +532,69 @@ impl Modes {
                 .save_workspace(workspace_name(&from), dock.layout().clone());
         }
 
-        let restored = store
-            .document()
-            .workspace(&workspace_name(mode_id))
-            .cloned();
+        let ws = workspace_name(mode_id);
+        let restored = store.document().workspace(&ws).cloned();
         let remembered = restored.is_some();
-        dock.set_layout(restored.unwrap_or_else(|| layout_for_build(mode_id, catalog)));
+        let default = layout_for_build(mode_id, catalog);
+
+        // ★ A PANEL ADDED IN A NEW RELEASE MUST NOT BE BORN INVISIBLE.
+        //
+        // A mode is a remembered workspace, so an operator who upgrades
+        // restores an arrangement saved before the new panel existed and never
+        // sees it — and the portable build's own `BUILD-INFO.txt` tells them
+        // to keep `userdata/`, so the more carefully they upgrade the more
+        // reliably they miss it. Measured before this landed: the Pages panel
+        // gave `remembered=true panels=1` against `remembered=false panels=2`
+        // on a fresh profile.
+        //
+        // Neither obvious fix works. Forcing the default over a remembered
+        // layout discards the operator's own arrangement, which is the whole
+        // feature. Leaving it means every panel from now on ships hidden.
+        //
+        // So `egui-shell` records which panels EXISTED when a workspace was
+        // written, and the two states a layout otherwise cannot tell apart —
+        // *closed on purpose* and *did not exist yet* — become distinguishable.
+        // This is the application half, and it is here rather than in the
+        // shell because what to do about an unstamped file is a decision about
+        // THIS product's upgrade path.
+        let registered = registered_panels(catalog);
+        let mut layout = restored.unwrap_or_else(|| default.clone());
+        if remembered {
+            let candidates = match store.document().unseen_panels(&ws, &registered) {
+                // The ordinary case from the second launch onward: the file
+                // says what it knew, and only genuinely new panels appear.
+                Unseen::New(ids) => ids,
+                // Written before anything was recorded — the one-time upgrade.
+                // Every registered panel is a candidate, and `adopt` skips the
+                // ones already mounted, so the net effect is exactly the panels
+                // that are missing from a layout that predates the record.
+                //
+                // This can re-open a panel the operator closed BEFORE the
+                // record existed, once. That is the cost, it is bounded to a
+                // single launch per install, and the alternative is that the
+                // upgrade case silently does nothing forever — which is the
+                // defect.
+                Unseen::Unknown => registered.clone(),
+            };
+            let added = adopt(&mut layout, &default, &candidates);
+            if !added.is_empty() {
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        "mode-adopted-panels mode={mode_id} added={}",
+                        added
+                            .iter()
+                            .map(PanelId::as_str)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                });
+            }
+        }
+        dock.set_layout(layout);
+        // Stamped whether or not anything was added, so the next launch
+        // reports `New(vec![])` instead of offering the same panels again.
+        store.document_mut().mark_panels_seen(&ws, &registered);
 
         crate::diag::trace(|| {
             format!(
@@ -673,6 +732,87 @@ pub fn start_in(
         LayoutStore::load_in(dir, &fallback, catalog),
         catalog,
     )
+}
+
+/// **Every panel this build registers**, for the upgrade reconciliation
+/// below.
+///
+/// Derived from [`Panel::ALL`] filtered through the live catalog, so it is
+/// the same set the §5b capability rule uses — a build with a capability
+/// compiled out reports fewer, which is exactly right: a panel that does not
+/// exist here must not be recorded as one this layout has seen, or removing
+/// and restoring a capability would leave it permanently invisible.
+fn registered_panels(catalog: &dyn PanelCatalog) -> Vec<PanelId> {
+    Panel::ALL
+        .into_iter()
+        .map(|p| PanelId::new(p.command_id()))
+        .filter(|id| catalog.contains(id.as_str()))
+        .collect()
+}
+
+/// Mount `new` into `layout` wherever `default` puts them.
+///
+/// Returns the ids actually added, for the trace.
+///
+/// # Why the default's placement rather than a fixed corner
+///
+/// A panel appended to the end of the first stack would land beside
+/// whatever happens to be there, which for Pages means tabbed behind
+/// Bookmarks on the day it appears — the operator sees a tab bar grow by one
+/// and has no reason to think a feature arrived. Placing it where the mode
+/// intended puts it where the documentation, the mockups and the next
+/// release's default all agree it goes.
+///
+/// A panel already present is skipped rather than duplicated. That is not
+/// defensive: `Unseen::Unknown` deliberately reports every registered panel,
+/// including ones the restored layout already mounts.
+fn adopt(layout: &mut DockLayout, default: &DockLayout, new: &[PanelId]) -> Vec<PanelId> {
+    let mut added = Vec::new();
+    for id in new {
+        if layout.contains(id) {
+            continue;
+        }
+        let Some(at) = default.find(id) else {
+            // In the default for no mode — a panel that exists but that this
+            // mode does not mount. Read mode has no Objects panel by design,
+            // and adding one here because it is new would override a decision
+            // `layout_for` made deliberately.
+            continue;
+        };
+        let side = match at.side {
+            DockSide::Left => &mut layout.left,
+            DockSide::Right => &mut layout.right,
+        };
+        // Fall back outwards rather than giving up: a remembered layout may
+        // have fewer columns or stacks than the default (the operator
+        // collapsed one), and the panel still has to arrive somewhere. The
+        // last stack of the last column is the closest surviving relative of
+        // the position the default asked for.
+        // Indices are resolved BEFORE borrowing, because `get_mut(..)
+        // .or_else(|| ..last_mut())` borrows the same vector twice and the
+        // compiler is right to refuse it.
+        let column_ix = at.column.min(side.columns.len().saturating_sub(1));
+        if let Some(column) = side.columns.get_mut(column_ix) {
+            let stack_ix = at.stack.min(column.stacks.len().saturating_sub(1));
+            if let Some(stack) = column.stacks.get_mut(stack_ix) {
+                stack.tabs.push(id.clone());
+                added.push(id.clone());
+                continue;
+            }
+        }
+        {
+            // The side is empty — Read mode's right dock, for instance. Not a
+            // fallback for an unexpected state: a mode with nothing on one
+            // side is an ordinary arrangement, and a panel the default puts
+            // there still has to arrive.
+            side.columns.push(Column {
+                stacks: vec![Stack::new(id.clone())],
+                share: 1.0,
+            });
+            added.push(id.clone());
+        }
+    }
+    added
 }
 
 /// The shared tail of the two start-up paths.
@@ -1222,5 +1362,113 @@ mod tests {
         assert!(!store.is_noteworthy());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // A panel added in a new release reaches an operator who upgrades
+    // -----------------------------------------------------------------
+
+    /// ★ **The regression test for the defect this was written for.**
+    ///
+    /// A layout written before a panel existed — no `known_panels` at all,
+    /// which is every file any existing install has — must gain the panel,
+    /// and must gain it *where the mode default puts it*.
+    ///
+    /// Simulated the way it actually happens rather than by constructing the
+    /// end state: a workspace is saved holding ONLY Bookmarks (which is what
+    /// Read's remembered layout contained before Pages was registered), the
+    /// store is then read back through the real `on_mode_changed`, and the
+    /// result is asserted.
+    #[test]
+    fn a_layout_that_predates_a_panel_gains_it() {
+        let dir = temp_dir("upgrade-adopts");
+        let catalog = registry();
+
+        // The old world: a remembered Read layout with one panel and no
+        // record of what existed when it was written.
+        {
+            let mut store = LayoutStore::load_in(&dir, &DockLayout::default(), &catalog);
+            store.document_mut().save_workspace(
+                workspace_name("read"),
+                DockLayout::new(
+                    SideLayout::single(PanelId::new(Panel::Bookmarks.command_id())),
+                    SideLayout::none(),
+                ),
+            );
+            store.flush();
+        }
+
+        let start = start_in(&dir, Some(&crate::shell::manifest::built_in()), &catalog);
+        let mounted: Vec<&str> = start.dock.layout().panels().map(PanelId::as_str).collect();
+
+        assert!(
+            mounted.contains(&Panel::Bookmarks.command_id()),
+            "the operator's own arrangement must survive: {mounted:?}"
+        );
+        assert!(
+            mounted.contains(&pages()),
+            "a panel registered since the layout was written must appear: {mounted:?}"
+        );
+    }
+
+    /// …and it happens **once**. The second launch adopts nothing.
+    ///
+    /// The property that makes the `Unknown` branch acceptable. Without it,
+    /// every launch would re-open every panel the operator had closed, which
+    /// is a far worse bug than the one being fixed — it would undo a decision
+    /// they made, repeatedly, forever.
+    #[test]
+    fn the_upgrade_adoption_happens_only_once() {
+        let dir = temp_dir("upgrade-once");
+        let catalog = registry();
+        {
+            let mut store = LayoutStore::load_in(&dir, &DockLayout::default(), &catalog);
+            store.document_mut().save_workspace(
+                workspace_name("read"),
+                DockLayout::new(
+                    SideLayout::single(PanelId::new(Panel::Bookmarks.command_id())),
+                    SideLayout::none(),
+                ),
+            );
+            store.flush();
+        }
+
+        // First launch: adopts, and stamps.
+        {
+            let mut start = start_in(&dir, Some(&crate::shell::manifest::built_in()), &catalog);
+            // The operator then closes Pages deliberately and it is saved.
+            let mut layout = start.dock.layout().clone();
+            layout.close(&PanelId::new(pages()));
+            start
+                .layout
+                .document_mut()
+                .save_workspace(workspace_name("read"), layout);
+            start.layout.flush();
+        }
+
+        // Second launch: it must stay closed.
+        let start = start_in(&dir, Some(&crate::shell::manifest::built_in()), &catalog);
+        let mounted: Vec<&str> = start.dock.layout().panels().map(PanelId::as_str).collect();
+        assert!(
+            !mounted.contains(&pages()),
+            "a panel the operator closed AFTER the record existed must stay closed: {mounted:?}"
+        );
+    }
+
+    /// A fresh install is untouched by any of this.
+    ///
+    /// There is no remembered workspace, so the default arrangement is used
+    /// whole and the adoption path is never entered — asserted because a
+    /// reconciliation that also fired on first run would be indistinguishable
+    /// from one that worked, right up until it added a panel twice.
+    #[test]
+    fn a_fresh_install_gets_the_default_and_nothing_else() {
+        let dir = temp_dir("upgrade-fresh");
+        let catalog = registry();
+        let start = start_in(&dir, Some(&crate::shell::manifest::built_in()), &catalog);
+        let mounted: Vec<&str> = start.dock.layout().panels().map(PanelId::as_str).collect();
+        let default = layout_for_build("read", &catalog);
+        let expected: Vec<&str> = default.panels().map(PanelId::as_str).collect();
+        assert_eq!(mounted, expected);
     }
 }
