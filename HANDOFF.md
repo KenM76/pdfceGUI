@@ -26,7 +26,7 @@ them.
 
 > **★ The table above is from 2026-08-13.** A large 2026-08-14 session landed
 > the Read-mode gate and Phase 7. Measured at the end of it:
-> **1,584 tests passing, 0 failing · 101 commands
+> **1,636 tests passing, 0 failing · 10 of 10 gates · 101 commands
 > registered · 31 groups · ~128,000 source lines.** `FEATURES.md`'s own
 > header carries the same figures. **The tree is not clean** — the whole of
 > that session is uncommitted. Re-measure rather than quoting either table
@@ -495,6 +495,31 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
 
 ## 10. Things that will bite you
 
+- **★★ Registration is not implementation, and five surfaces will lie about
+  it.** `file.save_copy` was registered, drawn on the **quick access
+  toolbar**, bound to `Ctrl+S`, listed in the shortcuts reference, and
+  printed "(Ctrl+S)" in its own tooltip — with **no dispatch arm**. Nothing
+  this shell built could be written to disk, for the whole life of the
+  project, and it was within an hour of being released that way.
+
+  An audit afterwards found the same shape in **`edit.undo`/`edit.redo`**
+  (QAT, three chords) and in **every page operation**, six of which the
+  Pages context menu offers while `panels/pages/select.rs` maintains a
+  multi-select model to feed them.
+
+  The audit is one command and is worth running before any release:
+
+  ```bash
+  # every registered id, against the ids dispatch.rs actually names
+  # (remember the guard arms: markup_for_command, measure_for_command,
+  #  Panel::from_command_id, page_display_for_command, chrome_for_command)
+  ```
+
+  **A `command-unimplemented` trace is the only honest signal**, and nothing
+  reads it. The durable fix is a test asserting that every registered command
+  is reachable by *some* arm — literal or guard — with an explicit,
+  argued allow-list for the ones deliberately scaffolded. Until that exists,
+  audit by hand.
 - **★ The conventional value can be the worst one, and only measurement
   tells you.** OCR shipped with `OCR_DPI = 300` — the number every scanning
   guide gives. Measured against `SW41177.pdf` using its own vector text as

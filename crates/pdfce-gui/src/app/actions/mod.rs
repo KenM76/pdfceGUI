@@ -113,6 +113,13 @@ use crate::viewer::FitMode;
 /// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
 /// they are reachable exactly where they were before the split.
 mod apply;
+/// The four page verbs' bodies, and the structural resync every edit owes.
+///
+/// A sibling of [`apply`] rather than part of it, on rule R2's own reasoning:
+/// that file's subject is the cancel–mutate–bump–invalidate protocol, and this
+/// one's is *a page index is a position, not an identity*. See its header for
+/// the table of what each kind of page edit invalidates.
+mod pages;
 
 // ---------------------------------------------------------------------------
 // The edit disclosure — what [`vector_edit`] carries out to `app::status`
@@ -542,6 +549,147 @@ pub enum Action {
         /// Where the anchor ends up, in PDF user space.
         to: pdfce_core::vector::Point,
     },
+    // =======================================================================
+    // ★ THE PAGE VERBS — structural edits, and the family that renumbers
+    //
+    // Four variants for five commands (`pages.rotate_left` and
+    // `pages.rotate_right` share one), plus `pages.extract`, which is not here
+    // at all — see `ExtractPages` below for why it is and `pages.split` /
+    // `pages.merge_into` / `pages.insert_from_file` for why they are not.
+    //
+    // # Why the operand list travels, and is not re-derived at apply time
+    //
+    // The same argument `DeleteSelection` makes, one structure up: the operand
+    // is the **Pages panel's multi-select**, resolved once by
+    // `crate::panels::pages::ops::operands`. Re-reading `PanelsState` during
+    // the apply would be a second reading of a set the operator may have
+    // changed between the frame that raised the action and the frame that
+    // applies it — and for `DeletePages` the consequence of reading it twice
+    // is destroying sheets nobody chose.
+    //
+    // # ★ What separates these from every action above them
+    //
+    // Everything else in this enum either leaves the page *count* and the page
+    // *order* alone, or is not a document edit at all. These three do neither,
+    // and that is why `crate::app::actions::apply::page_edit` exists beside
+    // `vector_edit` rather than each arm doing its own bookkeeping: a page
+    // delete or reorder invalidates the flattened page vector, every cached
+    // raster keyed on a page index, the canvas selection's page identity and
+    // the panel's own picks, all at once, and a missed one is a stale picture
+    // or a verb aimed at the wrong sheet.
+    /// **Turn the operand pages by `delta` degrees**, as one undoable command.
+    ///
+    /// Raised by `pages.rotate_left` (−90) and `pages.rotate_right` (+90).
+    ///
+    /// # Why a delta rather than an absolute angle
+    ///
+    /// Because that is what the button means and what `EditSession::rotate_pages`
+    /// implements: a selection of pages at 0°, 90° and 180° turned right lands
+    /// at 90°, 180° and 270°, **not** all at 90°. The engine's own doc comment
+    /// confirms Acrobat persists the absolute result of exactly that
+    /// arithmetic. An absolute variant would be a different verb (*set the
+    /// rotation of these pages to N*), which no control in this build offers.
+    ///
+    /// # It changes no page's identity
+    ///
+    /// A rotation rewrites one `/Rotate` entry per page. Nothing is added,
+    /// removed or renumbered, so both selections survive it untouched — which
+    /// is why the apply arm's resync is about *pictures* (every cached raster
+    /// of a turned page is now wrong) and not about *indices*.
+    RotatePages {
+        /// 0-based page indices, ascending and unique.
+        pages: Vec<usize>,
+        /// A relative turn in degrees, a multiple of 90.
+        delta: i32,
+    },
+    /// **Remove the operand pages from the document**, as one undoable
+    /// command.
+    ///
+    /// Raised by `pages.delete` from the ribbon's Pages tab and from the page
+    /// tile's context menu.
+    ///
+    /// # ★ This is the one action in the enum that renumbers pages
+    ///
+    /// `HANDOFF.md` §10 states the rule for objects — *"Selection is an
+    /// identity — page, object, subpath, node — not a position"* — and this is
+    /// its page-level instance. After the removal, every index above the lowest
+    /// deleted page names a **different sheet**. Both selections in the
+    /// application are therefore invalid, in different ways, and the apply arm
+    /// deals with both:
+    ///
+    /// * the **page** selection named exactly the sheets that no longer exist,
+    ///   so it is cleared;
+    /// * the **canvas** selection names objects on a page *index*, and that
+    ///   index now resolves to another sheet's content, so it is cleared too.
+    ///
+    /// # It is destructive and, until undo lands, irreversible
+    ///
+    /// No confirmation dialog, deliberately, and the reasoning is at the apply
+    /// arm: `crate::app::save`'s `save_pending` is the one predicate this
+    /// application consults before a destructive path, the engine records the
+    /// removal as an undoable command already, and **nothing is written to
+    /// disk** — the operator's file on disk is untouched until they save a
+    /// copy, which is a separate deliberate act with its own dialog.
+    DeletePages {
+        /// 0-based page indices, ascending and unique.
+        pages: Vec<usize>,
+    },
+    /// **Put the document's pages in a new order**, as one undoable command.
+    ///
+    /// Raised by `pages.move_up` and `pages.move_down`, which differ only in
+    /// the permutation `crate::panels::pages::ops::move_order` computes.
+    ///
+    /// `order[i]` is the **current** 0-based index of the page that should end
+    /// up at position `i` — `EditSession::reorder_pages`' contract verbatim,
+    /// carried through unaltered so there is no second spelling of it to drift.
+    /// The engine refuses anything that is not a permutation of
+    /// `0..page_count`, and `move_order` builds one by construction.
+    ///
+    /// # ★ A reorder renumbers positions without destroying anything
+    ///
+    /// Which makes it the *middle* case between a move (nothing changes
+    /// identity) and a delete (identities cease to exist), and the two
+    /// selections get two different answers:
+    ///
+    /// * the **page** selection follows its sheets, through
+    ///   [`crate::panels::pages::select::PageSelection::remap`] — the
+    ///   permutation states exactly where each one went, so clearing would
+    ///   throw away information the edit had in hand and make the reorder
+    ///   arrows unusable twice in a row;
+    /// * the **canvas** selection is cleared, because its entries carry a page
+    ///   *index* and this crate cannot rewrite them —
+    ///   `crate::canvas::selection::SelectionState` exposes no mutator for the
+    ///   page of an entry, and inventing one would put a second page-remapping
+    ///   rule in the module that owns object identity. Clearing is the honest
+    ///   answer and it is stated rather than silent.
+    ReorderPages {
+        /// The new order, as `order[new_position] = current_index`.
+        order: Vec<usize>,
+    },
+    /// **Write the operand pages out as a new standalone document.**
+    ///
+    /// Raised by `pages.extract`. The one page verb that changes **no**
+    /// document: `pdfce_core::pageops::extract` returns the complete bytes of a
+    /// freestanding PDF and the open session is not touched, which is exactly
+    /// what the Review mode's stance requires — `crate::panels::pages`' header
+    /// quotes the operator: *"an extraction writes a different file."*
+    ///
+    /// # ★ Why it is an action at all, when it mutates nothing
+    ///
+    /// For [`Self::SaveCopy`]'s reason and only that one: it opens a **native
+    /// save dialog**, and `crate::app::files::pick_save_path` carries a
+    /// frame-timing requirement dispatch cannot honour — `PdfceApp::central`
+    /// dispatches the canvas's context-menu tokens from inside
+    /// `egui::CentralPanel::show`, and a modal opened mid-layout blocks the
+    /// frame it is being drawn in. The apply phase is always outside every
+    /// closure. The page tile's context menu is dispatched from a panel body
+    /// rather than the canvas, but the rule is the surface's, not the caller's.
+    ExtractPages {
+        /// 0-based page indices, ascending and unique. **Order is honoured** by
+        /// the engine, so this is simultaneously "extract these pages" and
+        /// "extract them in this order"; the panel produces them ascending.
+        pages: Vec<usize>,
+    },
     /// **Author one markup annotation on `page`**, from the drag that drew it.
     ///
     /// Raised by [`crate::canvas::markup::drag`] when a markup band is
@@ -833,6 +981,60 @@ pub enum Action {
     /// instance of a four-step sequence `vector_edit` exists to have exactly
     /// one of.
     Form(crate::panels::forms::edit::FormEdit),
+    /// **Take back the most recent change** — the other end of the command log
+    /// every mutating action in this enum writes to.
+    ///
+    /// Raised by `edit.undo`, which is on the quick-access toolbar in every
+    /// mode and bound to `Ctrl+Z`. Applied by `apply::history_step`.
+    ///
+    /// # ★ Why this is an action at all, when it is "just" a method call
+    ///
+    /// Because `EditSession::undo` takes `&mut self` and
+    /// [`crate::app::state::OpenDoc::session`] is an `Arc` — held by the render
+    /// worker while it rasterizes — so `Arc::get_mut` fails unless the worker is
+    /// stopped first. Stopping a render **in the middle of laying out a frame**
+    /// is exactly what this funnel exists to prevent, and it is the same
+    /// argument [`Self::Find`] makes for a search that mutates no document.
+    ///
+    /// It is also the ordinary one: an undo changes the document, so it changes
+    /// the decomposition, the page-text cache, the font inventory and the
+    /// canvas selection, and every one of those is invalidated by the epoch
+    /// bump that only the apply phase may perform.
+    ///
+    /// # Why it carries nothing
+    ///
+    /// Because the operand is the log's own top, and the log is on the session.
+    /// Carrying a depth or a `CommandKind` would be carrying a *copy* of state
+    /// the apply is about to read anyway — and a stale copy at that, since a
+    /// frame's earlier action can push a command between the raise and the
+    /// apply. `crate::app::actions`' rule is that an action is a complete
+    /// statement of **intent**; "take back the last thing" is complete.
+    ///
+    /// # An empty log is not an error
+    ///
+    /// `undo.available` greys the control, so a *click* cannot reach an empty
+    /// log — but `Ctrl+Z` can, from any mode, because
+    /// `crate::app::modes::capability::offers_command` lets a command on no tab
+    /// through everywhere. The apply arm declines it in words rather than in
+    /// silence; see `crate::app::status::decline::Declined::NothingToUndo` for
+    /// why that is worth a sentence when the greyed control is already there.
+    Undo,
+    /// **Re-apply the most recently undone change.**
+    ///
+    /// Raised by `edit.redo`, bound to both `Ctrl+Y` and `Ctrl+Shift+Z`, and
+    /// applied by the same `apply::history_step` — one function, one direction
+    /// parameter, because the two differ in exactly which engine verb they call
+    /// and in nothing else. Two arms would be two copies of the guard, the
+    /// trace and the decline, and one of them would eventually acquire a step
+    /// the other did not.
+    ///
+    /// Everything in [`Self::Undo`]'s docs applies unchanged. The one fact
+    /// worth stating separately is the redo stack's own lifetime: the engine
+    /// clears it whenever a new command is recorded (`EditSession::commit` —
+    /// *"the redone future no longer exists once history diverges"*), so a
+    /// redo that was available before an edit is not available after it, and
+    /// the condition follows on the next frame with nothing here to remember.
+    Redo,
     /// **Invoke a registered command by id**, from a surface that is not the
     /// ribbon.
     ///
@@ -890,4 +1092,61 @@ pub enum Action {
 #[cfg(test)]
 pub(crate) fn plant_edit_disclosure_for_test(disclosure: EditDisclosure) {
     record_edit_disclosure(Some(disclosure));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ★ **`edit.undo` and `edit.redo` raise actions rather than falling
+    /// through to `command-unimplemented`.**
+    ///
+    /// The dispatch link, and the one this pair spent the whole project
+    /// missing. It is `crate::app::files`'
+    /// `the_save_copy_command_raises_the_save_action` for the other two
+    /// commands that were registered, drawn on the quick-access toolbar, bound
+    /// to a chord, and wired to nothing — and it is written the same way for
+    /// the same reason: through `PdfceApp::dispatch_token` with the token the
+    /// **ribbon** would raise, so a build that renamed the id or reassigned the
+    /// token fails here rather than shipping a control whose press is traced
+    /// and discarded.
+    ///
+    /// # What it deliberately does not assert
+    ///
+    /// That the actions *do* anything. Two arms that pushed the wrong variant
+    /// would pass a test written as "some action was raised", which is why the
+    /// comparison is against the exact vector — and what each variant does when
+    /// applied is `crate::app::actions::apply`'s
+    /// `an_undo_is_an_edit_and_moves_the_epoch_like_one`, on a real fixture with
+    /// a real edit on the log.
+    ///
+    /// # Why an EMPTY log is the state under test here
+    ///
+    /// Because the dispatcher must not consult one. `undo.available` greys the
+    /// control and the apply arm declines an empty stack in words — both of
+    /// which are somebody else's job — and an arm that checked the session here
+    /// would be the second place that question is asked. So the action is raised
+    /// with nothing to undo, exactly as it would be for a `Ctrl+Z` fired at a
+    /// freshly opened document, and the decline happens downstream.
+    #[test]
+    fn the_history_commands_raise_actions() {
+        let ctx = egui::Context::default();
+        let mut app = crate::app::tests::opened();
+
+        for (id, expected) in [("edit.undo", Action::Undo), ("edit.redo", Action::Redo)] {
+            let token = app
+                .commands
+                .get(id)
+                .unwrap_or_else(|| panic!("`{id}` must be registered")) // ui-text-exempt: test panic
+                .handler;
+            let mut actions = Vec::new();
+            app.dispatch_token(&ctx, token, &mut actions);
+            assert_eq!(
+                actions,
+                vec![expected],
+                "`{id}` must raise its action rather than falling through to \
+                 `command-unimplemented`, which is what it did for the whole life of the project"
+            );
+        }
+    }
 }

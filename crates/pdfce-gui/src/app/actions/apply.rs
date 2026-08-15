@@ -475,6 +475,106 @@ impl PdfceApp {
                 });
             }
             Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
+            // ===============================================================
+            // ★ THE PAGE VERBS
+            //
+            // Four arms, each one call, because everything that could be a
+            // rule lives elsewhere: the operand list and the permutation in
+            // `crate::panels::pages::ops` (pure, unit-tested), the engine call
+            // and the disclosures in `super::pages`, and the four-step
+            // protocol in `vector_edit` — which now carries a fifth step that
+            // brings the page vector, the strip rasters, the canvas selection
+            // and the view back into agreement with the session.
+            //
+            // `page=` on the trace line is the FIRST operand rather than "the
+            // page", and `n=` is how many were named. There is no single page
+            // a multi-page verb is about; the first one is the honest answer
+            // and `n=` is the field that actually says what happened, exactly
+            // as `history_step`'s own docs argue for the undo case.
+            // ===============================================================
+            Action::RotatePages { pages, delta } => {
+                if !pages.is_empty() {
+                    let first = pages.first().copied().unwrap_or(0);
+                    vector_edit(doc, "rotate-pages", first, pages.len(), |session| {
+                        super::pages::rotate(session, &pages, delta)
+                    });
+                }
+            }
+            // ★ **The destructive one**, and the one that renumbers.
+            //
+            // Two things happen here that no other arm needs, and both are
+            // about a *position* ceasing to mean what it meant:
+            //
+            // 1. `vector_edit`'s resync clears the **canvas** selection and
+            //    clamps the view — see `super::pages::resync`;
+            // 2. the **Pages panel's** picks are cleared here, because they
+            //    live on `self.panels` rather than on the document and
+            //    `vector_edit` cannot reach them.
+            //
+            // The panel's own `retain_below` would drop the picks that fell
+            // off the end on the next frame, and that is NOT sufficient: the
+            // pages that were deleted are exactly the ones that were picked,
+            // so the survivors of a clamp would be picks pointing at sheets
+            // that have shuffled down into their indices. Clearing is both
+            // correct and provable — every picked sheet is gone.
+            //
+            // Guarded on the epoch rather than on a return value, so the
+            // clear happens only for an edit that actually applied: a refused
+            // delete (the engine refuses removing every page, §7.7.3.3) must
+            // leave the operator's selection exactly as they built it.
+            //
+            // **No confirmation dialog.** `crate::app::save::save_pending` is
+            // the one predicate this application consults before a destructive
+            // path and it is about a save being in flight, not about unsaved
+            // work; the engine records this as an undoable command; and
+            // nothing reaches disk — the operator's file is untouched until
+            // they choose to save a copy. A modal here would be the only one
+            // in the application and would be asking about the one destructive
+            // act that is already reversible in the session.
+            Action::DeletePages { pages } => {
+                if !pages.is_empty() {
+                    let first = pages.first().copied().unwrap_or(0);
+                    let before = doc.edit_epoch;
+                    vector_edit(doc, "delete-pages", first, pages.len(), |session| {
+                        super::pages::delete(session, &pages)
+                    });
+                    if doc.edit_epoch != before {
+                        self.panels.pages_mut().selection.clear();
+                    }
+                }
+            }
+            // ★ **The middle case**: every page survives, and every index
+            // means a different sheet.
+            //
+            // The canvas selection is cleared by the resync; the panel's picks
+            // are **remapped** rather than cleared, because the permutation
+            // states exactly where each picked sheet went. See
+            // `crate::panels::pages::select::PageSelection::remap` for why the
+            // two selections get different answers to the same edit — and for
+            // why clearing here would make the reorder arrows unusable twice
+            // in a row, which is the one gesture they exist for.
+            Action::ReorderPages { order } => {
+                if !order.is_empty() {
+                    let before = doc.edit_epoch;
+                    vector_edit(doc, "reorder-pages", 0, order.len(), |session| {
+                        super::pages::reorder(session, &order)
+                    });
+                    if doc.edit_epoch != before {
+                        let landed = crate::panels::pages::ops::inverse(&order);
+                        self.panels.pages_mut().selection.remap(&landed);
+                    }
+                }
+            }
+            // ★ The one page verb that goes nowhere near `vector_edit`: it
+            // changes no document, it opens a native save dialog, and it is an
+            // `Action` for `Action::SaveCopy`'s frame-timing reason and only
+            // that one. See `super::pages::extract`.
+            Action::ExtractPages { pages } => super::pages::extract(doc, &pages),
+            // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
+            // other document change goes through — which is the whole of why
+            // these two arms are one line each. See [`history_step`].
+            Action::Undo => history_step(doc, Direction::Undo),
+            Action::Redo => history_step(doc, Direction::Redo),
             // ★ Reaching here means the frame's drain was removed or moved.
             // Traced rather than ignored: the symptom otherwise is a control
             // that does nothing on every press, with no evidence why.
@@ -620,6 +720,23 @@ fn vector_edit(
         Ok(disclosures) => {
             doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
             doc.page_texture = None;
+            // ★ **Step 5, added when the page verbs landed** — see
+            // `super::pages`' header, which carries the whole argument and the
+            // table of what each kind of edit invalidates.
+            //
+            // Here rather than in the four page arms, because `Action::Undo`
+            // and `Action::Redo` come through this same function and run those
+            // same engine commands **backwards**: an undone page delete puts
+            // sheets back, and an arm-side resync could not see it. This is the
+            // one place every document change already passes through, which is
+            // `HANDOFF.md` §6's rule applied to a consequence rather than to a
+            // dispatch.
+            //
+            // It is self-describing rather than told — it compares the page
+            // vector it has against the one the session now reports — so an
+            // edit that touched no page costs one page-tree walk and one `Vec`
+            // comparison, per operator gesture, and does nothing else.
+            super::pages::resync(doc);
             crate::diag::trace(|| {
                 format!(
                     // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -685,11 +802,290 @@ fn vector_edit(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Undo and redo — one function, one direction parameter
+// ---------------------------------------------------------------------------
+
+/// Which end of the command log a step moves.
+///
+/// An enum rather than a `bool`: `history_step(doc, true)` at a call site says
+/// nothing, and the two call sites are one line apart in the same `match`,
+/// which is exactly the distance at which a transposition survives review.
+///
+/// **Named `Direction` rather than `History`** because
+/// `crate::app::status::decline::History` already means something else one
+/// module away — *what the two stacks currently hold* — and two types with one
+/// name in one crate is a grep that answers the wrong question. This one is a
+/// direction of travel; that one is a state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Direction {
+    /// Take back the most recent command — `edit.undo`, `Ctrl+Z`.
+    Undo,
+    /// Re-apply the most recently undone one — `edit.redo`, `Ctrl+Y` /
+    /// `Ctrl+Shift+Z`.
+    Redo,
+}
+
+impl Direction {
+    /// What a step **would** move, without moving it.
+    ///
+    /// `EditSession::undo_kind`/`redo_kind`, which take `&self` — so this is
+    /// askable before the render worker is stopped and before `Arc::get_mut` is
+    /// attempted, which is what lets an empty stack be declined without paying
+    /// for a cancelled raster. `None` is the empty stack, and it is the same
+    /// answer `can_undo`/`can_redo` give, from the same field.
+    fn peek(self, session: &EditSession) -> Option<pdfce_core::edit::CommandKind> {
+        match self {
+            Self::Undo => session.undo_kind(),
+            Self::Redo => session.redo_kind(),
+        }
+    }
+
+    /// Move the log by one command.
+    fn step(self, session: &mut EditSession) -> Option<pdfce_core::edit::CommandKind> {
+        match self {
+            Self::Undo => session.undo(),
+            Self::Redo => session.redo(),
+        }
+    }
+
+    /// The trace event naming the request: `undo` / `redo`.
+    fn event(self) -> &'static str {
+        match self {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            Self::Undo => "undo",
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            Self::Redo => "redo",
+        }
+    }
+
+    /// [`vector_edit`]'s label — the event naming what the engine did.
+    ///
+    /// Distinct from [`Self::event`] on purpose, and it is the same two-line
+    /// vocabulary `markup-commit` / `add-markup` already uses: the first line is
+    /// **the shell decided**, and carries the `CommandKind`; the second is
+    /// **the engine did it**, and carries the epoch. A harness that wants to
+    /// know whether the caches were invalidated reads the second, and a harness
+    /// that wants to know what the operator took back reads the first.
+    fn applied(self) -> &'static str {
+        match self {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            Self::Undo => "undo-applied",
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            Self::Redo => "redo-applied",
+        }
+    }
+
+    /// The worded decline for an empty stack.
+    fn declined(self) -> crate::app::status::decline::Declined {
+        use crate::app::status::decline::Declined;
+        match self {
+            Self::Undo => Declined::NothingToUndo,
+            Self::Redo => Declined::NothingToRedo,
+        }
+    }
+}
+
+/// **Move the command log by one, as the document change it is.**
+///
+/// The whole of [`Action::Undo`] and [`Action::Redo`].
+///
+/// # ★ Why this goes through [`vector_edit`] rather than doing the four steps
+/// itself
+///
+/// Because an undo **is** an edit, and the only thing that distinguishes it
+/// from a delete or a markup is which engine verb runs in step 2. Every reason
+/// the protocol exists applies here unchanged:
+///
+/// | step | why an undo needs it |
+/// |---|---|
+/// | cancel the render worker | `EditSession::undo` takes `&mut self`, and `OpenDoc::session` is an `Arc` a rasterizing worker holds a clone of. Without the cancel, `Arc::get_mut` returns `None` **whenever the page happens to be rendering** — an undo that works or does not depending on how fast the sheet drew |
+/// | mutate through `Arc::get_mut` | the same soundness argument, from the other end |
+/// | bump `edit_epoch` | ★ **the step that makes the undo visible.** Every epoch-keyed cache — the page decomposition, the page-text extraction, the font inventory, the canvas selection's resolution, the Objects panel's count — believes it still describes the document until this moves. An undo that skipped it would restore the bytes and leave the operator looking at the state they just took back |
+/// | drop the cached texture | `settle_and_rasterize` keys the page texture on the page index and the raster scale, and an undo changes neither, so nothing else would notice. This is what re-rasters the page |
+///
+/// Writing those four again here would be the fifth hand-written copy of a
+/// protocol whose entire reason for existing is that hand-written copies omit
+/// steps. The rule is `HANDOFF.md` §6's: one choke point.
+///
+/// # The disclosure list is empty, and that is a statement
+///
+/// The vector verbs return prose when the surgery had to change an operator's
+/// *form* to express their request. An undo restores recorded `before` values —
+/// it changes no form that was not already changed and disclosed when the
+/// original command ran — so there is nothing new to disclose, and the empty
+/// list makes [`vector_edit`] drop the **previous** edit's sentence, which is
+/// exactly right: that sentence described a revision the operator has just left.
+///
+/// # Why the empty stack is checked HERE and not in the dispatcher
+///
+/// The dispatcher's arms route (`HANDOFF.md` §6). This function has to ask the
+/// session what is on the log before it can act anyway, so asking in both
+/// places would be two spellings of one question — and the one that drifted
+/// would produce a control that is greyed while the bar says something else.
+/// The decline is recorded through `crate::app::status::decline`, in the apply
+/// phase, exactly as `crate::app::save`'s failure is and for the reason that
+/// module's own call site documents: `decline::retire` runs at the *top* of
+/// `dispatch_command`, so a sentence recorded here survives the frame that
+/// raised it.
+///
+/// # What `page=` means on the trace line, and why it is not a lie
+///
+/// [`vector_edit`]'s `page` and `operands` exist so the trace can say which
+/// verb ran over what. An undo is the one caller whose operands are **not**
+/// page-scoped: a `CommandKind` may be a page rotation, a document-level
+/// attachment or a form field, and the engine's command log does not carry a
+/// page at all. What is passed is therefore the page **on screen**, and the
+/// `undo` line above it carries the `CommandKind`, which is the field that
+/// actually says what moved. A reader who wants the page an undo touched has to
+/// read the kind; there is no honest number to put here, and inventing a
+/// sentinel would be a second thing to explain.
+fn history_step(doc: &mut OpenDoc, direction: Direction) {
+    let event = direction.event();
+    let Some(kind) = direction.peek(&doc.session) else {
+        // ★ Unreachable from a control and reachable from a chord. See
+        // `Declined::NothingToUndo`: the QAT button is greyed by
+        // `undo.available`, and `Ctrl+Z` is offered in every mode because the
+        // command is on no tab, so this is the keyboard's path and it is the
+        // commonest keystroke in editing. It is both traced and worded — the
+        // trace for whoever reads a run from a machine they cannot see, the
+        // sentence for the operator who is looking at the page rather than at
+        // an 18 pt icon.
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("{event}-declined reason=empty-stack")
+        });
+        crate::app::status::decline::record_history_empty(direction.declined());
+        return;
+    };
+    // Before the mutation, so the depth is the one the operator is acting on
+    // and the kind is the one they asked to move. Both come from `peek`, which
+    // reads the same slot `step` is about to pop.
+    let depth = doc.session.undo_depth();
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        format!("{event} kind={kind:?} undo_depth={depth}")
+    });
+
+    let page = doc.view.page_index;
+    vector_edit(doc, direction.applied(), page, 1, |session| {
+        // `peek` answered `Some` against this same session and nothing has run
+        // between then and here but `Arc::get_mut`, so `None` is unreachable.
+        // It is dropped rather than unwrapped because a panic in the apply
+        // phase loses the operator's document, and because the honest report of
+        // a step that moved nothing is the one `vector_edit` already makes: an
+        // epoch bump and an empty disclosure list.
+        let _ = direction.step(session);
+        Ok(Vec::new())
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::actions::last_edit_disclosure;
     use crate::app::state::{FOUR_PAGES, open_fixture};
+
+    /// ★ **An undo is an edit, and moves the epoch like one — while an undo
+    /// with nothing to undo moves nothing at all.**
+    ///
+    /// # The two failures this pins, and why neither is visible anywhere else
+    ///
+    /// 1. **The epoch.** A build whose history arm called `EditSession::undo`
+    ///    directly — `Arc::get_mut(&mut doc.session).map(EditSession::undo)`,
+    ///    which is the obvious three-line version — would restore the bytes and
+    ///    leave `edit_epoch` where it was. Every count anybody could read from
+    ///    the engine would then be correct, and the decomposition, the
+    ///    page-text cache, the font inventory and the canvas selection would all
+    ///    go on describing the revision the operator just left. That is the
+    ///    build `tools/ui-verify`'s `undo_redo_round_trip` catches from outside
+    ///    the process; this is the half that can be caught from inside it.
+    /// 2. **The empty stack.** The decline must cost nothing: no epoch bump, no
+    ///    dropped texture, no cancelled raster. A bump here would dissolve the
+    ///    operator's selection and discard several caches to record that
+    ///    *nothing happened* — which is `crate::app::save` §3.1's argument
+    ///    about a save, arriving at the same answer from the other direction.
+    ///
+    /// # Why `is_modified` is asserted as well as the epoch
+    ///
+    /// Because the epoch alone cannot tell an undo from any other edit: it
+    /// counts revisions, and it only ever goes up. `EditSession::is_modified`
+    /// asks the **dirty set**, which is the same question a save asks, and its
+    /// own doc comment says in as many words that *"an edit-then-undo reports
+    /// `false`"*. So it is the one available proof that the document really
+    /// went back rather than merely forward again — and the pair of them
+    /// together is the whole claim: *the document is where it started, and the
+    /// shell knows the revision changed.*
+    #[test]
+    fn an_undo_is_an_edit_and_moves_the_epoch_like_one() {
+        use crate::canvas::markup::{Geometry, MarkupKind};
+
+        let mut doc = open_fixture(FOUR_PAGES);
+        let opened_at = doc.edit_epoch;
+
+        // --- an empty log costs nothing ------------------------------------
+        assert!(!doc.session.can_undo(), "the fixture opens with no history");
+        history_step(&mut doc, Direction::Undo);
+        history_step(&mut doc, Direction::Redo);
+        assert_eq!(
+            doc.edit_epoch, opened_at,
+            "a history step with an empty stack must not bump the epoch — it would discard the \
+             decomposition, the page-text cache and the operator's selection to record that \
+             nothing happened"
+        );
+        assert!(!doc.session.is_modified(), "and must change no bytes");
+
+        // --- one real edit, through the funnel every gesture uses -----------
+        let spec = crate::canvas::markup::spec(
+            MarkupKind::Rectangle,
+            &Geometry::Band {
+                start: (100.0, 100.0),
+                end: (200.0, 160.0),
+            },
+        )
+        .expect("a band is the Rectangle kind's own geometry"); // ui-text-exempt: test panic
+        vector_edit(&mut doc, "add-markup", 0, 1, |session| {
+            session.add_markup(0, &spec).map(|_| Vec::new())
+        });
+        let authored_at = doc.edit_epoch;
+        assert_ne!(
+            authored_at, opened_at,
+            "the fixture edit did not take, so nothing below is testing what it says"
+        );
+        assert!(doc.session.is_modified(), "the document now differs");
+        assert!(doc.session.can_undo());
+        assert!(
+            !doc.session.can_redo(),
+            "authoring something is not a reason to offer a redo"
+        );
+
+        // --- ★ the undo ----------------------------------------------------
+        history_step(&mut doc, Direction::Undo);
+        assert_ne!(
+            doc.edit_epoch, authored_at,
+            "★ THE UNDO DID NOT BUMP THE EPOCH. The annotation is off the session and every \
+             epoch-keyed cache still describes the revision that had it — so the canvas would go \
+             on drawing the rectangle that was just taken back. See `vector_edit` step 3"
+        );
+        assert!(
+            !doc.session.is_modified(),
+            "★ the undo did not restore the document: the dirty set a save would write is still \
+             non-empty"
+        );
+        assert!(!doc.session.can_undo(), "the log's only entry was consumed");
+        assert!(doc.session.can_redo(), "…and is now redoable");
+
+        // --- and back again ------------------------------------------------
+        let undone_at = doc.edit_epoch;
+        history_step(&mut doc, Direction::Redo);
+        assert_ne!(doc.edit_epoch, undone_at, "a redo is an edit too");
+        assert!(
+            doc.session.is_modified(),
+            "the redo did not re-apply the annotation"
+        );
+        assert!(doc.session.can_undo());
+        assert!(!doc.session.can_redo());
+    }
 
     /// ★ **A disclosure a verb returns is live for the revision that verb
     /// produced** — the wiring, driven rather than planted.

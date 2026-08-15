@@ -44,28 +44,31 @@
 //! thing a real PDF contains, so drawing one would assert something false
 //! about the document rather than merely look unfinished.
 //!
-//! ## ★ Two surfaces this panel is built for and cannot reach in this build
+//! ## ★ Two surfaces this panel was built for and could not reach — **both
+//! closed**
 //!
-//! Both are `shell/`'s, and neither is this module's to add. They are named
-//! here rather than left to be rediscovered, in the shape
+//! Both were `shell/`'s rather than this module's, which is why they were
+//! named here rather than left to be rediscovered, in the shape
 //! `crate::shell::manifest::PLANNED` and `crate::app::modes::ABSENT_PANELS`
-//! use for the same purpose.
+//! use for the same purpose. They are kept rather than deleted because each
+//! closed a live hazard, and the next person to consider reopening one should
+//! have to read what it cost.
 //!
-//! ### 1. `view.panel_pages` is not a registered command
+//! ### 1. — closed
 //!
-//! `crate::shell::manifest::PLANNED` carries it, with a reason written for
-//! the *old* shell's furniture: *"page thumbnails are the sidebar rail's
-//! first pane and have no independent toggle. `view.sidebar` shows the
-//! rail."* There is no sidebar rail in this build — there is a dock, and
-//! `crate::app::mod`'s panel registry registers a panel **only if its
-//! command is registered**, so until that entry moves out of `PLANNED` and
-//! into `crate::shell::commands::register`, this panel is filtered out of
-//! every default arrangement by `SHELL_FRAMEWORK.md` §5b's capability rule
-//! and an operator never sees it.
+//! `view.panel_pages` had no registration. `crate::shell::manifest::PLANNED`
+//! carried it, with a reason written for the *old* shell's furniture: *"page
+//! thumbnails are the sidebar rail's first pane and have no independent
+//! toggle. `view.sidebar` shows the rail."* There is no sidebar rail in this
+//! build — there is a dock, and `crate::app::mod`'s panel registry registers a
+//! panel **only if its command is registered**, so this panel was filtered out
+//! of every default arrangement by `SHELL_FRAMEWORK.md` §5b's capability rule
+//! and an operator never saw it. It was invisible rather than broken, which is
+//! the honest failure and also the silent one.
 //!
-//! That filter working correctly is why the panel could not simply be built
-//! and forgotten about: it is invisible rather than broken, which is the
-//! honest failure and also the silent one.
+//! The entry was **stale rather than early** and is gone; the command is
+//! registered and drawn, and `every_panel_is_reachable_from_the_ribbon` is the
+//! test that made the staleness visible.
 //!
 //! ### 2. — closed
 //!
@@ -97,11 +100,33 @@
 //! document"* — and `crate::shell::commands`' own comment on that band says
 //! those commands *"respect the thumbnail rail's selection when there is
 //! one"*. This panel is where that selection comes from, and
-//! [`crate::panels::PanelsState::selected_pages`] is how a dispatch arm will
-//! read it. None of those arms exists yet (`crate::app::dispatch` has no
-//! `pages.*` case), which is recorded here because the day the first one
-//! lands it must read that accessor rather than invent a second selection.
+//! [`crate::panels::PanelsState::selected_pages`] is how a dispatch arm reads
+//! it.
+//!
+//! **Those arms exist now.** This paragraph used to end *"None of those arms
+//! exists yet"* — for the whole of v0.1.0, during which every one of the six
+//! verbs this panel's own context menu offers traced `command-unimplemented`
+//! and did nothing. **All six now work** — rotate left and right, delete,
+//! extract, move up and move down — through five dispatch arms, since the two
+//! rotations share one and so do the two moves. The reading path is exactly the
+//! one recorded here: through that accessor and through [`ops::operands`],
+//! which is the single place the *"with nothing picked, act on the current
+//! page"* rule is written down.
+//!
+//! ## ★ What an edit does to this panel's own state
+//!
+//! Nothing here has to remember anything, and that is by construction rather
+//! than by discipline:
+//!
+//! | | how it is kept honest |
+//! |---|---|
+//! | the **thumbnails** | keyed on `(edit_epoch, pixels_per_point)`; [`thumbnails::ThumbnailCache::sync`] empties itself the moment the epoch moves, and the epoch moves on every edit |
+//! | the **page count** and the tiles | read from `doc.pages` every frame, which `crate::app::actions::pages::resync` refreshes from the session on every edit |
+//! | the **picks**, after a delete | cleared by the apply arm — every picked sheet is gone, so there is nothing to point at |
+//! | the **picks**, after a reorder | **remapped**, through [`select::PageSelection::remap`]: the permutation states where each sheet went, so the arrows stay usable twice in a row |
+//! | the **picks**, after anything else | [`select::PageSelection::retain_below`] on the next frame, which is belt to all of the above |
 
+pub mod ops;
 pub mod select;
 pub mod thumbnails;
 
@@ -116,13 +141,23 @@ use thumbnails::TileState;
 
 /// Right-click on a page tile in the Pages panel.
 ///
-/// Not yet defined by `crate::shell::menus::built_in` — see this module's
-/// header. The constant lives here rather than being spelled at the attach
+/// Defined by `crate::shell::menus::built_in` — see this module's header,
+/// section 2. The constant lives here rather than being spelled at the attach
 /// site for the reason that module gives for its own four: *"a context id is
 /// used in exactly two places that must agree… a typo in either produces
-/// silence rather than an error."* When the menu lands, this constant moves
-/// to `shell::menus` beside the others and this one is deleted; until then it
-/// is the single spelling this crate uses.
+/// silence rather than an error."*
+///
+/// `crate::shell::menus::PAGES_ROW` is the other spelling, and
+/// [`tests::the_page_tile_menu_context_is_named_and_defined`] asserts the two
+/// agree — because a menu attached to a context nobody defines opens nothing at
+/// all, silently.
+///
+/// **The six verbs it offers all work now**, and none of them did for the whole
+/// of v0.1.0: `crate::app::dispatch` had no `pages.*` arm at all, so every row
+/// of this menu traced `command-unimplemented`. The three page commands that
+/// still have no arm — `pages.split`, `pages.merge_into`,
+/// `pages.insert_from_file` — are deliberately **not** on this menu, and the
+/// dispatcher records what each of them is waiting for.
 pub const PAGES_ROW: &str = "pages.row"; // ui-text-exempt: a menu context id, never displayed
 
 /// The narrowest a tile may be drawn before the grid drops to one column.

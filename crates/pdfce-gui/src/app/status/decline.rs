@@ -190,6 +190,49 @@ pub(crate) enum Declined {
     /// `crate::app::save`; see [`crate::text::status::save_copy_failed`] for why
     /// a `Display` impl's prose is not operator copy.
     SaveFailed,
+    /// **`edit.undo` was invoked with an empty command log.**
+    ///
+    /// # ★ Why this is worded when the control that raises it is greyed
+    ///
+    /// Because the control is not the only route, and the other route is the
+    /// one where greying explains nothing. `edit.undo` is gated on
+    /// `undo.available`, so the quick-access button is un-pressable with an
+    /// empty log — and it is *also* bound to `Ctrl+Z`, and
+    /// [`crate::app::modes::capability::offers_command`] lets it through in
+    /// **every** mode because it sits on no tab. So the reachable case is a
+    /// chord, fired by an operator whose eyes are on the page rather than on an
+    /// 18 pt icon in the title bar.
+    ///
+    /// That is [`Self::NothingToFrame`]'s *"reached by a chord"* argument with
+    /// the reflexes of a whole industry behind it: `Ctrl+Z` is the keystroke an
+    /// operator presses without deciding to, and answering the commonest
+    /// keystroke in editing with nothing at all is the exact "the button does
+    /// nothing" state this project was founded on.
+    ///
+    /// # It has a live predicate, and it is the one that produced it
+    ///
+    /// [`Self::still_true`] re-asks `EditSession::can_undo` — the same question
+    /// `PdfceApp::conditions` publishes `undo.available` from and the same one
+    /// the apply arm declined on. So authoring anything at all retires the
+    /// sentence on the next frame, without the operator invoking a command,
+    /// which is [`Self::NothingToFrame`]'s shape exactly: *the remedy happened,
+    /// so the sentence is history.*
+    NothingToUndo,
+    /// **`edit.redo` was invoked with an empty redo stack.**
+    ///
+    /// Distinct from [`Self::NothingToUndo`] for the reason the module header
+    /// gives about the disclosures and the declines generally — the operator
+    /// gets **one** line, and these two describe different states with
+    /// different remedies. An empty undo log means nothing has been changed at
+    /// all; an empty redo stack is the ordinary state of a document that has
+    /// been edited and never undone, and it is *also* what a fresh edit after an
+    /// undo produces, because `EditSession::commit` clears the redo stack when a
+    /// new command is recorded (*"the redone future no longer exists once
+    /// history diverges"*).
+    ///
+    /// Its live predicate is `EditSession::can_redo`, for
+    /// [`Self::NothingToUndo`]'s reason and asked the same way.
+    NothingToRedo,
 }
 
 impl Declined {
@@ -217,13 +260,29 @@ impl Declined {
     /// is decided here and asserted headlessly; [`live`] adds only "go and ask
     /// the two questions".
     ///
-    /// The two facts are named as booleans rather than taken as a `&OpenDoc`
-    /// so that the caller is forced to state *which* question it asked. Both
+    /// The facts are named as booleans rather than taken as a `&OpenDoc`
+    /// so that the caller is forced to state *which* question it asked. All
     /// are asked through the same predicates that produced the decline in the
     /// first place, which is what stops a second spelling of "is there
     /// anything to frame?" drifting away from the first.
+    ///
+    /// # ★ Why a fourth parameter rather than a `&OpenDoc`
+    ///
+    /// [`History`] arrived with the undo wiring and needed a third fact — *is
+    /// there anything on the stack now?* — which is where the temptation to
+    /// collapse the list into the document it is all read from is strongest.
+    /// The list stays, for the reason it was a list to begin with: a
+    /// `&OpenDoc` here would make this function able to ask **any** question,
+    /// and the one property that makes it worth testing is that every question
+    /// it asks was asked by the code that produced the decline. The parameters
+    /// are the contract; [`live`] is the only place allowed to go and get them.
+    ///
+    /// The two history variants take their fact as *one* [`History`] pair
+    /// rather than as two more booleans, so a caller cannot transpose them —
+    /// and each arm below names the field it reads, so neither can read the
+    /// other's stack.
     #[must_use]
-    fn still_true(self, has_bounds: bool, canvas_has_drawn: bool) -> bool {
+    fn still_true(self, has_bounds: bool, canvas_has_drawn: bool, history: History) -> bool {
         match self {
             // The operator has selected something framable: the sentence is
             // now history, and a stale explanation beside a live control is
@@ -241,6 +300,13 @@ impl Declined {
             // parameters are deliberately ignored rather than being joined by a
             // third that would always be `true`.
             Self::SaveFailed => true,
+            // ★ The stack filled up. Something was authored — or, for redo,
+            // something was undone — and the sentence is now history, exactly
+            // as `NothingToFrame` is once something is selected. The operator
+            // reaches this without invoking any command, which is why the
+            // filter is needed at all: `retire` would not have run.
+            Self::NothingToUndo => !history.can_undo,
+            Self::NothingToRedo => !history.can_redo,
         }
     }
 
@@ -255,6 +321,45 @@ impl Declined {
             Self::NothingToFrame => t::zoom_declined_no_selection(),
             Self::CanvasNotDrawn => t::zoom_declined_not_drawn(),
             Self::SaveFailed => t::save_copy_failed(),
+            Self::NothingToUndo => t::undo_declined_empty(),
+            Self::NothingToRedo => t::redo_declined_empty(),
+        }
+    }
+}
+
+/// **What the command log says right now** — the fact
+/// [`Declined::NothingToUndo`] and [`Declined::NothingToRedo`] are retired by.
+///
+/// A pair rather than two parameters because they are read together, from one
+/// borrow of one session, and because a caller that had to pass two loose
+/// booleans in the right order would eventually pass them in the wrong one —
+/// and the symptom would be a sentence that retires when the *other* stack
+/// fills, which reads exactly like a sentence that retires correctly.
+///
+/// Both are asked through `EditSession`'s own predicates, which is the same
+/// pair `crate::app::conditions` publishes `undo.available`/`redo.available`
+/// from and the same pair `crate::app::actions`' history arm declines on. Three
+/// readers, one derivation: the control cannot be greyed while the sentence
+/// says the opposite.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct History {
+    /// `EditSession::can_undo` — something has been changed and not taken back.
+    pub(crate) can_undo: bool,
+    /// `EditSession::can_redo` — something has been taken back and not
+    /// re-applied, and no command has been recorded since.
+    pub(crate) can_redo: bool,
+}
+
+impl History {
+    /// What the open document's session currently says.
+    ///
+    /// The one derivation, so the bar cannot learn this from a different
+    /// question than the one that produced the sentence.
+    #[must_use]
+    fn of(doc: &OpenDoc) -> Self {
+        Self {
+            can_undo: doc.session.can_undo(),
+            can_redo: doc.session.can_redo(),
         }
     }
 }
@@ -307,6 +412,32 @@ pub(crate) fn record_save_failure() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::SaveFailed));
 }
 
+/// Record that `edit.undo` or `edit.redo` arrived with an empty stack.
+///
+/// Called from `crate::app::actions::apply`'s history arm — the **apply**
+/// phase, exactly as [`record_save_failure`] is, and for the same reason: the
+/// arm that can tell is the one holding the session, and [`retire`] runs at the
+/// top of `dispatch_command`, so a sentence recorded during the apply of the
+/// same frame survives it.
+///
+/// # ★ Why the dispatcher does not decide this
+///
+/// It could: `PdfceApp` has the session, and `view.zoom_selection` sets the
+/// precedent of a dispatch arm recording an outcome. It must not, because the
+/// dispatcher's arms **route** (`HANDOFF.md` §6), and "is there anything to
+/// undo?" is a question about the document that the apply phase has to ask
+/// anyway before it touches the session. Asking it in both places is how the
+/// greyed control and the sentence come to disagree.
+///
+/// **`Declined` is the parameter rather than a `bool`**, so the call site reads
+/// as the state it is reporting and a third stack would not silently become a
+/// fourth meaning of `true`. Only the two history variants are constructible
+/// here in practice; passing anything else records a decline the arm did not
+/// mean, which is why the two callers are one arm apart in one function.
+pub(crate) fn record_history_empty(declined: Declined) {
+    LAST.with_borrow_mut(|slot| *slot = Some(declined));
+}
+
 /// Forget any live decline — **the operator's next act**.
 ///
 /// Called at the top of `crate::app::dispatch::PdfceApp::dispatch_command`,
@@ -345,8 +476,9 @@ pub(crate) fn retire() {
 pub(super) fn live(ctx: &egui::Context, doc: &OpenDoc) -> Option<Declined> {
     let has_bounds = zoom::can_zoom_to_selection(doc);
     let canvas_has_drawn = zoom::last_frame(ctx).is_some();
+    let history = History::of(doc);
     LAST.with_borrow(|slot| {
-        slot.filter(|d| d.still_true(has_bounds, canvas_has_drawn))
+        slot.filter(|d| d.still_true(has_bounds, canvas_has_drawn, history))
             .to_owned()
     })
 }
@@ -393,25 +525,30 @@ mod tests {
     /// ★ **A decline is retired by the state that produced it stopping being
     /// true**, and by nothing else.
     ///
-    /// The full matrix, both directions on both variants. The "still true"
+    /// The full matrix, both directions on every variant. The "still true"
     /// direction is the one worth stating explicitly: a decline whose reason
     /// still holds must survive, or the sentence would flicker off on the next
     /// frame and the operator would never read it.
     #[test]
     fn a_decline_lives_exactly_as_long_as_its_reason() {
+        // An empty command log — the state the two zoom declines were written
+        // against, and the one every assertion below that is not about the
+        // history is indifferent to.
+        let empty = History::default();
+
         // Nothing to frame: retired the moment something is framable, and
         // indifferent to whether the canvas has drawn.
-        assert!(Declined::NothingToFrame.still_true(false, true));
-        assert!(Declined::NothingToFrame.still_true(false, false));
-        assert!(!Declined::NothingToFrame.still_true(true, true));
-        assert!(!Declined::NothingToFrame.still_true(true, false));
+        assert!(Declined::NothingToFrame.still_true(false, true, empty));
+        assert!(Declined::NothingToFrame.still_true(false, false, empty));
+        assert!(!Declined::NothingToFrame.still_true(true, true, empty));
+        assert!(!Declined::NothingToFrame.still_true(true, false, empty));
 
         // Canvas not drawn: retired the moment it has, and indifferent to the
         // selection — the remedy arrives without the operator doing anything.
-        assert!(Declined::CanvasNotDrawn.still_true(false, false));
-        assert!(Declined::CanvasNotDrawn.still_true(true, false));
-        assert!(!Declined::CanvasNotDrawn.still_true(false, true));
-        assert!(!Declined::CanvasNotDrawn.still_true(true, true));
+        assert!(Declined::CanvasNotDrawn.still_true(false, false, empty));
+        assert!(Declined::CanvasNotDrawn.still_true(true, false, empty));
+        assert!(!Declined::CanvasNotDrawn.still_true(false, true, empty));
+        assert!(!Declined::CanvasNotDrawn.still_true(true, true, empty));
 
         // ★ A failed save survives every combination of the two facts, because
         // neither is about it: a folder that could not be written to does not
@@ -424,11 +561,97 @@ mod tests {
         for has_bounds in [false, true] {
             for drawn in [false, true] {
                 assert!(
-                    Declined::SaveFailed.still_true(has_bounds, drawn),
+                    Declined::SaveFailed.still_true(has_bounds, drawn, empty),
                     "a failed write does not repair itself ({has_bounds}, {drawn})"
                 );
             }
         }
+    }
+
+    /// ★ **Each history decline is retired by ITS OWN stack filling, and by
+    /// the other's it is not.**
+    ///
+    /// The cross terms are the reason this is a separate test rather than four
+    /// more lines in the matrix above. A build whose two arms read the same
+    /// field — the mistake a two-field struct makes available, and the reason
+    /// [`History`]'s doc comment argues for it over two loose booleans — would
+    /// pass every same-stack assertion and fail only here.
+    ///
+    /// The remedy arriving *without a command* is the whole point: authoring a
+    /// rectangle is a canvas gesture that reaches no dispatcher, so [`retire`]
+    /// never runs and only this filter can end the sentence. That is
+    /// [`Declined::NothingToFrame`]'s property, and it is why both of these
+    /// have a live predicate at all rather than [`Declined::SaveFailed`]'s
+    /// unconditional `true`.
+    #[test]
+    fn a_history_decline_is_retired_by_its_own_stack() {
+        let empty = History::default();
+        let undoable = History {
+            can_undo: true,
+            can_redo: false,
+        };
+        let redoable = History {
+            can_undo: false,
+            can_redo: true,
+        };
+
+        // Its own stack is what retires it…
+        assert!(Declined::NothingToUndo.still_true(false, true, empty));
+        assert!(!Declined::NothingToUndo.still_true(false, true, undoable));
+        assert!(Declined::NothingToRedo.still_true(false, true, empty));
+        assert!(!Declined::NothingToRedo.still_true(false, true, redoable));
+
+        // …and the OTHER stack is not. An operator who authors something can
+        // undo it and still has nothing to redo, so a "nothing to redo"
+        // sentence that vanished when the undo stack filled would retire on a
+        // state that has not changed for it.
+        assert!(
+            Declined::NothingToRedo.still_true(false, true, undoable),
+            "an undoable change is not something to redo"
+        );
+        assert!(
+            Declined::NothingToUndo.still_true(false, true, redoable),
+            "a redoable change is not something to undo"
+        );
+
+        // Indifferent to the two zoom facts, in every combination: neither the
+        // selection nor the raster has anything to do with a command log.
+        for has_bounds in [false, true] {
+            for drawn in [false, true] {
+                assert!(Declined::NothingToUndo.still_true(has_bounds, drawn, empty));
+                assert!(Declined::NothingToRedo.still_true(has_bounds, drawn, empty));
+            }
+        }
+    }
+
+    /// ★ **Undo's and redo's declines are two sentences, recorded by name.**
+    ///
+    /// [`record_history_empty`] takes the value rather than a `bool`, and the
+    /// property that buys is asserted here: pressing `Ctrl+Y` with an empty
+    /// redo stack must not leave the bar saying the document has no changes.
+    /// The ordering half is [`Declined::SaveFailed`]'s, already pinned above —
+    /// both record in the apply phase, after the frame's `retire`.
+    #[test]
+    fn the_two_history_declines_do_not_share_a_slot_or_a_sentence() {
+        retire();
+        record_history_empty(Declined::NothingToUndo);
+        assert_eq!(
+            LAST.with_borrow(|slot| *slot),
+            Some(Declined::NothingToUndo)
+        );
+        retire();
+        record_history_empty(Declined::NothingToRedo);
+        assert_eq!(
+            LAST.with_borrow(|slot| *slot),
+            Some(Declined::NothingToRedo)
+        );
+        assert_ne!(
+            Declined::NothingToUndo.line(),
+            Declined::NothingToRedo.line(),
+            "one line reaches the operator; two states that need different \
+             sentences must not share one"
+        );
+        retire();
     }
 
     /// ★ **A failed save is recorded, survives a frame, and is retired by the
@@ -456,7 +679,7 @@ mod tests {
 
         // The frame's own dispatch already ran before the apply that recorded
         // this, so the sentence is still there on the next frame.
-        assert!(Declined::SaveFailed.still_true(true, true));
+        assert!(Declined::SaveFailed.still_true(true, true, History::default()));
 
         // …and the operator's next command ends it.
         retire();

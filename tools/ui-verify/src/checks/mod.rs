@@ -134,6 +134,15 @@ pub mod new_document;
 /// no unit test can make: **the file that was opened is byte-identical
 /// afterwards.**
 pub mod ocr;
+/// ★ The **Pages tab**, all of which did nothing: six verbs registered, drawn,
+/// offered by a context menu and four of them bound to chords, with no dispatch
+/// arm between them. The only check in the suite whose subject is a
+/// **structural** change to a document rather than a mark drawn on it, and
+/// therefore the only one that can assert the thing a page delete uniquely
+/// breaks — that the shell's page vector, its rasters and its two selections
+/// stop describing a document that no longer exists. Its header carries the
+/// argument and the three falsifying phases.
+pub mod page_ops;
 pub mod qat_icons;
 pub mod read_mode;
 pub mod ribbon_captions;
@@ -161,6 +170,15 @@ pub mod text_selection;
 /// operator can see except the mouse pointer — which a window capture does not
 /// carry at all. Its header carries the argument.
 pub mod text_tool;
+/// ★ `edit.undo` and `edit.redo` — the pair that was registered, drawn on the
+/// quick-access toolbar in **every** mode and bound to three chords with **no
+/// dispatch arm**, so an operator could author dimensions, seven markup kinds,
+/// text marks and form fills and take none of it back. The only check in the
+/// suite that asserts a document change was **un-made**, and the only one whose
+/// oracles include two *invalidation* signals — a fresh `objects` line and a
+/// fresh `render-spawn` — because the build it exists to catch is one whose
+/// every count is already correct. Its header carries the argument.
+pub mod undo_redo;
 
 use std::path::{Path, PathBuf};
 
@@ -296,6 +314,29 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // save should say so before it spends anything on a keystroke that may
         // never arrive.
         Box::new(save_copy::SaveCopyRoundTrip),
+        // ★ Directly after it, and the order is a **dependency** rather than a
+        // preference: this check ends by saving a copy and re-opening it, so a
+        // run in which `file.save_copy` itself is broken should report that as
+        // `save_copy_round_trip`'s failure and this one's second. A reader who
+        // has already seen the save fail knows to ignore everything below
+        // phase E here.
+        //
+        // It is the second most expensive check in the suite, and for the same
+        // reason: it launches the binary **twice**, because a page count read
+        // in the process that deleted the page is a count the code under test
+        // wrote about itself.
+        Box::new(page_ops::PageOpsRoundTrip),
+        // ★ Directly after it, and for the same dependency reason it sits
+        // after the markup checks: this one also begins by arming Rectangle and
+        // dragging, so a run in which the four-link arm chain is broken should
+        // report that as `markup_rectangle`'s failure and this one's last.
+        //
+        // Placed AFTER `save_copy` rather than before it, although it is the
+        // cheaper of the two (one process, no file on disk): a shell that
+        // cannot write what an operator authored is a worse finding than one
+        // that cannot take it back, and a run is likelier to be read from the
+        // top than from the bottom.
+        Box::new(undo_redo::UndoRedoRoundTrip),
         // After both, because it is the only driving check that does not touch
         // the ribbon band at all — it clicks mode segments and the page — and
         // because it is the slowest: it searches for a point with content

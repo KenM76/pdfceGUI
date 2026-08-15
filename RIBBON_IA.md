@@ -213,7 +213,7 @@ mark. `⌄` means the control is a split button or dropdown.
 | | Open… | **G** *(also QAT)* |
 | | Recent ⌄ | **N** |
 | | Close | **G** *(currently switcher-only)* |
-| **Save** | Save | **N** — blocked on autosave, see roadmap |
+| **Save** | Save | **N** — still absent, and the reason is unchanged: an in-place `Save` promises overwriting the operator's file, which needs autosave and crash recovery first. ★ **But `Save a copy` is no longer blocked and shipped 2026-08-14** — it had been registered, on the QAT and bound to Ctrl+S with no dispatch arm for the whole project. The engine was never the blocker: `to_incremental_bytes`/`to_full_bytes` both take `&self`. When in-place Save does land it inherits standing instruction 5 — *Read may produce a new document; it may not modify this one* — which is the rule that is currently vacuous precisely because every save is already a copy. |
 | | Save a copy… | **G** *(also QAT)* |
 | | Revert | **N** |
 | **Export** | Export DXF… | **G** |

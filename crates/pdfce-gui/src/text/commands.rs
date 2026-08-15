@@ -1021,6 +1021,45 @@ pub const fn edit_redact_apply() -> CommandText {
 }
 
 /// `edit.undo`
+///
+/// # ★ Why this does NOT name the operation, and what it would take to
+///
+/// `SALVAGE.md` records the old shell as having *"undo tooltips naming the
+/// specific operation"*, and the engine still supplies everything needed for
+/// one: `EditSession::undo_kind` answers *what would be undone* without
+/// undoing it, over 44 `CommandKind` variants. Writing *"Undo add annotation
+/// (Ctrl+Z)"* is therefore catalog work and nothing more — a
+/// `CommandKind → &'static str` mapping in this file, with a fallback for the
+/// kinds this shell cannot author.
+///
+/// **The blocker is the registry, not the catalog.** `egui_shell`'s
+/// `Command::tooltip` is a `String` fixed at registration;
+/// `CommandRegistry` exposes `get`, `iter` and `register` and **no mutable
+/// accessor and no removal**, and `PdfceApp::commands` is built once in
+/// `PdfceApp::new` and handed to the ribbon by shared reference every frame.
+/// So a tooltip that changes with the log needs one of two things:
+///
+/// 1. a `get_mut` (or a `tooltip` closure) on `CommandRegistry` — which is a
+///    change to `crates/egui-shell`, the crate `check-shell-purity.sh` keeps
+///    application-agnostic and which this work is not permitted to touch; or
+/// 2. rebuilding the whole 101-command registry every frame so one string can
+///    differ — which pays a hundred allocations a frame for one tooltip, and
+///    changes the **accessible name** of an icon-only control under the
+///    operator's pointer, since `egui_shell::ribbon::a11y` promotes the
+///    tooltip to the name when there is no visible label.
+///
+/// Half-doing it — naming the operation in the status bar instead, say — would
+/// put the answer somewhere the operator is not looking when they hover the
+/// control that asks the question. So the plain label ships, deliberately, and
+/// the operation *is* named on the diagnostic channel (`undo kind=…`), which is
+/// where it is currently readable. The right fix is (1), by whoever next has
+/// cause to open `egui-shell`'s command registry.
+///
+/// The chord is still printed, and that is the part P3 actually requires: this
+/// command is greyed whenever the log is empty, and a greyed control must
+/// explain itself on hover. `egui_shell::ribbon::qat` uses
+/// `on_disabled_hover_text`, so this sentence is read in exactly the state it
+/// most needs to be.
 #[must_use]
 pub const fn edit_undo() -> CommandText {
     CommandText::new("Undo", "Undo the last change (Ctrl+Z).")

@@ -222,6 +222,49 @@ impl PageSelection {
         }
         self.pages.len() != before
     }
+
+    /// **Follow the picked pages across a reorder.**
+    ///
+    /// `landed[p]` is the position page `p` now occupies —
+    /// [`super::ops::inverse`]'s output, which is the inverse of the
+    /// permutation handed to `EditSession::reorder_pages`.
+    ///
+    /// ## ★ Why this remaps where [`Self::retain_below`] clamps
+    ///
+    /// The two are the same problem — *a page index is a position, not an
+    /// identity* — meeting two different edits, and the honest answer differs
+    /// because the available information does:
+    ///
+    /// | edit | what happened to the picked sheets | answer |
+    /// |---|---|---|
+    /// | delete | they **stopped existing** | there is nothing to point at; the caller clears |
+    /// | reorder | they are still here, **somewhere else** | the permutation says exactly where |
+    ///
+    /// `retain_below`'s docs call clamping *"the only honest response available
+    /// without a page-identity model"*, and for a delete it is. A reorder is
+    /// the case where a page-identity model is not needed, because the
+    /// permutation **is** one for the duration of the edit: it states, per
+    /// page, where that page went. Throwing that away and clearing would mean
+    /// an operator who moved four sheets up one place had to re-select them to
+    /// move them again — which makes the reorder arrows useless for the one
+    /// gesture they exist for.
+    ///
+    /// The anchor moves with its page for the same reason a Shift+click extends
+    /// from where the operator last named something: after a move, "from here"
+    /// still means that sheet.
+    ///
+    /// A page whose new position `landed` does not state is **dropped**. That
+    /// cannot happen for an `ops::inverse` result over a real permutation and
+    /// is defined rather than panicking, because the alternative to dropping is
+    /// keeping an index whose meaning nobody can state.
+    pub fn remap(&mut self, landed: &[usize]) {
+        self.pages = self
+            .pages
+            .iter()
+            .filter_map(|p| landed.get(*p).copied())
+            .collect();
+        self.anchor = self.anchor.and_then(|a| landed.get(a).copied());
+    }
 }
 
 #[cfg(test)]
@@ -360,6 +403,53 @@ mod tests {
         sel.retain_below(4);
         assert!(sel.is_empty());
         assert_eq!(sel.click(1, false, true), ClickOutcome { navigate: true });
+    }
+
+    /// **★ A reorder carries the picked pages to their new positions.**
+    ///
+    /// The property that makes the reorder arrows usable more than once: move
+    /// four sheets up, and they are still the four sheets that are picked, so
+    /// the next press moves the same four. A build that cleared here — or, far
+    /// worse, one that left the indices alone — would leave the second press
+    /// acting on whichever sheets happen to sit at those positions now, which
+    /// is a *destructive* verb pointed at pages nobody chose the moment the
+    /// operator reaches for Delete instead.
+    #[test]
+    fn a_reorder_carries_the_picked_pages_with_it() {
+        use crate::panels::pages::ops::{MoveDirection, move_order};
+
+        let mut sel = PageSelection::default();
+        sel.click(1, false, false);
+        sel.click(2, true, false);
+
+        let order = move_order(&[1, 2], 4, MoveDirection::Up).expect("a legal move");
+        sel.remap(&crate::panels::pages::ops::inverse(&order));
+        assert_eq!(
+            sel.pages(),
+            &BTreeSet::from([0, 1]),
+            "the two picked sheets moved up one place, so the picks must too"
+        );
+
+        // …and the anchor came with them, so a following Shift+click still
+        // extends from the sheet the operator named rather than from wherever
+        // that index now points.
+        sel.click(3, false, true);
+        assert_eq!(
+            sel.pages(),
+            &BTreeSet::from([1, 2, 3]),
+            "the anchor was page 2, which the move carried to position 1"
+        );
+    }
+
+    /// An index the permutation does not mention is dropped rather than kept.
+    #[test]
+    fn a_remap_that_cannot_place_a_page_drops_it() {
+        let mut sel = PageSelection::default();
+        sel.click(0, false, false);
+        sel.click(5, true, false);
+        // A three-page permutation cannot say where page 5 went.
+        sel.remap(&[2, 0, 1]);
+        assert_eq!(sel.pages(), &BTreeSet::from([2]));
     }
 
     /// Clearing forgets the anchor as well as the pages.

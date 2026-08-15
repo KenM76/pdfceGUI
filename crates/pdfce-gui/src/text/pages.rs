@@ -1,7 +1,15 @@
 //! # `text::pages` — every string the Pages panel shows
 //!
-//! One area of the catalog described in [`crate::text`]'s header, consumed
-//! by [`crate::panels::pages`] and by nothing else.
+//! One area of the catalog described in [`crate::text`]'s header, consumed by
+//! [`crate::panels::pages`] — the grid, its captions and its tile states — and
+//! by [`crate::app::actions::pages`], which words what a page **delete** broke.
+//! Those are the only two readers.
+//!
+//! The second joined the first rather than getting a module of its own because
+//! both are sentences about *pages* in the same vocabulary — sheets, page
+//! numbers, this document — and a reader who came here for one half would not
+//! find the other. See the disclosure section at the foot of this file for the
+//! rule-4 obligation those strings discharge.
 //!
 //! It is a sibling of [`crate::text::panels`] rather than a module inside it
 //! for the same reason [`crate::text::forms`] is: that directory's own header
@@ -199,4 +207,132 @@ pub fn previews_paused_note(page_index: usize, millis: u128) -> String {
         page_index + 1,
         previews_label()
     )
+}
+
+// ---------------------------------------------------------------------------
+// ★ THE PAGE VERBS' DISCLOSURES — what a delete broke, in words
+//
+// A second audience for this module, and the header's *"consumed by
+// `crate::panels::pages` and by nothing else"* is now *"and by
+// `crate::app::actions::pages`, which words what a page delete broke"*. The
+// two belong together rather than in `crate::text::status`: they are sentences
+// about **pages**, they use the same vocabulary as the panel above them
+// (sheets, page numbers, this document), and splitting them would put half the
+// page copy where a reader looking for the other half would not find it.
+//
+// # Why these exist at all — rule 4, and the engine asking for them
+//
+// `EditSession::delete_pages` returns a `DanglingReport` and its own
+// documentation says what it is for:
+//
+//   > pdfce **exceeds** Acrobat here on purpose. … surface (don't silently
+//   > leave) dangling bookmarks/links/destinations as a reviewable post-delete
+//   > report … rather than silently leaving them broken the way Acrobat does.
+//
+// The engine reports and deliberately does **not** repair, because repointing
+// a bookmark at "whatever page now occupies that index" would be pdfce
+// deciding what the author meant. That leaves exactly one obligation on this
+// side: say so. A delete that quietly broke 300 bookmarks and drew nothing is
+// the shape of failure rule 4 exists to forbid — the drawing is unchanged, the
+// file is not, and the operator would find out from a diff.
+//
+// # Why they are counted and not listed
+//
+// The engine's own choice, and this follows it: *"a delete that orphans 300
+// bookmarks should say '300', not list them."* The status bar has **one row**
+// that may not grow (R128), so a list could not be drawn there even if the
+// report carried one.
+//
+// # The wording rule these follow
+//
+// Each names **what is now wrong** rather than what pdfce did, because that is
+// the sentence an operator can act on. "3 bookmarks now point at pages that
+// are no longer here" is actionable; "the dangling reference census reported
+// 3" is a status line about pdfce.
+// ---------------------------------------------------------------------------
+
+/// Bookmarks (outline items, §12.3.3) whose destination page was removed.
+///
+/// Singular and plural spelled out rather than assembled with `(s)`, exactly
+/// as [`pages_count`] does and for the same reason: one broken bookmark is a
+/// perfectly ordinary outcome of deleting one page, and `1 bookmark(s)` reads
+/// as a form field rather than as a sentence.
+#[must_use]
+pub fn deleted_dangling_bookmarks(count: usize) -> String {
+    if count == 1 {
+        "1 bookmark now points at a page that is no longer in this document.".to_owned()
+    } else {
+        format!("{count} bookmarks now point at pages that are no longer in this document.")
+    }
+}
+
+/// Links on **surviving** pages whose destination page was removed (§12.5.6.5).
+///
+/// "on the pages that remain" is load-bearing: links that left with their own
+/// page are deliberately not counted by the engine, because reporting them
+/// would inflate the number with references that no longer exist to be broken.
+/// The sentence says which set it is talking about so the number can be
+/// trusted.
+#[must_use]
+pub fn deleted_dangling_links(count: usize) -> String {
+    if count == 1 {
+        "1 link on the pages that remain points at a page that was removed.".to_owned()
+    } else {
+        format!("{count} links on the pages that remain point at pages that were removed.")
+    }
+}
+
+/// Named destinations (§12.3.2.3) that resolved to a removed page.
+///
+/// Named destinations are reached from *outside* this document as well as from
+/// within it — another PDF's link, a URL fragment, a script — which is why they
+/// are disclosed separately from bookmarks rather than added to that count.
+#[must_use]
+pub fn deleted_dangling_destinations(count: usize) -> String {
+    if count == 1 {
+        "1 named destination now points at a page that is no longer in this document.".to_owned()
+    } else {
+        format!(
+            "{count} named destinations now point at pages that are no longer in this document."
+        )
+    }
+}
+
+/// The document carries a `/PageLabels` tree (§12.4.2) the deletion left
+/// numerically stale.
+///
+/// A sentence rather than a count, because the underlying fact is a boolean:
+/// the tree is one object and the operator's question is *"are my page numbers
+/// wrong now?"*.
+///
+/// It says pdfce left them **deliberately**, because the alternative reading —
+/// that pdfce failed to update them — invites the operator to report a bug
+/// against behaviour that matches Acrobat's and was chosen. Acrobat leaves them
+/// stale and silent; this is the "and says so" half.
+#[must_use]
+pub fn deleted_page_labels_stale() -> &'static str {
+    "This document numbers its own pages, and those numbers were left as they were — the \
+     sheets that remain still carry the labels they had before the deletion."
+}
+
+/// Preseparated page sets (§14.11.4) that lost at least one plate.
+///
+/// The one class of broken reference the engine **repairs** rather than
+/// reporting, and it is still disclosed for exactly that reason: something in
+/// the file changed that the operator did not ask for. `DeleteOutcome`'s own
+/// docs draw the line — a bookmark's target is a question about *authorial
+/// intent* that pdfce must not guess at, while a separation dictionary's
+/// `/Pages` array is a *structural* fact pdfce knows the answer to.
+#[must_use]
+pub fn deleted_separations_repaired(sets: usize) -> String {
+    if sets == 1 {
+        "1 set of printing plates lost a member, and the plates that remain were updated to \
+         list only each other."
+            .to_owned()
+    } else {
+        format!(
+            "{sets} sets of printing plates lost members, and the plates that remain were \
+             updated to list only each other."
+        )
+    }
 }

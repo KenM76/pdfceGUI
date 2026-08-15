@@ -95,6 +95,52 @@ impl PdfceApp {
             if !doc.selection.is_empty() {
                 set.set("selection.any");
             }
+            // ★ **The two conditions this function used to say were deliberately
+            // absent**, and the comment they replace is worth quoting rather
+            // than deleting, because it was right when it was written:
+            //
+            // > `undo.available` and `redo.available` are still deliberately
+            // > absent: there is no undo stack to report on yet. Setting them
+            // > would arm controls that cannot work. They arrive with their
+            // > subsystem.
+            //
+            // The subsystem was always there — `EditSession` has carried one
+            // command log, 44 `CommandKind` variants and a depth bounded at 256
+            // since long before this shell existed. What was absent was the
+            // shell's half: `edit.undo` and `edit.redo` were registered, on the
+            // quick-access toolbar, bound to three chords, and had **no dispatch
+            // arm**. Publishing the conditions then would have lit two controls
+            // that traced `command-unimplemented` — which is the "no
+            // placeholders" rule broken in the most expensive direction, since
+            // an operator who believes undo works edits differently from one who
+            // knows it does not.
+            //
+            // Both halves landed together, and this is the order that mattered:
+            // the arm first (`crate::app::actions::apply`'s `history_step`), the
+            // conditions second. A control is armed only after the verb behind
+            // it exists.
+            //
+            // # Why these ask the ENGINE rather than counting anything here
+            //
+            // `can_undo`/`can_redo` are one field read each on the session that
+            // owns the log. A shell-side count — "how many mutating actions have
+            // I applied?" — would be a second copy of the truth, and it would be
+            // wrong in three ways the engine's answer is not: the log is
+            // **bounded at 256**, so the count and the log diverge on a long
+            // session; a no-op edit records no command at all (setting a field to
+            // the value it already has); and `EditSession::commit` **clears the
+            // redo stack** whenever a new command is recorded, which nothing on
+            // this side would know to mirror.
+            //
+            // The same two predicates answer the worded declines
+            // (`crate::app::status::decline::History`), so the greyed control and
+            // the sentence in the bar cannot come from different questions.
+            if doc.session.can_undo() {
+                set.set("undo.available");
+            }
+            if doc.session.can_redo() {
+                set.set("redo.available");
+            }
             // ★ **A live text selection** — the operand the three Text markup
             // commands act on, and the condition that keeps them from being
             // controls that do nothing on almost every press.
@@ -351,9 +397,6 @@ impl PdfceApp {
             ));
         }
 
-        // `undo.available` and `redo.available` are still deliberately absent:
-        // there is no undo stack to report on yet. Setting them would arm
-        // controls that cannot work. They arrive with their subsystem.
         set
     }
 }
@@ -361,6 +404,98 @@ impl PdfceApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ★ **`undo.available` and `redo.available` follow the session, in both
+    /// directions, through the real verbs.**
+    ///
+    /// # The defect this exists for
+    ///
+    /// This function published neither for the whole life of the project, with a
+    /// comment saying they were "deliberately absent". The obvious way to land
+    /// them — set them beside `doc.open` and move on — arms both controls
+    /// permanently, and a build that did that is **indistinguishable from a
+    /// correct one** in every scenario that presses undo *after* an edit. The
+    /// first two assertions here are the only ones that tell the two apart.
+    ///
+    /// # Why it drives the real actions rather than setting fields
+    ///
+    /// Because the thing under test is a **join**, and this crate has been bitten
+    /// by exactly that before: `every_armable_tool_kind_reports_a_pressed_state`
+    /// exists because Phase 7 shipped a measure tool with four passing unit tests
+    /// and no `conditions` call site, so the button never lit up. A test that set
+    /// a boolean and read a condition would prove that `set.set` works.
+    ///
+    /// So the log is filled by [`crate::app::actions::Action::CommitMarkup`] going
+    /// through `vector_edit` and emptied by [`crate::app::actions::Action::Undo`]
+    /// going through the same funnel — the two paths an operator's gesture takes
+    /// — and the conditions are read through the **registered commands'** own
+    /// predicates, so a rename of either condition string fails here rather than
+    /// silently greying a control forever.
+    #[test]
+    fn the_history_conditions_follow_the_session() {
+        use crate::app::actions::Action;
+        use crate::canvas::markup::{Geometry, MarkupKind};
+
+        let ctx = egui::Context::default();
+        let mut app = crate::app::tests::opened();
+        let mut reg = egui_shell::CommandRegistry::new();
+        crate::shell::commands::register(&mut reg);
+        let live = |app: &PdfceApp, ctx: &egui::Context, id: &str| {
+            reg.get(id)
+                .expect("registered")
+                .is_enabled(&app.conditions(ctx))
+        };
+
+        // ★ A freshly opened document has an empty command log, so BOTH controls
+        // are greyed. This is the assertion an unconditional publication fails,
+        // and it is the reason the pair below is not enough on its own.
+        assert!(
+            !live(&app, &ctx, "edit.undo"),
+            "nothing has been changed, so Undo must be greyed — a control armed here is one that \
+             can only decline"
+        );
+        assert!(!live(&app, &ctx, "edit.redo"), "and so must Redo");
+
+        // One real edit through the real funnel.
+        app.apply_actions(
+            vec![Action::CommitMarkup {
+                page: 0,
+                kind: MarkupKind::Rectangle,
+                geometry: Geometry::Band {
+                    start: (100.0, 100.0),
+                    end: (200.0, 160.0),
+                },
+            }],
+            1.0,
+        );
+        assert!(
+            live(&app, &ctx, "edit.undo"),
+            "an annotation was authored, so there is something to take back"
+        );
+        assert!(
+            !live(&app, &ctx, "edit.redo"),
+            "nothing has been undone yet — an edit does not fill the redo stack"
+        );
+
+        // …and the undo swaps them, which is the half that proves neither is
+        // latched. `EditSession::commit` clears the redo stack on a new command,
+        // so a build that never re-read `can_redo` would pass the line above and
+        // fail this one.
+        app.apply_actions(vec![Action::Undo], 1.0);
+        assert!(
+            !live(&app, &ctx, "edit.undo"),
+            "the only command on the log has been taken back"
+        );
+        assert!(
+            live(&app, &ctx, "edit.redo"),
+            "…and is now on the redo stack, which is what makes Redo pressable"
+        );
+
+        // Round trip: redoing empties the redo stack and refills the undo log.
+        app.apply_actions(vec![Action::Redo], 1.0);
+        assert!(live(&app, &ctx, "edit.undo"));
+        assert!(!live(&app, &ctx, "edit.redo"));
+    }
 
     /// ★ **Every armable tool kind reports a pressed state** — asserted over
     /// `ALL` for both families rather than over a list written here.

@@ -488,6 +488,58 @@ pub fn save_copy_failed() -> &'static str {
     "⊗ The copy was not written — check that the folder exists and can be written to"
 }
 
+/// Shown when `edit.undo` was invoked and the command log was empty.
+///
+/// # Why this sentence exists at all, when the control is greyed
+///
+/// Because the route that reaches it is **the keyboard**, and the keyboard is
+/// the one route on which the greyed control explains nothing. `edit.undo` is
+/// gated on `undo.available`, so its quick-access button is un-pressable with an
+/// empty log — but it is also bound to `Ctrl+Z`, and
+/// `app::modes::capability::offers_command` lets it through in every mode
+/// because it sits on no tab. An operator who presses `Ctrl+Z` is looking at the
+/// page, not at an 18 pt icon in the title bar, and silence there is
+/// indistinguishable from a chord that never arrived — which is the state
+/// `HANDOFF.md` §2 exists to remove.
+///
+/// It is the same argument [`save_copy_failed`] makes about *its* route, one
+/// step earlier: that one arrives after the operator invested a dialog, this one
+/// after they invested the single most reflexive keystroke in any editor.
+///
+/// # Why it says *this document* rather than *nothing*
+///
+/// The log is per-[`EditSession`](pdfce_core::edit::EditSession), which is
+/// per-document: closing a document and opening another empties it. "Nothing to
+/// undo" alone would read as a claim about the application, and an operator who
+/// had just undone six things in the file they closed would read it as a defect.
+///
+/// # Why it does not name the remedy
+///
+/// There is none — nothing has been changed, so there is nothing to take back,
+/// and the sentence is a complete report of the state. It reports rather than
+/// instructs, which is [`zoom_declined_no_selection`]'s rule and the one
+/// [`tests::the_decline_reports_the_state_rather_than_instructing_the_operator`]
+/// pins for that sentence.
+#[must_use]
+pub fn undo_declined_empty() -> &'static str {
+    "⊗ Nothing to undo — this document has no changes to take back"
+}
+
+/// Shown when `edit.redo` was invoked and the redo stack was empty.
+///
+/// Kept separate from [`undo_declined_empty`] because the two states are
+/// reached differently and a reader has one line to tell them apart. An empty
+/// **undo** log means nothing has been changed; an empty **redo** stack is the
+/// ordinary state of a document that has been edited and never undone — and it
+/// is also what a *new edit after an undo* produces, because the engine clears
+/// the redo stack when a fresh command is recorded. One sentence for both would
+/// tell an operator who just pressed `Ctrl+Y` after ten edits that their
+/// document has no changes, which is false.
+#[must_use]
+pub fn redo_declined_empty() -> &'static str {
+    "⊗ Nothing to redo — nothing has been undone, or a new change replaced it"
+}
+
 // ---------------------------------------------------------------------------
 // Zoom
 // ---------------------------------------------------------------------------

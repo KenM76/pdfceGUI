@@ -112,6 +112,37 @@ pub fn save_copy_suffix() -> &'static str {
     "-copy"
 }
 
+/// The title bar of the dialog `pages.extract` opens.
+///
+/// Names the thing being produced, on [`save_copy_dialog_title`]'s reasoning,
+/// and the word that has to be there is **new**: an extraction does not modify
+/// the document the operator is looking at, and the one place the operating
+/// system lets pdfce say so before any bytes are written is this heading. The
+/// third caller of `crate::app::files::pick_save_path`, and the third distinct
+/// heading, for the reason that function's own docs give — a harness or an
+/// operator must be able to tell which of the three questions is being asked.
+#[must_use]
+pub fn extract_pages_dialog_title() -> &'static str {
+    "Save the extracted pages as a new document"
+}
+
+/// The suffix `pages.extract` appends to suggest a name for the new document.
+///
+/// `-pages` rather than `-extract`, on the same *name the result, not the verb*
+/// rule [`save_copy_dialog_title`] follows: the file that lands beside the
+/// drawing is some of its pages, and `SHEET-pages.pdf` says that at a glance in
+/// a folder listing.
+///
+/// It carries [`save_copy_suffix`]'s guarantee for [`save_copy_suffix`]'s
+/// reason: the suggestion is **never** the file that was opened, so an operator
+/// who accepts it without reading it cannot overwrite the document they are
+/// extracting from. That is a promise about a default rather than a warning,
+/// and it is asserted in `crate::app::actions::pages`' tests.
+#[must_use]
+pub fn extract_pages_suffix() -> &'static str {
+    "-pages"
+}
+
 // ---------------------------------------------------------------------------
 // ★ The Recent control's own LABEL and TOOLTIP are deliberately not here.
 //
