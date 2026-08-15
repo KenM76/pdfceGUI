@@ -655,8 +655,35 @@ impl PdfceApp {
                     actions.push(Action::ToggleViewChrome(chrome));
                 }
             }
-            "view.zoom_in" => actions.push(Action::ZoomIn),
-            "view.zoom_out" => actions.push(Action::ZoomOut),
+            // ★ **`view.zoom_in`, `view.zoom_out`, `view.next_page` and
+            // `view.prev_page` had arms here and no longer do.**
+            //
+            // Recorded rather than silently removed, because a reader who finds
+            // `Action::ZoomIn` with no arm should not have to wonder whether one
+            // was forgotten. None of the four ids is registered — no catalog
+            // entry, no manifest item, no `crate::text::commands` copy, no
+            // `RIBBON_IA.md` row — so **no token existed and no operator gesture
+            // ever reached one.** They were the mirror of the defect
+            // `shell::commands::reach` was built for: there, a control with no
+            // arm; here, an arm with no control.
+            //
+            // All four verbs work, by the routes the specification actually puts
+            // them on. `RIBBON_IA.md` §6 assigns *"zoom −/%/+, page ◀ n/N ▶"* to
+            // the **status bar**, and that is where they are: `app::status`'s
+            // zoom group raises `ZoomIn`/`ZoomOut`, `status::page_box` raises
+            // `NextPage`/`PrevPage`, and `app::keyboard` raises all four from
+            // `Ctrl` `+`/`-` and `PageDown`/`PageUp`. Deleting the arms removed
+            // duplicate entrances, not behaviour.
+            //
+            // This arm's own neighbour states the rule they broke, and it is
+            // quoted here rather than paraphrased: `format.delete` refuses an
+            // `edit.delete` arm because it would be *"an arm no token can ever
+            // reach — dead code wearing a design pattern, which is what the
+            // no-placeholders invariant forbids."* Registering the four instead
+            // was the other available answer and is a **ribbon** decision, not a
+            // dispatch one; `shell::commands::reach::UNREACHED_ARMS` carries what
+            // it would take.
+            //
             // `ZoomTo(1.0)`, not `Fit(FitMode::None)`. The latter only stops the
             // per-frame re-fit and leaves the zoom where it was, so this
             // control used to pin whatever magnification happened to be
@@ -664,8 +691,6 @@ impl PdfceApp {
             "view.zoom_actual" => actions.push(Action::ZoomTo(1.0)),
             "view.zoom_fit_page" => actions.push(Action::Fit(crate::viewer::FitMode::Page)),
             "view.zoom_fit_width" => actions.push(Action::Fit(crate::viewer::FitMode::Width)),
-            "view.next_page" => actions.push(Action::NextPage),
-            "view.prev_page" => actions.push(Action::PrevPage),
             // This control was drawn and enabled from the moment the ribbon
             // landed, and did nothing — a live instance of D1's shape: an
             // affordance that looks available and is inert. It became
@@ -1082,6 +1107,72 @@ impl PdfceApp {
             // or a submenu, and this arm becoming three that pass the
             // matching `ResetScope`. `ResetScope::ALL` already lists them
             // narrowest-first, in the order such a menu should offer them.
+            // ★ **The two View ▸ Window verbs**, and the pair
+            // `RIBBON_IA.md` §3 named as *"the single most confusing thing in
+            // the current ribbon"*: registered, glyphed, grouped, bound to
+            // `Ctrl+H` and `F11`, listed in the shortcuts reference, and with no
+            // arm at all until 2026-08-15. `file.save_copy`'s defect twice more.
+            //
+            // Both are one line, because everything they decide lives in
+            // `crate::app::window`: why `view.read_mode` is **not** a duplicate
+            // of `mode.read` (chrome versus capability, and three of three
+            // reference applications separate them), what read mode hides and
+            // why the status bar is deliberately not on that list, why Escape
+            // was declined as a second way out, and why one state lives in
+            // `egui::Memory` while the other is read back off the viewport
+            // rather than shadowed on the application.
+            //
+            // Neither raises an `Action`, for `edit.find`'s reason: nothing
+            // about the document changes, so there is nothing for the undo log
+            // to hold and nothing to order against. Neither *could* go through
+            // the funnel without weakening it, either — the apply phase is
+            // deliberately handed no `egui::Context`, and both of these need
+            // one.
+            //
+            // No capability check and no mode check. A window is not a document:
+            // Read may hide its own chrome and Edit may fill the display, and
+            // `app::modes::capability` governs what may be *authored*, which is
+            // neither of these.
+            "view.read_mode" => {
+                let on = crate::app::window::toggle_read_mode(ctx);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("read-mode on={on}")
+                });
+            }
+            // `asked=` rather than `on=`, and the difference is not pedantry: a
+            // viewport command is queued and answered by the windowing backend,
+            // so `ViewportInfo::fullscreen` still reports the old value on this
+            // frame. A trace line claiming the window *is* full screen on the
+            // strength of a request would be the harness's only evidence, and it
+            // would be wrong exactly when the backend refused.
+            "view.fullscreen" => {
+                let asked = crate::app::window::toggle_fullscreen(ctx);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("fullscreen asked={asked}")
+                });
+            }
+            // ★ **Render diagnostics** — the last of the four wired on
+            // 2026-08-15, and the one `shell::commands::reach` called the least
+            // defensible on its list, *because the work behind it was already
+            // done*: the renderer has produced this report since S0 and the
+            // status bar has shown a one-line summary of it since S2.
+            //
+            // A dialog, in the shape `file.print`, `file.ocr` and `file.about`
+            // established, because `shell::manifest::tools`' argument for the
+            // command is an argument about placement and it names a dialog's
+            // properties exactly: *"a thing you go and look at when something is
+            // wrong"*, with *"room to be more than one line"*. See
+            // `crate::dialogs::diagnostics` for why not a panel, why the status
+            // bar keeps its line, and why the two cannot disagree.
+            //
+            // Both guards — no document, already open — are inside
+            // `open_diagnostics`, at the one place the dialog is ever built, for
+            // the reason `DialogsState::open_print` documents: the ribbon
+            // control is gated on `doc.open` and a chord bound to the same id is
+            // not.
+            "tools.render_diagnostics" => self.dialogs.open_diagnostics(&self.status),
             "view.reset_layout" => {
                 let scope = egui_shell::layout::ResetScope::All;
                 let changed = self.modes.reset(

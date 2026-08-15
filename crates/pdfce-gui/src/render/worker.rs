@@ -189,6 +189,23 @@ pub struct RenderedPixels {
     /// and a hand-copied subset is how an input silently stops being
     /// compared. See [`RenderKey`].
     pub key: RenderKey,
+    /// **How long the rasterization itself took.**
+    ///
+    /// Measured around the `pdfce_render` call and nothing else — not around
+    /// the spawn, not around the channel, not around the texture upload — so
+    /// the number answers *"how expensive is this page to draw?"* rather than
+    /// *"how busy was the machine?"*. Those are different questions, and the
+    /// second one already has an answer in the trace (`render-async-done ms=`
+    /// includes the queueing).
+    ///
+    /// Carried on the result rather than left in the trace because
+    /// `tools.render_diagnostics` shows it to the operator, and a number a
+    /// surface displays cannot come from a diagnostic line nothing parses.
+    /// `HANDOFF.md` §10 already records the reason this matters on this
+    /// project's documents: ~99 % of render cost is resolution-independent on
+    /// dense CAD, so *how long* and *at what scale* only mean something
+    /// together — which is why the two travel on one struct.
+    pub elapsed: std::time::Duration,
 }
 
 /// What a worker sends back: pixels, a failure, or nothing at all.
@@ -345,6 +362,23 @@ impl RenderKey {
     #[must_use]
     pub fn scale_bits(&self) -> u32 {
         self.raster_scale_bits
+    }
+
+    /// The raster scale this key names, as the number it was built from.
+    ///
+    /// The exact inverse of [`Self::new`]'s `to_bits`, and here rather than at
+    /// the one call site (`tools.render_diagnostics`) because a bit pattern
+    /// reinterpreted by hand is the kind of arithmetic that is right once and
+    /// then copied. Staleness still compares [`Self::scale_bits`]: a bit
+    /// comparison is total where `f32` equality is not, which is the whole
+    /// reason the field is stored as bits.
+    ///
+    /// **Device pixels per PDF user-space unit** — the operator's zoom already
+    /// multiplied by the display's `pixels_per_point`, per this type's own
+    /// docs — so it is not the percentage the status bar shows.
+    #[must_use]
+    pub fn raster_scale(&self) -> f32 {
+        f32::from_bits(self.raster_scale_bits)
     }
 
     /// The key `request` describes.
@@ -710,6 +744,13 @@ fn render_on_worker(request: &RenderRequest, cancel: &RenderCancel) -> Outcome {
     // request can own the `Arc` and still hand `render_page_with_view` a
     // reference.
     let view = request.session.view();
+    // ★ The clock starts here and nowhere else. Everything above is option
+    // assembly and a borrow; everything below is a `match` on the result. What
+    // is timed is therefore the rasterization, which is what
+    // `RenderedPixels::elapsed` says it is — and the two lines are adjacent so
+    // that a future statement inserted between them is visibly inside the
+    // measurement rather than accidentally so.
+    let started = Instant::now();
     match pdfce_render::render_page_with_view(&view, &request.page, request.raster_scale, &options)
     {
         Ok(rendered) => Outcome::Done(Box::new(RenderedPixels {
@@ -719,6 +760,7 @@ fn render_on_worker(request: &RenderRequest, cancel: &RenderCancel) -> Outcome {
             // run from, so the texture cannot be labelled with anything but
             // the inputs that produced it.
             key: RenderKey::of(request),
+            elapsed: started.elapsed(),
         })),
         Err(e) if cancel.is_cancelled() => {
             // Deliberate abandonment, not a defect. Checking the token

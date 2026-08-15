@@ -357,9 +357,15 @@ pub fn consume_anchor(ctx: &Context, doc: &mut OpenDoc, display_now: (f32, f32))
 /// Which discrete zoom a command asked for.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ZoomStep {
-    /// The next ladder rung up — `view.zoom_in`.
+    /// The next ladder rung up — the status bar's `+`, and `Ctrl` `+`.
+    ///
+    /// ★ Named after `view.zoom_in` until 2026-08-15, when that dispatch arm
+    /// was deleted: no such command is registered, so the id named nothing an
+    /// operator could press. The two routes above are the real ones —
+    /// `RIBBON_IA.md` §6 puts `zoom −/%/+` on the status bar deliberately.
     In,
-    /// The next ladder rung down — `view.zoom_out`.
+    /// The next ladder rung down — the status bar's `−`, and `Ctrl` `-`. Its
+    /// twin above carries the note about the name.
     Out,
     /// One PDF point per screen point — `view.zoom_actual`, Ctrl+0.
     ActualSize,

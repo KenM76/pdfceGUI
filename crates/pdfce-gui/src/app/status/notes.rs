@@ -135,7 +135,7 @@ pub(super) fn show(ui: &mut egui::Ui, doc: &OpenDoc) {
 /// One count from the renderer's report, paired with the catalog entry that
 /// puts it into words.
 ///
-/// A named type rather than an inline tuple so [`notes_line`]'s table reads
+/// A named type rather than an inline tuple so [`findings`]' table reads
 /// as a table. The `fn(usize) -> String` half is a plain function pointer
 /// rather than a closure on purpose: it names a *catalog entry*, so the
 /// pairing is a lookup that can be read down the page, and a reviewer
@@ -143,6 +143,37 @@ pub(super) fn show(ui: &mut egui::Ui, doc: &OpenDoc) {
 type NoteEntry = (usize, fn(usize) -> String);
 
 /// Turn the renderer's honesty report into the one line the disclosure shows.
+///
+/// The **join and the empty case**, and nothing else. Which findings exist, in
+/// what order, and which two counters are excluded are all [`findings`]' — see
+/// there. This function's whole subject is that the bar gets *one* line
+/// (**R128**) and that an empty one would be indistinguishable from a
+/// disclosure that failed to fill itself.
+fn notes_line(d: &pdfce_render::Diagnostics) -> String {
+    let parts = findings(d);
+    if parts.is_empty() {
+        // Stated positively. An empty disclosure is indistinguishable from
+        // one that failed to fill itself, and the operator who opened it
+        // wanted an answer either way.
+        t::diagnostics_clean().to_owned()
+    } else {
+        t::diagnostics_join(&parts)
+    }
+}
+
+/// **The renderer's report as an ordered list of sentences**, one per finding
+/// that actually occurred.
+///
+/// ★ Split out of [`notes_line`] on 2026-08-15 so that the status bar's one
+/// line and the Render-diagnostics dialog's list are the *same nine decisions*
+/// — which counters are reported, which two are not, and in what order — made
+/// once. Two tables would agree on the day they were written and disagree the
+/// first time a tenth counter was added to one of them, and the symptom would
+/// be two surfaces describing one raster differently, which is the worst
+/// available outcome for a *diagnostic*.
+///
+/// Empty is a real answer and means the page drew clean. Callers word that
+/// themselves, because the bar and the dialog have different room for it.
 ///
 /// # What is reported, and what is deliberately not
 ///
@@ -157,10 +188,14 @@ type NoteEntry = (usize, fn(usize) -> String);
 /// tolerated structural oddity (an unbalanced `Q`, a mid-path `cm`) is
 /// something the renderer absorbed and drew right anyway, and a `BX`/`EX`
 /// skip is spec-sanctioned (§7.8.2 Table 32) — the file is *telling* readers
-/// to skip it. Listing them would put two numbers that mean "nothing is
-/// wrong" in front of the six that mean something is. They remain in the
-/// structured data for whoever wants them; this is a status bar, not a
-/// report.
+/// to skip it. Listing them **here** would put two numbers that mean "nothing
+/// is wrong" in front of the six that mean something is.
+///
+/// ★ They are not lost: the Render-diagnostics dialog shows them, separately
+/// and with a sentence saying they are not faults
+/// ([`crate::text::diagnostics::absorbed`]). That is the distinction this
+/// exclusion has always rested on — *"this is a status bar, not a report"* —
+/// finally having a report to be distinguished from.
 ///
 /// # Order
 ///
@@ -169,8 +204,9 @@ type NoteEntry = (usize, fn(usize) -> String);
 /// operator's own hidden layers, then operators pdfce has not implemented. A
 /// line that opens with "3 unrecognised drawing operators" and buries "text
 /// from 2 fonts not drawn" is sorted by the renderer's interest rather than
-/// by the reader's.
-fn notes_line(d: &pdfce_render::Diagnostics) -> String {
+/// by the reader's. The dialog lists them top-down in the same order, for the
+/// same reason.
+pub(crate) fn findings(d: &pdfce_render::Diagnostics) -> Vec<String> {
     let entries: [NoteEntry; 9] = [
         (
             d.contents_streams_unresolved,
@@ -185,19 +221,11 @@ fn notes_line(d: &pdfce_render::Diagnostics) -> String {
         (d.deferred_ops, t::diagnostics_ops_deferred),
         (d.unknown_ops, t::diagnostics_ops_unknown),
     ];
-    let parts: Vec<String> = entries
+    entries
         .into_iter()
         .filter(|(n, _)| *n > 0)
         .map(|(n, render)| render(n))
-        .collect();
-    if parts.is_empty() {
-        // Stated positively. An empty disclosure is indistinguishable from
-        // one that failed to fill itself, and the operator who opened it
-        // wanted an answer either way.
-        t::diagnostics_clean().to_owned()
-    } else {
-        t::diagnostics_join(&parts)
-    }
+        .collect()
 }
 
 #[cfg(test)]

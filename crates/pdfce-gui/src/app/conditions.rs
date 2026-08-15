@@ -353,6 +353,34 @@ impl PdfceApp {
         if crate::canvas::tool::selected(ctx).is_text() {
             set.set(egui_shell::ribbon::selected_condition("view.tool_text"));
         }
+        // ★ **The two View ▸ Window toggles' pressed state.**
+        //
+        // Outside the `Status::Open` arm, and more obviously so than the armed
+        // tools above: these describe the **application's own shape**, which has
+        // nothing to do with whether a document is loaded. A ribbon that
+        // un-pressed Full screen because the operator closed a file would be
+        // reporting something untrue about the window it is drawn in.
+        //
+        // The two read their state from different places and that asymmetry is
+        // argued in `crate::app::window` §3, not here. In one sentence: read
+        // mode is created by nothing but its own command, so `egui::Memory` is
+        // its home and the same route the armed tool takes; full screen has an
+        // owner **outside this program** — a window manager can grant or revoke
+        // it unasked — so it is read back off the viewport rather than shadowed
+        // on `PdfceApp`, where the two would drift and the control would render
+        // pressed over a windowed application.
+        //
+        // ★ Note what that costs, so it is not mistaken for a defect: the
+        // full-screen control lights up on the frame **after** the press,
+        // because a viewport command is answered by the backend. That is the
+        // honest lag — the alternative is a control that reports a request as a
+        // fact, which is wrong precisely when the backend refuses.
+        if crate::app::window::read_mode(ctx) {
+            set.set(egui_shell::ribbon::selected_condition("view.read_mode"));
+        }
+        if crate::app::window::fullscreen(ctx) {
+            set.set(egui_shell::ribbon::selected_condition("view.fullscreen"));
+        }
         if crate::canvas::zoom::region_zoom_armed(ctx) {
             set.set(egui_shell::ribbon::selected_condition("view.zoom_region"));
         }

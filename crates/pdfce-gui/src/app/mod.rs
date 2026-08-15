@@ -96,6 +96,9 @@ pub mod recent;
 pub mod save;
 pub mod state;
 pub mod status;
+/// Read mode and full screen — the two View ▸ Window verbs that change the
+/// shape of the application rather than anything about the document.
+pub mod window;
 
 use actions::Action;
 use state::Status;
@@ -646,7 +649,7 @@ impl PdfceApp {
 
         // ★ Bind the mode selector to the dock, and the dock to disk.
         //
-        // Three separate questions, deliberately in this order.
+        // Two questions, deliberately in this order.
         //
         // 1. **Did the operator change mode?** Then the arrangement they are
         //    leaving is recorded and the one they are entering is applied.
@@ -657,10 +660,9 @@ impl PdfceApp {
         // 2. **Did they rearrange it?** `layout_changed` is the dock's own
         //    report of a splitter drag, a tab move or a close — not a
         //    comparison this function has to re-derive.
-        // 3. **Is a write due?** `tick` runs the debounce. It returns when to
-        //    look again, and **egui only wakes on input**, so without the
-        //    repaint request an arrangement changed and then left alone would
-        //    sit unwritten until some unrelated frame happened along.
+        //
+        // A third — *is a write due?* — used to be here and is now in
+        // `Self::ui`, so read mode cannot hide a pending write with the dock.
         //
         // The order of 1 and 2 is load-bearing: recording after a mode change
         // would file the outgoing arrangement under the incoming mode.
@@ -678,9 +680,6 @@ impl PdfceApp {
         if report.layout_changed {
             let arrangement = self.dock.layout().clone();
             self.modes.record_layout(&arrangement, &mut self.layout);
-        }
-        if let Some(after) = self.layout.tick(std::time::Instant::now()) {
-            ui.ctx().request_repaint_after(after);
         }
 
         // What the dock actually drew, not what the layout asked for. The
@@ -835,7 +834,14 @@ impl eframe::App for PdfceApp {
         // surface follows. A token with no arm yet is not an error; at S2
         // most of the ribbon is scaffolding for behaviour that lands later,
         // and `dispatch_token` says so per token rather than silently.
-        self.ribbon_band(ui, &mut actions);
+        // ★ Read mode's whole effect is here: the ribbon and the docks are not
+        // added to the frame. Why it is not `mode.read`, why the status bar
+        // below stays and how the operator gets back out are all in [`window`];
+        // a composition step deciding any of that would be a second rule.
+        let chrome = window::draws_chrome(&ctx);
+        if chrome {
+            self.ribbon_band(ui, &mut actions);
+        }
 
         // Step 1b² — the status bar, before the docks.
         //
@@ -865,7 +871,17 @@ impl eframe::App for PdfceApp {
         // the dock's edge instead of spanning the window. The canvas must
         // be added *after* both, because a `CentralPanel` takes whatever is
         // left and there must be something left for it to take.
-        self.docks(ui, &mut actions);
+        if chrome {
+            self.docks(ui, &mut actions);
+        }
+
+        // Step 1c² — the debounced workspace write, dock drawn or not. ★ Moved
+        // out of `Self::docks` when read mode landed; [`window`] §3 has why the
+        // debounce belongs to the frame and what quitting from read mode would
+        // otherwise lose.
+        if let Some(after) = self.layout.tick(std::time::Instant::now()) {
+            ctx.request_repaint_after(after);
+        }
 
         // Step 2 — compose. Nothing here mutates a document; surfaces push
         // onto `actions`.
@@ -944,8 +960,8 @@ impl eframe::App for PdfceApp {
 
         // Step 2c — give every pending zoom an anchor, in ONE place.
         //
-        // `view.zoom_in`, `view.zoom_out` and `view.zoom_actual` are raised
-        // from six call sites — the dispatcher, the keyboard, and three
+        // `ZoomIn`, `ZoomOut` and `ZoomTo` are raised from five call sites —
+        // `view.zoom_actual` in the dispatcher, the keyboard, and three
         // status-bar controls. Anchoring them where they are raised would
         // mean the same rule spelled six times, and a seventh surface added
         // later would silently zoom to the top-left corner: the exact defect

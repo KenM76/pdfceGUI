@@ -60,6 +60,10 @@
 //! general.
 
 pub mod about;
+/// The render report `tools.render_diagnostics` opens — what the renderer did
+/// with the page currently on the canvas, with the room the status bar's one
+/// elided line does not have.
+pub mod diagnostics;
 pub mod ocr;
 pub mod print;
 
@@ -104,6 +108,15 @@ pub struct DialogsState {
     /// document the operator has already put away, and offering to do that is
     /// how a program ends up with two ideas about what "the document" means.
     ocr: Option<ocr::OcrDialog>,
+
+    /// The Render-diagnostics report, when one is open.
+    ///
+    /// Document-scoped: it describes *this page of this file*, and a window
+    /// left up over a closed document would be reporting measurements of a
+    /// raster that no longer exists. It holds no configuration, so closing it
+    /// forgets nothing — but it must still close, for the same reason print
+    /// does.
+    diagnostics: Option<diagnostics::DiagnosticsDialog>,
 
     // --- application-scoped: survives an empty canvas ---------------------
     /// The About dialog, when one is open.
@@ -165,6 +178,39 @@ impl DialogsState {
             return;
         }
         self.ocr = ocr::open_for(status);
+    }
+
+    /// Open the Render-diagnostics report for the document in `status`.
+    ///
+    /// **The dispatch target for the `tools.render_diagnostics` command**, and
+    /// it applies the same two guards [`Self::open_print`] documents, for the
+    /// same two reasons: the ribbon control is gated on `doc.open` and a chord
+    /// bound to the same id is not.
+    ///
+    /// The no-document guard is the sharper of the two here. Without it a chord
+    /// on an empty canvas would build a window that [`Self::show`] closes again
+    /// on its very next frame — a control that visibly flickers rather than one
+    /// that visibly declines, which is the harder of the two to diagnose.
+    ///
+    /// The already-open guard costs nothing (there is no configuration to
+    /// discard) and is kept for About's reason: rebuilding would move the
+    /// window back to the centre and the findings list back to the top, which
+    /// for an operator half-way down a census reads as the program losing their
+    /// place.
+    ///
+    /// ★ Note what it does **not** guard on: whether anything has been
+    /// rasterized. `doc.open` is the registered predicate, and a document with
+    /// no texture yet is precisely when an operator asks what the renderer did
+    /// — so the dialog opens and *says* that nothing has been drawn, rather
+    /// than the command silently doing nothing.
+    pub fn open_diagnostics(&mut self, status: &Status) {
+        if !matches!(status, Status::Open(_)) {
+            return;
+        }
+        if self.diagnostics.is_some() {
+            return;
+        }
+        self.diagnostics = Some(diagnostics::DiagnosticsDialog::open());
     }
 
     /// Open the About dialog.
@@ -235,6 +281,9 @@ impl DialogsState {
         if self.ocr.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
             self.ocr = None;
         }
+        if self.diagnostics.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
+            self.diagnostics = None;
+        }
     }
 
     /// Drop the state of every dialog that is about the open document.
@@ -246,6 +295,7 @@ impl DialogsState {
     fn close_document_scoped(&mut self) {
         self.print = None;
         self.ocr = None;
+        self.diagnostics = None;
     }
 }
 
@@ -276,6 +326,41 @@ mod tests {
         dialogs.close_document_scoped();
         assert!(dialogs.print.is_none());
         assert!(dialogs.ocr.is_none());
+        assert!(dialogs.diagnostics.is_none());
+    }
+
+    /// The render report cannot be opened without a document either, and the
+    /// guard is the one that matters most for it.
+    ///
+    /// Its command is gated on `doc.open`, so the ribbon cannot reach this
+    /// state — but a chord can, and without the guard the dialog would be built
+    /// and then closed by [`DialogsState::show`] on the very next frame. A
+    /// window that flickers is harder to diagnose than one that never appears.
+    #[test]
+    fn no_document_means_no_diagnostics_dialog() {
+        let mut dialogs = DialogsState::default();
+        dialogs.open_diagnostics(&Status::Empty);
+        assert!(dialogs.diagnostics.is_none());
+    }
+
+    /// Pressing Render diagnostics twice does not rebuild the report.
+    ///
+    /// Nothing would be lost — it holds no configuration, and it reads the
+    /// texture live — but the window would jump back to the centre and the
+    /// findings list back to the top, which for an operator half-way down a
+    /// census is the program losing their place. About's argument, one dialog
+    /// over.
+    #[test]
+    fn opening_the_diagnostics_report_twice_leaves_the_first_one_alone() {
+        let mut dialogs = DialogsState::default();
+        let status = Status::Open(Box::new(crate::app::state::open_fixture(
+            crate::app::state::FOUR_PAGES,
+        )));
+        dialogs.open_diagnostics(&status);
+        let first = std::ptr::from_ref(dialogs.diagnostics.as_ref().expect("open"));
+        dialogs.open_diagnostics(&status);
+        let second = std::ptr::from_ref(dialogs.diagnostics.as_ref().expect("still open"));
+        assert_eq!(first, second, "the second press replaced the dialog");
     }
 
     /// Recognise text cannot be opened without a document either.

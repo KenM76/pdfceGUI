@@ -145,6 +145,25 @@ pub mod ocr;
 pub mod page_ops;
 pub mod qat_icons;
 pub mod read_mode;
+
+/// ★ `tools.render_diagnostics` — the inert control whose data was already
+/// being computed. `shell::commands::reach` called it *"the least defensible
+/// kind — the work behind it is done"*: the renderer has produced the report
+/// since S0, and what was missing was a `match` arm and a window.
+pub mod render_diagnostics;
+
+/// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
+/// and a line in the shortcuts reference, and **no dispatch arm** for the whole
+/// life of the project. Its whole behaviour is one `if` in the frame
+/// composition, which every unit test in the workspace is blind to.
+///
+/// Named `read_mode_chrome` rather than `read_mode` because that name is
+/// already taken by the check one line up, and the two are about genuinely
+/// different things: that one is `mode.read`'s **capability** gate (a click in
+/// Read must not select), this one is `view.read_mode`'s **chrome** toggle (the
+/// ribbon and the docks stop being drawn). `app::window` §1 carries the
+/// argument for why those are two commands rather than a duplicate.
+pub mod read_mode_chrome;
 pub mod ribbon_captions;
 /// ★ `file.save_copy` — the command that was registered, drawn, on the
 /// quick-access toolbar and bound to `Ctrl+S` with **no dispatch arm**, so
@@ -373,7 +392,25 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // chord, types a needle and presses Enter into a real foreground
         // window, so it costs the operator their focus for a few seconds.
         // A run that fails earlier should fail before paying that.
+        // Cheap and non-destructive: two ribbon clicks, no canvas gesture, no
+        // keystroke, and a window that changes nothing. Placed here rather than
+        // among the first driving checks only because it depends on a raster
+        // having landed, and everything above has already waited for one.
+        Box::new(render_diagnostics::RenderDiagnosticsOpensItsReport),
         Box::new(find_bar::FindOpensAndFinds),
+        // ★ Second to last among the driving checks, and the placement is a
+        // property of what it does rather than of what it costs: it is the only
+        // check that **cannot put the application back**. Read mode's exit is
+        // `Ctrl+H` and this machine cannot inject keystrokes, so the session
+        // ends with the chrome hidden. That harms nothing — every check launches
+        // its own process and read mode is per-session by design — but a reader
+        // scanning a run for the first failure should not meet a check whose
+        // window looks broken in its artefacts before the ones whose windows
+        // look ordinary.
+        //
+        // Cheap otherwise: two ribbon clicks, two captures, no canvas gesture
+        // and no keystroke.
+        Box::new(read_mode_chrome::ReadModeHidesTheChrome),
         Box::new(settings_headings::SettingsHeadingsLegible),
     ]
 }

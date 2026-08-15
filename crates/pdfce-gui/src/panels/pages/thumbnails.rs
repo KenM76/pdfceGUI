@@ -563,6 +563,14 @@ impl ThumbnailCache {
                     // above; stating them here keeps the key honest rather than
                     // convenient.
                     key: RenderKey::new(page_index, scale, true, 0),
+                    // The same measurement this function was already taking for
+                    // its own trace, now carried on the value rather than only
+                    // written out — so a thumbnail and a canvas raster report
+                    // their cost through one field. Nothing reads a thumbnail's
+                    // copy today: `tools.render_diagnostics` is about the page
+                    // on the canvas, and a strip of twelve pages would need a
+                    // surface that says *which* twelve.
+                    elapsed,
                 };
                 self.insert(
                     page_index,

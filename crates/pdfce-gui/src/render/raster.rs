@@ -105,6 +105,16 @@ pub struct PageTexture {
     /// substituted, which features were skipped. Displayed in the status
     /// bar from stage S2; never discarded.
     pub diagnostics: Diagnostics,
+    /// How long the rasterization that produced these pixels took.
+    ///
+    /// Carried straight across from [`crate::render::worker::RenderedPixels`],
+    /// whose field documents what is and is not inside the measurement. Read by
+    /// the `tools.render_diagnostics` dialog, which is the one surface that
+    /// answers *"what did the renderer do with the last page?"* — and which
+    /// needs the scale in [`Self::key`] beside it, because on this project's
+    /// documents ~99 % of render cost is resolution-independent and a duration
+    /// with no scale beside it invites exactly the wrong conclusion.
+    pub elapsed: std::time::Duration,
 }
 
 impl std::fmt::Debug for PageTexture {
@@ -115,6 +125,7 @@ impl std::fmt::Debug for PageTexture {
         f.debug_struct("PageTexture")
             .field("key", &self.key)
             .field("diagnostics", &self.diagnostics)
+            .field("elapsed", &self.elapsed)
             .finish_non_exhaustive()
     }
 }
@@ -176,6 +187,10 @@ pub fn texture_from_pixels(
         // labelled with inputs it was not drawn with.
         key: pixels.key,
         diagnostics: pixels.diagnostics.clone(),
+        // Carried, not re-measured. The upload happens on the UI thread and
+        // the render did not; a clock started here would time the wrong thing
+        // and would do it plausibly, which is the worst combination available.
+        elapsed: pixels.elapsed,
     }
 }
 

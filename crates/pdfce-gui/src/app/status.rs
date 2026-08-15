@@ -337,7 +337,16 @@ pub(super) mod decline;
 /// the operator's own document or gesture, which must not be demoted at all.
 /// The two change for different reasons and are argued from opposite
 /// premises.
-mod notes;
+///
+/// ★ It is `pub(crate)` rather than private since 2026-08-15, for exactly one
+/// export: [`notes::findings`], the ordered, filtered list of what a raster
+/// compromised on. The Render-diagnostics dialog
+/// (`crate::dialogs::diagnostics`) shows the same facts with room for more than
+/// one line, and the *editorial* rules behind that list — which counters are
+/// actionable, which two are excluded, and in whose interest the order is —
+/// belong to the narrator and must be stated once. The dialog joins nothing and
+/// filters nothing; it lists what this module already decided.
+pub(crate) mod notes;
 
 use egui::{Align, Layout, Vec2};
 

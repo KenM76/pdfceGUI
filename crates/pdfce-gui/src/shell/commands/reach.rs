@@ -156,29 +156,43 @@
 //! three-state model exists because "found nothing" and "looked at nothing"
 //! print the same thing; here the second state cannot be reached.
 //!
-//! # What it found, as of 2026-08-15
+//! # What it found, and what has been closed since
 //!
-//! **38 of the 101 registered commands have no dispatch arm.** Every one is
-//! drawn, enabled by its predicate and pressable, and every one traces
-//! `command-unimplemented`. All 38 are listed in [`SCAFFOLDED`] with the reason
-//! each is inert, and **11 of them carry a `★ P3` mark**, which is this
-//! module's judgement that the honest answer is *the control should not be
-//! drawn yet* — `RIBBON_IA.md` P3: "An unavailable capability renders nothing,
-//! not a disabled stub." Both figures are pinned by
-//! [`tests::the_p3_tension_is_counted`], for the reason
-//! `the_icon_coverage_split_adds_up_to_the_registry` exists: a count quoted in
-//! prose and pinned by nothing has drifted in this crate four times.
+//! On the day this landed: **38 of the 101 registered commands had no dispatch
+//! arm.** Every one was drawn, enabled by its predicate and pressable, and every
+//! one traced `command-unimplemented`. All 38 were listed in [`SCAFFOLDED`] with
+//! the reason each was inert, and **11 carried a `★ P3` mark** — this module's
+//! judgement that the honest answer is *the control should not be drawn yet*
+//! (`RIBBON_IA.md` P3: "An unavailable capability renders nothing, not a
+//! disabled stub").
+//!
+//! **It is now 35 and 8.** Three of the eleven were wired the next day rather
+//! than argued for: `view.read_mode` and `view.fullscreen` (`app::window` — and
+//! `view.read_mode` was first established *not* to be a duplicate of
+//! `mode.read`, which would have made deletion the honest answer instead), and
+//! `tools.render_diagnostics` (`dialogs::diagnostics`, the readout moved off the
+//! status bar to a surface with room for it). A fourth, `view.show_points`, was
+//! investigated and **deliberately left here**: the reason it had none was that
+//! there is nothing for it to show — see its entry — which is a better outcome
+//! than a toggle that toggles nothing.
+//!
+//! Both figures are pinned by [`tests::the_p3_tension_is_counted`], for the
+//! reason `the_icon_coverage_split_adds_up_to_the_registry` exists: a count
+//! quoted in prose and pinned by nothing has drifted in this crate four times.
 //!
 //! Whether a `★ P3` entry loses its control is a **taxonomy decision and the
 //! operator's**; nothing here removes one. What this module can do is make the
-//! number impossible to lose track of, and make it go *down* rather than sideways.
+//! number impossible to lose track of, and make it go *down* rather than
+//! sideways — which is what it has now done once.
 //!
 //! ★ **And it found the mirror defect, which nobody was looking for.** Four
 //! literal arms — `view.zoom_in`, `view.zoom_out`, `view.next_page` and
-//! `view.prev_page` — name commands that are **not registered at all**, so no
-//! token can reach them and no operator ever has. See [`UNREACHED_ARMS`], which
-//! exists because the first planted violation of this check was one of them and
-//! the check said nothing.
+//! `view.prev_page` — named commands that are **not registered at all**, so no
+//! token could reach them and no operator ever had. All four were **deleted** on
+//! 2026-08-15, after each verb was checked to have two live routes that are not
+//! the dispatcher. [`UNREACHED_ARMS`] is therefore empty and is kept as a gate:
+//! it exists because the first planted violation of this check was one of those
+//! arms and the check said nothing.
 //!
 //! The gate discipline is kept in full. [`tests`] contains a self-test that
 //! plants a violation in a fixture and proves the reader reports it, another
@@ -384,16 +398,33 @@ pub(super) const SCAFFOLDED: &[(&str, &str)] = &[
          is misreported — but nothing is shown either.",
     ),
     // ===================================================================
-    // VIEW — the four that are not settings
+    // VIEW — the two that are not settings
+    //
+    // ★ It was four until 2026-08-15. `view.read_mode` and `view.fullscreen`
+    // were wired that day — see `app::window` — and their entries are gone
+    // rather than reworded, which is what `no_scaffolded_entry_is_stale`'s
+    // middle assertion exists to force. What is left is genuinely blocked
+    // (`show_points`, on an unsalvaged tool) and genuinely contested
+    // (`sidebar`, a taxonomy question).
     // ===================================================================
     (
         "view.show_points",
-        "★ P3 — NO RECORDED REASON ANYWHERE, and the sharpest instance on this list. It is \
-         registered with a glyph and `doc.pages` beside `view.show_annotations` in the same \
-         Display group, and that neighbour HAS an arm (`Action::ToggleAnnotations`, wirable \
-         once `RenderKey` gained `annotations`). Nothing says why one of the pair was wired \
-         and the other left. It is not claimed by `chrome_for_command` either, which covers \
-         rulers, grid and guides only, so it falls straight through.",
+        "★ P3 — and the reason was found on 2026-08-15 rather than written: **there is nothing \
+         for it to show.** Its own tooltip says what it governs — “the editable points of every \
+         part of the object you are working inside… Points always appear for the selected part” \
+         — which is the old shell's node-mark population, where `canvas.rs` carries `NODE_MARK_PX`, \
+         `NODE_MARK_OTHER_PART_PX` (“drawn only while the ‘show points’ view option is on”) and \
+         `MAX_DRAWN_NODES`. **This build draws no anchor mark at any rung.** `canvas::overlay`'s \
+         whole output is outlines, eight grips, a move ghost, find hits, a text wash and a \
+         marquee, and `CanvasTargetProvider` offers `nearest_node` — a *query* — with no way to \
+         enumerate a part's anchors to paint them. So the baseline the toggle is defined against \
+         does not exist, and the substrate is unsalvaged: `SALVAGE.md` lists `vector_edit_tool.rs` \
+         (“Node/handle editing. Keeps.”) and a ~1,200-line “Vector object editing, node/handle” \
+         unit, neither brought across. It was ALSO checked against `chrome_for_command` and does \
+         not belong there: every `ViewChrome` variant is a `crate::viewer::ViewState` field the \
+         canvas reads in order to *draw* something, and joining that family would add the one \
+         member whose flag nothing reads — a toggle that toggles nothing, which is worse than \
+         an inert button because it looks like it worked.",
     ),
     (
         "view.sidebar",
@@ -403,20 +434,6 @@ pub(super) const SCAFFOLDED: &[(&str, &str)] = &[
          answers it: “**There is no sidebar rail in this build — there is a dock.**” \
          `manifest/view.rs` still claims this id is in PLANNED, which is false: it is \
          registered, drawn first in View ▸ Panels, and available with nothing open.",
-    ),
-    (
-        "view.read_mode",
-        "★ P3 — no reason recorded, and a bound chord makes it worse than a bare button. \
-         `RIBBON_IA.md` §3 called out that this was reachable ONLY by keyboard in the shell \
-         being replaced; the answer here was a control, a glyph, a View ▸ Window group and \
-         `Ctrl+H` in the manifest keymap — five surfaces, no behaviour. A chord that does \
-         nothing cannot even be greyed, so P3's escape hatch does not apply to it.",
-    ),
-    (
-        "view.fullscreen",
-        "★ P3 — its neighbour's case exactly, one row down and one chord over: control, \
-         glyph, Window group, `F11` in the keymap, no arm and no recorded reason. The two \
-         were specified together and are inert together.",
     ),
     // ===================================================================
     // PAGES — the three the dispatcher already argues in place
@@ -592,88 +609,72 @@ pub(super) const SCAFFOLDED: &[(&str, &str)] = &[
          an invalidated signature, a renamed font)”. That disclosure surface is rule 4 work \
          and is not built.",
     ),
-    (
-        "tools.render_diagnostics",
-        "★ P3 — NO RECORDED REASON for the missing arm, and the data already exists. \
-         `manifest/tools.rs` argues only the PLACEMENT: “It is currently a run of text in \
-         the status bar. That surface is for the controls a user touches constantly, and a \
-         diagnostic readout is neither a control nor constant.” That is an argument for \
-         moving a readout that is already being computed, which makes the inert control the \
-         least defensible kind — the work behind it is done.",
-    ),
 ];
 
 /// **The mirror defect: a literal arm that no token can reach, and why each is
 /// tolerated.**
 ///
-/// ★ Found by building the check above rather than by looking for it. The
-/// first planted violation used to prove the reader bites deleted
+/// ★ **Empty since 2026-08-15, and that is the entry.** The list is kept rather
+/// than deleted because an empty allow-list is still a gate: a fifth dead arm
+/// cannot be added quietly, it has to be written here with a reason, and
+/// [`tests::the_p3_tension_is_counted`] pins the length at zero so shortening
+/// or lengthening it is a visible act.
+///
+/// ## What was here, and where it went
+///
+/// ★ Found by building the check above rather than by looking for it. The first
+/// planted violation used to prove the reader bites deleted
 /// `"view.zoom_in" => actions.push(Action::ZoomIn)` from the dispatcher — and
 /// **nothing was reported**, because `view.zoom_in` is not in the registry at
-/// all. Asserting the converse turned up **four** such arms. There is no
-/// catalog entry, no manifest item, no [`crate::text::commands`] copy and no
-/// `RIBBON_IA.md` row for any of them, so no token exists and no operator
-/// gesture has ever reached one: dispatch begins at a registered command's
-/// token, and there is none to begin at.
+/// all. Asserting the converse turned up **four** such arms: `view.zoom_in`,
+/// `view.zoom_out`, `view.next_page` and `view.prev_page`. There was no catalog
+/// entry, no manifest item, no [`crate::text::commands`] copy and no
+/// `RIBBON_IA.md` row for any of them, so no token existed and no operator
+/// gesture had ever reached one — dispatch begins at a registered command's
+/// token, and there was none to begin at.
 ///
-/// That is the exact thing `app::dispatch`'s own `format.delete` arm forbids
-/// in writing — *"adding an arm for one would be an arm no token can ever
-/// reach — dead code wearing a design pattern, which is what the
-/// no-placeholders invariant forbids"* — and it is the inverse of the defect
-/// [`SCAFFOLDED`] is about: there, a control with no arm; here, an arm with no
-/// control.
+/// That is the exact thing `app::dispatch`'s own `format.delete` arm forbids in
+/// writing — *"adding an arm for one would be an arm no token can ever reach —
+/// dead code wearing a design pattern, which is what the no-placeholders
+/// invariant forbids"* — and it is the inverse of the defect [`SCAFFOLDED`] is
+/// about: there, a control with no arm; here, an arm with no control.
 ///
-/// ## Why they are **reported rather than removed**
+/// **All four arms were deleted**, after each of the four verbs was checked to
+/// have a live route that is not the dispatcher:
 ///
-/// Because all four verbs *work*, by another route, and the arms are duplicate
-/// entrances rather than broken ones. `Action::ZoomIn`, `ZoomOut`, `NextPage`
-/// and `PrevPage` are raised directly by `app::keyboard` (`Ctrl` `+`/`-`,
-/// `PageDown`/`PageUp`), by the status bar's zoom control and by its page box.
-/// So deleting the four arms changes nothing an operator can observe — and
-/// neither does keeping them.
+/// | verb | keyboard | status bar |
+/// |---|---|---|
+/// | `Action::ZoomIn` | `app::keyboard`, `Ctrl` `+` | `status::zoom_group`'s `+` |
+/// | `Action::ZoomOut` | `app::keyboard`, `Ctrl` `-` | `status::zoom_group`'s `−` |
+/// | `Action::NextPage` | `app::keyboard`, `PageDown` | `status::page_box`'s `▶` |
+/// | `Action::PrevPage` | `app::keyboard`, `PageUp` | `status::page_box`'s `◀` |
 ///
-/// The question that is actually open is the other one: **should these four be
-/// registered commands?** View ▸ Zoom draws Actual size, Fit page, Fit width,
-/// Region and Selection, and the two step verbs are conspicuously not there;
-/// page navigation lives only on the status bar. That is a ribbon decision and
-/// the operator's, and this list exists so it is made rather than inherited —
-/// and so a **fifth** dead arm cannot be added quietly.
+/// So the deletion removed **duplicate entrances, not behaviour**, and
+/// `RIBBON_IA.md` §6 says the entrances that remain are the specified ones:
+/// *"Find toggle, actual size, fit width, fit page, zoom −/%/+, page ◀ n/N ▶
+/// … These are the controls a user touches constantly; they belong where they
+/// never disappear behind a tab change."* Both pairs are status-bar verbs by
+/// specification, and the arms were the redundant half.
+///
+/// ## The other answer, and what it would take
+///
+/// Registering the four instead is a **ribbon** decision and the operator's,
+/// and it is recorded here so it can be made rather than inherited. It would be
+/// four `catalog::all` entries in the `view.` token block, four
+/// [`crate::text::commands`] pairs, a `RIBBON_IA.md` row each and a place to
+/// draw them — View ▸ Zoom for the step pair, which currently draws Actual size,
+/// Fit page, Fit width, Region and Selection and conspicuously not these two.
+/// Page navigation would need a group that does not exist, against §6's
+/// deliberate placement of it on the bar. The arms would then come back, and
+/// each would be one line pushing the `Action` its two live routes already push.
 ///
 /// ## The quieter failure, and why it is worth a list of its own
 ///
 /// An inert control at least *looks* wrong when an operator presses it. A dead
 /// arm reads as working code: it will be maintained, reviewed and reasoned
-/// about by everyone who passes it, and no test in the suite touched these four
+/// about by everyone who passes it, and no test in the suite touched those four
 /// before this one.
-const UNREACHED_ARMS: &[(&str, &str)] = &[
-    (
-        "view.zoom_in",
-        "No registration, no manifest item, no command text, no `RIBBON_IA.md` row — so no token \
-         exists and nothing can invoke this arm. The verb itself works: `app::keyboard` raises \
-         `Action::ZoomIn` from `Ctrl` `+`, and the status bar's zoom control raises it too. \
-         Whether to delete the arm or to REGISTER the command is the open question; see this \
-         list's header.",
-    ),
-    (
-        "view.zoom_out",
-        "The twin of the arm above, in the other direction, absent from the registry for the \
-         same reason and raised from the same two places. The pair must be decided together — a \
-         ribbon with a step-in control and no step-out would be worse than neither.",
-    ),
-    (
-        "view.next_page",
-        "Unregistered like the two above, and reached by neither a token nor a ribbon control. \
-         `app::keyboard` raises `Action::NextPage` from `PageDown` and the status bar's page box \
-         raises it from its own stepper, so the capability is live and only this entrance is \
-         dead.",
-    ),
-    (
-        "view.prev_page",
-        "Its twin, from `PageUp` and the same page box. `RIBBON_IA.md` §6 puts page navigation \
-         on the status bar deliberately — which is an argument that these two should be DELETED \
-         rather than registered, and is the clearest case of the four.",
-    ),
-];
+const UNREACHED_ARMS: &[(&str, &str)] = &[];
 
 // ===========================================================================
 // READING THE ARMS
@@ -1439,15 +1440,29 @@ pub const FX_CONST: &str = "fx.constant";
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
         assert_eq!(
-            total, 38,
+            total, 35,
             "the allow-list holds {total} entries; this module's header quotes the \
              figure, so move both together"
         );
         assert_eq!(
-            p3, 11,
+            p3, 8,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );
         assert!(p3 <= total, "the P3 subset must be a subset");
+        // ★ …and the mirror list's length, pinned for the same reason and in
+        // the same place. It is **zero**: the four arms it used to tolerate
+        // were deleted on 2026-08-15 after each verb was shown to have two
+        // live routes that are not the dispatcher. A fifth dead arm is still
+        // possible and still has to be argued — this assertion is what makes
+        // adding one a visible act rather than a quiet one, and what stops the
+        // header above going stale about it.
+        assert_eq!(
+            UNREACHED_ARMS.len(),
+            0,
+            "`UNREACHED_ARMS` is documented as empty. If an arm genuinely has \
+             to be tolerated, add it there WITH its reason and move this number \
+             — do not move this number alone."
+        );
     }
 }

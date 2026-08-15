@@ -73,6 +73,11 @@ pub mod about;
 /// The label and tooltip of every ribbon command. Consumed by
 /// `crate::shell::commands`.
 pub mod commands;
+/// Every word the Render-diagnostics dialog adds around the findings — the
+/// title, the three measurements of the render itself, and the two states in
+/// which there is nothing to report. The findings themselves stay in
+/// [`status`]. Consumed by `crate::dialogs::diagnostics`.
+pub mod diagnostics;
 /// The copy the open/close/recent surface owns — the file dialog's title and
 /// filter names, and every string the Recent control draws. Consumed by
 /// `crate::app::files` and `crate::app::recent`.

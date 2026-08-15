@@ -839,9 +839,17 @@ mod tests {
     ///    also never drawn here.
     /// 2. The sentence is **live**, which is the thing that used to be
     ///    missing: the outcome reached the bar instead of the floor.
-    /// 3. Any other command retires it. Asserted with `view.zoom_in` — an
+    /// 3. Any other command retires it. Asserted with `view.zoom_actual` — an
     ///    ordinary, unrelated verb — because the rule is "the operator's next
     ///    act", not "an act about zooming".
+    ///
+    ///    ★ It was `view.zoom_in` until 2026-08-15, when that arm was deleted
+    ///    as one of the four `shell::commands::reach::UNREACHED_ARMS` — an arm
+    ///    for an id no token names. The assertion would still have passed,
+    ///    because `retire()` runs *above* the `match` and an unimplemented id
+    ///    reaches the catch-all — which is exactly why it was changed: a test
+    ///    whose subject is "any other **command**" must name one that exists,
+    ///    or it is quietly asserting something weaker than it says.
     #[test]
     fn the_dispatcher_words_a_decline_and_the_next_command_retires_it() {
         let ctx = Context::default();
@@ -861,7 +869,7 @@ mod tests {
             );
         }
 
-        app.dispatch_command(&ctx, "view.zoom_in", &mut Vec::new());
+        app.dispatch_command(&ctx, "view.zoom_actual", &mut Vec::new());
         let Status::Open(doc) = &app.status else {
             unreachable!("the fixture is open")
         };

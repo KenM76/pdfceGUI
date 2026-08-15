@@ -26,7 +26,7 @@ them.
 
 > **★ The table above is from 2026-08-13.** A large 2026-08-14 session landed
 > the Read-mode gate and Phase 7. Measured at the end of it:
-> **1,650 tests passing, 0 failing · 10 of 10 gates · 101 commands
+> **1,666 tests passing, 0 failing · 10 of 10 gates · 101 commands
 > registered · 31 groups · ~128,000 source lines.** `FEATURES.md`'s own
 > header carries the same figures. **The tree is not clean** — the whole of
 > that session is uncommitted. Re-measure rather than quoting either table
@@ -331,6 +331,14 @@ to break the build.
    so a new guard fails by name and a deleted one stops vouching for its
    family. `include_str!` makes a moved dispatcher a compile error, so
    "scanned nothing" cannot pass as "found nothing".
+
+   **The list has already gone down once**, which is the outcome this
+   obligation exists to produce rather than a register that only grows:
+   `SCAFFOLDED` 38 → 35 and its `★ P3` subset 11 → 8, by wiring three
+   controls that had five surfaces and no behaviour. A fourth,
+   `view.show_points`, was investigated and **stayed** — with its reason
+   upgraded from *"no recorded reason anywhere"* to a cited blocker, which
+   is the other honest outcome and the more common one.
 
 Adding a **panel** has its own set — see `panels/mod.rs`, whose header
 explains that three panels once shipped with a body, a rail entry and *no
