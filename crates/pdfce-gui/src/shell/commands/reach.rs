@@ -166,7 +166,7 @@
 //! (`RIBBON_IA.md` P3: "An unavailable capability renders nothing, not a
 //! disabled stub").
 //!
-//! **It is now 35 and 8.** Three of the eleven were wired the next day rather
+//! **It is now 33 and 8.** Three of the eleven were wired the next day rather
 //! than argued for: `view.read_mode` and `view.fullscreen` (`app::window` — and
 //! `view.read_mode` was first established *not* to be a duplicate of
 //! `mode.read`, which would have made deletion the honest answer instead), and
@@ -175,6 +175,19 @@
 //! investigated and **deliberately left here**: the reason it had none was that
 //! there is nothing for it to show — see its entry — which is a better outcome
 //! than a toggle that toggles nothing.
+//!
+//! ★ **35 → 33 on 2026-08-15**, and this pair is the clearest illustration of
+//! what this list is for. `edit.redact` and `edit.redact_apply` were registered,
+//! drawn on Edit ▸ Protect, and inert — and their entries said *why*: the
+//! true-removal proof lived only in the shell being replaced, so shipping the
+//! marking half without it would have been the worse half to ship first. That
+//! is a reason with an owner and an end condition, and the end condition
+//! arrived: `crate::redact` carries the proof, `crate::redact::sealed` asserts
+//! nothing can go round it, and both entries were **deleted rather than
+//! reworded** — which is what `no_scaffolded_entry_is_stale`'s middle assertion
+//! exists to force. Neither carried a `★ P3` mark, so that subset is unchanged
+//! at 8: they were controls with a stated blocker, not controls that should not
+//! have been drawn.
 //!
 //! Both figures are pinned by [`tests::the_p3_tension_is_counted`], for the
 //! reason `the_icon_coverage_split_adds_up_to_the_registry` exists: a count
@@ -515,19 +528,32 @@ pub(super) const SCAFFOLDED: &[(&str, &str)] = &[
          the one that is irreversible on the document, so it also needs the disclosure \
          surface a destructive verb takes before it can honestly be offered.",
     ),
-    (
-        "edit.redact",
-        "Salvage. `FEATURES.md`: “Redaction — mark, review, apply, with the true-removal \
-         proof that exists only in the old shell.” `SALVAGE.md`'s row for `redact_apply.rs` \
-         is stronger still: “★ This file is currently the ONLY place the proof exists.” \
-         Marking without the proof would be the worse half to ship first.",
-    ),
-    (
-        "edit.redact_apply",
-        "The other half of the one unsalvaged unit above — `FEATURES.md` names “mark, review, \
-         apply” as a single row for that reason. This is the verb the true-removal proof \
-         belongs to, and the proof is the part that has not crossed over.",
-    ),
+    // ★ `edit.redact` and `edit.redact_apply` were here until 2026-08-15, and
+    // their entries are **deleted rather than reworded**, which is what
+    // `no_scaffolded_entry_is_stale`'s middle assertion exists to force. The
+    // pair read:
+    //
+    //     edit.redact — "Salvage. `FEATURES.md`: 'Redaction — mark, review,
+    //     apply, with the true-removal proof that exists only in the old
+    //     shell.' `SALVAGE.md`'s row for `redact_apply.rs` is stronger still:
+    //     '★ This file is currently the ONLY place the proof exists.' Marking
+    //     without the proof would be the worse half to ship first."
+    //
+    //     edit.redact_apply — "The other half of the one unsalvaged unit
+    //     above… This is the verb the true-removal proof belongs to, and the
+    //     proof is the part that has not crossed over."
+    //
+    // The proof has crossed over. `crate::redact` carries it whole, and
+    // `crate::redact::sealed` asserts that the engine's removal is called from
+    // exactly one place — so the reason both entries gave has stopped being
+    // true, and an entry that states a false reason is the failure this list's
+    // staleness test is about.
+    //
+    // `edit.redact` is now routed by the `Panel::from_command_id` GUARD arm
+    // rather than by a literal one (`crate::panels::Panel::Redact`), which is
+    // worth noting because it is the reason no arm bearing its name appears in
+    // `dispatch.rs`. `edit.redact_apply` has a literal arm and opens
+    // `crate::dialogs::redact`.
     // ===================================================================
     // MARKUP
     // ===================================================================
@@ -1440,7 +1466,7 @@ pub const FX_CONST: &str = "fx.constant";
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
         assert_eq!(
-            total, 35,
+            total, 33,
             "the allow-list holds {total} entries; this module's header quotes the \
              figure, so move both together"
         );

@@ -281,7 +281,22 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 # `tools/gates/check-shipped-assets.py` checks — is generated from the SHIPPING
 # graph. Nothing about the notice, the packaging or the binary changes.
 #
-# `features = ["full"]` on top of the defaults: `parse_file` needs `parsing`
-# (default) and item/expression syntax needs `full` (not default). Nothing else
-# is enabled beyond what the proc macros in the graph already turn on.
-syn = { version = "2.0.119", features = ["full"] }
+# ★ A SECOND test module reads Rust with it as of 2026-08-15: `redact::sealed`,
+# which proves that `pdfce_core::redact::apply_redactions` is CALLED in exactly
+# one file of this crate. That is the same argument one question further on. The
+# thing that must not be miscounted there is a *call*, and this very sentence —
+# like a dozen doc comments in `redact/` — contains the identifier while calling
+# nothing. A grep would count every one of them and report a monopoly that had
+# already been broken, or a breach that had not; the syntax tree contains no
+# comments at all.
+#
+# `features = ["full", "visit"]` on top of the defaults: `parse_file` needs
+# `parsing` (default), item/expression syntax needs `full` (not default), and
+# `visit` supplies the immutable AST walker `redact::sealed` uses to find call
+# expressions anywhere in a file — including inside a closure, a nested
+# function, a `match` arm or a macro-free block, which is what "anywhere" has to
+# mean for a monopoly claim to be worth anything. Hand-writing that walk would
+# mean enumerating every `syn::Expr` variant, and the one a future edit forgot
+# would be a silent hole in the check rather than a compile error. No new crate:
+# `visit` is generated code inside `syn` itself.
+syn = { version = "2.0.119", features = ["full", "visit"] }

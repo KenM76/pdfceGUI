@@ -26,7 +26,7 @@ them.
 
 > **★ The table above is from 2026-08-13.** A large 2026-08-14 session landed
 > the Read-mode gate and Phase 7. Measured at the end of it:
-> **1,666 tests passing, 0 failing · 10 of 10 gates · 101 commands
+> **1,715 tests passing, 0 failing · 10 of 10 gates · 101 commands
 > registered · 31 groups · ~128,000 source lines.** `FEATURES.md`'s own
 > header carries the same figures. **The tree is not clean** — the whole of
 > that session is uncommitted. Re-measure rather than quoting either table
@@ -110,7 +110,7 @@ Two things that order does not tell you, and that cost a day to find out:
 
 The project exists because two defects were invisible to a green suite.
 Since then the count of defects found *only* by running the program and
-reading its trace or its pixels has reached **ten**:
+reading its trace or its pixels has reached **eleven**:
 
 1. `Ctrl+O` printed in a tooltip, in the keymap, bound to nothing.
 2. The icon painter existed, was tested, and was never passed to the ribbon
@@ -144,6 +144,13 @@ reading its trace or its pixels has reached **ten**:
     points long — which is also why that line carries `raw=` beside `kept=`,
     since a build whose simplification did nothing emits an otherwise
     identical line.
+11. The redaction panel's apply control was laid out **below the bottom of
+    its own pane** — declared at `y = 801.7` inside a body ending at
+    `y = 770.0`, on the shipped window size, with a mark already made. Every
+    unit test passed. `MODES_AND_PANELS.md` already records the rule this
+    proves twice over: *layout and clipping defects have exactly one oracle,
+    a rendered screenshot* — and the control it hid was the one that applies
+    an irreversible edit.
 
 Number 8 carries the sharpest lesson available here: the existing test
 passed because it asserted the grid was *finer* than the ruler, which it
@@ -334,7 +341,7 @@ to break the build.
 
    **The list has already gone down once**, which is the outcome this
    obligation exists to produce rather than a register that only grows:
-   `SCAFFOLDED` 38 → 35 and its `★ P3` subset 11 → 8, by wiring three
+   `SCAFFOLDED` 38 → 33 and its `★ P3` subset 11 → 8, by wiring three
    controls that had five surfaces and no behaviour. A fourth,
    `view.show_points`, was investigated and **stayed** — with its reason
    upgraded from *"no recorded reason anywhere"* to a cited blocker, which

@@ -56,6 +56,7 @@
 //! | [`pages`] | the Pages panel — the page counts, the tile tooltip, the **four sentences an undrawn thumbnail can say**, and the preview control that stops the grid |
 //! | [`panels`] | every string the dock's panel bodies show — Bookmarks, Layers, Signatures, Fonts, Objects, Properties |
 //! | [`print`] | the print dialog — three tabs, the preview, the device refusals, and the commit button whose label carries the clip count |
+//! | [`redact`] | marking, review, and the apply report. **The strictest wording rules in the catalog** — the one surface where a comfortable sentence is a security defect, and the only one entitled to the word *verified* |
 //! | [`status`] | the status bar — the render-notes disclosure, the fit/zoom mirrors, and the editable page box |
 //!
 //! The split between `ribbon` and `commands` follows the seam in the data
@@ -103,6 +104,16 @@ pub mod pages;
 pub mod panels;
 /// Every word the print dialog shows. Consumed by `crate::dialogs::print`.
 pub mod print;
+/// Every word the redaction surface says — the marking panel, the apply
+/// report, the two acknowledgements, and the residual lines. Consumed by
+/// `crate::panels::redact` and `crate::dialogs::redact`.
+///
+/// ★ The catalog with the strictest wording rules in the crate, and its header
+/// carries all three: never say "removed" when anything was left, never say
+/// "verified" unless a verification step ran, and never put the word "Undo"
+/// near a post-apply state. This is the one feature where a comfortable
+/// sentence is a security defect.
+pub mod redact;
 /// The ribbon's structural strings: tab labels and questions, group
 /// captions, mode labels. Consumed by `crate::shell::manifest`.
 pub mod ribbon;

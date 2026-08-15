@@ -476,6 +476,108 @@ impl PdfceApp {
             }
             Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
             // ===============================================================
+            // ★ THE REDACTION MARKING VERBS
+            //
+            // Three arms, each one call, through the same `vector_edit` funnel
+            // every other document change uses — which is the whole reason they
+            // are one line each. Marking is an ordinary edit: it authors an
+            // annotation, the engine records it as an undoable command, and the
+            // page has to re-raster because a `/Redact` mark draws a red
+            // outline the operator needs to see.
+            //
+            // ★ **Nothing here removes anything.** The irreversible half is
+            // `crate::dialogs::redact`, which reaches no arm in this file at
+            // all: it changes no document, so it has nothing to order against
+            // and no epoch to bump, and routing it through here would put the
+            // one operation that cannot be undone into a queue that replays.
+            //
+            // `.map(|_| Vec::new())` on the first two adapts the engine's
+            // `Vec<ObjId>`/`ObjId` to the disclosure list `vector_edit` traces,
+            // and the empty vec is a statement rather than a placeholder —
+            // authoring an annotation rewrites no existing operator, so nothing
+            // changed form and rule 4 owes the operator nothing. It is the same
+            // adaptation `CommitMarkup` makes one screen up.
+            // ===============================================================
+            Action::MarkRedactionsBySearch { query, pattern } => {
+                if !query.is_empty() {
+                    let page = doc.view.page_index;
+                    // The label distinguishes the two marking modes on the
+                    // trace, because a pattern that marked nothing and a
+                    // literal that marked nothing are different diagnoses:
+                    // one is a query the document does not contain, the other
+                    // is very often a `#` the operator meant literally.
+                    let label = if pattern {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "redact-mark-pattern"
+                    } else {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "redact-mark-search"
+                    };
+                    let before = crate::panels::redact::mark_ids(&doc.session).len();
+                    vector_edit(doc, label, page, 1, |session| {
+                        // ★ Case-INSENSITIVE, always, and it is not a missing
+                        // control. Over-marking is the safe direction of error
+                        // on this verb and under-marking is not: a mark the
+                        // operator did not want is one row and one click in the
+                        // review list, and a mark they did want and did not get
+                        // is a name shipped in a document they believe is
+                        // redacted. The old shell made the same ruling in the
+                        // same words.
+                        if pattern {
+                            session.mark_redactions_by_pattern(&query, true)
+                        } else {
+                            session.mark_redactions_by_search(&query, true)
+                        }
+                        .map(|_| Vec::new())
+                    });
+                    // ★ Reported AFTER the edit, from the same census the panel
+                    // lists from, so the number on the trace and the number of
+                    // rows on screen cannot disagree. `created=0` is the
+                    // interesting value: it is a search that found nothing,
+                    // which on a scanned page is the named real-world failure
+                    // — `crate::text::redact::search_hint` is the sentence that
+                    // warns about it, and this is how a reader of a trace sees
+                    // it happen.
+                    let after = crate::panels::redact::mark_ids(&doc.session).len();
+                    crate::diag::trace(|| {
+                        format!(
+                            // ui-text-exempt: diagnostic trace, never displayed in the UI
+                            "redact-marked mode={} created={} total={}",
+                            if pattern { "pattern" } else { "literal" },
+                            after.saturating_sub(before),
+                            after
+                        )
+                    });
+                }
+            }
+            Action::MarkPageForRedaction { page } => {
+                // Resolved here rather than carried on the action because the
+                // rectangle is the page's, not the operator's — see the
+                // variant's docs. A page index past the end is unreachable from
+                // the panel and is answered rather than indexed, because an
+                // action is plain data a test can build.
+                if let Some(spec) = doc
+                    .pages
+                    .get(page)
+                    .map(crate::panels::redact::whole_page_spec)
+                {
+                    vector_edit(doc, "redact-mark-page", page, 1, |session| {
+                        session.add_redaction(page, &spec).map(|_| Vec::new())
+                    });
+                } else {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        format!("redact-mark-page-declined page={page} reason=no-such-page")
+                    });
+                }
+            }
+            Action::RemoveRedactionMark { annot_id } => {
+                let page = doc.view.page_index;
+                vector_edit(doc, "redact-unmark", page, 1, |session| {
+                    session.delete_redaction_mark(annot_id).map(|()| Vec::new())
+                });
+            }
+            // ===============================================================
             // ★ THE PAGE VERBS
             //
             // Four arms, each one call, because everything that could be a

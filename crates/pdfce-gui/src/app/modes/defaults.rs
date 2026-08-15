@@ -390,6 +390,29 @@ fn spec(mode_id: &str) -> ModeSpec {
                     Panel::Properties.command_id(),
                     comments(),
                     Panel::Forms.command_id(),
+                    // ★ Redact, and it is deliberately the LAST tab of this
+                    // stack rather than a stack of its own or the first of
+                    // this one — 2026-08-15.
+                    //
+                    // "Edit is everything" is this module's rule and
+                    // `the_three_defaults_are_the_specified_arrangements`
+                    // enforces it, so the panel has to be mounted somewhere in
+                    // this arrangement. *Where* is the decision, and it is
+                    // about what an operator sees on the frame Edit opens: a
+                    // tabbed stack draws only its active tab, so a panel at the
+                    // end of one is **reachable in a click and invisible until
+                    // asked for**. A stack of its own would put a surface whose
+                    // whole subject is permanent removal on screen, unasked,
+                    // every time anybody entered Edit mode.
+                    //
+                    // Edit is also the only arrangement it appears in, and that
+                    // is not a placement decision but a consequence: the toggle
+                    // is `edit.redact`, on the Edit tab, and Read and Review are
+                    // not shown that tab. A mode that mounted this panel could
+                    // not reopen it after closing it — the trap
+                    // `crate::panels::Panel::Forms` had to be moved off Edit to
+                    // escape, arriving here from the other direction.
+                    Panel::Redact.command_id(),
                 ],
             ],
             left_width: NAVIGATOR_WIDTH,

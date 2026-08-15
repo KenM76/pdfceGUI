@@ -323,3 +323,139 @@ owns.
 **Still owed:** a `ui-verify` assertion (procedure step 5) for the placed
 dimension, and the snap candidate query, which is the one thing standing
 between the salvaged snap primitives and a pick that snaps.
+
+### The redaction salvage, 2026-08-15
+
+Class A `redact_apply.rs` — **the row this file's own ★ note calls "load-bearing
+in a way the table understates"** — carried across whole, with its proof, its
+refusal taxonomy and every paragraph of its reasoning. `cargo test --workspace`
+green (1,715 passing), all ten gates green, and the apply path driven end to end
+against the real binary.
+
+**Both halves of the `Pass 72.0` warning were re-checked against `D:\Dev\pdfce`
+rather than quoted**, because acting on a stale claim is this project's
+documented failure mode. Both still hold on 2026-08-15:
+`pdfce_core::redact::apply_redactions` still returns
+`Result<(Vec<u8>, RedactionReport), RedactError>` — a **report**, not a verdict;
+`RedactionVerdict` and `verify_redaction` appear nowhere in `pdfce-core` (the
+only `verify_absence` in either tree is still the old shell's, at
+`redact_apply.rs:361`); and
+`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\` is empty, so nothing is
+owed and Pass 72.0 has not closed.
+
+| Source (old crate) | New home | State | What changed |
+|---|---|---|---|
+| `redact_apply.rs` (429 + 280 test) | `src/redact/mod.rs` (825), `src/redact/proof.rs` (447), `src/redact/sealed.rs` (487) | **complete** | Every `///` and `//!` paragraph carried. The classification table, the four-character floor, the wide stream sweep, the local `contains` ("an absence proof that shared its search routine with the code it is auditing would be a weaker proof"), the two-full-rewrite shape and all five `RedactApplyRefusal` variants are the source's. **All seven tests carried**, plus twelve new ones for the halves the source had none for. No `pdfce-core` API had moved — every imported item checked against the engine at this workspace's pin, unchanged signatures, no adaptation invented. |
+| `main.rs::redact_panel` (~600, Class C) | `src/panels/redact.rs` (515) | **complete, panel-driven** | Mark whole page, find-and-mark (literal or pattern), the review list with go-to-page and remove. `Panel::Redact`, `ALL` 9 → 10, command `edit.redact`. |
+| `main.rs::redaction_apply_confirmation` (Class C) | `src/dialogs/redact.rs` (826) | **complete** | The measured report, both acknowledgements, the consequence-labelled confirm control, and the save-as write. |
+| `ui_text.rs:6876-7410` (Class B) | `src/text/redact.rs` (748) | **complete** | The three wording rules carried verbatim into the module header, and each is now a **test** rather than a comment: nothing on the marking surface claims a removal, "verified" appears in exactly one place, no post-apply sentence offers Undo. |
+
+**Three deliberate departures from the source, each documented at its site:**
+
+1. **The proof decodes the document once**, where the source decoded every
+   stream twice for one question (`verify_absence` and
+   `leaked_in_decoded_streams` each parsed and inflated independently). The two
+   halves stay separate functions with separate tests; only the evidence is
+   shared.
+2. **The write is not atomic**, where the source routed through a shared
+   `write_atomic`. This shell has no such helper — both its existing writers
+   call `std::fs::write` — and a truncated write of an already-redacted buffer
+   can only lose trailing bytes, never introduce un-redacted content. Argued at
+   `PreparedRedaction::write_to`; a shared atomic writer for all three call
+   sites is recorded as an improvement rather than smuggled in here.
+3. **`⚠` is the only non-ASCII character used**, and `✔`/`✕` are gone. The
+   source's `✔`-prefixed success line and `✕` remove button were written before
+   `DEFECTS.md` D12's corrected table, which lists U+2715 as having **no
+   supporting face** in the bundled stack. `⚠` is measured drawable and the
+   catalog-wide glyph gate sweeps this file with the rest.
+
+**The proof is unskippable, structurally, by four mechanisms** — the brief's
+second requirement, and the one copying the file across does not satisfy. The
+source's own docs end *"nothing in this module can reach the filesystem"*, which
+means the proof was enforced by the **caller remembering**; `pdfce-cli`'s
+`redact-apply` is the counter-example in the same repository. In order of how
+hard each is to defeat: `PreparedRedaction::bytes` is **private with no
+accessor** and a hand-written `Debug` that reports a length; the **only** way
+out is `write_to`, which **re-runs the decoded-stream proof between the buffer
+and the syscall**; the residual acknowledgement is a **required argument**
+(`ResidualAcknowledgement::{Given,Withheld}`), so a caller that forgets the
+checkbox gets a named refusal rather than a partially-redacted file; and
+`redact::sealed` parses **every `.rs` file in the crate** with `syn` and asserts
+`apply_redactions` is *called* in exactly one place — failing closed on both a
+short sweep and a zero count, with seven self-tests including a planted second
+call site inside a closure. A second test asserts nothing in `redact/` reaches
+for `to_incremental_bytes`, which in this shell (unlike the source's) is an
+idiomatic verb one autocompletion away.
+
+**Canvas drag-to-mark is NOT in this landing**, which is the row's "change
+needed" and is stated rather than left to be found. The brief's own instruction
+was followed: *"if the canvas gesture is more than a modest addition, ship the
+panel-driven version and say so."* It is more than modest — a `CanvasTool`
+variant, an `app::modes::capability` entry, a rung on the Escape ladder, an
+overlay preview and an `Action` carrying page-space quads, i.e. `HANDOFF.md`
+§8's tool-substrate warning applied to a substrate that would arm the one
+irreversible verb in the program. `edit.redact`'s **shipped tooltip** enumerates
+three marking routes — a whole page, every occurrence of some text, everything
+matching a pattern — and all three are built. `panels/redact.rs`'s header
+records what the gesture would take.
+
+**Obligation 6 discharged, and the register went down again.** Both commands
+left `shell::commands::reach::SCAFFOLDED`: **35 → 33**, `★ P3` unchanged at 8
+(neither carried the mark — they were controls with a stated blocker, not
+controls that should not have been drawn). Their entries were **deleted rather
+than reworded**, which is what `no_scaffolded_entry_is_stale`'s middle assertion
+exists to force. `edit.redact` is routed by the `Panel::from_command_id` guard
+arm; `edit.redact_apply` has a literal arm. **The registry count did not
+change** — both were already registered — the group count is still 31, `PLANNED`
+is untouched, and the RON was regenerated and came back byte-identical.
+
+**Driven, not merely tested.** `tools/ui-verify`'s new
+`redaction_removes_and_proves_it` is the third two-process check in the suite
+and the only one whose verdict is a **byte scan of a file on disk**. Measured
+output, release binary, 2026-08-15:
+
+```
+phase A: pdfce's own extraction reads 24 character(s) from page 1 of the fixture
+phase C: redact-panel marks=1 pages=1 epoch=1
+phase D: redact-prepared marks=1 pages=1 glyphs=24 streams=1 checked=1 short=0
+         residuals=0 verified=true bytes=943
+phase E: the confirm control is not offered until the acknowledgement is given
+phase F: redact-written … bytes=943 marks=1 glyphs=24 checked=1 residuals=0 verified=true
+phase G: the document that was opened is byte-for-byte unchanged
+phase H: the output is 943 bytes — CONFIDENTIALWITNESSALPHA is absent from them
+         and UNTOUCHEDWITNESSBETA is present
+phase I: the redacted file re-opens (drawn=2), and a SECOND PROCESS extracts
+         NOTHING from the redacted page — text-copy-declined reason=nothing-to-copy
+```
+
+The falsifying phase is built in and runs on every invocation: the **same byte
+scan** is run three times, and two of the three exist only to stop the third
+passing vacuously — the secret must be **present** in the fixture before
+anything happens, and the untouched page's string must be **present** in the
+output before its absence means anything. A build that marked and reported
+success without removing anything fails phase H; a *check* that could not see
+the secret at all fails phase 1 and is reported as a harness defect rather than
+as a pass. The check was also **observed to fail** during development, at phase
+D, when the apply control was declared below its own pane.
+
+**★ One defect found only by driving the binary**, which is `HANDOFF.md` §2's
+founding rule paying for itself an eleventh time. The panel's first cut put the
+apply control *second* rather than *last*; `ui-verify` reported it declared at
+`y = 801.7` inside a panel body ending at `y = 770.0` — **off the bottom of its
+own pane**, on a 1100×800 window, with one mark made. Every unit test passed,
+because a unit test cannot see where a control landed. The census and the apply
+control are now the **first** things in the panel, with everything that can grow
+below them.
+
+**Still owed:**
+
+- **The search-and-mark route is not driven.** It needs a query typed into a
+  field, and synthetic keystrokes do not reach the target window from the
+  session that writes them on this machine (`HANDOFF.md` §8). Its rule is
+  unit-tested; the field itself is verified by nothing. The check's header says
+  so rather than leaving it to be discovered.
+- **When core lands the verdict type, this becomes a deletion**, not a parallel
+  implementation — the instruction at the top of this file, unchanged. Watch the
+  channel for the `note_` that says Pass 72.0 closed. `redact::sealed`'s
+  monopoly assertion is what will make that migration visible rather than
+  gradual.

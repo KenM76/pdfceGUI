@@ -273,6 +273,42 @@ impl PdfceApp {
             // path the operator names — which holds in every mode without any
             // mode being consulted.
             "file.ocr" => self.dialogs.open_ocr(&self.status),
+            // ★ **Apply redactions.** A dialog, in `file.ocr`'s shape one arm
+            // up, and for two of its three reasons plus one of its own.
+            //
+            // 2 and 3 hold unchanged and harder: it **must disclose before it
+            // writes**, because the disclosure is the list of things pdfce could
+            // *not* remove and it is the whole reason a redacted file can be
+            // trusted; and it **must ask where the result goes**, because the
+            // file the operator opened is the only remaining copy of the content
+            // being removed and overwriting it would be the most damaging single
+            // act this shell could perform.
+            //
+            // 1 does **not** hold, and the difference is deliberate. The removal
+            // runs synchronously, inside this dispatch, so the report and the
+            // bytes are one consistent snapshot of the marks as they were when
+            // the operator clicked. `crate::dialogs::redact` §2 carries the
+            // argument; the short version is that OCR can tolerate a worker
+            // because it refuses outright on `edit_epoch != 0`, and a redaction
+            // cannot, because the marks being applied are the ones the operator
+            // has just made.
+            //
+            // The reason of its own: **this is the only irreversible operation
+            // in the program**, so the arm opens a surface with two
+            // acknowledgements rather than doing anything. It raises no
+            // `Action`, because applying changes no document — the session keeps
+            // its marks, its undo log and its epoch, and the redacted document
+            // is a new file. `crate::app::actions`' redaction block says the
+            // same thing from the other side, and says why an
+            // `Action::ApplyRedactions` would be wrong rather than merely
+            // unnecessary.
+            //
+            // No mode check, and none is needed: the command sits on the Edit
+            // tab, so `app::modes::capability` already keeps Read and Review
+            // away from it through the tab list — the same mechanism that makes
+            // `crate::panels::redact` unreachable from Read, and the reason
+            // neither surface carries a gate of its own.
+            "edit.redact_apply" => self.dialogs.open_redact(&self.status),
             // ★ Recent. The operand comes from the `recent_files` custom item
             // (see `Self::ribbon_band`), which parked it before returning this
             // command's token.

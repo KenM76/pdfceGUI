@@ -1,6 +1,6 @@
 //! # `panels` — the dock's panel bodies
 //!
-//! Nine panels, each a **function the dock can call**. This module owns the
+//! Ten panels, each a **function the dock can call**. This module owns the
 //! set, the dispatch, the little state the bodies share, and the two layout
 //! rules that every one of them has to get right.
 //!
@@ -15,6 +15,7 @@
 //! | [`forms`] | `view.panel_forms` — moved off Edit so Read can reach it | `panels_forms.rs` |
 //! | [`pages`] | `view.panel_pages` — **not registered; see that module** | `main.rs::thumbnail_rail` + `raster::ThumbnailCache` |
 //! | [`comments`] | `markup.comments` — **not** a `view.panel_*` id; see that variant | `main.rs::comments_panel` |
+//! | [`redact`] | `edit.redact` — the reversible half of redaction; its irreversible twin is [`crate::dialogs::redact`] | `main.rs::redact_panel` |
 //!
 //! ## ★ These panels once had no way in
 //!
@@ -159,6 +160,7 @@ pub mod layers;
 pub mod objects;
 pub mod pages;
 pub mod properties;
+pub mod redact;
 pub mod signatures;
 
 /// One dockable panel.
@@ -220,6 +222,30 @@ pub enum Panel {
     /// [`Action`] variant can carry the intent, and a control with nothing
     /// behind it is the defect this module's header is about.
     Comments,
+    /// Marking content for permanent removal, and reviewing what is marked.
+    ///
+    /// ★ **The only panel whose command reads as an authoring verb rather than
+    /// as a panel name**, and the reason is worth stating at the variant.
+    /// `edit.redact`'s shipped tooltip describes an *action* — *"Mark what is
+    /// to be permanently removed"* — because marking is what the surface is
+    /// for; what it opens is nonetheless somewhere an operator dips in and out
+    /// of while working, which is [`crate::dialogs`]' own test for a panel
+    /// rather than a dialog.
+    ///
+    /// It is therefore a **toggle**, like the `view.panel_*` family and unlike
+    /// [`Self::Properties`]: pressing Redact with the Redact panel open closes
+    /// it, which is what `crate::app::panels` settled for every control whose
+    /// question is *"is this panel open?"*. Nothing about that is special-cased
+    /// — it falls out of [`Self::from_command_id`] answering for this id, which
+    /// is the guard arm the toggle family already goes through.
+    ///
+    /// The **irreversible** half deliberately does not live here.
+    /// `edit.redact_apply` opens [`crate::dialogs::redact`], because applying
+    /// is a single transaction with a start and an end, and because a control
+    /// that commits an irreversible operation must not sit two rows below one
+    /// that merely marks. See [`redact`]'s header for the whole argument,
+    /// including why canvas drag-to-mark is not in this landing.
+    Redact,
 }
 
 impl Panel {
@@ -230,7 +256,7 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
@@ -240,6 +266,7 @@ impl Panel {
         Self::Forms,
         Self::Pages,
         Self::Comments,
+        Self::Redact,
     ];
 
     /// The ribbon command that shows this panel.
@@ -334,6 +361,25 @@ impl Panel {
             // panel's to edit; the two lines it needs are in this work's
             // report to the shell owner.
             Self::Comments => "markup.comments",
+            // ★ **The fourth panel whose command is not on View ▸ Panels**, and
+            // the only one whose command was written as a *verb*.
+            //
+            // `RIBBON_IA.md` §5.4 puts Redact on **Edit ▸ Protect**, and
+            // `crate::shell::manifest::edit`'s header carries the placement
+            // argument: *"a user editing a document looks under Edit for the
+            // command that removes content from it. Tools is for jobs that run
+            // across other files."* It moved there from Tools ▸ Protect when
+            // this shell's ribbon was built, long before either half of the
+            // feature existed.
+            //
+            // There is deliberately no `view.panel_redact`. A second id for the
+            // same surface would put the panel on a tab Read is shown, and Read
+            // must not be able to reach a marking surface at all: `edit.redact`
+            // sitting on the Edit tab is what makes the mode taxonomy do that
+            // work, with no capability flag and no gate of its own. Contrast
+            // [`Self::Forms`], which had to acquire a `view.` id precisely
+            // because Read *should* reach it.
+            Self::Redact => "edit.redact",
         }
     }
 
@@ -424,6 +470,7 @@ impl Panel {
             // same reason: it has tokens to hand back.
             Self::Pages => return pages::body(ui, doc, state, host, actions),
             Self::Comments => comments::body(ui, doc, state, actions),
+            Self::Redact => redact::body(ui, doc, state, actions),
         }
         Vec::new()
     }
@@ -519,6 +566,23 @@ pub struct PanelsState {
     /// own state needs no such device — and the forgetting is free, because
     /// [`Self::forget_document`] resets this struct whole.
     pages: pages::PagesUi,
+    /// The Redact panel's half-typed search and its match mode.
+    ///
+    /// Here rather than on `OpenDoc` for the same reason [`Self::pages`] is:
+    /// a panel body is handed `&OpenDoc`, shared, and a text field the operator
+    /// types into is **their** state rather than a derived cache of the
+    /// document's. It is also state that arms a verb — a query plus a mode
+    /// decides what a marking click will cover — and this module's header draws
+    /// exactly that line for the Layers checkbox: interior mutability is for
+    /// derived data whose filling nothing can observe, never for an operator
+    /// instruction.
+    ///
+    /// Reset with the document by [`Self::forget_document`], which resets this
+    /// struct whole. That is not tidiness: a search term left over from a
+    /// previous file is one an operator could run against a document it was
+    /// never meant for, and on this feature a search authors marks over whatever
+    /// it hits.
+    redact: redact::RedactUi,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -684,6 +748,16 @@ impl PanelsState {
     /// cost it the ability to hold one borrow for the frame.
     pub fn pages_mut(&mut self) -> &mut pages::PagesUi {
         &mut self.pages
+    }
+
+    /// The Redact panel's own state — the search query and the match mode.
+    ///
+    /// Handed out whole for [`Self::pages_mut`]'s reason: the body reads the
+    /// query while it draws the field and writes the mode while it reads the
+    /// switch, and splitting that into accessors per field would cost it the
+    /// ability to hold one borrow for the frame.
+    pub fn redact_mut(&mut self) -> &mut redact::RedactUi {
+        &mut self.redact
     }
 
     /// **The pages the operator has picked in the Pages panel.**
@@ -901,6 +975,7 @@ mod tests {
                 Panel::Forms => 6,
                 Panel::Pages => 7,
                 Panel::Comments => 8,
+                Panel::Redact => 9,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

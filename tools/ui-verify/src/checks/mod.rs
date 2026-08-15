@@ -164,6 +164,15 @@ pub mod render_diagnostics;
 /// ribbon and the docks stop being drawn). `app::window` §1 carries the
 /// argument for why those are two commands rather than a duplicate.
 pub mod read_mode_chrome;
+/// ★★ **Redaction** — the one operation in this program that cannot be undone,
+/// and the only check in the suite whose verdict is a **byte scan of a file on
+/// disk** rather than a trace field or a pixel. The application's own absence
+/// proof reports `verified=true` from inside the process that performed the
+/// removal; this asks the same question from outside it, three times, over two
+/// strings, in two processes — and it says which of the three answers is the
+/// verdict and which two exist to stop the verdict passing vacuously. Its
+/// header carries the falsification table.
+pub mod redaction;
 pub mod ribbon_captions;
 /// ★ `file.save_copy` — the command that was registered, drawn, on the
 /// quick-access toolbar and bound to `Ctrl+S` with **no dispatch arm**, so
@@ -356,6 +365,20 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // that cannot take it back, and a run is likelier to be read from the
         // top than from the bottom.
         Box::new(undo_redo::UndoRedoRoundTrip),
+        // ★ Third of the two-process checks, and placed here for the same
+        // dependency reason the two above it are: it ends by writing a file and
+        // re-opening it, so a run in which writing itself is broken should
+        // report that as `save_copy_round_trip`'s failure and this one's
+        // second.
+        //
+        // It is the most expensive check in the suite by a small margin —
+        // two launches, eight clicks, and a full rewrite of a document
+        // performed synchronously inside one of them — and the most valuable
+        // per second spent, because its subject is the only irreversible
+        // operation the program has. Its fixture is **generated**, so unlike
+        // every other driving check it does not consult `--pdf` and cannot be
+        // aimed at a document that lacks the strings it scans for.
+        Box::new(redaction::RedactionRemovesAndProvesIt),
         // After both, because it is the only driving check that does not touch
         // the ribbon band at all — it clicks mode segments and the page — and
         // because it is the slowest: it searches for a point with content

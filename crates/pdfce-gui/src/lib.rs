@@ -83,6 +83,12 @@ pub mod ocr;
 // the properties panel. See PANELS' own header for the reachability contract
 // every one of them has to satisfy.
 pub mod panels;
+// Redaction: the apply pipeline and its absence proof, salvaged whole from the
+// old shell — the ONE place that proof exists anywhere, `pdfce-core` included.
+// See REDACT's own header for the two full rewrites, for why the proof is made
+// unskippable rather than merely available, and for why a redaction never
+// overwrites the file it came from.
+pub mod redact;
 pub mod render;
 // The pdfce shell definition — the seven-tab ribbon, three modes, QAT and
 // keymap, expressed as DATA over `egui-shell`'s manifest types rather than

@@ -981,6 +981,90 @@ pub enum Action {
     /// instance of a four-step sequence `vector_edit` exists to have exactly
     /// one of.
     Form(crate::panels::forms::edit::FormEdit),
+    // =======================================================================
+    // ★ THE REDACTION MARKING VERBS
+    //
+    // Three variants, all **reversible**, and that is the property that puts
+    // them in this enum at all. Marking authors a `/Redact` annotation and
+    // removes nothing; the engine records each one as an undoable command, so
+    // every one of these goes through `vector_edit` exactly as a markup does
+    // and `Ctrl+Z` takes it back.
+    //
+    // The **irreversible** half is deliberately not here and must never be.
+    // Applying a redaction writes a new file and changes no document, so it
+    // contributes nothing to the undo log, has nothing to order against, and
+    // has no epoch to bump — `crate::dialogs`' header's test for what belongs
+    // in the funnel, and `crate::dialogs::redact` fails all three parts of it.
+    // An `Action::ApplyRedactions` would also mean the one operation in this
+    // program that cannot be undone travelling as plain data through a queue
+    // that a future replay, a macro or a test could re-run.
+    // =======================================================================
+    /// **Mark every occurrence of some text for redaction.**
+    ///
+    /// Raised by [`crate::panels::redact`]'s Find & mark control. Applied
+    /// through `vector_edit`, so it is one undoable command however many marks
+    /// it creates — which is the right granularity: the operator asked one
+    /// question, and taking back "mark every occurrence of this name" one
+    /// annotation at a time would be unusable.
+    ///
+    /// # ★ The query is carried, not a hit list
+    ///
+    /// The panel could resolve the matches itself and push the quads, the way
+    /// [`Self::CommitTextMarkup`] carries the selection's boxes. It must not,
+    /// for a reason specific to this verb: `pdfce-core`'s own
+    /// `mark_redactions_by_search_with` documents the trap — a front end whose
+    /// search and whose marking disagree about *which hits exist* produces
+    /// "three highlights and eleven redaction marks", and *"on the one
+    /// operation whose whole purpose is removing content irreversibly, 'the
+    /// mark set is a superset of the highlight set' is not a cosmetic
+    /// difference."* Handing the engine the query lets the engine answer both
+    /// halves with one scan.
+    MarkRedactionsBySearch {
+        /// The text, already trimmed by the panel.
+        query: String,
+        /// Whether to read the query as a pattern (`#` any digit, `?` any
+        /// character) rather than as literal text.
+        ///
+        /// A `bool` here rather than an enum, unlike
+        /// `crate::redact::ResidualAcknowledgement` — because this one is
+        /// *named at its field* and reads as a sentence at the one call site
+        /// that builds it, while that one is a positional argument at a call
+        /// site where a transposition would write a file.
+        pattern: bool,
+    },
+    /// **Mark the whole of one page for redaction.**
+    ///
+    /// Raised by [`crate::panels::redact`]'s Mark whole page control. The page
+    /// is carried rather than read from `doc.view` at apply time, on
+    /// [`Self::CommitTextMarkup`]'s rule: the operator marked the sheet they
+    /// were looking at, and an action applied after a frame in which they also
+    /// paged away must mark the sheet they meant.
+    ///
+    /// The rectangle is not carried, because it is not the operator's choice —
+    /// it is the page's crop box, and `crate::panels::redact::whole_page_spec`
+    /// is the one place that decision is made and tested.
+    MarkPageForRedaction {
+        /// The 0-based page to cover.
+        page: usize,
+    },
+    /// **Take one redaction mark off.**
+    ///
+    /// Raised by a row's Remove control. The engine's
+    /// `EditSession::delete_redaction_mark` rather than its general annotation
+    /// delete, deliberately and on core's own instruction: the two record
+    /// different `CommandKind`s so that an undo tooltip can say *"remove a
+    /// redaction mark"* rather than *"delete annotation"*, and — as that
+    /// method's docs put it — *"I decided not to redact that"* is a different
+    /// claim from *"delete annotation"*.
+    ///
+    /// The **annotation id**, not a row index: a list position is a position in
+    /// a census rebuilt every frame, and by the time the apply phase runs the
+    /// same index may name a different mark. `crate::app` §10's rule —
+    /// *selection is an identity, not a position* — applied to a list.
+    RemoveRedactionMark {
+        /// The `/Redact` annotation to delete.
+        annot_id: pdfce_core::object::ObjId,
+    },
     /// **Take back the most recent change** — the other end of the command log
     /// every mutating action in this enum writes to.
     ///

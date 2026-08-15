@@ -66,6 +66,12 @@ pub mod about;
 pub mod diagnostics;
 pub mod ocr;
 pub mod print;
+/// The Apply-redactions transaction — the report, the two acknowledgements, and
+/// the write. The **irreversible** half of the redaction feature; its
+/// reversible twin is `crate::panels::redact`. See its header for why the
+/// removal runs on open, why confirmation is three gates rather than one click,
+/// and why the destination is asked for every time.
+pub mod redact;
 
 use crate::app::state::{OpenDoc, Status};
 
@@ -117,6 +123,19 @@ pub struct DialogsState {
     /// forgets nothing — but it must still close, for the same reason print
     /// does.
     diagnostics: Option<diagnostics::DiagnosticsDialog>,
+
+    /// The Apply-redactions dialog, when one is open.
+    ///
+    /// Document-scoped, and more emphatically than any of its neighbours. ★ It
+    /// is the second dialog here that holds **unsaved bytes** and the first
+    /// whose bytes are a *destructive* transformation of the open file, so
+    /// closing the document discards them — which is the right answer rather
+    /// than a loss, and for a sharper version of [`Self::ocr`]'s reason: a
+    /// redaction is of *these marks* on *this document*, and writing prepared
+    /// bytes after the operator has put the file away would produce a redacted
+    /// copy of something nobody is looking at, derived from a mark census that
+    /// no longer exists to be checked against.
+    redact: Option<redact::RedactDialog>,
 
     // --- application-scoped: survives an empty canvas ---------------------
     /// The About dialog, when one is open.
@@ -178,6 +197,34 @@ impl DialogsState {
             return;
         }
         self.ocr = ocr::open_for(status);
+    }
+
+    /// Open the Apply-redactions dialog for the document in `status`.
+    ///
+    /// **The dispatch target for the `edit.redact_apply` command**, and it
+    /// applies the same two guards [`Self::open_print`] documents — the ribbon
+    /// control is gated on `doc.pages` and a chord bound to the same id is not.
+    ///
+    /// ★ Both guards are load-bearing here in a way they are not elsewhere,
+    /// because [`redact::RedactDialog::open`] **runs the whole removal**.
+    ///
+    /// - **No document, no dialog.** Without this, an invocation over an empty
+    ///   shell would build a window that [`Self::show`] closes again on its very
+    ///   next frame — a control that visibly flickers rather than one that
+    ///   declines.
+    /// - **Already open means leave it alone**, and this is the strong one. A
+    ///   second press would re-run a full rewrite of the document *and* discard
+    ///   the operator's two acknowledgements — throwing away the reading they
+    ///   have just done on the one report in this program that has to be read.
+    ///   Worse, it would silently replace a report computed against the marks as
+    ///   they were with one computed against the marks as they are now, which is
+    ///   the difference between the numbers on screen and the bytes that would
+    ///   be written.
+    pub fn open_redact(&mut self, status: &Status) {
+        if self.redact.is_some() {
+            return;
+        }
+        self.redact = redact::open_for(status);
     }
 
     /// Open the Render-diagnostics report for the document in `status`.
@@ -284,6 +331,9 @@ impl DialogsState {
         if self.diagnostics.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
             self.diagnostics = None;
         }
+        if self.redact.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
+            self.redact = None;
+        }
     }
 
     /// Drop the state of every dialog that is about the open document.
@@ -296,6 +346,7 @@ impl DialogsState {
         self.print = None;
         self.ocr = None;
         self.diagnostics = None;
+        self.redact = None;
     }
 }
 
@@ -327,6 +378,40 @@ mod tests {
         assert!(dialogs.print.is_none());
         assert!(dialogs.ocr.is_none());
         assert!(dialogs.diagnostics.is_none());
+        assert!(dialogs.redact.is_none());
+    }
+
+    /// ★ **Apply redactions cannot be opened without a document, and a second
+    /// invocation does not rebuild it.**
+    ///
+    /// Both guards matter more for this dialog than for any of its neighbours,
+    /// because opening it runs a full rewrite of the document. The second
+    /// assertion is the one with teeth: a rebuild would re-run that work *and*
+    /// discard the operator's two acknowledgements, throwing away the reading
+    /// they have just done on the one report in this program that has to be
+    /// read before a control is pressed.
+    #[test]
+    fn the_apply_dialog_is_guarded_on_both_counts() {
+        let mut dialogs = DialogsState::default();
+        dialogs.open_redact(&Status::Empty);
+        assert!(
+            dialogs.redact.is_none(),
+            "a document with nothing open has nothing to redact, and building \
+             the dialog would run a full rewrite in order to refuse"
+        );
+
+        let status = Status::Open(Box::new(crate::app::state::open_fixture(
+            crate::app::state::FOUR_PAGES,
+        )));
+        dialogs.open_redact(&status);
+        let first = std::ptr::from_ref(dialogs.redact.as_ref().expect("open"));
+        dialogs.open_redact(&status);
+        let second = std::ptr::from_ref(dialogs.redact.as_ref().expect("still open"));
+        assert_eq!(
+            first, second,
+            "the second press replaced the dialog, re-running the removal and \
+             discarding both acknowledgements"
+        );
     }
 
     /// The render report cannot be opened without a document either, and the
