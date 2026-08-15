@@ -201,7 +201,7 @@ const MODE: &str = "review";
 const MARKUP_TAB: (&str, &str) = ("ribbon.tab.markup", "markup");
 
 /// The tab carrying Save a copy. Shown in every mode.
-const FILE_TAB: (&str, &str) = ("ribbon.tab.file", "file");
+pub(crate) const FILE_TAB: (&str, &str) = ("ribbon.tab.file", "file");
 
 /// The tool that authors the annotation this check follows onto disk.
 ///
@@ -215,7 +215,7 @@ const RECTANGLE: (&str, &str) = ("ribbon.item.markup.rectangle", "markup.rectang
 const COMMENTS: (&str, &str) = ("ribbon.item.markup.comments", "markup.comments");
 
 /// **The command under test.**
-const SAVE: (&str, &str) = ("ribbon.item.file.save_copy", "file.save_copy");
+pub(crate) const SAVE: (&str, &str) = ("ribbon.item.file.save_copy", "file.save_copy");
 
 /// `markup-tool tool=…` — the ribbon press reached the canvas.
 const ARM_EVENT: &str = "markup-tool";
@@ -333,7 +333,13 @@ fn listed(trace: &Trace) -> Option<usize> {
 }
 
 /// Click a ribbon tab and confirm the shell reported it.
-fn click_tab(
+/// `pub(crate)` for [`crate::checks::text_edit`], which has to reach the Edit
+/// tab to arm the caret tool and the File tab to save. A second copy of these
+/// twelve lines would be a second place the "a click that produced no
+/// `ribbon-tab-activated` is a SKIP, not a failure" rule could drift — and that
+/// rule is the one thing standing between this harness and reporting a machine
+/// that will not take a click as a broken application.
+pub(crate) fn click_tab(
     session: &Session,
     driver: &Driver,
     ui_rect: &str,
@@ -396,7 +402,8 @@ fn control(trace: &Trace, ui_rect: &str, name: &str) -> Result<LRect> {
 /// [`crate::checks::markup_rectangle`]'s rule: a check that could not deliver a
 /// click has learned nothing about the application, and naming a feature as the
 /// culprit when nothing was ever clicked at it is worse than no check at all.
-fn click_command(
+/// `pub(crate)` for [`crate::checks::text_edit`] — see [`click_tab`].
+pub(crate) fn click_command(
     session: &Session,
     driver: &Driver,
     ui_rect: &str,

@@ -1,6 +1,6 @@
 # pdfceGUI — what is built, and what is next
 
-**Updated:** 2026-08-14 (fifth revision). **Scope:** the new shell only. `pdfce-core` and
+**Updated:** 2026-08-15 (sixth revision). **Scope:** the new shell only. `pdfce-core` and
 `pdfce-cli` capabilities live in `D:\Dev\pdfce\docs\FEATURES.md`, whose
 **`gui` column is this project's acceptance criteria** — nothing there may
 regress at fold-in.
@@ -23,8 +23,8 @@ the blocker named.
 
 | | |
 |---|---|
-| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) · **Phase 6 begun** (markup substrate, four kinds, Comments panel) · **Phase 7** (measure: Linear, Two-line, Radius/diameter, snapping) · **the mode gate** (Read is genuinely read-only, canvas *and* keyboard) |
-| **Tests** | 1,715 passing, 0 failing |
+| **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) · **Phase 5 partly** (one-run text editing; aligned and rotated tails fixed, live re-layout blocked on the engine) · **Phase 6 begun** (markup substrate, four kinds, Comments panel) · **Phase 7** (measure: Linear, Two-line, Radius/diameter, snapping) · **the mode gate** (Read is genuinely read-only, canvas *and* keyboard) |
+| **Tests** | 1,744 passing, 0 failing |
 | **Gates** | 10 of 10, 0 skipped — `check-shipped-assets` added 2026-08-14, with a self-test that catches five planted violations |
 | **Source** | ~128,000 lines across three crates |
 | **Commands** | 101 registered · 86 declared-and-deferred (`PLANNED`) |
@@ -156,10 +156,12 @@ the blocker named.
 
 | | |
 |---|---|
-| ⬜ | **Alignment and rotation fixes** — right/centre/justified tails move the wrong way; rotated `Tm` is shifted along the wrong axis |
-| ⬜ | **Live re-layout while typing** — the draft is currently ghost text in the wrong typeface at the wrong widths |
-| ⬜ | **Reflow reachability** — three gates, one of which demands save-and-reopen *after* showing a correct-looking preview |
-| ⬜ | **Multi-run editing** — the edit unit is one show-text operator, so a paragraph split across four `Tj` runs is four edits |
+| ✅ | **The tool itself** — `CanvasTool::TextEdit(TextEditKind)`, click to place a caret, type, Enter or a click elsewhere commits, Escape abandons, a mode change disarms *and* abandons. Gated on `edit_content`, so Read cannot reach it. It takes a click and no drag, the shape `press_kind` already uses for measure and vertex markup; `textsel::takes_the_press` is untouched because it asks `is_text()`, false for this variant **by construction** rather than by an added exclusion |
+| ✅ | **Alignment and rotation fixes** — the two cases D4b called genuinely wrong. One pure `choose(text_matrix, ctm, alignment)` at the single commit site: rotation is rung 1 and outranks alignment, non-left alignment is rung 2, both selecting `FollowerDisposition::Pin` — which the engine has always had *"for a justified / right-aligned tail that must not move"* and which the old shell never once passed, sending `EditOptions::default()` from its only call site. `Pin` is **correct** under rotation rather than merely less wrong: it writes no follower `Tm` at all and its compensating `TJ` acts along the rotated baseline, so this refuses rotation less harshly than `reflow_apply` does, deliberately. **Proved against the bytes**: a new right-aligned/rotated fixture — which existed in neither repository — edited in the real binary, saved as a copy, re-opened **in a second process**, and the untouched line's `412.64 668.00 Tm` found verbatim *in the appended revision only*, since §7.5.6 leaves the original in the base revision and a whole-file scan would pass for every build. Planting `EditOptions::default()` made the check fail; neutralising that assertion made it fail again at the byte scan |
+| ⛔ | **Live re-layout while typing** — blocked on the engine. Measured per keystroke: **0.49 ms** on a 3-line fixture, **102.77 ms** on a SolidWorks sheet, **356 ms** on an A3 benchmark. The arithmetic is not the cost: `plan_edit` already computes `advance_delta` before any write, but it is `pub(crate)`, so every public route performs a full incremental save. **Request: `measure_edit(&Document, &EditRequest) -> Result<f64, _>`, or make `plan_edit` public.** Debouncing was rejected rather than overlooked — a re-layout arriving 150 ms after you stop typing is a second surprise. The ghost text is gone regardless: what is drawn now is a caret and an extent bracket, which promise nothing about widths |
+| ⬜ | **Reflow reachability** — three gates, one of which demands save-and-reopen *after* showing a correct-looking preview. Untouched |
+| ⛔ | **Multi-run editing** — the edit unit is one show-text operator, so a paragraph split across four `Tj` runs is four edits. Needs a multi-run request `pdfce-core` does not have. What changed: a selection spanning runs is now **declined in a sentence on the status row**, where the old shell silently disabled the typing loop and left the operator with a keyboard that had stopped working |
+| ⬜ | **`edit.add_text` has no font, size or colour surface** — it arms, sets an origin, takes keystrokes and commits through `EditSession::add_text` with the engine's documented default face. Unit-tested, **not driven**. Choosing what those three controls are is a decision, not an omission |
 
 ### Phase 6 — markup completeness
 

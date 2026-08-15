@@ -158,7 +158,7 @@ What does not survive is the *file*. Its contents redistribute roughly:
 | Content | Approx. lines | Goes to |
 |---|---:|---|
 | Form filling, field authoring, FDF/XFDF/CSV | ~1,600 | `panels/forms/` |
-| Text editing — runs, caret, formatting, reflow host | ~3,500 | `tools/text/` |
+| Text editing — runs, caret, formatting, reflow host | ~3,500 | `tools/text/` — **partly landed 2026-08-15**, see below |
 | Vector object editing, node/handle | ~1,200 | `tools/vector/` |
 | Measure/dimension hosting | ~900 | `tools/measure/` |
 | Page ops, thumbnail rail, selection action bar | ~1,400 | `panels/pages/` |
@@ -459,3 +459,42 @@ below them.
   channel for the `note_` that says Pass 72.0 closed. `redact::sealed`'s
   monopoly assertion is what will make that migration visible rather than
   gradual.
+
+### The text-editing salvage, 2026-08-15 — **partial, and the split is the point**
+
+Class C's `tools/text/` row is **~3,500 lines**, and roughly 400 of them
+landed. That is not a shortfall against the estimate; it is the estimate
+being read correctly for the first time. `DEFECTS.md` D4 had already
+split "text editing is weird" into three problems with different causes,
+and only one of them is a salvage job at all:
+
+- **The disposition fix is not salvage — it is a line the old shell never
+  wrote.** `FollowerDisposition::Pin` lives in the *engine*, documented
+  for exactly this case, and `main.rs` passed `EditOptions::default()`
+  from its only call site. There was nothing to lift. What landed is a
+  new pure chooser, `canvas/textedit/disposition.rs`, plus the rotation
+  guard **ported verbatim** from `reflow_apply.rs`
+  (`check_uniform_axis_aligned`, `MTX_EPS = 1e-6`) rather than
+  re-derived — the one genuinely salvaged piece, and it was salvaged
+  from the *reflow* path, not the edit path, because the edit path never
+  had one.
+- **The caret and the keystroke loop lifted cleanly.** Raw
+  `egui::Event::Text`, no `TextEdit` widget in the typing path, a caret
+  painted in PDF space: the old shell's approach was right and is kept.
+- **The ghost-text renderer was deliberately not lifted.** It is
+  ~600 lines of the estimate and it is the thing D4 names as the second
+  contributor to "weird". Salvaging it would have carried the defect
+  across intact.
+- **The reflow host — the largest share — is untouched**, and stays
+  Class C. So does multi-run editing, which needs an engine request
+  first.
+
+**A defect introduced during the salvage, and caught before it shipped**,
+because it is the kind that survives a green test run:
+`ExtractOptions::capture_provenance` **defaults off**, and this shell's
+shared `page_text()` cache is built with `default()`. Fed from that
+cache, the new chooser would have seen a `None` pin and identity
+matrices — so the rotation guard could never fire on any document, while
+its own unit tests passed against hand-built matrices. The lesson is now
+`HANDOFF.md` §10's twelfth bite: **a pure function's tests prove the
+function, not its inputs.**

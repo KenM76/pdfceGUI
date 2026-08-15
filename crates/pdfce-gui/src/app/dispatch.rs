@@ -409,6 +409,44 @@ impl PdfceApp {
             "view.tool_text" => {
                 let _ = crate::canvas::tool::toggle_text(ctx);
             }
+            // ★★ **The two text-EDITING verbs**, and they are the defect this
+            // project was started for (`DEFECTS.md` D4).
+            //
+            // Two literal arms rather than a seventh guard function, deliberately.
+            // The guard shape earns its keep when the id-to-kind map has four or
+            // more members and would otherwise be four arms to forget the fifth
+            // in; with exactly two, a `text_edit_for_command` would be a third
+            // place — beside `reach::EVALUATED_GUARDS` and `reach::guard_claiming`
+            // — that has to learn about a mapping already stated on
+            // `TextEditKind::command_id`, and `shell::commands::mapping`'s own
+            // tests exist to keep such a map honest in both directions. Two arms,
+            // one binding, no new machinery.
+            //
+            // ★ **The capability check is `edit_content`, and unlike
+            // `view.tool_text` immediately above, its presence is the decision.**
+            // That arm has none because selecting text authors nothing — the
+            // operator's own *copying is not authoring* ruling. Typing into the
+            // page's content stream is authoring by every reading of that
+            // sentence, so this declines by name in a mode that cannot author,
+            // and `canvas::tool::retire_forbidden` disarms the tool (and abandons
+            // any draft) from the other end. Reachable only by a chord or a
+            // customized manifest, exactly like the markup and measure arms
+            // below: the shipped manifest shows the Edit tab in Edit alone.
+            "edit.text" | "edit.add_text" => {
+                let kind = if id == "edit.add_text" {
+                    crate::canvas::textedit::TextEditKind::Add
+                } else {
+                    crate::canvas::textedit::TextEditKind::Edit
+                };
+                if self.capabilities().edit_content {
+                    let _ = crate::canvas::tool::arm_text_edit(ctx, kind);
+                } else {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-edit-content")
+                    });
+                }
+            }
             // ★ **The markup shape tools — one arm for all four.**
             //
             // The same shape as the page-display radio below, for the same

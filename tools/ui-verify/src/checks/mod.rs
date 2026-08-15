@@ -187,6 +187,11 @@ pub mod settings_headings;
 /// commands in this shell whose operand is **not the pointer**, and therefore
 /// the first check that asserts a control is *correctly disabled* as well as
 /// that it works. Its header carries the argument.
+/// **The text-editing round trip** — `DEFECTS.md` D4b, driven: a chord arms the
+/// caret tool, a click resolves a run, a commit plans the follower disposition,
+/// a save writes it, and a second process reads it back. Its verdict is a byte
+/// scan for an operator the operator did NOT touch.
+pub mod text_edit;
 pub mod text_markup;
 /// The canvas text-selection sweep: the one feature whose entire behaviour is a
 /// drag and whose entire feedback is a translucent wash, so a screenshot cannot
@@ -379,6 +384,14 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
         Box::new(redaction::RedactionRemovesAndProvesIt),
+        // ★ Directly after `redaction`, and before the two selection checks,
+        // because it is the second most expensive check in the suite — it
+        // launches the binary twice, for the same reason `save_copy` does — and
+        // because its subject is the one this project exists for. A run in which
+        // `save_copy` failed should be read first: every link from Ctrl+S
+        // onwards is that check's, and this one has the whole text-edit path
+        // stacked in front of them.
+        Box::new(text_edit::TextEditPinsAnAlignedTail),
         // After both, because it is the only driving check that does not touch
         // the ribbon band at all — it clicks mode segments and the page — and
         // because it is the slowest: it searches for a point with content

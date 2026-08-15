@@ -277,6 +277,38 @@ pub fn takes_the_press(tool: CanvasTool, caps: Capabilities) -> bool {
 mod tests {
     use super::*;
 
+    use crate::canvas::textedit::TextEditKind;
+
+    /// ★★ **The caret tool is not a sweep tool**, in every mode.
+    ///
+    /// This is the assertion that keeps this file's §3 true after
+    /// `CanvasTool::TextEdit` landed. The gate reads `is_text()`, which is
+    /// `matches!(tool, CanvasTool::Text)`, so a new variant is false here **by
+    /// construction** — and that is exactly the kind of property that is true
+    /// until someone "tidies" the predicate into `tool.is_any_text_tool()`.
+    ///
+    /// It matters because the two would otherwise contend in Edit. With the
+    /// caret tool armed, `caps.edit_content` is true and the operator has asked
+    /// for text, which is the same both-facts-true shape the §3 section above
+    /// records for the sweep tool — and the failure it would produce is worse:
+    /// a press meant to place a caret would instead sweep a range and the
+    /// keyboard would have nothing to type into.
+    ///
+    /// Asserted over **both** kinds and **all three shipped modes**, because a
+    /// gate that answered differently for `Add` than for `Edit` would be a
+    /// distinction nothing else in the crate makes.
+    #[test]
+    fn the_caret_tool_never_takes_the_press_for_a_text_sweep() {
+        for mode in ["read", "review", "edit"] {
+            for kind in [TextEditKind::Edit, TextEditKind::Add] {
+                assert!(
+                    !takes_the_press(CanvasTool::TextEdit(kind), caps_for(mode)),
+                    "{mode}: an armed {kind:?} caret must not be read as a text sweep"
+                );
+            }
+        }
+    }
+
     /// The gate's three shipped answers, from the manifest the product actually
     /// ships rather than from hand-built capabilities.
     fn caps_for(mode: &str) -> Capabilities {

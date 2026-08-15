@@ -190,6 +190,11 @@ pub mod target;
 // SolidWorks each came from, and the one derivation that makes what is
 // highlighted and what is copied the same value.
 pub mod textsel;
+// EDITING the page's own words, and placing new ones: the caret, the draft, and
+// — in its `disposition` submodule — the two cases `DEFECTS.md` D4b records as
+// wrong on commit, where the engine had the mechanism and the old GUI never
+// selected it.
+pub mod textedit;
 // The `PDFCE_DIAG` lines the canvas writes, and the shape contract
 // `tools/ui-verify` reads them under.
 pub mod trace;

@@ -546,7 +546,43 @@ pub(super) fn interact(
             // statement of the rule, free to disagree with the one that decided
             // the drag. One function, two readers — the same shape
             // `active_tool.measure_kind()` already has one line above.
-            if textsel::takes_the_press(active_tool, caps) {
+            // ★ …and the **caret** tool takes it before either, which is
+            // `press_kind`'s own rung order restated where the click is routed.
+            //
+            // It has to be restated rather than inferred, for the reason the
+            // paragraph below gives about the text branch: `press_kind` reports
+            // `click: true` for three different reasons now, and reading the flag
+            // would be a second, quieter statement of a rule that is already
+            // written. Asking `text_edit_kind()` again is asking the same
+            // question of the same value.
+            //
+            // A refusal is shown rather than swallowed. That is D4a's whole
+            // lesson: the old shell's answer to a caret it could not place was a
+            // boolean and a keyboard that stopped responding.
+            if let Some(kind) = active_tool.text_edit_kind() {
+                match crate::canvas::textedit::click(
+                    &ctx,
+                    &crate::canvas::textedit::Click {
+                        doc,
+                        page_index,
+                        kind,
+                        canvas_point: point,
+                    },
+                    actions,
+                ) {
+                    Ok(()) => {}
+                    Err(refusal) => {
+                        crate::app::actions::record_note(
+                            doc.edit_epoch,
+                            crate::text::textedit::refusal(refusal).to_owned(),
+                        );
+                        crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            format!("text-edit-declined reason={refusal:?}")
+                        });
+                    }
+                }
+            } else if textsel::takes_the_press(active_tool, caps) {
                 if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
                 {
                     let text_ctx = textsel::PageContext {
@@ -1133,6 +1169,43 @@ pub(super) fn interact(
                 picked: &measure_picked,
             },
         );
+    }
+    // ★ …and the caret, which is the same argument once more: while a draft is
+    // in flight the caret IS the cursor, and it describes where the next
+    // keystroke lands.
+    //
+    // It draws a caret and an extent bracket and **no glyphs** — see
+    // `textedit::preview`, which carries the argument for why a better ghost is
+    // the wrong fix for `DEFECTS.md` D4a rather than a deferred one.
+    if active_tool.text_edit_kind().is_some() {
+        crate::canvas::textedit::preview(
+            ui,
+            &ctx,
+            &crate::canvas::textedit::Preview {
+                doc,
+                page_index,
+                map,
+            },
+        );
+    }
+
+    // ★ **The keystrokes**, read raw and consumed here.
+    //
+    // After the gesture machine and before the cursor, which is the only place
+    // it can be: it needs `actions` (Enter commits) and it must not run on a
+    // frame the canvas does not own the keyboard for.
+    //
+    // `!ctx.text_edit_focused()` is the guard, and it is `DEFECTS.md` **D1**'s
+    // predicate rather than `egui_wants_keyboard_input()` — for the identical
+    // reason `app::keyboard` and `canvas::tool::space_held` use it. The wrong
+    // one is true whenever *any* widget has focus, and the canvas takes focus on
+    // click, so a build using it would stop accepting characters the moment the
+    // operator clicked the page they are trying to type on. The right one asks
+    // whether a **text field** has it — the page-number box, a Properties value
+    // — which is the only case where a character is not ours.
+    if active_tool.text_edit_kind().is_some() {
+        let owns_keyboard = !ctx.text_edit_focused();
+        let _ = crate::canvas::textedit::typing(ui, &ctx, owns_keyboard, actions);
     }
 
     // ★ The cursor — the whole precedence in one pure function, in `tool`,

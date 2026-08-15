@@ -120,6 +120,11 @@ pub mod ribbon;
 /// Every string the status bar shows. Consumed by `crate::app::status`.
 pub mod status;
 
+/// Every sentence the text-EDITING tool shows: the three refusals a caret can
+/// meet, and the rule-4 disclosure the engine does not write for a pinned tail.
+/// Consumed by `crate::canvas::textedit` and by the `CommitTextEdit` apply arm.
+pub mod textedit;
+
 use std::path::Path;
 
 /// The window title.

@@ -282,7 +282,49 @@ typeface at the wrong widths, then it snaps to reality on Accept.
 a line or block and re-emits them as a set, plus dropping the
 `cross_run` typing lock.
 
+> **Status 2026-08-15 — still architectural, but it now refuses in
+> words.** This shell's editor is still one-run; the multi-run request
+> does not exist in `pdfce-core` and was not built. What changed is the
+> failure mode: a selection spanning runs is declined by a sentence on
+> the status row (`text::textedit::spans_runs`, via
+> `actions::record_note`) rather than by a keyboard that silently stops
+> responding. The ghost text is also gone — not replaced with a better
+> ghost, but with a caret and an extent bracket that claim only what the
+> shell can honestly know before a commit. The argument for why a
+> *prettier* ghost would be the wrong fix rather than a deferred one is
+> in `canvas::textedit::preview`.
+
 ### D4b — Nothing moves as you type; two cases move wrongly on commit
+
+> **Both wrong cases FIXED 2026-08-15** in this shell —
+> `canvas::textedit::disposition`, a pure
+> `choose(text_matrix, ctm, alignment) -> Reason` consulted at the single
+> commit site (`app/actions/apply.rs`, `Action::CommitTextEdit`).
+> Rotation is rung 1 and outranks alignment; non-left alignment is
+> rung 2. **"Nothing moves as you type" is NOT fixed** — see the
+> measurement and the engine blocker below.
+>
+> The line numbers in the prose below are **stale**: the engine's edit
+> code has since moved into `text_edit/`. `FollowerDisposition` and its
+> doc comment are now `text_edit/edit.rs:295`; the unguarded
+> `emit_tm([*a,*b,*c,*d,*e + delta,*f])` is `text_edit/edit.rs:1505`.
+> The claims themselves were re-verified against that source before the
+> fix landed; only the addresses moved.
+>
+> **The honest limit.** A *single-line* right-aligned block still
+> reflows, because the engine's `infer_alignment` reports
+> `SingleLineDefault` when it has only one line to compare — alignment is
+> inferred from the agreement of several lines' edges, and one line
+> cannot disagree with itself. Multi-line right/centre/justified blocks —
+> the CAD title-block case — are pinned correctly.
+>
+> **Why this refuses rotation less harshly than `reflow_apply` does.**
+> `Pin` is *correct* under rotation, not merely less wrong: it writes no
+> follower `Tm` at all, and its compensating `TJ` acts in text space,
+> i.e. along the rotated baseline. The ported guard
+> (`check_uniform_axis_aligned`, `MTX_EPS = 1e-6`, taken verbatim rather
+> than re-chosen) therefore selects `Pin` for rotated text instead of
+> refusing the edit. The argument is written out in `disposition.rs`.
 
 The metrics path is **correct**: advance widths come from real font
 metrics — `/Widths` for simple fonts, `/W` + `/DW` for composite
@@ -320,6 +362,34 @@ path** — the response to an overrun is a disclosure string
 **To change it:** re-measure and re-render the draft with real metrics
 per keystroke; detect alignment and select `Pin` for right/centre/
 justified tails; port the rotation guard `reflow_apply` already has.
+
+**Per-keystroke re-layout: measured, and blocked on the engine.**
+Release build, median of 5, via `canvas::textedit::cost`:
+
+| document | extract (prov.) | recognize+align | plan+save | total |
+|---|---:|---:|---:|---:|
+| `tail-alignment` (3 lines) | 0.12 ms | 0.01 ms | 0.36 ms | **0.49 ms** |
+| `SW41177` p1 (SolidWorks sheet) | 32.07 ms | 0.16 ms | 70.54 ms | **102.77 ms** |
+| `ncored-benchmark` A3 | 356.53 ms | 2.79 ms | — | **356+ ms** |
+
+102.77 ms on the operator's own sheets is six frames. The blocker is
+**not** the arithmetic: `plan_edit`/`EditPlan` already computes
+`advance_delta` before any write — exactly the number wanted — but it is
+`pub(crate)`. Every public route either performs a full incremental save
+or mutates the undo log, which is why "plan+save" dominates the table.
+
+**This is a feature request for the engine**, and the smallest one that
+unblocks it: a dry run — `measure_edit(&Document, &EditRequest) ->
+Result<f64, _>`, or simply making `plan_edit` public. With it, the cost
+falls to the middle column: extraction is already cached per
+`(page, edit_epoch)`, and typing bumps no epoch.
+
+**Debouncing was rejected, not overlooked.** A re-layout that arrives
+150 ms after you stop typing is a *second* surprise, and D4a's lesson is
+that this feature's sin is showing the operator something the document
+will not say. Until the draft can move truthfully on every keystroke, it
+does not move at all — and the caret and extent bracket that *are* drawn
+promise nothing about widths.
 
 ### D4c — Reflow is unreachable in the sequence a user actually performs
 

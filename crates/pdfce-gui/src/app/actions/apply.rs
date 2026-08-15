@@ -392,6 +392,92 @@ impl PdfceApp {
                     session.add_markup(page, &spec).map(|_| Vec::new())
                 });
             }
+            // ★★ **The commit `DEFECTS.md` D4b is about**, and the two lines
+            // that make it different from the old shell's are `plan`'s.
+            //
+            // The old shell wrote, at its ONLY call site:
+            //
+            // ```text
+            // doc.session_mut().edit_text(&req, &EditOptions::default())
+            // ```
+            //
+            // `EditOptions::default()` is `FollowerDisposition::Reflow`, for
+            // every run on every page of every document — so a right-aligned
+            // tail was pushed off its margin and a rotated line's tail was slid
+            // sideways along an axis its baseline does not run down. Neither is
+            // a missing feature; both are the wrong arithmetic, chosen by
+            // default because the type was constructible at the point of use.
+            //
+            // The arm still routes. `canvas::textedit::plan` is where the rule
+            // lives, and it is one call: it re-derives the provenance pin, reads
+            // the run's matrices, asks the engine for the block's alignment, and
+            // returns the request and the options together so a caller cannot
+            // take one without the other.
+            //
+            // ★ The disclosure list is the engine's own, PLUS one this shell
+            // adds. `EditReport::disclosures` already says a reflowed line may
+            // overrun its margin; it says nothing at all about a pinned one,
+            // because from the engine's side pinning is what was asked for. But
+            // a pinned tail does not make room, so a longer replacement grows
+            // into it — and rule 4 forbids letting the operator discover that
+            // from a diff. `plan`'s reason is what decides whether the sentence
+            // is appended, so the disclosure and the disposition cannot disagree.
+            Action::CommitTextEdit {
+                page,
+                run,
+                original,
+                replacement,
+            } => {
+                let plan = crate::canvas::textedit::plan(doc, page, run, &original, &replacement);
+                let reason = plan.reason;
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    //
+                    // ★ It names the DISPOSITION and the REASON, and it has to
+                    // name both. `HANDOFF.md` §2's grid lesson is that a check
+                    // asserting a relation is satisfied by any absurdity in the
+                    // right direction — and "an edit happened" is exactly such a
+                    // relation here. A build that had reverted to
+                    // `EditOptions::default()` would produce an identical
+                    // `edit-text` line one line below this one; only this line
+                    // carries the number that build would get wrong.
+                    format!(
+                        "text-edit-plan page={page} run={run} disposition={:?} reason={reason:?}                          pinned={}",
+                        plan.options.disposition,
+                        plan.request.pinned_span.is_some()
+                    )
+                });
+                vector_edit(doc, "edit-text", page, 1, |session| {
+                    session
+                        .edit_text(&plan.request, &plan.options)
+                        .map(|report| {
+                            let mut notes = report.disclosures;
+                            if reason.pins_the_tail() {
+                                notes.push(crate::text::textedit::pinned_tail_disclosure(reason));
+                            }
+                            notes
+                        })
+                });
+            }
+            // ★ New page text, through the same funnel and the same four steps.
+            //
+            // `AddTextRequest::new` supplies the engine's own documented default
+            // — a bundled 12-pt black Helvetica run — and this arm does not
+            // override it. That is a decision and not an omission: a font, size
+            // and colour picker is a *surface*, and `RIBBON_IA.md` P3's rule is
+            // that a capability which is absent renders nothing rather than a
+            // control that explains itself badly. Picking a face here from
+            // nothing would be this arm computing rather than routing, and the
+            // engine's default is the one answer that is already argued
+            // somewhere. What the operator gets today is legible, real page
+            // content they can undo; what they do not get yet is a choice about
+            // its appearance, and `Format` is where that lands.
+            Action::CommitAddText { page, origin, text } => {
+                let req = pdfce_core::text_edit::AddTextRequest::new(page, origin, text);
+                vector_edit(doc, "add-text", page, 1, |session| {
+                    session.add_text(&req).map(|report| report.disclosures)
+                });
+            }
             // ★ The three things a mode change does. See the variant's docs
             // for why each one is here and not somewhere more convenient.
             //
@@ -803,12 +889,29 @@ impl PdfceApp {
 /// has to remember. That key lives in `render/`, which is not this module's to
 /// extend; this is the honest interim, and it is one line in one shared
 /// function rather than a convention spread across four verbs and counting.
-fn vector_edit(
+///
+/// # ★ Why the error type is generic, and it is one word of generality
+///
+/// It took `pdfce_core::edit::EditError` for the whole of its life, because
+/// every verb that came through it — delete, the three moves, `add_markup`,
+/// `add_dimension` — reports that type. The two text verbs do not:
+/// `EditSession::edit_text` reports `text_edit::EditError` and
+/// `EditSession::add_text` reports `text_edit::AddTextError`, and neither
+/// converts into the first.
+///
+/// The three ways out were: a second copy of the four-step protocol for each new
+/// error type, which is the exact thing this function exists to prevent; a
+/// `map_err` to a string at every call site, which would put the *formatting* of
+/// a refusal in five places; or one bound. The bound is `Display`, which is the
+/// only capability the error branch below actually uses — it puts the message on
+/// the trace and declines. Nothing here inspects a variant, so nothing here
+/// needed to know the type.
+fn vector_edit<E: std::fmt::Display>(
     doc: &mut OpenDoc,
     label: &str,
     page: usize,
     operands: usize,
-    edit: impl FnOnce(&mut EditSession) -> Result<Vec<String>, EditError>,
+    edit: impl FnOnce(&mut EditSession) -> Result<Vec<String>, E>,
 ) {
     doc.render_worker.cancel_and_wait();
     let Some(session) = Arc::get_mut(&mut doc.session) else {
@@ -1078,7 +1181,13 @@ fn history_step(doc: &mut OpenDoc, direction: Direction) {
         // a step that moved nothing is the one `vector_edit` already makes: an
         // epoch bump and an empty disclosure list.
         let _ = direction.step(session);
-        Ok(Vec::new())
+        // The turbofish is the price of `vector_edit`'s generic error type, and
+        // it is paid here alone: this is the one caller whose closure never
+        // fails, so it is the one place `E` is unconstrained. Named as the
+        // engine's own error rather than as `Infallible`, because that is the
+        // type every *other* verb reaching this function reports and a reader
+        // comparing the arms should not have to notice a second one.
+        Ok::<_, EditError>(Vec::new())
     });
 }
 
@@ -1216,7 +1325,9 @@ mod tests {
         let before = doc.edit_epoch;
 
         vector_edit(&mut doc, "move-node", 0, 1, |_session| {
-            Ok(vec!["This shape was stored as a rectangle.".to_owned()])
+            // The turbofish is `vector_edit`'s generic error type, named as the
+            // engine's own for the reason the undo caller's is — see there.
+            Ok::<_, EditError>(vec!["This shape was stored as a rectangle.".to_owned()])
         });
 
         assert_ne!(
@@ -1245,7 +1356,9 @@ mod tests {
 
         // A second edit that discloses nothing retires the first sentence —
         // both by the epoch and by clearing the slot outright.
-        vector_edit(&mut doc, "move-node", 0, 1, |_session| Ok(Vec::new()));
+        vector_edit(&mut doc, "move-node", 0, 1, |_session| {
+            Ok::<_, EditError>(Vec::new())
+        });
         assert!(
             last_edit_disclosure(doc.edit_epoch).is_none(),
             "an edit with nothing to disclose must leave no sentence behind"

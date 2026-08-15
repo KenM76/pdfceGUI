@@ -397,6 +397,24 @@ pub(super) fn canvas_keys(
         && !measure_abandoned
         && crate::canvas::markup::vertex::abandon(ctx);
 
+    // …and a **text draft** in progress, third on the same rung and for the
+    // third time the same reason. A caret with characters typed into it is a
+    // gesture in flight that no drag represents, and it is the one where Escape
+    // matters most: it is the only way to say *"throw this away"*, because
+    // clicking elsewhere COMMITS (`textedit::click`'s own note on why). One
+    // Escape must therefore discard the draft and leave the tool armed, or an
+    // operator correcting a typo would also be putting the pen down.
+    //
+    // Three calls on one rung rather than three rungs, on 3a's existing
+    // argument: one tool is armed at a time, so a measure pick, a vertex run and
+    // a text draft cannot two of them be in progress.
+    let draft_abandoned = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && crate::canvas::textedit::abandon(ctx);
+    let vertex_abandoned = vertex_abandoned || draft_abandoned;
+
     // Claimant 3b: an armed markup tool. Above the region zoom deliberately —
     // see the header's own section on why the transience rule does not settle
     // that pair and what does. Note this is `disarm`, not "cancel a markup

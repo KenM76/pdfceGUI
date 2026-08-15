@@ -169,6 +169,7 @@ use egui::{CursorIcon, Key};
 use crate::app::modes::Capabilities;
 use crate::canvas::markup::MarkupKind;
 use crate::canvas::measure::MeasureKind;
+use crate::canvas::textedit::TextEditKind;
 
 /// `egui::Memory` key for the operator's chosen pointer tool.
 const TOOL_MEMORY_KEY: &str = "pdfce-canvas-tool"; // ui-text-exempt: internal memory id, never displayed
@@ -307,6 +308,75 @@ pub enum CanvasTool {
     /// turns out to have been right for a reason its own argument got wrong. See
     /// [`crate::canvas::keys`]'s rung 5, which orders them.
     Text,
+    /// A click puts a **caret** on the page — in an existing run for
+    /// [`TextEditKind::Edit`], at a fresh origin for [`TextEditKind::Add`] — and
+    /// the keyboard then edits the page's own content.
+    ///
+    /// # ★ The argument this header demanded, made here as it asked
+    ///
+    /// The module header's exclusion paragraph closes: *"**Text editing** …
+    /// remains outside, and for exactly the original reason: it is a caret in a
+    /// re-laid-out box, it would drag a whole subsystem's state through this
+    /// type … Whoever brings the second should have to make this argument again,
+    /// in this file."* Here it is, against the bar the header actually set —
+    /// *"arrives with its own state"* — and against the objection it actually
+    /// raised, which is a different and stricter thing.
+    ///
+    /// **The bar is cleared**, in the same five columns
+    /// [`Self::Text`]'s table uses:
+    ///
+    /// | it arrives with | where |
+    /// |---|---|
+    /// | a draft type, with its own page and kind synchronisation | [`crate::canvas::textedit::Draft`] |
+    /// | a [`PressMeaning`](crate::canvas::gesture::PressMeaning) — a live click and **no drag** | [`crate::canvas::gesture::press_kind`]'s first rung |
+    /// | a resolver — one hit test producing the run, through the same bridge the text sweep uses | `canvas::textedit::click` |
+    /// | a commit path, and a real one: two `Action`s and two `EditSession` verbs | `Action::CommitTextEdit`, `Action::CommitAddText` |
+    /// | a refusal vocabulary of its own | [`crate::canvas::textedit::Refusal`] |
+    ///
+    /// **The objection is answered rather than outvoted.** It was not "text
+    /// editing is big"; it was *"it would drag a whole subsystem's state through
+    /// this type"* — a claim about **this enum**, not about the feature. And the
+    /// state does not come through. What crosses is one [`TextEditKind`], which
+    /// is exactly what [`Self::Markup`] and [`Self::Measure`] each carry and one
+    /// value more than [`Self::Text`] carries. The draft, the caret, the anchor
+    /// and the original text live in `egui::Memory` — where `canvas::measure`
+    /// already keeps a half-finished pick, on the reasoning that *"a
+    /// half-finished pick is not part of the document and a document saved
+    /// mid-gesture must not carry one"*, which is true of a half-typed word in
+    /// exactly the same way and for exactly the same reason.
+    ///
+    /// The second clause of the objection — *"a caret in a re-laid-out box"* —
+    /// was a prediction about the **ghost text** the old shell drew, and it was
+    /// right about that. It is answered by not drawing one: see
+    /// `canvas::textedit::preview`, which paints a caret and an extent bracket
+    /// and no glyphs, and argues why a better ghost is the wrong fix rather than
+    /// a deferred one.
+    ///
+    /// # What arming it changes
+    ///
+    /// One predicate and one rung. [`crate::canvas::gesture::press_kind`] gains
+    /// a first rung — this tool takes the click and leaves the drag alone,
+    /// beside the measure and vertex-markup rungs it is shaped like — and
+    /// nothing else moves. In particular
+    /// [`crate::canvas::textsel::takes_the_press`] is **untouched**: it asks
+    /// [`Self::is_text`], which is `matches!(self, Self::Text)` and is therefore
+    /// false here by construction, not by a condition someone added. So the text
+    /// *sweep* and the text *caret* cannot both claim one press, and Read and
+    /// Review are unchanged — the tool cannot be armed there at all.
+    ///
+    /// # It changes a capability, where `Text` changed none
+    ///
+    /// Selecting text authors nothing; this authors page content. So both
+    /// dispatch arms decline unless `Capabilities::edit_content`, and
+    /// [`retire_forbidden`] disarms it on the way into a mode that cannot
+    /// author — which also abandons any draft, because a draft that survived
+    /// into Read would be a keystroke buffer aimed at a document the mode says
+    /// is not the operator's to change.
+    ///
+    /// [`TextEditKind`]: crate::canvas::textedit::TextEditKind
+    /// [`TextEditKind::Edit`]: crate::canvas::textedit::TextEditKind::Edit
+    /// [`TextEditKind::Add`]: crate::canvas::textedit::TextEditKind::Add
+    TextEdit(TextEditKind),
 }
 
 impl CanvasTool {
@@ -392,6 +462,15 @@ impl CanvasTool {
             // says which of the two things a drag on this page is about to do,
             // which is the whole reason the tool exists.
             Self::Text => Some(CursorIcon::Text),
+            // ★ …and the same I-beam for the caret tool, which is the one place
+            // this file gives two variants one answer on purpose. The pointer
+            // says *what a press on this page is about to do*, and for both of
+            // these it is about to do something to text — sweep it or put a
+            // caret in it. Acrobat, Inkscape and SolidWorks all show one I-beam
+            // for both, and a second glyph invented to distinguish them would be
+            // a distinction the operator has to learn in order to read something
+            // the pressed ribbon control already tells them.
+            Self::TextEdit(_) => Some(CursorIcon::Text),
         }
     }
 
@@ -446,6 +525,31 @@ impl CanvasTool {
     #[must_use]
     pub fn is_text(self) -> bool {
         matches!(self, Self::Text)
+    }
+
+    /// **Which text-edit kind is armed, if any.**
+    ///
+    /// [`Self::markup_kind`]'s and [`Self::measure_kind`]'s fourth sibling, with
+    /// the same three-caller contract: [`crate::canvas::gesture::press_kind`],
+    /// which decides that the press is a caret placement and not a marquee;
+    /// `crate::app::PdfceApp::conditions`, so exactly one of the two Edit
+    /// controls renders pressed; and `canvas::interact`, which routes the
+    /// resulting click to `canvas::textedit::click`. Three `matches!` written
+    /// separately is how a canvas comes to place a caret while the ribbon says
+    /// Add text.
+    ///
+    /// ★ Note what it is **not** a sibling of: [`Self::is_text`]. That answers
+    /// *"is the text SWEEP armed"* and this answers *"is the text CARET armed"*,
+    /// and they are false at the same time and true at different times. They are
+    /// two questions with confusingly similar names, so each names the other
+    /// here — a reader who calls the wrong one gets a compile error only if the
+    /// return types differ, and they do not.
+    #[must_use]
+    pub fn text_edit_kind(self) -> Option<TextEditKind> {
+        match self {
+            Self::TextEdit(kind) => Some(kind),
+            _ => None,
+        }
     }
 }
 
@@ -596,9 +700,11 @@ pub fn toggle_hand(ctx: &egui::Context) -> CanvasTool {
         // one press mean "put the pen down" and a second one mean "pick the
         // hand up". The text tool joins that arm rather than earning its own for
         // the identical reason: pressing Hand while sweeping text means Hand.
-        CanvasTool::Select | CanvasTool::Markup(_) | CanvasTool::Measure(_) | CanvasTool::Text => {
-            CanvasTool::Hand
-        }
+        CanvasTool::Select
+        | CanvasTool::Markup(_)
+        | CanvasTool::Measure(_)
+        | CanvasTool::Text
+        | CanvasTool::TextEdit(_) => CanvasTool::Hand,
     };
     select(ctx, next);
     next
@@ -642,9 +748,11 @@ pub fn toggle_text(ctx: &egui::Context) -> CanvasTool {
         // …and from any other tool this *takes* the text tool rather than
         // returning to Select, which is `toggle_hand`'s rule above and
         // `arm_markup`'s different-kind-re-arms rule, spelled once more.
-        CanvasTool::Select | CanvasTool::Hand | CanvasTool::Markup(_) | CanvasTool::Measure(_) => {
-            CanvasTool::Text
-        }
+        CanvasTool::Select
+        | CanvasTool::Hand
+        | CanvasTool::Markup(_)
+        | CanvasTool::Measure(_)
+        | CanvasTool::TextEdit(_) => CanvasTool::Text,
     };
     select(ctx, next);
     crate::diag::trace(|| {
@@ -842,12 +950,74 @@ pub fn retire_forbidden(ctx: &egui::Context, caps: Capabilities) -> bool {
         CanvasTool::Select | CanvasTool::Hand | CanvasTool::Text => true,
         CanvasTool::Markup(_) => caps.author_markup,
         CanvasTool::Measure(_) => caps.author_measure,
+        // ★ …and the caret tool joins the *authoring* group, which is the
+        // decision the paragraph above asks a fifth tool's author to make.
+        //
+        // It joins it on the same three steps read the other way. Step 1: this
+        // one **does** touch the document — it rewrites a show operator or
+        // appends new page content, bumps `edit_epoch`, and lands one
+        // `EditSession` command. Step 2: the operator's *copying is not
+        // authoring* ruling is the reason `Text` is exempt, and it says nothing
+        // about typing, which is authoring by any reading. Step 3: retiring it
+        // is right in both directions here — Read plainly does not permit it,
+        // and Edit's `edit_content` is true, so the mode this tool exists for
+        // keeps it.
+        //
+        // `edit_content` and not `author_markup`: a markup annotation is a
+        // comment layered over the page, and this changes the page itself.
+        CanvasTool::TextEdit(_) => caps.edit_content,
     };
     if permitted {
         return false;
     }
     select(ctx, CanvasTool::Select);
+    // ★ …and the draft goes with the tool. A retirement that left one in
+    // `egui::Memory` would leave a keystroke buffer aimed at a document the mode
+    // being entered says is not the operator's to change — and it would still be
+    // there on the way back, holding text typed against a revision that may have
+    // moved. `app::gating`'s rule is *retire what was already there*, and a
+    // half-typed word is squarely that.
+    crate::canvas::textedit::abandon(ctx);
     true
+}
+
+/// Arm the caret tool with `kind`, or retire it if that kind is already armed.
+/// **The entry point the `edit.text` and `edit.add_text` dispatch arms call.**
+///
+/// [`arm_markup`]'s twin, down to the same-press-retires rule and for the
+/// identical reason — *the button is pressed, so pressing it is how you un-press
+/// it* — and to the discarded return value at the call sites.
+///
+/// ★ **Changing the kind abandons the draft, and that is not the same as the
+/// mid-drag rule above it.** `arm_markup` can be careless about a drag in flight
+/// because a drag is owned by the gesture machine and carries the kind it
+/// started with, so a kind change cannot reach it. A draft is not owned that
+/// way: it sits in `egui::Memory` between frames, and an operator who types
+/// three characters into a run and then presses **Add text** has asked for a
+/// different verb against a different anchor. Committing it silently would write
+/// a half-word; carrying it across would commit `Edit`'s text through `Add`'s
+/// engine call. Abandoning is the only reading that is neither, and
+/// `textedit::load`'s kind check enforces the same thing from the other end so
+/// the two cannot disagree.
+pub fn arm_text_edit(ctx: &egui::Context, kind: TextEditKind) -> CanvasTool {
+    let next = if selected(ctx) == CanvasTool::TextEdit(kind) {
+        CanvasTool::Select
+    } else {
+        CanvasTool::TextEdit(kind)
+    };
+    select(ctx, next);
+    crate::canvas::textedit::abandon(ctx);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI.
+        //
+        // `markup-tool`'s argument, and sharper: an armed caret tool changes the
+        // cursor and nothing else on screen, and a captured window does not carry
+        // the cursor — so an armed canvas and an un-armed one are the same
+        // picture even with the pointer in it. This line is the only way a
+        // harness can prove the ribbon button armed anything.
+        format!("text-edit-tool tool={next:?}")
+    });
+    next
 }
 
 /// Whether the space bar is down **and the canvas is entitled to it**.

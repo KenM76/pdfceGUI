@@ -239,6 +239,33 @@ fn record_edit_disclosure(disclosure: Option<EditDisclosure>) {
     LAST_EDIT.with_borrow_mut(|slot| *slot = disclosure);
 }
 
+/// **Put one sentence on the status bar's disclosure row**, stamped with the
+/// revision currently on screen.
+///
+/// The narrow public door onto the same slot [`record_edit_disclosure`] writes,
+/// and it exists for exactly one caller: `canvas::interact`, when a click with
+/// the caret tool armed **cannot** place a caret. That is not an edit — nothing
+/// was written, no epoch moved — so it has no disclosure list to ride in on, and
+/// without this it would have nowhere to be said.
+///
+/// It has to be said somewhere. `DEFECTS.md` D4a records the old shell's
+/// handling of the same case: a `cross_run` flag that *"silently disables the
+/// whole typing loop"*, so the operator pressed keys and nothing happened. A
+/// limit stated in a sentence is a limit; the same limit stated by a keyboard
+/// that stops responding is a bug report.
+///
+/// **`epoch` is the CURRENT one, not a new one**, and that is what makes the
+/// lifetime right without anything remembering to clear it: the sentence is
+/// visible from now until the next real edit moves the epoch past it, which is
+/// the same rule `vector_edit`'s own stamp follows and for the same reason its
+/// ★ comment gives.
+pub(crate) fn record_note(epoch: u64, note: String) {
+    record_edit_disclosure(Some(EditDisclosure {
+        epoch,
+        notes: vec![note],
+    }));
+}
+
 /// Which piece of View ▸ Display chrome a [`Action::ToggleViewChrome`] is
 /// about.
 ///
@@ -828,6 +855,62 @@ pub enum Action {
         /// `crate::canvas::textsel::TextSelection::page_quads`, which is the
         /// same list the wash was painted from.
         quads: Vec<pdfce_core::annot_author::Quad>,
+    },
+    /// ★ **Replace the words in ONE show operator** — `DEFECTS.md` D4's verb.
+    ///
+    /// One operator, one `EditSession::edit_text`, one undo entry. The scope
+    /// limit is `pdfce-core`'s and is stated on `EditRequest`: a request pins to
+    /// one show operator, and a `TJ` array is one operator. A caret that landed
+    /// where two runs meet never becomes this variant —
+    /// `canvas::textedit::Refusal::SpansRuns` refuses it in a sentence first.
+    ///
+    /// # Why it carries the ORIGINAL as well as the replacement
+    ///
+    /// Because the engine's request is a find/replace, not an index-and-splice:
+    /// `EditRequest::find` is *"the text to locate within one show operator's
+    /// decoded run"*, and the surgery re-tokenises the content buffer to find
+    /// it. The `run` index alone would not survive the round trip.
+    ///
+    /// # Why it does NOT carry the disposition
+    ///
+    /// That is the whole of D4b, so it is worth stating where it is not.
+    /// `FollowerDisposition` is derived at apply time by
+    /// `canvas::textedit::plan`, from the page **as it is when the action
+    /// lands** — not from what the canvas believed when the key was pressed.
+    /// Carrying it would make the choice a fact about a frame; deriving it makes
+    /// it a fact about the document. The old shell's failure was of exactly the
+    /// second kind read the first way: it wrote `EditOptions::default()` at its
+    /// single call site and never asked the page anything.
+    CommitTextEdit {
+        /// The 0-based page holding the run.
+        page: usize,
+        /// Which run, by index into `PageText::runs` — the anchor for the
+        /// provenance pin `plan` re-derives.
+        run: usize,
+        /// The run's text when the caret landed on it. `EditRequest::find`.
+        original: String,
+        /// What the operator typed. `EditRequest::replace`.
+        replacement: String,
+    },
+    /// **Place NEW page text** — `edit.add_text`'s verb.
+    ///
+    /// Additive, and that is the difference from [`Self::CommitTextEdit`] rather
+    /// than a detail: it rewrites no existing operator, so there is nothing whose
+    /// form changed and the engine's own R46 additivity applies. It is
+    /// deliberately **not** `Action::CommitMarkup` with a text kind — a markup
+    /// text box is an annotation layered over the page and is removable by
+    /// deleting it; this becomes the page's own content, exactly like the text
+    /// already there, which is what the command's shipped tooltip promises.
+    CommitAddText {
+        /// The 0-based page.
+        page: usize,
+        /// Where the baseline starts, in **PDF user space** — the space
+        /// `AddTextRequest::origin` is specified in, converted once at the click
+        /// through `viewer::canvas_to_pdf_space` so no second conversion can
+        /// disagree with the caret the operator saw.
+        origin: (f64, f64),
+        /// What the operator typed.
+        text: String,
     },
     /// Show or hide one optional-content group.
     ///

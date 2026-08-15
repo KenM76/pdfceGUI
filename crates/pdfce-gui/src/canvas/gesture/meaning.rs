@@ -342,6 +342,39 @@ pub fn press_kind(
             click: caps.author_measure,
         };
     }
+    // ★ …and the **caret** tool does the same third time, which is what makes
+    // this rung a family rather than three special cases.
+    //
+    // A caret is placed, not dragged: one click says *where*, and the keyboard
+    // says the rest. There is no drag in that gesture, so `drag: None` is the
+    // honest answer and a `DragKind::TextEdit` that every arm ignored would put a
+    // rubber band on screen promising a gesture nothing implements — the
+    // placeholder this project's no-placeholders invariant forbids, and the
+    // argument the two rungs around it make in their own words.
+    //
+    // The capability is `edit_content`, where the measure rung reads
+    // `author_measure` and the vertex rung `author_markup`, and the difference is
+    // the whole point: those two author a dimension and a comment, which sit
+    // *over* the page. This rewrites the page's own show operators. So a mode
+    // that offers Markup and not content editing — which is the row
+    // `MODES_AND_PANELS.md`'s gesture table calls Review — places dimensions and
+    // comments and still may not put a caret in a word.
+    //
+    // ★ It sits **above** the text-selection question below rather than beside
+    // it, and that ordering is load-bearing in the direction that is easy to get
+    // backwards. `textsel::takes_the_press` is false for this tool by
+    // construction (it asks `is_text`, which is `matches!(tool, Text)`), so the
+    // two cannot contend today — but `caps.edit_content` is *true* in the only
+    // mode this tool arms in, so if that predicate ever grew a disjunct for the
+    // caret tool the content branch below would answer first and a press would
+    // marquee objects under an I-beam. Returning early is what makes that
+    // unreachable rather than merely unlikely.
+    if tool.text_edit_kind().is_some() {
+        return PressMeaning {
+            drag: None,
+            click: caps.edit_content,
+        };
+    }
     // ★ …and a **vertex** markup tool does exactly the same thing, for exactly
     // the same reason — which is why it is written here, immediately beside it,
     // rather than as a special case inside the markup rung below.
@@ -486,6 +519,52 @@ pub fn press_kind(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::canvas::textedit::TextEditKind;
+
+    /// ★★ **The caret tool takes the click, leaves the drag, and needs
+    /// `edit_content`** — its whole rung, over every capability combination.
+    ///
+    /// Three claims in one loop, and each fails against a different plausible
+    /// wrong implementation:
+    ///
+    /// * `drag.is_none()` fails a build that gave the tool a `DragKind` "for
+    ///   symmetry" — which would put a rubber band on screen promising a
+    ///   gesture nothing implements;
+    /// * `click == edit_content` fails a build that copied the measure rung and
+    ///   left `author_measure` in it — which would arm the caret in Review and
+    ///   refuse it in Edit, i.e. exactly backwards;
+    /// * the zoom assertion fails a build in which the rung was placed *below*
+    ///   the armed-zoom branch, where a press would rubber-band a zoom region
+    ///   under an I-beam.
+    ///
+    /// Over the whole capability lattice rather than the three shipped modes,
+    /// for the reason this module's other tests are: a mode is a manifest entry
+    /// and can be customized, and the rule is about the flags.
+    #[test]
+    fn the_caret_tool_clicks_and_never_drags_and_needs_edit_content() {
+        for edit_content in [false, true] {
+            for author_markup in [false, true] {
+                for author_measure in [false, true] {
+                    let mut caps = Capabilities::NONE;
+                    caps.edit_content = edit_content;
+                    caps.author_markup = author_markup;
+                    caps.author_measure = author_measure;
+                    for kind in [TextEditKind::Edit, TextEditKind::Add] {
+                        let m = press_kind(CanvasTool::TextEdit(kind), None, false, caps);
+                        assert!(m.drag.is_none(), "a caret is placed, not dragged");
+                        assert_eq!(
+                            m.click, edit_content,
+                            "the caret needs `edit_content` and nothing else"
+                        );
+                    }
+                    let zoomed =
+                        press_kind(CanvasTool::TextEdit(TextEditKind::Edit), None, true, caps);
+                    assert!(zoomed.drag.is_none());
+                }
+            }
+        }
+    }
 
     // -----------------------------------------------------------------
     // What a press means

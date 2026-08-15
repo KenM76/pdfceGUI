@@ -24,14 +24,15 @@ them.
 | **Latest build** | `D:\builds\pdfcegui-20260813-2248-b943ea1-a748414\` |
 | **Requests owed by pdfce** | **none.** Four filed and answered on 2026-08-14 — revision clouds, markup note text, markup opacity, tab-order authoring. Three are **accepted and scheduled, none started**; they block *items within* Phase 6, not Phase 6 itself. From the fourth, **`widget_rects(page_index)` shipped immediately** (engine `e8e9881`) and canvas form filling uses it. Tab-order *writing* stays blocked on their F4 — see §8. |
 
-> **★ The table above is from 2026-08-13.** A large 2026-08-14 session landed
-> the Read-mode gate and Phase 7. Measured at the end of it:
-> **1,715 tests passing, 0 failing · 10 of 10 gates · 101 commands
-> registered · 31 groups · ~128,000 source lines.** `FEATURES.md`'s own
-> header carries the same figures. **The tree is not clean** — the whole of
-> that session is uncommitted. Re-measure rather than quoting either table
-> if any time has passed; the numbers above are the ones a test pins, and
-> prose drifting from them is a defect this project has now had four times.
+> **★ The table above is from 2026-08-13 and is superseded twice over.**
+> A 2026-08-14 session landed the Read-mode gate and Phase 7; a
+> 2026-08-15 session landed Phase 5's one-run text editor. Measured at
+> the end of the latter: **1,744 tests passing, 0 failing · 10 of 10
+> gates, 0 skipped · 101 commands registered · 31 groups · 31
+> scaffolded.** `FEATURES.md`'s own header carries the same figures.
+> Re-measure rather than quoting either table if any time has passed;
+> the numbers above are the ones a test pins, and prose drifting from
+> them is a defect this project has now had four times.
 
 **Everything the operator asked for is shipped.** Phase 3 and Phase 4 are
 complete, along with Print, Forms-fill, Icons, Open/Recent/Close and Find.
@@ -311,7 +312,7 @@ agent with the patch rather than edit around it.
 
 ---
 
-## 5. Registering a command has five obligations
+## 5. Registering a command has six obligations
 
 Every one has a test that fails loudly. This is the single most common way
 to break the build.
@@ -339,13 +340,15 @@ to break the build.
    family. `include_str!` makes a moved dispatcher a compile error, so
    "scanned nothing" cannot pass as "found nothing".
 
-   **The list has already gone down once**, which is the outcome this
+   **The list has already gone down twice**, which is the outcome this
    obligation exists to produce rather than a register that only grows:
    `SCAFFOLDED` 38 → 33 and its `★ P3` subset 11 → 8, by wiring three
    controls that had five surfaces and no behaviour. A fourth,
    `view.show_points`, was investigated and **stayed** — with its reason
    upgraded from *"no recorded reason anywhere"* to a cited blocker, which
-   is the other honest outcome and the more common one.
+   is the other honest outcome and the more common one. Then **33 → 31**
+   on 2026-08-15 when `edit.text` and `edit.add_text` got real dispatch
+   arms; `★ P3` unchanged at 8.
 
 Adding a **panel** has its own set — see `panels/mod.rs`, whose header
 explains that three panels once shipped with a body, a rail entry and *no
@@ -411,7 +414,7 @@ the results in `--note`.
 
 | | |
 |---|---|
-| **Phase 5 — text editing** | The defect that started the project. Three distinct problems, not one: the edit unit is a single show-text operator rather than a visual box; nothing re-lays-out while you type and aligned/rotated text is moved wrongly on commit; reflow is blocked behind three gates. `DEFECTS.md` D4 has the full chain. **Ask before starting.** |
+| **Phase 5 — text editing** | **Started 2026-08-15 on the operator's explicit instruction, and partly landed.** Of D4's three problems: **D4b's two wrong cases are FIXED** — aligned tails are pinned and rotated text is no longer shifted along the wrong axis (`canvas::textedit::disposition`), proved by a `ui-verify` check that re-opens the saved copy in a second process and asserts the untouched line's `Tm` survived, with the old `EditOptions::default()` build planted twice to confirm the check fails against it. **Not done:** per-keystroke re-layout — measured at 102.77 ms on a SolidWorks sheet and blocked on the engine, which keeps `plan_edit` `pub(crate)` so there is no dry run; **D4a's cross-run edit**, which needs a multi-run request core does not have and now refuses in a sentence rather than by a dead keyboard; **D4c's three gates**, untouched. `edit.add_text` is wired and unit-tested but not driven, and has no font/size/colour surface. `DEFECTS.md` D4 carries the measurement table and the honest single-line limit. |
 | **Phase 6 — markup** | **In progress, and larger than this row used to imply.** The new shell has *no markup placement at all*: all eight `markup.*` commands draw and fall through to `command-unimplemented`, `CanvasTool` has two variants, and there is no `canvas/markup.rs`. So it is *build the tool substrate, then ten kinds*, plus the Comments panel (which does not exist here either). **Three items needed engine changes; all three were filed and answered on 2026-08-14, accepted and scheduled, none started.** Revision clouds land as `MarkupSpec::Cloud` plus `Square { border_effect }` — and the *rectangular* cloud ships first, being the gesture people actually reach for. Note text lands as `/Contents` + `/T` + `/M` together, `/M` engine-stamped and `/T` optional with **no invented placeholder**. Opacity is `/CA` **alone** — writing `/ca` into the appearance stream would encode a pdfce render bug into the file format; see **`DEFECTS.md` D9**, which is the more urgent half of that exchange and is about *viewing*, not authoring. Polyline, polygon, ink, underline, strikeout, squiggly, width and fill are engine-ready and blocked on nothing. |
 | **Phase 7 — measure** | **Three tools place dimensions**: Linear (three clicks — what, to what, where), Two-line, and **Radius / diameter**. `measure_tool.rs` came across whole into `canvas/measure/{pick,scale,state}.rs`, the 12.M1 snap primitives into `canvas/snap.rs`, 45 tests carried, **no engine API had moved**. ★ **This row used to name three remaining decisions and two of them are taken.** *Radius/diameter had no natural end to its gesture and the only place to say "done" was an accept box decision 024 retired* — the operator's answer on 2026-08-14 was **two** endings that are not boxes, a double-click and `measure.finish`, through one commit path in `canvas/measure/circular.rs`; the Finish control is gated on a new `measure.finishable` condition so it is live only when there is a non-degenerate fit to commit. *The snap query is unwired* — it is wired. What is left is **Set scale**, which still has no dialog to ask the length in. Area and Count still need engine changes; Angular is core-complete with no tool. See `SALVAGE.md`'s Phase 7 entry for the three deliberate departures from the source and the axis collision it surfaced. |
 | **Salvage remaining** | Redaction (its true-removal proof exists **only** in the old shell), and the settings dialog. |
@@ -654,6 +657,27 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
   `delete_*`.
 - **~99 % of render cost is resolution-independent** on dense CAD. A small
   thumbnail is not a cheap thumbnail. A 1×1 *point* region costs 691 ms.
+- **★ An `Options` flag that defaults off will silently neuter a correct
+  decision function, and every unit test will stay green.** The text-edit
+  disposition chooser is pure — it reads a text matrix, a CTM and an
+  alignment, and picks `Pin` or `Reflow`. It was correct, and it was
+  about to be permanently dead: `ExtractOptions::capture_provenance`
+  **defaults to `false`**, and the shell's shared `page_text()` cache is
+  built with `default()`. Fed from that cache the chooser would have
+  received a `None` pin and identity matrices — so the rotation guard
+  could never fire, on any document, while its own tests passed against
+  hand-built matrices. `plan` now runs its own provenance-capturing
+  extraction once per commit.
+
+  The general shape: **a pure function's tests prove the function, not
+  its inputs.** When the input arrives through a cache someone else
+  configured, assert on a real document that the discriminating field is
+  actually populated — or the feature is decorative.
+- **Two files are now at the R2 ceiling**: `canvas/tool.rs` (1,487) and
+  `shell/commands/reach.rs` (1,498), against a limit of 1,500. The next
+  edit to either must split it first. `reach.rs` in particular grows
+  with every scaffolded command that gets an argued reason, so it will
+  hit the wall on ordinary work, not on a rewrite.
 
 ---
 

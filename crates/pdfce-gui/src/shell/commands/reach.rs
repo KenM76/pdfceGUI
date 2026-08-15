@@ -166,7 +166,7 @@
 //! (`RIBBON_IA.md` P3: "An unavailable capability renders nothing, not a
 //! disabled stub").
 //!
-//! **It is now 33 and 8.** Three of the eleven were wired the next day rather
+//! **It is now 31 and 8.** Three of the eleven were wired the next day rather
 //! than argued for: `view.read_mode` and `view.fullscreen` (`app::window` — and
 //! `view.read_mode` was first established *not* to be a duplicate of
 //! `mode.read`, which would have made deletion the honest answer instead), and
@@ -196,7 +196,26 @@
 //! Whether a `★ P3` entry loses its control is a **taxonomy decision and the
 //! operator's**; nothing here removes one. What this module can do is make the
 //! number impossible to lose track of, and make it go *down* rather than
-//! sideways — which is what it has now done once.
+//! sideways — which is what it has now done three times.
+//!
+//! ★ **33 → 31 on 2026-08-15**, and this pair is what the register looks like
+//! when a *deferral* rather than a blocker expires. `edit.text` and
+//! `edit.add_text` were registered, drawn on Edit ▸ Content, bound to `Ctrl+E`
+//! and `Ctrl+Shift+E`, and inert — and their entries said why in one word:
+//! **deferred**, by the operator, to Phase 5. Phase 5 is the defect that began
+//! the project (`DEFECTS.md` D4), and it landed: `canvas::textedit` arms a caret
+//! tool, collects a draft, and commits it through `EditSession::edit_text` and
+//! `EditSession::add_text` — with, in `canvas::textedit::disposition`, the
+//! follower disposition D4b records the old shell as never having chosen. Both
+//! entries were deleted rather than reworded. Neither carried a `★ P3` mark, so
+//! that subset is unchanged at 8.
+//!
+//! The instructive part is the contrast with the pair above. `edit.redact`'s
+//! reason was a *blocker* — a proof that lived elsewhere — and blockers expire
+//! when someone builds the missing thing. These two's reason was a *decision*,
+//! and a decision expires when the person who made it changes it. Both are
+//! legitimate entries; only the first kind can be worked on by whoever is
+//! reading this list.
 //!
 //! ★ **And it found the mirror defect, which nobody was looking for.** Four
 //! literal arms — `view.zoom_in`, `view.zoom_out`, `view.next_page` and
@@ -478,21 +497,6 @@ pub(super) const SCAFFOLDED: &[(&str, &str)] = &[
     // ===================================================================
     // EDIT
     // ===================================================================
-    (
-        "edit.text",
-        "Phase 5, deferred by the operator, and the deferral is checked rather than assumed: \
-         `app::modes::capability` records that the chord/mode gate it sits behind was \
-         “latent rather than live”, because “every chord-bound Edit command reaches \
-         `command-unimplemented` at the time of writing. Phase 5 is what makes it live.” \
-         `FEATURES.md`'s backlog row is “Text editing — the whole tool”.",
-    ),
-    (
-        "edit.add_text",
-        "The other half of the same deferred phase — placing new text rather than editing \
-         what is there. `app::modes::capability` lists both among the chord-bound Edit \
-         commands that reach `command-unimplemented`, and `FEATURES.md` carries one backlog \
-         row for the tool rather than two, because the two verbs share it.",
-    ),
     (
         "edit.objects",
         "★ P3 — NO RECORDED REASON ANYWHERE. It appears in a test list and in an argument \
@@ -1466,7 +1470,7 @@ pub const FX_CONST: &str = "fx.constant";
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
         assert_eq!(
-            total, 33,
+            total, 31,
             "the allow-list holds {total} entries; this module's header quotes the \
              figure, so move both together"
         );
