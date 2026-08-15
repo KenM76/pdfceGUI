@@ -2348,6 +2348,7 @@ dependencies = [
  "pdfce-print",
  "pdfce-render",
  "rfd",
+ "syn 2.0.119",
 ]
 
 [[package]]

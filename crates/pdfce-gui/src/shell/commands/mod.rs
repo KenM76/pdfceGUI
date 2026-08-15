@@ -124,6 +124,25 @@
 pub mod catalog;
 pub mod mapping;
 
+/// ★ **The sixth obligation, and the only one the five above cannot express:
+/// a registered command must be REACHABLE by some arm of `app::dispatch`.**
+///
+/// `HANDOFF.md` §5's five obligations are all about the *registration* being
+/// consistent — a count, a group count, a `PLANNED` removal, a RON
+/// regeneration, a `KNOWN` condition name. Every one of them was satisfied by
+/// `file.save_copy` on the day it was drawn on the quick-access toolbar, bound
+/// to `Ctrl+S`, printed "(Ctrl+S)" in its own tooltip, and **did nothing**,
+/// because no dispatch arm existed. [`reach`] is the assertion that closes
+/// that: every id in this registry is routed by a literal arm, claimed by a
+/// guard arm, or listed in [`reach::SCAFFOLDED`] with a written reason.
+///
+/// `#[cfg(test)]` because the reader parses `app/dispatch.rs` with `syn`, a
+/// **dev**-dependency — see this crate's `Cargo.toml` for why a real parser and
+/// not a grep, and [`reach`]'s own header for the two mechanisms that lost.
+/// Nothing here is compiled into `pdfce-gui.exe`.
+#[cfg(test)]
+mod reach;
+
 /// ★ Re-exported flat, so every caller still writes
 /// `shell::commands::measure_command` and nothing outside `shell/` learns that
 /// the module was split.

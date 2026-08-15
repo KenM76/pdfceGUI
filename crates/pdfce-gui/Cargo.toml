@@ -243,3 +243,45 @@ pdfce-print = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4" }
 # posture, and a dev-dependency that pulled a C toolchain into `cargo test`
 # would make the suite unrunnable on a machine that can build the program.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# ---------------------------------------------------------------------------
+# syn — a REAL Rust parser, for exactly one test module:
+# `shell::commands::reach`, which proves that every registered command is
+# reachable by some arm of `app::dispatch`'s `match`.
+#
+# ★ WHY A PARSER RATHER THAN A GREP, which is the obvious cheaper answer and
+# is the one this project would normally take (`tools/gates/*.sh` are greps).
+#
+# The thing being read is a `match`, and a `match` is not a regular language.
+# A grep for `"some.id" =>` cannot tell an arm pattern from a string in a
+# comment, from the left-hand side of a NESTED match inside an arm body, or
+# from a doc comment quoting an id that used to have an arm — and every one of
+# those mistakes is a FALSE PASS, which is the only kind of gate failure that
+# matters here. `check-ui-strings.sh`'s own header records the same class of
+# error from the other side: its first regex "happily starts at one literal
+# CLOSING quote and ends at the next literal OPENING quote", and three of the
+# four hits left after the real exclusions were the detector misreading Rust
+# rather than the code violating the rule.
+#
+# So the arms are read from the abstract syntax tree, where an arm pattern is
+# an arm pattern and a comment does not exist. `reach.rs`'s header carries the
+# full argument, including why the GUARD arms are not parsed at all but
+# CALLED.
+#
+# ★ WHY THIS IS NOT AN OPERATOR DECISION. The workspace root's rule is that
+# "a dependency this workspace adds that is NOT already in pdfce's lockfile is
+# an operator decision". `syn 2.0.119` is in `D:\Dev\pdfce\Cargo.lock` with the
+# identical checksum (872831b6…) and is already in this workspace's own lock as
+# a transitive build dependency of every proc macro in the graph, so this
+# adopts a crate the project already builds rather than adding one — exactly
+# the standard `rfd` and `flate2` above are held to.
+#
+# It is a **dev**-dependency, so it is not in `pdfce-gui.exe`, `about.toml`
+# sets `ignore-dev-dependencies = true`, and `THIRD_PARTY_LICENSES.md` — which
+# `tools/gates/check-shipped-assets.py` checks — is generated from the SHIPPING
+# graph. Nothing about the notice, the packaging or the binary changes.
+#
+# `features = ["full"]` on top of the defaults: `parse_file` needs `parsing`
+# (default) and item/expression syntax needs `full` (not default). Nothing else
+# is enabled beyond what the proc macros in the graph already turn on.
+syn = { version = "2.0.119", features = ["full"] }

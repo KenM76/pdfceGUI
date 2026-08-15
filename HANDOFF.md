@@ -26,7 +26,7 @@ them.
 
 > **★ The table above is from 2026-08-13.** A large 2026-08-14 session landed
 > the Read-mode gate and Phase 7. Measured at the end of it:
-> **1,636 tests passing, 0 failing · 10 of 10 gates · 101 commands
+> **1,650 tests passing, 0 failing · 10 of 10 gates · 101 commands
 > registered · 31 groups · ~128,000 source lines.** `FEATURES.md`'s own
 > header carries the same figures. **The tree is not clean** — the whole of
 > that session is uncommitted. Re-measure rather than quoting either table
@@ -315,6 +315,22 @@ to break the build.
 4. Regenerate the RON:
    `cargo test -p pdfce-gui --lib rewrite_built_in_ron -- --ignored`
 5. A `KNOWN` entry for any new `enabled_when` condition name.
+6. **★ A dispatch arm — or an argued entry in
+   `shell::commands::reach::SCAFFOLDED`.** Added 2026-08-15, and it is the
+   only one of the six that asks whether the command *does anything*.
+   `file.save_copy` passed the other five for the whole life of the project
+   while doing nothing: registered, drawn on the quick access toolbar, bound
+   to `Ctrl+S`, printed in its own tooltip and in the shortcuts reference.
+   `edit.undo`, `edit.redo` and every page verb shipped in v0.1.0 the same
+   way.
+
+   The check parses `app/dispatch.rs` with `syn` — a `match` is not a regular
+   language, so it is not grepped — and it does not parse the guard arms at
+   all: it extracts *which function* each guards on and then **calls the real
+   one** against the real registry. A set-equality test welds the two halves,
+   so a new guard fails by name and a deleted one stops vouching for its
+   family. `include_str!` makes a moved dispatcher a compile error, so
+   "scanned nothing" cannot pass as "found nothing".
 
 Adding a **panel** has its own set — see `panels/mod.rs`, whose header
 explains that three panels once shipped with a body, a rail entry and *no
