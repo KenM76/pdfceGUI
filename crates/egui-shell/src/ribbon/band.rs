@@ -45,6 +45,84 @@
 //!    `every_rendered_group_emits_a_caption` asserts it in release too,
 //!    against a manifest that deliberately includes a caption-less group.
 //!
+//! # ★ Two rows, and a height that does not depend on the tab
+//!
+//! A band is **[`plan::GROUP_ROWS`] control rows tall on every tab**, and a
+//! group whose controls are wider than [`plan::GROUP_WRAP_WIDTH`] wraps onto
+//! the second row rather than running on. Both halves are
+//! `mockups/ribbon.html`'s:
+//!
+//! ```css
+//! .band  { display:flex; align-items:stretch; padding:8px 10px 4px; min-height:86px }
+//! .group { display:flex; flex-direction:column; justify-content:space-between;
+//!          padding:0 13px }
+//! .gcmds { display:flex; flex-wrap:wrap; gap:5px; align-items:flex-start; max-width:440px }
+//! ```
+//!
+//! Three properties, and this module now has all three. `.gcmds` **wraps**
+//! ([`plan::wrap_group`] decides where). The band has a **fixed height**
+//! ([`band_height`]) rather than being as tall as its content. The group is a
+//! **column with the caption pinned to the bottom** — `justify-content:
+//! space-between` — which is what [`captioned_group`]'s `rows_height`
+//! argument buys: every caption in the band sits on one baseline, whether
+//! the group above it used one row or two.
+//!
+//! # ★ The two paddings, and the one that was free
+//!
+//! Both are in the CSS above and neither was drawn until 2026-08-14. They are
+//! not the same kind of change and it is worth being explicit about which is
+//! which, because one of them cost nothing and the other one moves the
+//! canvas.
+//!
+//! **`.group { padding: 0 13px }` — free.** [`plan::GROUP_PADDING`] has
+//! budgeted 6 pt per side in [`plan::group_width`] since the day the planner
+//! was written, and its own doc comment recorded that the renderer never drew
+//! it. The band was therefore reserving the space and then spending it as an
+//! accidental margin *outside* the group boundary: measured in the running
+//! application at 1,100 pt, the Markup tab's Text-markup group box began at
+//! x = 322.5 and its first control began at 322.5 as well. Controls sat flush
+//! against the group edge and against the rule dividing them from the next
+//! group. [`captioned_group`] now insets its body by that same constant, so
+//! **no group's planned width changed and no group moved into the overflow
+//! menu** — the arithmetic was always right and only the ink was wrong. See
+//! [`plan::GROUP_PADDING`] for why 6 pt is the mockup's 13 px rather than a
+//! disagreement with it: the mockup's divider is a zero-width `border-right`
+//! and this build's is a real `ui.separator()`, so 6 + 14 + 6 lands on the
+//! mockup's 26 px from the other direction.
+//!
+//! **`.band { padding: … 4px }` — not free, and R128 governs it.**
+//! [`BAND_PADDING_BOTTOM`] is a real four points of extra ribbon, and the
+//! ribbon sits directly above the canvas, so it is added to [`band_height`]'s
+//! **derivation** rather than being allowed to fall out of what a group drew.
+//! The height stays a function of the theme, the font and two constants; it
+//! is still identical on every tab, still identical when every group is in
+//! the overflow menu, and `the_band_is_the_same_height_on_every_tab` and
+//! `the_band_keeps_its_height_at_widths_where_every_group_overflows` still
+//! say so.
+//!
+//! ## Why the height is fixed, which is the part that is not taste
+//!
+//! `PROJECT_PLAN.md`'s **R128**. A content-driven height adjacent to a
+//! fit-to-viewport zoom is a feedback loop — measured at 230 % → 224 % →
+//! 215 % zoom drift — and the ribbon sits in the top panel directly above
+//! the canvas. A band that were one row tall on File and two on Markup
+//! would therefore change the canvas's rectangle on **every tab click**,
+//! and a fit-to-page zoom would chase it.
+//!
+//! So the height is computed from the theme and the font and **nothing
+//! else**: not from how many rows this tab's widest group happened to need,
+//! not from how many groups fitted, not from whether the overflow
+//! affordance is showing. [`render_band`] reserves it before it draws, and
+//! reserves it even when the plan puts *every* group in the menu — which is
+//! the case a height derived from drawn content would silently get wrong.
+//! `the_band_is_the_same_height_on_every_tab` asserts it, and asserts that
+//! the measurement happened rather than that it was vacuously absent.
+//!
+//! Note what is *not* claimed: a [`crate::theme::Preset`] change does move
+//! the band, through `control_height`. That is a deliberate, global, one-off
+//! event and not something a tab click can cause, which is the distinction
+//! R128 is actually about.
+//!
 //! # Why the caption is *beneath* the controls, centred
 //!
 //! Also carried from the salvage source, whose comment records what the
@@ -128,7 +206,7 @@ use crate::manifest::{Group, Item};
 
 use super::a11y;
 use super::ctx::{Ctx, CustomItem, IconRequest};
-use super::plan::{self, BandPlan, CUSTOM_ITEM_WIDTH, ItemWidths};
+use super::plan::{self, BandPlan, CUSTOM_ITEM_WIDTH, GroupRows, ItemWidths};
 use super::report;
 
 /// Vertical gap between a group's control row and its caption.
@@ -137,6 +215,40 @@ use super::report;
 /// it rather than as a line of its own. The salvage source used the same
 /// constant for the same reason.
 const CAPTION_GAP: f32 = 2.0;
+
+/// Clear space between the band's captions and whatever the application puts
+/// underneath the ribbon.
+///
+/// `mockups/ribbon.html`'s `.band { padding: 8px 10px 4px }` — the third
+/// figure. Measured in the running application before it existed: the group
+/// captions ended at y = 103 and the dock's tab bar began at y = 105.3, so a
+/// 10 pt caption drawn `weak()` and `small()` was separated from the panel
+/// header below it by rather less than a line of its own leading. The caption
+/// is the one piece of text that says what a block of controls is *for* (see
+/// this module's header on why it is beneath the controls at all), and a
+/// caption sitting on the seam reads as a label for the thing below it.
+///
+/// # Why this is added to [`band_height`] and not to the group loop
+///
+/// `PROJECT_PLAN.md`'s **R128**: the band's height must be a function of the
+/// theme and the font and of nothing a tab can vary. Padding drawn as "space
+/// after the last group" would be exactly such a variation — a tab whose
+/// groups all went into the overflow menu draws no group and would get no
+/// padding, so the band would be 4 pt shorter on that tab than on the one
+/// beside it and the canvas below would move on a tab click. Folding it into
+/// the derivation instead keeps one number, reserved before anything is
+/// drawn, spent identically whether the band holds five groups or none.
+///
+/// # Why the mockup's top and side padding are not here
+///
+/// Only the bottom edge was measured as wrong. The band's top is already
+/// separated from the tab strip by [`super::tabs::strip_underline`] and the
+/// enclosing layout's own spacing, and the band's horizontal padding is a
+/// decision about the *band's* left edge that would shift every group in it —
+/// see [`plan::GROUP_PADDING`]'s closing note. Adding either one would be
+/// visual churn beyond the defect, and churn is harder to review than the
+/// change it is mixed into.
+pub(super) const BAND_PADDING_BOTTOM: f32 = 4.0;
 
 /// The condition-name prefix that marks a command as currently *on*.
 ///
@@ -221,6 +333,96 @@ pub(crate) fn caption_text(group: &Group) -> &str {
     }
 }
 
+/// The vertical shape every group in a band is drawn to.
+///
+/// Two numbers rather than one, because they pin two different things and
+/// a group that satisfied only the first would still make the band ragged:
+///
+/// - [`Self::rows`] pins the **captions** to one baseline — the mockup's
+///   `justify-content: space-between`. A one-row group is padded out to the
+///   height two rows would have taken, so its caption lands where its
+///   two-row neighbour's does.
+/// - [`Self::total`] pins the **band** to one height — R128. It closes the
+///   gap between what the reservation promised and what the caption
+///   actually measured, so that a band showing five groups and a band
+///   showing none (everything in the overflow menu) come out identical
+///   rather than identical-to-within-a-caption's-rounding.
+///
+/// [`Self::NATURAL`] — both zero — means "as tall as your content", which
+/// is what the overflow menu wants: the band's height is a fact about the
+/// band, and padding a popup entry out to it would put a hole under every
+/// one-row group in the menu.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct GroupBox {
+    /// Height the control rows are padded out to, before the caption.
+    rows: f32,
+    /// Height the whole group — rows, gap and caption — is padded out to.
+    total: f32,
+}
+
+impl GroupBox {
+    /// Pad to nothing: the group is as tall as what it drew.
+    const NATURAL: Self = Self {
+        rows: 0.0,
+        total: 0.0,
+    };
+}
+
+/// How far a group's **cursor** has advanced once [`plan::GROUP_ROWS`] rows
+/// have been laid out — which is the number a shorter group is padded out
+/// to, and what pins every caption in the band to one baseline.
+///
+/// # ★ `GROUP_ROWS × (control_height + item_spacing)`, and the trailing
+/// ★ term is the one that matters
+///
+/// The obvious spelling is `rows × height + (rows − 1) × spacing`: two rows
+/// with one gap between them. That is the right answer for the *ink* and
+/// the wrong one for the **cursor**, because `egui` advances the cursor past
+/// every laid-out rect by `item_spacing` — after the last row as much as
+/// after the first. So a two-row group's cursor sits one gap beyond that
+/// figure, its padding computes as zero, and the group ends up exactly
+/// `item_spacing` taller than its one-row neighbour, whose padding *was*
+/// applied and did land on the figure.
+///
+/// **That defect shipped into a build and no test in this crate could see
+/// it.** `super::width_tests`' context installs a font but does not apply a
+/// [`crate::theme::Theme`], so `egui`'s default `interact_size.y` (18 pt) is
+/// well under the theme's `control_height` (24 pt) and every row had 6 pt of
+/// slack for the stray gap to hide in. In the running application the two
+/// are equal by construction — `Theme::apply` sets
+/// `spacing.interact_size.y = control_height` — there is no slack, and the
+/// band's own trace showed Shapes at 68 pt beside Text markup at 64.
+/// `super::height_tests::context` now applies the theme for exactly this
+/// reason: `HANDOFF.md` §10's *"a fixture can flatter the thing it
+/// measures"*, arriving through spacing rather than through a curve.
+fn rows_height(ui: &egui::Ui, ctx: &Ctx<'_>) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // single digits
+    let n = plan::GROUP_ROWS.max(1) as f32;
+    (ctx.theme.metrics.control_height + ui.spacing().item_spacing.y) * n
+}
+
+/// **The band's height, on every tab, whatever it contains.**
+///
+/// Four terms, in the order they are drawn: the control rows, the gap, one
+/// line of caption, and [`BAND_PADDING_BOTTOM`]. Derived from the theme, the
+/// font and two constants, and from nothing the manifest can vary — see the
+/// module header on R128 for why that independence is the whole point.
+///
+/// The bottom padding belongs **in this derivation** rather than in the group
+/// loop for the reason [`BAND_PADDING_BOTTOM`] gives at length: space emitted
+/// after the last group would be absent on a tab that drew no group, which is
+/// a reachable state (every group in the overflow menu) and would make the
+/// height content-derived through the back door.
+///
+/// `pub(crate)` so a test can state the claim in the same terms the
+/// renderer does rather than by re-deriving it.
+pub(crate) fn band_height(ui: &egui::Ui, ctx: &Ctx<'_>) -> f32 {
+    rows_height(ui, ctx)
+        + CAPTION_GAP
+        + ui.text_style_height(&TextStyle::Small)
+        + BAND_PADDING_BOTTOM
+}
+
 /// The rectangle a ribbon row is entitled to lay out in.
 ///
 /// Shared by the band and by [`super::strip`], because both rows have the
@@ -244,9 +446,10 @@ pub(crate) fn caption_text(group: &Group) -> &str {
 ///    ultimately about.
 ///
 /// Only the horizontal extent is negotiated. The vertical extent is the
-/// caller's — a band is as tall as its content, and clamping its height to
-/// the clip rect would make a partially-scrolled ribbon lay its captions
-/// out differently from an unscrolled one.
+/// caller's — [`render_band`] replaces the bottom edge with
+/// `top + `[`band_height`] immediately, and clamping the height to the clip
+/// rect instead would make a partially-scrolled ribbon lay its captions out
+/// differently from an unscrolled one.
 ///
 /// A degenerate result (right ≤ left) is returned as a zero-width rect at
 /// the left edge rather than as an inverted one: [`plan::plan_band`] reads
@@ -281,19 +484,39 @@ pub(crate) fn render_band(
     entitled: Rect,
 ) -> BandOutcome {
     let mut outcome = BandOutcome::default();
-    if groups.is_empty() {
-        return outcome;
-    }
 
     let gutter = ctx.theme.metrics.gutter;
     let separator = separator_width(ui);
-    let widths: Vec<f32> = groups.iter().map(|g| measure_group(ui, ctx, g)).collect();
+    let measured: Vec<(GroupRows, f32)> =
+        groups.iter().map(|g| measure_group(ui, ctx, g)).collect();
+    let widths: Vec<f32> = measured.iter().map(|(_, w)| *w).collect();
     let reserve = plan::overflow_width(groups.len(), button_padding(ui), |s| {
         text_width(ui, s, &TextStyle::Button)
     });
 
     ui.horizontal(|ui| {
-        let full = entitled_bounds(ui, entitled);
+        // ★ R128. The band's height is reserved here, from the theme, before
+        // anything is drawn and regardless of what the plan is about to
+        // decide — so a tab whose groups all went into the overflow menu is
+        // exactly as tall as one whose groups all fitted. A height taken
+        // from what was drawn would differ between those two, and the
+        // difference would move the canvas underneath. See the module
+        // header.
+        let height = band_height(ui, ctx);
+        let box_ = GroupBox {
+            rows: rows_height(ui, ctx),
+            total: height,
+        };
+        ui.set_min_height(height);
+
+        // The vertical extent is the band's own, not whatever the enclosing
+        // `Ui` had left over: `entitled_bounds` negotiates width alone and
+        // hands back the caller's bottom edge.
+        let offered = entitled_bounds(ui, entitled);
+        let full = Rect::from_min_max(
+            offered.min,
+            pos2(offered.right(), offered.top() + height.max(0.0)),
+        );
         let band_plan = plan::plan_band(full.width(), &widths, separator, reserve);
 
         // ★ The reservation, taken from the right edge BEFORE any group
@@ -345,7 +568,16 @@ pub(crate) fn render_band(
                     if index > 0 {
                         ui.separator();
                     }
-                    captioned_group(ui, ctx, tab_id, group, gutter, &mut outcome);
+                    captioned_group(
+                        ui,
+                        ctx,
+                        tab_id,
+                        group,
+                        gutter,
+                        &measured[index].0,
+                        box_,
+                        &mut outcome,
+                    );
                 }
             },
         );
@@ -361,6 +593,7 @@ pub(crate) fn render_band(
                 ctx,
                 tab_id,
                 groups,
+                &measured,
                 &band_plan,
                 gutter,
                 &mut outcome,
@@ -383,62 +616,178 @@ pub(crate) fn render_band(
 
 /// **The only function in this crate that draws a ribbon group.**
 ///
-/// Lays one group out as Office lays one out: its controls in a row, its
-/// **caption beneath them, centred on the row**. The body is a closure
-/// rather than a predicate for the reason the salvage source records: to
-/// put the caption *under* the controls, the controls must be emitted
-/// inside a vertical container that is still open when the caption is
-/// written, and a predicate returning `bool` has already returned before
-/// the body runs.
+/// Lays one group out as Office lays one out: its controls in up to
+/// [`plan::GROUP_ROWS`] rows, its **caption beneath them, centred on the
+/// widest row**. The body is a closure rather than a predicate for the
+/// reason the salvage source records: to put the caption *under* the
+/// controls, the controls must be emitted inside a vertical container that
+/// is still open when the caption is written, and a predicate returning
+/// `bool` has already returned before the body runs.
 ///
 /// See the module header for why this being the only such function is the
 /// point.
+///
+/// # `rows`
+///
+/// The split [`plan::wrap_group`] decided, handed in rather than recomputed
+/// — see [`GroupRows`] for why the plan and the renderer must not each own
+/// a copy of that arithmetic.
+///
+/// # `box_`
+///
+/// The heights this group is padded out to — see [`GroupBox`], and
+/// [`GroupBox::NATURAL`] for the overflow menu, where neither applies.
+///
+/// The padding is measured against the `Ui`'s own **cursor** rather than
+/// predicted, so a control that turned out taller than
+/// [`crate::theme::Metrics::control_height`] shortens the gap instead of
+/// pushing the caption out of the band. The cursor, specifically, and not
+/// `min_rect`: `egui` advances the cursor past a laid-out rect by
+/// `item_spacing`, so the two differ by exactly one gap after every row and
+/// padding against the wrong one leaves each group a gap taller than the
+/// height the band reserved for it. That is a 3 pt discrepancy that shows
+/// up only when a tab has *no* group in the band to compare against — which
+/// is to say, only in the R128 case.
+///
+/// # The horizontal inset
+///
+/// The mockup's `.group { padding: 0 13px }`, drawn at
+/// [`plan::GROUP_PADDING`] — the width [`plan::group_width`] has budgeted for
+/// it all along, so this inset is paid for out of a reservation that already
+/// existed and costs the band nothing. See the module header.
+///
+/// The reported rectangle **includes** the inset, deliberately: the group box
+/// is what the operator perceives as the group, and a report that named only
+/// the content would make "is there padding" unanswerable from outside the
+/// process, which is the question that produced this change.
+#[allow(clippy::too_many_arguments)]
 fn captioned_group(
     ui: &mut egui::Ui,
     ctx: &mut Ctx<'_>,
     tab_id: &str,
     group: &Group,
     gutter: f32,
+    rows: &GroupRows,
+    box_: GroupBox,
     outcome: &mut BandOutcome,
 ) {
     outcome.groups_rendered += 1;
 
+    // ★ The group's own horizontal padding — `.group { padding: 0 13px }`.
+    //
+    // `horizontal_top` rather than `horizontal`: the latter is
+    // `left_to_right(Align::Center)` and would centre a group vertically
+    // within the band's reserved height, which is precisely the pinning the
+    // `box_` arithmetic below exists to do by hand. `horizontal_top` is the
+    // same layout with `Align::Min`, i.e. exactly what a bare `ui.vertical`
+    // in the band's own `left_to_right(Align::Min)` did before this wrapper
+    // existed.
+    //
+    // `item_spacing.x = 0` because `egui` advances the cursor past a
+    // laid-out rect by `item_spacing` and `add_space` adds to that: without
+    // this the trailing pad would be `GROUP_PADDING + item_spacing.x` and
+    // the group would be one gutter wider than the plan budgeted for it.
+    // The leading pad has no such term (nothing has been laid out yet), so
+    // an asymmetric group is exactly what forgetting this line produces.
+    // Setting `.x` alone leaves `item_spacing.y` — which `rows_height`
+    // budgets against — untouched.
     let whole = ui
-        .vertical(|ui| {
-            // The controls row FIRST: its measured width is what the
-            // caption is then centred within, and that width only exists
-            // after the row has been emitted.
-            let row = ui
-                .horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = gutter;
-                    for item in group.items() {
-                        render_item(ui, ctx, tab_id, &group.id, item);
-                    }
-                })
-                .response
-                .rect;
-
-            ui.add_space(CAPTION_GAP);
-
-            let caption = ui
-                .allocate_ui_with_layout(
-                    vec2(row.width(), 0.0),
-                    Layout::top_down(Align::Center),
-                    |ui| ui.label(RichText::new(caption_text(group)).weak().small()),
-                )
-                .inner;
-
-            // Counted here, one line after the label that cannot be
-            // reached without emitting it.
-            outcome.captions_emitted += 1;
-            ctx.reporter
-                .report(caption.rect, || report::group_caption(tab_id, &group.id));
+        .horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.add_space(plan::GROUP_PADDING);
+            group_body(ui, ctx, tab_id, group, gutter, rows, box_, outcome);
+            ui.add_space(plan::GROUP_PADDING);
         })
         .response
         .rect;
 
     ctx.reporter
         .report(whole, || report::group(tab_id, &group.id));
+}
+
+/// The inside of a group: its control rows, then its caption, padded to
+/// [`GroupBox`].
+///
+/// Split out of [`captioned_group`] only so the horizontal inset above reads
+/// as one line rather than as a closure wrapping a closure. **It is not a
+/// second drawing path** — [`captioned_group`] is the only caller and the
+/// only function that can reach it, so the module header's invariant ("every
+/// group goes through one closure, which emits the caption itself") is
+/// unchanged: `outcome.captions_emitted` is still incremented on a line that
+/// cannot be reached without the label having been drawn.
+#[allow(clippy::too_many_arguments)]
+fn group_body(
+    ui: &mut egui::Ui,
+    ctx: &mut Ctx<'_>,
+    tab_id: &str,
+    group: &Group,
+    gutter: f32,
+    rows: &GroupRows,
+    box_: GroupBox,
+    outcome: &mut BandOutcome,
+) {
+    ui.vertical(|ui| {
+        // The controls FIRST: the widest row's width is what the
+        // caption is then centred within, and that width only exists
+        // after the rows have been emitted.
+        let items = group.items();
+        let top = ui.cursor().top();
+        let mut widest = 0.0_f32;
+        let mut at = 0_usize;
+        for &count in &rows.counts {
+            let end = (at + count).min(items.len());
+            let row = ui
+                .horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = gutter;
+                    for item in &items[at..end] {
+                        render_item(ui, ctx, tab_id, &group.id, item);
+                    }
+                })
+                .response
+                .rect;
+            widest = widest.max(row.width());
+            at = end;
+        }
+
+        // ★ The caption is pinned to the bottom of the band's row area,
+        // not to the bottom of whatever this group happened to draw. A
+        // one-row group and a two-row group therefore caption on the
+        // same baseline — `justify-content: space-between`, and the
+        // reason the mockup's band reads as staged rather than ragged.
+        ui.add_space((box_.rows - (ui.cursor().top() - top)).max(0.0));
+        ui.add_space(CAPTION_GAP);
+
+        let caption = ui
+            .allocate_ui_with_layout(vec2(widest, 0.0), Layout::top_down(Align::Center), |ui| {
+                ui.label(RichText::new(caption_text(group)).weak().small())
+            })
+            .inner;
+
+        // Counted here, one line after the label that cannot be
+        // reached without emitting it.
+        outcome.captions_emitted += 1;
+        ctx.reporter
+            .report(caption.rect, || report::group_caption(tab_id, &group.id));
+
+        // ★ And out to the band's own height. `allocate_space` rather
+        // than `add_space`, because only an allocation grows a `Ui`'s
+        // `min_rect` — `add_space` moves the cursor, which is what the
+        // padding above it wanted and is exactly not what this wants.
+        // Zero-width, so it changes nothing horizontally.
+        //
+        // What this closes: `band_height` predicts the caption's height
+        // from `TextStyle::Small`'s row height, and the label allocates
+        // whatever its galley measured. The two agree in every font this
+        // crate has been run against, and if they ever stop agreeing the
+        // band would be a fraction taller with groups in it than
+        // without — R128 by a hair rather than by a row.
+        // `the_band_keeps_its_height_at_widths_where_every_group_overflows`
+        // is the tripwire.
+        let drawn = ui.cursor().top() - top;
+        if box_.total > drawn {
+            ui.allocate_space(vec2(0.0, box_.total - drawn));
+        }
+    });
 }
 
 /// The "⏷ N more" affordance and the menu behind it.
@@ -451,6 +800,7 @@ fn render_overflow(
     ctx: &mut Ctx<'_>,
     tab_id: &str,
     groups: &[Group],
+    measured: &[(GroupRows, f32)],
     band_plan: &BandPlan,
     gutter: f32,
     outcome: &mut BandOutcome,
@@ -506,11 +856,26 @@ fn render_overflow(
     ));
 
     egui::Popup::menu(&response).show(|ui| {
-        // Overflowed groups go through the SAME closure as visible ones.
-        // A second, simpler drawing path for the menu is exactly how the
-        // two caption-less groups in the salvage source happened.
-        for group in groups.iter().skip(band_plan.shown) {
-            captioned_group(ui, ctx, tab_id, group, gutter, outcome);
+        // Overflowed groups go through the SAME closure as visible ones,
+        // and with the SAME row split, so a group reads identically
+        // whichever side of the affordance it is on. A second, simpler
+        // drawing path for the menu is exactly how the two caption-less
+        // groups in the salvage source happened.
+        //
+        // `rows_height` is 0 here, and deliberately: the band's fixed height
+        // is a fact about the band, and padding a menu entry out to it would
+        // put a hole under every one-row group in the popup.
+        for ((rows, _), group) in measured.iter().zip(groups).skip(band_plan.shown) {
+            captioned_group(
+                ui,
+                ctx,
+                tab_id,
+                group,
+                gutter,
+                rows,
+                GroupBox::NATURAL,
+                outcome,
+            );
             ui.separator();
         }
     });
@@ -704,15 +1069,29 @@ pub(crate) fn command_button(
 // Measurement
 // ---------------------------------------------------------------------
 
-/// The width one group will occupy, caption included.
-fn measure_group(ui: &egui::Ui, ctx: &Ctx<'_>, group: &Group) -> f32 {
+/// **How one group wraps, and the width it will occupy once it has.**
+///
+/// The two answers come from one call because they are one decision: a
+/// group's width *is* its widest row, and its widest row is decided by the
+/// wrap. Returning them together is what makes it impossible for
+/// [`render_band`] to plan against one split and draw another — the failure
+/// that would show up as a clipped group and never as anything a reader
+/// would recognise as a bug.
+fn measure_group(ui: &egui::Ui, ctx: &Ctx<'_>, group: &Group) -> (GroupRows, f32) {
     let widths: Vec<f32> = group
         .items()
         .iter()
         .map(|item| measure_item(ui, ctx, item))
         .collect();
+    let rows = plan::wrap_group(
+        &widths,
+        ctx.theme.metrics.gutter,
+        plan::GROUP_ROWS,
+        plan::GROUP_WRAP_WIDTH,
+    );
     let caption = text_width(ui, caption_text(group), &TextStyle::Small);
-    plan::group_width(&widths, ctx.theme.metrics.gutter, caption)
+    let width = plan::group_width(&rows, caption);
+    (rows, width)
 }
 
 /// The width one item will occupy.

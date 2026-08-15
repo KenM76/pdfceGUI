@@ -63,6 +63,55 @@ pub fn filter_all() -> &'static str {
     "All files"
 }
 
+/// The title bar of the dialog `file.save_copy` opens.
+///
+/// Names the thing being produced — *a copy* — rather than the verb, on
+/// [`open_dialog_title`]'s reasoning: the verb is already on the dialog's own
+/// accept button ("Save"). The word `copy` is the load-bearing one and it is
+/// the same word the command's label carries, so an operator who pressed
+/// `Save a copy…` sees the phrase they pressed at the top of the window the
+/// OS put in front of them.
+///
+/// Deliberately **not** [`crate::text::ocr::save_dialog_title`]. Both surfaces
+/// ask the same operating-system question through the same
+/// `crate::app::files::pick_save_path`, and they are asking it about different
+/// things — a recognised copy of one page's text, and the document itself with
+/// its edits. A dialog headed "Save recognised copy" over a save-a-copy would
+/// be a true sentence about the wrong operation, which is the shape of error
+/// this catalog exists to make impossible.
+#[must_use]
+pub fn save_copy_dialog_title() -> &'static str {
+    "Save a copy of this document"
+}
+
+/// The suffix `file.save_copy` appends to suggest a name for the copy.
+///
+/// # ★ Why the suggestion is never the file that was opened
+///
+/// `crate::text::commands::file_save_copy`'s shipped tooltip promises *"The
+/// original is never overwritten unless you pick it"*, and a **default** is
+/// what makes that promise mechanical rather than aspirational: an operator
+/// who accepts the suggestion without reading it must not overwrite the
+/// drawing they were working on. That is exactly the rule
+/// `crate::dialogs::ocr::suggested_path` already enforces with `-recognised`,
+/// and it is asserted the same way — see
+/// `crate::app::save::tests::the_suggested_name_is_never_the_source_file`.
+///
+/// # Why `-copy`, and which reference application decided it
+///
+/// **Inkscape**, and it is the only one of the three that has this surface at
+/// all. Acrobat and SolidWorks offer *Save As*, which changes which file the
+/// open document *is*; Inkscape offers *Save a Copy*, which does not — and
+/// that is the verb pdfce registered. Standing instruction 4's head-count is
+/// therefore empty and its sharpened form decides: *ask which of them actually
+/// has the surface you are deciding about*. Inkscape suggests `<name>_copy`;
+/// the separator here is a hyphen rather than an underscore only to match
+/// `-recognised`, the one suffix this shell already ships.
+#[must_use]
+pub fn save_copy_suffix() -> &'static str {
+    "-copy"
+}
+
 // ---------------------------------------------------------------------------
 // ★ The Recent control's own LABEL and TOOLTIP are deliberately not here.
 //
@@ -105,6 +154,45 @@ pub fn recent_entry_label(path: &Path) -> String {
         .into_owned()
 }
 
+/// **What a document made by `file.new` is called before it is saved.**
+///
+/// `Untitled 1.pdf`, `Untitled 2.pdf`, … — the ordinal counting the documents
+/// this *session* has created, which is what
+/// `crate::app::PdfceApp::created_documents` holds.
+///
+/// # Why it is numbered
+///
+/// Standing instruction 4, and the head-count is two to one. **Inkscape**
+/// names a new document `New document 1` and increments; **SolidWorks** names
+/// one `Part1` / `Draw1` and increments; **Acrobat** calls its blank page
+/// `Untitled` with no ordinal. Two of the three number them.
+///
+/// The tie-break is a reason of this project's own, and it is the stronger
+/// half: `HANDOFF.md` §2 says a defect here is found by *reading the trace of
+/// a driven run*, and `new-document name="Untitled 1.pdf"` twice in a row is
+/// a trace that cannot distinguish "New was pressed twice" from "New was
+/// pressed once and the second press did nothing" — which is precisely the
+/// class of failure that founding rule exists to catch. The ordinal is what
+/// makes the second press observable.
+///
+/// # Why the extension is on it
+///
+/// Because this string becomes `crate::app::state::OpenDoc::path`, and three
+/// things downstream build a **file name** from it — a save suggestion, the
+/// Pages panel caption, the recent-menu label shape. `Untitled 1` with no
+/// suffix would produce an extensionless save suggestion, which is the one
+/// place the difference is not cosmetic. Acrobat is also the reference of the
+/// three that shows an extension, and it is the one of the three that makes
+/// PDFs.
+///
+/// The word is `Untitled` rather than `Drawing` or `Sheet`: it says the
+/// document has no name yet, which is true, rather than guessing what the
+/// operator is about to make.
+#[must_use]
+pub fn untitled(ordinal: u32) -> String {
+    format!("Untitled {ordinal}.pdf")
+}
+
 /// One row of the Recent menu, on hover: where the file actually is.
 ///
 /// The full path, unedited. Two drawings called `Sheet 1.pdf` in two job
@@ -129,7 +217,12 @@ mod tests {
     /// operator's next click.
     #[test]
     fn the_dialog_strings_cannot_break_out_of_the_script() {
-        for text in [open_dialog_title(), filter_pdf(), filter_all()] {
+        for text in [
+            open_dialog_title(),
+            save_copy_dialog_title(),
+            filter_pdf(),
+            filter_all(),
+        ] {
             assert!(
                 !text.contains('\''),
                 "`{text}` carries an apostrophe, which ends the single-quoted literal it is \
@@ -145,6 +238,31 @@ mod tests {
         let path = PathBuf::from("D:\\jobs\\4471\\Sheet 1.pdf");
         assert_eq!(recent_entry_label(&path), "Sheet 1.pdf");
         assert_eq!(recent_entry_tooltip(&path), "D:\\jobs\\4471\\Sheet 1.pdf");
+    }
+
+    /// ★ **Two created documents are told apart by their names.**
+    ///
+    /// The property the ordinal exists for, asserted rather than assumed. An
+    /// `untitled` that ignored its argument would satisfy every other test in
+    /// this module, and would make the `new-document` trace line unable to
+    /// distinguish a second New from a New that did nothing — exactly the
+    /// class of failure `HANDOFF.md` §2 records as findable only by reading a
+    /// driven run's trace.
+    #[test]
+    fn each_created_document_gets_its_own_name() {
+        assert_eq!(untitled(1), "Untitled 1.pdf");
+        assert_ne!(untitled(1), untitled(2));
+        assert!(
+            untitled(7).ends_with(".pdf"),
+            "a save suggestion is built from this name; without a suffix it would \
+             offer to write an extensionless file"
+        );
+        // The label surface must be able to draw it, which for a bare name
+        // means `file_name()` answering rather than falling through.
+        assert_eq!(
+            recent_entry_label(Path::new(&untitled(3))),
+            "Untitled 3.pdf"
+        );
     }
 
     /// A path with no file name still renders something the operator can see.

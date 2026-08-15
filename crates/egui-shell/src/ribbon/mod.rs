@@ -111,7 +111,13 @@ pub mod tabs;
 // fixture (a synthetic font) whose construction has nothing to do with the
 // ribbon and should not be read as if it did; and structural tests and
 // geometric tests are different kinds of claim that should not be filed
-// together. See each file's header.
+// together. `height_tests` splits off the *vertical* geometry — how many
+// rows a group uses and whether the band is the same height on two tabs
+// (R128) — from `width_tests`' horizontal one, and borrows that file's
+// synthetic-face harness rather than standing up a second one. See each
+// file's header.
+#[cfg(test)]
+mod height_tests;
 #[cfg(test)]
 mod testfont;
 #[cfg(test)]

@@ -35,6 +35,69 @@
 //! bar that anchored zoom differently from the ribbon would be a second
 //! zoom model. Recorded so the next reader knows the omission is a decision.
 //!
+//! ## ★ Beside the narrator: the two disclosure lines, which are not narration
+//!
+//! The left half carries four things, and only the first is the narrator.
+//! The others look similar and are governed by different rules, so the
+//! distinction is worth stating before the layout is:
+//!
+//! | line | what it is | drawn by |
+//! |---|---|---|
+//! | Render notes | **narration** — a census of what the last raster contained. Demoted behind a disclosure triangle, closed by default. | [`notes`] |
+//! | Fill disclosure | **rule 4** — what a form fill *inferred*: an auto-size pdfce chose, characters it could not encode. | [`fill_disclosure`] |
+//! | Edit disclosure | **rule 4** — what a move or a delete had to *change about an object's form* to express the request: an `re` rectangle rewritten as four lines, an implicit subpath start materialised. | [`edit_disclosure`] |
+//! | Worded decline | **not rule 4 at all** — a command that was invoked and *did not run*, because there was nothing for it to act on. | [`decline::show`] |
+//!
+//! Rows two and three are the same species of fact and are treated
+//! identically. Each is:
+//!
+//! - **not behind the triangle.** The narrator was demoted because its
+//!   prominence was wrong (`DEFECTS.md` §5). A disclosure the operator has to
+//!   *open something* to find is a disclosure that did not happen, which is
+//!   the opposite failure.
+//! - **keyed on [`OpenDoc::edit_epoch`]**, so any later edit — including an
+//!   undo — retires the sentence with no code remembering to clear it. State
+//!   that must be cleared is state that will one day be shown against the
+//!   wrong document.
+//! - **incapable of changing the bar's height** (R128 — see below), because
+//!   both arrive *without the operator asking for anything*: a drag ends, and
+//!   a sentence appears on the next frame. If that grew the bar, the page
+//!   would re-fit at the exact moment a gesture completed.
+//! - **drawn through one function**, [`disclosure_line`], so the four small
+//!   rules that together make the previous point true — bounded width, fixed
+//!   row, elide-don't-wrap, full text on hover — are written once.
+//!
+//! The two can never be live at the same time: one edit bumps the epoch once
+//! and records at most one kind of disclosure, so the mutual exclusion is a
+//! property of the epoch rather than a rule anyone has to enforce. See
+//! [`crate::app::actions::last_edit_disclosure`].
+//!
+//! **The edit disclosure closes `FEATURES.md`'s "edit-disclosure surface"
+//! row.** `crate::app::actions::vector_edit` had traced these sentences since
+//! stage S4 and its own header named the gap — *"tracing is not surfacing …
+//! the status line is `app::status`'s to own, not this module's to invent"*.
+//! This module now owns it. The trace is unchanged.
+//!
+//! ### ★ Row four is the same surface and a DIFFERENT store
+//!
+//! The worded decline reuses this half of the bar, [`disclosure_line`], its
+//! own named region and the R128 fixed row — the *place* and the *discipline*.
+//! It deliberately does **not** reuse the edit-epoch key, and the wording
+//! diverges too (*"Nothing to zoom to"*, never *"About your last edit"*),
+//! because a disclosure says *this happened, and here is the part you cannot
+//! see* while a decline says *this did not happen*. One slot and one wording
+//! for both would make a completed gesture and a refused one indistinguishable
+//! in the same place, which is worse than the trace-only state it replaces.
+//!
+//! The short form of why the epoch is wrong here: **a decline changes no
+//! document, so the epoch never moves** — an epoch-keyed decline would never
+//! retire — and **a decline must be repeatable**, which an epoch key cannot
+//! express because nothing changed between the two presses. The precedent it
+//! is modelled on is [`page_box`]'s clamp note, retired by the operator's next
+//! act. [`decline`]'s own header carries the full argument, the retirement
+//! rule, and the one case it refuses to word (a ceiling-clamped region zoom,
+//! which is a partial grant the zoom readout already reports honestly).
+//!
 //! ## The right half: the controls that must never move
 //!
 //! Everything on the right exists because it is reached constantly and
@@ -222,22 +285,61 @@
 //!   a parallel owner for four bytes of widget state would be a worse
 //!   structural change than using the store egui provides for exactly this.
 //!
-//! ## Where the page box went
+//! ## Where three subjects went, and the one question left behind
 //!
-//! Into [`page_box`], because this file reached standing rule R2's
-//! 1,500-line ceiling and the box is the one subject here that separates
-//! cleanly: it has its own state, its own vocabulary, its own pure decision
-//! function and its own hazard (defect D1's keyboard guard), none of which
-//! the rest of the bar shares. What is left answers *"how is the bar laid
-//! out, and what does each group show?"*; that module answers *"what did the
-//! operator mean by what they typed?"*. Its header carries the commit rule,
-//! the three outcomes, and the D1 argument in full.
+//! This file has reached standing rule R2's 1,500-line ceiling three times,
+//! and each split took out a subject with **its own state, its own vocabulary
+//! and its own pure decision function** rather than a slice of whatever
+//! happened to be at the bottom of the file:
+//!
+//! | module | answers | its own |
+//! |---|---|---|
+//! | [`page_box`] | *what did the operator mean by what they typed?* | draft + note state, `PageCommit`, `resolve`, defect D1's keyboard guard |
+//! | [`decline`] | *what did a refused command owe the operator, and for how long?* | decline store, `Declined`, `still_true`, the speech-act argument |
+//! | [`notes`] | *what did the renderer compromise on, and how is that one line?* | open/closed flag, `NoteEntry`, `notes_line`, the editorial rule about which counters are actionable |
+//!
+//! What is left here is the one question none of them answers: **how is the
+//! bar laid out, and what does each group show?** A fixed row (R128), the
+//! order the groups are added in and why that is the reverse of the reading
+//! order, the two rule-4 disclosure lines and the single [`disclosure_line`]
+//! they share, and the two clusters of stateless mirrors on the right.
+//!
+//! Each module's own header carries its argument in full — the commit rule
+//! and D1 for the page box, the retirement rule and what is deliberately not
+//! worded for the decline, the prominence argument for the notes.
 
 /// Page navigation and the editable page-number box. See this module's
 /// header for the seam, and that one's for the control.
 mod page_box;
 
-use egui::{Align, Id, Layout, Vec2};
+/// The worded decline — a command that was invoked and did not run.
+///
+/// Split out under R2 like [`page_box`], and along a seam of the same kind:
+/// what is left here answers *"how is the bar laid out, and what does each
+/// group show?"*, while that module answers *"what did a refused command owe
+/// the operator, and how long does it owe it for?"* — its own store, its own
+/// vocabulary, its own pure retirement predicate, and an argument about speech
+/// acts that nothing else on this surface shares.
+///
+/// `pub(super)` rather than private, unlike [`page_box`]: `crate::app::dispatch`
+/// is the choke point that records a decline and retires it, so the store has
+/// to be reachable from a sibling of this module. Nothing outside `crate::app`
+/// can see it, which is the right boundary — a decline is written by the one
+/// dispatcher and read by the one bar.
+pub(super) mod decline;
+
+/// The narrator — the render-diagnostics disclosure and its one line.
+///
+/// The third module split out of this file under R2, and the seam is the one
+/// this header draws in prose two sections above: the notes are **narration**
+/// (a census of what a raster contained, demoted behind a triangle because its
+/// prominence was wrong), and everything else on the left half is a fact about
+/// the operator's own document or gesture, which must not be demoted at all.
+/// The two change for different reasons and are argued from opposite
+/// premises.
+mod notes;
+
+use egui::{Align, Layout, Vec2};
 
 use crate::app::actions::Action;
 use crate::app::state::{OpenDoc, Status};
@@ -300,7 +402,7 @@ const ZOOM_READOUT_WIDTH_PTS: f32 = 46.0;
 /// "excellent information, wrong prominence"), so on a narrow window they
 /// yield to the navigation controls rather than squeezing them. The full
 /// text is always available on hover, so nothing is lost — only deferred.
-const NOTES_WIDTH_FRACTION: f32 = 0.45;
+pub(super) const NOTES_WIDTH_FRACTION: f32 = 0.45;
 
 // ---------------------------------------------------------------------------
 // Named regions — see `crate::diag::ui_rect` for the contract and the naming
@@ -312,15 +414,20 @@ const NOTES_WIDTH_FRACTION: f32 = 0.45;
 /// The strip the bar's content occupies.
 const REGION_BAR: &str = "status-bar"; // ui-text-exempt: trace region name, never displayed
 
-/// The disclosure triangle, plus its one line of render notes when open.
-const REGION_NOTES: &str = "status-group:notes"; // ui-text-exempt: trace region name, never displayed
-
 /// The last fill's rule-4 disclosure, when one is live for this revision.
 ///
 /// Named as a region so `ui-verify` can assert it is **on screen and
 /// legible** rather than merely constructed — which for a disclosure is the
 /// whole of the requirement.
 const REGION_FILL_DISCLOSURE: &str = "status-group:fill-disclosure"; // ui-text-exempt: trace region name, never displayed
+
+/// The last vector edit's rule-4 disclosure, when one is live for this
+/// revision.
+///
+/// Named as a region for the same reason as its fill sibling: a disclosure's
+/// whole requirement is that it is **on screen and legible**, and `ui-verify`
+/// can only assert that about a rect the application published.
+const REGION_EDIT_DISCLOSURE: &str = "status-group:edit-disclosure"; // ui-text-exempt: trace region name, never displayed
 
 /// `Actual size · Fit width · Fit page`.
 const REGION_FIT: &str = "status-group:fit"; // ui-text-exempt: trace region name, never displayed
@@ -333,13 +440,6 @@ const REGION_FIND: &str = "status-group:find"; // ui-text-exempt: trace region n
 
 /// Trace slot for the bar's steady state, de-duplicated on the rendered line.
 const STATUS_SLOT: &str = "status"; // ui-text-exempt: trace slot name, never displayed
-
-// ---------------------------------------------------------------------------
-// Widget-state ids
-// ---------------------------------------------------------------------------
-
-/// Whether the render-notes disclosure is open.
-const NOTES_OPEN_ID: &str = "pdfce-status-notes-open"; // ui-text-exempt: widget id, never displayed
 
 // ---------------------------------------------------------------------------
 // The bar
@@ -390,7 +490,7 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
         };
 
         // Left: the narrator, demoted behind a disclosure.
-        notes(ui, doc);
+        notes::show(ui, doc);
 
         // ★ …and beside it, what the last fill INFERRED — which is not
         // demoted, because it is not narration.
@@ -415,6 +515,52 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
         // that has moved on — an undo or any later edit retires it without
         // anything having to remember to.
         fill_disclosure(ui, doc);
+
+        // ★ …and the same obligation for the verbs that move geometry.
+        //
+        // A move or a delete sometimes has to change how an object is
+        // *written* in order to express what the operator asked for — an `re`
+        // rectangle becomes four explicit lines when one corner moves on its
+        // own, because a rectangle can only describe a box. The picture is
+        // identical and the bytes are not recoverable by dragging the corner
+        // back, so this is the same species of fact as an inferred auto-size:
+        // something pdfce decided that the saved document cannot afterwards be
+        // asked about.
+        //
+        // `pdfce-core` has always returned these sentences and
+        // `crate::app::actions::vector_edit` has always traced them; until
+        // 2026-08-14 that was the whole of it, and that function's own header
+        // called it out — recorded, not disclosed. This is where they are
+        // disclosed.
+        //
+        // Keyed on `edit_epoch` exactly as its neighbour is, and for the same
+        // reason: an undo or any later edit retires the sentence without
+        // anything having to remember to. The two can never both be live —
+        // one edit bumps the epoch once and records at most one of them.
+        edit_disclosure(ui, doc);
+
+        // ★ …and the opposite speech act, in the same place.
+        //
+        // The three lines above all say *something happened*. This one says
+        // *nothing happened*: a command was invoked and declined, because
+        // there was nothing for it to act on. Today that is zoom-to-selection
+        // with no resolvable bounds and no canvas — `canvas::zoom` has
+        // returned those outcomes and traced them from the start, and
+        // `app::dispatch` dropped them on the floor until 2026-08-14.
+        //
+        // It is drawn here rather than folded into `edit_disclosure` because
+        // it is a **different store**, not a different message: a decline
+        // changes no document, so `edit_epoch` never moves, and an
+        // epoch-keyed decline would still be on screen forty gestures later.
+        // It retires by the operator's next act instead — `page_box`'s clamp
+        // note's rule, not the disclosures'. See `decline`'s header.
+        //
+        // It can coexist with an edit disclosure (an edit, then a deselect,
+        // then the chord), and that is bounded rather than unbounded: each
+        // line takes a fraction of what *remains*, so the left half converges
+        // and the right-to-left cluster opposite is what yields — the same
+        // behaviour the render-notes line has always had.
+        decline::show(ui, doc);
 
         // Right: the controls that must never move.
         //
@@ -530,144 +676,102 @@ fn fill_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
         return;
     }
 
+    disclosure_line(ui, REGION_FILL_DISCLOSURE, &line);
+}
+
+/// What the last **vector edit** disclosed, in the bar, until the document
+/// moves on.
+///
+/// # What it says, and who wrote it
+///
+/// Every vector verb — the three move verbs and Delete — returns a list of
+/// operator-facing sentences alongside its success, non-empty when the surgery
+/// had to change an operator's *form* to express the request: an `re` rectangle
+/// rewritten as four lines so one corner could move independently, an
+/// implicitly-started subpath's `m` materialised, a curve dropped along with
+/// the point it ran into. **The drawing is unchanged and the bytes are not
+/// recoverable by reversing the gesture** — dragging the corner back does not
+/// restore the rectangle form — which is precisely the condition rule 4 exists
+/// for: pdfce inferred a representation, and the operator would otherwise
+/// learn it from a diff.
+///
+/// The sentences are `pdfce-core`'s own and are passed through verbatim; this
+/// module contributes the framing, and only the framing. See
+/// [`crate::text::status::edit_disclosure_line`].
+///
+/// # Why it is here rather than only in the trace
+///
+/// It *was* only in the trace. `crate::app::actions::vector_edit`'s header
+/// named that as the outstanding half in as many words — *"a disclosure that
+/// only ever reaches `PDFCE_DIAG` has been recorded and not disclosed"* — and
+/// this function is the half it was waiting for. The trace is unchanged and
+/// still carries the full list; what has changed is that an operator who is
+/// not running with `PDFCE_DIAG` set can now read it, which is every operator.
+///
+/// # Why the status bar rather than a panel or the canvas
+///
+/// Two constraints, and together they leave one surface. Rule 4 puts a
+/// disclosure **off-canvas** — the one-line test is whether a screenshot of the
+/// editing canvas would differ from a screenshot of the same document saved and
+/// reopened, and a note drawn over the page would make it differ. And the
+/// gesture that raises one is a **canvas drag**, available in Edit and Review
+/// with any panel arrangement including none, so a panel could not be relied on
+/// to be mounted. The bar is the one surface present in every mode.
+///
+/// # It retires itself, and it cannot collide with its neighbour
+///
+/// Keyed on [`OpenDoc::edit_epoch`] **after** the edit, exactly as
+/// [`fill_disclosure`] is: any later edit — including an undo — moves the
+/// document past it and the sentence disappears with no code remembering to
+/// clear it. One edit bumps the epoch once and records at most one kind of
+/// disclosure, so the fill line and this one can never both be live for the
+/// same revision; see
+/// [`crate::app::actions::last_edit_disclosure`]'s ★ section.
+///
+/// **It does not make the bar taller** — R128, asserted by
+/// [`tests::the_bar_is_exactly_as_tall_open_as_closed`].
+fn edit_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
+    let Some(d) = crate::app::actions::last_edit_disclosure(doc.edit_epoch) else {
+        return;
+    };
+    disclosure_line(
+        ui,
+        REGION_EDIT_DISCLOSURE,
+        &t::edit_disclosure_line(&d.notes),
+    );
+}
+
+/// Draw one disclosure sentence into the bar's single row, and publish its
+/// rect.
+///
+/// The shared body of [`fill_disclosure`] and [`edit_disclosure`], written once
+/// for the reason `crate::app::actions::vector_edit` is written once: the
+/// R128 defence here is not one rule but four small ones that only work
+/// together — a **bounded** sub-region so a long sentence cannot push the
+/// navigation controls off the right of the bar, a **fixed** row height,
+/// `truncate()` rather than wrapping (wrapping is how a one-row bar becomes a
+/// two-row bar, which is the feedback loop with extra steps), and the full text
+/// on **hover** so eliding defers rather than loses. Two hand-written copies
+/// would be two chances to omit one of the four, and the omission would show up
+/// as a page that re-fits itself at the moment an operator finishes a gesture.
+///
+/// `region` is published so `ui-verify` can assert the sentence is on screen
+/// and legible rather than merely constructed — which, for a disclosure, is the
+/// whole of the requirement.
+fn disclosure_line(ui: &mut egui::Ui, region: &str, line: &str) {
     let width = (ui.available_width() * NOTES_WIDTH_FRACTION).max(0.0);
     let rect = ui
         .allocate_ui_with_layout(
             Vec2::new(width, ROW_HEIGHT_PTS),
             Layout::left_to_right(Align::Center),
             |ui| {
-                ui.add(egui::Label::new(egui::RichText::new(&line).small()).truncate())
-                    .on_hover_text(line.clone());
+                ui.add(egui::Label::new(egui::RichText::new(line).small()).truncate())
+                    .on_hover_text(line.to_owned());
             },
         )
         .response
         .rect;
-    crate::diag::ui_rect(REGION_FILL_DISCLOSURE, rect);
-}
-
-/// The render-notes disclosure, and its one line when open.
-///
-/// Drawn only when a page has actually been rasterized: the notes describe a
-/// raster, and `page_texture` is `None` only before the first render and
-/// after a failure the canvas already reports in words.
-///
-/// **Opening this does not make the bar taller.** The line is drawn beside
-/// the triangle, inside the same row, elided at [`NOTES_WIDTH_FRACTION`] of
-/// the bar with the whole text on hover. See the ★ R128 section of the
-/// module docs for why that is a requirement rather than a layout preference.
-fn notes(ui: &mut egui::Ui, doc: &OpenDoc) {
-    let Some(texture) = doc.page_texture.as_ref() else {
-        return;
-    };
-    let id = Id::new(NOTES_OPEN_ID);
-    let mut open = ui
-        .ctx()
-        .data_mut(|d| d.get_temp::<bool>(id))
-        .unwrap_or(false);
-
-    let rect = ui
-        .scope(|ui| {
-            let toggle = ui
-                .selectable_label(open, t::diagnostics_toggle(open))
-                .on_hover_text(t::diagnostics_tooltip());
-            if toggle.clicked() {
-                open = !open;
-            }
-            if !open {
-                return;
-            }
-            let line = notes_line(&texture.diagnostics);
-            // A bounded sub-region, so a page with eight findings cannot
-            // squeeze the navigation controls off the right of the bar.
-            let width = (ui.available_width() * NOTES_WIDTH_FRACTION).max(0.0);
-            ui.allocate_ui_with_layout(
-                Vec2::new(width, ROW_HEIGHT_PTS),
-                Layout::left_to_right(Align::Center),
-                |ui| {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&line).small().weak())
-                            // Elide rather than wrap: wrapping is how a
-                            // one-row bar becomes a two-row bar, which is
-                            // the R128 loop with extra steps.
-                            .truncate(),
-                    )
-                    .on_hover_text(line.clone());
-                },
-            );
-        })
-        .response
-        .rect;
-
-    crate::diag::ui_rect(REGION_NOTES, rect);
-    ui.ctx().data_mut(|d| d.insert_temp(id, open));
-}
-
-/// One count from the renderer's report, paired with the catalog entry that
-/// puts it into words.
-///
-/// A named type rather than an inline tuple so [`notes_line`]'s table reads
-/// as a table. The `fn(usize) -> String` half is a plain function pointer
-/// rather than a closure on purpose: it names a *catalog entry*, so the
-/// pairing is a lookup that can be read down the page, and a reviewer
-/// checking that every reported field has a sentence has one place to look.
-type NoteEntry = (usize, fn(usize) -> String);
-
-/// Turn the renderer's honesty report into the one line the disclosure shows.
-///
-/// # What is reported, and what is deliberately not
-///
-/// Every field here changes **what the operator can see on the page**: text
-/// that was not drawn, images that were not drawn, glyphs whose shapes are
-/// not the document's, layers that were hidden, content the file does not
-/// actually contain. Those are facts an operator can act on — supply a font,
-/// turn a layer back on, go and find the missing stream.
-///
-/// `Diagnostics::tolerated` and `Diagnostics::compat_skipped` are **not**
-/// reported. Both count divergences that leave the picture correct: a
-/// tolerated structural oddity (an unbalanced `Q`, a mid-path `cm`) is
-/// something the renderer absorbed and drew right anyway, and a `BX`/`EX`
-/// skip is spec-sanctioned (§7.8.2 Table 32) — the file is *telling* readers
-/// to skip it. Listing them would put two numbers that mean "nothing is
-/// wrong" in front of the six that mean something is. They remain in the
-/// structured data for whoever wants them; this is a status bar, not a
-/// report.
-///
-/// # Order
-///
-/// Most consequential first: content the file is missing, then whole
-/// surfaces that were not drawn, then glyph-level substitution, then the
-/// operator's own hidden layers, then operators pdfce has not implemented. A
-/// line that opens with "3 unrecognised drawing operators" and buries "text
-/// from 2 fonts not drawn" is sorted by the renderer's interest rather than
-/// by the reader's.
-fn notes_line(d: &pdfce_render::Diagnostics) -> String {
-    let entries: [NoteEntry; 9] = [
-        (
-            d.contents_streams_unresolved,
-            t::diagnostics_contents_missing,
-        ),
-        (d.fonts_unsupported, t::diagnostics_fonts_skipped),
-        (d.images_unsupported, t::diagnostics_images_skipped),
-        (d.glyphs_notdef, t::diagnostics_glyphs_notdef),
-        (d.glyphs_substituted, t::diagnostics_glyphs_substituted),
-        (d.glyphs_supplied, t::diagnostics_glyphs_supplied),
-        (d.oc_sections_hidden, t::diagnostics_layers_hidden),
-        (d.deferred_ops, t::diagnostics_ops_deferred),
-        (d.unknown_ops, t::diagnostics_ops_unknown),
-    ];
-    let parts: Vec<String> = entries
-        .into_iter()
-        .filter(|(n, _)| *n > 0)
-        .map(|(n, render)| render(n))
-        .collect();
-    if parts.is_empty() {
-        // Stated positively. An empty disclosure is indistinguishable from
-        // one that failed to fill itself, and the operator who opened it
-        // wanted an answer either way.
-        t::diagnostics_clean().to_owned()
-    } else {
-        t::diagnostics_join(&parts)
-    }
+    crate::diag::ui_rect(region, rect);
 }
 
 // ---------------------------------------------------------------------------
@@ -851,11 +955,66 @@ pub(super) mod test_support {
             ..Default::default()
         }
     }
+
+    /// One frame of the bar, measured: how tall it was, and how many shapes
+    /// it painted.
+    ///
+    /// `None` when no measurement happened at all — the closure never ran, or
+    /// it produced a non-finite height. That is `HANDOFF.md` §10's rule, and
+    /// it is not theoretical here: `cargo test -p egui-shell` and `cargo test
+    /// --workspace` compile `egui` with different features (no fonts vs
+    /// `default_fonts`), so a layout assertion can be entirely vacuous under
+    /// one of the two commands a developer runs. A helper that returned a bare
+    /// `f32` would hand a vacuous run the same `NAN == NAN`-adjacent silence a
+    /// real one gets.
+    ///
+    /// The shape count is the second half of the same discipline, and it is
+    /// the half that matters for a *sentence*: a height comparison between two
+    /// frames that both drew nothing is true and worthless. Counting the
+    /// painted shapes is how a test proves the line reached the painter rather
+    /// than merely reaching the data.
+    ///
+    /// Lives here rather than in `mod tests` because **three** R128 tests need
+    /// it now — the fill line, the edit line and [`super::decline`]'s — and the
+    /// third is in a sibling module. `pub(super)` on a helper buried inside one
+    /// test module would read as "the other module reaches into my tests"
+    /// rather than as "this is the shared harness".
+    pub(in crate::app::status) fn bar_frame(
+        ctx: &Context,
+        status: &Status,
+    ) -> Option<(f32, usize)> {
+        let mut height = f32::NAN;
+        let mut find = crate::find::FindState::default();
+        let output = ctx.run_ui(RawInput::default(), |ui| {
+            let mut actions = Vec::new();
+            height = ui
+                .scope(|ui| show(ui, status, &mut find, &mut actions))
+                .response
+                .rect
+                .height();
+        });
+        height.is_finite().then_some((height, output.shapes.len()))
+    }
+
+    /// Two frames, reporting the second.
+    ///
+    /// egui settles over a pass: fonts are laid out lazily, widget galleys are
+    /// cached on first sight, and animations start at their "from" value. A
+    /// single frame therefore compares one state's *first* look against
+    /// another state's *first* look, which is a comparison of two different
+    /// things. Every caller wants the steady state.
+    pub(in crate::app::status) fn settled_bar_frame(
+        ctx: &Context,
+        status: &Status,
+    ) -> Option<(f32, usize)> {
+        let _ = bar_frame(ctx, status);
+        bar_frame(ctx, status)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::opened;
+    use super::test_support::{opened, settled_bar_frame};
     use super::*;
     use crate::find::FindState;
     use egui::{Context, RawInput};
@@ -877,6 +1036,102 @@ mod tests {
                 .height();
         });
         height
+    }
+
+    /// ★ **An edit disclosure does not change the bar's height** — R128 for
+    /// the sentence a move or a delete puts there.
+    ///
+    /// # Why this needs its own test beside the fill one
+    ///
+    /// Same rule, different arrival. A fill disclosure follows the operator
+    /// typing into a field; this one follows a **drag on the canvas**, which
+    /// is the gesture during which a re-fit is most damaging — R128's measured
+    /// symptom is *"the page jumped when I clicked an object"*, and a drag is
+    /// a click that has not finished. If this line grew the bar, the page
+    /// would re-fit on the frame the operator released the mouse, the object
+    /// would land somewhere other than where they dropped it, and the
+    /// investigation would start in the move code, where nothing is wrong.
+    ///
+    /// # The three assertions, and why none of them is the obvious one
+    ///
+    /// 1. **A measurement happened at all** (`Some(_)`, never `None`) — see
+    ///    [`bar_frame`] for why a bare `f32` would let a vacuous run pass.
+    /// 2. **The sentence reached the painter** — more shapes with the
+    ///    disclosure live than without it. Without this, assertion 3 is
+    ///    satisfied just as well by a `disclosure_line` that returned early
+    ///    and drew nothing, which is true and proves nothing.
+    /// 3. **The height did not move.** Asserted as `Some(true)` rather than
+    ///    with a bare `assert!`, so a run in which either frame failed to
+    ///    measure reads as `None` and fails, rather than reading as agreement.
+    ///
+    /// The planted notes are the **worst case that can actually occur**: two
+    /// of `pdfce-core`'s real sentences at once, which is what a node drag
+    /// that both expands a rectangle and materialises an implicit start
+    /// returns. They are long, and long is the point — the defence against
+    /// them is eliding inside a bounded sub-region with the whole text on
+    /// hover, not wrapping, because wrapping is how a one-row bar becomes a
+    /// two-row bar.
+    #[test]
+    fn an_edit_disclosure_does_not_change_the_bar_height() {
+        let ctx = Context::default();
+        let status = opened();
+        let Status::Open(doc) = &status else {
+            unreachable!("`opened()` returns an open document");
+        };
+
+        let absent = settled_bar_frame(&ctx, &status);
+
+        crate::app::actions::plant_edit_disclosure_for_test(crate::app::actions::EditDisclosure {
+            epoch: doc.edit_epoch,
+            notes: vec![
+                "This shape was stored as a rectangle, which can only describe a box with \
+                     square corners. Moving a corner independently makes it a four-sided shape \
+                     that is no longer a box, so it has been rewritten as four lines. It draws \
+                     identically; dragging the corner back will not restore the original \
+                     rectangle form."
+                    .to_owned(),
+                "This point had no coordinates of its own — the file re-used the start of \
+                     the shape before it. A move instruction naming the point has been added so \
+                     it can be placed independently."
+                    .to_owned(),
+            ],
+        });
+        // The precondition, asserted rather than assumed — the same shape the
+        // fill test above uses, and for the same reason: without it the height
+        // comparison below measures that an absent line did not change the
+        // height.
+        assert!(
+            crate::app::actions::last_edit_disclosure(doc.edit_epoch).is_some(),
+            "the planted disclosure is not live for this document's epoch, so the bar drew \
+             no line and everything below proves nothing"
+        );
+
+        let present = settled_bar_frame(&ctx, &status);
+
+        let drew = match (absent, present) {
+            (Some((_, before)), Some((_, after))) => Some(after > before),
+            _ => None,
+        };
+        assert_eq!(
+            drew,
+            Some(true),
+            "the bar painted no more shapes with a live edit disclosure ({absent:?}) than \
+             without one ({present:?}); the sentence never reached the painter, so the height \
+             comparison would be vacuous. `None` here means a frame did not measure at all, \
+             which is the other failure and is not a pass"
+        );
+
+        let same_height = match (absent, present) {
+            (Some((before, _)), Some((after, _))) => Some((after - before).abs() < 0.01),
+            _ => None,
+        };
+        assert_eq!(
+            same_height,
+            Some(true),
+            "an edit disclosure changed the bar's height ({absent:?} → {present:?}); that \
+             re-fits the page on the frame an operator finishes a drag, and the symptom is \
+             read as a move bug"
+        );
     }
 
     /// ★ **The bar is exactly as tall with the disclosure open as closed —
@@ -902,10 +1157,10 @@ mod tests {
 
         let closed_no_doc = bar_height(&ctx, &empty);
 
-        ctx.data_mut(|d| d.insert_temp(egui::Id::new(NOTES_OPEN_ID), false));
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(notes::NOTES_OPEN_ID), false));
         let closed = bar_height(&ctx, &status);
 
-        ctx.data_mut(|d| d.insert_temp(egui::Id::new(NOTES_OPEN_ID), true));
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(notes::NOTES_OPEN_ID), true));
         let open = bar_height(&ctx, &status);
 
         assert!(
@@ -989,6 +1244,33 @@ mod tests {
     /// Checked against `FontFamily::Proportional`, which is what every label
     /// and button on this bar resolves to, and run inside a real pass because
     /// egui has no fonts before one.
+    ///
+    /// ## ★★ Corrected 2026-08-14: this test used to ask the wrong question
+    ///
+    /// It called [`epaint::Fonts::has_glyph`], **which returns false
+    /// negatives**, and the one it returned here was expensive: it reported
+    /// `⚠` (U+26A0) as undrawable, `DEFECTS.md` D12 was filed on that
+    /// reading, and thirteen shipped sentences were recorded as rendering
+    /// tofu when they render correctly. `has_glyph` returns
+    /// `resolve_face(c) != replacement_face_key` — so it says "no" to every
+    /// codepoint whose first supporting face happens to be the face that also
+    /// supplies `epaint`'s substitution mark `◻`, which for the proportional
+    /// family is `NotoEmoji-Regular`, which is `⚠`'s supplier.
+    ///
+    /// It now asks [`crate::icons::glyphs::GlyphProbe`], which lays the
+    /// character out and looks at what was drawn. The full mechanism, the
+    /// measurements and the three-sentinel fingerprint are in that module's
+    /// header.
+    ///
+    /// **The mark on the edit-disclosure line was chosen under the wrong
+    /// reading and is deliberately left alone.** `⚑` draws, it is in the
+    /// bar today, and re-opening a settled copy decision on the strength of
+    /// a correction to the diagnosis is churn, not a fix. What changed is
+    /// what this test *knows*, not what it protects.
+    ///
+    /// This gate is now the narrow, hand-listed one; the broad one is
+    /// [`crate::icons::glyphs::tests::every_glyph_the_catalog_draws_has_a_glyph`],
+    /// which reads the whole catalog from source and needs no list.
     #[test]
     fn every_glyph_the_status_bar_draws_has_a_glyph() {
         let ctx = Context::default();
@@ -1008,87 +1290,63 @@ mod tests {
             t::page_number(37),
             t::page_clamped_note(99, 42, 42),
             t::page_rejected_note().to_owned(),
+            // ★ The framing this shell adds around a `pdfce-core` disclosure
+            // — the mark in particular, which is what distinguishes a fact
+            // about the operator's own document from the narration beside it.
+            // Checked with a one-character note so what is under test is the
+            // framing rather than core's prose: core's sentences are ordinary
+            // Latin text, and the mark is the only codepoint this bar
+            // introduces that a bundled font could plausibly lack.
+            //
+            // ★★ **The line was drafted with `⚠` and this test rejected it —
+            // wrongly.** That rejection became `DEFECTS.md` D12, and the
+            // diagnosis in it was backwards: `⚠` draws. The mark here stayed
+            // `⚑`, and stays `⚑`; see the doc comment above for why a
+            // corrected diagnosis is not a reason to re-litigate the copy.
+            //
+            // A tofu box **on a disclosure** is worse than one on a label: it
+            // reads as a rendering failure, and an operator who has decided a
+            // surface is broken stops reading it — which is the one outcome
+            // rule 4's whole apparatus exists to prevent. That reasoning was
+            // always right; only the measurement behind it was wrong.
+            t::edit_disclosure_line(&["x".to_owned()]),
+            // ★ …and the decline's mark, `⊗` (U+2297), which is the one
+            // codepoint the worded decline introduces.
+            //
+            // Listed here as well as being swept by the catalog-wide gate,
+            // because a tofu box **on a decline** is the worst place for one:
+            // the sentence's whole job is to say that a command the operator
+            // invoked did not run, and a line that opens with a broken box
+            // reads as a rendering failure rather than as an answer. An
+            // operator who has decided a surface is broken stops reading it.
+            t::zoom_declined_no_selection().to_owned(),
+            t::zoom_declined_not_drawn().to_owned(),
+            // …and the save's decline, which wears the same `⊗`. Listed
+            // separately rather than trusted to the two above, because the
+            // list is what a reader consults to know which sentences were
+            // measured, and a decline that reaches the bar without appearing
+            // here is one nobody checked.
+            t::save_copy_failed().to_owned(),
         ];
 
         let mut missing = Vec::new();
         let _ = ctx.run_ui(RawInput::default(), |ui| {
-            let font = egui::FontId::proportional(14.0);
-            ui.ctx().fonts_mut(|f| {
-                for label in &labels {
-                    for c in label.chars() {
-                        if !f.has_glyph(&font, c) {
-                            missing.push((label.clone(), c));
-                        }
+            let ctx = ui.ctx().clone();
+            let probe =
+                crate::icons::glyphs::GlyphProbe::new(&ctx, egui::FontId::proportional(14.0));
+            for label in &labels {
+                for c in label.chars() {
+                    if !probe.can_draw(&ctx, c) {
+                        missing.push((label.clone(), c));
                     }
                 }
-            });
+            }
         });
 
         assert!(
             missing.is_empty(),
             "these labels contain codepoints the bundled fonts cannot draw, \
              so they would render as tofu boxes: {missing:?}"
-        );
-    }
-
-    // =======================================================================
-    // The narrator
-    // =======================================================================
-
-    /// A clean render still says something.
-    #[test]
-    fn a_clean_render_reports_that_it_is_clean() {
-        let d = pdfce_render::Diagnostics::default();
-        assert_eq!(notes_line(&d), t::diagnostics_clean());
-    }
-
-    /// Every reported field reaches the line, and none of them wraps it.
-    ///
-    /// The second half is R128 again: the disclosure gets **one** line, so a
-    /// page with every finding at once must still produce a single line.
-    #[test]
-    fn every_reported_finding_reaches_the_one_line() {
-        let d = pdfce_render::Diagnostics {
-            contents_streams_unresolved: 1,
-            fonts_unsupported: 2,
-            images_unsupported: 3,
-            glyphs_notdef: 4,
-            glyphs_substituted: 5,
-            glyphs_supplied: 6,
-            oc_sections_hidden: 7,
-            deferred_ops: 8,
-            unknown_ops: 9,
-            ..Default::default()
-        };
-
-        let line = notes_line(&d);
-        for n in 1..=9 {
-            assert!(
-                line.contains(&n.to_string()),
-                "finding {n} is missing from the line: {line}"
-            );
-        }
-        assert!(!line.contains('\n'), "the disclosure gets one line: {line}");
-        assert_ne!(line, t::diagnostics_clean());
-    }
-
-    /// The two counters that mean "nothing is wrong" stay out of the line.
-    ///
-    /// A tolerated structural oddity was absorbed and drawn correctly, and a
-    /// `BX`/`EX` skip is the file telling readers to skip it (§7.8.2 Table
-    /// 32). Reporting either would put reassurance in front of the findings
-    /// that need reading.
-    #[test]
-    fn tolerated_and_compat_skipped_are_not_reported() {
-        let d = pdfce_render::Diagnostics {
-            tolerated: 11,
-            compat_skipped: 13,
-            ..Default::default()
-        };
-        assert_eq!(
-            notes_line(&d),
-            t::diagnostics_clean(),
-            "neither counter describes anything the operator can see or act on"
         );
     }
 }

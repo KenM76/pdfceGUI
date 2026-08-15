@@ -58,8 +58,57 @@ path = "src/main.rs"
 # here: Cargo unifies features across the whole graph, so every
 # intermediate crate must (a) take `pdfce-core` with
 # `default-features = false` and (b) re-export each capability it forwards.
-default = ["jpx"]
+default = ["jpx", "ocrs"]
 jpx = ["pdfce-core/jpx", "pdfce-render/jpx"]
+
+# ---------------------------------------------------------------------------
+# `ocrs` — the OCR RECOGNISER, and only the recogniser.
+#
+# ★ WHAT THIS FLAG ACTUALLY BUYS, because the split is easy to get backwards.
+#
+# `pdfce-core` gates a smaller thing than its name suggests. Its own manifest
+# spells the boundary out:
+#
+#   NOT gated  `ocr::{RecognizedWord, OcrPage, OcrEngine, words_to_page_space}`
+#              and the whole of `ocr::layer` — the types, the y-flip, and the
+#              ISO 32000-1 §9.3.6 mode-3 "sandwich" writer. Pure PDF work with
+#              no dependency, compiled unconditionally.
+#   Gated      `ocr::engine_ocrs` — the recogniser, and nothing else.
+#
+# So this shell could *write* an invisible text layer from words obtained some
+# other way with the flag off, and cannot *produce* those words. Since the
+# only source of words pdfce has is `ocrs`, the flag is the difference between
+# `tools.ocr` working and `tools.ocr` refusing by name.
+#
+# WHY IT IS IN `default`, which is a decision rather than a copy of the
+# engine's: rule 1 of the engine's strippable-capability convention is that a
+# build which omits nothing must behave as it did before the feature existed,
+# and the corollary here is stronger — OCR is the reason most people reach for
+# a PDF tool on scanned material, and a default build that silently could not
+# do it would be a regression wearing a feature flag. The cost is compile time
+# and binary size (the `rten` inference runtime), not runtime: the models are
+# loaded from disk on demand and a build that never runs OCR never touches
+# them.
+#
+# NO NEW LICENCE EXPOSURE FROM THE CODE. `ocrs` and the eleven-crate `rten`
+# stack beneath it are MIT OR Apache-2.0, with Apache-2.0-only `flatbuffers`
+# at the bottom — all permissive, verified against the resolved graph by
+# `pdfce-core`'s own manifest, and every one of them already in
+# `D:\Dev\pdfce`'s lockfile. So this does not add a dependency the workspace
+# root's rule would call an operator decision; it adopts crates pdfce already
+# ships. The MODEL WEIGHTS are the separate question, they are CC-BY-SA-4.0,
+# and the operator answered it on 2026-08-14 — see `about.hbs`,
+# `crates/pdfce-gui/src/text/about.rs` and `tools/package-portable.py`.
+#
+# NO NETWORK, structurally: `ocrs`'s model downloader lives in the separate
+# `ocrs-cli` binary crate, not in the `ocrs` library, so nothing reachable
+# from here can fetch anything.
+#
+# `pdfce-render` is deliberately NOT listed. It has no `ocrs` feature — OCR is
+# entirely a core concern — and naming a feature a crate does not declare is a
+# hard Cargo error rather than a silent no-op, which is the one direction of
+# this mistake that is safe.
+ocrs = ["pdfce-core/ocrs"]
 
 [dependencies]
 # eframe = egui's application shell. Version, backend and feature set are
@@ -133,8 +182,27 @@ egui-shell.workspace = true
 # and at fold-in it would have been deleted in favour of exactly this line.
 rfd = "0.17.2"
 
-pdfce-core = { path = "../../../pdfce/crates/pdfce-core", default-features = false }
-pdfce-render = { path = "../../../pdfce/crates/pdfce-render", default-features = false }
+# ★ PINNED to a commit, not a branch or a tag — 2026-08-14.
+#
+# These were relative paths (`../../../pdfce/...`) for the whole of
+# development, which is right for editing both repos at once and wrong for
+# publishing: source cloned from GitHub would not build for anyone who did
+# not happen to have `pdfce` checked out as a sibling directory. The
+# compiled binary was never affected — Rust links the engine statically, so
+# a packaged build has always been self-contained.
+#
+# A COMMIT rather than a branch, deliberately: `main` moves, and a shell
+# built against whatever the engine happened to be that morning is a build
+# nobody can reproduce. Bumping this is then a deliberate act with a diff,
+# which is what `HANDOFF.md` §11 assumes when it talks about filing against
+# a specific engine revision.
+#
+# This pin was verified before it was written: local HEAD, `origin/main`
+# and the source every binary in the 2026-08-14 session was compiled
+# against were all exactly this commit, with a clean tree — so the exe
+# attached to the release and the source a cloner gets are the same engine.
+pdfce-core = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", default-features = false }
+pdfce-render = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", default-features = false }
 
 # pdfce-print — printer enumeration, device capabilities and spooling.
 #
@@ -148,4 +216,30 @@ pdfce-render = { path = "../../../pdfce/crates/pdfce-render", default-features =
 # from "no printers found": `pdfce-print` is explicit that a build which
 # cannot ask and a machine with nothing to ask about must never collapse into
 # one message.
-pdfce-print = { path = "../../../pdfce/crates/pdfce-print" }
+pdfce-print = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4" }
+
+[dev-dependencies]
+# flate2 — used by ONE ignored test, `ocr::fixture::write_synthetic_image_only`,
+# which generates `fixtures/synthetic-image-only.pdf`: a genuinely image-only
+# PDF with no text layer, for verifying OCR end to end.
+#
+# WHY A DEPENDENCY AT ALL. That fixture is a page-sized raster, and a raster
+# written with no filter is megabytes of zeroes and ink in a git repository.
+# `/FlateDecode` takes it to tens of kilobytes. The alternatives were worse:
+# `/ASCIIHexDecode` doubles the size, and hand-rolling DEFLATE to avoid a
+# dev-dependency would be inventing a compressor to avoid using one.
+#
+# WHY IT COSTS NOTHING THIS PROJECT CARES ABOUT. It is a **dev**-dependency, so
+# it is not in `pdfce-gui.exe`, `about.toml` sets `ignore-dev-dependencies` and
+# `THIRD_PARTY_LICENSES.md` is generated from the SHIPPING graph — nothing about
+# the notice or the packaging changes. The version, and the `rust_backend`
+# feature that keeps it pure Rust, are `pdfce-core`'s own line copied exactly,
+# so this adopts a crate already in pdfce's lockfile rather than adding one: the
+# workspace root's rule is that a crate NOT already there is an operator
+# decision, and this is not that.
+#
+# `default-features = false` is load-bearing for the same reason it is on
+# `pdfce-core`'s copy: the C zlib backends would break the static-single-binary
+# posture, and a dev-dependency that pulled a C toolchain into `cargo test`
+# would make the suite unrunnable on a machine that can build the program.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

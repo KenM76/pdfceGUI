@@ -1,4 +1,22 @@
-//! # `canvas::selection` — selection as IDENTITY, and the invariant it exists to hold
+//! # `canvas::selection` — the selection STATE, and the invariant it exists to hold
+//!
+//! ## The two halves of this module, and the seam between them
+//!
+//! [`identity`] holds what a selection **is**: [`Selection`],
+//! [`SelectionLevel`], [`ClickHit`] and [`EscapeOutcome`] — four `Copy` types
+//! which between them cannot name a place on the screen. That file carries the
+//! *"selection is an identity, not a position"* argument in full, because it is
+//! an argument about the shape of a **type** and is answered by reading four
+//! field declarations.
+//!
+//! This file holds what **accumulates** them: [`SelectionState`], the ladder it
+//! walks, the `(page, epoch)`-keyed re-resolve, and every rule about what a
+//! click, a marquee or an Escape means. Those are answered by reading
+//! behaviour, which is why they are worth their own file and their own tests.
+//!
+//! All four identity types are re-exported here, so
+//! `crate::canvas::selection::SelectionLevel` remains the path every caller
+//! uses and the seam is invisible from outside the module.
 //!
 //! ## ★ The invariant, stated first because everything here is shaped by it
 //!
@@ -17,7 +35,7 @@
 //!
 //! | # | The way it is lost | What closes it here |
 //! |---|---|---|
-//! | 1 | **Selection stored in screen coordinates.** Zoom changes the mapping, so the stored point stops naming the thing it named. | [`Selection`] holds **no coordinate of any kind**. It is `page + object + subpath + node`, four integers, none of which a zoom can touch. There is no constructor that takes a `Pos2`. |
+//! | 1 | **Selection stored in screen coordinates.** Zoom changes the mapping, so the stored point stops naming the thing it named. | [`Selection`] holds **no coordinate of any kind**. It is `page + object + subpath + node`, four integers, none of which a zoom can touch. There is no constructor that takes a `Pos2`. This is the one closure that is a property of a *type* rather than of a method, which is why it lives in [`identity`] — see that file's header for the argument in full. |
 //! | 2 | **Selection cleared by a click that was really a drag.** A gesture begins with a press; if press-on-empty clears, every drag that starts on blank paper destroys the selection. | Nothing in this module is called on a press. The clear is driven by [`SelectionState::click`], which [`crate::canvas::gesture`] raises only for a **completed click with no drag**. |
 //! | 3 | **Selection invalidated by re-decomposition.** The provider rebuilds on page change and on edit; a rebuild triggered by zoom, or by a page change that is not a page change in the operator's sense, must not drop it. | [`SelectionState::resolve`] **re-resolves against the new decomposition** instead of discarding, and — the part that is easy to get wrong — it only validates entries **on the page the provider serves**. An entry for another page is left completely alone. |
 //!
@@ -27,28 +45,6 @@
 //! still the entered level."* Going to another page builds a provider for
 //! that page, and a `resolve` that pruned everything it could not find would
 //! wipe the selection on the way past. Coming back would find nothing.
-//!
-//! ## Why paint-order index is the identity, and what it does not survive
-//!
-//! `Selection::object` is a [`TargetId`], which is the object's index into
-//! `PageObjects::objects` — **paint order**. It is the same number
-//! `pdfce-cli object-list` prints and `object-delete` takes, so "object 412"
-//! means one thing across every surface. That is what makes it usable as an
-//! identity here.
-//!
-//! It is an identity **within one revision of one page**, and no further.
-//! Deleting an object renumbers every object painted after it. So an edit
-//! moves the meaning of a retained index, and this module's honest position
-//! is to say so rather than to pretend otherwise:
-//!
-//! - A rebuild with the **same** revision (the zoom / page-return / panel
-//!   case, which is the invariant's whole subject) re-resolves exactly.
-//! - A rebuild after an **edit** re-resolves against the new decomposition
-//!   and drops what no longer exists; indices that *shifted* silently name
-//!   their new neighbour. Closing that needs a stable per-object token from
-//!   `pdfce-core`, which does not exist — `decompose_page` mints indices, not
-//!   identities. It is recorded here rather than in a comment nobody reads,
-//!   and it is a boundary finding for the engine, not a shortcut taken here.
 //!
 //! ## Why the level is state and not derived
 //!
@@ -66,150 +62,18 @@
 //! provider trait, which is precisely why every invariant above can be
 //! asserted in a unit test rather than hoped for in a running window.
 
+/// What a selection **is** — the four `Copy` types the state below accumulates,
+/// none of which can hold a coordinate. The pure half; see its header for why
+/// "identity, not position" is a claim about a type rather than about a method.
+pub mod identity;
+
+pub use identity::{ClickHit, EscapeOutcome, Selection, SelectionLevel};
+
 use std::collections::BTreeSet;
 
 use egui::Rect;
 
 use crate::canvas::target::{CanvasTargetProvider, TargetId};
-
-/// One selected thing, addressed by **identity** and never by position.
-///
-/// Four integers, and the shape is `GUI_ROADMAP.md`'s — *"page, object index,
-/// sub-path, node"*. Enough to re-resolve against a fresh decomposition, and —
-/// the point — containing nothing a zoom, a pan or a fit mode could
-/// invalidate.
-///
-/// `Ord` so a selection set has a stable, reviewable order and so a
-/// [`BTreeSet`] can de-duplicate it. The ordering is `(page, object, subpath,
-/// node)`, i.e. document order first, which is also the order the outlines
-/// are painted in — a multi-select that painted in click order would
-/// re-stack its outlines whenever the operator shift-clicked, which reads as
-/// flicker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Selection {
-    /// The 0-based page index the object lives on.
-    ///
-    /// Carried even though the canvas draws one page today, because it is
-    /// what lets a selection survive navigating away and back — the case the
-    /// acceptance criterion turns on — and because `GUI_ROADMAP.md` Phase 4
-    /// puts several pages on screen at once.
-    pub page: usize,
-    /// The object, by paint-order index (see the module docs on identity).
-    pub object: TargetId,
-    /// The entered part — a path's subpath or a text object's show-operator
-    /// run — if the operator has descended one rung.
-    ///
-    /// `None` means "the whole object", which is a different statement from
-    /// "part 0".
-    pub subpath: Option<usize>,
-    /// The entered anchor, **object-scoped**, if the operator has descended
-    /// two rungs.
-    ///
-    /// Object-scoped rather than part-scoped because that is the space
-    /// `vector::anchor_count` reports and `pdfce-cli node-move --node N`
-    /// addresses; a second numbering would make the number pdfce shows
-    /// disagree with the number the operator can act on.
-    ///
-    /// `Some` implies `subpath.is_some()`: there is no way to pick a point
-    /// without being inside the part that holds it. [`SelectionState`] is the
-    /// only thing that constructs these and it maintains that.
-    pub node: Option<usize>,
-}
-
-impl Selection {
-    /// A whole-object selection.
-    #[must_use]
-    pub fn object(page: usize, object: TargetId) -> Self {
-        Self {
-            page,
-            object,
-            subpath: None,
-            node: None,
-        }
-    }
-}
-
-/// Which rung of the selection ladder the operator has entered.
-///
-/// Three rungs, and the ladder is the vector-editor convention the operator
-/// asked for: double-click descends, Escape ascends **one rung per press**.
-///
-/// The cap is structural rather than checked. A text object decomposes into
-/// runs, and a run has no anchors, so
-/// [`CanvasTargetProvider::nearest_node`] can never return a node for one —
-/// the ladder stops at two rungs for text without a special case anywhere.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum SelectionLevel {
-    /// Whole objects. The rung a click starts on and Escape returns to.
-    #[default]
-    Object,
-    /// Inside one object, selecting its parts — a path's subpaths or a text
-    /// object's runs.
-    ///
-    /// This rung exists because a PDF path object can hold an entire drawing:
-    /// one measured CAD export has **1,194 subpaths in a single object**, so
-    /// "the object under the pointer" is usually not the thing the operator
-    /// means.
-    Part,
-    /// Inside one part, selecting its anchors.
-    ///
-    /// Scoped to the entered part deliberately: the same measured export has
-    /// one object holding **6,681 anchors**, and offering all of them as a
-    /// grab target is what made the old ungated gesture unpredictable — the
-    /// nearest anchor to a press could easily belong to a subpath the
-    /// operator was not pointing at, with nothing drawn to say which.
-    Node,
-}
-
-impl SelectionLevel {
-    /// The rung one step up, or `None` at the top.
-    #[must_use]
-    pub fn ascend(self) -> Option<Self> {
-        match self {
-            Self::Object => None,
-            Self::Part => Some(Self::Object),
-            Self::Node => Some(Self::Part),
-        }
-    }
-}
-
-/// What one press of Escape did — reported rather than silently absorbed.
-///
-/// The caller traces it and, in the `Nothing` case, is free to let Escape
-/// fall through to whatever else owns the key. Returning a value rather than
-/// a `bool` is what keeps *"Escape ascends exactly one rung"* assertable:
-/// a test can press Escape three times and check the three outcomes in
-/// order, which a `bool` could not distinguish from one press that collapsed
-/// the whole ladder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EscapeOutcome {
-    /// Left the entered rung, returning to the one above. The selection is
-    /// **not** cleared — that is the next press's job.
-    LeftLevel(SelectionLevel),
-    /// Was at the Object rung with something selected: cleared it.
-    ClearedSelection,
-    /// Nothing was selected and no rung was entered. The canvas did not
-    /// consume the key.
-    Nothing,
-}
-
-/// What the provider found under a completed click, at every rung at once.
-///
-/// Assembled by the canvas — which owns the provider and the coordinate
-/// conversion — and handed here as plain integers, so [`SelectionState::click`]
-/// is a pure function of "what is there" and "where am I" with no geometry in
-/// it. Every branch of the ladder is then testable without a document, a
-/// decomposition or an egui frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ClickHit {
-    /// The front-most object under the pointer, if any.
-    pub object: Option<TargetId>,
-    /// The nearest part of the **entered** object, if the click was inside
-    /// one and a part was within tolerance.
-    pub part: Option<usize>,
-    /// The nearest anchor of the **entered** part, object-scoped.
-    pub node: Option<usize>,
-}
 
 /// The whole of the canvas's selection state.
 ///
@@ -279,6 +143,37 @@ impl SelectionState {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// **Drop the selection entirely**, reporting whether there was one.
+    ///
+    /// Back to the ground state — no entries, no outlines, the ladder at
+    /// [`SelectionLevel::Object`] — which is what makes this different from
+    /// [`Self::escape`]: escape *ascends one rung* and is the operator walking
+    /// back up a structure they entered, while this is the selection ceasing to
+    /// exist. Resetting the rung matters as much as emptying the list: a
+    /// `Node`-rung state with nothing in it would put the next click's first
+    /// selection straight into a rung the operator never entered.
+    ///
+    /// `resolved_for` is cleared too, so the empty state is not mistaken for
+    /// one already resolved against a page and an epoch it no longer describes.
+    ///
+    /// The one caller is `PdfceApp::on_mode_capabilities_changed`, entering a
+    /// mode that cannot select page content — see there for why a selection is
+    /// not "work" for the purposes of rule 1. It is deliberately **not** wired
+    /// to any gesture: a click on empty paper narrows the selection through
+    /// [`Self::click`]'s own rules, and a mis-aimed right-click is documented
+    /// in [`crate::canvas::menus::select_under_right_click`] as something that
+    /// must *not* destroy a set the operator spent five clicks building.
+    pub fn clear(&mut self) -> bool {
+        if self.entries.is_empty() {
+            return false;
+        }
+        self.entries.clear();
+        self.outlines.clear();
+        self.level = SelectionLevel::Object;
+        self.resolved_for = None;
+        true
     }
 
     /// How many entries are selected — the `sel=` the diagnostic trace

@@ -96,6 +96,77 @@ pub(super) const REGION_PAGE_MESSAGE: &str = "canvas-message"; // ui-text-exempt
 /// selection*. Sharing a slot would let each silence the other.
 pub(super) const SELECTION_SLOT: &str = "canvas-selection"; // ui-text-exempt: trace slot name, never displayed
 
+/// Trace slot for what the **text** selection did — a sweep, a word, a line, a
+/// select-all, a clear.
+///
+/// Separate from [`SELECTION_SLOT`] for the reason every slot here is separate:
+/// they answer different questions. It is also the only honest arrangement,
+/// because the two are mutually exclusive by construction
+/// (`canvas::textsel`'s header §3) — sharing a slot would make a mode change
+/// look like a selection event, since the *other* selection's line would arrive
+/// next in the same slot and silence nothing.
+pub(super) const TEXT_SELECTION_SLOT: &str = "canvas-text-selection"; // ui-text-exempt: trace slot name, never displayed
+
+/// ★ **Report what the text selection just became.**
+///
+/// # Why this line has to exist at all
+///
+/// `HANDOFF.md` §2's defect 8 is the sharpest lesson this project has:
+/// *"A screenshot could not catch this one — 2,450 hairlines and a wash are the
+/// same picture."* The same trap is here in a purer form. A text selection is a
+/// **translucent wash over glyphs**, and a screenshot of a page with a
+/// three-word selection on it and a screenshot of the same page with none are
+/// very nearly the same picture — at the low alpha `overlay`'s
+/// `TEXT_SELECTION_ALPHA` is deliberately set to, over the linework of a CAD
+/// sheet, they may be indistinguishable to a pixel oracle.
+///
+/// So the application says what it selected, in characters, and a harness can
+/// prove the gesture happened rather than inferring it from a wash. `chars=` is
+/// the number an assertion should be made on: it is `> 0` if and only if the
+/// sweep found glyphs, and it is the length of the string a copy would put on
+/// the clipboard — the same value, from the same field, so a trace and a
+/// clipboard cannot disagree about what was selected.
+///
+/// # The fields
+///
+/// ```text
+/// pdfce-diag canvas-text-selection via=drag page=0 chars=27 quads=2
+/// ```
+///
+/// * `via=` — `drag`, `word`, `line`, `extend`, `all` or `clear`. Which gesture
+///   produced this, so a check can tell a double-click from a sweep that
+///   happened to cover one word.
+/// * `page=` — the page the range is on. A selection is single-page
+///   (`canvas::textsel` §4), so this is a fact about the whole value.
+/// * `chars=` — the byte length of the selected text. **Zero means cleared**,
+///   which is a real event with a real cause and is traced rather than being a
+///   silence a consumer has to interpret.
+/// * `quads=` — how many line boxes the wash is drawn from. `quads=0` with
+///   `chars>0` would be a selection that copies text and highlights nothing,
+///   which is exactly the divergence the one-derivation rule exists to prevent
+///   — so the pair is on the line together and a check can assert on both.
+///
+/// De-duplicated through [`crate::diag::trace_changed`], like every other line
+/// here: a sweep moves the pointer sixty times a second and the intermediate
+/// states are noise. **This is the same trap `ui-verify`'s `read_mode` check
+/// documents** — a consumer that clicks the same word twice and expects two
+/// lines will see one. `via=` is on the line partly for that reason: two
+/// gestures producing the same range still differ if they differ in kind.
+pub(super) fn text_selection(
+    page: usize,
+    selection: Option<&crate::canvas::textsel::TextSelection>,
+    via: &str,
+) {
+    crate::diag::trace_changed(TEXT_SELECTION_SLOT, || {
+        let (chars, quads) = selection.map_or((0, 0), |s| (s.len(), s.quads.len()));
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI.
+            // Placed directly above the literal — see `layout`.
+            "canvas-text-selection via={via} page={page} chars={chars} quads={quads}"
+        )
+    });
+}
+
 /// Report a selection-changing gesture on the `PDFCE_DIAG` channel.
 ///
 /// De-duplicated on the rendered line, so a marquee dragged across a sheet

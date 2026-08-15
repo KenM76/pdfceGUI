@@ -1,0 +1,129 @@
+# cargo-about configuration — generates THIRD_PARTY_LICENSES.md from this
+# workspace's real Cargo.lock.
+#
+#     cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md
+#
+# Regenerate whenever the dependency set changes, whenever `about.hbs` is
+# edited, and before any packaging pass. `tools/gates/check-shipped-assets.py`
+# fails if the generated file has drifted from the template, so a forgotten
+# regeneration is caught by the gate rather than discovered after a release.
+#
+# ===========================================================================
+# WHY THIS WORKSPACE HAS ITS OWN, RATHER THAN LEANING ON THE ENGINE'S
+# ===========================================================================
+#
+# `D:\Dev\pdfce` already has an `about.toml`/`about.hbs` pair and generates its
+# own `THIRD_PARTY_LICENSES.md`. That file is complete and correct **for
+# pdfce's binaries**, and it is not this one, because the two dependency
+# graphs are not the same graph:
+#
+#   * this workspace adds `eframe`, `egui`, `egui_tiles`, `ron` and their
+#     transitive sets, none of which pdfce-cli links; and
+#   * `pdfce-gui.exe` statically links `pdfce-core` and `pdfce-render` by
+#     path, so it also carries everything pdfce's own notice covers.
+#
+# A notice file generated over there therefore under-reports what ships here,
+# and copying it would be a claim about a lockfile nobody read. The two files
+# overlap heavily and that is fine: each is generated from the lockfile of the
+# binary it ships beside.
+#
+# ===========================================================================
+# THE `accepted` LIST IS A GATE, NOT A FORMALITY
+# ===========================================================================
+#
+# It is deliberately PERMISSIVE-ONLY. If a dependency — or a transitive one —
+# carries a copyleft licence (MPL/LGPL/GPL/AGPL) that is not listed here,
+# `cargo about generate` FAILS and names the offending crate. That failure IS
+# the licence audit. Do not add MPL-2.0 or any *GPL id to this list to make an
+# error go away; an id joins it only after a deliberate, recorded operator
+# decision.
+#
+# ★ THE LIST BELOW IS pdfce's OWN, REPRODUCED RATHER THAN RE-DERIVED.
+#
+# Every id here is one the operator has already accepted for `D:\Dev\pdfce`
+# (see that repo's `about.toml` and `docs/LEGAL.md` §6), and a licence already
+# accepted for the engine is already accepted for a binary that links the
+# engine statically. Re-deriving a narrower list from this workspace's graph
+# was considered and rejected: it would have made this workspace refuse ids
+# that are demonstrably fine, on no evidence beyond "nothing reaches them
+# today".
+#
+# WHAT THIS WORKSPACE'S GRAPH ACTUALLY REACHES, measured 2026-08-14 by running
+# the generator: Apache-2.0 (135 crates), Unicode-3.0 (19), MIT (13),
+# BSD-3-Clause (2), BSL-1.0 (2), 0BSD (1), BSD-2-Clause (1), IJG (1), ISC (1),
+# OFL-1.1 (1), Ubuntu-font-1.0 (1), Zlib (1). The remaining ids are inherited
+# headroom, not evidence — a reader must not take an id's presence here as a
+# claim that some crate uses it.
+#
+# ONE DELIBERATE OMISSION: `CDLA-Permissive-2.0`. pdfce accepted it on
+# 2026-08-13 for `webpki-roots`, which arrives with an HTTPS client. This
+# workspace has no HTTP client and no TLS stack, and if one ever lands here
+# the generator should stop and say so rather than wave it through on an
+# acceptance recorded for a different binary. That is the list doing its job.
+#
+# NOTE: all top-level keys must appear BEFORE the [private] table header — in
+# TOML every key after a table header belongs to that table.
+
+# Only harvest licences for the target pdfceGUI actually distributes today.
+# `tools/package-portable.py` builds `pdfce-gui.exe` for Windows and nothing
+# else; add triples here when other artefacts are actually shipped, so the
+# notice does not carry platform-only dependencies for platforms nobody has.
+targets = ["x86_64-pc-windows-msvc"]
+
+# Build- and dev-dependencies are not shipped in the binary, so their licences
+# do not need attribution in the distributed artefact.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Permissive software SPDX ids only. Alphabetical for easy diffing.
+accepted = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    # IJG — the Independent JPEG Group's licence, reached via `jpeg-encoder`
+    # (SPDX `(MIT OR Apache-2.0) AND IJG`; the AND is CONJUNCTIVE, so this id
+    # must be accepted or `cargo about generate` fails). It is PERMISSIVE: no
+    # source-disclosure obligation, nothing that touches pdfce's own MIT
+    # licence. What it does carry is an ATTRIBUTION obligation on binary
+    # redistribution — the sentence "this software is based in part on the
+    # work of the Independent JPEG Group" — which cargo-about does NOT
+    # generate. That sentence lives as a static "Required acknowledgements"
+    # section in `about.hbs` so every regeneration re-emits it. Do not add
+    # this id without that section, and do not remove that section while this
+    # id is here.
+    #
+    # It is reached HERE, not merely inherited: `jpeg-encoder` is in this
+    # workspace's graph through `pdfce-core`, and the generator counts one
+    # crate against it. Accepted by operator decision 2026-08-08 for pdfce
+    # ("accept the ijg attribution line").
+    "IJG",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    # --- Bundled-FONT licences (a distinct category from the software
+    # licences above). egui's default font set (`epaint_default_fonts`, pulled
+    # in by this workspace's `default_fonts` feature on eframe) embeds the
+    # Ubuntu font and OFL-licensed faces. These govern the FONT FILES, not
+    # pdfce's code: both permit embedding and redistribution and impose only
+    # an attribution obligation, satisfied by reproducing their notices in
+    # THIRD_PARTY_LICENSES.md. Neither constrains pdfce's own MIT licence the
+    # way a copyleft *software* dependency would — the OFL's "derivatives stay
+    # OFL" clause applies to modified fonts, which pdfce does not create; it
+    # only embeds them.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+
+# Skip this workspace's own crates (`pdfce-gui`, `egui-shell`, `ui-verify`)
+# and the engine crates it links by path — we attribute third-party code, not
+# our own. pdfce's own crates are `publish = false` and are covered by the
+# `LICENSE` file that ships beside the binary.
+[private]
+ignore = true

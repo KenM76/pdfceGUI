@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic open segment-chain shape — generic, no trademark risk -->
+  <!-- ui-spec §3.3 "shapes family": the polyline is the polygon glyph with its
+       closing segment removed, which is exactly how the two annotations differ
+       (/PolyLine is /Polygon that does not close, §12.5.6.13). Four vertices and
+       three segments: three is the fewest that reads as a CHAIN rather than as a
+       bent line, and the ends are deliberately left far apart and at different
+       heights so the open side cannot be mistaken for a rendering clip. -->
+  <path d="M9 34L19 15L29 29L39 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

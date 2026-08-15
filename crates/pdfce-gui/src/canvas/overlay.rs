@@ -365,6 +365,82 @@ pub fn draw_find_hits(
     }
 }
 
+// ---------------------------------------------------------------------------
+// The text selection
+// ---------------------------------------------------------------------------
+
+/// How opaque the **text selection** wash is, out of 255.
+///
+/// ★ **The number this project already paid for once.** `HANDOFF.md` §2's
+/// defect 3 is *"Find's current-hit highlight completely covered the word it
+/// highlighted"*, found by driving the binary and fixed by taking
+/// [`CURRENT_ALPHA`] from 168 to 96 — with the lesson recorded there as
+/// *"the operator's next act after finding a hit is to READ it"*.
+///
+/// It applies here with more force. A find hit is something the operator is
+/// deciding about; a text selection is something they are **about to copy**,
+/// and the only way to tell whether they swept the right words is to read them
+/// through the wash. So this sits at the low end deliberately, at the same
+/// value as a non-current find hit rather than the emphasised one: there is
+/// nothing here to emphasise *against*, because a selection has no neighbours.
+///
+/// Equal to [`HIT_ALPHA`] and stated as its own constant rather than aliased to
+/// it, because the two are equal by coincidence of judgement rather than by
+/// construction — they answer different questions ("one of several answers" vs
+/// "the thing you are copying") and a future change to either must not silently
+/// move the other.
+const TEXT_SELECTION_ALPHA: u8 = 40;
+
+/// Paint the operator's **text selection**: one wash per line of it.
+///
+/// `boxes` come from [`crate::canvas::textsel::TextSelection::highlights`],
+/// which yields **nothing at all** for another page or for a revision the
+/// selection no longer describes — so an edit stops the wash here by supplying
+/// an empty slice rather than by a check in this function, exactly as
+/// `find::FindState::page_highlights` arranges for the search wash. That is the
+/// mechanism by which rule 4 is kept: this module cannot paint a mark over
+/// glyphs the selection no longer describes, because it is never handed one.
+///
+/// # Rule 4
+///
+/// A selection wash is a **pre-commit affordance** in the second category of
+/// this module's header — it is the cursor, describing what a copy would take —
+/// and it disappears the instant the selection does. Nothing here is keyed on a
+/// property of the *content*: it marks a range the operator just swept. The
+/// one-line test still answers no; with nothing selected this paints nothing.
+///
+/// # ★ Unstroked, where a find hit is stroked
+///
+/// [`draw_find_hits`] strokes the **current** hit because it has to be told
+/// apart from the other hits on the page. A text selection is one thing, so
+/// there is nothing to distinguish it from — and a stroke round each line box
+/// would draw a visible seam **between** the lines of one selection, which is a
+/// boundary the operator did not make and which no text application draws.
+///
+/// # Why the boxes are grown
+///
+/// Through [`visible_outline_rect`], for the reason [`draw_find_hits`] gives:
+/// a glyph box can be degenerate on one axis — a producer that emitted a zero
+/// size, or a line so small at the current zoom that it rounds away — and a
+/// selection that puts no pixels on the screen is indistinguishable from a
+/// gesture that did not work.
+pub fn draw_text_selection(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    boxes: &[Rect],
+) {
+    for page_rect in boxes {
+        let screen =
+            visible_outline_rect(mapping.rect_to_screen(*page_rect), MIN_OUTLINE_EXTENT_PX);
+        painter.rect_filled(
+            screen,
+            CornerRadius::ZERO,
+            at_alpha(visuals.selection.bg_fill, TEXT_SELECTION_ALPHA),
+        );
+    }
+}
+
 /// A themed colour at a chosen alpha.
 ///
 /// Read back through `to_srgba_unmultiplied`, for the reason [`ghost`]
@@ -611,6 +687,48 @@ mod tests {
             // ui-text-exempt: compile-error text, never displayed in the UI
             "the operator's next act after finding a hit is to READ it; a wash this \
              opaque covers the word it is marking"
+        );
+    }
+
+    /// ★ **The text-selection wash is readable through** — the bound the
+    /// current-hit defect established, applied to the surface that needs it
+    /// most.
+    ///
+    /// A find highlight marks one of several candidate answers; a text
+    /// selection marks *the characters that are about to be copied*, and the
+    /// operator's only way to check them is to read them. So the ceiling is
+    /// asserted at compile time against the same value
+    /// [`CURRENT_ALPHA`]'s own screenshot-derived bound uses, and the hue is
+    /// asserted to be the theme's — a selection wash that borrowed a named
+    /// palette entry would break the first time somebody restyled it for its
+    /// real purpose. `tools/gates/check-theme-colors.sh` enforces the general
+    /// rule; this asserts the specific consequence.
+    #[test]
+    fn the_text_selection_wash_is_readable_through_and_keeps_the_themes_hue() {
+        // NOT A THEME COLOUR: a test fixture standing in for whatever the theme
+        // supplies; the assertion is that the hue survives, so the exact input
+        // has to be a known literal.
+        let base = Color32::from_rgb(60, 120, 200);
+        let [r, g, b, a] = at_alpha(base, TEXT_SELECTION_ALPHA).to_srgba_unmultiplied();
+        for (got, want) in [(r, 60u8), (g, 120), (b, 200)] {
+            assert!(
+                got.abs_diff(want) <= 6,
+                "the selection wash drifted off the theme's hue: {got} vs {want}"
+            );
+        }
+        assert_eq!(a, TEXT_SELECTION_ALPHA);
+
+        const _: () = assert!(
+            TEXT_SELECTION_ALPHA <= CURRENT_ALPHA,
+            // ui-text-exempt: compile-error text, never displayed in the UI
+            "a text selection is what the operator is about to COPY, and the only way to \
+             check it is to read it — it must never be more opaque than the find hit whose \
+             opacity was already measured down from a solid block"
+        );
+        const _: () = assert!(
+            TEXT_SELECTION_ALPHA > 0,
+            // ui-text-exempt: compile-error text, never displayed in the UI
+            "a selection nobody can see is a selection nobody can aim"
         );
     }
 

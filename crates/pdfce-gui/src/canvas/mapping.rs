@@ -230,6 +230,34 @@ impl PageMapping {
     pub fn tolerance(&self) -> f64 {
         screen_tolerance_to_page(SELECT_SCREEN_TOLERANCE_PX, self.zoom)
     }
+
+    /// The **snap** catch radius for this frame, in canvas/page units.
+    ///
+    /// [`Self::tolerance`]'s sibling, and it sits here for the identical
+    /// reason: this module's header states that there is no second place in
+    /// `canvas/` that divides by `zoom`, and a snap query that reached for
+    /// `SNAP_SCREEN_TOLERANCE_PX` and did the division at its call site would
+    /// be exactly that second place.
+    ///
+    /// # ★ Why it is a different number from the selection radius
+    ///
+    /// They are both screen-pixel radii converted the same way, but they
+    /// answer different questions and the salvaged constant is the wider of
+    /// the two (10 px against the selection's smaller catch). A snap is an
+    /// *offer* — it proposes a point and shows an indicator saying which, and
+    /// the operator can refuse it by holding Alt — so casting a wide net costs
+    /// them nothing. A selection is a *commitment* made silently on release,
+    /// so its radius is deliberately tighter: `canvas::forms`' header makes the
+    /// same argument one step further, refusing any tolerance at all for form
+    /// widgets because fields sit a point apart.
+    ///
+    /// Keeping them separate is what lets each be tuned without the other
+    /// moving. Collapsing them would mean widening the selection catch every
+    /// time snapping wanted a longer reach.
+    #[must_use]
+    pub fn snap_tolerance(&self) -> f64 {
+        screen_tolerance_to_page(crate::canvas::snap::SNAP_SCREEN_TOLERANCE_PX, self.zoom)
+    }
 }
 
 #[cfg(test)]

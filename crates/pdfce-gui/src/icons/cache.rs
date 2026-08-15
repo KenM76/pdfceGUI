@@ -63,7 +63,7 @@ use super::{Icon, IconWeight};
 
 /// Hard cap on live cache entries before the whole cache is dropped.
 ///
-/// The cache grows only along three axes — 72 icons × 2 weights × however
+/// The cache grows only along three axes — 80 icons × 2 weights × however
 /// many distinct physical sizes the display scale has taken this session —
 /// so in normal use it settles well under this and never reaches it. The cap
 /// exists solely so that a session that repeatedly changes display scale

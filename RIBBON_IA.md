@@ -208,7 +208,8 @@ mark. `⌄` means the control is a split button or dropdown.
 
 | Group | Commands | |
 |---|---|---|
-| **File** | New (blank / from template) | **N** |
+| **File** | New (blank) | **G** *(2026-08-14; `Ctrl+N`)* |
+| | New from template… (page size) | **N** — see `manifest::PLANNED` |
 | | Open… | **G** *(also QAT)* |
 | | Recent ⌄ | **N** |
 | | Close | **G** *(currently switcher-only)* |
@@ -495,7 +496,7 @@ own queue** — core and CLI shipped and measured. It is a shell-only task.
 | **Compare** | Compare documents… | **N** |
 | **Fonts** | Font folders… | **G** |
 | | Embed fonts · Unembed fonts | **G** *(Fonts pane)* |
-| **Recognise** | OCR… | **N** — blocked, see roadmap |
+| ~~**Recognise**~~ | ~~OCR…~~ | ★ **MOVED to File ▸ Recognise, 2026-08-14 — `file.ocr`.** This section specified Tools, and Tools is **not in Read's tab list** (`["file", "view"]`). The operator's instruction was that OCR *be available in Read*, so shipping it here would have satisfied this document and broken the instruction. **This is the third time the same pattern has decided a tab**, and it is now a rule rather than a coincidence: *a command refused in a mode where the operator plainly needs it is evidence that the command's tab is wrong, not that the mode gate needs an exception.* It moved `edit.form_fill` → `view.panel_forms` (filling is not authoring), `edit.copy_*` → `file.copy_*` (copying is not authoring), and now `tools.ocr` → `file.ocr`. The alternative — giving Read the **Tools** tab — was refused because it would hand a reading stance batch merge, batch split and font embedding. **File over View** because OCR's product is a new file, which is what the File tab is for. |
 | **Validate** | PDF/A validate & convert… | **N** — *see `DEFECTS.md` §2* |
 | | Optimise… | **N** |
 | **Diagnostics** | Render diagnostics | **G** *(status bar; belongs here)* |

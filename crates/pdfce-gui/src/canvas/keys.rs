@@ -1,12 +1,28 @@
-//! # `canvas::keys` — the two keys the canvas owns, and who gets Escape
+//! # `canvas::keys` — the keys the canvas owns, and who gets Escape
 //!
-//! Escape and Delete, and nothing else. They are split out of `canvas/mod.rs`
+//! Escape, Delete and **Tab**, and nothing else. They are split out of
+//! `canvas/mod.rs`
 //! along a real seam rather than for line count: everything else in that file
 //! is *wiring* — it needs an `egui::Ui`, a laid-out scroll area and a live
 //! document, and cannot be exercised without a window — whereas this is a
 //! decision about keys that a headless `egui::Context` can drive end to end.
 //! Its tests came with it, which is the test for whether a split was along a
 //! seam.
+//!
+//! ## Tab, and why it is guarded on the armed tool rather than on a mode
+//!
+//! Tab advances the **snap cycle** while a measure tool is armed
+//! ([`crate::canvas::measure::cycle_snap`]) — the operator's way of saying
+//! *"the other candidate"* when an endpoint and a midpoint are a few pixels
+//! apart and pointing cannot separate them.
+//!
+//! Tab is `egui`'s focus key, so the guard matters more here than for the
+//! other two. It is the **armed tool**, not a mode and not a capability:
+//! with no measure tool armed the branch is false, the key is untouched, and
+//! keyboard navigation of every panel and dialog behaves exactly as it did.
+//! A mode-shaped guard would have been wrong in both directions — Review and
+//! Edit both offer the measure tools, and in neither of them should Tab stop
+//! moving focus when the operator is not measuring.
 //!
 //! ## ★ Six claimants for Escape, one press, one effect
 //!
@@ -20,9 +36,125 @@
 //! | 0 | a **form field being typed into** | [`crate::canvas::forms`] | [`crate::canvas::forms::escape_spent`]: `true` when a draft was abandoned |
 //! | 1 | a **drag in flight**, including a markup band | [`crate::canvas::gesture::GestureState::update`] — the only thing that knows whether there is one | [`crate::canvas::gesture::GestureOutcome::Cancelled`], arriving here as `escape_consumed` |
 //! | 2 | a **guide drag in flight** | [`crate::canvas::guides::cancel_drag`] | its return value: `true` when there was one |
-//! | 3 | an **armed markup tool** | [`crate::canvas::tool::disarm_markup`] | its return value: `true` when there was one armed |
+//! | 3a | a **measure pick** or a **markup vertex run** in progress | [`crate::canvas::measure::abandon`] / [`crate::canvas::markup::vertex::abandon`] | its return value: `true` when there was one |
+//! | 3b | an **armed markup or measure tool** | [`crate::canvas::tool::disarm_markup`] / [`crate::canvas::tool::disarm_measure`] | its return value: `true` when there was one armed |
+//! | — | ★ the **armed text tool** is deliberately **not** a claimant — see below | — | — |
 //! | 4 | an **armed region zoom** | [`crate::canvas::zoom::disarm_region_zoom`] | its return value: `true` when there was something to retire |
-//! | 5 | the **selection ladder** | [`crate::canvas::selection::SelectionState::escape`] | it is last, so it acts only when none above did |
+//! | 5 | the **selection ladder**, or the **text selection** | [`crate::canvas::selection::SelectionState::escape`] / clearing [`crate::canvas::textsel::TextSelection`] | it is last, so it acts only when none above did |
+//!
+//! ### ★ Why the text selection shares rung 5 rather than taking a sixth
+//!
+//! The original argument was that it is not a precedence decision at all:
+//!
+//! > **The two occupants of rung 5 can never both be present.**
+//! > `canvas::textsel::takes_the_press` gives a press its text meaning exactly
+//! > when `Capabilities::edit_content` is absent, and the content selection is
+//! > reachable exactly when it is present — one flag, two mutually exclusive
+//! > branches […] there is no frame in which both could claim the key.
+//!
+//! ★ **That is no longer true, and the rung is right anyway.** Since
+//! [`crate::canvas::tool::CanvasTool::Text`] landed (2026-08-14) an operator in
+//! **Edit** can marquee some objects with the select tool, arm the text tool,
+//! sweep a line, and hold both selections at once — `takes_the_press` gained a
+//! disjunct, so the two are no longer decided by one flag in opposite senses.
+//! `canvas::textsel` §3 records that move from exclusivity-by-construction to
+//! exclusivity-by-precedence in full.
+//!
+//! So there **is** an ordering now, and it is the one the code already had:
+//! **the text selection first.** Three reasons, in weight order:
+//!
+//! 1. **It is the more transient**, which is this table's own rule. A text range
+//!    is made by the gesture the operator is performing right now and is
+//!    destroyed by the very next edit anyway (`textsel` §7's epoch rule); an
+//!    object selection survives edits, navigation, zoom and the mode change that
+//!    hid it.
+//! 2. **It is what the operator just did.** Reaching this state requires arming
+//!    a tool and sweeping, and the press that follows means the thing that press
+//!    could plausibly be about.
+//! 3. **The content ladder has rungs and a text range has none**, which is the
+//!    asymmetry the paragraph below already describes: clearing the text
+//!    selection costs the operator one re-sweep, while ascending the object
+//!    ladder loses the sub-path or node they had descended into. Given a
+//!    choice, spend the press on the cheaper loss.
+//!
+//! A sixth rung is **still** not the answer, and now for a different reason than
+//! before. It would put a *precedence* between two things that are the same act
+//! — "clear what is selected" — expressed twice because this shell has two kinds
+//! of selectable thing; and it would make a mode in which only one of them can
+//! exist (Read, Review) look as though it had two rungs to climb. The rung is
+//! "the selection"; which selection is answered by what is actually there.
+//!
+//! Both branches obey L1 identically: one press clears, and a **second** press
+//! then does nothing, because there is nothing left. That is deliberately
+//! unlike the content ladder, whose first press *ascends* and whose second
+//! clears — a text range has no rungs to ascend, since there is no larger unit
+//! than the sweep the operator made and no smaller one they have descended into.
+//!
+//! ### ★ Why the armed TEXT tool takes no rung at all
+//!
+//! Rung 3b retires an armed markup or measure tool, so the obvious symmetry is a
+//! third call beside them. It is deliberately absent, and the decision is
+//! recorded here because its absence looks exactly like an omission.
+//!
+//! **What rung 3b is actually for.** Both tools it retires paint a **crosshair**
+//! that promises a gesture which *writes to the document*, and a mis-armed pen is
+//! costly enough that the operator needs a universal way out of it. The text tool
+//! paints an I-beam and promises a selection; it authors nothing (see
+//! [`crate::canvas::tool::retire_forbidden`], which permits it in every mode for
+//! the same reason). Nothing about it needs an emergency exit.
+//!
+//! **What the rung would collide with.** Escape at rung 5 already means *clear
+//! the selection* while this tool is armed, because clearing a text selection is
+//! what rung 5's first branch does. A rung *below* that — which is where the
+//! transience rule would put it, the tool being less transient than the range —
+//! would make the second press silently move the operator from **sweeping text**
+//! to **marqueeing objects** in Edit: a change of what the primary button means,
+//! delivered by the key they pressed to clear something. One press, one effect
+//! is satisfied; *one press, one **expected** effect* is not.
+//!
+//! **What the reference applications do**, under `HANDOFF.md` §3's standing
+//! instruction: Inkscape's Escape in the text tool deselects and **stays in the
+//! tool**; Acrobat's Escape changes no tool; only SolidWorks exits the active
+//! command. Two of three keep the tool, which is what ships — and it is also the
+//! answer that needs no code.
+//!
+//! The route out is the control that armed it: `view.tool_text` is a toggle, so
+//! pressing it again returns to the select tool
+//! ([`crate::canvas::tool::toggle_text`]). That is the same *the button is
+//! pressed, so pressing it un-presses it* rule the four markup buttons follow —
+//! rung 3b is the **extra** affordance those tools get, not their only one.
+//!
+//! ### ★ Why a measure pick is TWO rungs rather than one
+//!
+//! A markup **band** is a drag, so abandoning it and retiring the pen are
+//! already separated by the table: the drag is claimant 1, the tool is claimant
+//! 3b. A measure pick is a sequence of **clicks**, so there is no drag for
+//! claimant 1 to cancel — and yet a linear dimension with point A taken and
+//! point B not is unmistakably a gesture in flight. Without 3a, one Escape
+//! would put the tool down *and* silently discard that pick: two effects from
+//! one press, which is exactly what decision 025's L1 forbids.
+//!
+//! ★ **The same argument admitted a second occupant to 3a on 2026-08-14**, and
+//! the fact that it needed no new reasoning is the point. PolyLine and Polygon
+//! are also gestured by clicks
+//! ([`crate::canvas::markup::vertex`]), so a run of three vertices with the
+//! fourth not yet placed is in exactly the position a half-taken linear pick is.
+//! [`crate::canvas::markup::vertex::abandon`] therefore sits beside
+//! [`crate::canvas::measure::abandon`] rather than taking a rung of its own:
+//! the two cannot both be in progress, because a measure tool and a markup tool
+//! cannot both be armed, so this is **one claimant expressed as two calls** —
+//! which is precisely the arrangement rung 3b already uses for the two `disarm`
+//! functions.
+//!
+//! It also means the sentence *"a markup is a drag"* is now only three-quarters
+//! true, and the quarter that is not is why the rung was needed. The band kinds
+//! and Ink are drags; the two vertex kinds are not.
+//!
+//! So the pick is retired first and the tool second, which is also the order
+//! the transience rule gives — a half-taken pick is the more transient of the
+//! two, and it is the thing the operator is most likely to have meant.
+//! Pressing Escape twice puts the tool down; pressing it once corrects a
+//! mis-aimed first click without leaving the tool.
 //!
 //! ### ★ Why a focused form field is rung 0, and why its rung is unlike every
 //! other
@@ -107,6 +239,7 @@
 use egui::Key;
 
 use crate::app::actions::Action;
+use crate::app::modes::Capabilities;
 use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::canvas::zoom;
 
@@ -147,10 +280,22 @@ use crate::canvas::zoom;
 /// an argument rather than being re-derived here because the machine is the only
 /// thing that knows whether there *was* a drag under the press; an Escape with an
 /// idle pointer arrives here untouched and ascends, as it always did.
+///
+/// # `text_selection` — rung 5's other occupant
+///
+/// Passed as `&mut Option<_>` rather than being read back off the document,
+/// because `canvas::interact` has taken it out by value for the duration of the
+/// frame (the same move it makes for the object selection, and for the same
+/// borrow reason). Clearing it needs nothing but the field: the *making* of a
+/// text selection needs the page's extraction, which is why Ctrl+A and Ctrl+C
+/// live in `canvas::textsel::keys` and only Escape lives here. See this module's
+/// header on why it shares a rung with the ladder instead of taking a sixth.
 pub(super) fn canvas_keys(
     ctx: &egui::Context,
     selection: &mut SelectionState,
+    text_selection: &mut Option<crate::canvas::textsel::TextSelection>,
     page_index: usize,
+    caps: Capabilities,
     actions: &mut Vec<Action>,
     escape_consumed: bool,
 ) {
@@ -170,12 +315,29 @@ pub(super) fn canvas_keys(
     if ctx.text_edit_focused() {
         return;
     }
-    let (escape, delete) = ctx.input(|i| {
+    let (escape, delete, tab) = ctx.input(|i| {
         (
             i.key_pressed(Key::Escape),
             i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace),
+            i.key_pressed(Key::Tab),
         )
     });
+
+    // ★ Tab advances the snap cycle, and ONLY while a measure tool is armed.
+    //
+    // Tab is egui's focus key, so taking it unconditionally would break
+    // keyboard navigation of every panel and every dialog. The guard is the
+    // armed tool rather than a mode or a capability: with no measure tool
+    // armed, `cycle_snap` reports `false` and the key falls through untouched,
+    // so this costs one map lookup on a canvas that is not measuring.
+    //
+    // It returns early rather than falling through to Escape and Delete
+    // because a frame carrying Tab is not carrying either of those, and
+    // continuing would only re-read two keys that cannot be pressed.
+    if tab && crate::canvas::tool::active(ctx).measure_kind().is_some() {
+        crate::canvas::measure::cycle_snap(ctx);
+        return;
+    }
 
     // ★ Escape retires the most transient thing first, and exactly one thing.
     //
@@ -213,14 +375,39 @@ pub(super) fn canvas_keys(
         });
     }
 
-    // Claimant 3: an armed markup tool. Above the region zoom deliberately —
+    // Claimant 3a: a measure pick in progress. Above the tool rung below it,
+    // so one Escape corrects a mis-aimed pick and a second puts the tool down
+    // — see the header's own section on why this needs two rungs where markup
+    // needs one.
+    let measure_abandoned =
+        escape_available && !guide_cancelled && crate::canvas::measure::abandon(ctx);
+
+    // …and a **markup vertex run** in progress, on the same rung and for the
+    // identical reason: PolyLine and Polygon are gestured by clicks, so there is
+    // no drag for claimant 1 to cancel, and yet a polygon with three vertices
+    // taken and the fourth not is unmistakably a gesture in flight. Without this,
+    // one Escape would discard the run **and** put the pen down — two effects
+    // from one press, which is decision 025's L1 broken.
+    //
+    // One claimant expressed as two calls rather than two claimants, exactly as
+    // 3b below is: a measure tool and a markup tool cannot both be armed, so a
+    // measure pick and a vertex run cannot both be in progress.
+    let vertex_abandoned = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && crate::canvas::markup::vertex::abandon(ctx);
+
+    // Claimant 3b: an armed markup tool. Above the region zoom deliberately —
     // see the header's own section on why the transience rule does not settle
     // that pair and what does. Note this is `disarm`, not "cancel a markup
     // drag": a drag in flight was already spent at claimant 1, and by the time
     // control reaches here `escape_available` is false in that case, so one
     // press can never both abandon the band AND put the pen down.
-    let markup_disarmed =
-        escape_available && !guide_cancelled && crate::canvas::tool::disarm_markup(ctx);
+    let markup_disarmed = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && crate::canvas::tool::disarm_markup(ctx);
     if markup_disarmed {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -228,9 +415,29 @@ pub(super) fn canvas_keys(
         });
     }
 
+    // …and the measure tool, on the same rung: they cannot both be armed, so
+    // this is one claimant expressed as two calls rather than two claimants.
+    let measure_disarmed = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && !markup_disarmed
+        && crate::canvas::tool::disarm_measure(ctx);
+    if measure_disarmed {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-escape outcome=DisarmedMeasureTool".to_owned()
+        });
+    }
+
     // Claimant 4.
-    let disarmed =
-        escape_available && !guide_cancelled && !markup_disarmed && zoom::disarm_region_zoom(ctx);
+    let disarmed = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && !markup_disarmed
+        && !measure_disarmed
+        && zoom::disarm_region_zoom(ctx);
     if disarmed {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -239,18 +446,58 @@ pub(super) fn canvas_keys(
     }
 
     // Claimant 5, and only if none of the four above took the key.
-    if escape_available && !guide_cancelled && !markup_disarmed && !disarmed {
-        let outcome = selection.escape();
-        crate::diag::trace(|| {
-            format!(
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "canvas-escape outcome={outcome:?} sel={}",
-                selection.len()
-            )
-        });
+    if escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && !markup_disarmed
+        && !measure_disarmed
+        && !disarmed
+    {
+        // ★ Rung 5's two occupants, and they cannot both be here — see the
+        // header. The text branch is tested first because it is the one that
+        // can be non-empty in a mode where the other is *structurally* empty:
+        // in Read the ladder has nothing to ascend, so calling `escape()` first
+        // would consume the press on a no-op and leave the wash on the page.
+        if text_selection.take().is_some() {
+            crate::canvas::trace::text_selection(page_index, None, "escape");
+        } else {
+            let outcome = selection.escape();
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "canvas-escape outcome={outcome:?} sel={}",
+                    selection.len()
+                )
+            });
+        }
     }
 
     if !delete {
+        return;
+    }
+
+    // ★ A mode that cannot edit content has no Delete.
+    //
+    // Escape is deliberately **above** this line and ungated: every one of its
+    // claimants — a form draft, a guide drag, an armed region zoom — is
+    // reachable in Read, and a mode that swallowed Escape would trap the
+    // operator inside the gesture it had just let them start.
+    //
+    // In practice this is unreachable, because entering such a mode clears the
+    // selection (`PdfceApp`'s mode-change arm) and no gesture can build a new
+    // one, so `deletable_objects_on` would return an empty list two lines
+    // below and refuse anyway. It is written explicitly regardless: *"a test
+    // that checks a relation rather than a magnitude is satisfied by any
+    // absurdity in the right direction"* (`HANDOFF.md` §2), and "Delete is
+    // safe because nothing can be selected" is exactly that shape of argument
+    // — it holds only for as long as the other half does, and the other half
+    // is in a different file.
+    if !caps.edit_content {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-delete-declined reason=mode-cannot-edit-content".to_owned()
+        });
         return;
     }
 
@@ -345,8 +592,17 @@ mod tests {
     fn keys_for(input: RawInput, selection: &mut SelectionState) -> Vec<Action> {
         let ctx = Context::default();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         let _ = ctx.run_ui(input, |ui| {
-            canvas_keys(ui.ctx(), selection, 0, &mut actions, false);
+            canvas_keys(
+                ui.ctx(),
+                selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
         });
         actions
     }
@@ -408,8 +664,17 @@ mod tests {
         let mut selection = part_entered();
         let ctx = Context::default();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, true);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                true,
+            );
         });
         assert_eq!(selection.level(), SelectionLevel::Part);
         assert!(actions.is_empty());
@@ -429,10 +694,19 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         zoom::arm_region_zoom(&ctx);
 
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
         });
 
         assert!(
@@ -455,10 +729,19 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         assert!(!zoom::region_zoom_armed(&ctx));
 
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
         });
 
         assert_eq!(selection.level(), SelectionLevel::Object);
@@ -476,10 +759,19 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         zoom::arm_region_zoom(&ctx);
 
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, true);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                true,
+            );
         });
 
         assert!(
@@ -517,6 +809,7 @@ mod tests {
         let mut buffer = String::from("x");
         let mut selection = object_selected();
         let mut actions = Vec::new();
+        let mut text_selection = None;
 
         // Frame 1: build the field and take focus.
         let _ = ctx.run_ui(RawInput::default(), |ui| {
@@ -528,7 +821,15 @@ mod tests {
         let _ = ctx.run_ui(key(Key::Delete), |ui| {
             ui.add(egui::TextEdit::singleline(&mut buffer));
             typing = ui.ctx().text_edit_focused();
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
         });
 
         assert!(
@@ -557,11 +858,20 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         zoom::arm_region_zoom(&ctx);
         tool::arm_markup(&ctx, MarkupKind::Rectangle);
 
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
         });
 
         assert_eq!(
@@ -596,12 +906,21 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         tool::arm_markup(&ctx, MarkupKind::Ellipse);
 
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
             // `true`: the gesture machine already spent the key cancelling the
             // band, exactly as `canvas::interact` reports it.
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, true);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                true,
+            );
         });
 
         assert_eq!(
@@ -621,11 +940,20 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         zoom::arm_region_zoom(&ctx);
 
         for _ in 0..2 {
             let _ = ctx.run_ui(key(Key::Escape), |ui| {
-                canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+                canvas_keys(
+                    ui.ctx(),
+                    &mut selection,
+                    &mut text_selection,
+                    0,
+                    Capabilities::FULL,
+                    &mut actions,
+                    false,
+                );
             });
         }
 
@@ -657,11 +985,20 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         zoom::arm_region_zoom(&ctx);
         crate::canvas::guides::plant_drag_for_test(&ctx);
 
         let _ = ctx.run_ui(key(Key::Escape), |ui| {
-            canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
         });
 
         assert!(
@@ -679,6 +1016,183 @@ mod tests {
         );
     }
 
+    /// ★ **A circular pick set is abandoned by the FIRST Escape and the tool
+    /// by the second** — the two rungs, over the one tool that most needs
+    /// them.
+    ///
+    /// The radius/diameter gesture has no natural end, so a pick set can sit
+    /// there for as long as the operator keeps toggling arcs into it. That
+    /// makes the two-rung rule load-bearing rather than tidy: an operator who
+    /// has picked four arcs and catches a fifth by mistake presses Escape to
+    /// correct it and must find themselves still holding the tool, with the
+    /// set cleared — not back in the select tool with everything gone.
+    ///
+    /// A region zoom is armed throughout, and asserting it **survives** both
+    /// presses is what makes this a precedence test rather than a "something
+    /// happened" test: a build that retired everything on the first press would
+    /// pass the first two assertions.
+    #[test]
+    fn escape_abandons_a_circle_fit_before_it_puts_the_measure_tool_down() {
+        use crate::canvas::measure::{self, MeasureKind};
+        use crate::canvas::tool;
+
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        let mut text_selection = None;
+        zoom::arm_region_zoom(&ctx);
+        tool::arm_measure(&ctx, MeasureKind::Circular);
+        measure::circular::plant_pick_for_test(&ctx, 0);
+        assert!(
+            measure::finishable(&ctx),
+            "the fixture must be a real, finishable pick set"
+        );
+
+        // Press 1: the pick set, and nothing else.
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
+        });
+        assert_eq!(
+            tool::selected(&ctx),
+            tool::CanvasTool::Measure(MeasureKind::Circular),
+            "the tool must survive: one press corrects a mis-picked arc"
+        );
+        assert!(
+            !measure::finishable(&ctx),
+            "and the pick set is the thing that went"
+        );
+        assert!(zoom::region_zoom_armed(&ctx), "one press, one effect");
+        assert_eq!(selection.level(), SelectionLevel::Part);
+
+        // Press 2: the tool.
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
+        });
+        assert_eq!(
+            tool::selected(&ctx),
+            tool::CanvasTool::Select,
+            "the second press puts the tool down"
+        );
+        assert!(zoom::region_zoom_armed(&ctx), "and still not the zoom");
+        assert_eq!(
+            selection.level(),
+            SelectionLevel::Part,
+            "two presses, two effects — and neither of them the ladder"
+        );
+        assert!(
+            actions.is_empty(),
+            "abandoning a pick authors nothing: the dimension only exists once \
+             one of the two endings raises it"
+        );
+    }
+
+    /// ★ **A markup vertex run is abandoned by the FIRST Escape and the pen by
+    /// the second** — rung 3a's second occupant, asserted the same way its first
+    /// is.
+    ///
+    /// Written as a near-copy of the circle-fit test above **on purpose**, and
+    /// the copy is the point rather than duplication: the two gestures have the
+    /// same problem (a run of clicks with no natural end), were given the same
+    /// answer (two endings, one commit path), and now share a rung — so a build
+    /// that got the precedence right for one and wrong for the other is exactly
+    /// what a near-copy catches and a shared helper would hide.
+    ///
+    /// The operator's case is concrete: someone clicking out a polygon round a
+    /// detail catches a seventh corner by mistake, presses Escape to correct it,
+    /// and must find themselves **still holding the pen** with the run cleared —
+    /// not back in the select tool with everything gone and the tool to re-arm.
+    ///
+    /// A region zoom is armed throughout, and asserting it **survives both
+    /// presses** is what makes this a precedence test rather than a "something
+    /// happened" test: a build that retired everything on the first press would
+    /// pass the first two assertions.
+    #[test]
+    fn escape_abandons_a_vertex_run_before_it_puts_the_markup_tool_down() {
+        use crate::canvas::markup::{MarkupKind, vertex};
+        use crate::canvas::tool;
+
+        let ctx = Context::default();
+        let mut selection = part_entered();
+        let mut actions = Vec::new();
+        let mut text_selection = None;
+        zoom::arm_region_zoom(&ctx);
+        tool::arm_markup(&ctx, MarkupKind::Polygon);
+        vertex::plant_run_for_test(&ctx, 0, MarkupKind::Polygon);
+        assert!(
+            vertex::finishable(&ctx),
+            "the fixture must be a real, finishable run"
+        );
+
+        // Press 1: the run, and nothing else.
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
+        });
+        assert_eq!(
+            tool::selected(&ctx),
+            tool::CanvasTool::Markup(MarkupKind::Polygon),
+            "the pen must survive: one press corrects a mis-clicked corner"
+        );
+        assert!(
+            !vertex::finishable(&ctx),
+            "and the run is the thing that went"
+        );
+        assert!(zoom::region_zoom_armed(&ctx), "one press, one effect");
+        assert_eq!(selection.level(), SelectionLevel::Part);
+
+        // Press 2: the pen.
+        let _ = ctx.run_ui(key(Key::Escape), |ui| {
+            canvas_keys(
+                ui.ctx(),
+                &mut selection,
+                &mut text_selection,
+                0,
+                Capabilities::FULL,
+                &mut actions,
+                false,
+            );
+        });
+        assert_eq!(
+            tool::selected(&ctx),
+            tool::CanvasTool::Select,
+            "the second press puts the pen down"
+        );
+        assert!(zoom::region_zoom_armed(&ctx), "and still not the zoom");
+        assert_eq!(
+            selection.level(),
+            SelectionLevel::Part,
+            "two presses, two effects — and neither of them the ladder"
+        );
+        assert!(
+            actions.is_empty(),
+            "abandoning a run authors nothing: the annotation only exists once \
+             one of the two endings raises it"
+        );
+    }
+
     /// …and a second Escape then retires the zoom, so nothing is stranded.
     ///
     /// Without this, the test above would pass on a build where a guide drag
@@ -689,12 +1203,21 @@ mod tests {
         let ctx = Context::default();
         let mut selection = part_entered();
         let mut actions = Vec::new();
+        let mut text_selection = None;
         zoom::arm_region_zoom(&ctx);
         crate::canvas::guides::plant_drag_for_test(&ctx);
 
         for _ in 0..2 {
             let _ = ctx.run_ui(key(Key::Escape), |ui| {
-                canvas_keys(ui.ctx(), &mut selection, 0, &mut actions, false);
+                canvas_keys(
+                    ui.ctx(),
+                    &mut selection,
+                    &mut text_selection,
+                    0,
+                    Capabilities::FULL,
+                    &mut actions,
+                    false,
+                );
             });
         }
 

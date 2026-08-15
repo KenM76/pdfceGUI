@@ -110,6 +110,31 @@ impl PdfceApp {
         id: &str,
         actions: &mut Vec<Action>,
     ) {
+        // ★ **The operator's next act retires the last worded decline.**
+        //
+        // A decline — "Nothing to zoom to" — is a sentence about *one*
+        // gesture, and this is the one place in the application that knows an
+        // operator has just invoked something. That makes it the only honest
+        // lifetime available: the sentence stands until the next thing they
+        // do, and then it is gone.
+        //
+        // It is deliberately **not** keyed on `edit_epoch` the way the two
+        // rule-4 disclosure lines beside it are. A decline changes no
+        // document, so the epoch never moves and an epoch-keyed sentence would
+        // never retire; and a decline must be **repeatable**, which an epoch
+        // key cannot express because nothing changed between the two presses.
+        // `crate::app::status::decline`'s header carries the whole argument.
+        //
+        // Placement above the match is what makes the repeat work: pressing
+        // the declining chord twice retires the first sentence here and the
+        // arm below records a second one, so two presses are two events rather
+        // than one press and one swallowed keystroke.
+        //
+        // This is still routing rather than computing. The arm hands over a
+        // value; it does not decide what a decline is, how long one lives, or
+        // what it says — all three live in the module that owns them.
+        crate::app::status::decline::retire();
+
         match id {
             // ★ Open. The command that makes pdfce a reader rather than a
             // viewer of one file.
@@ -125,12 +150,51 @@ impl PdfceApp {
             // a scripted harness answer the dialog without a human — a native
             // dialog is a hard wall for synthetic input, and substituting the
             // answer is the only thing that gets past it.
+            // ★ New. One line, and the whole of the arm — which is what a
+            // routing table looks like when the rule lives somewhere else.
+            //
+            // Everything a reader is likely to want is in
+            // `crate::app::PdfceApp::new_document` and `crate::app::blank`:
+            // where the bytes come from, why the engine has no way to make a
+            // document and never will, why the page is A4, why the mode is
+            // left alone, and why the dirty-document question is `save_pending`
+            // rather than a second rule.
+            //
+            // Note what it does NOT do: open a dialog. Two of the three
+            // reference applications create immediately from a default and
+            // only SolidWorks asks — and what SolidWorks asks is *which kind
+            // of document*, which pdfce has no analogue for. See
+            // `crate::app::blank` §3.
+            "file.new" => actions.push(Action::New),
             "file.open" => crate::app::files::raise(crate::app::files::pick_document(), actions),
             // ★ Close. `doc.open` gates the control, so the no-document case
             // is unreachable from the ribbon — and the action handles it
             // anyway, because a customized keymap can reach any command from
             // any state.
             "file.close" => actions.push(Action::Close),
+            // ★ **Save a copy.** Registered, on the quick-access toolbar, bound
+            // to `Ctrl+S`, printing "(Ctrl+S)" in its own tooltip — and until
+            // 2026-08-14 it had **no arm**, so it traced `command-unimplemented`
+            // and nothing this shell could author could be written to disk at
+            // all. D1's shape, with the one verb that makes an editor an editor.
+            //
+            // One line, because the rule lives in `crate::app::save`: what the
+            // copy is called, which mode the bytes are written in and why it is
+            // not up for renegotiation, which `SaveOptions` were chosen, what
+            // happens to `edit_epoch` (nothing, in both directions), and what
+            // the operator sees when it fails.
+            //
+            // ★ **It does NOT open the picker here**, and that is the one thing
+            // worth knowing at this site — `file.open` two arms above does. The
+            // difference is not inconsistency: `crate::app::files::pick_save_path`
+            // carries a **frame-timing requirement** that dispatch cannot
+            // guarantee, because `PdfceApp::central` dispatches the canvas's
+            // context-menu tokens from inside `egui::CentralPanel::show`, and a
+            // native modal opened mid-layout blocks the frame it is being drawn
+            // in. The apply phase is always outside every closure, so the picker
+            // runs there. `Action::SaveCopy`'s own docs carry the full argument,
+            // including why it needs no operand where `Action::Open` needs one.
+            "file.save_copy" => actions.push(Action::SaveCopy),
             // ★ Print, and the one command in this match that raises no
             // action.
             //
@@ -147,6 +211,43 @@ impl PdfceApp {
             // window's closure has returned. Paper is as irreversible as it
             // gets; it is the rule being kept, not the mechanism.
             "file.print" => self.dialogs.open_print(&self.status),
+            // About. Takes no `&self.status`, unlike every other dialog on
+            // this list, and that asymmetry is the point rather than an
+            // omission: it describes the program, so it opens with nothing
+            // loaded and stays open when the document closes. The guard that
+            // would make it document-scoped is deliberately absent at BOTH
+            // ends — here and in `DialogsState::show` — because a guard in
+            // one place and not the other is how a dialog ends up opening and
+            // vanishing on the same frame.
+            "file.about" => self.dialogs.open_about(),
+            // ★ Recognise text. A dialog rather than an immediate action, and
+            // rather than the `file.copy_document_text` shape one arm below.
+            //
+            // Three things had to be true of this arm and none of them can be
+            // true of a `match` limb that just does the work:
+            //
+            // 1. **It must not block.** Copying the document's text blocks the
+            //    UI thread on purpose — 331–449 ms, a stutter. Recognition
+            //    rasterizes a page at 300 DPI and runs two neural networks over
+            //    it, which is *seconds*, and a window frozen for seconds is
+            //    indistinguishable from a hung program. The work is on a thread;
+            //    see `crate::ocr::Job`.
+            // 2. **It must disclose before it writes.** Every word OCR produces
+            //    is a guess and this recogniser scores none of them, so the
+            //    operator reads what it inferred while still holding the ability
+            //    not to save it. That needs a surface with three states.
+            // 3. **It must ask where the result goes.** The operator's rule is
+            //    that Read may produce a new document and may not modify this
+            //    one, enforced at the save — and this is the first write to disk
+            //    this shell performs, so it is the first place that can bite.
+            //
+            // No mode check, deliberately. OCR is offered in Read exactly as in
+            // Edit: `app::modes::capability` governs canvas *gestures*, and OCR
+            // is not a gesture. The rule it has to honour is about what a save
+            // may overwrite, and that is enforced by the destination being a
+            // path the operator names — which holds in every mode without any
+            // mode being consulted.
+            "file.ocr" => self.dialogs.open_ocr(&self.status),
             // ★ Recent. The operand comes from the `recent_files` custom item
             // (see `Self::ribbon_band`), which parked it before returning this
             // command's token.
@@ -179,19 +280,38 @@ impl PdfceApp {
             // routing table; the moment it starts computing an anchor or
             // deciding what a drag means, the same rule exists in two places
             // and one of them will be the one that gets fixed.
+            // ★ …and this is the one arm whose RETURN VALUE matters.
+            //
+            // `ZoomOutcome` is `#[must_use]` precisely because its declining
+            // variants are the point, and this arm used to discard it with a
+            // `let _ =` — which is how "there is nothing to zoom to" became
+            // "the command did nothing", the difference between a control that
+            // declines and one that looks broken. `FEATURES.md` recorded the
+            // gap as *traced and greyed but never worded*.
+            //
+            // The outcome is now carried into `status::decline`, which decides
+            // whether it is a decline at all (a ceiling-clamped zoom is a
+            // partial grant and is not worded), which sentence it gets, and
+            // how long it lives. This arm decides none of that; it routes.
+            //
+            // The command is gated on `selection.bounds`, so a pressable
+            // control usually has something to frame. The no-bounds answer is
+            // still reachable two ways, and the second is why the sentence
+            // exists: **by chord**, since a keymap reaches any command from any
+            // state, and **in the race** where the bounds evaporate between the
+            // frame that drew the enabled control and the frame that applied
+            // it. In that second case the operator clicked something that was
+            // offered to them and got nothing, which is exactly the situation
+            // that must not be answered with silence.
             "view.zoom_selection" => {
                 if let Status::Open(doc) = &mut self.status {
-                    // The command is gated on `selection.bounds`, so a
-                    // pressable control always has something to frame. This
-                    // still handles the no-bounds answer, because a keymap
-                    // can reach any command from any state and the honest
-                    // response there is "do nothing", not "frame nothing".
-                    let _ = crate::canvas::zoom::zoom_to_selection(
+                    let outcome = crate::canvas::zoom::zoom_to_selection(
                         ctx,
                         doc,
                         crate::canvas::CANVAS_MARGIN,
                         actions,
                     );
+                    crate::app::status::decline::record(outcome);
                 }
             }
             // Arms; does not act. The canvas disarms it when the drag ends,
@@ -202,6 +322,31 @@ impl PdfceApp {
             // by asking `tool::selected`, not from a copy kept in the app.
             "view.tool_hand" => {
                 let _ = crate::canvas::tool::toggle_hand(ctx);
+            }
+            // ★ **The text tool**, and it is the `tool_hand` arm's twin down to
+            // the discarded return value — the pressed state is published from
+            // `conditions` by asking `tool::selected`, never from a copy kept on
+            // the app, because a shadow copy is how a ribbon comes to say Text
+            // while the canvas marquees.
+            //
+            // ★ **No capability check, and the absence is the decision** rather
+            // than an oversight — which is worth saying here because every arm
+            // around it has one. `markup_for_command` declines on
+            // `author_markup`, `measure_for_command` on `author_measure`, and
+            // the obvious symmetry would be a third. There is nothing to put
+            // there: selecting text authors nothing, so `canvas::tool::
+            // retire_forbidden` permits this tool in every mode and a decline
+            // here would contradict it. The full argument is at that function's
+            // `Select | Hand | Text` arm; in one line, it is the operator's own
+            // *copying is not authoring* ruling of 2026-08-14, which already
+            // moved both text-copy verbs off the authoring tab.
+            //
+            // It therefore has no decline trace either, and that is consistent
+            // rather than lax: a trace line exists to say *which* nothing
+            // happened, and there is no state in which pressing this does
+            // nothing.
+            "view.tool_text" => {
+                let _ = crate::canvas::tool::toggle_text(ctx);
             }
             // ★ **The markup shape tools — one arm for all four.**
             //
@@ -223,8 +368,229 @@ impl PdfceApp {
             // `conditions` by asking `tool::selected`, never from a copy
             // kept on the app. A shadow copy is how a ribbon comes to say
             // Rectangle while the canvas is selecting.
+            // ★ …and it declines in a mode that does not author markup.
+            //
+            // Unreachable through the shipped manifest — Read is shown File and
+            // View alone, and no chord binds a `markup.*` id — so this is the
+            // belt to `retire_forbidden`'s braces, which covers only the
+            // *transition* into such a mode and cannot cover an arming that
+            // happens while already in one. A customized manifest that binds a
+            // chord to Rectangle is all it takes to reach this.
+            //
+            // Declining rather than arming-and-refusing is what keeps the
+            // cursor honest: an armed markup tool paints a crosshair over every
+            // page, which promises a drawing gesture `press_kind` has already
+            // decided not to give. The same argument `retire_forbidden` makes,
+            // at the other end of the tool's life.
+            //
+            // This is still routing rather than computing: the arm asks one
+            // published predicate and either calls the one function or does
+            // not. It does not work out *what* a markup is, and the trace
+            // spelling matches the `mode.*` arm below, which already declines.
+            // ★ **The measure tools — one arm for all four.**
+            //
+            // The same shape as the markup arm below, and it declines in a mode
+            // that does not author dimensions for the same reasons — see there.
+            // Read grants neither; **Review grants this one and not that one**,
+            // which is why they are two capabilities rather than an "authoring"
+            // flag.
+            //
+            // **It arms a tool; it authors nothing.** A ce dimension is placed
+            // by clicks that `crate::canvas::measure` takes, and only the pick
+            // that completes one raises an `Action`.
+            // ★ **Finish** — the ribbon half of the radius/diameter tool's
+            // ending, and the one `measure.*` command that is not a tool.
+            //
+            // It must sit ahead of the arm below rather than inside it:
+            // `measure_for_command` maps ids to *kinds*, this id names no kind,
+            // and if it ever did, pressing Finish would toggle the tool off
+            // (`arm_measure`'s same-kind-retires rule) instead of committing.
+            //
+            // The arm routes and does not compute. Everything about what a
+            // finish *is* — whether there is a fit, which page it belongs to,
+            // which group it joins, emptying the pick set afterwards — lives in
+            // `canvas::measure::finish`, which is the same function the
+            // canvas's double-click ending reaches. One commit path, two
+            // entrances; a second derivation here is exactly how the two
+            // endings would come to author different dimensions.
+            //
+            // The capability check mirrors the tool arm below. It is
+            // unreachable through the shipped manifest — Read is shown File and
+            // View alone, and no chord binds a `measure.*` id — but a
+            // customized manifest can bind a chord to anything, and a mode that
+            // cannot author dimensions must not author one because the pick set
+            // predates the mode change.
+            //
+            // Both refusals are traced, and they are traced separately: "the
+            // mode says no" and "there was nothing to finish" are different
+            // facts, and a reader of a trace from a machine they cannot see
+            // should not have to guess which kind of nothing happened.
+            "measure.finish" => {
+                if !self.capabilities().author_measure {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-author-measure")
+                    });
+                } else if !crate::canvas::measure::finish(ctx, actions) {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        //
+                        // Reachable only by a chord or a customized manifest:
+                        // the ribbon control is greyed unless there is a
+                        // non-degenerate fit, by the same predicate `finish`
+                        // itself asks.
+                        format!("command-declined id={id} reason=no-circle-fit-to-finish")
+                    });
+                }
+            }
+            id if crate::shell::commands::measure_for_command(id).is_some() => {
+                if !self.capabilities().author_measure {
+                    crate::diag::trace(|| {
+                        format!(
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            "command-declined id={id} reason=mode-cannot-author-measure"
+                        )
+                    });
+                } else if let Some(kind) = crate::shell::commands::measure_for_command(id) {
+                    let _ = crate::canvas::tool::arm_measure(ctx, kind);
+                }
+            }
+            // ★ **The three text-markup commands — one arm for all three.**
+            //
+            // The same one-arm shape the two families below have, and for the
+            // same reason: the id IS the operand, and
+            // `crate::shell::commands::text_mark_for_command` is the single
+            // binding between an id and a `TextMarkKind`.
+            //
+            // ★ **It authors immediately; it arms nothing.** That is the whole
+            // difference from the `markup_for_command` arm below it, and it is
+            // the interaction decision recorded at
+            // `canvas::markup::text`'s header §1: these kinds mark **an existing
+            // text selection**, which is Acrobat's answer and needs no tool, no
+            // gesture and no `CanvasTool` variant. The operand is on the
+            // document, visible as a wash, at the moment the button is pressed.
+            //
+            // It must sit **ahead** of the `markup_for_command` arm. Both are
+            // guard arms on `markup.*` ids and `match` takes the first that
+            // matches; the two mappings are asserted disjoint in both directions
+            // (`shell::commands::mapping`), so the order is belt to that
+            // braces — but the order is also the cheaper of the two guarantees
+            // and costs nothing to state.
+            //
+            // Two refusals, traced separately, because they have different
+            // answers and a reader of a trace from a machine they cannot see
+            // should not have to guess which nothing happened:
+            //
+            // * **the mode cannot author markup** — unreachable through the
+            //   shipped manifest (Read is shown File and View alone), and
+            //   reachable from a chord in a customized one, exactly as the
+            //   markup and measure arms below;
+            // * **there was nothing markable** — no selection, or one made
+            //   against a revision that has since moved. The ribbon control is
+            //   greyed in both cases, by the same `selection.text` condition the
+            //   rule here asks about, so this is reachable only by a chord.
+            //
+            // The arm still routes rather than computes: `markup::text::mark` is
+            // a pure function that owns every rule about which selection is
+            // eligible and what a stale one means, and this reads one published
+            // capability, calls it once, and pushes what comes back.
+            id if crate::shell::commands::text_mark_for_command(id).is_some() => {
+                let Some(kind) = crate::shell::commands::text_mark_for_command(id) else {
+                    return;
+                };
+                if !self.capabilities().author_markup {
+                    crate::diag::trace(|| {
+                        format!(
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            "command-declined id={id} reason=mode-cannot-author-markup"
+                        )
+                    });
+                    return;
+                }
+                // Every state but `Open` is *no document*, and therefore no
+                // selection to mark and no page for the action to name — the
+                // same hazard `measure.finishable` is published inside the
+                // `Status::Open` arm to avoid. Written as an `if let` with one
+                // fallback rather than an exhaustive `match`, so that a sixth
+                // failure state (`Unsupported`, `NeedsPassword`, …) does not
+                // arrive here asking to be classified: none of them holds a
+                // document, and that is the only property this arm reads.
+                let selected = if let Status::Open(doc) = &self.status {
+                    crate::canvas::markup::text::mark(
+                        kind,
+                        doc.text_selection.as_ref(),
+                        doc.edit_epoch,
+                    )
+                } else {
+                    Err(crate::canvas::markup::text::Refusal::NoSelection)
+                };
+                match selected {
+                    Ok(action) => {
+                        if let Action::CommitTextMarkup { page, quads, .. } = &action {
+                            crate::canvas::markup::text::trace_commit(kind, *page, quads.len());
+                        }
+                        actions.push(action);
+                    }
+                    Err(reason) => crate::canvas::markup::text::decline(kind, reason),
+                }
+            }
+            // ★ **Finish** — the ribbon half of the vertex tools' ending, and the
+            // one `markup.*` command that is neither a tool nor a mark.
+            //
+            // It is `measure.finish`'s twin, deliberately down to the shape of
+            // this arm, because it answers the identical problem: PolyLine and
+            // Polygon are runs of clicks with no natural end, exactly as the
+            // radius/diameter pick set has none, and the operator settled that
+            // on 2026-08-14 with **two endings through one commit path**. A
+            // double-click on the canvas is the other half and is the one most
+            // operators will use; this is the discoverable one, and the one that
+            // works when the last vertex sits somewhere awkward to double-click.
+            //
+            // It must sit ahead of the `markup_for_command` arm below rather
+            // than inside it, for the reason `measure.finish` states in its own
+            // words: that mapping takes ids to *kinds*, this id names no kind,
+            // and if it ever did, pressing Finish would toggle the tool off
+            // (`arm_markup`'s same-kind-retires rule) instead of committing.
+            //
+            // The arm routes and does not compute. Everything about what a
+            // finish *is* — whether the run is long enough for its kind, which
+            // page it belongs to, emptying it afterwards — lives in
+            // `canvas::markup::vertex::finish`, which is the same commit path
+            // the canvas's double-click reaches. One commit path, two entrances;
+            // a second derivation here is exactly how the two endings would come
+            // to author different annotations.
+            //
+            // Both refusals are traced separately, because "the mode says no"
+            // and "there was nothing to finish" are different facts with
+            // different answers, and a reader of a trace from a machine they
+            // cannot see should not have to guess which nothing happened.
+            "markup.finish" => {
+                if !self.capabilities().author_markup {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-author-markup")
+                    });
+                } else if !crate::canvas::markup::vertex::finish(ctx, actions) {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        //
+                        // Reachable only by a chord or a customized manifest:
+                        // the ribbon control is greyed unless there is a run
+                        // long enough for its kind, by the same predicate
+                        // `finish` itself asks.
+                        format!("command-declined id={id} reason=no-vertex-run-to-finish")
+                    });
+                }
+            }
             id if crate::shell::commands::markup_for_command(id).is_some() => {
-                if let Some(kind) = crate::shell::commands::markup_for_command(id) {
+                if !self.capabilities().author_markup {
+                    crate::diag::trace(|| {
+                        format!(
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            "command-declined id={id} reason=mode-cannot-author-markup"
+                        )
+                    });
+                } else if let Some(kind) = crate::shell::commands::markup_for_command(id) {
                     let _ = crate::canvas::tool::arm_markup(ctx, kind);
                 }
             }
@@ -316,6 +682,111 @@ impl PdfceApp {
                     }
                 }
             }
+            // ★ **The two text-copy verbs — registered since 2026-08-14 and
+            // dead until now.**
+            //
+            // They were drawn on File ▸ Export, `Ctrl+Shift+C` was bound to the
+            // page one, and neither had an arm: a live control that does
+            // nothing, which is defect D1's shape and which this project's
+            // own `both_text_copy_commands_are_offered_by_every_mode` test could
+            // not see, because offering a command and implementing it are
+            // different facts.
+            //
+            // What made them wirable was the per-page extraction cache
+            // (`app::cache::PageTextCache`) arriving for canvas text selection.
+            // Before it, `file.copy_page_text` had no cheap route to one page's
+            // text: `EditSession::find_text_with` is the only text verb on the
+            // session, it needs `&mut`, and it walks the **whole document**.
+            //
+            // ★ Both arms read `page_text()` / `extract_*_view`, so the string
+            // an operator copies from the ribbon and the string a canvas
+            // selection copies come from **one** extraction of one revision.
+            // Two paths to "the text of this page" is how a Copy and a
+            // selection come to disagree about what is on it.
+            //
+            // Neither raises an `Action`: a clipboard write touches no document
+            // and needs no frame boundary — the same call `file.print` makes,
+            // for the same stated reason. `canvas::textsel::copy` is the one
+            // place the clipboard is written and the one place a copy is traced.
+            "file.copy_page_text" => {
+                if let Status::Open(doc) = &self.status {
+                    match doc.page_text() {
+                        // `plain_text()` rather than `sourced_text()`: it
+                        // carries the engine's derived word spaces and line
+                        // breaks, so a copied page reads as a page. `sourced_`
+                        // is the honest lower bound for a *test* asserting what
+                        // the file provides, and it would paste as one
+                        // unbroken word.
+                        Some(text) => crate::canvas::textsel::copy(
+                            ctx,
+                            &text.plain_text(),
+                            // ui-text-exempt: diagnostic trace field, never displayed
+                            "page",
+                        ),
+                        None => {
+                            // ★ The engine's own reason where there is one, and
+                            // a distinct token where there is not.
+                            //
+                            // Three states reach here and they are three
+                            // different facts: the page's content stream would
+                            // not walk (`detail=` carries `pdfce-core`'s error),
+                            // there is no such page at all, and — a fourth,
+                            // handled by `copy` rather than here — the page
+                            // extracted fine and has no text on it. A reader of
+                            // a trace from a machine they cannot see should not
+                            // have to guess which kind of nothing happened;
+                            // that is the same argument `objects-unavailable`
+                            // makes one module over.
+                            let detail = doc.page_text_failure().map(|e| e.clone());
+                            crate::diag::trace(|| match &detail {
+                                // ui-text-exempt: diagnostic trace, never displayed
+                                Some(reason) => format!(
+                                    "command-declined id={id} reason=extract-failed \
+                                     detail={reason:?}"
+                                ),
+                                // ui-text-exempt: diagnostic trace, never displayed
+                                None => {
+                                    format!("command-declined id={id} reason=no-such-page")
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            // The whole-document twin. It really can block the window on a long
+            // file — its own tooltip says so — because
+            // `extract_document_view` walks every page, which `crate::find`
+            // measured at 331–449 ms on this project's fixtures. That cost is
+            // paid here and nowhere else: it is a verb the operator invoked
+            // once, not a per-frame derivation, which is exactly the line the
+            // page-level cache exists to draw.
+            //
+            // Deliberately NOT cached: a document-wide extraction keyed on the
+            // edit epoch would hold the whole document's text alive for the life
+            // of the session to serve a command pressed at most a handful of
+            // times.
+            "file.copy_document_text" => {
+                if let Status::Open(doc) = &self.status {
+                    match pdfce_core::text_extract::extract_document_view(
+                        // The SESSION's revision, as everywhere else: the
+                        // operator is copying the document they are looking at,
+                        // unsaved edits included (decision 018).
+                        &doc.session.view(),
+                        &pdfce_core::text_extract::ExtractOptions::default(),
+                    ) {
+                        Ok(text) => crate::canvas::textsel::copy(
+                            ctx,
+                            &text.plain_text(),
+                            // ui-text-exempt: diagnostic trace field, never displayed
+                            "document",
+                        ),
+                        Err(e) => crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed
+                            format!("command-declined id={id} reason=extract-failed detail={e}")
+                        }),
+                    }
+                }
+            }
             // ★ Find. `Ctrl+F`, and the status bar's Find toggle.
             //
             // A **toggle**, not a show: Ctrl+F is the chord every application
@@ -384,6 +855,39 @@ impl PdfceApp {
             // This arm is the body arriving, which is why none of the five
             // registration obligations apply here.
             "markup.comments" => self.show_panel(crate::panels::Panel::Comments),
+            // ★ **The panel toggles — one arm for the whole family.**
+            //
+            // `view.panel_bookmarks|_layers|_signatures|_objects|_forms` and
+            // `file.fonts`. Registered and drawn since the ribbon landed with
+            // **nothing behind them** — this arm is the body arriving, which is
+            // why none of the five registration obligations apply.
+            //
+            // `Panel::from_command_id` is the single binding between an id and
+            // a panel, exactly as `markup_for_command` and `measure_for_command`
+            // are for their families, so there is no second table here to drift.
+            //
+            // # ★ Placement below the two literal arms is load-bearing
+            //
+            // `from_command_id` also answers for `file.properties` and
+            // `markup.comments`, because they name panels too. A `match` takes
+            // the first arm that matches, so those two are claimed above by
+            // their own literals and never reach this guard — which is exactly
+            // right, because **they are not toggles**. `file.properties` is
+            // offered by the Objects row context menu to describe the row just
+            // clicked, and a second invocation that closed the description
+            // would be, in that test's own word, hostile. See
+            // [`Self::toggle_panel`] for the rule this distinction expresses:
+            // a control asking *"is this panel open?"* toggles; a control
+            // asking *"tell me about this thing"* shows.
+            //
+            // Moving this arm above either of them would silently turn both
+            // into toggles, which is why the ordering is written down rather
+            // than left to be noticed.
+            id if crate::panels::Panel::from_command_id(id).is_some() => {
+                if let Some(panel) = crate::panels::Panel::from_command_id(id) {
+                    self.toggle_panel(panel);
+                }
+            }
             // ★ Reset layout. `ResetScope::All`, and the scope is a decision.
             //
             // `RIBBON_IA.md`'s rule is why a scope exists at all: *"an

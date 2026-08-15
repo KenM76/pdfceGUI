@@ -404,7 +404,42 @@ you to hand-maintain it has already failed once.
 
 ---
 
-## D6 — Review mode does not actually block object deletion
+## D6 — Review mode does not actually block object deletion — **CLOSED 2026-08-14**
+
+> **★ Closed 2026-08-14, and by a different mechanism than either the
+> original analysis or the 2026-08-12 supersession expected.**
+>
+> The supersession below was right that the `Editing on` master toggle had to
+> go, and right that "delete the gate sites" was the fix for *that* toggle. It
+> was wrong to conclude there was nothing left to enforce. The operator asked
+> for a genuinely read-only stance on 2026-08-14 — *"in read mode the document
+> shouldn't allow editing"* — and `MODES_AND_PANELS.md` had already specified
+> it as a **named, visible mode** rather than a hidden boolean, which is
+> exactly what `RIBBON_IA.md` §5.4 said a real read-only state would have to
+> be.
+>
+> What shipped is `app::modes::capability`, and the mechanism is the part
+> worth carrying: capability is derived from **the mode's tab list in the
+> manifest**, not from the string `"read"`. The ribbon and the canvas
+> therefore read one sentence, and the failure this defect describes — a
+> surface that says editing is off while a gesture still edits — is
+> unrepresentable rather than merely guarded. The hole this entry predicted
+> could not be reopened by forgetting a check, because there is no check to
+> forget.
+>
+> **It was verified the way this project says to verify**: `ui-verify`'s
+> `read_mode_refuses_canvas_edits` drives the real window, clicks page content
+> in Read and asserts no selection, clicks *the same point* in Edit and
+> asserts one — so Read's silence is proven to be a refusal rather than a
+> miss — then re-enters Read and asserts the selection is dropped.
+>
+> Three things the gesture gate could not close on its own, each found by
+> asking what *survives* rather than what is refused: a click is not a drag
+> (gating presses alone leaves the commonest canvas gesture ungated); an armed
+> tool outlives a mode switch, because it lives in `egui::Memory`; and a
+> selection outlives it too, leaving eight resize handles on a page in Read.
+>
+> The analysis below is kept for the reason the supersession kept it.
 
 > **Superseded 2026-08-12.** The operator's decision is to remove the
 > `Editing on` master toggle entirely and work the way other editors do
@@ -721,3 +756,340 @@ what generates the complaint.
 | The status bar opens with a substitute-glyph census | `main.rs:15576-15960` | The first thing a user reads is the app talking about itself. Excellent information, wrong prominence — put it behind the disclosure triangle that is already there. |
 | Dock layout resets every launch | `dock.rs:50-67` — disclosed in-app | Being told your layout will be lost is better than losing it silently, and worse than keeping it. |
 | No context menus anywhere | `grep context_menu` → 0 hits | Right-click is where users look for Delete after the keyboard fails them. Fixing D1 without adding these leaves the second-choice path also missing. |
+
+---
+
+## D12 — the glyph gate asked `egui` the wrong question — **CORRECTED 2026-08-14**
+
+> ### ★★ Correction, 2026-08-14 — `⚠` draws. It always did.
+>
+> **The diagnosis below is wrong, and the thirteen sentences it condemns
+> render correctly.** The heading used to read *"`⚠` has no glyph in this
+> font stack, so thirteen shipped sentences draw `□`"*. It is kept, struck
+> through in substance rather than deleted, because the wrong claim
+> travelled: it was quoted into
+> `app::status::tests::every_glyph_the_status_bar_draws_has_a_glyph`'s doc
+> comment and into `text::status::edit_disclosure_line`, and a reader who
+> finds only the correction will not know why those two files talk the way
+> they do.
+>
+> **What is actually broken is the gate's predicate, not the font stack.**
+> `epaint 0.35`'s `Fonts::has_glyph` (`epaint-0.35.0/src/text/font.rs:720`)
+> is:
+>
+> ```rust
+> pub fn has_glyph(&mut self, c: char) -> bool {
+>     // TODO(emilk): this is a false negative if the user asks about the
+>     // replacement character itself 🤦‍♂️
+>     self.resolve_face(c) != self.cached_family.replacement_face_key
+> }
+> ```
+>
+> It does not ask *"is this codepoint drawable?"* It asks *"is this
+> codepoint drawable by a face other than the one that happens to supply
+> `epaint`'s substitution mark `◻` (U+25FB)?"* — and answers **false** for
+> every codepoint whose first supporting face in the fallback chain is that
+> one. Upstream's `TODO` names a single instance; the real blast radius is
+> every character that face supplies first.
+>
+> For `FontFamily::Proportional` the chain is
+> `[Ubuntu-Light, NotoEmoji-Regular, emoji-icon-font]`, and **`◻` and `⚠`
+> have the same supplier — `NotoEmoji-Regular`.** So `⚠` is reported
+> missing and drawn perfectly.
+>
+> **The mechanism reproduces the original's own two lists exactly, 31 for
+> 31**, which is what makes it the mechanism rather than a theory. Reading
+> the four bundled charmaps directly:
+>
+> | original verdict | real supplier |
+> |---|---|
+> | "available" — `✱ ⚑ ⚐ ☞ ⊗ ⏺ ◊ ★ ☆ ! ○ ■ • · † ‡ № ¶` | all `Ubuntu-Light` or `emoji-icon-font` — **never** NotoEmoji |
+> | "absent" — `⚠ ‼ ℹ ❗` | **`NotoEmoji-Regular`. All four draw.** |
+> | "absent" — `▲ △ ● ◆ □ ✓ ✗ ⓘ ※` | genuinely absent. That half was right. |
+>
+> The clinching reading is that `has_glyph(Monospace, 'A')` is **false**:
+> the monospace chain starts with `Hack`, which supplies both `◻` and `A`.
+> A predicate that denies the letter A is not a fact about a font.
+>
+> **Corrected measurement**, `FontFamily::Proportional`, by laying each
+> character out and comparing the glyph actually drawn:
+>
+> - **Drawable:** `⚠ ‼ ℹ ❗ ✱ ⚑ ⚐ ☞ ⊗ ⏺ ◊ ★ ☆ ! ○ ■ • · † ‡ № ¶ — … × “ ” − ° ⏴ ⏵ ⏷`
+> - **Absent:** `▲ △ ● ◆ □ ✓ ✗ ⓘ ※ ▸ ◀ ▶ ▾ � (U+FFFD)`, and all CJK.
+>
+> **Consequences of the correction:**
+>
+> 1. `crates/pdfce-gui/src/text/forms.rs`'s `⚠` sentences are **fine** and
+>    need no edit. There are **fourteen** of them, not thirteen — counted as
+>    string literals opening with the mark, `grep -c '"⚠'`; the original's
+>    thirteen appears to have missed one. They are the only `⚠` in the whole
+>    catalog.
+> 2. The assertion at
+>    `crates/pdfce-gui/src/panels/forms/tab_order/mod.rs:672`
+>    (`s.starts_with('⚠')`) was never at risk. Unchanged, still passing.
+> 3. The edit-disclosure line's `⚑` was chosen under the wrong reading.
+>    **Deliberately left alone** — it draws, it is shipped, and re-opening a
+>    settled copy decision on the strength of a corrected diagnosis is churn.
+> 4. The operator's 2026-08-14 instruction — *keep the `⚠` mark, add font
+>    coverage* — is satisfied with **no font added and no dependency added**,
+>    because the coverage was never missing. See "Fixed" below.
+>
+> **The lesson, which is the durable part.** This entry was filed on a
+> failing test, and the test really did fail — but *"the gate went red"* and
+> *"the thing the gate names is broken"* are different claims, and only the
+> first was measured. The original text's own standard, three lines up in
+> this file, is *"Nothing here is inferred from documentation alone"*; the
+> failure here was subtler and more ordinary — inferring from a **tool's
+> answer** without asking what question the tool was answering. The
+> substitution box was never photographed. One screenshot of the Forms panel
+> would have closed this on the day it was opened.
+
+### The original entry, kept — *wrong from the second paragraph onward*
+
+**Found 2026-08-14, by measurement rather than by looking.** A new status-bar
+line was drafted with `⚠` to match the forms convention, and the existing gate
+`every_glyph_the_status_bar_draws_has_a_glyph` **failed** on it.
+
+Nothing in this workspace installs fonts, so `egui`'s bundled set is the whole
+set, and it cannot draw **U+26A0**. `crates/pdfce-gui/src/text/forms.rs`
+carries `⚠` in **thirteen** sentences — including
+`forms_fill_autosize_note` and `forms_fill_unencodable_note`, which are drawn
+in the status bar two lines from where the new one goes — and every one of them
+renders as a tofu box today, in the Forms panel and in the bar.
+
+> *Wrong on every count in that paragraph. The sentence count is fourteen,
+> not thirteen. `egui`'s bundled set is indeed the whole set — and it draws
+> U+26A0 perfectly well.*
+
+This is **D2's shape, fourth sighting**: a thing that is built, tested and
+shipped, whose visible result nobody looked at. A unit test on the *string* is
+satisfied by any string; only asking the font whether it can draw the codepoint
+catches it. The gate that caught it already existed and was never pointed at
+`text/forms.rs`.
+
+> *★ This paragraph is the part that survives, and it turned out to be truer
+> than its author knew. "Nobody looked at the visible result" was the real
+> defect — including here, where nobody looked at the visible result of the
+> gate's own verdict. And "only asking the font whether it can draw the
+> codepoint catches it" is exactly right; the mistake was believing
+> `has_glyph` was that question.*
+
+**Measured available** in the bundled stack: `✱ ⚑ ⚐ ☞ ⊗ ⏺ ◊ ★ ☆ ! ○ ■ • · † ‡ № ¶`
+**Measured absent**: `⚠ ▲ △ ● ◆ □ ✓ ✗ ‼ ℹ ⓘ ※ ❗`
+
+> *Both lists are `has_glyph` output. See the correction's table: the first
+> is accurate, the second contains four false positives — `⚠ ‼ ℹ ❗`.*
+
+**Not fixed**, deliberately, because it is wider than it looks: thirteen
+strings, plus an assertion at
+`crates/pdfce-gui/src/panels/forms/tab_order/mod.rs:672` that tests
+`s.starts_with('⚠')` and would silently stop matching. The new edit-disclosure
+line uses `⚑`, measured present, rather than joining the convention.
+
+> *The caution was well judged even though the premise was false. Had this
+> entry been "fixed" as written, fifteen correct sentences would have been
+> rewritten to work around a bug in a test.*
+
+**The fix that would prevent a fifth sighting** is not a substitution: it is
+pointing the existing glyph gate at *every* `text/` module rather than at the
+status bar alone, so a codepoint the stack cannot draw fails at the gate rather
+than in front of the operator.
+
+> *★★ Right, and it paid off on its first run — see below. This sentence is
+> the reason the entry was worth filing at all.*
+
+### Fixed 2026-08-14
+
+**No dependency added. No font data added. No catalog string changed.**
+
+| what | where |
+|---|---|
+| A correct predicate — lay the character out, compare the glyph actually drawn against a three-sentinel fingerprint of the substitution mark | `crates/pdfce-gui/src/icons/glyphs.rs` — `GlyphProbe` |
+| The **widened gate**: reads every `.rs` under `crates/pdfce-gui/src/text/` from source, extracts every operator-visible literal, and checks every codepoint | `icons::glyphs::tests::every_glyph_the_catalog_draws_has_a_glyph` |
+| The gate's self-test, on a planted unrenderable codepoint with comment and test-module decoys | `icons::glyphs::tests::the_gate_catches_a_planted_unrenderable_codepoint` |
+| The status-bar gate, repointed at the correct predicate and its doc comment corrected | `crates/pdfce-gui/src/app/status.rs` |
+
+The gate reads **source** rather than a hand-written list of labels, so a
+string added tomorrow is covered without anyone remembering to add it. That is
+`D5`'s lesson applied: *"a hand-maintained list with a comment telling you to
+hand-maintain it has already failed once."*
+
+Three fail-open shapes were designed out, each with its own test:
+
+- **A sentinel that stopped being a sentinel.** `GlyphProbe::new` fingerprints
+  the substitution mark from **three** unrelated unassigned codepoints across
+  three planes and panics unless all three agree. If a future font set covers
+  one, the probe fails at construction instead of silently reporting every
+  codepoint as drawable.
+- **`D13`'s truncation bug, not repeated.** `check-ui-strings.sh` stops
+  scanning at the first column-0 `#[cfg(test)]`, so anything below a mid-file
+  test module is unscanned while the gate prints clean. This scanner skips
+  exactly the braced item and **resumes**;
+  `a_mid_file_test_module_does_not_blind_the_scanner` proves it on the shape
+  that defeats the shell gate.
+- **A file that could not be parsed being silently skipped.** A raw string is
+  a hard refusal that fails the gate by name, never a quiet zero.
+
+### ★ The fifth sighting happened anyway — the widened gate found two on its first run
+
+Both are **live tofu today**, both in `crates/pdfce-gui/src/text/`, which is
+not the territory of the work that found them. They are **quarantined in the
+gate and reported here, not fixed.** The quarantine is self-tightening: the
+gate asserts each entry is *still* undrawable **and** still present in the
+catalog, so fixing the strings makes the gate fail telling you to delete the
+entry.
+
+| codepoint | where | what the operator sees |
+|---|---|---|
+| **`▸` U+25B8** — the menu-path separator | `text/mod.rs:125`, `text/commands.rs:722, 767, 1079` | `Choose File □ Open` — and `text/mod.rs:125` is the **empty-canvas message, the first sentence a new operator ever reads.** `›` U+203A, `>` and `→` all draw. |
+| **`�` U+FFFD** | `text/panels/objects.rs:639` | The sentence *"Some characters … are shown as `�`"* names a mark the application cannot draw. It reads correctly only by accident: `epaint` substitutes `◻` **both** for the character in this sentence and for the undecodable characters the sentence is about, so the two happen to match. A coincidence of two bugs, not a design. |
+
+`▸` is the more serious of the two by a distance, and it is the vindication of
+this entry's closing argument: the codepoint had been shipping in the launch
+screen the whole time, the old gate could not see it because it looked only at
+the status bar, and the *corrected* diagnosis of `⚠` is what got the gate
+pointed somewhere it could find it.
+
+### ★ Both verdicts were photographed, not only computed
+
+The mistake this entry records is *trusting a tool's answer without looking at
+the result*, so neither half of the correction is left resting on another
+assertion. Driving the release binary
+(`target/release/pdfce-gui.exe`, 2026-08-14 12:27, `PDFCE_DIAG=1`):
+
+| what was opened | what was on screen |
+|---|---|
+| `qpdf/qtest/qpdf/button-set-broken-out.pdf` — a 15-field form with `/NeedAppearances` | The Forms panel drew **two `⚠` sentences as amber warning triangles**: *"⚠ This form asks viewers to draw field values themselves…"* and *"⚠ 2 field(s) have no drawn appearance in this document…"*. Two of the fourteen this entry condemned. Neither is a box. |
+| the binary with **no argument** | The empty canvas read *"No document open. Choose File **□** Open, press Ctrl+O, or start pdfce with a PDF path."* — the `▸` tofu, live. |
+
+Corroborated at the pixel level by dumping the glyphs `egui` actually
+rasterizes into its own font atlas at 48 pt: `⚠` is a filled triangle
+enclosing an exclamation mark, 43×38 px; `▸` is a hollow 30×30 square, which
+is `◻` — the substitution mark, not the separator.
+
+`D:\Dev\temp\pdfce\SW41177.pdf` was opened first, as directed, and reached the
+Forms panel — but it carries **no** interactive fields, so its panel correctly
+draws the *"this document has no interactive form fields"* sentence and no `⚠`
+at all. It could not have settled the question either way, which is why a form
+fixture was opened as well. Recording that rather than reporting the first
+screenshot as if it had confirmed something.
+
+---
+
+## D13 — A mid-file `#[cfg(test)]` silently switches the ui-strings gate off for the rest of the file
+
+**Found 2026-08-14.** `tools/gates/check-ui-strings.sh` stops scanning a file at
+the first column-0 `#[cfg(test)]` — its own header records this as a deliberate
+limit, on the reasoning that test code below it is not operator-facing. The
+limit is sound; the **assumption** is not. Nothing requires the test module to
+be last, and where it is not, every non-test item after it is unscanned **and
+the gate reports clean**.
+
+Proven rather than argued: a violation planted after line 262 of
+`crates/pdfce-gui/src/panels/forms/edit.rs` **passes the gate**.
+
+Three files are affected today:
+
+| file | non-test items below the test module |
+|---|---|
+| `panels/forms/edit.rs` | 7, including `pub fn apply` |
+| `canvas/guides.rs` | 6 |
+| `panels/layers.rs` | 5 |
+
+This is the **`check-file-size` fail-open class again** — the same shape as
+PORT CHANGE 1 in `check-ui-strings.sh`'s own header, where a flat glob scanned
+three files out of forty and printed the same output a clean run prints. *"Found
+no violations"* and *"looked at almost nothing"* remain byte-identical.
+
+**Not fixed** — the three files are outside the territory of the work that found
+this, and the fix is the gate's, not theirs. Two candidate fixes, and the second
+is better: scan the whole file and exclude only items *inside* a `mod tests`
+block; or keep the early exit and add a gate assertion that the test module is
+the **last** thing in the file, which is a convention this codebase already
+follows nearly everywhere and which a self-test can prove it catches.
+
+---
+
+## D14 — Every freehand ink stroke authored two points — **FIXED 2026-08-14, same session**
+
+**Found by driving the binary; invisible to a green suite by construction.**
+
+`canvas::markup::ink::sync` read the in-flight pointer trail *after*
+`GestureState::update` had already advanced. `update` drops its own drag on
+the frame it reports `Complete` — so on **exactly** the frame the release
+arrived, `active()` answered `None`, and the accumulated trail was discarded a
+few lines before the arm that commits it. A freehand stroke hundreds of points
+long authored an annotation with **two**.
+
+### Why no test could see it
+
+Every unit test calls `drag` directly. **None of them can see the order in
+which `canvas::interact` calls two functions**, because that order is a
+property of a call site and a call site's effect is only observable in a
+running frame. This is `HANDOFF.md` §2's recurring shape — the same one that
+produced the icon painter that was never passed to the ribbon, and the
+page-text extraction paid at open rather than on the gesture.
+
+### How it was found
+
+The trace line, on a drag the harness had made hundreds of points long:
+
+```
+markup-commit kind=Ink page=0 raw=2 kept=2
+```
+
+`raw=` is printed beside `kept=` **for this reason**: a build whose
+simplification did nothing, and a build whose trail was empty, produce
+otherwise identical lines. Without the pair the number would have read as a
+successful simplification of a two-point drag.
+
+### Fix
+
+Read the trail **before** the gesture machine advances. Recorded at
+`canvas/markup/ink.rs` §2 with the measured symptom, so the ordering is stated
+where the next reader will meet it rather than rediscovered.
+
+### The general lesson
+
+**A diagnostic that prints only its output cannot distinguish "worked" from
+"had nothing to work on."** Print the input beside it. That is cheap, and it
+is what turned an invisible defect into a one-line read.
+
+---
+
+## D15 — `ocrs` collapses on a sparse clean page, which is the shape of a drawing sheet
+
+**Found 2026-08-14 while building the OCR fixture. Not a pdfce defect — an
+upstream characteristic this project has to design around, and it matters here
+more than for most consumers.**
+
+A first OCR fixture of **two words on an otherwise empty page** produced a
+detection result of *the whole page as one rectangle*. The probability map was
+dumped and inspected: it was **perfect** — four clean blobs, four connected
+components counted by hand. The failure was downstream, in thresholding.
+
+`ocrs`'s `text_threshold` defaults to **0.2**. The measured background on that
+page ran **0.148–0.208** — so the threshold sat inside the noise floor and the
+whole page crossed it.
+
+### Why this is not an academic edge case here
+
+**A drawing sheet is exactly that shape**: a small title block, a handful of
+dimension callouts, and a very large expanse of empty paper. `SW41177.pdf` and
+the A1 benchmark are both far sparser than the scanned prose OCR engines are
+tuned for. An operator OCR-ing a scanned drawing is the *most likely* user of
+this feature and is walking into the worst case for it.
+
+### What was done, and what deliberately was not
+
+The **fixture was changed**, not the threshold. Tuning a recogniser's internals
+to make a test pass is how a shell starts carrying an engine's opinions: the
+number would be ours, the failure would still be theirs, and the next `ocrs`
+release would silently disagree with us.
+
+### What remains
+
+Unquantified on real scanned material, because **there is none in the tree**.
+If a scanned drawing ever arrives, this is the first thing to measure — and if
+it reproduces, the honest fix is upstream or a documented refusal, not a magic
+number in `pdfce-gui`.

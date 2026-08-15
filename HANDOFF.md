@@ -20,9 +20,18 @@ them.
 | **Engine HEAD** | `D:\Dev\pdfce` at `b943ea1` |
 | **Tests** | 1,184 passing, 0 failing |
 | **Gates** | 8 of 8, 0 skipped |
-| **Commands** | 88 registered · 88 declared-and-deferred |
+| **Commands** | 90 registered · 88 declared-and-deferred |
 | **Latest build** | `D:\builds\pdfcegui-20260813-2248-b943ea1-a748414\` |
 | **Requests owed by pdfce** | **none.** Four filed and answered on 2026-08-14 — revision clouds, markup note text, markup opacity, tab-order authoring. Three are **accepted and scheduled, none started**; they block *items within* Phase 6, not Phase 6 itself. From the fourth, **`widget_rects(page_index)` shipped immediately** (engine `e8e9881`) and canvas form filling uses it. Tab-order *writing* stays blocked on their F4 — see §8. |
+
+> **★ The table above is from 2026-08-13.** A large 2026-08-14 session landed
+> the Read-mode gate and Phase 7. Measured at the end of it:
+> **1,584 tests passing, 0 failing · 101 commands
+> registered · 31 groups · ~128,000 source lines.** `FEATURES.md`'s own
+> header carries the same figures. **The tree is not clean** — the whole of
+> that session is uncommitted. Re-measure rather than quoting either table
+> if any time has passed; the numbers above are the ones a test pins, and
+> prose drifting from them is a defect this project has now had four times.
 
 **Everything the operator asked for is shipped.** Phase 3 and Phase 4 are
 complete, along with Print, Forms-fill, Icons, Open/Recent/Close and Find.
@@ -32,6 +41,45 @@ Every loose end the build agents reported has been closed.
 
 > **Phase 6 (markup) → Phase 7 (measure) → the three small unblocked items
 > → OCR → Phase 5 (text editing).**
+
+### ★ Where that order has got to, as of 2026-08-14 (second session)
+
+| | |
+|---|---|
+| **Read mode is genuinely read-only** | Asked for mid-session and built. Capability is derived from the **mode's tab list in the manifest**, never from the string `"read"`, so the ribbon and the canvas read one sentence. Closes **`DEFECTS.md` D6**. Proven by `ui-verify` driving the real window, not by tests. |
+| **Phase 7 — measure** | **The salvage landed 2026-08-14 and three tools place dimensions**: Linear (three clicks — what, to what, where), Two-line, and **Radius / diameter**. `measure_tool.rs` came across whole into `canvas/measure/{pick,scale,state}.rs`, the 12.M1 snap primitives into `canvas/snap.rs`, 45 tests carried, **no engine API had moved**. ★ **The radius/diameter blocker is closed, by operator decision.** This row used to say the gesture had no natural end and the only place to say "done" was an accept box decision 024 retired — true, and the operator's answer on 2026-08-14 was to give it **two** endings that are not boxes: a **double-click** on the canvas and a registered **`measure.finish`** command, both routed through one commit path in `canvas/measure/circular.rs` so they cannot author different dimensions. Finish is gated on a new condition, `measure.finishable` (the tool armed *and* a non-degenerate fit), because a Finish that is always enabled is a control that does nothing on almost every press. The snap query is also wired now. What remains: **Set scale** still has no dialog to ask the length in; Area and Count still need engine changes; Angular is core-complete with no tool. See `SALVAGE.md`'s Phase 7 entry for the three deliberate departures from the source and the axis collision it surfaced. |
+| **The three small unblocked items** | Two are done — the **edit-disclosure surface** and the **chord/mode gate**. Panel toggles are the third and the operator has chosen the semantics. |
+| **Four operator decisions taken** | 2026-08-14: chords gate on tab membership; radius/diameter gets **both** a Finish command and a double-click; an open panel's control **closes** it; and `⚠` was to be fixed by **adding font coverage**. |
+| **★ …and the fourth decision was answered by a measurement instead** | The operator chose to bundle a font for `⚠`. **No font was needed: `⚠` was never missing and renders correctly.** The broken thing was the *gate's predicate* — `epaint`'s `Fonts::has_glyph` asks "is this drawn by a face other than the one supplying the substitution mark?", so it answers `false` for every codepoint whose first supporting face is that one. The unanswerable demonstration is that **`has_glyph(Monospace, 'A')` is `false`**. So `DEFECTS.md` D12's measured lists were an artefact of the instrument, and four of its thirteen "shipped tofu" sentences were fine all along. **No dependency, no font data, zero added bytes.** The lesson is the general one: *a measurement is only as good as the predicate behind it*, and D12 is rewritten with the wrong claim kept visible. The gate was then widened to every `text/` module and **found two real tofu boxes on its first run** — both now fixed; see D12. |
+
+**Two taxonomy questions were open and are the operator's**, both of the same
+shape as the `edit.form_fill` → `view.panel_forms` move that is already in
+this file. ★ **The first is now closed — answered and shipped on 2026-08-14 —
+and is kept here struck through rather than deleted**, because the pattern is
+the useful part: a chord refused in a mode where the operator plainly needs it
+is evidence that the *command's tab* is wrong, not that the gate needs an
+exception. That is twice this has happened and twice the fix has been a tab
+move.
+
+1. ~~**`edit.copy_page_text` sits on the Edit tab**~~ — **CLOSED by the
+   operator on 2026-08-14: the destination is File ▸ Export.** The question
+   was that `Ctrl+Shift+C` was refused in Read while Acrobat Reader copies
+   text, which is the standard Read is measured against. Copying is not
+   authoring, so both verbs left the authoring tab: `edit.copy_page_text` →
+   **`file.copy_page_text`**, `edit.copy_document_text` →
+   **`file.copy_document_text`**, tokens 122 and 123, the chord following the
+   command in the manifest keymap. Export rather than a new Clipboard band,
+   because an export is content written out to somewhere that is not this
+   document and the destination — clipboard rather than path — is what the
+   label says. **Edit ▸ Clipboard was deleted rather than shipped empty**, so
+   the group count is **31**, not 32; that number is quoted in six places and
+   all six moved together. One test now stands under the restored property,
+   `both_text_copy_commands_are_offered_by_every_mode`, because nothing else
+   would notice a revert. (At the time that test was written neither command
+   had a dispatch arm; **both were wired on 2026-08-14** by the canvas
+   text-selection work, and both read the same page extraction the canvas
+   does, so ribbon-copy and selection-copy cannot disagree.)
+2. ~~**Worded decline**~~ **— CLOSED 2026-08-14, built as specified.** `ZoomOutcome::NoBounds`/`NoCanvas` are worded in the status bar through `app/status/decline.rs`; the ceiling-clamped region zoom is deliberately left unworded as a partial grant. One thing came back with it: no chord binds `view.zoom_selection`, and its ribbon control is greyed exactly when it would decline. **Settled 2026-08-14 under the reference-application instruction** (§3 item 4): SolidWorks and Acrobat both reach zoom-to-selection by right-click and only Inkscape binds a key, so it joined the `canvas.object` context menu and **no chord was invented** — Inkscape's key is a bare digit, this shell's chords are `Ctrl`-modified by construction, and `Ctrl+1/2/3` are the mode selector. A menu on an object implies a selection, so the decline sentence stays **race-only**, which is the right shape: it is a safety net for the case where bounds evaporate between the frame that drew the enabled control and the frame that applied it.
 
 Phase 5 is therefore **last**, not next — which is worth stating plainly,
 because it is the defect that began this project (*"text editing is weird
@@ -62,7 +110,7 @@ Two things that order does not tell you, and that cost a day to find out:
 
 The project exists because two defects were invisible to a green suite.
 Since then the count of defects found *only* by running the program and
-reading its trace or its pixels has reached **eight**:
+reading its trace or its pixels has reached **ten**:
 
 1. `Ctrl+O` printed in a tooltip, in the keymap, bound to nothing.
 2. The icon painter existed, was tested, and was never passed to the ribbon
@@ -78,6 +126,24 @@ reading its trace or its pixels has reached **eight**:
    lines a frame. **A screenshot could not catch this one** — 2,450
    hairlines and a wash are the same picture. It was found by printing the
    ladder the running app had actually chosen.
+9. The page-text extraction was paid **at open** rather than on the gesture
+   that needs it — 392 ms on the benchmark sheet, charged to an operator who
+   had touched nothing. **The suite was green and the cache was working**:
+   exactly one extraction happened, which is all a test can ask about. What
+   was wrong was *when*, and the only thing that carries a when is a
+   timestamped trace line. Found by reading `page-text` in a driven run and
+   noticing it sat beside `open` instead of beside the first sweep.
+10. The freehand ink trail was read **after** the gesture machine had already
+    cleared it. `GestureState::update` drops its own drag on the frame it
+    reports `Complete`, and `ink::sync` was called after it — so on exactly
+    the frame the release arrived the trail answered `None`, and every
+    freehand stroke authored **two points**. Every unit test passed: they
+    call `drag` directly, and **none of them can see the order
+    `canvas::interact` calls two functions in.** Found from the trace line
+    `markup-commit kind=Ink raw=2 kept=2` on a drag that was hundreds of
+    points long — which is also why that line carries `raw=` beside `kept=`,
+    since a build whose simplification did nothing emits an otherwise
+    identical line.
 
 Number 8 carries the sharpest lesson available here: the existing test
 passed because it asserted the grid was *finer* than the ruler, which it
@@ -116,7 +182,93 @@ These were given explicitly and are still in force.
    to drop the argument.
 4. **Make it work the way other programs do.** This retired the `Editing on`
    master toggle and it is the tie-breaker for interaction questions.
-5. **Dispatch subagents freely; do not ask permission.** See the global
+
+   **★ Sharpened 2026-08-14, and this is the most useful instruction in the
+   file**: *"make your best educated guesses to match what inkscape, acrobat,
+   and SolidWorks do."*
+
+   Three named reference applications, and they are named for reasons that
+   cover the product between them: **Acrobat** is what pdfce replaces,
+   **Inkscape** is the vector editor whose docking and tool model this shell
+   already benchmarks against (`MODES_AND_PANELS.md` Part 2), and
+   **SolidWorks** is where the operator's drawings come from and therefore
+   where their muscle memory lives.
+
+   What it changes in practice: **do not ask the operator how an interaction
+   should behave.** Look at what those three do, pick, and *record which one
+   you followed and why*, so the guess is auditable rather than merely made.
+   Where they disagree, say so and say which won — that disagreement is
+   usually the interesting part of the decision.
+
+   Worked example, from the day it was given: *how is zoom-to-selection
+   reached?* SolidWorks and Acrobat both put it on the right-click menu;
+   only Inkscape binds a key (bare `3`, in its `1`–`6` zoom family). Two of
+   three said menu, so it went on `canvas.object` — and no chord was
+   invented, because Inkscape's family is *unmodified digits* while this
+   shell's manifest chords are `Ctrl`-modified by construction and its
+   `Ctrl+1`/`2`/`3` are the mode selector. Transposing `3` onto `Ctrl+4`
+   would have matched the letter of neither convention and the muscle memory
+   of nobody. The whole argument is at the registration site in
+   `shell::menus`.
+
+   **A second worked example, and it sharpens the rule.** *How does a
+   polyline or polygon end?* All three double-click, so that half was not a
+   judgement call. The disagreement was the *other* way out: Inkscape and
+   SolidWorks both close a shape by clicking the first vertex, and **Acrobat
+   does not**. Acrobat won — two against one — because `/Polygon` closes back
+   to `/Vertices[0]` by ISO 32000-1 §12.5.6.13, so pdfce is in Acrobat's
+   position, and a click-the-first-vertex rule would author a duplicate
+   vertex and a zero-length closing segment. **The majority had never faced
+   the surface.** SolidWorks' Escape-to-end was refused outright on a
+   different ground: in this shell Escape means *abandon*, and committing on
+   the key an operator presses to say "no" is the least recoverable reading
+   available.
+
+   So the rule has two halves, and the second is the one that keeps being
+   load-bearing: **match what they do, but first ask which of them actually
+   has the surface you are deciding about.** That test has now decided three
+   cases — zoom-to-selection, the Edit text tool, and this one — and in two
+   of the three it overturned the head-count.
+
+   The instruction does **not** license guessing about *claims* — refunds,
+   licensing, what the engine does, what a file format permits. Those are
+   still verified. It licenses guessing about **behaviour**, where a
+   defensible convention beats a blocked question.
+5. **★ Read may produce a new document; it may not modify this one.**
+   Operator instruction, 2026-08-14, given as a rule about OCR:
+
+   > *"if in read mode ocr should still be available, but it will prompt to
+   > save changes as save as instead of save."*
+
+   Recorded in its **general** form, because that is the form that decides
+   future cases rather than one. It explains the two exceptions Read already
+   carries — **form filling** (2026-08-14) and now **OCR** — as exceptions
+   rather than inconsistencies: neither changes the document the operator was
+   handed. It also settles in advance every capability of the same shape that
+   is still to come: flatten, redact-apply, PDF/A convert, page export.
+
+   The line Read's gate actually draws is therefore **not** "no writes". It
+   is *no writes to **this** file*, and the enforcement point is the **save**,
+   not the operation. That is worth knowing before anyone tries to make the
+   canvas gate cover it: `app::modes::capability` governs *gestures*, and OCR
+   is not a gesture.
+
+   **Two things about it that are true today and easy to get wrong:**
+
+   - **It is currently vacuous.** There is exactly one save command,
+     `file.save_copy`, and pdfce never overwrites the original unless the
+     operator picks it — so every mode already behaves this way. The rule
+     becomes load-bearing **the day in-place `Save` lands**, which is
+     precisely when someone will be least likely to remember it. That is why
+     it is written here against a command that does not exist yet.
+   - **OCR is still blocked, and not on anything in this repo.** The blocker
+     is shipping a CC-BY-SA-4.0 model in an MIT repo, plus the engine's own
+     note that recognition quality is unproven. Both are the operator's to
+     settle. See `FEATURES.md`'s OCR section for the Find-offers-OCR trigger
+     rule, which has one trap in it: *"the document is images"* is not
+     *"this search had no matches."*
+
+6. **Dispatch subagents freely; do not ask permission.** See the global
    `CLAUDE.md`. `D:\Dev\pdfce` is READ-ONLY to this project.
 
 ---
@@ -230,16 +382,46 @@ the results in `--note`.
 |---|---|
 | **Phase 5 — text editing** | The defect that started the project. Three distinct problems, not one: the edit unit is a single show-text operator rather than a visual box; nothing re-lays-out while you type and aligned/rotated text is moved wrongly on commit; reflow is blocked behind three gates. `DEFECTS.md` D4 has the full chain. **Ask before starting.** |
 | **Phase 6 — markup** | **In progress, and larger than this row used to imply.** The new shell has *no markup placement at all*: all eight `markup.*` commands draw and fall through to `command-unimplemented`, `CanvasTool` has two variants, and there is no `canvas/markup.rs`. So it is *build the tool substrate, then ten kinds*, plus the Comments panel (which does not exist here either). **Three items needed engine changes; all three were filed and answered on 2026-08-14, accepted and scheduled, none started.** Revision clouds land as `MarkupSpec::Cloud` plus `Square { border_effect }` — and the *rectangular* cloud ships first, being the gesture people actually reach for. Note text lands as `/Contents` + `/T` + `/M` together, `/M` engine-stamped and `/T` optional with **no invented placeholder**. Opacity is `/CA` **alone** — writing `/ca` into the appearance stream would encode a pdfce render bug into the file format; see **`DEFECTS.md` D9**, which is the more urgent half of that exchange and is about *viewing*, not authoring. Polyline, polygon, ink, underline, strikeout, squiggly, width and fill are engine-ready and blocked on nothing. |
-| **Phase 7 — measure** | A **salvage**, not a wiring job. This entry used to call the two-line ce dimension "the cheapest real feature in the backlog" because "the canvas gesture has no caller" — false in five documents at once, corrected 2026-08-14; see `SALVAGE.md`'s correction note. The gesture is built and tested in the *old* shell; this build has no measure tool at all, so the work is Class A `measure_tool.rs` (1,230 lines) plus ~900 lines of canvas hosting. Area and Count need engine changes; Angular is core-complete with no tool. |
+| **Phase 7 — measure** | **Three tools place dimensions**: Linear (three clicks — what, to what, where), Two-line, and **Radius / diameter**. `measure_tool.rs` came across whole into `canvas/measure/{pick,scale,state}.rs`, the 12.M1 snap primitives into `canvas/snap.rs`, 45 tests carried, **no engine API had moved**. ★ **This row used to name three remaining decisions and two of them are taken.** *Radius/diameter had no natural end to its gesture and the only place to say "done" was an accept box decision 024 retired* — the operator's answer on 2026-08-14 was **two** endings that are not boxes, a double-click and `measure.finish`, through one commit path in `canvas/measure/circular.rs`; the Finish control is gated on a new `measure.finishable` condition so it is live only when there is a non-degenerate fit to commit. *The snap query is unwired* — it is wired. What is left is **Set scale**, which still has no dialog to ask the length in. Area and Count still need engine changes; Angular is core-complete with no tool. See `SALVAGE.md`'s Phase 7 entry for the three deliberate departures from the source and the axis collision it surfaced. |
 | **Salvage remaining** | Redaction (its true-removal proof exists **only** in the old shell), and the settings dialog. |
 | **S6 — deep zoom** | ⛔ Blocked on the reusable parsed handle, which pdfce has scheduled as `Pass 75.0`. Do not build tiling: measured as a 9× regression. |
 
 Smaller, unblocked, and recorded in `FEATURES.md`:
 
-- Panel toggle semantics (`show_panel` is show-only).
-- The **edit-disclosure surface** — several features now trace disclosures
-  that Rule 4 says must be *surfaced*, not traced. The guide-count refusal
-  and the zoom-to-selection decline both wait on it.
+- ~~Panel toggle semantics~~ — **done 2026-08-14.** An open panel's control
+  closes it; `file.properties` and `markup.comments` deliberately do **not**
+  toggle, because they answer *"tell me about this thing"* rather than *"is
+  this panel open?"*. See `app/panels.rs`.
+- ~~The **edit-disclosure surface**~~ — **done 2026-08-14**, and the two
+  things that were waiting on it are settled: the zoom decline is built
+  (`app/status/decline.rs`, same surface, *different* store), and the
+  guide-count refusal can now follow the same pattern.
+- ~~**A text tool for Edit**~~ — **done 2026-08-14.** `CanvasTool::Text`,
+  armed by `view.tool_text` beside the hand tool in View ▸ Navigate. It
+  closed **two** things: Edit could not sweep text, and the three
+  text-markup controls were drawn on the Markup tab in Edit and could never
+  enable — a live P3 tension, now observed closed by `ui-verify`'s
+  `text_tool_selects_and_marks_in_edit`.
+
+  ★ **The reference applications disagreed, and how that was resolved is the
+  reusable part.** Acrobat and SolidWorks resolve text-versus-object
+  *contextually inside one tool*; only **Inkscape** uses a separate Text
+  tool. Inkscape won and **not by head-count**: an object marquee over
+  vector content is a surface Acrobat does not have at all, so its
+  contextual answer was not an answer to this conflict. The deciding
+  argument was concrete rather than taxonomic — a contextual press would
+  make a marquee over a region containing text unpredictable, and that is
+  the commonest gesture in Edit. **When the three references disagree, ask
+  which of them actually has the surface in question**; a majority that has
+  never faced the problem is not a majority.
+
+  One consequence worth knowing before touching the gesture layer: the new
+  rung sits **above** the `caps.edit_content` branch, so text-versus-content
+  exclusivity moved from *construction* to *precedence*. An object selection
+  and a text selection can now both be non-empty, which is why
+  `canvas::keys`' Escape ladder had to be re-argued rather than merely
+  extended.
+
 - Scoped reset chooser.
 - `ui-verify`'s `find_opens_and_finds` **has never passed here**: synthetic
   keyboard input does not reach the target window from the session that
@@ -294,6 +476,17 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
    note it was reached the second time *by omission* rather than by
    argument, and if anyone ever wants a mode to be genuinely read-only,
    `canvas::forms` is the second place that would have to learn about it.
+
+   **★ The operator asked for exactly that on 2026-08-14** — *"in read mode
+   the document shouldn't allow editing"* — and the answer to the sentence
+   above turned out to be **no, `canvas::forms` stays out.** Filling is not
+   authoring; it is the primary reason most form documents exist, and
+   Acrobat Reader fills forms in its default view. What the gate covers is
+   the canvas *gestures* (`app::modes::capability`, `app::gating`), derived
+   from the mode's **tab list** rather than from the id `"read"` — so the
+   ribbon and the canvas cannot disagree about what a mode is. `forms.rs`
+   was left untouched, deliberately, and its header's argument for that is
+   now load-bearing rather than incidental.
 2. **Per-mode memory of the page-display choice.** Deliberately not built:
    it is a second axis that collides with per-document, which is what was
    actually asked for.
@@ -302,6 +495,93 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
 
 ## 10. Things that will bite you
 
+- **★ The conventional value can be the worst one, and only measurement
+  tells you.** OCR shipped with `OCR_DPI = 300` — the number every scanning
+  guide gives. Measured against `SW41177.pdf` using its own vector text as
+  ground truth: 72 DPI → 34.8 %, 100 → 20.0 %, **150 → 44.7 %**, 200 → 27.5 %,
+  **300 → 3.3 %**. The conventional answer was the worst of the five by an
+  order of magnitude, because `ocrs` resizes every image to its model's fixed
+  input — so **pixel count governs, not resolution**, and 300 DPI on an A1
+  sheet throws away almost everything in the downscale. The constant is now
+  `TARGET_PIXELS`, with the table in its doc comment. **Before trusting a
+  parameter because it is standard, ask what the standard was measured on.**
+- **★ The RON has now been found stale three times in one day**, by five
+  separate changes that each missed it. See §5 obligation 4. Nothing about
+  this is going to improve by asking people to remember; it wants either a
+  non-`--ignored` test that regenerates and fails on a diff, or a pre-commit
+  hook. Until then, run it after **every** manifest touch, and re-run it last
+  when several sessions are landing at once.
+- **★ A test fixture that is not themed like the running application hides
+  spacing bugs.** The two-row ribbon's first cut padded rows by
+  `rows×height + (rows−1)×spacing` — one gap short, because egui advances the
+  cursor past *every* rect including the last. **Every test in the crate
+  passed**, because `width_tests`' context installs a font but no theme, so
+  egui's default `interact_size.y` (18 pt) sat 6 pt under the theme's
+  `control_height` (24 pt) and the slack swallowed the error. It was visible
+  only in the running binary's trace, as one group 68 pt tall beside another
+  at 64. `height_tests::context()` now applies the theme, and
+  `the_fixture_is_themed_like_the_running_application` guards it. **A layout
+  fixture must be built like the thing it stands in for**, or its slack is
+  the bug's hiding place.
+- **★ A gate can be satisfied by a comment saying the thing is missing.**
+  The shipped-assets gate's first self-test plant — declaring the OCR weights
+  redistributed before writing their notice — **was not caught**, because
+  `about.hbs`'s epilogue names that directory inside an HTML comment
+  explaining it is deliberately absent, and a presence check found the string.
+  Fixed by stripping comments before the check, and pinned by a sixth
+  self-test case. The general form is worth carrying: **a check that greps for
+  a string is a check on the file's *text*, not on its *output*** — render
+  first, then assert.
+- **★ Attribution is a shipped artefact, not a source-tree one.** Building
+  the OCR prerequisite found **three third-party works this shell had been
+  redistributing with no notice at all** — the Foxit CFF faces, the Adobe
+  Core-14 AFM metrics and the Adobe Glyph List, all compiled into the binary
+  by the engine crates. Nothing detected it for the whole life of the project,
+  because `cargo-about` sees Cargo dependencies and these are `include_bytes!`
+  payloads. **If it is in the binary and someone else wrote it, it needs a
+  notice**, and the only thing that finds those is a gate that reads what
+  packaging actually copies.
+- **★ The RON regeneration is the obligation that silently rots**, and it has
+  now rotted twice. Of the five obligations in §5, four fail loudly — a
+  count assertion, a group assertion, a `PLANNED` disjointness test, a
+  `KNOWN` lookup. **Obligation 4 has no compiler behind it and no failure
+  until someone else runs the round-trip**, so a session that forgets it
+  leaves `shell/ron/built_in.ron` describing a ribbon the build does not
+  have. On 2026-08-14 it was found stale by *five* separate changes at once
+  — the text-copy move to File ▸ Export, Edit ▸ Clipboard's deletion, three
+  text-markup commands, two measure commands, and a context-menu entry —
+  none of which had written it back. Run it, every time, even when your
+  change "obviously" did not touch the manifest:
+
+  ```bash
+  cargo test -p pdfce-gui --lib rewrite_built_in_ron -- --ignored
+  ```
+
+  The round-trip test `the_ron_file_and_the_rust_agree` is what eventually
+  catches it, which means the person who pays is whoever next touches the
+  manifest rather than whoever broke it. **It has now been found stale twice
+  in one day**, by two different sessions, which is the strongest available
+  argument that this should not depend on anyone remembering.
+- **★ A fixture can flatter the thing it measures, and the numbers will look
+  fine.** The ink simplification was first measured against a synthetic trail
+  whose disturbances were applied *along the arc's tangent* — so both of them
+  only re-spaced samples along a path whose shape never changed. It reported
+  17 points kept at a 0.5 pt tolerance and 33 at 0.125: a suspiciously flat
+  response to a 16× change, and the tell. Recomputing retention independently
+  exposed it; the fixture now offsets **radially** and carries an assertion
+  that the worst deviation actually exceeds half the tolerance, so a future
+  fixture that stops exercising the bound fails rather than flattering it.
+  This is `HANDOFF.md` §2's grid lesson wearing different clothes: **a
+  measurement that moves in the right direction is not evidence that it
+  measures the right thing.**
+- **Prose that quotes a number drifts from the number.** This has now
+  happened five times: the command count in two module headers, the group
+  count in six places, the test count in two documents, and — caught
+  2026-08-14 — the icon coverage split, which read *"82 of 93 named, 12
+  refused"* when 82 + 12 = 94 ≠ 93. Each was true when written. The fix that
+  works is a **test that asserts the arithmetic**, not a comment asking the
+  next reader to keep it current; `the_icon_coverage_split_adds_up_to_the_registry`
+  is the current example.
 - **`core.autocrlf` is true globally.** `.gitattributes` predates the first
   commit for that reason: CRLF normalization of PDF fixtures lands **in the
   index at `git add` time**, and a PDF's xref stores absolute byte offsets.

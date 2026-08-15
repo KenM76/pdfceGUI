@@ -1,0 +1,527 @@
+# Third-party licences
+
+<!--
+  GENERATED FILE — do not edit by hand.
+
+  Produced by `cargo about generate about.hbs -o THIRD_PARTY_LICENSES.md`
+  from this workspace's real Cargo.lock (see about.toml). Regenerate whenever
+  the dependency set changes, whenever this template changes, and before any
+  packaging pass. Hand edits to THIRD_PARTY_LICENSES.md will be overwritten.
+
+  `tools/gates/check-shipped-assets.py` compares the static epilogue below
+  against the generated file and FAILS if they have drifted, so "I edited the
+  template and forgot to regenerate" is caught by a gate rather than by a
+  reader of a release.
+-->
+
+`pdfce-gui.exe` statically links the third-party Rust crates listed below,
+and embeds the data and font assets named in the supplement at the end. Their
+licence terms and copyright notices are reproduced in full. This file covers
+the dependencies shipped in the Windows build target; the crate sections are
+regenerated mechanically from `Cargo.lock`.
+
+The program itself is MIT-licensed — see the `LICENSE` file beside this one.
+Nothing below changes that; these are the terms of other people's work that
+pdfce redistributes.
+
+## Required acknowledgements
+
+<!--
+  STATIC SECTION — emitted on EVERY regeneration, unconditionally.
+
+  WHY IT IS STATIC RATHER THAN DRIVEN BY THE CRATE LIST:
+
+  cargo-about reproduces licence TEXTS. It does not, and cannot, emit a
+  licence's required ACKNOWLEDGEMENT SENTENCE — that is a distinct obligation
+  with its own wording, and no field in the template model carries it. So a
+  conjunctive `... AND IJG` dependency can be fully licence-listed below and
+  still leave pdfce out of compliance.
+
+  It is therefore written here as unconditional prose, NOT inside the
+  per-licence iteration block below, and NOT gated on any crate being present.
+  A notice that appears only while some particular crate happens to be in
+  Cargo.lock is not an obligation being met — it is an obligation that
+  survives by luck, and the first dependency-set change that reshuffles the
+  list silently drops it. An acknowledgement that outlives the dependency it
+  was written for is merely redundant; one that vanishes with it is a
+  compliance failure. The asymmetry decides the design.
+
+  MAINTENANCE: if `jpeg-encoder` (or any other IJG-derived crate) ever leaves
+  the dependency set, this paragraph may be removed — deliberately, by editing
+  about.hbs, never by "the generator stopped emitting it."
+-->
+
+pdfce's JPEG encoder is the `jpeg-encoder` crate, whose SPDX expression is
+`(MIT OR Apache-2.0) AND IJG`. The `AND` is conjunctive: the Independent JPEG
+Group's terms bind **in addition to** the permissive ones, because the crate's
+quantization tables, Huffman tables and DCT are derived from the IJG's
+libjpeg. Those terms impose no source-disclosure obligation, but they do
+require the following acknowledgement in the documentation accompanying any
+binary redistribution, and it is made here:
+
+> **This software is based in part on the work of the Independent JPEG
+> Group.**
+
+The full IJG licence text appears in the "Full licence texts" section below,
+alongside the other licences harvested from `Cargo.lock`.
+
+## Licence overview
+
+{{#each overview}}
+- **{{name}}** — used by {{count}} crate(s)
+{{/each}}
+
+## Full licence texts
+
+{{#each licenses}}
+### {{name}}
+
+Used by:
+{{#each used_by}}
+- [{{crate.name}} {{crate.version}}]({{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}})
+{{/each}}
+
+```
+{{text}}
+```
+
+{{/each}}
+
+---
+
+<!-- STATIC-EPILOGUE-BEGIN -->
+## Embedded data & font assets (hand-maintained supplement)
+
+<!--
+  ===========================================================================
+  THIS REGION IS THE ONLY ROUTE BY WHICH A NON-CARGO ASSET'S LICENCE REACHES
+  ANYONE WHO WAS GIVEN A BINARY.
+  ===========================================================================
+
+  cargo-about can only see Cargo crates in Cargo.lock. pdfce also embeds
+  third-party DATA and FONT FILES that are not crates and are therefore
+  invisible to the generator. A `PROVENANCE.md` beside such an asset records
+  its terms for whoever reads the SOURCE TREE; it does not ship. The portable
+  package carries `pdfce-gui.exe`, `LICENSE`, `THIRD_PARTY_LICENSES.md`,
+  `README.md` and `FEATURES.md` — so an asset documented only in a
+  PROVENANCE.md is redistributed to an operator with no notice attached to it
+  at all.
+
+  This epilogue is where that is fixed. It is NOT hand-edited in the generated
+  output — it lives HERE, as a static block after the generated crate
+  sections, so every regeneration re-emits it. To change it, edit about.hbs
+  and regenerate.
+
+  EVERYTHING FROM THE `STATIC-EPILOGUE-BEGIN` MARKER TO END OF FILE IS
+  LITERAL. Do not put a handlebars expression in it. The gate
+  (`tools/gates/check-shipped-assets.py`) requires this exact region to appear
+  verbatim in THIRD_PARTY_LICENSES.md, which is what makes "the template was
+  edited and never regenerated" a build failure instead of a silent one; a
+  templated epilogue would render differently in the two files and defeat that
+  comparison.
+
+  ONE DIRECTORY IS DELIBERATELY ABSENT FROM THIS EPILOGUE, and the absence is
+  not an oversight:
+
+  * `crates/pdfce-gui/src/icons/assets/` — the operator's OWN art, under the
+    project's own MIT licence, which the shipped `LICENSE` file already
+    covers. Reproducing pdfce's own grant under a heading saying "third party"
+    would make this file say something untrue. The gate exempts a directory
+    whose PROVENANCE.md declares own work, and that exemption exists because
+    the engine's copy of the checker flagged exactly this directory on its
+    first run: "a gate that fires on a correct state is one people learn to
+    ignore."
+
+  ★ THE `ocrs` MODEL WEIGHTS WERE THE SECOND ABSENCE UNTIL 2026-08-14, AND
+  ARE NOW THE SECTION BELOW. They are the reason this whole epilogue exists:
+  the operator's decision to ship a CC-BY-SA-4.0 work in an MIT package is
+  what made a notice that reaches the RECIPIENT an obligation rather than a
+  courtesy. Note what changed and what did not — the section's text is the
+  engine's own, copied from `D:\Dev\pdfce\about.hbs` rather than rewritten,
+  because two accounts of one licence are two things that can drift, and the
+  engine's account is the one its `PROVENANCE.md` was written against.
+
+  There is one deliberate difference between the two copies, and it is the
+  only one: the paths named below are ENGINE paths, and this package ships the
+  files at `models/ocrs/` beside the executable. Both are stated, because a
+  recipient holding the portable folder needs the second and a reader auditing
+  the claim needs the first.
+-->
+
+The entries below cover third-party **data, font and model assets** pdfce
+redistributes that are not Cargo crates, so `cargo-about` cannot harvest them
+from `Cargo.lock`. They reach you in one of two ways, and the distinction is
+stated per entry rather than assumed:
+
+- **compiled into `pdfce-gui.exe`** — the Adobe tables and the substitute font
+  faces below, which are `include_bytes!` payloads and static tables in crates
+  this program links;
+- **loose files in this folder** — the `ocrs` OCR model weights below, which
+  live at `models/ocrs/` beside the executable because the program loads them
+  from disk on demand.
+
+They all arrive through the engine: `pdfce-gui` depends on `pdfce-core` and
+`pdfce-render` **by path** into `D:\Dev\pdfce`, and Rust links them
+statically, so every asset those crates embed or compile in as a table is
+redistributed by this binary too. The paths named below are paths in the
+engine repository, not in this one — a package's own layout is given
+separately where it differs. The authoritative provenance records (keep in
+sync) are:
+
+- `D:\Dev\pdfce\crates\pdfce-core\src\fontdata\tables.rs` — module-header
+  notices for the Adobe metrics and glyph-list tables
+- `D:\Dev\pdfce\crates\pdfce-render\assets\fonts\PROVENANCE.md` — per-face
+  SHA-256 provenance for the bundled substitute faces
+- `D:\Dev\pdfce\crates\pdfce-core\assets\models\ocrs\PROVENANCE.md` — per-file
+  SHA-256 provenance for the OCR model weights, which have no version number
+  and are therefore identified by hash
+
+### Adobe Core 14 AFM font metrics (APAFML)
+
+The standard-14 font width, encoding, and descriptor tables in
+`crates/pdfce-core/src/fontdata/tables.rs` are derived from the Adobe
+Core 14 AFM files (SPDX: `APAFML`).
+
+Modification notice (required by APAFML): only `WX` advance widths and
+global header metrics were extracted; kerning pairs (`KPX`), per-glyph
+bounding boxes (`B`), ligature data (`L`) and composites were
+discarded. `/Flags` values and the Symbol/ZapfDingbats Ascent/Descent
+are derived, not read from any AFM. AFM `Version` per font:
+Helvetica 002.000, Helvetica-Bold 002.000, Helvetica-Oblique 002.000,
+Helvetica-BoldOblique 002.000, Times-Roman 002.000, Times-Bold 002.000,
+Times-Italic 002.000, Times-BoldItalic 002.000, Courier 003.000,
+Courier-Bold 003.000, Courier-Oblique 003.000,
+Courier-BoldOblique 003.000, Symbol 001.008, ZapfDingbats 002.000.
+
+The APAFML license text, verbatim:
+
+```
+Copyright (c) 1985, 1987, 1989, 1990, 1991, 1992, 1993, 1997 Adobe Systems
+Incorporated.  All Rights Reserved.
+
+This file and the 14 PostScript(R) AFM files it accompanies may be used,
+copied, and distributed for any purpose and without charge, with or
+without modification, provided that all copyright notices are retained;
+that the AFM files are not distributed without this file; that all
+modifications to this file or any of the AFM files are prominently noted
+in the modified file(s); and that this paragraph is not modified. Adobe
+Systems has no responsibility or obligation to support the use of the AFM
+files.
+```
+
+### Adobe Glyph List (BSD-3-Clause)
+
+The glyph-name → Unicode data in
+`crates/pdfce-core/src/fontdata/tables.rs` is a subset of the Adobe
+Glyph List (`glyphlist.txt`, `zapfdingbats.txt`), licensed under
+BSD-3-Clause:
+
+```
+Copyright 2002-2019 Adobe (http://www.adobe.com/)
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+3. Neither the name of Adobe nor the names of its contributors may be
+   used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### Bundled `ocrs` OCR model weights (CC-BY-SA-4.0)
+
+The two neural-network weight files in
+`crates/pdfce-core/assets/models/ocrs/` (`text-detection.rten`,
+`text-rec-checkpoint.rten`), shipped in this portable folder as
+`models/ocrs/`, are the pre-trained models of the
+[ocrs](https://github.com/robertknight/ocrs) OCR engine by **Robert
+Knight**, obtained from <https://huggingface.co/robertknight/ocrs> on
+2026-08-13.
+
+They are licensed **CC-BY-SA-4.0**
+(<https://creativecommons.org/licenses/by-sa/4.0/>), as declared in that
+repository's model card. They are trained on
+[HierText](https://github.com/google-research-datasets/hiertext) (also
+CC-BY-SA-4.0) plus synthetic data.
+
+**pdfce has made no changes to these files.** They are byte-identical to
+the upstream artifacts; only their filenames were shortened (upstream
+carries a content-addressed suffix). Per-file SHA-256 hashes are recorded
+in `crates/pdfce-core/assets/models/ocrs/PROVENANCE.md`.
+
+CC-BY-SA-4.0 is a licence for creative works and contains no linking or
+source-distribution terms. These files are redistributed **unmodified, in
+a collection**, alongside pdfce's own MIT-licensed code; that is not an
+adaptation, and pdfce's licence is unaffected. Anyone who **modifies**
+these weights — fine-tuning, quantizing, retraining, or converting them to
+another runtime's format — creates Adapted Material and must release the
+resulting model under CC-BY-SA-4.0 or a compatible licence.
+
+The human-readable licence deed is linked above; the full legal code is at
+<https://creativecommons.org/licenses/by-sa/4.0/legalcode>.
+
+### Bundled Foxit substitute faces (BSD-3-Clause, via pdfium)
+
+The 14 CFF font files in `crates/pdfce-render/assets/fonts/`
+(`FoxitSans*.cff`, `FoxitSerif*.cff`, `FoxitFixed*.cff`,
+`FoxitSymbol.cff`, `FoxitDingbats.cff`) are extracted from Chromium
+pdfium (`core/fxge/fontdata/chromefontdata/`, upstream commit
+`a4a2d6706be9f538e355f3b95307ff393f299a54`). They are licensed
+BSD-3-Clause via Google's pdfium grant over Foxit-origin code
+(`Original code copyright 2014 Foxit Software Inc.` in each upstream
+file); see `crates/pdfce-render/assets/fonts/PROVENANCE.md` for
+per-face SHA-256 provenance. The pdfium `LICENSE` file, verbatim
+(its BSD-3-Clause grant, followed by the Apache-2.0 text that the
+upstream file appends for other pdfium components):
+
+```
+// Copyright 2014 The PDFium Authors
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//    * Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//    * Redistributions in binary form must reproduce the above
+// copyright notice, this list of conditions and the following disclaimer
+// in the documentation and/or other materials provided with the
+// distribution.
+//    * Neither the name of Google Inc. nor the names of its
+// contributors may be used to endorse or promote products derived from
+// this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        https://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       https://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```

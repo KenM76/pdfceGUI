@@ -99,8 +99,10 @@
 //!   setting; today `crate::app::PdfceApp::new` starts in the manifest's
 //!   first mode and [`start`] adopts whatever it is handed.
 
+pub mod capability;
 pub mod defaults;
 
+pub use capability::Capabilities;
 pub use defaults::{ABSENT_PANELS, layout_for, layout_for_build};
 
 use egui_shell::dock::{Column, DockLayout, DockSide, DockState, PanelCatalog, PanelId, Stack};

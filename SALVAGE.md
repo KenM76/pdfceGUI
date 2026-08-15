@@ -280,3 +280,46 @@ the binary renders the 5.6 MB CAD benchmark drawing.
 **Still owed on the S0 salvage (procedure step 5):** every one of the
 above needs a `ui-verify` assertion, which cannot be written until the
 harness exists at S1. A green unit test is the floor, not the ceiling.
+
+### Phase 7 — the measure salvage, 2026-08-14
+
+Class A `measure_tool.rs` and the Pass 12.M1 snap primitives, carried across
+in one pass. `cargo test -p pdfce-gui --lib` green, all eight gates green.
+
+| Source (old crate) | New home | State | What changed |
+|---|---|---|---|
+| `measure_tool.rs` (1,230 + 814 test) | `src/canvas/measure/pick.rs` (1,290), `scale.rs` (607), `state.rs` (377) | **complete** | Every `///` and `//!` paragraph carried verbatim; **all 36 tests carried, none dropped** — verified by diffing the complete function-name set (public, private and test) old against new: identical. Both load-bearing CLI-equivalence tests pass, so a canvas-authored `DimensionKind` is still byte-for-byte the one `pdfce-cli dimension-add` builds. **No `pdfce-core` API had moved** — every one of the ~25 imported items checked against the engine at this workspace's path dependency, unchanged signatures, no adaptation invented. Three adaptations, all documented in the files: `CanvasTool::MeasureLinear` and `GestureInterrupt` became prose (neither exists here), and cross-module doc links were repointed. |
+| `canvas.rs:1584-1892` + tests at `:3046-3136` (12.M1 snap) | `src/canvas/snap.rs` (587) | **complete, not yet queried** | The zoom-invariant catch radius, the master/Alt gate, the Tab cycle, the two-click confirm, the indicator glyph. `#[allow(dead_code, reason = …)]` kept where the item is still unused, with **the reason rewritten** to name this shell's consumer — an inherited reason pointing at a pass in another repo is a stale claim. `screen_tolerance_to_page` deliberately **not** salvaged: `canvas/mapping.rs` already has it, and that module's header states there is no second place in `canvas/` that divides by zoom. |
+
+**Three departures from the source, each deliberate:**
+
+1. **One `CanvasTool::Measure(MeasureKind)` variant**, where the old shell had
+   three variants plus `is_measure()` plus three `tool_builds_measure_*`
+   predicates. Five helpers replaced by a value. This is the one place the
+   salvage deliberately improves on its source rather than carrying it.
+2. **A third file.** The planned two-way split leaves `pick.rs` about twenty
+   lines over R2. Rather than shave prose to fit a threshold — the incentive
+   `check-file-size.sh` says in its own header it refuses to build in — the cut
+   was made at a seam **the original had already drawn for itself**, its own
+   `// ---` banner separating the three pick machines from the container that
+   owns them.
+3. **No Accept/Reject box.** The old hosting held a completed pick in
+   `MeasureState::pending` and waited for an explicit Accept in a property bar.
+   The third click commits instead. `pending` survives on the type, with its
+   tests, for a future property surface that is not a floating box.
+
+**One collision the salvage surfaced, and how it was resolved.** The old shell
+had **two** axes — a `CanvasTool` *and*, inside the linear tool, a
+`LinearPickMode` — so `set_linear_pick_mode`'s discard guarded one and the tool
+switch guarded the other. This shell has **one**: `MeasureKind`, with two-line
+as a kind rather than a mode. Had arming become the axis while the discard
+stayed attached to the old one, a half-finished point pick would have survived
+into two-line mode — and the original's own docs warn that this surfaces not as
+an error but as *"something strange"* on the operator's **next** click.
+`MeasureState::set_kind` is that rule restated over the axis this shell
+actually has, delegating to `set_linear_pick_mode` for the pair it already
+owns.
+
+**Still owed:** a `ui-verify` assertion (procedure step 5) for the placed
+dimension, and the snap candidate query, which is the one thing standing
+between the salvaged snap primitives and a pick that snaps.

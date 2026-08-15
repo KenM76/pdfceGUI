@@ -142,6 +142,15 @@ pub enum Icon {
     Tools,
     /// Keyboard-shortcuts window ("keyboard").
     Keyboard,
+    /// About window ("info") — version, licence, and the attribution surface.
+    ///
+    /// The circled "i" is the one glyph in this set with no plausible
+    /// alternative: every application that has an About item draws it, which
+    /// is exactly the "industry convention with no single author" that header
+    /// §2 permits and encourages. Distinct from [`Icon::Properties`] on
+    /// purpose — that one is the document glyph and means *this file*, and
+    /// About is about the program rather than about anything open in it.
+    Info,
     /// "Show points" view toggle — draws every anchor of the object being
     /// worked inside, so the points can be aimed at BEFORE one is selected.
     ///
@@ -186,8 +195,71 @@ pub enum Icon {
     ShapeEllipse,
     /// Markup → Arrow line.
     ShapeArrow,
+    /// Markup → PolyLine — an **open** run of clicked segments.
+    ///
+    /// Drawn as [`Icon::ShapePolygon`] with its closing segment removed, because
+    /// that is exactly how the two annotations differ (§12.5.6.13: `/PolyLine`
+    /// is `/Polygon` that does not close). The pair therefore teaches itself —
+    /// an operator who learns one has learned the other — where two unrelated
+    /// drawings would have to be memorised separately.
+    ShapePolyline,
+    /// Markup → Polygon — the same run of clicks, closed.
+    ///
+    /// An **irregular** pentagon rather than a regular one, and the irregularity
+    /// carries the meaning: regularity would read as *a shape primitive*, beside
+    /// [`Icon::ShapeRect`] and [`Icon::ShapeEllipse`], where what this control
+    /// means is *a shape you build out of clicked corners*. Five corners rather
+    /// than four, because a four-corner glyph at 16 px reads as a rotated
+    /// `shape-rect`, which is the one collision this band cannot afford (icon
+    /// ui-spec §2.1's ❌-grade risk: two members of one group differing only by a
+    /// small feature).
+    ShapePolygon,
+    /// Markup → Freehand — the `/Ink` annotation.
+    ///
+    /// One irregular flowing stroke spanning the whole tile, with round caps
+    /// because `pdfce-core`'s `ink()` builder sets `LineCap::Round` and a glyph
+    /// that promised square ends would be describing a different annotation.
+    ///
+    /// Deliberately **not** [`Icon::TextSquiggly`], which is a *periodic*
+    /// four-lobe wave sitting in a band under two text lines and means "mark
+    /// these words". The two never share a band — Ink is in Shapes and Squiggly
+    /// is in Text markup — but an operator carries the vocabulary between them,
+    /// so the difference is made structural (aperiodic, no baseline, full-tile)
+    /// rather than positional.
+    ShapeInk,
     /// Markup → Highlight band.
     ShapeHighlight,
+    /// View ▸ Navigate → the **text tool**, which makes the primary drag sweep
+    /// a range of text instead of marqueeing objects.
+    ///
+    /// A bare I-beam — the shape every operating system, word processor and PDF
+    /// reader draws over selectable text, and literally the `CursorIcon` the
+    /// tool installs, which is the strongest thing an icon can be: a picture of
+    /// what the control does to the pointer.
+    ///
+    /// Deliberately not [`Icon::AddText`], which is this glyph plus a small
+    /// badge. The badge is the difference and it is the right one: a plus
+    /// **creates** text, and this tool creates nothing — it selects what the
+    /// page already carries. The two live on different tabs and never share a
+    /// band, so what has to survive is an operator carrying the vocabulary
+    /// between them; the beam here is therefore centred and full-width where
+    /// `AddText`'s is pushed left to clear its badge.
+    ///
+    /// Nor [`Icon::Fonts`]'s A-on-a-baseline, which reads as "type" — a property
+    /// of the document — where this must read as "cursor", a property of the
+    /// pointer. That is the mirror of the constraint `Fonts` records against
+    /// borrowing from an editing tool.
+    TextSelect,
+    /// Markup → Underline the selected text.
+    ///
+    /// The first of a family of three that differ only in the third stroke —
+    /// under, through, wavy — which is exactly how the three commands differ.
+    /// See the asset for why the "text" strokes are inset and the mark is not.
+    TextUnderline,
+    /// Markup → Strike out the selected text.
+    TextStrikeout,
+    /// Markup → Squiggly-underline the selected text.
+    TextSquiggly,
     /// Text → FreeText box.
     TextFreeText,
     /// Text → Sticky note.
@@ -490,6 +562,7 @@ impl Icon {
         Icon::Copy,
         Icon::Tools,
         Icon::Keyboard,
+        Icon::Info,
         Icon::ShowPoints,
         Icon::Bookmarks,
         Icon::Layers,
@@ -498,7 +571,14 @@ impl Icon {
         Icon::ShapeRect,
         Icon::ShapeEllipse,
         Icon::ShapeArrow,
+        Icon::ShapePolyline,
+        Icon::ShapePolygon,
+        Icon::ShapeInk,
         Icon::ShapeHighlight,
+        Icon::TextSelect,
+        Icon::TextUnderline,
+        Icon::TextStrikeout,
+        Icon::TextSquiggly,
         Icon::TextFreeText,
         Icon::TextSticky,
         Icon::Stamp,
@@ -541,7 +621,7 @@ impl Icon {
     /// because pdfce ships single-folder portable: the executable must not
     /// depend on an `assets/` directory travelling beside it, and an icon
     /// that fails to load at startup is not a failure mode worth having when
-    /// the whole set is 70 KB of text. See [`super::assets`] for why the
+    /// the whole set is ~79 KB of text. See [`super::assets`] for why the
     /// `.svg` files live inside `src/icons/`.
     #[must_use]
     pub const fn source(self) -> &'static str {
@@ -581,10 +661,18 @@ impl Icon {
             Icon::Copy => assets::COPY,
             Icon::Tools => assets::TOOL,
             Icon::Keyboard => assets::KEYBOARD,
+            Icon::Info => assets::INFO,
             Icon::ShapeRect => assets::SHAPE_RECT,
             Icon::ShapeEllipse => assets::SHAPE_ELLIPSE,
             Icon::ShapeArrow => assets::SHAPE_ARROW,
+            Icon::ShapePolyline => assets::SHAPE_POLYLINE,
+            Icon::ShapePolygon => assets::SHAPE_POLYGON,
+            Icon::ShapeInk => assets::SHAPE_INK,
             Icon::ShapeHighlight => assets::SHAPE_HIGHLIGHT,
+            Icon::TextSelect => assets::TEXT_SELECT,
+            Icon::TextUnderline => assets::TEXT_UNDERLINE,
+            Icon::TextStrikeout => assets::TEXT_STRIKEOUT,
+            Icon::TextSquiggly => assets::TEXT_SQUIGGLY,
             Icon::TextFreeText => assets::TEXT_FREETEXT,
             Icon::TextSticky => assets::TEXT_STICKY,
             Icon::Stamp => assets::STAMP,
@@ -674,10 +762,18 @@ impl Icon {
             Icon::Copy => "copy",
             Icon::Tools => "tools",
             Icon::Keyboard => "keyboard",
+            Icon::Info => "info",
             Icon::ShapeRect => "shape-rect",
             Icon::ShapeEllipse => "shape-ellipse",
             Icon::ShapeArrow => "shape-arrow",
+            Icon::ShapePolyline => "shape-polyline",
+            Icon::ShapePolygon => "shape-polygon",
+            Icon::ShapeInk => "shape-ink",
             Icon::ShapeHighlight => "shape-highlight",
+            Icon::TextSelect => "text-select",
+            Icon::TextUnderline => "text-underline",
+            Icon::TextStrikeout => "text-strikeout",
+            Icon::TextSquiggly => "text-squiggly",
             Icon::TextFreeText => "text-freetext",
             Icon::TextSticky => "text-sticky",
             Icon::Stamp => "stamp",
@@ -725,7 +821,7 @@ impl Icon {
     /// two copies of a mapping is exactly how a rename lands in one of them.
     /// [`Icon::name`] stays the single source of truth and this walks it.
     ///
-    /// The cost is 72 pointer-length comparisons with an early exit, for the
+    /// The cost is 80 pointer-length comparisons with an early exit, for the
     /// handful of icons a ribbon draws per frame — comfortably under a
     /// microsecond, against a frame budget of 16 ms. A `HashMap` would need
     /// a lazily-initialised static, would hash the key anyway, and would buy
@@ -763,7 +859,9 @@ mod tests {
             "Icon::ALL contains a duplicate variant"
         );
         // 47 until 2026-08-14, when the pass that filled the ribbon's
-        // remaining text buttons added 25. If this fails, the fix is not to
+        // remaining text buttons added 25 — and 76 until later the same day,
+        // when the three unblocked Phase 6 markup kinds added `shape-polyline`,
+        // `shape-polygon` and `shape-ink`. If this fails, the fix is not to
         // edit the number: it is to check that the variant you added is in
         // `ALL`, and then to update this count AND the two prose figures
         // that quote it — `from_key`'s "N pointer-length comparisons" and
@@ -772,7 +870,7 @@ mod tests {
         // twice shipped a paragraph that was quietly false.
         assert_eq!(
             Icon::ALL.len(),
-            72,
+            80,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

@@ -21,7 +21,23 @@
 //! surface as it landed — [`qat_icons`] for the icon painter that was never
 //! passed to the ribbon, [`find_bar`] for the chord that was in the keymap and
 //! bound to nothing, [`markup_rectangle`] for a ribbon click whose whole
-//! four-link chain had unit tests and had never been performed.
+//! four-link chain had unit tests and had never been performed,
+//! [`measure_linear`] for `SALVAGE.md`'s step 5 — *"assert it in `ui-verify`
+//! before calling it done; a green unit test is the floor"* — and
+//! [`read_mode`] for a mode gate whose one untested link is the one a refactor
+//! breaks silently.
+//!
+//! ★ [`text_markup`] is the newest and adds a direction the suite did not have:
+//! **it asserts that a control is correctly DISABLED** before asserting that it
+//! works. Every check above it drives a control that should act; this one first
+//! clicks a control that should not, and reads the *absence* of
+//! `ribbon-command-invoked` as the evidence — which is admissible under rule 4
+//! below precisely because the same control is then shown to invoke, in the same
+//! run, once its operand exists.
+//!
+//! [`driving`] is not a check. It holds the moves the three ribbon-driving
+//! checks share; its header carries the argument for why it exists and why
+//! `markup_rectangle` deliberately keeps its own copies.
 //!
 //! The principle each satisfies, and the one to hold a proposed check to:
 //! **it must fail against a build where the wiring is absent, and the wiring
@@ -93,12 +109,58 @@
 //! both cases the check says in its own output which one it used.
 
 pub mod delete_key;
+pub mod driving;
 pub mod find_bar;
 pub mod legibility;
 pub mod markup_rectangle;
+/// ★ The three Phase 6 markup kinds that are **not drag-shaped** — Freehand,
+/// Polyline and Polygon — and the one control in this application whose
+/// availability is decided by a gesture in progress rather than by the document.
+/// It carries the only measurement of the ink simplification taken against a real
+/// pointer, and the only falsifier in the suite that needs a control to be
+/// **greyed at a specific moment mid-gesture**. Its header carries the argument.
+pub mod markup_shapes;
+pub mod measure_linear;
+/// ★ File ▸ New — the first command that makes a document out of **compiled-in
+/// bytes** rather than out of a file the operator named, and the only check in
+/// the suite whose subject is a page that is *supposed* to be blank. That is
+/// what makes it worth having: a blank page and a page that failed to
+/// rasterize are the same screenshot, so it reads the canvas's own `drawn=`
+/// count instead of a pixel. Its header carries the argument and the
+/// falsifying phase.
+pub mod new_document;
+/// `ocr_recognises_a_page_and_writes_a_new_file` — the whole Recognise-text
+/// chain against a genuinely image-only document, ending in the one assertion
+/// no unit test can make: **the file that was opened is byte-identical
+/// afterwards.**
+pub mod ocr;
 pub mod qat_icons;
+pub mod read_mode;
 pub mod ribbon_captions;
+/// ★ `file.save_copy` — the command that was registered, drawn, on the
+/// quick-access toolbar and bound to `Ctrl+S` with **no dispatch arm**, so
+/// nothing this shell could author could reach a disk. The only check in the
+/// suite that spans **two processes**: it authors an annotation with a real
+/// drag, saves a copy, and then re-opens the saved file in a fresh binary to ask
+/// whether the annotation is in it. Its header carries the three falsifying
+/// phases and the different wrong build each one catches.
+pub mod save_copy;
 pub mod settings_headings;
+/// Marking a text selection — underline, strikeout, squiggly. The first
+/// commands in this shell whose operand is **not the pointer**, and therefore
+/// the first check that asserts a control is *correctly disabled* as well as
+/// that it works. Its header carries the argument.
+pub mod text_markup;
+/// The canvas text-selection sweep: the one feature whose entire behaviour is a
+/// drag and whose entire feedback is a translucent wash, so a screenshot cannot
+/// tell it from a page with nothing selected. Its header carries the argument.
+pub mod text_selection;
+/// ★ The **text tool** in Edit, and the `RIBBON_IA.md` P3 tension it closes. The
+/// only check in the suite that observes one control **dead and then live in the
+/// same mode in the same run**, and the only one whose subject changes nothing an
+/// operator can see except the mouse pointer — which a window capture does not
+/// carry at all. Its header carries the argument.
+pub mod text_tool;
 
 use std::path::{Path, PathBuf};
 
@@ -188,6 +250,15 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // after the captions check because both launch, and a reader
         // comparing two ribbon verdicts wants them adjacent.
         Box::new(qat_icons::QatControlsAreIconOnly),
+        // ★ The first *driving* check, and it goes first among them on
+        // purpose: it is the cheapest — two clicks on one always-enabled
+        // control, no canvas gesture, no keystroke, no capture — and it is the
+        // one whose failure most changes what a later failure means. Every
+        // check below assumes a document is on screen; this one is the only
+        // one that makes a document rather than being handed one, so if the
+        // ribbon-click channel is broken it says so here, in seconds, instead
+        // of at the end of a canvas drag.
+        Box::new(new_document::NewDocumentMakesAPage),
         // Clicks and captures, so it takes the desktop — but only with the
         // mouse, and only for a few seconds. Placed after the three ribbon
         // chrome checks because it depends on the same rects they read and a
@@ -195,6 +266,67 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // the two typing checks because a run that fails here should fail
         // before paying for a keystroke that may never arrive.
         Box::new(markup_rectangle::MarkupRectangleArmsFromTheRibbon),
+        // Beside it, because it is the same shape of check on the same
+        // surface — a ribbon control that arms a canvas tool — and a reader
+        // comparing the two verdicts wants them adjacent. It goes second
+        // because it is the longer of the two: it clicks the page as well as
+        // the ribbon, and a snap candidate that needs confirming costs it an
+        // extra click.
+        // Directly after `markup_rectangle`, because it is the same surface and
+        // the longer of the two: it arms three tools, clicks out two runs and
+        // drives one drag. A run where the four-link chain itself is broken
+        // should report that as `markup_rectangle`'s failure first — this one
+        // would fail for the same reason with three more candidate causes in
+        // front of it.
+        Box::new(markup_shapes::MarkupFreehandAndVertexKinds),
+        Box::new(measure_linear::MeasureLinearPlacesADimension),
+        // ★ Directly after the markup checks, and the order is a **dependency**
+        // rather than a preference: this one begins by arming Rectangle and
+        // dragging, which is `markup_rectangle`'s and `markup_shapes`' whole
+        // subject. A run in which the four-link arm chain is broken should
+        // report that as their failure and this one's second — here the same
+        // symptom has the entire save path stacked behind it, and a reader who
+        // has already seen Rectangle fail knows to ignore the rest.
+        //
+        // It is the most expensive check in the suite by some way: it launches
+        // the binary **twice**, because the round trip it exists to prove is
+        // that a second process can read what the first one wrote. Placed
+        // before the two typing-dependent checks all the same, because it is
+        // the only one whose subject is a file on disk and a run that cannot
+        // save should say so before it spends anything on a keystroke that may
+        // never arrive.
+        Box::new(save_copy::SaveCopyRoundTrip),
+        // After both, because it is the only driving check that does not touch
+        // the ribbon band at all — it clicks mode segments and the page — and
+        // because it is the slowest: it searches for a point with content
+        // under it, and every candidate costs four clicks.
+        Box::new(read_mode::ReadModeRefusesCanvasEdits),
+        Box::new(text_selection::TextSelectionSweepsAndCopies),
+        // Directly after it, and the order is a dependency rather than a
+        // preference: this one *begins* by making a text selection, so a run
+        // where the sweep itself is broken should report that as the sweep's
+        // failure first and this one's SKIP second. It is also the longer of
+        // the two — three ribbon clicks and a drag, one of which authors an
+        // annotation into the open document (never onto disk: nothing here
+        // saves).
+        Box::new(text_markup::TextMarkupMarksASelection),
+        // Directly after it, and again the order is a dependency rather than a
+        // preference: this one does everything `text_markup` does and then some,
+        // in a different mode and behind a tool that has to arm first. A run
+        // where the marking path itself is broken should report that as
+        // `text_markup`'s failure, and this one's second — because here the same
+        // symptom has one more candidate cause (the tool), and a reader who has
+        // already seen Review fail knows to ignore it.
+        //
+        // It is the longest driving check in the suite: five ribbon clicks
+        // across three tabs, two drags, and one annotation authored into the
+        // open document (never onto disk; nothing here saves).
+        // ★ Last of the driving checks, and the slowest: it runs a real
+        // recognition, which is a second in a release build. Placed after the
+        // cheap ones so a run that is going to fail on something structural
+        // fails before spending it.
+        Box::new(ocr::OcrRecognisesAPageAndWritesANewFile),
+        Box::new(text_tool::TextToolSelectsAndMarksInEdit),
         // Last, because it is the only check that TYPES. Everything above
         // either reads a trace or captures a window; this one presses a
         // chord, types a needle and presses Enter into a real foreground

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic closed multi-segment shape — generic, no trademark risk -->
+  <!-- ui-spec §3.3 "shapes family": an irregular CLOSED pentagon, not a regular
+       one. Regularity would read as "a shape primitive" beside shape-rect and
+       shape-ellipse, where what this control means is "a shape you build out of
+       clicked corners"; the uneven vertices say so. Five corners because four
+       would read as a rotated shape-rect at 16 px, which is the one collision
+       this band cannot afford. Unfilled, matching every other shape glyph and
+       matching what `spec` authors (`interior: None`). -->
+  <path d="M24 9L39 20L33 37H15L9 20Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

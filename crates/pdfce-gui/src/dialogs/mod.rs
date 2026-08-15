@@ -59,6 +59,8 @@
 //! `Action`s; this note is about printing specifically, not about dialogs in
 //! general.
 
+pub mod about;
+pub mod ocr;
 pub mod print;
 
 use crate::app::state::{OpenDoc, Status};
@@ -70,10 +72,46 @@ use crate::app::state::{OpenDoc, Status};
 /// state exists. Closing a dialog drops its state, which is what makes
 /// "closing forgets the job" true by construction rather than by remembering
 /// to reset fields.
+///
+/// ## ★ The fields are in two groups, and the split is load-bearing
+///
+/// A **document-scoped** dialog is about the open file: a print job is a job
+/// on *these* pages. An **application-scoped** dialog is about pdfce itself
+/// and is meaningful with nothing loaded.
+///
+/// Until 2026-08-14 every dialog here was document-scoped and
+/// [`DialogsState::show`] could take the shortcut of dropping all of them the
+/// moment the document went away. [`about::AboutDialog`] broke that: an
+/// operator who has just launched pdfce and wants to know what version they
+/// are running, or under what terms, has no document — and a control that did
+/// nothing in that state would be the placeholder `HANDOFF.md` §6 forbids.
+///
+/// So the two groups are drawn separately rather than the rule being softened
+/// for everything. Print still closes with its document; About does not, and
+/// cannot be made to without breaking the command that opens it.
 #[derive(Default)]
 pub struct DialogsState {
+    // --- document-scoped: closed when the document closes -----------------
     /// The print dialog, when one is open.
     print: Option<print::PrintDialog>,
+
+    /// The Recognise-text dialog, when one is open.
+    ///
+    /// Document-scoped, and firmly so: a recognition is of one page of one
+    /// file. ★ It is the first dialog here that can hold **unsaved bytes**, and
+    /// closing the document discards them — which is the right answer rather
+    /// than a loss. Writing them afterwards would produce a file derived from a
+    /// document the operator has already put away, and offering to do that is
+    /// how a program ends up with two ideas about what "the document" means.
+    ocr: Option<ocr::OcrDialog>,
+
+    // --- application-scoped: survives an empty canvas ---------------------
+    /// The About dialog, when one is open.
+    ///
+    /// Carries the attribution surface — see [`about`] and
+    /// [`crate::text::about`] for why a shipped `LICENSE` file is not enough
+    /// once a CC-BY-SA-4.0 asset is in the package.
+    about: Option<about::AboutDialog>,
 }
 
 impl DialogsState {
@@ -108,41 +146,106 @@ impl DialogsState {
         self.print = Some(print::PrintDialog::open(doc));
     }
 
+    /// Open the Recognise-text dialog for the document in `status`.
+    ///
+    /// **The dispatch target for the `file.ocr` command**, and it applies the
+    /// same two guards [`Self::open_print`] documents, for the same two
+    /// reasons: the ribbon control is gated on `doc.pages` and a chord bound to
+    /// the same id is not, so both are fixed here at the one place the dialog
+    /// is built.
+    ///
+    /// The already-open guard is the stronger of the two here. A second press
+    /// while a recognition is running would abandon a live worker thread and
+    /// start another beside it, and a second press *after* one finished would
+    /// discard recognised bytes the operator has not saved yet — several
+    /// seconds of work and an unwritten document, thrown away by the shortcut
+    /// they pressed to look at it.
+    pub fn open_ocr(&mut self, status: &Status) {
+        if self.ocr.is_some() {
+            return;
+        }
+        self.ocr = ocr::open_for(status);
+    }
+
+    /// Open the About dialog.
+    ///
+    /// **The dispatch target for the `file.about` command.** Unlike
+    /// [`Self::open_print`] it takes no [`Status`], because it needs none:
+    /// About describes the application, and the application is always there.
+    /// The command is registered with no `enabled_when` for the same reason.
+    ///
+    /// The already-open guard is kept, and for a slightly different reason
+    /// than print's: this dialog holds no configuration to discard, so
+    /// rebuilding it would lose nothing — but it would *move* the window back
+    /// to the centre and reset its scroll position, which for an operator
+    /// half-way down the attribution list reads as the program losing their
+    /// place.
+    pub fn open_about(&mut self) {
+        if self.about.is_some() {
+            return;
+        }
+        self.about = Some(about::AboutDialog::open());
+    }
+
     /// Draw every open dialog, and close the ones that asked to close.
     ///
     /// Called once per frame from frame composition, **after** the canvas and
     /// the docks: a dialog is an overlay, and egui's `Area` ordering follows
     /// the order things are added within a frame.
     ///
-    /// # Why a closed document closes the dialogs
+    /// # Why a closed document closes the DOCUMENT-SCOPED dialogs
     ///
-    /// Every dialog here is *about* the open document — a print job is a job
-    /// on this file's pages. A dialog left up over a closed document would be
-    /// configuring a job against pages that no longer exist, and the honest
-    /// response is to close it rather than to freeze it or to let it act on
-    /// whatever is opened next.
+    /// A print job is a job on this file's pages. A dialog left up over a
+    /// closed document would be configuring a job against pages that no
+    /// longer exist, and the honest response is to close it rather than to
+    /// freeze it or to let it act on whatever is opened next.
+    ///
+    /// # ★ …and why About is drawn either way
+    ///
+    /// It is about pdfce, not about a document. Closing it when the document
+    /// closes would make `file.about` — a command every mode offers, with no
+    /// `enabled_when` — open a window that vanished on the same frame
+    /// whenever the canvas was empty. That is a control that does nothing,
+    /// and it would look exactly like a bug in the command dispatch rather
+    /// than like a rule about dialog lifetime.
+    ///
+    /// The early return therefore covers only the first group. Both are drawn
+    /// first and closed after, rather than closed inside the borrow that drew
+    /// them: a dialog decides whether it stays open *while* it draws (the
+    /// title-bar cross and its own Close button are both widgets), so the
+    /// answer arrives out of the same call that needs `&mut` on the state
+    /// being dropped.
     pub fn show(&mut self, ctx: &egui::Context, status: &Status) {
+        // Application-scoped first, so that an empty canvas cannot skip it.
+        // Ordering is the whole guard here: putting this after the early
+        // return below is a one-line edit that would silently restore the old
+        // behaviour, which is why it is above it rather than beside it.
+        if self.about.as_mut().map(|d| d.show(ctx)) == Some(false) {
+            self.about = None;
+        }
+
         let Status::Open(doc) = status else {
-            self.close_all();
+            self.close_document_scoped();
             return;
         };
         let doc: &OpenDoc = doc;
-        // Drawn first, then closed — rather than closed inside the borrow that
-        // drew it. A dialog decides whether it stays open *while* it draws
-        // (the title-bar cross and its own Close button are both widgets), so
-        // the answer arrives out of the same call that needs `&mut` on the
-        // state being dropped.
         if self.print.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
             self.print = None;
         }
+        if self.ocr.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
+            self.ocr = None;
+        }
     }
 
-    /// Drop every open dialog's state.
+    /// Drop the state of every dialog that is about the open document.
     ///
-    /// One place, so a dialog added later cannot be forgotten by whichever of
-    /// the close paths its author did not think of.
-    fn close_all(&mut self) {
+    /// One place, so a document-scoped dialog added later cannot be forgotten
+    /// by whichever of the close paths its author did not think of.
+    /// Application-scoped dialogs are deliberately absent — see
+    /// [`Self::show`].
+    fn close_document_scoped(&mut self) {
         self.print = None;
+        self.ocr = None;
     }
 }
 
@@ -162,15 +265,67 @@ mod tests {
         assert!(dialogs.print.is_none());
     }
 
-    /// Closing the document closes the dialogs.
+    /// Closing the document closes the document-scoped dialogs.
     ///
     /// Asserted through the public path rather than by setting the field, so
     /// the test covers what a frame actually does.
     #[test]
-    fn a_closed_document_closes_every_dialog() {
+    fn a_closed_document_closes_every_document_scoped_dialog() {
         let mut dialogs = DialogsState::default();
         assert!(dialogs.print.is_none());
-        dialogs.close_all();
+        dialogs.close_document_scoped();
         assert!(dialogs.print.is_none());
+        assert!(dialogs.ocr.is_none());
+    }
+
+    /// Recognise text cannot be opened without a document either.
+    ///
+    /// Same guard as print's, and it matters for a different reason: the
+    /// dialog captures the page index and the document path on construction,
+    /// so one built against `Status::Empty` would have neither and would be a
+    /// window that could only refuse.
+    #[test]
+    fn no_document_means_no_recognition_dialog() {
+        let mut dialogs = DialogsState::default();
+        dialogs.open_ocr(&Status::Empty);
+        assert!(dialogs.ocr.is_none());
+    }
+
+    /// About opens with no document, and survives the document closing.
+    ///
+    /// ★ The one property that would have been lost by reusing print's shape.
+    /// `open_about` takes no `Status` precisely so this cannot regress by
+    /// someone adding a guard "for consistency"; the assertion is here so
+    /// that if they do, something says why it was not consistent in the first
+    /// place.
+    #[test]
+    fn about_opens_without_a_document_and_survives_one_closing() {
+        let mut dialogs = DialogsState::default();
+        dialogs.open_about();
+        assert!(
+            dialogs.about.is_some(),
+            "About must open on an empty canvas: it describes pdfce, not a file"
+        );
+        dialogs.close_document_scoped();
+        assert!(
+            dialogs.about.is_some(),
+            "About is not about the document and must not close with it"
+        );
+    }
+
+    /// Pressing About twice does not rebuild the dialog.
+    ///
+    /// Nothing would be *lost* — it holds no configuration — but the window
+    /// would jump back to the centre and the attribution list back to the
+    /// top, which for an operator reading it is the program losing their
+    /// place.
+    #[test]
+    fn opening_about_twice_leaves_the_first_one_alone() {
+        let mut dialogs = DialogsState::default();
+        dialogs.open_about();
+        let first = std::ptr::from_ref(dialogs.about.as_ref().expect("open"));
+        dialogs.open_about();
+        let second = std::ptr::from_ref(dialogs.about.as_ref().expect("still open"));
+        assert_eq!(first, second, "the second press replaced the dialog");
     }
 }

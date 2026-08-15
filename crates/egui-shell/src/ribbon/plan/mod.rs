@@ -7,6 +7,7 @@
 //!
 //! | Function | File | Plans | Reservation it protects |
 //! |---|---|---|---|
+//! | [`wrap_group`] | this one | one group's items across [`GROUP_ROWS`] rows | — |
 //! | [`plan_band`] | this one | the band's groups | the band's "⏷ N more" affordance |
 //! | [`plan_strip_row`] | [`row`] | the tab-strip row's three regions | the tab area itself |
 //! | [`plan_tab_strip`] | [`row`] | the tabs within that area | the strip's own "⏷ N more" affordance **and the active tab** |
@@ -171,29 +172,319 @@ pub(crate) const CUSTOM_ITEM_WIDTH: f32 = 96.0;
 
 /// Horizontal padding inside a group, either side of its content.
 ///
-/// # ⚠ Budgeted here, not drawn by [`super::band`] — recorded 2026-08-13
+/// The mockup's `.group { padding: 0 13px }`, and — since 2026-08-14 —
+/// **both budgeted here and drawn** by [`super::band::captioned_group`].
 ///
-/// [`super::band::captioned_group`] lays a group out as a bare
-/// `ui.vertical` with no horizontal inset, so the 12 pt this adds to every
-/// group's planned width is space the renderer never uses. Measured
-/// against the synthetic face: the three View-tab groups plan at 213.9,
-/// 174.4 and 165.6 pt and draw at 202.4, 165.1 and 157.5 pt.
+/// # ★ The history, because the resolution is the interesting part
 ///
-/// The discrepancy is in the **safe** direction — the band hides a group
-/// slightly earlier than it must, rather than clipping one — so it is left
-/// as it is rather than "fixed" in whichever direction a passing reader
-/// happens to prefer. It is written down because it is not free:
+/// From 2026-08-13 this constant was budgeted and **not drawn**. The
+/// renderer laid a group out as a bare `ui.vertical` with no horizontal
+/// inset, so the 12 pt it adds to every group's planned width was space the
+/// renderer never used. Measured against the synthetic face at the time: the
+/// three View-tab groups planned at 213.9, 174.4 and 165.6 pt and drew at
+/// 202.4, 165.1 and 157.5 pt. Measured in the running application at
+/// 1,100 pt, the Markup tab's Text-markup group box began at x = 322.5 and so
+/// did its first control — controls sat flush against the group boundary and
+/// against the rule separating them from the next group, which is most of
+/// what the operator meant by *"cluttered"*.
 ///
-/// - It is an accidental 12 pt-per-group safety margin, and margins that
-///   nobody knows about are the ones that get spent. `super::width_tests`'
-///   `a_band_that_claims_to_fit_really_does_fit` cannot see an
-///   under-estimate smaller than it.
-/// - Resolving it is a *design* decision, not an arithmetic one: either a
-///   ribbon group has internal padding (in which case the renderer should
-///   draw it, and the plan is already right) or it does not (in which case
-///   this constant should be zero). `RIBBON_IA.md` does not say, and a
-///   renderer change here alters the look of every band.
+/// The old note called resolving it a **design** decision rather than an
+/// arithmetic one, and that was right: either a ribbon group has internal
+/// padding (draw it, the plan is already correct) or it does not (this
+/// constant should be zero). The decision taken was the first, for the reason
+/// the note itself gives — the plan had been reserving the space all along,
+/// so **drawing it costs zero additional width budget**. Not one group moves
+/// into the overflow menu that was not already there; the band spends on
+/// padding exactly what it was already spending on nothing.
+///
+/// # ★ 6 pt here against the mockup's 13 px, and why they agree anyway
+///
+/// The two numbers look like a disagreement and are not, because the mockup
+/// and this build decompose the space *between* two groups differently:
+///
+/// | | mockup | this build |
+/// |---|---|---|
+/// | group's own inset | 13 px each side | `GROUP_PADDING` = 6 pt each side |
+/// | the rule between them | `border-right: 1px` — **costs no width** | `ui.separator()` — [`super::band::separator_width`] = 6 pt of line plus one `item_spacing.x` each side |
+/// | total, group edge to group edge | 13 + 0 + 13 = **26 px** | 6 + 14 + 6 = **26 pt** at the quiet preset |
+///
+/// So the inter-group breathing room already matches the specification to the
+/// point; what was missing was only that none of it was on the *inside* of
+/// the boundary. Raising this constant to 13 would make that gap 40 pt, which
+/// is not what the mockup shows — and it would cost 14 pt of planned width
+/// **per group**, which is 70 pt across the File tab's five band groups and
+/// is enough to push a group into the overflow menu. Overflow is a measured
+/// property of this band (see `super::width_tests` and the counts recorded in
+/// [`super::band`]'s header), so that is a regression, not a refinement.
+///
+/// The one place the two genuinely differ is the band's outer edge, where the
+/// mockup adds its own `padding: … 10px` before the first group's 13. This
+/// build's band has no horizontal padding of its own, so its first control
+/// sits `GROUP_PADDING` from the band edge rather than 23 px. That is a
+/// separate decision about the *band*, not about a group, and it is not taken
+/// here.
 pub(crate) const GROUP_PADDING: f32 = 6.0;
+
+/// **How many control rows one ribbon group may use.**
+///
+/// # Why this is a constant and not a parameter
+///
+/// `PROJECT_PLAN.md`'s **R128** is this project's most-repeated bug: a
+/// *content-driven* height next to a fit-to-viewport zoom is a feedback
+/// loop, measured at 230 % → 224 % → 215 % zoom drift from a status line
+/// that grew by one row. The ribbon sits in a top panel above the canvas,
+/// so the band's height is exactly such a term — and a band that were one
+/// row tall on File and two on Markup would re-fit the page on **every tab
+/// click**.
+///
+/// A constant makes *"the band is the same height on every tab"* true by
+/// construction rather than by an invariant somebody has to enforce. Every
+/// alternative spelling reintroduces the loop or the enforcement:
+///
+/// | Spelling | What breaks |
+/// |---|---|
+/// | per-**group** row count | the tallest group on a tab decides the band, so the band is content-driven again — R128 exactly |
+/// | per-**tab** row count | the manifest can now say "File is one row, Markup is two", which is the drift stated as a feature |
+/// | per-**manifest** / theme field | safe for R128, but it is a knob with one sane value that every consumer must set identically, and the first one that does not gets the drift |
+///
+/// A [`crate::theme::Preset`] change *does* alter the band's height,
+/// through [`crate::theme::Metrics::control_height`], and that is fine and
+/// unavoidable: it is a deliberate, global, one-off event, not something
+/// that happens when the operator clicks a tab.
+///
+/// # Why two, and why not three
+///
+/// Two is what `mockups/ribbon.html` specifies — `.gcmds` wraps
+/// (`flex-wrap: wrap`) inside a band with a fixed `min-height: 86px`, which
+/// is one control row plus a second plus a caption.
+///
+/// Three was considered and refused on two grounds. **Screen budget:** a
+/// third row costs another `control_height + gutter` — 28 pt at the quiet
+/// preset, 36 at the airy one — off the top of the canvas on every tab,
+/// permanently, and `MODES_AND_PANELS.md` failure mode #4 is precisely a
+/// chrome minimum that ate *"up to a third of my screen width"*. **The
+/// caption:** the caption is what makes a group legible as a group (see
+/// [`super::band`]'s header), and it is drawn `small()` and `weak()`; three
+/// rows of controls put it far enough from the top row that it stops
+/// reading as that row's label.
+pub(crate) const GROUP_ROWS: usize = 2;
+
+/// **The row width at which a group wraps onto its second row.**
+///
+/// Taken from `mockups/ribbon.html`, which is this change's specification:
+///
+/// ```css
+/// .gcmds { display:flex; flex-wrap:wrap; gap:5px; max-width:440px }
+/// ```
+///
+/// It is a **trigger, not a target**. In the mockup a group narrower than
+/// this stays on one row and a wider one wraps *greedily* — a full 440 px
+/// row followed by whatever is left over. [`wrap_group`] keeps the first
+/// half of that rule and improves the second: once a group trips this
+/// width it is split into [`GROUP_ROWS`] rows **as evenly as the item
+/// widths allow**, which is both narrower than the greedy answer (so more
+/// groups fit before the overflow menu is needed) and what a ribbon
+/// actually looks like — a full row over a stub reads as a wrapping
+/// accident.
+///
+/// The number is the mockup's, in points rather than CSS pixels. The two
+/// are close enough to be the same decision: the mockup's controls are
+/// 12.5 px text in ~9 px of padding and this shell's are ~14 pt text in a
+/// theme-set padding, so 440 buys about six controls in either.
+pub(crate) const GROUP_WRAP_WIDTH: f32 = 440.0;
+
+/// How one group's items are distributed across its rows.
+///
+/// Produced by [`wrap_group`] and consumed **twice**: once by
+/// [`super::band::measure_group`], which needs the width the wrapped group
+/// will occupy, and once by [`super::band::captioned_group`], which needs
+/// the same split in order to draw it. Passing the split rather than
+/// recomputing it at the second site is the point — two greedy fills that
+/// agreed *by construction today* would be a plan and a renderer that
+/// disagree about the band's width the first time either is edited, and
+/// that disagreement is a clipped group.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GroupRows {
+    /// How many items are on each row, in manifest order.
+    ///
+    /// Always sums to the group's item count, and is always a partition
+    /// into **contiguous runs** — the manifest's order is the operator's
+    /// order, exactly as [`BandPlan::shown`] is a prefix for the same
+    /// reason.
+    ///
+    /// Empty for an empty group; never contains a zero.
+    pub counts: Vec<usize>,
+    /// The width of the **widest** row, in points, gutters included.
+    ///
+    /// This — not the sum of the items — is what the group costs the band.
+    pub width: f32,
+}
+
+impl GroupRows {
+    /// How many rows the group uses. Never more than the `max_rows` it was
+    /// planned with, and never zero for a non-empty group.
+    #[cfg(test)]
+    pub(crate) fn rows(&self) -> usize {
+        self.counts.len()
+    }
+}
+
+/// The width of one row of items: the items plus one `gutter` between each
+/// adjacent pair.
+///
+/// `pub(crate)` because [`super::band`]'s measurement and this module's
+/// wrap have to agree on what a row costs down to the last gutter; two
+/// spellings of the same sum is how a plan and a renderer drift apart.
+pub(crate) fn row_width(item_widths: &[f32], gutter: f32) -> f32 {
+    if item_widths.is_empty() {
+        0.0
+    } else {
+        item_widths.iter().sum::<f32>() + gutter * (item_widths.len() as f32 - 1.0)
+    }
+}
+
+/// Slack, in points, when comparing an accumulating row width against a
+/// candidate target.
+///
+/// [`wrap_group`] builds its candidate widths by summing a slice and packs
+/// by accumulating item by item. The two orders of addition are equal in
+/// exact arithmetic and can differ by an ULP or two in `f32`, which would
+/// make the intended candidate look infeasible by a hair and push the
+/// answer onto the next-widest one. A thousandth of a point is far below a
+/// physical pixel and far above the rounding.
+const PACK_SLACK: f32 = 1.0e-3;
+
+/// Split one group's items across at most `max_rows` rows.
+///
+/// # The rule, in two sentences
+///
+/// A group whose items fit within `wrap_at` on one row is left on one row.
+/// Otherwise it is split into contiguous runs, at most `max_rows` of them,
+/// chosen to make the **widest** run as narrow as possible.
+///
+/// # Why "minimise the widest row" is the right objective
+///
+/// Because the widest row is what the group *costs*: [`group_width`] takes
+/// the maximum, [`plan_band`] spends the band's budget on it, and a group
+/// that costs less is a group the band can fit beside another one. The
+/// mockup's greedy fill optimises nothing — it fills the cap and lets the
+/// remainder fall where it falls — so a seven-control group 548 pt wide
+/// becomes 440 + 100 under the mockup's rule and about 280 + 270 under this
+/// one. Both are two rows; only one of them gets a fifth group into a
+/// 1,100 pt window.
+///
+/// # The algorithm, and why it is exhaustive rather than clever
+///
+/// The optimum's widest row is, necessarily, the width of *some contiguous
+/// run of items* — it is one of the rows. So the candidate set is every
+/// contiguous run, `n(n+1)/2` of them, and the answer is the narrowest
+/// candidate that a greedy fill can meet within `max_rows`. Greedy is
+/// monotone in the target width (a wider row never needs more rows), so the
+/// first feasible candidate in ascending order is the optimum.
+///
+/// A ribbon group holds single digits of items — the widest in this
+/// project's own manifest is seven — so `n²` candidates is at most a few
+/// dozen f32 sums per group per frame, against a measurement pass that has
+/// already asked `egui` for a galley per label. A binary search over a real
+/// interval would be *less* exact for no measurable saving, and "exhaustive
+/// over the runs" is a sentence a reader can check against the code.
+///
+/// # Degenerate inputs, all of which are reachable
+///
+/// - **Empty group.** `counts` is empty and `width` is zero; a manifest may
+///   legally declare a group with no items (a layer patching a caption, for
+///   instance), and it must not produce a row of nothing.
+/// - **One item.** Never split — a column of one control per row is not a
+///   ribbon group, it is a rendering fault that happens to be deliberate.
+/// - **`max_rows <= 1`.** Wrapping disabled; one row, whatever its width.
+///   This is the escape hatch that keeps the *old* behaviour expressible
+///   and testable rather than merely deleted.
+/// - **An item wider than `wrap_at` all by itself.** It takes a row of its
+///   own and that row is wider than the cap. There is no other answer: the
+///   shell cannot make a control narrower, and clipping it would hide a
+///   command's name. The cap is a wrap trigger, never a clip.
+/// - **A non-finite or negative `wrap_at`.** Treated as "never wrap", which
+///   is the same safe direction [`plan_band`] takes for a non-finite width:
+///   the group is as wide as it says it is and the band's overflow menu —
+///   whose reservation is taken first — still reaches everything.
+pub(crate) fn wrap_group(
+    item_widths: &[f32],
+    gutter: f32,
+    max_rows: usize,
+    wrap_at: f32,
+) -> GroupRows {
+    let n = item_widths.len();
+    let single = row_width(item_widths, gutter);
+    let one_row = || GroupRows {
+        counts: if n == 0 { Vec::new() } else { vec![n] },
+        width: single,
+    };
+
+    if n <= 1 || max_rows <= 1 || !wrap_at.is_finite() || wrap_at <= 0.0 || single <= wrap_at {
+        return one_row();
+    }
+
+    // Every contiguous run's width, ascending. The optimum is one of them.
+    let mut candidates: Vec<f32> = Vec::with_capacity(n * (n + 1) / 2);
+    for i in 0..n {
+        for j in i..n {
+            candidates.push(row_width(&item_widths[i..=j], gutter));
+        }
+    }
+    candidates.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    for &target in &candidates {
+        if let Some(counts) = pack(item_widths, gutter, target, max_rows) {
+            let width = widest_row(item_widths, gutter, &counts);
+            return GroupRows { counts, width };
+        }
+    }
+
+    // Unreachable: the last candidate is the whole run, which packs into
+    // one row. Falling back rather than panicking, because a panic in a
+    // paint loop is a worse answer to an impossible input than a band that
+    // is one group too wide.
+    one_row()
+}
+
+/// Greedily fill rows of at most `target` points, `None` if that needs more
+/// than `max_rows` of them.
+///
+/// An item wider than `target` on its own still gets placed — on a row by
+/// itself, over budget — because refusing it would be refusing to draw a
+/// control.
+fn pack(item_widths: &[f32], gutter: f32, target: f32, max_rows: usize) -> Option<Vec<usize>> {
+    let mut counts: Vec<usize> = Vec::new();
+    let mut in_row = 0_usize;
+    let mut used = 0.0_f32;
+
+    for &w in item_widths {
+        if in_row > 0 && used + gutter + w > target + PACK_SLACK {
+            counts.push(in_row);
+            in_row = 1;
+            used = w;
+        } else {
+            used += if in_row == 0 { w } else { gutter + w };
+            in_row += 1;
+        }
+    }
+    if in_row > 0 {
+        counts.push(in_row);
+    }
+    (counts.len() <= max_rows).then_some(counts)
+}
+
+/// The widest row a `counts` partition produces.
+fn widest_row(item_widths: &[f32], gutter: f32, counts: &[usize]) -> f32 {
+    let mut at = 0_usize;
+    let mut widest = 0.0_f32;
+    for &count in counts {
+        let end = (at + count).min(item_widths.len());
+        widest = widest.max(row_width(&item_widths[at..end], gutter));
+        at = end;
+    }
+    widest
+}
 
 /// The measured pieces of one item, before padding.
 ///
@@ -223,7 +514,7 @@ impl ItemWidths {
     }
 }
 
-/// The width of a whole group: its item row, its caption, and its
+/// The width of a whole group: its **widest row**, its caption, and its
 /// padding.
 ///
 /// The caption is part of the *width*, not only of the height, and that
@@ -232,13 +523,14 @@ impl ItemWidths {
 /// planning it at the control's width would overflow the band by the
 /// difference. `RIBBON_IA.md` §5 is full of two-word captions over
 /// one-glyph controls, so this is the common case rather than the corner.
-pub(crate) fn group_width(item_widths: &[f32], gutter: f32, caption_width: f32) -> f32 {
-    let row: f32 = if item_widths.is_empty() {
-        0.0
-    } else {
-        item_widths.iter().sum::<f32>() + gutter * (item_widths.len() as f32 - 1.0)
-    };
-    row.max(caption_width) + GROUP_PADDING * 2.0
+///
+/// It takes a [`GroupRows`] rather than the raw item widths because a
+/// wrapped group costs its widest row and not the sum of its items — that
+/// substitution is the entire width benefit of wrapping, and routing it
+/// through the type makes it impossible to ask for a group's width without
+/// having first decided how it wraps.
+pub(crate) fn group_width(rows: &GroupRows, caption_width: f32) -> f32 {
+    rows.width.max(caption_width) + GROUP_PADDING * 2.0
 }
 
 /// How a band's groups are split between the visible band and the
@@ -505,24 +797,178 @@ mod tests {
     /// anything that looks like a layout bug.
     #[test]
     fn a_group_is_as_wide_as_its_caption_when_the_caption_is_wider() {
-        let one_narrow_button = [24.0];
+        let rows = |widths: &[f32]| wrap_group(widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+
+        let one_narrow_button = rows(&[24.0]);
         let wide_caption = 90.0;
         assert_eq!(
-            group_width(&one_narrow_button, 4.0, wide_caption),
+            group_width(&one_narrow_button, wide_caption),
             wide_caption + GROUP_PADDING * 2.0
         );
 
-        let wide_row = [60.0, 60.0];
+        let wide_row = rows(&[60.0, 60.0]);
         assert_eq!(
-            group_width(&wide_row, 4.0, 20.0),
+            group_width(&wide_row, 20.0),
             60.0 + 4.0 + 60.0 + GROUP_PADDING * 2.0
         );
 
         assert_eq!(
-            group_width(&[], 4.0, 0.0),
+            group_width(&rows(&[]), 0.0),
             GROUP_PADDING * 2.0,
             "an empty group is its padding, not a negative number"
         );
+    }
+
+    /// **★ A group narrower than [`GROUP_WRAP_WIDTH`] is left alone.**
+    ///
+    /// The half of the mockup's rule that is easy to lose: `max-width` is a
+    /// *trigger*. Wrapping every group would turn a two-control group into
+    /// a column of one control per row, which is narrower and is not a
+    /// ribbon. Most groups in a real manifest are under the cap, so this is
+    /// the common path and not the corner.
+    #[test]
+    fn a_group_that_fits_the_cap_stays_on_one_row() {
+        for widths in [
+            vec![80.0],
+            vec![80.0, 80.0],
+            vec![100.0, 100.0, 100.0],
+            // 6 × 70 + 5 × 4 = 440, exactly the cap: `<=`, not `<`.
+            vec![70.0; 6],
+        ] {
+            let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+            assert_eq!(
+                rows.counts,
+                vec![widths.len()],
+                "{widths:?} is within the cap and must not have been wrapped"
+            );
+            assert_eq!(rows.width, row_width(&widths, 4.0));
+        }
+    }
+
+    /// **★ A group over the cap is split into two rows, evenly, and is
+    /// narrower for it.**
+    ///
+    /// The measurable claim of the whole change: a wrapped group *costs the
+    /// band less*, which is what lets a fifth group fit where three used to
+    /// be pushed into the overflow menu.
+    ///
+    /// The evenness is asserted as a bound rather than as an exact split,
+    /// because the optimum depends on the item widths — seven items of 75
+    /// divide 4/3, seven of 20 with one of 300 do not divide at all. The
+    /// bound that always holds is *"the widest row is no wider than it has
+    /// to be"*, and the strongest cheap statement of that is: no row may be
+    /// wider than the widest single item plus the balanced share.
+    #[test]
+    fn a_group_over_the_cap_is_split_evenly_and_costs_less() {
+        let widths = vec![75.0; 7]; // 7 × 75 + 6 × 4 = 549, over the cap
+        let single = row_width(&widths, 4.0);
+        assert!(single > GROUP_WRAP_WIDTH, "the fixture must trip the cap");
+
+        let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+        assert_eq!(rows.rows(), 2, "two rows, not three and not one");
+        assert_eq!(rows.counts, vec![4, 3], "4 + 3 is the even split of seven");
+        assert_eq!(rows.width, 4.0f32.mul_add(75.0, 3.0 * 4.0));
+        assert!(
+            rows.width < single * 0.6,
+            "a wrapped group must cost the band far less than an unwrapped one: \
+             {} vs {single}",
+            rows.width
+        );
+        assert!(
+            rows.width < GROUP_WRAP_WIDTH,
+            "the even split must also come in under the cap it tripped, or the \
+             greedy fill the mockup specifies would have been the better answer"
+        );
+    }
+
+    /// The split is a **partition into contiguous runs**, so the ribbon's
+    /// reading order survives it.
+    ///
+    /// The manifest's order is the operator's order — the same rule
+    /// [`BandPlan::shown`]'s prefix property exists for. A wrap that
+    /// reordered items to pack them better would rearrange the ribbon as
+    /// the theme's gutter changed, which is exactly the class of surprise
+    /// this module refuses elsewhere.
+    #[test]
+    fn the_split_is_a_contiguous_partition_of_every_item() {
+        for n in 0..14_usize {
+            for each in [12.0_f32, 40.0, 97.5, 260.0] {
+                let widths = vec![each; n];
+                let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+                assert_eq!(
+                    rows.counts.iter().sum::<usize>(),
+                    n,
+                    "n={n} each={each}: an item was lost or duplicated"
+                );
+                assert!(
+                    rows.counts.len() <= GROUP_ROWS,
+                    "n={n} each={each}: {} rows exceeds the band's height",
+                    rows.counts.len()
+                );
+                assert!(
+                    !rows.counts.contains(&0),
+                    "n={n} each={each}: an empty row is a gap in the band"
+                );
+                assert_eq!(rows.counts.is_empty(), n == 0);
+            }
+        }
+    }
+
+    /// **A single control is never split, and wrapping can be switched
+    /// off.**
+    ///
+    /// `max_rows == 1` is the old, one-row band expressed in the new
+    /// arithmetic. Keeping it reachable is what makes "two rows" a decision
+    /// this module records rather than a behaviour it merely has.
+    #[test]
+    fn one_item_and_one_row_are_both_left_alone() {
+        let huge = [900.0_f32];
+        assert_eq!(
+            wrap_group(&huge, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH).counts,
+            vec![1],
+            "a control wider than the cap takes its own row; the cap is a wrap \
+             trigger and never a clip"
+        );
+
+        let seven = vec![75.0_f32; 7];
+        let unwrapped = wrap_group(&seven, 4.0, 1, GROUP_WRAP_WIDTH);
+        assert_eq!(unwrapped.counts, vec![7]);
+        assert_eq!(unwrapped.width, row_width(&seven, 4.0));
+    }
+
+    /// A cap that is not a width degrades to "never wrap", the same safe
+    /// direction [`plan_band`] takes for a non-finite available width.
+    #[test]
+    fn a_non_finite_cap_degrades_to_one_row() {
+        let widths = vec![75.0_f32; 7];
+        for bad in [f32::INFINITY, f32::NAN, 0.0, -10.0] {
+            let rows = wrap_group(&widths, 4.0, GROUP_ROWS, bad);
+            assert_eq!(rows.counts, vec![7], "wrap_at={bad}");
+            assert_eq!(rows.width, row_width(&widths, 4.0), "wrap_at={bad}");
+        }
+    }
+
+    /// **An item wider than the cap does not drag the whole group onto one
+    /// row with it.**
+    ///
+    /// The interesting shape, because the naive answer — "this cannot be
+    /// split, give up" — would leave a group at the sum of every item when
+    /// one oversized control is present, and oversized controls are exactly
+    /// what a long label produces.
+    #[test]
+    fn one_oversized_control_still_lets_the_rest_wrap() {
+        let widths = [500.0_f32, 90.0, 90.0, 90.0, 90.0];
+        let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+        assert_eq!(
+            rows.counts,
+            vec![1, 4],
+            "the oversized control takes a row and the other four share the second"
+        );
+        assert_eq!(
+            rows.width, 500.0,
+            "the group is as wide as its widest control"
+        );
+        assert!(rows.width < row_width(&widths, 4.0));
     }
 
     /// Everything fits: no overflow control, and no width taken for one.

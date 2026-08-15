@@ -204,6 +204,26 @@ pub fn group_file_document() -> &'static str {
     "Document"
 }
 
+/// File ▸ Recognise — reading words out of a page image.
+///
+/// `RIBBON_IA.md` §5.7's own caption, kept rather than improved on. Two things
+/// were considered and rejected: **`OCR`**, which is the acronym the operator
+/// would search for but is jargon in a caption position where every other band
+/// on this tab is a plain English noun; and **`Text`**, which already means
+/// something else in this program — the text tool, the text markup band, text
+/// editing — and would be the third meaning of one word on one ribbon.
+///
+/// `Recognise` is the verb the operation actually is, and the command's own
+/// label carries `text` so the word an operator scans for is still on the
+/// control.
+///
+/// British spelling, matching every other operator-visible string in this
+/// crate (`Recognise`, `Colour`, `Centre`).
+#[must_use]
+pub fn group_file_recognise() -> &'static str {
+    "Recognise"
+}
+
 /// File ▸ pdfce — the application's own settings and help.
 ///
 /// Lower-case, because that is how the product's name is written
@@ -308,11 +328,21 @@ pub fn group_edit_insert() -> &'static str {
     "Insert"
 }
 
-/// Edit ▸ Clipboard.
-#[must_use]
-pub fn group_edit_clipboard() -> &'static str {
-    "Clipboard"
-}
+// ★ `group_edit_clipboard` — `"Clipboard"` — was here until 2026-08-14, and
+// it is DELETED rather than kept for a caller that might come back.
+//
+// Its group held exactly two commands, `edit.copy_page_text` and
+// `edit.copy_document_text`; the operator moved both to File ▸ Export
+// (`file.copy_page_text`, `file.copy_document_text`), which left the band
+// empty, and an empty band is the placeholder `RIBBON_IA.md` P3 forbids. The
+// group went, so its caption goes with it.
+//
+// Kept as a comment rather than as a dead `pub fn`: a caption nothing draws is
+// an operator-visible string that no reviewer can review in place and that the
+// string gates cannot judge, and the next author of an object clipboard needs
+// the word — which is right here — rather than a function that already
+// compiles and quietly encourages reusing a group that was deleted for a
+// reason.
 
 /// Edit ▸ Forms.
 ///

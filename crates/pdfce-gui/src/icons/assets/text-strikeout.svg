@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic struck-text shape — generic, no trademark risk -->
+  <!-- ui-spec §3.3 "text markup family": the sibling of text-underline.svg with the
+       full-width rule moved BETWEEN the two text lines rather than below them, which
+       is the whole distinction and is the same distinction the annotation itself
+       draws. The text lines sit further apart than the underline glyph's so the rule
+       has room to pass between them without touching either — two strokes that meet
+       read as a single thicker one at 16 px. -->
+  <path d="M15 16h18M15 32h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M11 24h26" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

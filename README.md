@@ -13,8 +13,8 @@ this machine. It became the code on 2026-08-13.
 **➡ New session? Read `HANDOFF.md` first.**
 
 ```
-cargo test --workspace         # 1,183 tests, 0 failed
-bash tools/gates/run-all.sh    # 8 passed, 0 failed, 0 skipped
+cargo test --workspace         # 1,530 tests, 0 failed
+bash tools/gates/run-all.sh    # 10 passed, 0 failed, 0 skipped
 ```
 
 Stages **S0–S5** are complete, along with **Phase 3** (viewer conventions,
@@ -82,6 +82,49 @@ against a commit from this tree), and that the source digest is
 deterministic and moves on a rename. Both failures package successfully
 and run fine — the damage lands elsewhere, later — which is why they are
 asserted rather than reasoned about.
+
+## Licensing, and the material this binary carries that is not ours
+
+pdfceGUI is **MIT** — see `LICENSE`, `Copyright (c) 2026 Ken Mantle`.
+That covers everything in this repository, including the icon set, which
+is the operator's own art (`crates/pdfce-gui/src/icons/assets/PROVENANCE.md`).
+
+It does **not** cover everything `pdfce-gui.exe` contains. The binary
+links `pdfce-core` and `pdfce-render` statically, and those crates embed
+third-party font faces and data tables with `include_bytes!` — so this
+program redistributes work whose licences require their notices to
+travel with it.
+
+Two surfaces carry those notices, and they are not redundant:
+
+| Surface | Carries | Reached by |
+|---|---|---|
+| `THIRD_PARTY_LICENSES.md`, copied into every build | every licence **text**, in full | anyone who opens the package folder |
+| **File ▸ pdfce ▸ About pdfce**, in the program | the **attribution** — who made it, what it is, on what terms, and whether pdfce changed it | anyone who runs it |
+
+`THIRD_PARTY_LICENSES.md` is generated: `cargo about generate about.hbs
+-o THIRD_PARTY_LICENSES.md`, from this workspace's real `Cargo.lock`.
+Never edit it by hand. Its `accepted` list in `about.toml` is
+permissive-only, so a copyleft dependency entering this workspace makes
+generation **fail and name the crate** — that failure is the licence
+audit. `about.hbs`'s static epilogue carries the non-Cargo assets, which
+no generator can see.
+
+`tools/gates/check-shipped-assets.py` enforces the whole arrangement: a
+`PROVENANCE.md` beside every redistributed asset directory, a citation
+in both notice surfaces unless the asset is our own work, the notice
+present in the packager's payload, and the generated file not stale
+relative to its template.
+
+**When the OCR feature lands** it brings the `ocrs` model weights, which
+are **CC-BY-SA-4.0** and which the operator accepted into this MIT
+package on 2026-08-14. Shipping them *unmodified* is distribution of a
+verbatim work in a collection and leaves pdfce's own licence untouched.
+**Modifying them — fine-tuning, retraining, quantizing to shrink the
+file, or converting them to another runtime's format — creates Adapted
+Material, and the result must be released under CC-BY-SA-4.0 or a
+compatible licence.** That is an engineering constraint, not a footnote:
+see `crates/pdfce-gui/src/text/about.rs`.
 
 ## Version control
 

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic information mark — a circle enclosing a lower-case "i", constructed
+       from a circle and two line segments. No vendor artwork was traced or adapted;
+       the letterform is drawn as geometry, not set as text. -->
+  <!-- The dot is a SHORT round-capped segment rather than a filled circle. Two
+       reasons: the whole glyph then tints with `currentColor` like every other
+       asset, and redact.svg is deliberately the set's only filled shape (see the
+       icons::assets header). A zero-length `v0` segment would be the usual way to
+       draw a round-cap dot and is avoided on purpose — this project parses its own
+       SVG subset, and a degenerate segment is exactly the input a hand-written
+       parser has no reason to have been tested against. -->
+  <circle cx="24" cy="24" r="17" stroke="currentColor" stroke-width="2.5"/>
+  <path d="M24 14v2" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M24 22v11" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

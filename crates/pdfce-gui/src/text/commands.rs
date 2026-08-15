@@ -86,6 +86,52 @@ pub const fn file_open() -> CommandText {
     CommandText::new("Open…", "Open a PDF document (Ctrl+O).")
 }
 
+/// `file.new`
+///
+/// **`New`, with no ellipsis**, and that is the label carrying a promise: an
+/// ellipsis says *this will ask you something*, and this does not. Two of the
+/// three reference applications create a document immediately from a default
+/// (Acrobat from a locale default, Inkscape from its default template) and
+/// only SolidWorks asks — and what it asks is which *kind* of document, a
+/// question pdfce has no analogue for. See `crate::app::blank` §3.
+///
+/// The tooltip states the page size **because the command does not ask for
+/// it**. A default that is never mentioned is a default an operator discovers
+/// by measuring the page they just made, and A4 is a real choice — argued from
+/// what the three reference applications do, and from this operator's own
+/// A-series drawings — rather than an accident to be hidden.
+///
+/// ★ **The last sentence was a claim, and it stopped being true on
+/// 2026-08-14.**
+///
+/// It read: *"This build cannot yet write a document to disk, so a new document
+/// lasts as long as the window does."* That was accurate when it was written —
+/// `file.save_copy` was registered with no dispatch arm — and `file.save_copy`
+/// is now wired, so leaving it would have told the operator that the document
+/// in front of them cannot be kept when a control two groups away keeps it.
+///
+/// It is replaced rather than deleted, because the thing an operator will
+/// otherwise find out the hard way has changed rather than gone: New is still
+/// the command where the *shape* of saving bites first. `Save a copy…` asks for
+/// a destination every time and never adopts it, so a created document keeps
+/// its `Untitled` name however often it is saved — which is what the new
+/// sentence says, and which is Inkscape's behaviour for the same verb. See
+/// `crate::app::save` §3.4.
+///
+/// The record of the correction is kept here for the reason `HANDOFF.md` §10
+/// gives about prose that quotes a fact: this is the fifth such drift the
+/// project has recorded, and the only defence that works is noticing them at
+/// the site of the change that invalidated them.
+#[must_use]
+pub const fn file_new() -> CommandText {
+    CommandText::new(
+        "New",
+        "Make a new document: one blank A4 page (Ctrl+N). It replaces what is open. Use Save a \
+         copy to keep it; it is asked where to write every time, so the document itself stays \
+         untitled.",
+    )
+}
+
 /// `file.close`
 #[must_use]
 pub const fn file_close() -> CommandText {
@@ -152,6 +198,48 @@ pub const fn file_export_form_data() -> CommandText {
     )
 }
 
+/// `file.copy_page_text`
+///
+/// ★ **Was `edit_copy_page_text`, in the EDIT TAB section, until 2026-08-14.**
+/// The command moved to File ▸ Export by operator decision — copying is not
+/// authoring, and the File tab is the one tab every mode shows — so this
+/// catalog entry moved with it, because this file is ordered by tab and a
+/// command's text sitting under the wrong heading is how the next reader
+/// concludes the command is somewhere it is not.
+///
+/// **The wording is unchanged, deliberately.** Nothing about what the command
+/// does has moved, and a tooltip rewritten during a re-parenting is a change
+/// nobody asked for arriving inside one they did. The chord it names is still
+/// `Ctrl+Shift+C`, still bound in `crate::shell::manifest`'s keymap — now to
+/// this id — and the sentence about inferred word and line breaks is still the
+/// thing an operator cannot guess: a PDF is under no obligation to record where
+/// a word ends, so pdfce infers it from letter positions and says how much of
+/// the copy was inferred.
+#[must_use]
+pub const fn file_copy_page_text() -> CommandText {
+    CommandText::new(
+        "Copy page text",
+        "Copy this page's text to the clipboard (Ctrl+Shift+C). Where a PDF does not say where \
+         words and lines end, pdfce works it out from the position of the letters, and says \
+         how much of the copy that was.",
+    )
+}
+
+/// `file.copy_document_text`
+///
+/// Was `edit_copy_document_text`; see [`file_copy_page_text`] for the move.
+/// Wording unchanged, including the warning about the window not responding,
+/// which is the honest description of a synchronous extraction over every page
+/// and is the kind of sentence a re-parenting must not quietly lose.
+#[must_use]
+pub const fn file_copy_document_text() -> CommandText {
+    CommandText::new(
+        "Copy document text",
+        "Copy every page's text to the clipboard. On a long document this can take a few \
+         seconds, during which the window will not respond.",
+    )
+}
+
 /// `file.print`
 #[must_use]
 pub const fn file_print() -> CommandText {
@@ -200,6 +288,57 @@ pub const fn file_settings() -> CommandText {
 #[must_use]
 pub const fn file_shortcuts() -> CommandText {
     CommandText::new("Keyboard shortcuts", "Show every keyboard shortcut.")
+}
+
+/// `file.about`
+///
+/// ★ **No ellipsis, deliberately.** This catalog's `…` means *you will be
+/// asked something before anything happens* — the reading `view_reset_layout`
+/// had its ellipsis taken away for getting wrong. About asks nothing; it
+/// shows. Its neighbour `file_shortcuts` is the same kind of window and is
+/// spelled the same way, and all three reference applications agree: Acrobat,
+/// Inkscape and SolidWorks all write "About <product>" plain.
+///
+/// The tooltip names **all three** things the window carries rather than just
+/// the version, because the version is the least of them. The reason this
+/// command exists is the attribution surface — see [`crate::text::about`] —
+/// and an operator looking for licence terms has to be able to tell from the
+/// hover that this is where they live.
+#[must_use]
+pub const fn file_about() -> CommandText {
+    CommandText::new(
+        "About pdfce",
+        "Show this build's version, pdfce's own licence, and the third-party material included \
+         in the program.",
+    )
+}
+
+/// `file.ocr`
+///
+/// ★ **The tooltip states the uncertainty, and that is not optional here.**
+/// OCR is the single largest inference pdfce makes — `pdfce-core`'s own
+/// `ocr::layer` header says *"every word here is a guess"* — and rule 4 asks
+/// that an inherently uncertain inference say so rather than imply otherwise.
+/// A hover is the first place an operator meets this command, and a tooltip
+/// that described only the benefit would be the sentence they remember.
+///
+/// It also states what does **not** change, because that is the question a
+/// scanned document raises: nothing visible is added and the image is never
+/// re-encoded, so a scan that is the record of something stays exactly the
+/// bytes it was. That is `ocr::layer`'s own guarantee rather than a claim this
+/// catalog is making on its behalf.
+///
+/// The dialog's fuller disclosure lives in [`crate::text::ocr`]; this is the
+/// one-line version, and the two must not drift apart in what they promise.
+#[must_use]
+pub const fn file_ocr() -> CommandText {
+    CommandText::new(
+        "Recognise text…",
+        "Read the words in a scanned page and add them as invisible text behind the image, so \
+         Find and copy work. Every word is a guess and this recogniser scores none of them, so \
+         you are shown what it read before anything is saved. The page still looks the same and \
+         the scan is never re-encoded.",
+    )
 }
 
 // ===========================================================================
@@ -370,6 +509,27 @@ pub const fn view_tool_hand() -> CommandText {
     CommandText::new(
         "Hand",
         "Drag to pan the page instead of selecting. Hold Space to pan without switching tools.",
+    )
+}
+
+/// `view.tool_text`
+///
+/// The tooltip says *"drag"* and names what the tool **replaces**, for the
+/// reason `view.zoom_region`'s does: this command arms rather than acts, so its
+/// first press changes nothing an operator can see except the pointer, and a
+/// control that arms has to say so or it reads as broken.
+///
+/// It names the marquee explicitly because that is the trade an editor is
+/// making — the primary drag stops selecting objects for as long as this is
+/// pressed — and because in Read and Review the tool is redundant (the select
+/// tool already sweeps text there), so the sentence has to be true in a mode
+/// where it changes nothing as well as in the one where it changes the most.
+#[must_use]
+pub const fn view_tool_text() -> CommandText {
+    CommandText::new(
+        "Text",
+        "Drag to select text on the page instead of selecting objects. Press again to return to \
+         the select tool.",
     )
 }
 
@@ -719,7 +879,7 @@ pub const fn pages_merge_into() -> CommandText {
     CommandText::new(
         "Merge into this document…",
         "Add the pages of one or more other PDFs to this document. To combine files into a new \
-         one instead, leaving this document alone, use Tools ▸ Merge files.",
+         one instead, leaving this document alone, use Tools > Merge files.",
     )
 }
 
@@ -764,7 +924,7 @@ pub const fn edit_add_text() -> CommandText {
         "Add text",
         "Add new text to the page itself — a label, caption or note that becomes real, \
          permanent page content, exactly like the text already here (Ctrl+Shift+E). For a \
-         removable comment instead, use Markup ▸ Text box.",
+         removable comment instead, use Markup > Text box.",
     )
 }
 
@@ -783,27 +943,6 @@ pub const fn edit_objects() -> CommandText {
 #[must_use]
 pub const fn edit_insert_image() -> CommandText {
     CommandText::new("Image…", "Place an image file on this page.")
-}
-
-/// `edit.copy_page_text`
-#[must_use]
-pub const fn edit_copy_page_text() -> CommandText {
-    CommandText::new(
-        "Copy page text",
-        "Copy this page's text to the clipboard (Ctrl+Shift+C). Where a PDF does not say where \
-         words and lines end, pdfce works it out from the position of the letters, and says \
-         how much of the copy that was.",
-    )
-}
-
-/// `edit.copy_document_text`
-#[must_use]
-pub const fn edit_copy_document_text() -> CommandText {
-    CommandText::new(
-        "Copy document text",
-        "Copy every page's text to the clipboard. On a long document this can take a few \
-         seconds, during which the window will not respond.",
-    )
 }
 
 /// `edit.form_create_field`
@@ -897,139 +1036,29 @@ pub const fn edit_redo() -> CommandText {
 }
 
 // ===========================================================================
-// MARKUP TAB
+// MARKUP AND MEASURE — in `annotate`
 //
-// The four shapes shared one tooltip in the salvage source — "Draw this
-// shape on the page. Click the button, then drag on the page where you
-// want it." Each gets its own here, because the gesture is not the same
-// for all four: a highlight is dragged across words, an arrow from tail to
-// head, a rectangle corner to corner.
-// ===========================================================================
-
-/// `markup.rectangle`
-#[must_use]
-pub const fn markup_rectangle() -> CommandText {
-    CommandText::new(
-        "Rectangle",
-        "Draw a rectangle on the page. Click the button, then drag from one corner to the \
-         other.",
-    )
-}
-
-/// `markup.ellipse`
-#[must_use]
-pub const fn markup_ellipse() -> CommandText {
-    CommandText::new(
-        "Ellipse",
-        "Draw an ellipse on the page. Click the button, then drag out the box it fits inside.",
-    )
-}
-
-/// `markup.arrow`
-#[must_use]
-pub const fn markup_arrow() -> CommandText {
-    CommandText::new(
-        "Arrow",
-        "Draw an arrow on the page. Click the button, then drag from the tail to the head.",
-    )
-}
-
-/// `markup.highlight`
-#[must_use]
-pub const fn markup_highlight() -> CommandText {
-    CommandText::new(
-        "Highlight",
-        "Draw a highlight band over the page. Click the button, then drag across what you want \
-         marked.",
-    )
-}
-
-/// `markup.text_box`
-#[must_use]
-pub const fn markup_text_box() -> CommandText {
-    CommandText::new(
-        "Text box",
-        "Place a box of text on the page as an annotation. It sits on top of the document \
-         rather than becoming part of it, and takes the markup colour.",
-    )
-}
-
-/// `markup.sticky_note`
-#[must_use]
-pub const fn markup_sticky_note() -> CommandText {
-    CommandText::new(
-        "Sticky note",
-        "Place a collapsed note on the page, which opens when a reader clicks it. Sticky notes \
-         use their own standard colours.",
-    )
-}
-
-/// `markup.stamp`
-#[must_use]
-pub const fn markup_stamp() -> CommandText {
-    CommandText::new(
-        "Stamp",
-        "Place a stamp on the page. Stamps use their own standard colours.",
-    )
-}
-
-/// `markup.comments`
-#[must_use]
-pub const fn markup_comments() -> CommandText {
-    CommandText::new(
-        "Comments",
-        "List the notes and markup on this document and jump to any of them.",
-    )
-}
-
-// ===========================================================================
-// MEASURE TAB
+// ★ **Moved out on 2026-08-14 under R2**, at the seam that module's header
+// argues for: these two tabs are what an operator *adds on top of* the page,
+// which is the line `app::modes::Capabilities` already draws between
+// `edit_content` and the two authoring flags, and the line `shell::manifest`
+// already draws by keeping `markup.rs` and `measure.rs` as files of their own.
 //
-// The four controls that had no tooltip at all in the salvage source. Each
-// one now says what it measures and what the measurement is read against,
-// because the group model — named groups carrying a shared scale, number
-// format and drafting standard — is the part of pdfce's measuring that a
-// user of any other product will not expect.
+// Re-exported by name — not by glob — so every call site still writes
+// `t::markup_rectangle()` and nothing outside `text/` learns the catalog was
+// split, while a function added over there still has to be named here to reach
+// the crate. The catalog's discipline is that every operator-visible string is
+// named somewhere a reviewer looks.
 // ===========================================================================
+pub mod annotate;
 
-/// `measure.linear`
-#[must_use]
-pub const fn measure_linear() -> CommandText {
-    CommandText::new(
-        "Linear",
-        "Measure a straight distance and place a dimension on the page. The result is read \
-         against the current dimension group's scale.",
-    )
-}
-
-/// `measure.radius_diameter`
-#[must_use]
-pub const fn measure_radius_diameter() -> CommandText {
-    CommandText::new(
-        "Radius / diameter",
-        "Measure a circle or an arc and place a radius or diameter dimension on the page.",
-    )
-}
-
-/// `measure.set_scale`
-#[must_use]
-pub const fn measure_set_scale() -> CommandText {
-    CommandText::new(
-        "Set scale",
-        "Set the scale the current dimension group's measurements are read against — how much \
-         real-world length one unit on the drawing stands for.",
-    )
-}
-
-/// `measure.manage_groups`
-#[must_use]
-pub const fn measure_manage_groups() -> CommandText {
-    CommandText::new(
-        "Manage dimension groups…",
-        "Add, rename and remove dimension groups, and see the scale, number format and \
-         drafting standard each one carries.",
-    )
-}
+pub use annotate::{
+    markup_arrow, markup_comments, markup_ellipse, markup_finish, markup_highlight, markup_ink,
+    markup_polygon, markup_polyline, markup_rectangle, markup_squiggly, markup_stamp,
+    markup_sticky_note, markup_strikeout, markup_text_box, markup_underline, measure_finish,
+    measure_linear, measure_manage_groups, measure_radius_diameter, measure_set_scale,
+    measure_two_line,
+};
 
 // ===========================================================================
 // TOOLS TAB
@@ -1041,7 +1070,7 @@ pub const fn tools_merge_files() -> CommandText {
     CommandText::new(
         "Merge files…",
         "Combine several PDFs into one new file. This document is not changed — to add pages \
-         to it instead, use Pages ▸ Merge into this document.",
+         to it instead, use Pages > Merge into this document.",
     )
 }
 
@@ -1163,17 +1192,25 @@ mod tests {
     /// fails a test rather than shipping with unreviewed copy.
     fn all() -> Vec<CommandText> {
         vec![
+            file_new(),
             file_open(),
             file_close(),
             file_recent(),
             file_save_copy(),
             file_export_dxf(),
             file_export_form_data(),
+            // Moved from the Edit block below on 2026-08-14 with the commands
+            // themselves; this list is in tab order for the same reason the
+            // catalog is.
+            file_copy_page_text(),
+            file_copy_document_text(),
             file_print(),
             file_properties(),
             file_fonts(),
             file_settings(),
             file_shortcuts(),
+            file_about(),
+            file_ocr(),
             view_page_single(),
             view_page_continuous(),
             view_page_facing(),
@@ -1216,8 +1253,6 @@ mod tests {
             edit_add_text(),
             edit_objects(),
             edit_insert_image(),
-            edit_copy_page_text(),
-            edit_copy_document_text(),
             edit_form_create_field(),
             edit_form_manage_fields(),
             edit_form_flatten(),
@@ -1228,6 +1263,10 @@ mod tests {
             markup_rectangle(),
             markup_ellipse(),
             markup_arrow(),
+            markup_polyline(),
+            markup_polygon(),
+            markup_ink(),
+            markup_finish(),
             markup_highlight(),
             markup_text_box(),
             markup_sticky_note(),
@@ -1235,6 +1274,12 @@ mod tests {
             markup_comments(),
             measure_linear(),
             measure_radius_diameter(),
+            // `measure_two_line` was registered on 2026-08-14 and was not
+            // added here, so for one day the label-uniqueness and
+            // tooltip-is-a-sentence rules were being asserted over a list that
+            // did not contain it. Both new Measure entries are here.
+            measure_two_line(),
+            measure_finish(),
             measure_set_scale(),
             measure_manage_groups(),
             tools_merge_files(),

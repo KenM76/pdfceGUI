@@ -4,6 +4,10 @@
 //! `RIBBON_IA.md` §5.1. Six groups: File, Save, Export, Print, Document,
 //! pdfce.
 //!
+//! ★ **`New` landed 2026-08-14** — see the File group below, and
+//! `crate::app::blank` for where a blank document comes from when the engine
+//! has no way to make one and has declared that it never will.
+//!
 //! # What this tab stopped being
 //!
 //! The salvage source's File tab was, in its own document's words, *"a
@@ -30,6 +34,19 @@
 //!    nothing there teaches them the ribbon is not where commands live.
 //! 2. **Copy page text / copy document text leave**, to Edit ▸ Clipboard.
 //!    Copying text out of a document is a content operation.
+//!
+//!    ★ **Reversed on 2026-08-14, by operator decision, and the reversal is
+//!    recorded here rather than replacing the sentence above** — "this left
+//!    and came back, for a better-stated reason" is a more useful fact than
+//!    either half alone, and the returning reader who remembers the move
+//!    needs to find it. They are now `file.copy_page_text` and
+//!    `file.copy_document_text`, in **File ▸ Export**, and the Edit ▸
+//!    Clipboard group that held them is deleted. The original argument was
+//!    right that copying is a *content* operation and wrong to conclude that
+//!    a content operation is an *authoring* one: copying reads the page and
+//!    writes to the clipboard, changing nothing. See the Export group below
+//!    for the full reasoning and for why they are in Export rather than in a
+//!    Clipboard band of their own.
 //! 3. **Reset layout leaves**, to View ▸ Window. It resets panel geometry.
 //!
 //! And one thing arrives: **Fonts**, from View ▸ Panels. The Fonts panel
@@ -59,9 +76,33 @@ pub(super) fn tab() -> Tab {
             // ---------------------------------------------------------------
             // File — getting a document in and out of the application.
             //
-            // `New` is specified here and is **N**; see PLANNED. What is left
-            // is what a first-time user looks for: open a document, reopen one
-            // they had, put it away.
+            // ★ **`New` shipped on 2026-08-14** and its `PLANNED` entry ("N —
+            // a blank or from-template document. pdfce has no
+            // document-creation path at all.") is retired. The second half of
+            // that sentence is still true of the engine and always will be —
+            // `pdfce-core`'s `document.rs:10-19` names it an invariant — so
+            // New does not create a document, it **opens one**: a 443-byte
+            // blank-A4 template that ships as an asset and goes through
+            // `Document::from_bytes`. `crate::app::blank` carries the whole
+            // argument, including why filing a feature request for
+            // `Document::blank(…)` would have been asking the engine to break
+            // its own named invariant.
+            //
+            // It is **first** in the band. All three reference applications
+            // open their File menu with New and follow it with Open, and the
+            // order is the useful one as well as the conventional one: the two
+            // ways to bring a document into the window, then the way to put
+            // one away.
+            //
+            // What is here is now exactly what a first-time user looks for:
+            // make a document, open a document, reopen one they had, put it
+            // away.
+            //
+            // §5.1 specifies this row as "New (blank / from template)". The
+            // **blank** half ships; the **from template** half — which is
+            // where a page-size choice belongs — is `file.new_from_template`
+            // in `PLANNED`, and the split is Inkscape's own: `Ctrl+N` makes a
+            // document, `Ctrl+Alt+N` chooses what kind.
             //
             // ★ `Recent ⌄` is an `Item::Custom`, not a command item, and that
             // is the only structural oddity on this tab.
@@ -84,6 +125,7 @@ pub(super) fn tab() -> Tab {
                 "file",
                 ribbon::group_file_file(),
                 [
+                    command("file.new"),
                     command("file.open"),
                     Item::custom(super::RECENT_FILES),
                     command("file.close"),
@@ -92,6 +134,27 @@ pub(super) fn tab() -> Tab {
             // ---------------------------------------------------------------
             // Save — see the module header on why this band has one item.
             // ---------------------------------------------------------------
+            // ---------------------------------------------------------------
+            // Recognise — OCR.
+            //
+            // ★ `RIBBON_IA.md` §5.7 puts this on **Tools**, and it is here
+            // instead. The whole argument is in `super::tools`'s header, where a
+            // reader looking for it in the specified place will find it; the
+            // short version is that Read's tab list is `["file", "view"]`, so a
+            // command on Tools is unreachable in the one mode the operator
+            // specifically asked for it in.
+            //
+            // Between File and Save, which is where it belongs on its own terms:
+            // this band's neighbours are the verbs that make a document exist
+            // (open) and the verbs that write one out (save, export), and OCR is
+            // the second kind. Its product is a new file and it never touches
+            // this one.
+            // ---------------------------------------------------------------
+            group(
+                "recognise",
+                ribbon::group_file_recognise(),
+                [command("file.ocr")],
+            ),
             group(
                 "save",
                 ribbon::group_file_save(),
@@ -110,11 +173,53 @@ pub(super) fn tab() -> Tab {
             // GUI surface. They are the cheapest wins on this tab and they
             // are still absent until the shell exists, because a **C** row
             // is an engine, not a command.
+            //
+            // ★ **The two text-copy commands are back, and this time on the
+            // right band.** Operator decision, 2026-08-14: `edit.copy_page_text`
+            // and `edit.copy_document_text` became `file.copy_page_text` and
+            // `file.copy_document_text`.
+            //
+            // The module header above still records that they LEFT this tab, and
+            // that record stands rather than being edited away — the reasoning
+            // then was *"copying text out of a document is a content
+            // operation"*, and it was arguing against the junk-drawer File tab
+            // this ribbon replaced. What it got wrong is that a content
+            // operation is not necessarily an **authoring** operation. Copying
+            // reads the page and writes to the clipboard; it cannot change a
+            // byte of the document. So it belongs on the tab every mode shows,
+            // for the same reason `edit.form_fill` became `view.panel_forms`:
+            // *filling is not authoring*, and neither is copying.
+            //
+            // What made the difference visible was the chord/mode gate
+            // (`crate::app::modes::capability::offers_command`), which refused
+            // `Ctrl+Shift+C` in Read — a mode whose whole standard is Acrobat
+            // Reader, which copies text.
+            //
+            // They are in **Export**, not in a Clipboard group of their own, and
+            // that is the substantive half of the decision. An export is
+            // *content of this document, written out to somewhere that is not
+            // this document*; DXF writes geometry to a file, form data writes
+            // filled values to a file, and these two write text to the
+            // clipboard. Only the destination differs, and the labels carry it.
+            // A one-purpose `clipboard` band on this tab would have been the
+            // Edit tab's now-deleted group moved sideways, and would have
+            // implied an object clipboard that does not exist (`edit.cut`,
+            // `edit.copy`, `edit.paste` are all **N** — see `super::PLANNED`).
+            //
+            // Page before document, matching the Edit tab's order and the
+            // useful one: the narrow, instant, chord-bound verb first; the
+            // whole-document one — which can block the window on a long file,
+            // as its tooltip says — second.
             // ---------------------------------------------------------------
             group(
                 "export",
                 ribbon::group_file_export(),
-                [command("file.export_dxf"), command("file.export_form_data")],
+                [
+                    command("file.export_dxf"),
+                    command("file.export_form_data"),
+                    command("file.copy_page_text"),
+                    command("file.copy_document_text"),
+                ],
             ),
             // ---------------------------------------------------------------
             // Print. Imposition (n-up / booklet / poster) is **C**.
@@ -134,13 +239,33 @@ pub(super) fn tab() -> Tab {
                 [command("file.properties"), command("file.fonts")],
             ),
             // ---------------------------------------------------------------
-            // pdfce — the application's own settings and help. `About` is
-            // **N**.
+            // pdfce — the application's own settings, help and identity.
+            //
+            // Three controls, all of them about the PROGRAM rather than about
+            // the document, which is what the group's caption says and what
+            // decides membership. None carries an `enabled_when`: an operator
+            // with nothing open still has a version to check and a licence to
+            // read.
+            //
+            // ★ `file.about` shipped on 2026-08-14 and its `PLANNED` entry
+            // ("N — there is no about box.") is retired. It is not a courtesy
+            // control: it is the in-application half of the attribution
+            // surface that the operator's decision to ship CC-BY-SA-4.0 OCR
+            // model weights requires. See `crate::text::about` and
+            // `crate::dialogs::about`.
+            //
+            // It goes LAST in the group, which is where every reference
+            // application puts it — Acrobat, Inkscape and SolidWorks all end
+            // their Help menu with About, and none of them opens with it.
             // ---------------------------------------------------------------
             group(
                 "pdfce",
                 ribbon::group_file_pdfce(),
-                [command("file.settings"), command("file.shortcuts")],
+                [
+                    command("file.settings"),
+                    command("file.shortcuts"),
+                    command("file.about"),
+                ],
             ),
         ])
 }

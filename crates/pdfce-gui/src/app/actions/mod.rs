@@ -102,13 +102,135 @@
 //! action *is* — a complete statement of an operator's intent, resolvable
 //! after the frame that raised it.
 
-use std::sync::Arc;
+use std::cell::RefCell;
 
-use pdfce_core::edit::{EditError, EditSession};
+use crate::viewer::FitMode;
 
-use crate::app::PdfceApp;
-use crate::app::state::{OpenDoc, Status};
-use crate::viewer::{self, FitMode};
+/// What applying an [`Action`] does — the interpreter half of this module.
+///
+/// Split out under **R2**; see its own header for the seam. Not `pub`: nothing
+/// outside `app` applies an action, and the two entry points it adds are
+/// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
+/// they are reachable exactly where they were before the split.
+mod apply;
+
+// ---------------------------------------------------------------------------
+// The edit disclosure — what [`vector_edit`] carries out to `app::status`
+//
+// See [`vector_edit`]'s "The disclosures" section for what a disclosure IS.
+// This block is the answer to the question that section used to leave open:
+// *where does an operator read one?*
+// ---------------------------------------------------------------------------
+
+/// The rule-4 sentences one vector edit owed, and the revision they describe.
+///
+/// `pdfce-core`'s vector verbs return `Result<Vec<String>, EditError>`, and the
+/// `Vec<String>` is the **disclosure list**: prose the surgery owes because it
+/// had to change an operator's *form* to express their request. Rule 4 says a
+/// disclosure belongs on an operator-visible surface, and until 2026-08-14 this
+/// list reached `PDFCE_DIAG` and nothing else — recorded, not disclosed.
+///
+/// # Why this is shaped like [`crate::panels::forms::edit::FillDisclosure`]
+///
+/// Because it is the same fact in a different verb, and the precedent had
+/// already settled every question this one raises: a note about an edit,
+/// stamped with the epoch the edit produced, read by a surface that draws it
+/// only while it still describes the document on screen. Building a second
+/// mechanism beside that one would give the status bar two ways to learn the
+/// same kind of thing, and the second would be the one that forgot to retire
+/// itself.
+///
+/// # ★ What it deliberately does NOT carry: the verb's name
+///
+/// A `FillDisclosure` carries the **field name**, because a fill raised from
+/// the Forms panel happens in a list of forty rows and the sentence is read
+/// somewhere other than where the value was typed. The vector verbs have no
+/// such gap: the gesture that raises one is a drag on the object the sentence
+/// is about, the sentence appears on the next frame, and core's own wording
+/// (*"This shape…"*, *"This point…"*) is written for exactly that reading.
+///
+/// The only name available here is [`vector_edit`]'s `label` — `move-node`,
+/// `delete-objects` — which is a **trace token**, not operator copy. Putting it
+/// on screen would either ship a hyphenated internal identifier to an operator
+/// or require a second catalog translating trace tokens into English, which is
+/// a second vocabulary for the verbs the ribbon already names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditDisclosure {
+    /// The revision this describes — [`OpenDoc::edit_epoch`] **after** the
+    /// edit. A disclosure whose epoch is not the document's current one
+    /// describes an edit that has since been undone or superseded, and must
+    /// not be shown.
+    pub epoch: u64,
+    /// The sentences, in the order the planner pushed them, **verbatim** from
+    /// `pdfce-core`. They are finished English prose written where the fact is
+    /// known; this shell frames them (see
+    /// [`crate::text::status::edit_disclosure_line`]) and rewrites nothing.
+    pub notes: Vec<String>,
+}
+
+thread_local! {
+    /// The most recent vector edit's disclosures, waiting to be read by the
+    /// status bar.
+    ///
+    /// # ★ Why a thread-local, and why that is sound rather than smuggled
+    ///
+    /// The same answer `crate::panels::forms::edit`'s `LAST_FILL` gives, and
+    /// for the same reason it is worth restating rather than cross-referencing
+    /// away: it *should* be a field on [`OpenDoc`], beside `edit_epoch`,
+    /// dropped with the document. `OpenDoc` is declared in
+    /// `crate::app::state`, which this work may not extend, so the constraint
+    /// is a **territory boundary rather than a design judgement** — stated
+    /// here so whoever lifts it knows what the preferred shape is.
+    ///
+    /// Why it is nonetheless sound: this is not document state. It is a note
+    /// about an edit that has already gone through the funnel, it cannot
+    /// change a pixel of the page, and nothing reads it except a bar deciding
+    /// whether to draw a sentence. It is correctly scoped too — `eframe`'s
+    /// update loop is one thread, so the writer and the reader are the same
+    /// thread, and a test on another thread gets its own empty slot rather
+    /// than another test's leftovers (which a `static Mutex` would hand it).
+    ///
+    /// Staleness is handled by the `epoch` rather than by clearing: the
+    /// sentence is shown only while it describes the revision on screen, so an
+    /// undo silences it without anything having to remember to.
+    static LAST_EDIT: RefCell<Option<EditDisclosure>> = const { RefCell::new(None) };
+}
+
+/// What the last vector edit disclosed, if it still describes the open
+/// document.
+///
+/// **The status bar's read** — see [`crate::app::status`]. Returns `None` when
+/// the last edit disclosed nothing, was on another document, or has since been
+/// undone or superseded.
+///
+/// # ★ It cannot be live at the same time as a fill disclosure
+///
+/// Both are keyed on [`OpenDoc::edit_epoch`], and one edit bumps the epoch
+/// once. So the epoch on screen was produced by exactly one edit, which was
+/// either a form edit (recording a `FillDisclosure` and no `EditDisclosure`)
+/// or a vector edit (the reverse). The bar therefore never has to arbitrate
+/// between two disclosure lines competing for one row: the mutual exclusion is
+/// a property of the epoch, not a rule anybody has to enforce.
+#[must_use]
+pub fn last_edit_disclosure(epoch: u64) -> Option<EditDisclosure> {
+    LAST_EDIT.with_borrow(|slot| {
+        slot.as_ref()
+            .filter(|d| d.epoch == epoch && !d.notes.is_empty())
+            .cloned()
+    })
+}
+
+/// Record what an edit disclosed — or, with `None`, that it disclosed nothing.
+///
+/// Written unconditionally by [`vector_edit`], including the overwhelmingly
+/// common empty case. Overwriting with `None` is not required for correctness
+/// (the epoch filter above already retires a stale sentence) and is done
+/// anyway, so the slot never holds a note whose only defence against being
+/// shown is an integer comparison that a future undo implementation could get
+/// wrong.
+fn record_edit_disclosure(disclosure: Option<EditDisclosure>) {
+    LAST_EDIT.with_borrow_mut(|slot| *slot = disclosure);
+}
 
 /// Which piece of View ▸ Display chrome a [`Action::ToggleViewChrome`] is
 /// about.
@@ -195,6 +317,54 @@ pub enum Action {
     /// opening one: `Document::load` is perfectly happy with a relative path
     /// and the operator's shell already resolved it.
     Open(std::path::PathBuf),
+    /// **Make a blank document, replacing whatever is open.**
+    ///
+    /// Raised by `file.new` and by nothing else. Carries no operand: unlike
+    /// [`Self::Open`] there is nothing to name — the bytes are compiled in
+    /// (`crate::app::blank::TEMPLATE`) and the document's own name is derived
+    /// after the frame from a counter on the application, which is where a
+    /// number that outlives one document belongs.
+    ///
+    /// Applied by [`PdfceApp::new_document`], which carries the reasoning:
+    /// where the template comes from, why the engine has no part in it, and
+    /// why New leaves the operator's mode alone.
+    New,
+    /// **Write the open document, edits and all, to a file the operator
+    /// names.**
+    ///
+    /// Raised by `file.save_copy` and by nothing else. Applied by
+    /// [`crate::app::save::save_copy`], whose header carries every decision in
+    /// this feature: why the save mode is **incremental** (a promise already
+    /// shipped in the command's tooltip), why nothing on
+    /// [`crate::app::state::OpenDoc`] moves, and which `SaveOptions` fields
+    /// were chosen and why.
+    ///
+    /// # ★ Why it carries no path, when [`Self::Open`] carries one
+    ///
+    /// Because there is no operand to carry. `Open`'s path is the **answer to a
+    /// dialog that is gone by the time the action is applied** — it cannot be
+    /// re-derived, so it travels, and its picker therefore runs during dispatch.
+    /// A save has the opposite shape: what to *suggest* is a pure function of
+    /// the open document (`save::suggested_path`), so nothing is lost by asking
+    /// later, and asking later is required rather than merely allowed.
+    ///
+    /// `crate::app::files::pick_save_path` documents a **frame-timing
+    /// requirement** — a native modal opened inside an `egui` layout closure
+    /// blocks the frame it is being drawn in, leaving a half-painted window
+    /// behind a dialog. Dispatch does not always satisfy it:
+    /// `crate::app::PdfceApp::central` dispatches the canvas's context-menu
+    /// tokens from *inside* `egui::CentralPanel::show`. The apply phase always
+    /// does — it is step 3, after every surface has closed. So raising an action
+    /// is not ceremony here; it is the only placement that honours the
+    /// requirement from every route the command can be invoked by.
+    ///
+    /// # It is matched before the document guard
+    ///
+    /// With nothing open there is nothing to write, and a keymap can reach
+    /// `Ctrl+S` from any state. The guard's silent drop would make that
+    /// indistinguishable from a chord that never arrived, so — like
+    /// [`Self::Find`] — this is answered above it, by name, on the trace.
+    SaveCopy,
     /// **Close the open document and return to [`Status::Empty`].**
     ///
     /// Raised by `file.close`, which is gated on `doc.open`, so the no-document
@@ -409,16 +579,107 @@ pub enum Action {
     /// Re-deriving the page from `doc.view.page_index` in the apply would be a
     /// second source of truth that is right until a page step raised in the
     /// same frame is applied first.
+    /// **Author a ce dimension on the page** — the release of a completed
+    /// measure pick.
+    ///
+    /// Raised by [`crate::canvas::measure`] when a pick machine returns a
+    /// `DimensionKind`, which for the linear tool is the **third** click (what,
+    /// to what, and where it sits) and for the others is the pick that first
+    /// makes the geometry knowable.
+    ///
+    /// # ★ Why the geometry arrives whole rather than as points
+    ///
+    /// `DimensionKind` is `pdfce-core`'s own type and it is carried across
+    /// unchanged, which is the property the salvage's two equivalence tests
+    /// exist to protect: the value built here is **byte-for-byte the one
+    /// `pdfce-cli dimension-add` builds** from the same picks, so a dimension
+    /// authored on the canvas and one authored from the command line are the
+    /// same bytes in the file. Decomposing it into coordinates here and
+    /// rebuilding it in the apply arm would put a second constructor in the
+    /// path and quietly end that guarantee.
+    ///
+    /// This is also why the variant carries no colour, width or standard: those
+    /// live on the **group**, which is why `group` is the other field.
+    CommitDimension {
+        /// Page index the dimension is placed on.
+        page: usize,
+        /// The authoring group it joins, which is what carries its scale,
+        /// number format and drafting standard.
+        group: pdfce_core::dimension::GroupId,
+        /// The immutable geometry, straight from the pick machine.
+        kind: pdfce_core::dimension::DimensionKind,
+    },
+    /// **Author one markup annotation on the page** — the release of a band
+    /// drag, the release of a freehand stroke, or the ending of a vertex run.
+    ///
+    /// # ★ Why THREE gestures share one variant, where text markup got its own
+    ///
+    /// Because [`crate::canvas::markup::spec`] is *"the single place a gesture
+    /// becomes a `MarkupSpec`"*, and that claim is what the equivalence with
+    /// `pdfce-cli markup-add` rests on: a canvas-authored annotation has to be
+    /// byte-identical to a CLI-authored one, and the cheapest way to keep two
+    /// things identical is for there to be one of them. Three variants would be
+    /// three apply arms, each free to build its own spec, and the day one of them
+    /// acquired a normalisation the others did not is the day the guarantee
+    /// quietly stopped holding — with nothing to notice it, because every arm
+    /// would still author a perfectly valid annotation.
+    ///
+    /// So the geometry became an enum
+    /// ([`crate::canvas::markup::Geometry`]) rather than the variant becoming
+    /// three. [`Self::CommitTextMarkup`] stays separate for the reason its own
+    /// docs give and the reason is *different*: its operand is not a gesture at
+    /// all — it is a text selection that already exists on the document — so it
+    /// shares no rule with anything here.
     CommitMarkup {
         /// The 0-based page the annotation is authored onto.
         page: usize,
         /// Which shape — and therefore which `/Subtype`, pen and normalisation
         /// rule. See [`crate::canvas::markup::spec`].
         kind: crate::canvas::markup::MarkupKind,
-        /// Where the drag began, PDF user space. An arrow's **tail**.
-        start: (f64, f64),
-        /// Where the drag ended, PDF user space. An arrow's **head**.
-        end: (f64, f64),
+        /// The geometry the gesture produced, **in PDF user space**: two raw
+        /// drag endpoints, a run of clicked vertices, or one or more freehand
+        /// strokes. Which of the three is a property of the kind, and the pairing
+        /// is checked by [`crate::canvas::markup::action`] before this is ever
+        /// built.
+        geometry: crate::canvas::markup::Geometry,
+    },
+    /// ★ **Mark the text the operator has selected** — underline, strikeout or
+    /// squiggly.
+    ///
+    /// Raised by `crate::app::dispatch` when one of the three Text markup
+    /// commands is invoked, through
+    /// [`crate::canvas::markup::text::mark`], which is where every rule about
+    /// *which* selection is eligible lives.
+    ///
+    /// # Why this is not [`Self::CommitMarkup`] with a different kind
+    ///
+    /// Because the operand is a different shape and no amount of naming hides
+    /// it. `CommitMarkup` carries **two points** — a drag — and normalises or
+    /// preserves them per kind; this carries **a list of quads**, one per line
+    /// of a text selection, already in PDF user space and already grouped. A
+    /// single variant would have to carry both and leave half of itself empty
+    /// for every value, which is the shape that makes an apply arm ask *which
+    /// kind is this again* before it can read its own operands.
+    ///
+    /// # Why the quads travel, and why the page travels with them
+    ///
+    /// An action is a complete statement of intent, resolvable after the frame
+    /// that raised it — the property [`Self::DeleteSelection`] is built on. The
+    /// selection it came from may be cleared by the same frame's Escape or
+    /// replaced by a click before this is applied, so the quads are copied out
+    /// at the moment the operator asked. The `page` is the **selection's**, not
+    /// `doc.view.page_index`: a selection made on one sheet and marked after
+    /// paging away must mark the sheet it was made on.
+    CommitTextMarkup {
+        /// The 0-based page the annotation is authored onto — the page the
+        /// selection was made on.
+        page: usize,
+        /// Which subtype, and therefore which appearance the engine draws.
+        kind: crate::canvas::markup::text::TextMarkKind,
+        /// The selected lines' boxes, PDF user space, in content order —
+        /// `crate::canvas::textsel::TextSelection::page_quads`, which is the
+        /// same list the wash was painted from.
+        quads: Vec<pdfce_core::annot_author::Quad>,
     },
     /// Show or hide one optional-content group.
     ///
@@ -572,441 +833,61 @@ pub enum Action {
     /// instance of a four-step sequence `vector_edit` exists to have exactly
     /// one of.
     Form(crate::panels::forms::edit::FormEdit),
+    /// **Invoke a registered command by id**, from a surface that is not the
+    /// ribbon.
+    ///
+    /// ★ The one variant that is not a statement about the document. It exists
+    /// so a *second route to an existing command* cannot become a second
+    /// implementation of it: the Find bar's OCR offer means exactly what
+    /// `file.ocr` on the ribbon means, and wiring it straight to
+    /// `DialogsState::open_ocr` would have put that command's guards in two
+    /// places — the failure `crate::app`'s one-choke-point invariant names.
+    ///
+    /// **Drained during the frame, never in [`PdfceApp::apply_actions`]**, for
+    /// two reasons that are hard rather than stylistic: `dispatch_command`
+    /// needs an `&egui::Context` and the apply phase is deliberately given
+    /// none, and a dialog it opens must be drawn by `DialogsState::show` on the
+    /// same frame. The drain and its full argument are at the call site in
+    /// `crate::app`; the arm below exists only to notice if it is ever removed.
+    Command(String),
 }
 
-impl PdfceApp {
-    /// Apply every action raised during the frame just drawn.
-    ///
-    /// Applied in the order raised. `pixels_per_point` is passed in rather
-    /// than read from a context because the per-page zoom ceiling depends
-    /// on it — see [`viewer::max_zoom_for_page`] — and threading it makes
-    /// this function pure with respect to egui, which is what keeps it
-    /// reviewable.
-    pub fn apply_actions(&mut self, actions: Vec<Action>, pixels_per_point: f32) {
-        for action in actions {
-            self.apply(action, pixels_per_point);
-        }
-    }
+// ---------------------------------------------------------------------------
+// ★ EVERYTHING BELOW THIS LINE IS TEST-ONLY, AND THAT IS A GATE REQUIREMENT
+//   RATHER THAN A HOUSE STYLE.
+//
+// `tools/gates/check-ui-strings.sh` truncates each file at its FIRST
+// column-0 `#[cfg(test)]` and scans nothing after it — its own header states
+// the limit in as many words ("any non-test code placed AFTER the test module
+// is invisible to the checker") and records the day a planted violation
+// failed to fire because of it.
+//
+// So a `#[cfg(test)]` item in the MIDDLE of a file silently disarms rule R1
+// for the rest of that file. `plant_edit_disclosure_for_test` was written
+// beside the store it plants into, next to `record_edit_disclosure` — which
+// would have put the attribute at line 244 of 1,253 and left this module's
+// entire `Action` enum, its doc comments and every `format!` in
+// `PdfceApp::apply` unscanned. Measured, not assumed: a violation planted
+// after such a line passes the gate.
+//
+// Keeping the test-only helper here, below all real code, costs one level of
+// distance from the thing it plants into and buys back a thousand lines of
+// coverage.
+// ---------------------------------------------------------------------------
 
-    /// Apply a single action.
-    ///
-    /// Every arm is a state transition on [`crate::viewer::ViewState`],
-    /// which is where the clamping and the ladder arithmetic live and are
-    /// tested. This function decides *which* transition, never *what it
-    /// means* — a zoom that saturates, a page step that stops at the last
-    /// page and a NaN that falls back to actual size are all decided in
-    /// `viewer`, under unit test.
-    fn apply(&mut self, action: Action, pixels_per_point: f32) {
-        // ★ The two actions that are about WHICH document is open, matched
-        // BEFORE the guard below.
-        //
-        // Every other arm acts on the open document, so the guard's "no
-        // document: silently drop" is the right answer for all of them. It is
-        // the wrong answer for these two, and in opposite directions: an Open
-        // with nothing open is the *ordinary* case — it is how the operator
-        // gets their first document after launching with no argument — and a
-        // Close with nothing open is a no-op that must still not be reached
-        // through a path that assumes a document.
-        //
-        // Both consult `save_pending` first. See its own docs for the rule;
-        // the short version is that an Open must not run out from under a
-        // save, and that this build has no save for it to run out from under.
-        //
-        // The `_ => {}` arm moves nothing, and the two arms that do move
-        // `action` both return, so the value is still whole below. That is a
-        // property of the control flow rather than a coincidence: adding a
-        // third arm here that falls through would be a use-after-move and the
-        // compiler would say so.
-        match action {
-            Action::Open(path) => {
-                if self.save_pending() {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        format!("open-declined path={path:?} reason=save-pending")
-                    });
-                    return;
-                }
-                self.open_path(path);
-                return;
-            }
-            Action::Close => {
-                if self.save_pending() {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "close-declined reason=save-pending".to_owned()
-                    });
-                    return;
-                }
-                self.close_document();
-                return;
-            }
-            // ★ The third arm matched before the document guard, and it is
-            // here for a **borrow** reason rather than for the guard's.
-            //
-            // Applying a find request needs two of this struct's fields at
-            // once — `self.find` and the open document inside `self.status` —
-            // and the guard below takes `&mut self.status` for the rest of the
-            // function, after which `self.find` is unreachable. Splitting the
-            // borrow has to happen while `self` is still whole, which is here.
-            //
-            // It is *also* correct on the guard's own terms: with nothing
-            // open there is nothing to search, and saying so on the trace is
-            // more useful than the guard's silent drop, because a keymap can
-            // reach `edit.find` from any state and "the chord did nothing" and
-            // "the chord did nothing because no document is open" need
-            // different responses from whoever is reading the trace.
-            Action::Find(request) => {
-                match &mut self.status {
-                    Status::Open(doc) => crate::find::apply(&mut self.find, doc, request),
-                    _ => crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        format!("find-declined request={request:?} reason=no-document")
-                    }),
-                }
-                return;
-            }
-            _ => {}
-        }
-
-        let Status::Open(doc) = &mut self.status else {
-            // No document: nothing to zoom, nothing to navigate. Silently
-            // dropping the action is correct rather than lax — the controls
-            // that raise these do not exist without a document, so reaching
-            // here at all would mean a keyboard binding was installed
-            // without its guard.
-            return;
-        };
-
-        // The per-page raster ceiling, recomputed here rather than cached
-        // because it depends on BOTH the current page's extent and the
-        // display's density, either of which can change between frames (a
-        // page step, a window dragged to a different monitor). Caching it
-        // is how a guard passes its tests and still lets the operator zoom
-        // into an allocation failure on the one machine that matters.
-        let max_zoom = viewer::max_zoom_for_page(doc.current_extent(), pixels_per_point);
-        let page_count = doc.pages.len();
-
-        // ★ Which zoom changes are DISCRETE, and why that matters.
-        //
-        // `settle_and_rasterize` debounces a zoom by 150 ms so a Ctrl+wheel
-        // gesture — which emits dozens of intermediate values — rasterizes
-        // once rather than dozens of times. A discrete *command* has no
-        // gesture in flight, so waiting out that debounce would make a
-        // keypress feel unresponsive for no benefit.
-        //
-        // So every zoom-changing arm except `ZoomBy` (the wheel path) sets
-        // this flag. Getting it backwards is not a crash: it is a keyboard
-        // zoom that lags by 150 ms, or a wheel gesture that re-rasterizes a
-        // CAD sheet on every notch. Both were real behaviours in the old
-        // shell's history, which is why the distinction is a named flag
-        // rather than an inline condition.
-        // `|=`, not `=`: several actions can be raised in one frame, and a
-        // later non-zoom action must not clear a flag an earlier zoom
-        // command set. `settle_and_rasterize` clears it once per frame,
-        // which is the only place it may be cleared.
-        //
-        // Matched on a REFERENCE since `Action` stopped being `Copy` (see the
-        // module docs): `matches!` moves its scrutinee, and the `match` below
-        // needs the value.
-        // `ZoomTo` belongs here and was missing when the variant landed —
-        // the comment above already said "every zoom-changing arm except
-        // `ZoomBy`", so the list and its own description disagreed. The
-        // symptom was quiet: Actual size, from the button *and* from Ctrl+0,
-        // waited out the 150 ms wheel-settle debounce before re-rastering,
-        // as though it were a continuous gesture. A discrete command should
-        // commit at once.
-        doc.zoom_commanded |= matches!(
-            &action,
-            Action::ZoomIn | Action::ZoomOut | Action::Fit(_) | Action::ZoomTo(_)
-        );
-
-        match action {
-            // Handled above, before the guard that needs an open document —
-            // which is the point, since one of them is how a document becomes
-            // open. Spelled out rather than folded into a catch-all so that a
-            // new variant added to the enum still fails to compile here.
-            // ui-text-exempt: a panic message, read from a stack trace by
-            // whoever moved one of these two arms. Never rendered.
-            Action::Open(_) | Action::Close | Action::Find(_) => {
-                // ui-text-exempt: a panic message, read from a stack trace by
-                // whoever moved one of these three arms. Never rendered.
-                unreachable!("handled before the document guard")
-            }
-            Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),
-            Action::ZoomIn => doc.view.zoom_in(max_zoom),
-            Action::ZoomOut => doc.view.zoom_out(max_zoom),
-            Action::Fit(mode) => doc.view.set_fit(mode),
-            Action::ZoomTo(zoom) => doc.view.set_zoom(zoom, max_zoom),
-            Action::NextPage => doc.view.next_page(page_count),
-            Action::PrevPage => doc.view.prev_page(page_count),
-            Action::GoToPage(index) => doc.view.go_to_page(index, page_count),
-            Action::DeleteSelection { page, objects } => {
-                if !objects.is_empty() {
-                    vector_edit(doc, "delete-objects", page, objects.len(), |session| {
-                        session.delete_objects(page, &objects)
-                    });
-                }
-            }
-            Action::MoveSelection {
-                page,
-                objects,
-                dx,
-                dy,
-            } => {
-                if !objects.is_empty() {
-                    vector_edit(doc, "move-objects", page, objects.len(), |session| {
-                        session.move_objects(page, &objects, dx, dy)
-                    });
-                }
-            }
-            Action::MoveSubpath {
-                page,
-                object,
-                subpath,
-                dx,
-                dy,
-            } => {
-                vector_edit(doc, "move-subpath", page, 1, |session| {
-                    session.move_subpath(page, object, subpath, dx, dy)
-                });
-            }
-            Action::MoveNode {
-                page,
-                object,
-                node,
-                to,
-            } => {
-                vector_edit(doc, "move-node", page, 1, |session| {
-                    session.move_node(page, object, node, to)
-                });
-            }
-            // ★ One markup annotation, through the same four-step protocol
-            // every other document change uses.
-            //
-            // The arm routes; it does not compute. `markup::spec` is a pure,
-            // unit-tested function of the kind and the two endpoints — which is
-            // where the per-kind normalisation rule lives, and where it must
-            // live, because "an arrow keeps its raw endpoints" is a rule with a
-            // test rather than a line of wiring.
-            //
-            // `.map(|_| Vec::new())` adapts `add_markup`'s `ObjId` to the
-            // disclosure list `vector_edit` traces, and the empty vec is a
-            // statement rather than a placeholder: authoring an annotation
-            // rewrites no existing operator, so there is nothing whose *form*
-            // changed and therefore nothing rule 4 obliges us to disclose. The
-            // new object's id is discarded because nothing here addresses it —
-            // the Comments panel that will is a separate surface with its own
-            // way of finding annotations on a page.
-            Action::CommitMarkup {
-                page,
-                kind,
-                start,
-                end,
-            } => {
-                let spec = crate::canvas::markup::spec(kind, start, end);
-                vector_edit(doc, "add-markup", page, 1, |session| {
-                    session.add_markup(page, &spec).map(|_| Vec::new())
-                });
-            }
-            // ★ The three things a mode change does. See the variant's docs
-            // for why each one is here and not somewhere more convenient.
-            //
-            // The no-op guard is not an optimisation: the ribbon raises this
-            // on every click, including a click on the position that is
-            // already active, and without the guard each of those would drop
-            // every strip raster and re-render the visible pages.
-            Action::SetPageDisplay(display) => {
-                if doc.view.display != display {
-                    doc.view.display = display;
-                    doc.strip_rasters.clear();
-                    // `tracked_page` follows, so the new arrangement does not
-                    // read the current page as "navigated to" and scroll to it
-                    // on its first frame.
-                    doc.tracked_page = doc.view.page_index;
-                }
-                // Recorded unconditionally, because the operator has stated a
-                // choice and a document that was showing the mode by *default*
-                // has nothing on disk saying so. `remember` is itself a no-op
-                // when the file already says this, so a repeated click still
-                // costs no write.
-                crate::viewer::remembered::remember(&doc.path, display);
-                crate::diag::trace(|| {
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    format!(
-                        "page-display-set mode={} page={}",
-                        display.id(),
-                        doc.view.page_index
-                    )
-                });
-            }
-            Action::SetLayerVisible { group, visible } => doc.set_layer_visible(group, visible),
-            Action::ResetLayers => doc.reset_layers(),
-            Action::ToggleAnnotations => {
-                let showing = doc.annotations_visible();
-                doc.set_annotations_visible(!showing);
-            }
-            Action::ToggleViewChrome(chrome) => {
-                let on = !chrome.read(&doc.view);
-                chrome.write(&mut doc.view, on);
-                crate::diag::trace(|| {
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    format!("view-chrome {chrome:?} on={on}")
-                });
-            }
-            // The guides are stored and written to disk in one step, because
-            // the file IS the store's authority: `remember` is a
-            // read-modify-write of the whole line, so there is no half-applied
-            // state to guard against and nothing to reconcile on the next
-            // open. Unconditional, exactly as `SetPageDisplay`'s `remember` is
-            // — a `Guides` that equals what is already there is a gesture that
-            // raised no action at all (`canvas::guides::release` compares
-            // before it pushes), so a redundant write is unreachable rather
-            // than merely cheap.
-            Action::SetGuides(guides) => {
-                doc.guides = guides;
-                crate::canvas::guides::remember(&doc.path, &doc.guides);
-                crate::diag::trace(|| {
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    format!(
-                        "guides-set n={} page={}",
-                        doc.guides.len(),
-                        doc.view.page_index
-                    )
-                });
-            }
-            Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
-        }
-    }
-}
-
-/// Apply **one** vector-geometry edit to `doc`, as one undoable command.
+/// Plant a disclosure, for tests in other modules that must draw one.
 ///
-/// The shared body of every arm above that changes the document — Delete, the
-/// three move verbs, and [`Action::CommitMarkup`].
+/// `#[cfg(test)]` so it cannot become a second way to record one — the real
+/// path is [`record_edit_disclosure`], called from [`vector_edit`] with the
+/// epoch the edit produced, and a second entry point is how two callers come
+/// to disagree about what "the last edit" means.
 ///
-/// **Markup joins it rather than getting its own copy**, and the name is now a
-/// little narrow for what it does. That is the better trade: `add_markup` needs
-/// the identical four steps in the identical order — the worker cancelled
-/// first, the mutation through `Arc::get_mut`, the epoch bumped so the canvas
-/// re-resolves and the raster is rebuilt, the texture dropped — and the only
-/// thing it does differently is return an `ObjId` where the vector verbs return
-/// a disclosure list. That is one `.map` at the call site, against a whole
-/// second hand-written copy of a protocol whose entire reason for existing is
-/// that four hand-written copies would be four chances to omit a step.
-///
-/// It exists as one function rather than five copies for
-/// the reason the ordering below is load-bearing: each of the four steps is a
-/// separate way to end up with an edit that is silently declined or a page that
-/// silently keeps drawing what was just changed, and four hand-written copies
-/// of a four-step protocol is four chances to omit a step. The `label` and the
-/// operand count are carried only so the trace can say which verb ran.
-///
-/// # The four things that have to happen in this order
-///
-/// 1. **Stop the render worker.** `OpenDoc::session` is an `Arc` precisely so
-///    a worker can hold a clone while it rasterizes, and
-///    `RenderWorker::cancel_and_wait`'s own docs call itself *"the choke
-///    point that makes `Arc<EditSession>` sound"*: `Arc::get_mut` fails while
-///    any other strong reference exists, so a mutation attempted mid-render
-///    would simply be refused. Cancelling first is what turns "sometimes
-///    refused, depending on how fast the page rasterized" into "always
-///    applied".
-/// 2. **Mutate through `Arc::get_mut`.** A `None` here is not a panic: it
-///    means something else still holds the session, which is a bug in the
-///    caller's ordering rather than in the operator's document. It is traced
-///    and the edit is declined, because declining an edit is recoverable and
-///    corrupting one is not.
-/// 3. **Bump `edit_epoch`.** `OpenDoc::edit_epoch`'s own doc comment names
-///    this exact seam: *"the first mutating arm added to
-///    `PdfceApp::apply` must bump it"*, so the object-count trace re-reads
-///    and — the part that matters here — the canvas's selection re-resolves
-///    against the new decomposition rather than keeping an entry that now
-///    names a hole.
-///
-///    **A move needs the epoch bump for the geometry, not for the identity.**
-///    `move_*` rewrites operator operands in place and adds or removes no
-///    operator, so paint-order indices are stable across it — measured, by
-///    `crates/pdfce-core/tests/object_identity_across_edits.rs`. The selection's
-///    *entries* therefore survive untouched and nothing has to be remapped;
-///    what has changed is where each entry's outline goes, and the epoch is
-///    what makes `SelectionState::resolve` recompute it. `delete_*` excises
-///    byte spans and does renumber, which is the case
-///    `pdfce_core::vector::remap_index_after_delete` exists for.
-/// 4. **Drop the cached texture** — see below.
-///
-/// # The disclosures, and the one thing this function cannot yet discharge
-///
-/// Every vector verb returns `Result<Vec<String>, EditError>`, and the
-/// `Vec<String>` is the **disclosure list**: operator-facing strings the
-/// surgery owes under rule 4, non-empty when the edit had to change an
-/// operator's *form* to express the request — an `re` rectangle expanded into
-/// explicit segments, an implicitly-started subpath's `m` materialised. The
-/// drawing is unchanged but the bytes are no longer recoverable by reversing
-/// the gesture, and rule 4 forbids letting the operator find that out from a
-/// diff.
-///
-/// They are traced here, in full, so nothing is lost. **Tracing is not
-/// surfacing**: a disclosure belongs on an operator-visible surface, and the
-/// status line is `app::status`'s to own, not this module's to invent. That is
-/// the outstanding half, and it is named rather than left implicit precisely
-/// because a disclosure that only ever reaches `PDFCE_DIAG` has been recorded
-/// and not disclosed.
-///
-/// # Why the cached texture is dropped
-///
-/// Nothing else notices an edit. `settle_and_rasterize` compares the cached
-/// texture against the page index and the raster scale, and an edit changes
-/// neither — so without this the page would keep showing the object where it
-/// used to be until the operator zoomed or paged away. Dropping it forces a
-/// re-raster on the same frame (step 4 runs after step 3), and
-/// `RenderWorker::spawn` waits a bounded number of milliseconds inline, so a
-/// page that rasterizes quickly never shows a gap at all.
-///
-/// The *right* fix is for the texture's key to carry a content generation, so
-/// staleness is a property of the key rather than something each mutating arm
-/// has to remember. That key lives in `render/`, which is not this module's to
-/// extend; this is the honest interim, and it is one line in one shared
-/// function rather than a convention spread across four verbs and counting.
-fn vector_edit(
-    doc: &mut OpenDoc,
-    label: &str,
-    page: usize,
-    operands: usize,
-    edit: impl FnOnce(&mut EditSession) -> Result<Vec<String>, EditError>,
-) {
-    doc.render_worker.cancel_and_wait();
-    let Some(session) = Arc::get_mut(&mut doc.session) else {
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("{label}-refused page={page} n={operands} reason=session-borrowed")
-        });
-        return;
-    };
-    match edit(session) {
-        Ok(disclosures) => {
-            doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
-            doc.page_texture = None;
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    "{label} page={page} n={operands} epoch={} disclosures={}",
-                    doc.edit_epoch,
-                    if disclosures.is_empty() {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "none".to_owned()
-                    } else {
-                        disclosures.join(" | ")
-                    }
-                )
-            });
-        }
-        // A refusal is the engine's, and it is structured. Reporting it and
-        // leaving the document alone is the whole response available here:
-        // the operator-facing half is a status line, which does not exist
-        // yet and is not this module's to invent.
-        Err(error) => crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("{label}-refused page={page} n={operands} detail={error}")
-        }),
-    }
+/// It exists because the status bar draws this and must prove it does not grow
+/// the bar while doing so (R128), and that measurement has to happen in
+/// `crate::app::status`, which cannot reach a `thread_local` here. Exactly the
+/// reason `crate::panels::forms::edit::plant_fill_disclosure_for_test` exists,
+/// which is the shape this follows.
+#[cfg(test)]
+pub(crate) fn plant_edit_disclosure_for_test(disclosure: EditDisclosure) {
+    record_edit_disclosure(Some(disclosure));
 }

@@ -1,5 +1,23 @@
 //! # `canvas::gesture` — press, drag, release, and the clear that must not happen on a press
 //!
+//! This file is the **state machine**: one [`PointerFrame`] in, one
+//! [`GestureOutcome`] out, and a single `Option` of carried state between
+//! frames. What a press *means* — the [`DragKind`] it produces, the
+//! [`MarqueeIntent`] a rubber band carries to its release, and the precedence
+//! that decides between them when more than one meaning is available — is a
+//! pure decision function and lives next door in `meaning.rs`
+//! (`canvas::gesture::meaning`). It is re-exported from here, so
+//! `canvas::gesture::press_kind` and `canvas::gesture::DragKind` still name it
+//! from this module and no caller has to know about the split.
+//!
+//! The division is by subject, not by size: `meaning.rs` answers *"what does
+//! this press mean?"* from `(tool, grip, zoom_armed, capabilities)` with no
+//! state at all, and is where marquee-select-versus-marquee-zoom and the
+//! per-mode gate on a press are documented. This file answers *"what is
+//! happening to that meaning now?"* across the frames of one gesture — the
+//! press that decides nothing, the drag in flight, the release that commits,
+//! and the Escape or interruption that abandons.
+//!
 //! ## ★ Invariant 2, and it lives entirely in this file
 //!
 //! `GUI_ROADMAP.md` Phase 1, the second of the three ways a selection model
@@ -54,25 +72,15 @@
 //! a pan is not a gesture this module can see, let alone one it could confuse
 //! with a marquee. One state machine, one meaning per frame, and the branch is
 //! in one `if` at the boundary rather than a flag threaded through every arm.
-//!
-//! ## ★ Marquee-select versus marquee-zoom: one rubber band, two releases
-//!
-//! Phase 3.4 adds a marquee that *zooms* to what it encloses. It is
-//! deliberately **the same gesture**: same press, same in-flight rect, same
-//! pixels on screen ([`crate::canvas::overlay::draw_marquee`] is not
-//! duplicated), same normalisation, same Escape. What differs is one thing —
-//! *what happens on release* — so what is carried is one value, [`MarqueeIntent`].
-//!
-//! It is sampled **at the press**, exactly as `shift` is, and for the identical
-//! reason: the one-shot arming is retired when the drag completes, and an
-//! intent re-read at release would be read after something else had already
-//! consumed it. A gesture means what it meant when it started.
+
+mod meaning;
+
+pub use meaning::{DragKind, MarqueeIntent, PressMeaning, press_kind};
 
 use egui::{Pos2, Rect, Vec2};
 
 use crate::canvas::handles::Grip;
 use crate::canvas::markup::MarkupKind;
-use crate::canvas::tool::CanvasTool;
 
 /// What the pointer did over the page this frame, already converted to
 /// **canvas space**.
@@ -96,6 +104,20 @@ pub struct PointerFrame {
     pub clicked: bool,
     /// The completed click was the second of a double-click.
     pub double_clicked: bool,
+    /// The completed click was the **third** of a triple-click.
+    ///
+    /// Mutually exclusive with [`Self::double_clicked`] — egui counts clicks and
+    /// reports `is_double()` as `count == 2` against `is_triple()`'s `count ==
+    /// 3`, so exactly one of the two can be set on any one release. That is what
+    /// lets `canvas::textsel::click` test them in order without the third click
+    /// of a triple also re-selecting a word.
+    ///
+    /// Read only by the text gesture. A triple-click means nothing to the
+    /// selection ladder (which descends one rung per double-click) or to the
+    /// measure tools (whose double-click is the radius/diameter tool's *ending*,
+    /// and a triple would be a second ending nobody asked for), so both continue
+    /// to see it as an ordinary click.
+    pub triple_clicked: bool,
     /// Where the pointer is, in canvas space, if it is anywhere the canvas
     /// can see. `None` for a gesture whose pointer has left the window.
     pub pos: Option<Pos2>,
@@ -173,99 +195,6 @@ pub enum Phase {
     Complete,
 }
 
-/// What a press landed on — decided once, on the press frame, by the caller.
-///
-/// # Why it is decided at press time and then remembered
-///
-/// A drag that began on a grip stays a resize even when the pointer wanders
-/// off the grip, off the object, and off the page. Re-deciding per frame
-/// would turn a resize into a marquee the instant the operator's hand moved
-/// faster than the box, which is exactly when they are dragging hardest.
-///
-/// This is also what makes the grips *consume* their drags. See
-/// [`crate::canvas::handles`]: without it, a drag aimed at a resize grip
-/// would fall through to a marquee and silently replace the selection the
-/// operator was trying to resize.
-/// What a completed rubber-band does — **the only difference between
-/// marquee-select and marquee-zoom.**
-///
-/// See the module docs. Carried by [`DragKind::Marquee`] and echoed back on
-/// [`GestureOutcome::Marquee`] so the release arm can branch on it without
-/// asking the world what mode it is in — the world may have changed since the
-/// press, and the press is when the operator decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MarqueeIntent {
-    /// Select everything the band fully encloses. The default, and what an
-    /// un-armed canvas does.
-    #[default]
-    Select,
-    /// Zoom the view to the band. Armed by
-    /// [`crate::canvas::zoom::arm_region_zoom`] and retired on release.
-    Zoom,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DragKind {
-    /// The press was on empty paper, or on unselected content: rubber-band,
-    /// doing whatever [`MarqueeIntent`] says on release.
-    Marquee(MarqueeIntent),
-    /// The press was inside the selection's body: move it.
-    Move,
-    /// The press was on one of the eight resize grips.
-    Resize(Grip),
-    /// The markup tool was armed: **draw**, in the carried shape.
-    ///
-    /// The kind is carried on the drag rather than re-read at the release, for
-    /// the identical reason [`MarqueeIntent`] is — *a gesture means what it
-    /// meant when it started*. It also gives the markup tool, for free, the
-    /// property the old shell had to write code for: changing the armed kind
-    /// mid-drag cannot reach a drag already in flight, so there is no
-    /// in-progress gesture to discard.
-    Markup(MarkupKind),
-}
-
-/// What a press means, given the tool, what it landed on and what is armed —
-/// **the whole precedence, in one pure function.**
-///
-/// Lifted out of `canvas::interact` when the markup tool arrived, because it
-/// stopped being a two-case question the moment there were three tools and it
-/// is exactly the kind of rule this module exists to hold: it is a decision
-/// about what the pointer means, it is drivable with no window, and leaving it
-/// as a `match` in the middle of the wiring is how the ordering below becomes
-/// three separate opinions.
-///
-/// # The order is the rule
-///
-/// 1. **An armed markup tool outranks everything**, including the grips. A
-///    markup drag that started on a selected object's resize handle must draw a
-///    shape, not resize — the operator armed a pen, and grips belong to a
-///    selection they are not currently acting on. (There is no resize verb to
-///    reach anyway; see [`crate::canvas::handles`].) It outranks the region
-///    zoom for the same reason: only one of the two can own the primary drag,
-///    and the one the operator armed *last* is not knowable here — but the one
-///    that authors content is the one whose loss would be silent.
-/// 2. **A grip** — resize on the six that resize, move on the two that do not.
-/// 3. **An armed region zoom**, which turns the marquee's release into a zoom.
-/// 4. **A plain marquee**, which is what an un-armed canvas does.
-///
-/// The hand tool is deliberately **absent** from this list, and its absence is
-/// load-bearing: `canvas::interact` hands the gesture machine a *blank* frame
-/// while the hand is active, so no press ever reaches this function to be
-/// classified. One state machine, one meaning per frame — see the module
-/// header.
-#[must_use]
-pub fn press_kind(tool: CanvasTool, grip: Option<Grip>, zoom_armed: bool) -> DragKind {
-    if let Some(kind) = tool.markup_kind() {
-        return DragKind::Markup(kind);
-    }
-    match grip {
-        Some(grip) if grip.is_resize() => DragKind::Resize(grip),
-        Some(_) => DragKind::Move,
-        None if zoom_armed => DragKind::Marquee(MarqueeIntent::Zoom),
-        None => DragKind::Marquee(MarqueeIntent::Select),
-    }
-}
-
 /// What the canvas should do about the pointer this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GestureOutcome {
@@ -299,6 +228,15 @@ pub enum GestureOutcome {
         /// Whether this was the second click of a double-click (descend a
         /// rung rather than pick at the current one).
         double: bool,
+        /// Whether this was the **third** click of a triple-click.
+        ///
+        /// Carried beside `double` rather than replacing it with a count,
+        /// because the two consumers want different questions asked: the
+        /// selection ladder and the measure tools ask *"was this a double?"* and
+        /// must keep the answer they have, while the text gesture asks all
+        /// three in order. Exactly one of the two flags can be set — see
+        /// [`PointerFrame::triple_clicked`].
+        triple: bool,
     },
     /// A rubber-band, in canvas space.
     Marquee {
@@ -331,6 +269,29 @@ pub enum GestureOutcome {
         /// How far the pointer has travelled since the press.
         delta: Vec2,
         /// Draw, or commit.
+        phase: Phase,
+    },
+    /// A **text sweep**: the two raw endpoints of the drag, in canvas space.
+    ///
+    /// Raw and in drag order, for the reason [`Self::Markup`] states at length
+    /// — `Rect::from_two_pos` has one normalised form and discards which corner
+    /// the operator started at. For a text range that direction is not merely
+    /// information, it is the **anchor**: a Shift+click after the drag extends
+    /// from `from`, and a normalised pair would put the anchor at whichever end
+    /// happened to be higher on the page.
+    ///
+    /// Unlike `Markup`, both phases are acted on rather than only the release:
+    /// a text selection has to grow under the pointer while the button is down,
+    /// which is the whole feedback of the gesture. Nothing is committed at
+    /// either phase — see [`crate::canvas::textsel`]'s header §6 — so
+    /// `Phase::Complete` differs from `Phase::InFlight` only in that it is the
+    /// frame worth tracing.
+    TextSelect {
+        /// Canvas-space position of the press — the selection's **anchor**.
+        from: Pos2,
+        /// Canvas-space position of the pointer now — the selection's **focus**.
+        to: Pos2,
+        /// Grow the selection, or settle it.
         phase: Phase,
     },
     /// A markup band: the shape being authored, and its two **raw** endpoints
@@ -409,6 +370,16 @@ impl Drag {
                 to: self.latest,
                 phase,
             },
+            // Raw and in drag order, for the same reason the markup band above
+            // is: `origin` is the anchor the operator chose and `latest` is
+            // where they have got to. Normalising here would silently move the
+            // anchor to the top-left of the sweep, which a later Shift+click
+            // would then extend from.
+            DragKind::TextSelect => GestureOutcome::TextSelect {
+                from: self.origin,
+                to: self.latest,
+                phase,
+            },
         }
     }
 }
@@ -452,7 +423,28 @@ impl GestureState {
     /// carrying both a cancel and a fresh `drag_started` is a *new* gesture,
     /// and the abandoned one must not be able to resurrect itself by having
     /// its origin overwritten.
-    pub fn update(&mut self, frame: PointerFrame, press_kind: DragKind) -> GestureOutcome {
+    ///
+    /// # ★ `press_kind: None` — the press means nothing in this mode
+    ///
+    /// [`press_kind`] returns `None` when the active mode forbids the meaning
+    /// this press would have had (see its own header). `None` suppresses
+    /// **two** branches, and it is worth naming both because suppressing only
+    /// the first would look like it worked:
+    ///
+    /// * **branch 1**, so no drag ever starts — no band, no ghost, no release
+    ///   to refuse;
+    /// * **branch 3**, so no `Click` is reported — and *this* is the one that
+    ///   makes a click in Read select nothing. A click is not a drag and does
+    ///   not consult `press_kind` on its own, so gating the drag alone would
+    ///   leave the single most common gesture on the canvas ungated.
+    ///
+    /// Branch 0 deliberately still runs: an in-flight drag stays cancellable
+    /// whatever the mode has since become. Branch 2 likewise still completes a
+    /// drag already in flight — unreachable in practice, because a mode change
+    /// cancels the gesture on the way in (`PdfceApp`'s mode-change arm), but a
+    /// state machine that silently dropped a gesture it had already started
+    /// would be wrong regardless of whether anything could reach it.
+    pub fn update(&mut self, frame: PointerFrame, press: PressMeaning) -> GestureOutcome {
         if frame.cancel && self.drag.take().is_some() {
             return GestureOutcome::Cancelled;
         }
@@ -462,11 +454,19 @@ impl GestureState {
             // `PointerFrame::press_origin` for the measurement. `latest` is
             // still the live position, so the very first in-flight frame
             // already describes a band from the true corner to the pointer.
-            if let Some(origin) = frame.press_origin.or(frame.pos) {
+            //
+            // A press whose meaning this mode forbids (`press_kind` is `None`)
+            // starts no drag — and still returns `Idle`, exactly as a
+            // permitted press does. There is no third outcome for "refused",
+            // because nothing was refused: in that mode the primary button
+            // simply does not mean this.
+            if let Some(kind) = press.drag
+                && let Some(origin) = frame.press_origin.or(frame.pos)
+            {
                 self.drag = Some(Drag {
                     origin,
                     latest: frame.pos.unwrap_or(origin),
-                    kind: press_kind,
+                    kind,
                     shift: frame.shift,
                 });
             }
@@ -493,13 +493,19 @@ impl GestureState {
             return GestureOutcome::Idle;
         }
 
-        if (frame.clicked || frame.double_clicked)
+        // `press.click` is the click's half of the mode gate — see this
+        // function's header and `PressMeaning`'s. It is asked separately from
+        // `press.drag` because an armed measure tool has no drag and needs the
+        // click, and a mode that cannot select content must still let it through.
+        if press.click
+            && (frame.clicked || frame.double_clicked || frame.triple_clicked)
             && let Some(point) = frame.pos
         {
             return GestureOutcome::Click {
                 point,
                 shift: frame.shift,
                 double: frame.double_clicked,
+                triple: frame.triple_clicked,
             };
         }
 
@@ -538,7 +544,7 @@ mod tests {
                     pos: at(10.0, 10.0),
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             );
             assert_eq!(out, GestureOutcome::Idle, "a press must decide nothing");
         }
@@ -559,7 +565,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         ));
         for step in 1..=5u8 {
             outcomes.push(g.update(
@@ -568,7 +574,7 @@ mod tests {
                     pos: at(f32::from(step) * 10.0, 0.0),
                     ..PointerFrame::default()
                 },
-                DragKind::Marquee(MarqueeIntent::Select),
+                PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
             ));
         }
         outcomes.push(g.update(
@@ -577,7 +583,7 @@ mod tests {
                 pos: at(50.0, 20.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         ));
 
         assert!(
@@ -610,19 +616,20 @@ mod tests {
                     shift: true,
                     ..PointerFrame::default()
                 },
-                DragKind::Marquee(MarqueeIntent::Select),
+                PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
             ),
             GestureOutcome::Click {
                 point: Pos2::new(7.0, 9.0),
                 shift: true,
                 double: false,
+                triple: false,
             }
         );
         // The frame after carries nothing, so the click is applied once.
         assert_eq!(
             g.update(
                 PointerFrame::default(),
-                DragKind::Marquee(MarqueeIntent::Select)
+                PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select))
             ),
             GestureOutcome::Idle
         );
@@ -640,7 +647,7 @@ mod tests {
                 pos: at(1.0, 2.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         assert_eq!(
             out,
@@ -648,6 +655,7 @@ mod tests {
                 point: Pos2::new(1.0, 2.0),
                 shift: false,
                 double: true,
+                triple: false,
             }
         );
     }
@@ -664,7 +672,7 @@ mod tests {
                 shift: true,
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         let mid = g.update(
             PointerFrame {
@@ -672,7 +680,7 @@ mod tests {
                 pos: at(40.0, 30.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         assert_eq!(
             mid,
@@ -694,7 +702,7 @@ mod tests {
                 shift: false,
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         assert_eq!(
             end,
@@ -731,7 +739,7 @@ mod tests {
                         shift: true,
                         ..PointerFrame::default()
                     },
-                    kind,
+                    PressMeaning::dragging(kind),
                 ),
                 g.update(
                     PointerFrame {
@@ -742,7 +750,7 @@ mod tests {
                         pos: at(20.0, 15.0),
                         ..PointerFrame::default()
                     },
-                    kind,
+                    PressMeaning::dragging(kind),
                 ),
                 g.update(
                     PointerFrame {
@@ -750,7 +758,7 @@ mod tests {
                         pos: at(20.0, 15.0),
                         ..PointerFrame::default()
                     },
-                    kind,
+                    PressMeaning::dragging(kind),
                 ),
             ]
         }
@@ -810,7 +818,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Zoom),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Zoom)),
         );
         let out = g.update(
             PointerFrame {
@@ -818,7 +826,7 @@ mod tests {
                 pos: at(40.0, 40.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         assert!(
             matches!(
@@ -845,7 +853,7 @@ mod tests {
             assert_eq!(
                 g.update(
                     PointerFrame::default(),
-                    DragKind::Marquee(MarqueeIntent::Select)
+                    PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select))
                 ),
                 GestureOutcome::Idle
             );
@@ -865,7 +873,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         g.update(
             PointerFrame {
@@ -873,12 +881,12 @@ mod tests {
                 pos: at(80.0, 60.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         // The space bar goes down: the canvas stops describing the pointer.
         let out = g.update(
             PointerFrame::default(),
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         assert_eq!(out, GestureOutcome::Idle);
         assert_eq!(
@@ -908,7 +916,7 @@ mod tests {
                 pos: at(400.0, 500.0),
                 ..PointerFrame::default()
             },
-            kind,
+            PressMeaning::dragging(kind),
         );
         let mid = g.update(
             PointerFrame {
@@ -916,7 +924,7 @@ mod tests {
                 pos: at(120.0, 90.0),
                 ..PointerFrame::default()
             },
-            kind,
+            PressMeaning::dragging(kind),
         );
         assert_eq!(
             mid,
@@ -934,7 +942,7 @@ mod tests {
                 pos: at(120.0, 90.0),
                 ..PointerFrame::default()
             },
-            kind,
+            PressMeaning::dragging(kind),
         );
         assert_eq!(
             end,
@@ -960,7 +968,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Markup(MarkupKind::Ellipse),
+            PressMeaning::dragging(DragKind::Markup(MarkupKind::Ellipse)),
         );
         let out = g.update(
             PointerFrame {
@@ -968,7 +976,7 @@ mod tests {
                 pos: at(30.0, 40.0),
                 ..PointerFrame::default()
             },
-            DragKind::Markup(MarkupKind::Rectangle),
+            PressMeaning::dragging(DragKind::Markup(MarkupKind::Rectangle)),
         );
         assert!(
             matches!(
@@ -998,7 +1006,7 @@ mod tests {
                 pos: at(10.0, 10.0),
                 ..PointerFrame::default()
             },
-            kind,
+            PressMeaning::dragging(kind),
         );
         g.update(
             PointerFrame {
@@ -1006,7 +1014,7 @@ mod tests {
                 pos: at(200.0, 160.0),
                 ..PointerFrame::default()
             },
-            kind,
+            PressMeaning::dragging(kind),
         );
         let out = g.update(
             PointerFrame {
@@ -1015,7 +1023,7 @@ mod tests {
                 cancel: true,
                 ..PointerFrame::default()
             },
-            kind,
+            PressMeaning::dragging(kind),
         );
         assert_eq!(out, GestureOutcome::Cancelled);
         assert_eq!(g.active(), None);
@@ -1027,60 +1035,91 @@ mod tests {
                     pos: at(200.0, 160.0),
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             ),
             GestureOutcome::Idle
         );
     }
 
     // -----------------------------------------------------------------
-    // What a press means
+    // The mode gate
     // -----------------------------------------------------------------
 
-    /// ★ **The armed markup tool outranks the grips and the region zoom.**
+    /// ★ **A press whose meaning is forbidden starts no drag, and a click in
+    /// that mode reports nothing.**
     ///
-    /// Both rows matter and both are failure modes with teeth: a markup drag
-    /// classified as a `Resize` would be consumed and author nothing (a tool
-    /// that arms and does nothing over any selected object), and one classified
-    /// as a zoom marquee would zoom the page instead of drawing.
+    /// The state-machine half of the gate. The click assertion is the
+    /// load-bearing one: a click is not a drag, so a build that gated only the
+    /// press would still select on every click — which is the single most
+    /// common gesture on the canvas.
     #[test]
-    fn an_armed_markup_tool_outranks_the_grips_and_the_region_zoom() {
-        let armed = CanvasTool::Markup(MarkupKind::Rectangle);
-        for grip in [None, Some(Grip::SouthEast), Some(Grip::Move)] {
-            for zoom in [false, true] {
-                assert_eq!(
-                    press_kind(armed, grip, zoom),
-                    DragKind::Markup(MarkupKind::Rectangle),
-                    "grip={grip:?} zoom_armed={zoom}"
-                );
-            }
-        }
+    fn a_forbidden_press_starts_nothing_and_a_forbidden_click_reports_nothing() {
+        let mut g = GestureState::default();
+        let out = g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: at(10.0, 10.0),
+                press_origin: at(10.0, 10.0),
+                ..PointerFrame::default()
+            },
+            PressMeaning::NOTHING,
+        );
+        assert_eq!(out, GestureOutcome::Idle);
+        assert_eq!(g.active(), None, "no drag was started");
+
+        // Dragging on: still nothing, because there is nothing in flight.
+        let mid = g.update(
+            PointerFrame {
+                dragging: true,
+                pos: at(60.0, 60.0),
+                ..PointerFrame::default()
+            },
+            PressMeaning::NOTHING,
+        );
+        assert_eq!(mid, GestureOutcome::Idle, "no band, no ghost");
+
+        // And a completed click reports nothing at all.
+        let mut g = GestureState::default();
+        let out = g.update(
+            PointerFrame {
+                clicked: true,
+                pos: at(10.0, 10.0),
+                ..PointerFrame::default()
+            },
+            PressMeaning::NOTHING,
+        );
+        assert_eq!(
+            out,
+            GestureOutcome::Idle,
+            "a click in a mode that cannot select must not reach the selection"
+        );
     }
 
-    /// …and with no markup armed, the precedence is exactly what it was before
-    /// the markup tool existed. Without this, the test above would pass on a
-    /// build where every press had become a markup.
+    /// A drag already in flight stays cancellable whatever the mode became —
+    /// branch 0 of [`GestureState::update`], which `None` deliberately does not
+    /// suppress.
     #[test]
-    fn without_a_markup_tool_the_press_precedence_is_unchanged() {
-        let select = CanvasTool::Select;
-        assert_eq!(
-            press_kind(select, Some(Grip::SouthEast), false),
-            DragKind::Resize(Grip::SouthEast)
+    fn a_drag_in_flight_is_still_cancellable_after_the_mode_forbids_it() {
+        let mut g = GestureState::default();
+        g.update(
+            PointerFrame {
+                drag_started: true,
+                pos: at(0.0, 0.0),
+                press_origin: at(0.0, 0.0),
+                ..PointerFrame::default()
+            },
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
-        assert_eq!(press_kind(select, Some(Grip::Move), false), DragKind::Move);
-        assert_eq!(
-            press_kind(select, None, true),
-            DragKind::Marquee(MarqueeIntent::Zoom)
+        assert!(g.active().is_some(), "a drag is in flight");
+        let out = g.update(
+            PointerFrame {
+                cancel: true,
+                ..PointerFrame::default()
+            },
+            PressMeaning::NOTHING,
         );
-        assert_eq!(
-            press_kind(select, None, false),
-            DragKind::Marquee(MarqueeIntent::Select)
-        );
-        // A grip beats an armed zoom, as it always did.
-        assert_eq!(
-            press_kind(select, Some(Grip::SouthEast), true),
-            DragKind::Resize(Grip::SouthEast)
-        );
+        assert_eq!(out, GestureOutcome::Cancelled);
+        assert_eq!(g.active(), None);
     }
 
     /// ★ **A drag is anchored at the press, not at the frame the drag was
@@ -1111,7 +1150,7 @@ mod tests {
                     press_origin: at(100.0, 100.0),
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             );
             let out = g.update(
                 PointerFrame {
@@ -1119,7 +1158,7 @@ mod tests {
                     pos: at(300.0, 40.0),
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             );
             match out {
                 GestureOutcome::Markup { from, to, .. } => {
@@ -1149,7 +1188,7 @@ mod tests {
                 pos: at(120.0, 88.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         assert_eq!(
             g.update(
@@ -1158,7 +1197,7 @@ mod tests {
                     pos: at(300.0, 40.0),
                     ..PointerFrame::default()
                 },
-                DragKind::Move,
+                PressMeaning::dragging(DragKind::Move),
             ),
             GestureOutcome::Move {
                 delta: Vec2::new(180.0, -48.0),
@@ -1180,7 +1219,7 @@ mod tests {
                 press_origin: at(50.0, 60.0),
                 ..PointerFrame::default()
             },
-            DragKind::Markup(MarkupKind::Rectangle),
+            PressMeaning::dragging(DragKind::Markup(MarkupKind::Rectangle)),
         );
         assert_eq!(g.active(), Some(DragKind::Markup(MarkupKind::Rectangle)));
     }
@@ -1196,7 +1235,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Resize(Grip::SouthEast),
+            PressMeaning::dragging(DragKind::Resize(Grip::SouthEast)),
         );
         // The caller now says "Marquee" every frame — the pointer has left
         // the grip. The gesture must not change under it.
@@ -1206,7 +1245,7 @@ mod tests {
                 pos: at(-500.0, -900.0),
                 ..PointerFrame::default()
             },
-            DragKind::Marquee(MarqueeIntent::Select),
+            PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
         );
         assert_eq!(
             out,
@@ -1231,7 +1270,7 @@ mod tests {
                 pos: at(10.0, 10.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         for step in 1..=3u8 {
             g.update(
@@ -1240,7 +1279,7 @@ mod tests {
                     pos: at(10.0 + f32::from(step) * 5.0, 10.0),
                     ..PointerFrame::default()
                 },
-                DragKind::Move,
+                PressMeaning::dragging(DragKind::Move),
             );
         }
         let end = g.update(
@@ -1249,7 +1288,7 @@ mod tests {
                 pos: at(40.0, 25.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         assert_eq!(
             end,
@@ -1275,9 +1314,12 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
-        let out = g.update(PointerFrame::default(), DragKind::Move);
+        let out = g.update(
+            PointerFrame::default(),
+            PressMeaning::dragging(DragKind::Move),
+        );
         assert_eq!(out, GestureOutcome::Idle);
         assert_eq!(
             g.active(),
@@ -1306,7 +1348,7 @@ mod tests {
                     pos: at(0.0, 0.0),
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             );
             g.update(
                 PointerFrame {
@@ -1314,7 +1356,7 @@ mod tests {
                     pos: at(80.0, 40.0),
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             );
             let out = g.update(
                 PointerFrame {
@@ -1325,7 +1367,7 @@ mod tests {
                     cancel: true,
                     ..PointerFrame::default()
                 },
-                kind,
+                PressMeaning::dragging(kind),
             );
             assert_eq!(out, GestureOutcome::Cancelled, "{kind:?}");
             assert_eq!(g.active(), None, "{kind:?} survived its cancellation");
@@ -1344,7 +1386,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         g.update(
             PointerFrame {
@@ -1353,7 +1395,7 @@ mod tests {
                 cancel: true,
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         let out = g.update(
             PointerFrame {
@@ -1361,7 +1403,7 @@ mod tests {
                 pos: at(90.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         assert_eq!(
             out,
@@ -1382,7 +1424,7 @@ mod tests {
                     pos: at(5.0, 5.0),
                     ..PointerFrame::default()
                 },
-                DragKind::Marquee(MarqueeIntent::Select),
+                PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
             ),
             GestureOutcome::Idle,
             "reporting Cancelled here would make Escape need two presses to \
@@ -1402,7 +1444,7 @@ mod tests {
                 pos: at(0.0, 0.0),
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         let out = g.update(
             PointerFrame {
@@ -1411,7 +1453,7 @@ mod tests {
                 cancel: true,
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         assert_eq!(out, GestureOutcome::Cancelled);
         assert_eq!(g.active(), None);
@@ -1429,7 +1471,7 @@ mod tests {
                 pos: None,
                 ..PointerFrame::default()
             },
-            DragKind::Move,
+            PressMeaning::dragging(DragKind::Move),
         );
         assert_eq!(out, GestureOutcome::Idle);
         assert_eq!(g.active(), None);

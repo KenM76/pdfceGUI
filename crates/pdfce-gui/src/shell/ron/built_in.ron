@@ -44,11 +44,19 @@
                     id: "file",
                     caption: "File",
                     items: [
+                        Command("file.new"),
                         Command("file.open"),
                         Custom(
                             kind: "recent_files",
                         ),
                         Command("file.close"),
+                    ],
+                ),
+                (
+                    id: "recognise",
+                    caption: "Recognise",
+                    items: [
+                        Command("file.ocr"),
                     ],
                 ),
                 (
@@ -64,6 +72,8 @@
                     items: [
                         Command("file.export_dxf"),
                         Command("file.export_form_data"),
+                        Command("file.copy_page_text"),
+                        Command("file.copy_document_text"),
                     ],
                 ),
                 (
@@ -87,6 +97,7 @@
                     items: [
                         Command("file.settings"),
                         Command("file.shortcuts"),
+                        Command("file.about"),
                     ],
                 ),
             ],
@@ -122,6 +133,7 @@
                     caption: "Navigate",
                     items: [
                         Command("view.tool_hand"),
+                        Command("view.tool_text"),
                     ],
                 ),
                 (
@@ -228,14 +240,6 @@
                     ],
                 ),
                 (
-                    id: "clipboard",
-                    caption: "Clipboard",
-                    items: [
-                        Command("edit.copy_page_text"),
-                        Command("edit.copy_document_text"),
-                    ],
-                ),
-                (
                     id: "forms",
                     caption: "Forms",
                     items: [
@@ -266,6 +270,10 @@
                         Command("markup.rectangle"),
                         Command("markup.ellipse"),
                         Command("markup.arrow"),
+                        Command("markup.polyline"),
+                        Command("markup.polygon"),
+                        Command("markup.ink"),
+                        Command("markup.finish"),
                     ],
                 ),
                 (
@@ -273,6 +281,9 @@
                     caption: "Text markup",
                     items: [
                         Command("markup.highlight"),
+                        Command("markup.underline"),
+                        Command("markup.strikeout"),
+                        Command("markup.squiggly"),
                     ],
                 ),
                 (
@@ -313,6 +324,8 @@
                     items: [
                         Command("measure.linear"),
                         Command("measure.radius_diameter"),
+                        Command("measure.two_line"),
+                        Command("measure.finish"),
                     ],
                 ),
                 (
@@ -390,9 +403,10 @@
         "Ctrl+E": "edit.text",
         "Ctrl+F": "edit.find",
         "Ctrl+H": "view.read_mode",
+        "Ctrl+N": "file.new",
         "Ctrl+O": "file.open",
         "Ctrl+S": "file.save_copy",
-        "Ctrl+Shift+C": "edit.copy_page_text",
+        "Ctrl+Shift+C": "file.copy_page_text",
         "Ctrl+Shift+E": "edit.add_text",
         "Ctrl+Shift+Z": "edit.redo",
         "Ctrl+Y": "edit.redo",
@@ -405,6 +419,7 @@
         (
             context: "canvas.object",
             items: [
+                Command("view.zoom_selection"),
                 Command("format.delete"),
             ],
         ),

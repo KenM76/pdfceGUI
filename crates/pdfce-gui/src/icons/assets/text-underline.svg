@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic text-with-rule shape — generic, no trademark risk -->
+  <!-- ui-spec §3.3 "text markup family": two INSET short lines standing for a line of
+       text, plus one FULL-WIDTH rule saying where the mark goes. The three members of
+       this family differ only in that third stroke's position and shape — under
+       (this), through (text-strikeout), wavy (text-squiggly) — because the commands
+       differ only in the mark they draw, and a reader picks them apart by comparing
+       them side by side in one band. The inset/full-width contrast is what stops the
+       glyph reading as three anonymous lines: the text is narrower than the mark. -->
+  <path d="M15 17h18M15 25h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M11 34h26" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

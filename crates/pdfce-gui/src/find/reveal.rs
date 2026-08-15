@@ -222,7 +222,15 @@ pub fn take_reveal_offset(
 /// `None` when the page's device transform will not invert, which is
 /// [`crate::viewer::pdf_space_to_canvas`]'s own decline for a degenerate
 /// page. The hit is still counted and still navigable — see [`Hit::canvas`].
-pub(super) fn quad_to_canvas(
+///
+/// ★ `pub(crate)` rather than `pub(super)` since canvas text selection landed.
+/// It projects its line boxes through **this** function rather than mapping two
+/// corners of its own, and that is a correctness requirement rather than
+/// tidiness: a selected word and the same word *found* are two washes over the
+/// same glyphs, and on a `/Rotate 90` sheet a two-corner projection puts one of
+/// them somewhere else. One projection, two surfaces — the same discipline
+/// `canvas::mapping` applies to the screen⟷canvas hop.
+pub(crate) fn quad_to_canvas(
     quad: &pdfce_core::annot_author::Quad,
     page: &pdfce_core::page_tree::Page,
 ) -> Option<Rect> {

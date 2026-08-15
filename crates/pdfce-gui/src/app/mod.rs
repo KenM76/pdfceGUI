@@ -65,6 +65,10 @@
 //! badly.
 
 pub mod actions;
+/// Where a document made by `file.new` comes from: the 443-byte blank-A4
+/// template that ships as an asset, and the argument for why New parses a file
+/// rather than the engine growing a way to create one.
+pub mod blank;
 pub mod cache;
 pub mod conditions;
 pub mod dispatch;
@@ -72,12 +76,24 @@ pub mod dispatch;
 /// [`actions::Action::Open`]. The picker, the diagnostics seam that answers
 /// it without a human, and the dirty-document rule.
 pub mod files;
+pub mod gating;
 pub mod keyboard;
+// Opening a document, closing it, and the three ways an open can fail. Split
+// from `state.rs` under R2 along the seam those two subjects already drew:
+// that file is *what an open document is*, this one is *the document's lifetime
+// on the application*.
+pub mod lifecycle;
 pub mod modes;
+pub mod panels;
 pub mod persistence;
 /// The documents this operator had open: the capped, persisted list and the
 /// ribbon control that draws it.
 pub mod recent;
+/// Writing a copy of the open document to a file the operator names — the body
+/// of `file.save_copy`. Why the save mode is **incremental**, why nothing on
+/// `OpenDoc` moves when one succeeds, and why the picker runs in the apply
+/// phase rather than in the dispatcher.
+pub mod save;
 pub mod state;
 pub mod status;
 
@@ -191,6 +207,26 @@ pub struct PdfceApp {
     /// successful open — and read by the `recent_files` ribbon item and by
     /// the `file.recent` dispatch arm.
     pub recent: crate::app::recent::RecentFiles,
+
+    /// **How many documents `file.new` has made this session.**
+    ///
+    /// The ordinal in `Untitled 1.pdf`, `Untitled 2.pdf`, … — see
+    /// [`crate::text::files::untitled`] for why they are numbered at all
+    /// (Inkscape and SolidWorks number theirs; Acrobat does not) and
+    /// [`PdfceApp::new_document`] for where it is incremented.
+    ///
+    /// On [`Self`] rather than on [`state::OpenDoc`] by this struct's own
+    /// rule: state that dies with the document lives on the document, state
+    /// that outlives it lives here. A counter that died with the document
+    /// would count to one forever.
+    ///
+    /// Deliberately **not persisted**, unlike [`Self::recent`] and
+    /// [`Self::layout`]. It exists so that two documents created in one run
+    /// are distinguishable — on screen and, more usefully, in the trace of a
+    /// driven run — and an operator returning tomorrow has no use for
+    /// yesterday's numbering. Restarting starts again at one, which is what
+    /// Inkscape and SolidWorks both do.
+    pub created_documents: u32,
 
     /// The recent document the operator picked **this frame**, waiting for
     /// the command that acts on it.
@@ -410,6 +446,11 @@ impl PdfceApp {
             modes,
             layout,
             recent,
+            // Nothing has been created yet, so the first `file.new` of this
+            // session makes `Untitled 1`. Not restored from disk — see the
+            // field's own note on why yesterday's numbering is of no use to
+            // anybody.
+            created_documents: 0,
             recent_choice: None,
             panels: crate::panels::PanelsState::default(),
             find: crate::find::FindState::default(),
@@ -632,6 +673,7 @@ impl PdfceApp {
                 &mut self.layout,
                 &self.panel_registry,
             );
+            self.on_mode_capabilities_changed(ui.ctx());
         }
         if report.layout_changed {
             let arrangement = self.dock.layout().clone();
@@ -651,88 +693,6 @@ impl PdfceApp {
                 report.panels_drawn.len(),
                 report.panels_overflowed,
                 report.layout_changed,
-            )
-        });
-    }
-
-    /// **Put `panel` on screen, mounting it first if the operator's
-    /// arrangement no longer holds it.**
-    ///
-    /// # The decision: mount, rather than do nothing
-    ///
-    /// `DockState::activate` returns `false` for a panel that is not mounted,
-    /// and its own docs say what that means: *"the caller's fallback is to
-    /// mount it or to restore a default arrangement, not to refuse."* Both
-    /// are defensible. This mounts, for three reasons:
-    ///
-    /// 1. **Read mode has no Properties panel by design** — `app::modes`'
-    ///    `spec("read")` gives it none, because "an inspector in a mode with
-    ///    no edit verbs is a panel whose every row is a fact you cannot act
-    ///    on". But File ▸ Properties is on the File tab, and the File tab is
-    ///    in *every* mode. Doing nothing would make a visible, enabled
-    ///    control inert in the mode the application **opens in** — defect
-    ///    D1's exact shape, and the thing `PROJECT_PLAN.md`'s no-placeholders
-    ///    invariant forbids.
-    /// 2. **There is no other route.** Properties is not on View ▸ Panels
-    ///    (it is `file.properties`, not `view.panel_properties`), so an
-    ///    operator who closes its tab has no second way back. A command that
-    ///    is the only route to a surface must be able to produce it.
-    /// 3. **A mode default is a starting arrangement, not a prohibition.**
-    ///    The dock belongs to the operator; asking for a panel is a
-    ///    rearrangement, and rearrangements are what the layout store exists
-    ///    to remember.
-    ///
-    /// # Where it lands
-    ///
-    /// Wherever the **Edit mode default** puts it, because that arrangement
-    /// names every panel this build has and agrees with the other modes about
-    /// which side each one belongs on (Properties is on the right in Review
-    /// and in Edit). Reading the placement out of `app::modes` rather than
-    /// writing a side into this function is what stops "where does Properties
-    /// live" from acquiring a second answer. The right dock is the fallback
-    /// if that lookup ever fails, which it cannot today.
-    ///
-    /// `DockLayout::mount` is deliberately permissive about out-of-range
-    /// column and stack indices — it clamps — so a live arrangement with
-    /// fewer columns than the default needs no special case here.
-    ///
-    /// # Why the arrangement is recorded
-    ///
-    /// A mount is a layout change, and `Dock::show`'s `layout_changed` report
-    /// describes what the *operator* did to the dock during the frame — it
-    /// does not see a programmatic edit. Without this call the panel would
-    /// appear and then vanish on the next restart, which reads as a bug in
-    /// persistence rather than as a design choice about mounting.
-    fn show_panel(&mut self, panel: crate::panels::Panel) {
-        let id = egui_shell::dock::PanelId::new(panel.command_id());
-        if self.dock.activate(&id) {
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    "panel-shown id={} mounted=already",
-                    id.as_str()
-                )
-            });
-            return;
-        }
-
-        let home = crate::app::modes::layout_for("edit").find(&id);
-        let (side, column, stack) = home.map_or((egui_shell::dock::DockSide::Right, 0, 0), |a| {
-            (a.side, a.column, a.stack)
-        });
-        self.dock
-            .layout_mut()
-            .mount(side, column, stack, id.clone());
-        self.dock.normalize();
-        let shown = self.dock.activate(&id);
-        self.modes
-            .record_layout(self.dock.layout(), &mut self.layout);
-        crate::diag::trace(|| {
-            format!(
-                // ui-text-exempt: diagnostic trace, never displayed.
-                "panel-shown id={} mounted=now side={} shown={shown}",
-                id.as_str(),
-                side.key(),
             )
         });
     }
@@ -828,9 +788,37 @@ impl eframe::App for PdfceApp {
         // needs `&mut self` and the keymap lives in `self.shell`. It is empty
         // on all but the handful of frames where a chord was actually
         // pressed.
+        //
+        // ★ **Filtered by the active mode**, which is the keymap's share of
+        // the mode gate. Operator decision, 2026-08-14.
+        //
+        // The ribbon hides a tab and the canvas asks `Capabilities`; between
+        // them sat this, dispatching by id and consulting neither — so Read
+        // hid the Edit tab and `Ctrl+E` still reached `edit.text`. The rule
+        // lives in `modes::capability::offers_command`, beside the other
+        // statement of what a mode permits, rather than here: this is the
+        // choke point that *applies* it, and a second copy of the rule at the
+        // point of application is how the two come to disagree.
+        //
+        // Filtered rather than refused inside `dispatch_command`, because a
+        // command the mode does not offer is not a command that *failed* —
+        // there is nothing to report and nothing to trace as declined. The
+        // chord simply is not bound in this mode, which is what the operator
+        // sees: no tab, no button, no effect.
         let chord_commands =
             keyboard::commands(&ctx, self.shell.as_ref().and_then(|s| s.keymap.as_ref()));
+        let mode = self.ribbon.mode().map(str::to_owned);
         for id in chord_commands {
+            if !modes::capability::offers_command(self.shell.as_ref(), mode.as_deref(), &id) {
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        "chord-not-offered id={id} mode={}",
+                        mode.as_deref().unwrap_or("-")
+                    )
+                });
+                continue;
+            }
             self.dispatch_command(&ctx, &id, &mut actions);
         }
 
@@ -909,6 +897,41 @@ impl eframe::App for PdfceApp {
         // one boolean. Two disjoint field borrows through `self`, as at the
         // canvas call site: `&mut self.find` and `&self.status`.
         crate::find::bar::show(ui, &mut self.find, &self.status, &mut actions);
+
+        // Step 2a³ — drain any `Action::Command` raised by a surface that is
+        // not the ribbon, and route it through the one dispatch choke point.
+        //
+        // ★ Here, and not in the apply phase, and the position is the design.
+        //
+        // The Find bar's OCR offer is the first control outside the ribbon that
+        // means an existing *command* rather than a document change. Wiring it
+        // straight to `DialogsState::open_ocr` would have been one line and
+        // would have put `file.ocr`'s guards in two places — the failure this
+        // module's "one choke point for dispatch" invariant exists to prevent.
+        //
+        // It has to run **now** rather than at step 3 for two reasons, both
+        // hard rather than stylistic: `dispatch_command` needs an
+        // `&egui::Context` and the apply phase is deliberately given none, and
+        // a dialog opened by the dispatch must be drawn by `DialogsState::show`
+        // three lines below — on this frame, not the next one.
+        //
+        // The drain is unconditional and cheap: on the overwhelming majority of
+        // frames `actions` is empty and this is one `iter().any`. Dispatched
+        // commands may themselves raise actions, which is why the loop pushes
+        // into the same vector the apply phase will read.
+        if actions.iter().any(|a| matches!(a, Action::Command(_))) {
+            let mut invoked: Vec<String> = Vec::new();
+            actions.retain(|a| match a {
+                Action::Command(id) => {
+                    invoked.push(id.clone());
+                    false
+                }
+                _ => true,
+            });
+            for id in invoked {
+                self.dispatch_command(&ctx, &id, &mut actions);
+            }
+        }
 
         // Step 2b — modal dialogs, LAST among the surfaces.
         //
@@ -994,9 +1017,13 @@ impl PdfceApp {
         // `&` on the find state (it reads the hits to draw them). Binding
         // either one first and then reaching for the other through `self`
         // would be a second borrow of the whole struct.
+        // Sampled before the `&mut self.status` borrow, and by value: it reads
+        // `self.shell` and `self.ribbon`, both of which are disjoint from the
+        // document but not provably so through a single `self`.
+        let caps = self.capabilities();
         let find = &self.find;
         if let Status::Open(doc) = &mut self.status {
-            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, actions);
+            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, caps, actions);
             // Dispatched here rather than inside `show`: the canvas reports
             // intent and the application decides, which is the same seam the
             // ribbon and the dock already use.
@@ -1035,14 +1062,14 @@ impl PdfceApp {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::canvas::selection::{ClickHit, SelectionLevel};
     use crate::canvas::target::TargetId;
     use crate::panels::objects::test_support::engine_fixture;
 
     /// An application with a four-page fixture open, and nothing selected.
-    fn opened() -> PdfceApp {
+    pub(crate) fn opened() -> PdfceApp {
         let mut app = PdfceApp::new();
         app.open_path(engine_fixture("pageops/four-pages.pdf"));
         assert!(matches!(app.status, Status::Open(_)), "the fixture opens");
@@ -1055,7 +1082,7 @@ mod tests {
     ///
     /// `shift` adds to the selection rather than replacing it, exactly as a
     /// Shift+click does.
-    fn select_object(app: &mut PdfceApp, index: u64, shift: bool) {
+    pub(crate) fn select_object(app: &mut PdfceApp, index: u64, shift: bool) {
         let Status::Open(doc) = &mut app.status else {
             panic!("no document open") // ui-text-exempt: test panic, never displayed
         };

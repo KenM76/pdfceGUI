@@ -519,11 +519,36 @@ impl ZoomOutcome {
     ///    granted. The operator gets "as close as this page can go, centred on
     ///    what you asked for", which is the honest partial answer.
     ///
-    /// This predicate is what a caller with a notice surface would key on to
-    /// say so in words. There is no such surface in this shell yet —
-    /// `FEATURES.md` lists the edit-disclosure surface as unbuilt and Rule 4
-    /// says tracing is not surfacing — so for now it feeds the `PDFCE_DIAG`
-    /// line and is returned to the dispatcher rather than being invented here.
+    /// ## ★ The surface now exists, and this is deliberately NOT wired to it
+    ///
+    /// This sentence used to read *"this predicate is what a caller with a
+    /// notice surface would key on to say so in words. There is no such
+    /// surface in this shell yet."* Both halves are now out of date: the
+    /// status bar words declines (`crate::app::status::decline`, 2026-08-14),
+    /// and the operator's ruling was that **the clamped region zoom must not
+    /// be worded through it.**
+    ///
+    /// The reason is the two numbered points above, taken seriously. A clamped
+    /// framing zoom is **a partial grant, not a decline**:
+    ///
+    /// * the region really is framed, centred, at the closest scale this page
+    ///   can go to — the operator got the honest partial answer;
+    /// * the scale that was pinned is already stated, in words, in the one
+    ///   place an operator looks for a scale: the status bar's zoom readout,
+    ///   on the same frame, because point 1 raises `Action::ZoomTo` carrying
+    ///   the clamped number. **The report is the number on the status bar
+    ///   being the truth**, and that contract is kept.
+    ///
+    /// Adding a sentence beside it would word a non-event, and would train the
+    /// operator to read a decline line that fires when nothing was declined —
+    /// which is how a surface stops being read at all. Only
+    /// [`ZoomOutcome::NoBounds`] and [`ZoomOutcome::NoCanvas`] are worded; see
+    /// `crate::app::status::decline`'s header, whose `Declined` type cannot
+    /// even represent a grant.
+    ///
+    /// So this predicate keeps exactly the job it has: it feeds the
+    /// `PDFCE_DIAG` line, and it is returned to the dispatcher, which reads it
+    /// and correctly says nothing.
     pub fn ceiling_changed_the_answer(self) -> bool {
         match self {
             Self::Zoomed { requested, applied } => (requested - applied).abs() > 1e-4,

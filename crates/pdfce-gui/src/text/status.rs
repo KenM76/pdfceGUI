@@ -271,6 +271,224 @@ pub fn diagnostics_join(parts: &[String]) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// The edit disclosure — rule 4's surviving half for the vector verbs
+//
+// ★ Almost every word an operator reads here was written by `pdfce-core`,
+// and that is the point of this section rather than a shortcut through it.
+//
+// `EditSession`'s vector verbs return `Result<Vec<String>, EditError>`, and
+// the `Vec<String>` is a **disclosure list**: sentences the surgery owes the
+// operator because it had to change an operator's *form* to express the
+// request — an `re` rectangle rewritten as four lines so one corner could
+// move, an implicitly-started subpath's `m` materialised, a curve dropped
+// with the point it ran into. They are already finished English prose,
+// written where the fact is known, and they are passed through **verbatim**.
+//
+// So what belongs in this catalog is only the *framing this shell adds*:
+// the warning mark, the lead-in that ties the sentences to the gesture that
+// produced them, and the separator between two of them. Re-wording core's
+// sentences here would put two descriptions of one surgery in the product,
+// and the one further from the code would be the one on screen.
+// ---------------------------------------------------------------------------
+
+/// One line for the disclosures the last vector edit returned.
+///
+/// `notes` are `pdfce-core`'s own sentences, in the order the planner pushed
+/// them, unmodified. This function contributes three things and nothing else:
+///
+/// 1. **A mark**, `⚑` (U+2691). The status bar's other left-hand line is
+///    *narration* — a census of what a raster contained — and this one is a
+///    fact about the operator's own document that they cannot see by looking
+///    at it. A mark is what tells them apart at a glance.
+///
+///    ★ **It is deliberately NOT `⚠`, and that is a measurement rather than
+///    a preference.** `⚠` (U+26A0) is what
+///    [`crate::text::forms::forms_fill_autosize_note`] and twelve other
+///    forms sentences carry, and **egui's bundled font set cannot draw it**
+///    — Ubuntu-Light + NotoEmoji + emoji-icon-font, which is the whole set,
+///    because nothing in this workspace installs a font of its own. Every
+///    one of those sentences renders `□` today, on the panel and in this
+///    bar. That is defect D2's shape and it is
+///    [`crate::app::status::tests::every_glyph_the_status_bar_draws_has_a_glyph`]
+///    that caught it, on its third sighting of the same hazard.
+///
+///    The forms catalog is not corrected here because the convention is
+///    thirteen sentences wide and one of its assertions lives in
+///    `crate::panels::forms::tab_order`, outside this change's territory —
+///    it is **reported**, which is what a boundary finding gets. What is in
+///    this project's gift is not to add a fourteenth undrawable mark, and
+///    `⚑` is the closest drawable neighbour: measured present in the same
+///    bundled set, alongside `✱ ★ ☆ ! ○ ■ • · † ‡ ⊗ ◊ №`. It is also the
+///    mark this file would recommend for the other thirteen, so a future
+///    correction converges rather than adding a third spelling.
+/// 2. **A lead-in naming the gesture**, because the sentence outlives the
+///    gesture: it stands until the next edit or an undo retires it (see
+///    [`crate::app::actions::last_edit_disclosure`]), and core's sentences
+///    open with *"This shape…"* / *"This point…"* — deictic words that are
+///    unambiguous at the moment of the drag and unanchored a minute later.
+/// 3. **A single space between sentences**, matching the way
+///    [`crate::app::status`] joins the two form-fill notes into its one row.
+///    Not [`diagnostics_join`]'s `·`: that separator exists because the
+///    render notes are independent *fragments*, and these are whole
+///    sentences with their own full stops.
+///
+/// # Why the lead-in does not say what changed
+///
+/// The obvious wording — *"that edit changed how the page is written"* —
+/// would be a claim, and it is **false of at least one note core can
+/// return**: the clipping-region disclosure fires on a move that rewrote
+/// operands in place and rewrote nothing's form, and says instead that the
+/// shape controls what other content is visible elsewhere. A lead-in that
+/// asserted a rewrite would be contradicted by the sentence immediately
+/// after it. "About your last edit" is true of every note in the list,
+/// which is the property a frame has to have when it does not know which
+/// note it is framing.
+#[must_use]
+pub fn edit_disclosure_line(notes: &[String]) -> String {
+    format!("⚑ About your last edit: {}", notes.join(" "))
+}
+
+// ---------------------------------------------------------------------------
+// The worded decline — a framing zoom that had nothing to frame
+//
+// ★ A DECLINE IS NOT A DISCLOSURE, AND THE COPY HAS TO SAY SO
+//
+// The section above frames sentences `pdfce-core` wrote about work that
+// *happened*: a rectangle really was rewritten as four lines, and the operator
+// is owed the part they cannot see. These two strings are the opposite speech
+// act. Nothing happened. The command was invoked, it looked at what it had to
+// work with, and it declined.
+//
+// One slot and one wording for both would make a completed gesture and a
+// refused one wear the same sentence in the same place, which is worse than
+// the trace-only state these strings replace — an operator who reads
+// "About your last edit" after a gesture that did nothing has been told a
+// small lie confidently. So the lead-in diverges (*"Nothing to zoom to"*, not
+// *"About your last edit"*) and the mark diverges with it: `⊗` (U+2297) rather
+// than `⚑` (U+2691).
+//
+// `⊗` was chosen because it reads as *"this did not happen"* rather than as
+// *"look at this"*, and because it is drawable. That second half is measured,
+// not assumed: `crate::icons::glyphs`' header records which codepoints egui's
+// bundled proportional chain (Ubuntu-Light → NotoEmoji-Regular →
+// emoji-icon-font) actually supplies, and `⊗` is among those confirmed
+// present. It is checked twice on every run anyway — by
+// `crate::app::status::tests::every_glyph_the_status_bar_draws_has_a_glyph`,
+// which lists this bar's labels by hand, and by
+// `crate::icons::glyphs::tests::every_glyph_the_catalog_draws_has_a_glyph`,
+// which reads every literal in this directory from source. A tofu box on a
+// decline would read as a rendering failure, which is exactly how an operator
+// decides a surface is broken and stops reading it.
+//
+// # ★ What is deliberately NOT worded here
+//
+// **The raster-ceiling-clamped region zoom.** A framing zoom that asked for
+// more magnification than the page's raster allows still zooms, still centres
+// what was asked for, and raises `Action::ZoomTo` carrying the **clamped**
+// scale — so the zoom readout three controls to the right states the scale
+// actually pinned, on the same frame. That is a partial grant that already
+// reports itself, and a sentence saying so would word a non-event. See
+// `crate::canvas::zoom::ZoomOutcome::ceiling_changed_the_answer`, which
+// carries the argument in full.
+//
+// # No trailing full stop
+//
+// These sit in the same slot as `page_clamped_note` and `page_rejected_note`
+// — a short note beside a control, read at a glance in a small weak face —
+// and they follow that precedent rather than the prose one. The tooltips in
+// this file are prose and end in a full stop; these are notes and do not.
+// ---------------------------------------------------------------------------
+
+/// Shown when zoom-to-selection was invoked with nothing it could frame.
+///
+/// # The three causes, and why they get one sentence
+///
+/// `crate::canvas::zoom::zoom_to_selection` raises
+/// `ZoomOutcome::NoBounds` in three situations — nothing is selected, the
+/// selection is on another page, or it no longer resolves against the current
+/// decomposition after an edit. That function's own docs rule that from the
+/// operator's side those are **one** situation: *"there is nothing on screen
+/// for this command to act on."* Three sentences would ask the operator to
+/// care about a distinction that has one remedy.
+///
+/// # ★ Why it describes the state and does not instruct
+///
+/// `view.zoom_selection` is greyed on `selection.bounds`, so this is *mostly*
+/// unreachable from the ribbon. The two ways it is reached are both cases in
+/// which blaming the operator would be wrong:
+///
+/// 1. **By chord.** A keymap reaches any command from any state, and the
+///    manifest binds this one; nobody who presses a chord has clicked a
+///    control that promised anything.
+/// 2. **★ In the race.** The condition is evaluated on the frame that *draws*
+///    the control and the verb runs on the frame that *applies* it, so a
+///    selection that evaporates in between — a mode change that clears it, an
+///    edit that dissolves what it named — leaves the operator having clicked
+///    an enabled control and been declined. That is the case an operator finds
+///    most confusing, and a sentence reading *"select something first"* would
+///    tell them to do the thing they just did.
+///
+/// So it reports the state, at the moment the command ran: *nothing on this
+/// page is selected right now*. "Right now" is doing work — it dates the
+/// claim to the gesture rather than asserting a standing fact about an
+/// operator who may already have fixed it.
+#[must_use]
+pub fn zoom_declined_no_selection() -> &'static str {
+    "⊗ Nothing to zoom to — nothing on this page is selected right now"
+}
+
+/// Shown when a framing zoom was invoked before the canvas had drawn a page.
+///
+/// `ZoomOutcome::NoCanvas`: there is no viewport, no page rect and no scroll
+/// offset yet, so there is nothing to frame *into*. Kept separate from
+/// [`zoom_declined_no_selection`] because the remedy is different and the
+/// operator has to do nothing at all to reach it — it resolves itself on the
+/// next raster, which is what "yet" and "has not finished" promise.
+///
+/// Reachable in practice only by a chord fired at a document that has just
+/// opened, or on a very slow first raster of a dense CAD sheet, where ~99 % of
+/// the render cost is resolution-independent and the first frame can take
+/// most of a second.
+#[must_use]
+pub fn zoom_declined_not_drawn() -> &'static str {
+    "⊗ Nothing to zoom to yet — the page has not finished drawing"
+}
+
+/// Shown when `file.save_copy` asked where to write, was told, and could not.
+///
+/// # Why a decline needs wording here more than anywhere else on this bar
+///
+/// The other two sentences beside it describe a command that was refused
+/// *before* the operator invested anything. This one arrives after they opened
+/// a dialog, chose a folder and typed a name — and the only other evidence they
+/// would get is a file that is not there. Silence would make a save that failed
+/// indistinguishable from a save that never ran, which is precisely the "the
+/// button does nothing" state this project exists to remove.
+///
+/// # ★ Why it does not carry the engine's reason
+///
+/// `crate::app::save::SaveError`'s `Display` output goes to the trace, and
+/// `check-ui-strings.sh`'s exclusion 3 states in as many words that a `Display`
+/// impl "is not permission to route UI text through an error type". A
+/// cross-reference form that could not express an entry is a true sentence and
+/// not one an operator can act on.
+///
+/// # Why it names the two things they CAN act on
+///
+/// The folder and the permission, because between them they are almost every
+/// real instance: a path typed into the dialog whose parent does not exist, a
+/// network share that went away, a read-only volume, a file open in another
+/// program. It reports the check to make rather than blaming the operator —
+/// [`zoom_declined_no_selection`]'s rule, which
+/// [`tests::the_decline_reports_the_state_rather_than_instructing_the_operator`]
+/// enforces for that sentence — because the commonest cause is not something
+/// they did.
+#[must_use]
+pub fn save_copy_failed() -> &'static str {
+    "⊗ The copy was not written — check that the folder exists and can be written to"
+}
+
+// ---------------------------------------------------------------------------
 // Zoom
 // ---------------------------------------------------------------------------
 
@@ -513,6 +731,146 @@ mod tests {
     #[test]
     fn the_disclosure_reads_differently_open_and_closed() {
         assert_ne!(diagnostics_toggle(false), diagnostics_toggle(true));
+    }
+
+    /// ★ **`pdfce-core`'s sentences reach the operator unaltered, and on one
+    /// line.**
+    ///
+    /// Two properties, and both are load-bearing:
+    ///
+    /// - **Verbatim.** The disclosure prose is written where the fact is known
+    ///   — inside the planner that decided to rewrite a rectangle as four
+    ///   lines. A shell that paraphrased it would put two descriptions of one
+    ///   surgery into the product, and the one further from the code is the
+    ///   one on screen. So this asserts *containment*, which is the mechanical
+    ///   form of "we added framing and changed nothing".
+    /// - **One line.** `crate::app::status` draws this inside a row whose
+    ///   height may not vary (R128), eliding what does not fit. A newline
+    ///   would defeat that from the string side, where no layout assertion is
+    ///   looking — the label wraps, the row grows, and the page re-fits itself
+    ///   at the moment the operator finishes a drag.
+    #[test]
+    fn the_edit_disclosure_frames_cores_sentences_without_altering_them() {
+        let notes = vec![
+            "This shape was stored as a rectangle, so it has been rewritten as four lines."
+                .to_owned(),
+            "This point had no coordinates of its own — the file re-used an earlier start."
+                .to_owned(),
+        ];
+        let line = edit_disclosure_line(&notes);
+
+        for note in &notes {
+            assert!(
+                line.contains(note.as_str()),
+                "core's sentence was altered on the way to the bar: {line}"
+            );
+        }
+        assert!(
+            !line.contains('\n'),
+            "the bar gets one line, and a newline in the string wraps the label \
+             regardless of what the layout asks for: {line}"
+        );
+        assert!(
+            line.starts_with('⚑'),
+            "the mark is what tells a disclosure apart from the narration beside it: {line}"
+        );
+    }
+
+    /// ★ **A decline does not read like a disclosure.**
+    ///
+    /// The whole reason the worded decline got its own strings — rather than
+    /// borrowing the line the vector verbs already put in this bar — is that
+    /// *"this happened, and here is the part you cannot see"* and *"this did
+    /// not happen"* are different speech acts. One wording in one slot would
+    /// make a completed gesture and a refused one indistinguishable, in the
+    /// same place, which is worse than the trace-only state these replace.
+    ///
+    /// Four properties, and each would be silently lost by an edit that looked
+    /// harmless:
+    ///
+    /// 1. **The lead-in diverges.** Neither decline may open with the edit
+    ///    disclosure's *"About your last edit"*.
+    /// 2. **The mark diverges.** `⊗` and not `⚑` — the mark is what tells the
+    ///    two apart at a glance, before either sentence is read.
+    /// 3. **The two declines read differently from each other.** "Nothing is
+    ///    selected" and "the page is still drawing" have different remedies,
+    ///    and the operator gets one line to tell them apart — the same
+    ///    property [`the_two_page_box_notes_read_differently`] defends for the
+    ///    page box's pair.
+    /// 4. **One line.** `crate::app::status` draws these inside a row whose
+    ///    height may not vary (R128), eliding what does not fit. A newline
+    ///    would defeat that from the string side, where no layout assertion is
+    ///    looking.
+    #[test]
+    fn a_decline_does_not_read_like_a_disclosure() {
+        let declines = [
+            zoom_declined_no_selection(),
+            zoom_declined_not_drawn(),
+            save_copy_failed(),
+        ];
+        let disclosure = edit_disclosure_line(&["x".to_owned()]);
+
+        for line in declines {
+            assert!(
+                line.starts_with('⊗'),
+                "a decline carries the mark that says nothing happened: {line}"
+            );
+            assert!(
+                !line.starts_with('⚑'),
+                "`⚑` is the disclosure's mark; a decline wearing it is a \
+                 refused gesture dressed as a completed one: {line}"
+            );
+            assert!(
+                !line.contains("About your last edit"),
+                "a decline must not borrow the disclosure's lead-in — nothing \
+                 happened, so there is no last edit to be about: {line}"
+            );
+            assert_ne!(line, disclosure);
+            assert!(!line.contains('\n'), "the bar gets one line: {line}");
+        }
+        // Pairwise rather than one comparison, because the operator gets ONE
+        // line to tell these apart and each has a different remedy: select
+        // something, wait, or fix the destination. A third sentence that
+        // duplicated either of the first two would be a decline that says
+        // nothing about which command declined.
+        for (i, a) in declines.iter().enumerate() {
+            for b in &declines[i + 1..] {
+                assert_ne!(
+                    a, b,
+                    "two declines with different remedies must not share a sentence"
+                );
+            }
+        }
+    }
+
+    /// ★ **The decline does not tell the operator they did something wrong.**
+    ///
+    /// `view.zoom_selection` is greyed on `selection.bounds`, so the sentence
+    /// is reached by a chord — or, worse, in the race where the selection
+    /// evaporates between the frame that drew the enabled control and the
+    /// frame that applied it. In that second case the operator clicked a
+    /// control that was offered to them, and an imperative telling them to
+    /// select something first would be instructing them to repeat what they
+    /// just did.
+    ///
+    /// Asserted as an absence of imperatives rather than against a fixed
+    /// string, so the copy can be rewritten and the property survives.
+    #[test]
+    fn the_decline_reports_the_state_rather_than_instructing_the_operator() {
+        let line = zoom_declined_no_selection();
+        for imperative in ["Select ", "select something", "first", "try again"] {
+            assert!(
+                !line.contains(imperative),
+                "the control was enabled and then declined; {imperative:?} \
+                 blames the operator for a race they cannot see: {line}"
+            );
+        }
+        assert!(
+            line.contains("right now"),
+            "the sentence has to date its claim to the gesture rather than \
+             assert a standing fact about a selection the operator may \
+             already have made: {line}"
+        );
     }
 
     /// Every counted note in this module, so a new one cannot be added

@@ -143,25 +143,45 @@ pub(super) fn tab() -> Tab {
                 ],
             ),
             // ---------------------------------------------------------------
-            // Navigate — what a drag on the page does. One item today.
+            // Navigate — what a drag on the page does. **Two items**, since
+            // 2026-08-14.
             //
-            // Its own group rather than a fourth button in Zoom, because a
+            // Its own group rather than two more buttons in Zoom, because a
             // tool is a MODE the page is in and a zoom level is an action
             // taken on it: pressing Hand changes what every later drag
             // means, while pressing Fit page happens once and is over.
             //
-            // There is deliberately no `view.tool_select` beside it. The
+            // ★ **`view.tool_text` joined it**, and this group is where it
+            // belongs for two reasons that are each sufficient. It is the
+            // group that already holds a pointer-tool toggle, so the two
+            // controls that answer *"what does a drag on the page do?"* are
+            // adjacent and read as the pair they are. And it is on **View**,
+            // which is the one tab every mode is shown — the text tool has to
+            // be reachable from Read, Review and Edit alike, and a command
+            // lives on exactly one tab (P1). Putting it on the Edit tab
+            // instead would have been the same mistake the operator has
+            // already corrected twice, in `edit.form_fill` → `view.panel_forms`
+            // and `edit.copy_page_text` → `file.copy_page_text`.
+            //
+            // ORDER: Hand, then Text. Hand first because it is the older
+            // control, because it is the one an operator reaches for on a
+            // drawing sheet, and because the two are not a radio — they are
+            // two ways of *leaving* the select tool, and neither implies the
+            // other. Both render pressed while armed, through the `selected:`
+            // convention this group's Hand already documents.
+            //
+            // There is deliberately no `view.tool_select` beside them. The
             // select tool is what the canvas does when nothing else is
             // armed, so a button for it would be a control whose pressed
-            // state is "normal" — and Hand renders pressed while it is
-            // active through the `selected:` convention, which already says
-            // which of the two you are in. Space-to-pan needs no control at
-            // all: the canvas reads the key itself.
+            // state is "normal" — and Hand and Text each render pressed while
+            // active, so between them they already say which of the three you
+            // are in. Space-to-pan needs no control at all: the canvas reads
+            // the key itself.
             // ---------------------------------------------------------------
             group(
                 "navigate",
                 ribbon::group_view_navigate(),
-                [command("view.tool_hand")],
+                [command("view.tool_hand"), command("view.tool_text")],
             ),
             // ---------------------------------------------------------------
             // Zoom — the three named levels, mirrored from the status bar

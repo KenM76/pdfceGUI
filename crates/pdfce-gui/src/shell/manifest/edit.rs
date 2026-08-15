@@ -1,8 +1,14 @@
 //! The **Edit** tab — *what am I changing about content that is already
 //! there?*
 //!
-//! `RIBBON_IA.md` §5.4. Five groups: Content, Insert, Clipboard, Forms,
-//! Protect.
+//! `RIBBON_IA.md` §5.4. **Four** groups: Content, Insert, Forms, Protect.
+//!
+//! ★ It was five until 2026-08-14, when the operator moved the two text-copy
+//! commands to File ▸ Export and the **Clipboard** group — whose only members
+//! they were — was deleted rather than left empty. The site of that group
+//! carries the full reasoning; the one-line version is that copying is not
+//! authoring, so the verb does not belong on the authoring tab, and an empty
+//! band is the placeholder `RIBBON_IA.md` P3 forbids.
 //!
 //! # Three renames that are the point of the tab
 //!
@@ -54,9 +60,10 @@
 //!
 //! The whole **Arrange** group (align, distribute, bring forward, send
 //! backward, group, ungroup, flip) is **N**, so it is not here. So is the
-//! object clipboard — cut, copy, paste, paste in place — which is why the
-//! Clipboard group holds only the two text-copying commands that moved
-//! here from File. `Shape ⌄` and `Sanitise…` are **N**.
+//! object clipboard — cut, copy, paste, paste in place — and with the two
+//! text-copy commands gone to File ▸ Export there is nothing left for a
+//! Clipboard band to hold, so the band is absent rather than empty.
+//! `Shape ⌄` and `Sanitise…` are **N**.
 
 use super::{command, group};
 use crate::text::ribbon;
@@ -95,22 +102,39 @@ pub(super) fn tab() -> Tab {
                 [command("edit.insert_image")],
             ),
             // ---------------------------------------------------------------
-            // Clipboard — the two commands that moved off File.
+            // ★ **Clipboard was here, and it is deleted rather than emptied.**
             //
-            // Copying text out of a document is a content operation, not a
-            // file operation. That is the whole argument, and it is why
-            // these two are the first entries in a group whose eventual
-            // first four entries are cut/copy/paste/paste-in-place for the
-            // object clipboard (**N**).
-            // ---------------------------------------------------------------
-            group(
-                "clipboard",
-                ribbon::group_edit_clipboard(),
-                [
-                    command("edit.copy_page_text"),
-                    command("edit.copy_document_text"),
-                ],
-            ),
+            // It held exactly two commands — `edit.copy_page_text` and
+            // `edit.copy_document_text` — and on 2026-08-14 the operator moved
+            // both to File ▸ Export as `file.copy_page_text` and
+            // `file.copy_document_text`. Its own note read:
+            //
+            //     Clipboard — the two commands that moved off File.
+            //     Copying text out of a document is a content operation, not a
+            //     file operation. That is the whole argument, and it is why
+            //     these two are the first entries in a group whose eventual
+            //     first four entries are cut/copy/paste/paste-in-place for the
+            //     object clipboard (**N**).
+            //
+            // The premise held; the conclusion did not follow. A content
+            // operation is not automatically an **authoring** operation, and
+            // copying authors nothing — it reads the page and writes to the
+            // clipboard. What made that visible was the chord/mode gate
+            // refusing `Ctrl+Shift+C` in Read, a mode measured against Acrobat
+            // Reader, which copies text. Same line as `edit.form_fill` →
+            // `view.panel_forms`: *filling is not authoring*, and neither is
+            // copying.
+            //
+            // **The group goes with them, and does not stay as a placeholder
+            // for the object clipboard it was reserving space for.** P3 is the
+            // rule — an unavailable capability renders nothing — and a caption
+            // with no controls under it is the emptiest possible stub: a band
+            // that promises cut, copy and paste and offers no way to reach any
+            // of them. All four object-clipboard ids are **N** in
+            // `super::PLANNED`, which is where that reservation belongs, and
+            // that is where the group will be rebuilt from on the day one of
+            // them ships. `super::manifest`'s documented group count goes
+            // 32 → 31.
             // ---------------------------------------------------------------
             // Forms — one band where the salvage source had two, and now
             // one band holding **three** steps of a form's life rather than

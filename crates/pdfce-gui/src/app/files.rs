@@ -83,17 +83,31 @@
 //! ## ★ The dirty-document rule, stated where it will be needed
 //!
 //! [`crate::app::actions`]' header has always said an Open must not proceed
-//! while a save is pending. **There is no save in this build** — `file.save`
-//! is in `crate::shell::manifest::PLANNED` blocked on autosave and crash
-//! recovery, and `file.save_copy` has no arm — so there is nothing to be
-//! pending and no dialog is built for a condition that cannot occur. What
-//! exists instead is one predicate,
-//! [`crate::app::PdfceApp::save_pending`], consulted by both
-//! [`crate::app::actions::Action::Open`] and
+//! while a save is pending. **`file.save_copy` was wired on 2026-08-14 and this
+//! paragraph still holds**, which is worth stating rather than assuming,
+//! because the obvious reading of "there is a save now" is the wrong one:
+//!
+//! * `save_pending` asks *"is a save **in flight**?"* — is there a moment at
+//!   which the bytes on disk are a partial revision and the `EditSession` being
+//!   read from must not be replaced. `crate::app::save::save_copy` is
+//!   **synchronous**: it is entered and finished inside one
+//!   [`crate::app::PdfceApp::apply`] call, and no frame is ever drawn while it
+//!   is part-way through. So there is still no state in which the predicate can
+//!   be true, and `PROJECT_PLAN.md`'s no-placeholders invariant still forbids
+//!   building a confirmation dialog for a condition that cannot occur.
+//! * It is emphatically **not** *"are there unsaved edits?"*. Save-a-copy does
+//!   not clear that, because a copy went elsewhere and the open document is
+//!   still unsaved **at its own path** — see `crate::app::save`, which carries
+//!   the whole argument and the reason nothing on `OpenDoc` moves.
+//!
+//! What exists is one predicate, [`crate::app::PdfceApp::save_pending`],
+//! consulted by [`crate::app::actions::Action::Open`],
+//! `crate::app::actions::Action::New` and
 //! [`crate::app::actions::Action::Close`], returning `false` with the whole
-//! rule written above it. The day a save lands, that function reads its state
-//! and the two arms grow a confirmation — in one place, already wired, rather
-//! than in two arms somebody has to remember to find.
+//! rule written above it. The day an **asynchronous** save lands — the one
+//! `file.save` in `crate::shell::manifest::PLANNED` is blocked on, behind
+//! autosave and crash recovery — that function reads its state and the three
+//! arms grow a confirmation, in one place, already wired.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -106,6 +120,31 @@ use std::path::PathBuf;
 /// than decoration: a reader who finds one of them knows what kind of thing
 /// the others are.
 pub const DIAG_OPEN_PATH: &str = "PDFCE_DIAG_OPEN_PATH"; // ui-text-exempt: an environment variable name, never displayed
+
+/// The environment variable that answers the **save** dialog instead of
+/// opening it.
+///
+/// ★ Added with [`pick_save_path`], and from the start rather than after a
+/// harness failed to reach it — which is this module's own recorded
+/// instruction: *"any future `rfd` call added to a scripted-driven GUI should
+/// get the same `PDFCE_DIAG_<PURPOSE>` seam from the start."* A native save
+/// dialog is the same hard wall as a native open dialog: it is a top-level
+/// window owned by the OS shell, outside egui's event loop, and no synthetic
+/// input reaches it.
+///
+/// It matters more here than it did for Open. `tools/ui-verify` can drive a
+/// recognition and read the trace, but without this seam the one thing it
+/// could never observe is **whether the recognised bytes are actually a
+/// document** — the write is behind a modal no harness can dismiss. With it,
+/// the check names a path, the file appears, and the assertion can be about
+/// the file rather than about a button having been pressed.
+///
+/// | `PDFCE_DIAG_SAVE_PATH` | [`pick_save_path`] returns | For |
+/// |---|---|---|
+/// | unset | whatever the native dialog says | the operator |
+/// | a path | [`Picked::Path`] — no dialog opens | a harness verifying what was written |
+/// | set but **empty** | [`Picked::Cancelled`] — no dialog opens | a harness exercising the path where the operator declines to save, which must leave nothing behind |
+pub const DIAG_SAVE_PATH: &str = "PDFCE_DIAG_SAVE_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
 /// What asking for a document produced.
 ///
@@ -258,6 +297,105 @@ fn native_pick() -> Picked {
         .map_or(Picked::Cancelled, Picked::Path)
 }
 
+/// **Ask where to write a new document.**
+///
+/// `suggested` is pre-filled into the dialog as the file name and the starting
+/// directory. It is a *suggestion*: the operator may type anything, including
+/// — if they insist — the file they opened. What the caller guarantees is that
+/// the suggestion itself is never that file, which is
+/// `crate::dialogs::ocr::suggested_path`'s job and is asserted there.
+///
+/// ★ **This is the only write-destination question pdfceGUI asks**, and it is
+/// now asked by **two** surfaces: `dialogs::ocr`, which wrote the first file
+/// this shell ever produced, and — since 2026-08-14 — `crate::app::save`, the
+/// body of `file.save_copy`. The operator's standing rule — *Read may produce a
+/// new document; it may not modify this one* — is enforced here, by asking,
+/// rather than by a mode check: a path the operator names cannot silently be
+/// the one they opened.
+///
+/// One function for both, deliberately, and `title` is what the second caller
+/// cost. The alternative was a second `native_save` beside this one, which
+/// would have been a second place for the seam, the trace line and the
+/// directory/file-name split to be written — and the seam is exactly the thing
+/// that must not exist twice, because a harness that can answer one dialog and
+/// not the other cannot tell a save that was declined from a save that never
+/// asked.
+///
+/// The diagnostic seam is read first, for the reason in the module header, and
+/// [`DIAG_SAVE_PATH`]'s own documentation says what each of its three states
+/// buys a harness. Note that the seam is **shared** by both callers: a harness
+/// that sets `PDFCE_DIAG_SAVE_PATH` answers whichever of the two runs next, so
+/// a check that drives both in one session names one path and gets one file.
+///
+/// Blocks while the dialog is open, exactly as [`pick_document`] does.
+///
+/// # ★ The frame-timing requirement, and it is a requirement
+///
+/// **The caller runs it after its frame's layout closure has returned.** Not a
+/// convention — see `dialogs::ocr`'s `save_requested` field, which exists for
+/// nothing else: an `rfd` modal opened from inside an `egui::Window` closure
+/// blocks the frame it is being drawn in, so the window the operator clicked is
+/// left half-painted underneath a dialog they cannot dismiss to finish it.
+///
+/// The two callers honour it differently and both are honest about which:
+///
+/// * `dialogs::ocr` sets a flag in its button arm and calls this **after**
+///   `egui::Window::show` returns, still inside step 2b of the frame;
+/// * `crate::app::save` is reached from `PdfceApp::apply`, which is **step 3**
+///   — after every panel, the canvas, the docks, the find bar and the dialogs
+///   have all closed. That is the strongest position available and it is why
+///   `file.save_copy` raises an `Action` rather than picking during dispatch.
+///
+/// The distinction matters because *dispatch is not always outside a layout
+/// closure*: `PdfceApp::central` dispatches the canvas's context-menu tokens
+/// from **inside** `egui::CentralPanel::show`. See [`pick_document`], which is
+/// called straight from a dispatch arm and therefore does not honour this.
+#[must_use]
+pub fn pick_save_path(suggested: &std::path::Path, title: &str) -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_SAVE_PATH)) {
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "save-picked source=env answer={answer:?}"
+            )
+        });
+        return answer;
+    }
+    let answer = native_save(suggested, title);
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "save-picked source=native answer={answer:?}"
+        )
+    });
+    answer
+}
+
+/// The platform save dialog, pre-filled from `suggested` and headed `title`.
+///
+/// The directory and the file name are set separately because `rfd` treats
+/// them as separate: handing the whole path as a name would produce a dialog
+/// offering to create a file called `D:\scans\survey-recognised.pdf` inside
+/// whatever folder it happened to open in.
+///
+/// `title` is a parameter rather than a constant because the two callers are
+/// asking about different things and the window's heading is the only place
+/// the OS lets pdfce say which — see [`pick_save_path`]. It is still catalog
+/// copy: both call sites pass a `crate::text::*` function, and neither builds
+/// a sentence.
+fn native_save(suggested: &std::path::Path, title: &str) -> Picked {
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(title)
+        .add_filter(crate::text::files::filter_pdf(), &["pdf"]);
+    if let Some(dir) = suggested.parent().filter(|d| !d.as_os_str().is_empty()) {
+        dialog = dialog.set_directory(dir);
+    }
+    if let Some(name) = suggested.file_name() {
+        dialog = dialog.set_file_name(name.to_string_lossy());
+    }
+    dialog.save_file().map_or(Picked::Cancelled, Picked::Path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,6 +502,59 @@ mod tests {
         // customized keymap can reach any command from any state.
         app.apply_actions(vec![Action::Close, Action::Close], 1.0);
         assert!(matches!(app.status, Status::Empty));
+    }
+
+    /// ★ **`file.save_copy` raises the SaveCopy action, through the real token
+    /// lookup.**
+    ///
+    /// The regression guard for the defect this command shipped with for the
+    /// whole life of the project: it was registered, drawn on the File tab,
+    /// drawn on the quick-access toolbar, bound to `Ctrl+S`, printed "(Ctrl+S)"
+    /// in its own tooltip — and had **no dispatch arm**, so every press traced
+    /// `command-unimplemented` and nothing this shell could author could be
+    /// written to disk.
+    ///
+    /// Driven through `commands.get(id).handler` rather than by calling the arm,
+    /// exactly as `the_close_command_empties_the_shell` and
+    /// `the_new_command_makes_a_blank_document_from_nothing` are, and for the
+    /// reason those two record: a test that called the function directly would
+    /// pass against a build in which the command was never registered, or in
+    /// which the token-to-id lookup had stopped resolving — which is precisely
+    /// the state that produced the fall-through in the first place.
+    ///
+    /// # ★ Why it stops at the action, and must
+    ///
+    /// It raises and does **not** apply. Applying `Action::SaveCopy` reaches
+    /// `crate::app::save::save_copy`, which opens a **real modal save dialog**
+    /// unless `PDFCE_DIAG_SAVE_PATH` is set — and this crate is
+    /// `#![forbid(unsafe_code)]` while `std::env::set_var` is `unsafe` in
+    /// edition 2024, so a test cannot set it. That is rule 3 in this module's
+    /// header, moved one phase along with the picker: the *dispatch* of
+    /// `file.save_copy` is safe to drive and its *apply* is not.
+    ///
+    /// What is therefore untested here and tested elsewhere, stated rather than
+    /// implied by a green run: the write itself is covered by
+    /// `crate::app::save`'s own tests, which call the picker-free half directly
+    /// and re-open the file that comes out; and the whole chain — ribbon click,
+    /// dispatch, apply, picker, write, re-open — is covered by
+    /// `tools/ui-verify`'s `save_copy_round_trip`, which answers the dialog
+    /// through [`DIAG_SAVE_PATH`] because that is the only way anything can.
+    #[test]
+    fn the_save_copy_command_raises_the_save_action() {
+        let ctx = egui::Context::default();
+        let mut app = PdfceApp::new();
+        app.open_path(fixture());
+        assert!(matches!(app.status, Status::Open(_)), "the fixture opens");
+
+        let mut actions = Vec::new();
+        app.dispatch_token(&ctx, token_for(&app, "file.save_copy"), &mut actions);
+        assert_eq!(
+            actions,
+            vec![Action::SaveCopy],
+            "`file.save_copy` must raise an action rather than falling through to \
+             `command-unimplemented`, and it must raise it rather than opening the picker here — \
+             see `crate::app::save` section 4 on the frame-timing requirement"
+        );
     }
 
     /// ★ **Nothing is pending, so nothing is blocked — and the gate is real.**

@@ -636,10 +636,23 @@ inside the font itself. The text still displays and prints correctly; it simply 
 turned back into letters. Rather than show a row of question marks, pdfce says so."
         }
         ObjectNote::TextPartlyUndecodable => {
-            "Some characters in this text could not be read, and are shown as \u{fffd}. Their \
-font gives no mapping for those particular codes, so pdfce has no way to tell what they stand \
-for. The characters around them are correct, and everything still displays and prints as it \
-should."
+            // ★ The replacement character is **named, not shown**.
+            //
+            // This sentence used to contain a literal `\u{fffd}`, and the
+            // bundled font stack cannot draw it — so a sentence explaining
+            // that some characters are unreadable rendered its own example as
+            // an unreadable box. Found by the widened glyph gate; see
+            // `DEFECTS.md` D12.
+            //
+            // Naming it is better than substituting a drawable stand-in
+            // anyway: the operator is being told what they will see *in the
+            // text on the page*, which is drawn from the document's own fonts
+            // and has nothing to do with what this panel's font can render.
+            // Showing a mark here would have implied the two were the same.
+            "Some characters in this text could not be read, and are shown as the Unicode \
+replacement character. Their font gives no mapping for those particular codes, so pdfce has no \
+way to tell what they stand for. The characters around them are correct, and everything still \
+displays and prints as it should."
         } // No catch-all — see `object_note_short`'s closing comment. The
           // exhaustive match IS the guard: a new note cannot reach an operator
           // without someone writing its sentence, because the crate will not

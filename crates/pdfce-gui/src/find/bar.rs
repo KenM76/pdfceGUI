@@ -194,6 +194,18 @@ const REGION_POSITION: &str = "find-position"; // ui-text-exempt: trace region n
 /// The options menu button.
 const REGION_OPTIONS: &str = "find-options"; // ui-text-exempt: trace region name, never displayed
 
+/// The OCR offer's second row, when it is drawn.
+///
+/// Published so `ui-verify` can assert on the offer's **presence and absence**
+/// rather than on a screenshot. That matters more here than for the other
+/// regions: the offer is one line of muted text and a small button on a
+/// floating box over a drawing sheet, which is exactly the kind of thing a
+/// pixel oracle cannot distinguish from the frame before it — `HANDOFF.md` §2's
+/// defect 8, again. A declared rect is a claim the application makes about
+/// itself, and the absence of one is the harness's evidence that the offer was
+/// not drawn.
+const REGION_OCR_OFFER: &str = "find-ocr-offer"; // ui-text-exempt: trace region name, never displayed
+
 /// Trace slot for the bar's steady state, de-duplicated on the rendered line.
 const FIND_SLOT: &str = "find-bar"; // ui-text-exempt: trace slot name, never displayed
 
@@ -283,6 +295,33 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState, status: &Status, actions: 
         // the edge the operator is reaching for.
         .constrain_to(host);
 
+    // ★ The OCR offer's condition, evaluated HERE and nowhere else.
+    //
+    // Two questions, and the order is the whole affordability argument:
+    //
+    // 1. `readout == Empty` — a search has been committed and matched nothing.
+    //    Free: it is a comparison against state the bar already holds.
+    // 2. the page has no extractable text at all — a `PageTextCache` read
+    //    (`OpenDoc::page_has_extractable_text`), which on a cache miss is one
+    //    page extraction.
+    //
+    // Asking (2) only after (1) is what keeps this off the frame budget. The
+    // bar draws on every frame it is open and this module's header records that
+    // nothing here may search on a keystroke; a per-frame page extraction would
+    // be the same defect one size smaller. By the time (1) holds, the operator
+    // has just paid a WHOLE-DOCUMENT extraction for the search itself — so the
+    // page extraction is strictly cheaper than the gesture that caused it, and
+    // it is charged to that gesture rather than to the act of opening the bar.
+    //
+    // ★ And (2) is not a refinement of (1). It is the *actual* trigger — the
+    // operator's rule is that the offer means "this document is images", never
+    // "this search had no matches". (1) is here because the offer is drawn in
+    // the place the empty readout occupies and there is nowhere else on a
+    // fixed-width bar for it to go; (2) is what makes it correct. A build that
+    // dropped (2) would offer to OCR a text PDF every time somebody mistyped a
+    // part number.
+    let offer_ocr = offer_ocr(state.readout(epoch), || doc.page_has_extractable_text());
+
     let response = area
         .show(&ctx, |ui| {
             // `Frame::popup` is the theme's own floating-surface frame — fill,
@@ -290,7 +329,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState, status: &Status, actions: 
             // frame here would be a second set of colours outside the theme
             // module, which is exactly what `check-theme-colors.sh` exists to
             // prevent.
-            egui::Frame::popup(ui.style()).show(ui, |ui| body(ui, state, epoch, actions));
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                body(ui, state, epoch, actions);
+                if offer_ocr {
+                    ocr_offer(ui, actions);
+                }
+            });
         })
         .response;
 
@@ -485,6 +529,114 @@ fn enter_intent(readout: Readout, shift: bool) -> Option<FindRequest> {
 }
 
 // ---------------------------------------------------------------------------
+// The OCR offer
+// ---------------------------------------------------------------------------
+
+/// ★ **Whether to offer OCR**, as a pure function of the readout and the page.
+///
+/// `page_has_text` is a closure rather than a `bool` so that the caller's
+/// answer is **not computed unless it is needed** — the short-circuit is the
+/// affordability argument, and passing an already-evaluated `bool` would make
+/// the call site pay for a page extraction on every frame the bar is open while
+/// this function still looked correct. That is the shape of `HANDOFF.md` §2's
+/// defect 9: right work, wrong moment, invisible to every test.
+///
+/// # The rule, and the trap inside it
+///
+/// | readout | page has text | offer |
+/// |---|---|---|
+/// | `Empty` | no | **yes** — there is nothing here for any search to have found |
+/// | `Empty` | yes | no — an ordinary empty result; the words are there, that one is not |
+/// | `At` / `Idle` / `Stale` | either | no |
+///
+/// The second row is the operator's stated rule and the whole reason this is a
+/// function with a test rather than an `if` in the layout: *"the document is
+/// images"* is not *"this search had no matches"*, and a build that collapsed
+/// them would offer to recognise a text PDF every time somebody mistyped a part
+/// number. [`tests::an_ordinary_empty_result_on_a_text_page_offers_nothing`] is
+/// the falsifying case.
+///
+/// The third row is not merely "nothing to offer". A `Stale` readout means the
+/// document has been edited since the search ran, so the *page* answer is about
+/// a revision the hit list does not describe; and `Idle` means nothing has been
+/// asked at all, where an offer would be the bar volunteering an opinion about a
+/// document the operator has not yet questioned.
+#[must_use]
+fn offer_ocr(readout: Readout, page_has_text: impl FnOnce() -> bool) -> bool {
+    matches!(readout, Readout::Empty) && !page_has_text()
+}
+
+/// The second row: what is true of the page, and the way out of it.
+///
+/// Drawn **below** the control row rather than inside it, and that is a
+/// consequence of this module's fixed-width rule rather than a layout
+/// preference. The box is anchored by its top-right corner, so anything added
+/// to the row would move the search field the operator is typing into; a row
+/// added underneath grows the box downwards, over the page, and moves nothing.
+/// An `egui::Area` consumes no layout, so the extra height costs the canvas
+/// nothing either — which is the same property that made the bar an overlay in
+/// the first place (see the module header's 85 %-to-81 % measurement).
+///
+/// It appears and disappears with the condition rather than being greyed. P3
+/// permits greying only for a *temporarily* unavailable capability that is
+/// always explained on hover, and "this page happens to have text on it" is not
+/// a state an operator can act their way out of — a permanently dead control
+/// explaining a fact about the document is the placeholder the rule forbids.
+fn ocr_offer(ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+    ui.add_space(4.0);
+    ui.separator();
+    let rect = ui
+        .scope(|ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(BAR_WIDTH_PTS, ROW_HEIGHT_PTS),
+                Layout::left_to_right(Align::Center),
+                |ui| {
+                    ui.set_min_size(Vec2::new(BAR_WIDTH_PTS, ROW_HEIGHT_PTS));
+                    // The muted role, because this is a statement about the
+                    // document rather than a control. Not `.strong()`:
+                    // `DEFECTS.md` D11 records that role as unusable in this
+                    // theme.
+                    let theme = egui_shell::theme::Theme::of(ui.ctx());
+                    ui.label(
+                        egui::RichText::new(crate::text::ocr::offer())
+                            .color(theme.palette.text_muted),
+                    );
+                    if ui
+                        .button(crate::text::ocr::offer_action())
+                        .on_hover_text(crate::text::ocr::offer_tooltip())
+                        .clicked()
+                    {
+                        // ★ Raised as a COMMAND, not as a new action variant.
+                        //
+                        // The offer is a second route to `file.ocr` and must
+                        // not become a second implementation of it: routing it
+                        // through the command means the ribbon control and this
+                        // button reach one dispatch arm, one dialog and one set
+                        // of guards. `app/mod.rs`'s rule that dispatch arms
+                        // route rather than compute is what makes that free.
+                        actions.push(Action::Command(OCR_COMMAND.to_owned()));
+                        crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed in the UI
+                            "find-ocr-offer accepted=true".to_owned()
+                        });
+                    }
+                },
+            );
+        })
+        .response
+        .rect;
+    crate::diag::ui_rect(REGION_OCR_OFFER, rect);
+}
+
+/// The command the offer raises.
+///
+/// Named here rather than typed inline so that
+/// [`tests::the_offer_raises_the_registered_recognise_command`] can assert it
+/// against the registry — an id that is merely spelled at a call site is an id
+/// that goes stale silently, which is `HANDOFF.md` §5's whole subject.
+const OCR_COMMAND: &str = "file.ocr"; // ui-text-exempt: a command id, never displayed
+
+// ---------------------------------------------------------------------------
 // Stepping and the readout
 // ---------------------------------------------------------------------------
 
@@ -675,6 +827,92 @@ fn word_rule_tooltip(rule: WordBoundary) -> &'static str {
 mod tests {
     use super::*;
     use egui::{Context, RawInput};
+
+    // =======================================================================
+    // ★ The OCR offer
+    // =======================================================================
+
+    /// ★ **A page with no text at all, after a search that found nothing.**
+    ///
+    /// The one combination that offers OCR, and the operator's actual rule
+    /// stated as a case: there is nothing on this page for any search to have
+    /// matched, so the empty result is a fact about the *document*.
+    #[test]
+    fn a_page_with_no_text_at_all_offers_recognition() {
+        assert!(offer_ocr(Readout::Empty, || false));
+    }
+
+    /// ★★ **THE FALSIFYING CASE.** An ordinary empty result offers nothing.
+    ///
+    /// This is the assertion the whole feature turns on, and it is the one a
+    /// plausible wrong implementation fails. Offering OCR on any zero-hit
+    /// search is one character simpler to write, passes
+    /// [`Self::a_page_with_no_text_at_all_offers_recognition`] perfectly, and
+    /// would put *"this page has no text on it"* under every mistyped part
+    /// number on a drawing full of text.
+    ///
+    /// The operator named this trap in the specification rather than leaving it
+    /// to be discovered: *"the trigger is 'this document is images', NOT 'this
+    /// search had no matches'"*, and `FEATURES.md` records that the two "must
+    /// not be collapsed."
+    #[test]
+    fn an_ordinary_empty_result_on_a_text_page_offers_nothing() {
+        assert!(
+            !offer_ocr(Readout::Empty, || true),
+            "a search for a word that is simply not on a page full of text is an ordinary \
+             empty result; offering to recognise it would be nonsense"
+        );
+    }
+
+    /// ★ **The page is not even asked about unless the search came back empty.**
+    ///
+    /// The short-circuit, asserted rather than assumed — and it is a
+    /// correctness property, not an optimisation. `page_has_extractable_text`
+    /// costs one page extraction on a cache miss, and the bar draws on every
+    /// frame it is open; a version that evaluated the closure first would put
+    /// that extraction on the frame budget while looking identical in every
+    /// other test here. That is `HANDOFF.md` §2's defect 9 exactly: the right
+    /// work, charged at the wrong moment, invisible to a suite that only asks
+    /// whether it happened.
+    #[test]
+    fn the_page_is_not_extracted_unless_the_search_found_nothing() {
+        for readout in [
+            Readout::Idle,
+            Readout::Stale,
+            Readout::At {
+                current: 1,
+                total: 4,
+            },
+        ] {
+            let mut asked = false;
+            let offer = offer_ocr(readout, || {
+                asked = true;
+                false
+            });
+            assert!(!offer, "{readout:?} must not offer recognition");
+            assert!(
+                !asked,
+                "{readout:?} asked the page for its text; that is a page extraction charged to \
+                 a frame the operator did not ask anything on"
+            );
+        }
+    }
+
+    /// The offer raises the command the ribbon registers, not a spelling of it.
+    ///
+    /// An id written at a call site and nowhere else goes stale in silence —
+    /// `HANDOFF.md` §5's whole subject — and the symptom here would be a button
+    /// that traces `command-unimplemented` and does nothing.
+    #[test]
+    fn the_offer_raises_the_registered_recognise_command() {
+        let mut registry = egui_shell::commands::CommandRegistry::new();
+        crate::shell::commands::register(&mut registry);
+        assert!(
+            registry.get(OCR_COMMAND).is_some(),
+            "`{OCR_COMMAND}` is not registered, so the offer's button would reach the \
+             dispatcher's fall-through arm and do nothing"
+        );
+    }
 
     // =======================================================================
     // ★ Placement

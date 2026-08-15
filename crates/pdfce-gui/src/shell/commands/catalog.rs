@@ -1,101 +1,46 @@
-//! # shell::commands — every verb pdfce can perform
+//! # `shell::commands::catalog` — the list itself, and the argument for every
+//! entry on it
 //!
-//! [`register`] populates an `egui_shell::CommandRegistry` with the
-//! **eighty-eight** commands this build has, which fall into three groups:
+//! One function, [`all`], holding every command this build has in manifest
+//! order, and one helper, [`command`], that builds each from a catalog entry.
+//! Nothing else.
 //!
-//! | group | count | how the operator reaches it |
-//! |---|---|---|
-//! | on a tab, the QAT or the keymap | 86 | a control [`super::manifest::built_in`] names by id |
-//! | drawn by a **custom item** | 1 | `file.recent` — see [`super::manifest::CUSTOM_BACKED`] |
-//! | drawn on the **status bar** | 1 | `edit.find` — `RIBBON_IA.md` §6 |
+//! ## ★ Why this is its own file
 //!
-//! (This header said *eighty-one* and *79* until 2026-08-14, while
-//! [`tests::registration_succeeds_and_registers_every_command`] asserted 88
-//! and passed. Prose drifting from a number a test pins is a defect this
-//! project has now had three times; the test is the fact, and the table has
-//! been corrected to it rather than the other way round.)
+//! `shell/commands/mod.rs` crossed the 1,500-line gate (standing rule **R2**)
+//! when `file.save_copy` was wired. The rule's own justification is why the
+//! split is *here* rather than at whichever line the count happened to reach:
+//! *"the value of the limit is that the file has to have a single subject"*.
 //!
-//! The last two are the interesting ones, because both are reachable by an
-//! operator and neither is a button on a tab. They are kept honest by
-//! different mechanisms and the difference is worth knowing: a `Custom` item
-//! carries no command id, so `Shell::command_references()` cannot see
-//! `file.recent` at all and [`super::manifest::CUSTOM_BACKED`] is the
-//! register that says why that is allowed; whereas the status bar is simply
-//! not part of the manifest, and `edit.find` needs no exemption because the
-//! keymap's `Ctrl+F` binding **is** a reference site — so the orphan check
-//! still guards it against a rename.
+//! The parent's subject is **the registry contract** — what a command is, why
+//! its five fields are split between code and manifest, what a handler token
+//! means, what vocabulary of enable conditions the application promises to
+//! publish, and what must be true of the finished registry. This file's
+//! subject is **the catalog**: which commands exist, in what order, with which
+//! glyph and which predicate, and *why each of those was chosen*. The two
+//! change for entirely different reasons — a new condition name is a parent
+//! change, a new command is a change here — and they are read at different
+//! times.
 //!
-//! A command carries five things:
+//! It is the same seam `commands.rs` was already split along once, producing
+//! [`super::mapping`] (the id ↔ operand bindings), and the same seam
+//! `app/mod.rs` has been split along four times. The test for whether a split
+//! was along a seam is whether the *reasoning* came with it, and it did: every
+//! paragraph moved here is an argument about a registration.
 //!
-//! | Field | Comes from | Why here rather than the manifest |
-//! |---|---|---|
-//! | `id` | this file | the manifest may only *reference* it |
-//! | `label`, `tooltip` | [`crate::text::commands`] | copy is a design surface with one owner |
-//! | `icon` | this file, as a key | the icon *set* is the application's; the shell only needs to know which one |
-//! | `enable` | this file, as a condition name | *"predicates are safety, not decoration"* |
-//! | `handler` | this file, as an opaque `u64` | the shell never interprets it |
+//! ## ★ The flat list survives the split, and that is the point
 //!
-//! `SHELL_FRAMEWORK.md` §5 turns that split into the customization
-//! contract. An operator may reorder tabs, rename them, hide them, move a
-//! command between groups, create tabs, rebind keys, and define new modes.
-//! An operator may **not** invent a command, change what a command does,
-//! or bypass an enable predicate. Every one of those prohibitions is a
-//! consequence of this half being code and the other half being data.
+//! [`all`]'s own doc comment has always refused a function per tab, because
+//! *"a per-tab split would put the handler-token blocks in eight files where a
+//! collision between two of them is invisible"*. That argument is untouched:
+//! the list is still **one function in one file**, in manifest order, with all
+//! nine hundred-blocks visible together and
+//! `super::tests::every_handler_token_is_unique` still reading the whole
+//! registry. What moved out is the registry's *contract*, not the list.
 //!
-//! # Handler tokens are opaque, and this file does not implement behaviour
-//!
-//! An `egui_shell::HandlerToken` is a `u64` the shell stores and hands back
-//! when the command is invoked. The application dispatches on it at **one
-//! choke point**, which is where a confirmation gate, an undo entry or a
-//! trace belongs; a registry of closures would scatter that across as many
-//! sites as there are commands, and would force the shell to name pdfce's
-//! state type, which would end its reusability.
-//!
-//! The numbers are assigned here in blocks of one hundred, one block per
-//! tab, and they are **stable**: a token is never reused for a different
-//! command, because a persisted or traced token that silently changed
-//! meaning between builds is a defect with no symptom at the site that
-//! caused it. Gaps in the numbering are fine and expected — a command
-//! removed leaves its number unused.
-//!
-//! # Enable conditions
-//!
-//! `Enable::When("doc.open")` names a condition the application publishes
-//! once per frame in an `egui_shell::commands::ConditionSet`. Data rather
-//! than a closure, because a name is serializable, testable headlessly,
-//! and cannot capture state that makes a command's availability depend on
-//! *when* it was registered.
-//!
-//! Six conditions are used, and the whole vocabulary is listed here
-//! because every one of them is a promise the application has to keep:
-//!
-//! | Condition | True when | Used by |
-//! |---|---|---|
-//! | *(none)* | always | commands with no precondition: Open, Settings, the batch tools, the window and render settings |
-//! | `doc.open` | a document is open | document-level commands — close, save a copy, properties, print |
-//! | `doc.pages` | …and it has at least one page | everything that acts on a page |
-//! | `undo.available` / `redo.available` | the corresponding stack is non-empty | Undo, Redo |
-//! | `selection.any` | something is selected | the contextual Format tab and its Delete |
-//! | `selection.bounds` | …and it still resolves to a box on the page shown | Zoom to selection |
-//!
-//! `selection.bounds` is separate from `selection.any` for the same shape
-//! of reason, one level down. A selection here is an **identity** — page,
-//! object, subpath, node — and an identity can outlive the box it once
-//! described: it may name an object on a page that is not shown, or one an
-//! edit has renumbered. Zoom to selection is the command where that gap is
-//! visible, because framing nothing is not a no-op; it is a jump to the
-//! origin that looks exactly like a bug.
-//!
-//! `doc.pages` is separate from `doc.open` because **a PDF with `/Count 0`
-//! is a legal document**. pdfce opens it, shows "This document has no
-//! pages", and must not offer to rotate one. Collapsing the two would make
-//! that file arm tools that cannot run — the exact class of failure the
-//! removal of the `Editing on` master toggle was meant to end.
-//!
-//! Greying is what a false predicate produces, and P3 permits it only for
-//! *temporarily* unavailable, *always explained on hover*. Every command
-//! here has a tooltip; [`crate::text::commands`] has no way to express a
-//! command without one.
+//! Splitting the list instead would have been the cheaper edit and the wrong
+//! one — it would have satisfied a line count by breaking the one property the
+//! list's shape exists to protect.
 //!
 //! # Icons
 //!
@@ -118,7 +63,7 @@
 //!   an icon that does not exist would produce a missing-glyph box at run
 //!   time — a placeholder, arriving through the back door.
 //!
-//! ## Coverage, as of 2026-08-14: 77 of 88 named, 11 refused
+//! ## Coverage, as of 2026-08-14: 86 of 101 named, 15 refused
 //!
 //! Before that date the split was 47 named and 41 not, with **no rule
 //! behind which was which** — a band drew glyphs and bare words side by
@@ -138,6 +83,61 @@
 //! | `view.app_initiative` | any honest drawing pictures what its default forbids |
 //! | `file.recent` | reusing `open` would draw one band control twice |
 //! | `mode.read`/`review`/`edit` | the mode selector renders text segments and has no icon path |
+//! | `measure.finish` | the set has no check/tick/accept glyph, and the `measure` ruler the three tools share would draw a fourth identical one for a command that places nothing |
+//! | `markup.finish` | the same refusal, one tab over: no accept glyph exists, and reusing a shape glyph would draw a fourth near-identical shape in the Shapes band for a command that ends the drawing rather than doing any |
+//! | `file.new` | the same refusal as `file.ocr` below, and for the same reason: the icon directory is declared the operator's **own art**, so a new glyph is not a build session's to add. Every reuse was worse than the word — `document` is Properties, `insert-pages` means *pages into this document*, `upload` is import |
+//! | `file.ocr` | **the refusal with a different reason from all the others**, and worth reading: there is no recognition glyph and every reuse would mislead (`text-select` is the text *tool*, `search` is Find, `convert` is a format change), but the deciding fact is that the alternative is not available either — `icons/assets/PROVENANCE.md` declares that directory the **operator's own art**, which is what exempts it from `check-shipped-assets`, and adding a machine-drawn SVG would make that provenance note false. A false provenance note is a worse defect than a control that draws its own words |
+//!
+//! ★ …and moved a third time on 2026-08-14, when the three text-markup kinds
+//! were registered **with** three new glyphs (`text-underline`,
+//! `text-strikeout`, `text-squiggly`): 79-of-90 became 82-of-93, and the refusal
+//! count is unchanged because none of the three refused one. They are new art
+//! rather than a reuse of `shape-highlight` for the reason their registration
+//! records: the four controls in the Text markup band differ only in the mark
+//! they draw, so a shared glyph would leave four identical buttons carrying four
+//! different words.
+//!
+//! ★ The counts above moved twice on 2026-08-14 and the second move is the
+//! one to notice: `measure.two_line` was registered **with** a glyph and this
+//! line was not updated, so it read 77-of-88 while the registry held 89. A
+//! count quoted in prose is not pinned by the test that pins the registry —
+//! `registration_succeeds_and_registers_every_command` would have stayed
+//! green through any drift here. Both are corrected together.
+//!
+//! ★ …and a **fourth** move, later the same day, when `view.tool_text` was
+//! registered with the new `text-select` glyph: 82-of-93 became 82-of-94 and the
+//! refusal count stayed at twelve, because the text tool refused nothing.
+//!
+//! ★ **Fifth, later still on 2026-08-14**: the three unblocked Phase 6 markup
+//! kinds — `markup.polyline`, `markup.polygon` and `markup.ink` — arrived **with**
+//! three new glyphs, and `markup.finish` arrived **without** one, refusing it on
+//! `measure.finish`'s own argument. 82-of-94 with twelve refusals became
+//! **85-of-98 with thirteen**. This is the first of the five moves that was made
+//! with the arithmetic under test rather than under advice: the split is now
+//! pinned by `super::tests::the_icon_coverage_split_adds_up_to_the_registry`, so the
+//! numbers in this section and the numbers in the registry cannot drift apart
+//! silently again.
+//!
+//! ★ **That fourth pass also found the third line above to have been wrong**,
+//! and it is worth stating rather than silently repairing, because it is the
+//! same defect that line was written to record. It read *"82 of 93 named, 12
+//! refused"* — and 82 + 12 is 94, not 93. The registry held 93 and **81** of
+//! them named a glyph; the prose had been incremented one step too far in the
+//! text-markup pass. Nothing detected it, for exactly the reason that pass
+//! wrote down: the test pins the registry's size and nothing pins the split.
+//! The arithmetic check that would have caught it — *named + refused must equal
+//! the registry* — is the one property worth carrying forward here, and it is
+//! now asserted by
+//! `super::tests::the_icon_coverage_split_adds_up_to_the_registry` rather than being
+//! left to a reader to do in their head.
+//!
+//! ★ **Sixth, 2026-08-14: `file.about` arrived with the new `info` glyph**,
+//! making it **86-of-99 with thirteen** — About refused nothing, a circled `i`
+//! being the most conventional glyph any toolbar has. First move made with the
+//! arithmetic already under test; it cost one number in one assertion, which is
+//! what the five paragraphs above were for. **Three of the four "count in prose"
+//! incidents this module records were found by hand; the fourth was found by
+//! the first three's own advice, which is why the advice is now a test.**
 //!
 //! **A band control's icon does not replace its label.**
 //! `egui_shell::ribbon::band::command_button` is called with
@@ -148,42 +148,10 @@
 //! misreading is worth keeping written down: it is what kept three Display
 //! toggles and the Pages panel bare for longer than any decision did.
 
+use super::FILE_RECENT;
 use crate::text::commands as t;
 use crate::text::commands::CommandText;
-use egui_shell::{Command, CommandRegistry, HandlerToken};
-
-/// **Open a document from the recent list.**
-///
-/// A constant rather than a literal because this id is used in four places
-/// that must agree and two of them are not obvious: the registration below,
-/// the `CUSTOM_BACKED` entry that records why it is on no tab, the registry
-/// lookup in [`crate::app::PdfceApp::ribbon_band`] that turns the operator's
-/// menu choice back into this command's token, and the dispatch arm. A typo
-/// in any of them produces silence — a menu that draws and reports nothing —
-/// rather than an error.
-///
-/// The other command ids stay literals at their (single) use sites, which is
-/// this file's existing convention; this one earns a name by being spelled in
-/// two modules.
-pub const FILE_RECENT: &str = "file.recent"; // ui-text-exempt: a command id, never displayed
-
-/// **Register every command the built-in manifest names.**
-///
-/// # Panics
-///
-/// If two commands claim one id. That is a programming error in this file
-/// and not a condition any input can produce, so it fails loudly at
-/// start-up rather than being swallowed: the registry refuses a duplicate
-/// precisely so that behaviour cannot come to depend on the order of
-/// start-up code, and catching the error here to ignore it would give back
-/// exactly the defect the refusal prevents.
-pub fn register(reg: &mut CommandRegistry) {
-    reg.register_all(all())
-        // ui-text-exempt: a panic message, read by whoever is looking at
-        // the stack trace. Never rendered to an operator — the process
-        // does not reach a window if this fires.
-        .expect("two shell commands claim the same id");
-}
+use egui_shell::{Command, HandlerToken};
 
 /// One command, with its label and tooltip taken from the catalog.
 ///
@@ -191,7 +159,7 @@ pub fn register(reg: &mut CommandRegistry) {
 /// command cannot end up with one command's label and another's tooltip —
 /// which is not a hypothetical: the salvage source's two adjacent Content
 /// buttons both read `Aa`, and only their tooltips distinguished them.
-fn command(id: &str, text: CommandText, handler: u64) -> Command {
+pub(super) fn command(id: &str, text: CommandText, handler: u64) -> Command {
     Command::new(id, text.label, HandlerToken::new(handler)).with_tooltip(text.tooltip)
 }
 
@@ -201,11 +169,37 @@ fn command(id: &str, text: CommandText, handler: u64) -> Command {
 /// namespace, the ordering here mirrors the ribbon so the two can be read
 /// side by side, and a per-tab split would put the handler-token blocks in
 /// eight files where a collision between two of them is invisible.
-fn all() -> Vec<Command> {
+pub(super) fn all() -> Vec<Command> {
     vec![
         // ===================================================================
         // FILE — tokens 100-199
         // ===================================================================
+        // ★ **New — first in the band, and with no glyph.**
+        //
+        // Order: New, Open, Recent, Close. All three reference applications
+        // open their File menu with New and follow it with Open, and this is
+        // also the useful order — the two ways to *get* a document, then the
+        // two ways to get one *back*, then the way to put one away.
+        //
+        // **No icon, and it is a recorded refusal rather than an oversight.**
+        // The refusal has `file.ocr`'s reason, which is the one reason on the
+        // list that is not about the drawing being hard: `icons/assets/`
+        // declares itself the **operator's own art**, and that declaration is
+        // exactly what exempts the directory from `check-shipped-assets`'
+        // notice surfaces. A machine-drawn SVG added by this session would make
+        // that provenance note false, and a false provenance note is a worse
+        // defect than a control that draws its own word. Reusing an existing
+        // key was considered and refused too: `document` is the Properties
+        // glyph, `insert-pages` means *pages into this document*, and `upload`
+        // is the import half of the export pair — each would say something New
+        // does not do. A blank-page glyph is the operator's to draw, and until
+        // it exists this control reads `New`, which nobody has ever had to look
+        // up.
+        //
+        // **No enable predicate**, like `file.open` and for the same reason: an
+        // operator with nothing open is exactly the operator most likely to
+        // want this.
+        command("file.new", t::file_new(), 103),
         command("file.open", t::file_open(), 100).with_icon("open"),
         command("file.close", t::file_close(), 101)
             .with_icon("close")
@@ -251,6 +245,60 @@ fn all() -> Vec<Command> {
         command("file.export_form_data", t::file_export_form_data(), 121)
             .with_icon("export")
             .enabled_when("doc.open"),
+        // ★ **Copy page text / Copy document text — were `edit.copy_page_text`
+        // and `edit.copy_document_text`, tokens 420 and 421, until the operator
+        // decided on 2026-08-14 that they belong here.**
+        //
+        // This is the same taxonomy move `view.panel_forms` records one block
+        // down, applied to the same line from the other side. Filling a form is
+        // not authoring; **copying text out is not authoring either**. Both
+        // verbs read the document and write somewhere that is not the document,
+        // and neither can change a byte of the file.
+        //
+        // # What forced it, and why the Edit tab was the wrong home
+        //
+        // The chord/mode gate landed the same day
+        // (`crate::app::modes::capability::offers_command`): a chord may reach a
+        // command the active mode **shows**, or one that lives on **no ordinary
+        // tab**. `Ctrl+Shift+C` is bound to the page-text copy, which sat on the
+        // Edit tab — a tab Read does not show — so Read refused it. Acrobat
+        // Reader copies text, and *replacing Acrobat Reader* is this project's
+        // stated goal for Read, so a Read that cannot copy is wrong about the
+        // one thing that mode exists to be. The gate SURFACED that; it did not
+        // cause it. The command had been on the wrong tab since the day it
+        // arrived there.
+        //
+        // # Why File ▸ Export rather than a new group or View
+        //
+        // The File tab is in every mode's tab list, so a command here is
+        // reachable from Read, Review and Edit without any exception list — the
+        // gate's own second clause never has to be invoked. And this group is
+        // the right group rather than merely an available one: `file.export_dxf`
+        // writes the page's geometry out to a file another program reads, and
+        // `file.export_form_data` writes the filled values out the same way.
+        // **Copying the page's text out is an export of content**, differing
+        // only in the destination — a clipboard rather than a path — which is a
+        // difference the labels carry and the caption does not need to.
+        //
+        // # Tokens 122 and 123, and the two gaps left behind
+        //
+        // New ids get new numbers in the `file.` block; 420 and 421 stay unused
+        // for the reason the header states and `edit.form_fill`'s vacated 430
+        // already demonstrates — a token is what a trace prints, and reusing one
+        // would make an old trace of a text copy read as whatever inherited its
+        // number. Gaps in the numbering are fine and expected.
+        //
+        // The `copy` icon, the `doc.pages` predicate and both tooltips come
+        // across unchanged: nothing about what these commands DO has moved, only
+        // where an operator finds them. `doc.pages` in particular is still the
+        // right predicate rather than `doc.open` — text is drawn on pages, and a
+        // legal `/Count 0` document has none to copy from.
+        command("file.copy_page_text", t::file_copy_page_text(), 122)
+            .with_icon("copy")
+            .enabled_when("doc.pages"),
+        command("file.copy_document_text", t::file_copy_document_text(), 123)
+            .with_icon("copy")
+            .enabled_when("doc.pages"),
         // ★ Print had no icon because the salvage source drew it with the
         // *stamp* glyph, and that was a mis-assignment rather than a
         // convention to carry — `stamp` means "a mark applied with a stamp"
@@ -268,10 +316,32 @@ fn all() -> Vec<Command> {
         command("file.fonts", t::file_fonts(), 141)
             .with_icon("fonts")
             .enabled_when("doc.open"),
-        // Settings and the shortcut list are always available: they are
-        // about pdfce, not about a document.
+        // Settings, the shortcut list and About are always available: they
+        // are about pdfce, not about a document.
         command("file.settings", t::file_settings(), 150).with_icon("settings"),
         command("file.shortcuts", t::file_shortcuts(), 151).with_icon("keyboard"),
+        // ★ `file.about` carries an OBLIGATION, not a courtesy: it is the
+        // in-application half of the attribution surface that shipping
+        // CC-BY-SA-4.0 OCR model weights requires, BY needing the notice to
+        // reach the RECIPIENT rather than a reader of the repository. The
+        // argument is in `crate::text::about`; the gate that keeps both
+        // halves true is `tools/gates/check-shipped-assets.py`.
+        command("file.about", t::file_about(), 152).with_icon("info"),
+        // ★ `file.ocr` — REGISTERED WITH NO ICON. The refusal's full argument
+        // is the `file.ocr` row of this module's header table; in one line, the
+        // icon directory is declared the operator's OWN ART, so a new glyph is
+        // not a build session's to add, and every available reuse would tell an
+        // operator the button does something it does not.
+        //
+        // `doc.pages` rather than `doc.open`: recognition needs a page to
+        // rasterize, and a document with none would open a dialog whose only
+        // possible outcome is a refusal.
+        //
+        // ★ On the FILE tab, where `RIBBON_IA.md` §5.7 says Tools. Read's tab
+        // list is `["file", "view"]`, so Tools would put OCR out of reach in
+        // the one mode the operator asked for it in. Argued in full in
+        // `super::manifest::tools`'s header.
+        command("file.ocr", t::file_ocr(), 160).enabled_when("doc.pages"),
         // ===================================================================
         // VIEW — tokens 200-299
         // ===================================================================
@@ -387,6 +457,54 @@ fn all() -> Vec<Command> {
             .enabled_when("doc.pages"),
         command("view.tool_hand", t::view_tool_hand(), 225)
             .with_icon("hand")
+            .enabled_when("doc.pages"),
+        // ★ **The text tool** — 2026-08-14, and it closes two things at once.
+        //
+        // Beside `view.tool_hand` because View ▸ Navigate is where the *other*
+        // pointer-tool toggle already lives, and because View is the one tab
+        // every mode is shown. Both halves of that matter: a tool is a mode the
+        // page is in rather than an action taken on it (which is why Navigate is
+        // its own group and not a fourth button in Zoom), and a command lives on
+        // exactly one tab — so a text tool on the **Edit** tab would be
+        // unreachable from Read and Review, which is the shape of mistake the
+        // operator has already had to correct twice (`edit.form_fill` →
+        // `view.panel_forms`, `edit.copy_page_text` → `file.copy_page_text`).
+        //
+        // What it closes:
+        //
+        // 1. `canvas::textsel::takes_the_press` gave a press its text meaning
+        //    only for the select tool in a mode that cannot select content, so
+        //    Read ✓, Review ✓, **Edit ✗** — a reviewer could sweep text and an
+        //    editor could not.
+        // 2. The three `markup.*` text-markup commands are drawn on the Markup
+        //    tab in Edit and could **never enable** there, because
+        //    `selection.text` was never true. That is a live tension with
+        //    `RIBBON_IA.md` P3 — greying is for *temporarily* unavailable — and
+        //    it was not fixable by hiding them, because the Markup tab is in both
+        //    Review and Edit and a command has one tab.
+        //
+        // ★ **The reference applications disagree here and Inkscape won.**
+        // Acrobat and SolidWorks resolve text-versus-object *contextually*
+        // inside one tool; only Inkscape uses a separate Text tool. The full
+        // argument is at `crate::canvas::tool::CanvasTool::Text` and is not
+        // restated here — in one line, an object marquee over *vector content*
+        // is a surface Acrobat does not have at all, so its contextual answer is
+        // not an answer to this conflict.
+        //
+        // **It arms a tool; it authors nothing**, so it takes no capability and
+        // `retire_forbidden` permits it in every mode. It renders **pressed**
+        // while armed through the same `selected:` convention `view.tool_hand`
+        // documents, published from `PdfceApp::conditions` — the step that was
+        // once forgotten for the measure tools and shipped a tool that armed
+        // without looking armed.
+        //
+        // `text-select` is a new glyph rather than a reuse of `add-text`: that
+        // one is this I-beam **plus a badge**, and the badge is the difference
+        // between creating text and selecting it. `doc.pages`, like every other
+        // entry in this group — a pointer tool with no page under it has nothing
+        // to point at.
+        command("view.tool_text", t::view_tool_text(), 226)
+            .with_icon("text-select")
             .enabled_when("doc.pages"),
         command("view.zoom_fit_page", t::view_zoom_fit_page(), 221)
             .with_icon("fit-page")
@@ -614,12 +732,16 @@ fn all() -> Vec<Command> {
         command("edit.insert_image", t::edit_insert_image(), 410)
             .with_icon("insert-image")
             .enabled_when("doc.pages"),
-        command("edit.copy_page_text", t::edit_copy_page_text(), 420)
-            .with_icon("copy")
-            .enabled_when("doc.pages"),
-        command("edit.copy_document_text", t::edit_copy_document_text(), 421)
-            .with_icon("copy")
-            .enabled_when("doc.pages"),
+        // `edit.copy_page_text` and `edit.copy_document_text` were here, tokens
+        // 420 and 421. They are now `file.copy_page_text` and
+        // `file.copy_document_text` in File ▸ Export — operator decision,
+        // 2026-08-14; see those registrations for the argument. Both numbers
+        // stay unused, exactly as 430 below does, and for the same reason.
+        //
+        // The Edit ▸ Clipboard group went with them, because those two were its
+        // only members and an empty group must not ship. `super::manifest`'s
+        // group count moved 32 → 31 with it.
+        //
         // `edit.form_fill` was here, token 430. It is now `view.panel_forms`
         // — see that registration. Token 430 stays unused rather than being
         // handed to the next Edit command: a token is what a trace prints,
@@ -696,9 +818,132 @@ fn all() -> Vec<Command> {
         command("markup.arrow", t::markup_arrow(), 502)
             .with_icon("shape-arrow")
             .enabled_when("doc.pages"),
+        // ★ **The three unblocked Phase 6 kinds** — Phase 6, 2026-08-14, moving
+        // out of `manifest::PLANNED`.
+        //
+        // `FEATURES.md` carried all three as *"engine-ready, but not drag-shaped;
+        // each needs its own gesture"* for the whole project, and that is exactly
+        // what they got: `canvas::markup::vertex` for the two click-shaped kinds
+        // and `canvas::markup::ink` for the freehand one. Nothing about the
+        // engine changed — `MarkupSpec::PolyLine`, `Polygon` and `Ink` have been
+        // there since Pass 6.1.
+        //
+        // # `doc.pages`, like the four kinds above and unlike the three below
+        //
+        // These **arm a tool**; they do not act. That is the line the enable
+        // predicate draws: a shape command is live wherever there is a page to
+        // draw on, and a *mark* command is live only when there is a selection to
+        // mark (`selection.text`). Getting that backwards would grey Polygon
+        // until something unrelated was selected.
+        //
+        // # The icons are three new glyphs, and two of them are one idea
+        //
+        // `shape-polyline` is `shape-polygon` with its closing segment removed,
+        // which is exactly how the two annotations differ (§12.5.6.13). Drawing
+        // them as a pair is what makes the band teachable: an operator who learns
+        // one has learned the other. `shape-ink` is deliberately *not* a reuse of
+        // `text-squiggly` — that one is a periodic wave in a band under two text
+        // lines and means "mark these words"; this one is an aperiodic full-tile
+        // stroke and means "the path your hand took". See
+        // `crate::icons::Icon::ShapePolyline` and its two siblings.
+        command("markup.polyline", t::markup_polyline(), 503)
+            .with_icon("shape-polyline")
+            .enabled_when("doc.pages"),
+        command("markup.polygon", t::markup_polygon(), 504)
+            .with_icon("shape-polygon")
+            .enabled_when("doc.pages"),
+        command("markup.ink", t::markup_ink(), 505)
+            .with_icon("shape-ink")
+            .enabled_when("doc.pages"),
+        // ★ **Finish shape** — the ribbon half of the vertex tools' ending, and
+        // `measure.finish`'s twin in every respect that matters.
+        //
+        // Polyline and Polygon are the only markup gestures with no natural end:
+        // a band drag ends when the button comes up and a freehand stroke ends
+        // the same way, but a run of clicks does not end itself. The operator
+        // settled that shape of problem on 2026-08-14 for the radius/diameter
+        // tool — **two endings through one commit path** — and this is that
+        // answer applied to the second tool with the same problem, deliberately
+        // rather than inventing a third. A double-click on the canvas is the
+        // ending most operators will use; this is the discoverable one, and the
+        // one that works when the last corner sits somewhere awkward to
+        // double-click.
+        //
+        // # Why `markup.finishable` and not `doc.pages`
+        //
+        // Because a Finish that is always enabled is a control that does nothing
+        // on almost every press, and P3 reserves greying for *temporarily
+        // unavailable* — which is exactly what this is. The predicate is the same
+        // question the arm asks (`canvas::markup::vertex::finishable`, one
+        // derivation shared with `vertex::finish`), so the control is live
+        // precisely when pressing it would author an annotation.
+        //
+        // It is also where the polygon/polyline difference becomes visible: a
+        // polygon needs three vertices where a polyline needs two, so after two
+        // clicks this control is live for one tool and greyed for the other. The
+        // operator is told the rule before they press, rather than refused after.
+        //
+        // # No icon, and it is the same deliberate refusal `measure.finish` makes
+        //
+        // There is no check-mark, tick or accept glyph in the set, and no
+        // existing key means "complete this gesture". Reusing one of the three
+        // shape glyphs would draw a fourth near-identical shape in the same band
+        // for a command that draws nothing — it *ends* the drawing — and would
+        // undermine the pairing argument the polyline/polygon glyphs above rest
+        // on. Naming a key that does not exist draws a visible slashed mark,
+        // which is a placeholder arriving through the back door. So it renders as
+        // its words, which for a completion verb is the clearest thing it could
+        // be.
+        command("markup.finish", t::markup_finish(), 506).enabled_when("markup.finishable"),
         command("markup.highlight", t::markup_highlight(), 510)
             .with_icon("shape-highlight")
             .enabled_when("doc.pages"),
+        // ★ **The three text-markup kinds** — Phase 6, 2026-08-14, moving out of
+        // `manifest::PLANNED`.
+        //
+        // # Why `selection.text` and not `doc.pages`
+        //
+        // Because these three do not arm a tool: they act **at once**, on the
+        // text selection the operator has already made
+        // (`canvas::markup::text` §1, which records that this is Acrobat's
+        // model and why it was chosen over arm-then-sweep). A control gated on
+        // `doc.pages` would therefore be live on every open document and would
+        // do nothing on almost every press — which is what `RIBBON_IA.md` P3
+        // forbids and what `measure.finish` set the precedent for answering with
+        // a condition of its own.
+        //
+        // The predicate is the same question the dispatch arm asks, so the
+        // control cannot be enabled while pressing it would decline: `conditions`
+        // publishes `selection.text` from a **live** selection on the open
+        // document, and `markup::text::mark` refuses anything else.
+        //
+        // # ★ Where they are reachable, which is narrower than the tab suggests
+        //
+        // **Review, and Review alone.** Read cannot author markup (its tab list
+        // is File and View, so the Markup tab is not there at all), and Edit
+        // cannot make a text selection (its primary button is the content
+        // marquee — `canvas::textsel::takes_the_press`), so in Edit these three
+        // are drawn and permanently greyed. That is an inversion, it is
+        // recorded rather than smoothed over, and it closes the day
+        // `CanvasTool::Text` lands. See `canvas::markup::text` §2.
+        //
+        // # The icons
+        //
+        // Three new glyphs rather than a reuse of `shape-highlight`: the four
+        // controls in the Text markup band differ *only* in the mark they draw,
+        // so a shared glyph would make the band four identical buttons with
+        // four different words — the exact opposite of the "family shares a
+        // glyph" convention this module's header describes, which is for
+        // commands whose difference is carried by the label.
+        command("markup.underline", t::markup_underline(), 511)
+            .with_icon("text-underline")
+            .enabled_when("selection.text"),
+        command("markup.strikeout", t::markup_strikeout(), 512)
+            .with_icon("text-strikeout")
+            .enabled_when("selection.text"),
+        command("markup.squiggly", t::markup_squiggly(), 513)
+            .with_icon("text-squiggly")
+            .enabled_when("selection.text"),
         command("markup.text_box", t::markup_text_box(), 520)
             .with_icon("text-freetext")
             .enabled_when("doc.pages"),
@@ -720,6 +965,53 @@ fn all() -> Vec<Command> {
         command("measure.radius_diameter", t::measure_radius_diameter(), 601)
             .with_icon("measure")
             .enabled_when("doc.pages"),
+        // Registered as part of Phase 7, moving out of `manifest::PLANNED`.
+        //
+        // It shares the `measure` glyph with Linear and Radius/diameter rather
+        // than getting a third: all three place a dimension, and what differs
+        // is what they measure *from* — two clicked points, an arc, or two
+        // lines already on the drawing. That distinction is what the label
+        // says, and drawing three near-identical rulers would make the group
+        // harder to read rather than easier.
+        command("measure.two_line", t::measure_two_line(), 602)
+            .with_icon("measure")
+            .enabled_when("doc.pages"),
+        // ★ **Finish** — the ribbon half of the radius/diameter tool's ending.
+        //
+        // The radius/diameter gesture is the only one on this tab with no
+        // natural end: Linear finishes at three clicks and Two-line at two,
+        // because both are picks of a known arity, and a best-fit circle is
+        // finished when the operator says it is. A double-click on the canvas
+        // is the other half of the answer and is the one most operators will
+        // use; this is the discoverable one, and the one that works when the
+        // last picked arc is somewhere awkward to double-click.
+        //
+        // # Why `measure.finishable` and not `doc.pages`
+        //
+        // Because a Finish that is always enabled is a control that does
+        // nothing on almost every press, and P3 reserves greying for
+        // *temporarily unavailable* — which is exactly what this is. The
+        // predicate is the same question the arm asks
+        // (`canvas::measure::finishable`, one derivation shared with
+        // `canvas::measure::finish`), so the control is live precisely when
+        // pressing it would author a dimension: the circular tool armed, a pick
+        // set on the page, and a fit that is not degenerate. Two picked arcs on
+        // a straight line leave it greyed, correctly — there is no circle in
+        // them to commit.
+        //
+        // # No icon, and it is a deliberate refusal
+        //
+        // There is no check-mark, tick or accept glyph in the set, and no
+        // existing key means "complete this gesture". Reusing `measure` — the
+        // key the three tools share — would draw a fourth identical ruler in
+        // the same group and undermine the very argument the two-line
+        // registration above makes for sharing it: the family shares a glyph
+        // because all three *place a dimension*, and this one places nothing,
+        // it ends the placing. Naming a key that does not exist draws a visible
+        // slashed mark, which is a placeholder arriving through the back door.
+        // So it renders as its word, which for a one-word completion verb is
+        // the clearest thing it could be.
+        command("measure.finish", t::measure_finish(), 603).enabled_when("measure.finishable"),
         // `set-scale` is the conversion glyph the icon ui-spec §8.2 assigned
         // — two arrows chasing each other round a circle. Deliberately not a
         // third `measure`: this command measures nothing, it changes what
@@ -800,500 +1092,4 @@ fn all() -> Vec<Command> {
         command("mode.review", t::mode_review(), 901),
         command("mode.edit", t::mode_edit(), 902),
     ]
-}
-
-/// ★ **The command id that names a page-display mode**, and its inverse.
-///
-/// One binding between [`crate::viewer::PageDisplay`] and the ribbon, written
-/// down once. The two directions are used by different surfaces and would drift
-/// apart if each spelled the mapping for itself:
-///
-/// * `crate::app::dispatch` turns an invoked command into a mode;
-/// * `PdfceApp::conditions` turns the active mode into the `selected:`
-///   condition that makes its ribbon button render pressed.
-///
-/// It lives here rather than on the enum for the reason the enum's own
-/// `id`/`from_id` pair lives *there*: `viewer` must not know what a ribbon is.
-/// `viewer::PageDisplay::id` is the **on-disk** spelling and this is the
-/// **command** spelling, and keeping them separate is what lets either change
-/// without silently rewriting the other's files.
-///
-/// [`tests::every_page_display_mode_has_a_registered_command`] asserts both
-/// directions against the live registry, so a fifth mode that is added and not
-/// registered fails the suite rather than becoming a mode with no control.
-#[must_use]
-pub fn page_display_command(display: crate::viewer::PageDisplay) -> &'static str {
-    use crate::viewer::PageDisplay as D;
-    match display {
-        // ui-text-exempt: command ids, never displayed
-        D::Single => "view.page_single",
-        // ui-text-exempt: command ids, never displayed
-        D::Continuous => "view.page_continuous",
-        // ui-text-exempt: command ids, never displayed
-        D::Facing => "view.page_facing",
-        // ui-text-exempt: command ids, never displayed
-        D::FacingContinuous => "view.page_facing_continuous",
-    }
-}
-
-/// The page-display mode `id` names, or `None` if it names none.
-///
-/// The inverse of [`page_display_command`], derived from it rather than
-/// written out a second time — so the two cannot disagree even in principle.
-#[must_use]
-pub fn page_display_for_command(id: &str) -> Option<crate::viewer::PageDisplay> {
-    crate::viewer::PageDisplay::ALL
-        .iter()
-        .copied()
-        .find(|&m| page_display_command(m) == id)
-}
-
-/// ★ **The command id that names a piece of View ▸ Display chrome**, and its
-/// inverse.
-///
-/// Exactly the shape [`page_display_command`] has, and here for exactly the
-/// same reasons: two surfaces need the mapping in opposite directions —
-/// `crate::app::dispatch` turns an invoked command into a
-/// [`crate::app::actions::ViewChrome`], and `PdfceApp::conditions` turns each
-/// toggle's state into the `selected:` condition that renders its button
-/// pressed — and a mapping spelled twice is a mapping that drifts.
-///
-/// The difference from the page-display pair is that these three are
-/// **independent toggles rather than a radio**: all, none or any two may be
-/// on at once, so `conditions` publishes between zero and three of these
-/// conditions where it publishes exactly one page-display condition. That is
-/// the whole of what makes them read as three switches instead of one
-/// three-position control.
-#[must_use]
-pub fn chrome_command(chrome: crate::app::actions::ViewChrome) -> &'static str {
-    use crate::app::actions::ViewChrome as C;
-    match chrome {
-        // ui-text-exempt: command ids, never displayed
-        C::Rulers => "view.rulers",
-        // ui-text-exempt: command ids, never displayed
-        C::Grid => "view.grid",
-        // ui-text-exempt: command ids, never displayed
-        C::Guides => "view.guides",
-    }
-}
-
-/// The chrome toggle `id` names, or `None` if it names none.
-///
-/// Derived from [`chrome_command`] rather than written out a second time, so
-/// the two cannot disagree even in principle.
-#[must_use]
-pub fn chrome_for_command(id: &str) -> Option<crate::app::actions::ViewChrome> {
-    crate::app::actions::ViewChrome::ALL
-        .iter()
-        .copied()
-        .find(|&c| chrome_command(c) == id)
-}
-
-/// The command id that arms `kind`.
-///
-/// The **single** binding between a `markup.*` id and a
-/// [`crate::canvas::markup::MarkupKind`], in the shape [`chrome_command`]
-/// established and for the same reason: a match here plus a derived inverse
-/// cannot disagree, where two hand-written tables can.
-///
-/// ## Why these four and not the ten `RIBBON_IA.md` §5.5 names
-///
-/// [`crate::canvas::markup::MarkupKind`] enumerates what the rubber-band
-/// gesture can draw and the engine can author — nothing else. Underline,
-/// strikeout and squiggly mark **text** and need a text-selection gesture
-/// that does not exist; polygon, polyline and ink are not drag-shaped;
-/// clouds are blocked on `MarkupSpec::Cloud`, which pdfce accepted on
-/// 2026-08-14 and has not started.
-///
-/// Declaring the other six here early would put six dead arms in a type
-/// whose job is to say what the tool is doing — the same argument the old
-/// shell made about its own tool enum, applied at the gesture boundary.
-/// They arrive with the gestures that can draw them.
-#[must_use]
-pub fn markup_command(kind: crate::canvas::markup::MarkupKind) -> &'static str {
-    use crate::canvas::markup::MarkupKind as K;
-    match kind {
-        // ui-text-exempt: command ids, never displayed
-        K::Rectangle => "markup.rectangle",
-        // ui-text-exempt: command ids, never displayed
-        K::Ellipse => "markup.ellipse",
-        // ui-text-exempt: command ids, never displayed
-        K::Arrow => "markup.arrow",
-        // ui-text-exempt: command ids, never displayed
-        K::Highlight => "markup.highlight",
-    }
-}
-
-/// The markup kind `id` arms, or `None` if it names none.
-///
-/// Derived from [`markup_command`] rather than written out a second time, so
-/// the two cannot disagree even in principle.
-#[must_use]
-pub fn markup_for_command(id: &str) -> Option<crate::canvas::markup::MarkupKind> {
-    crate::canvas::markup::MarkupKind::ALL
-        .iter()
-        .copied()
-        .find(|&k| markup_command(k) == id)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use egui_shell::commands::ConditionSet;
-    use std::collections::BTreeSet;
-
-    fn registry() -> CommandRegistry {
-        let mut reg = CommandRegistry::new();
-        register(&mut reg);
-        reg
-    }
-
-    /// Registration succeeds and produces the documented count.
-    ///
-    /// The number is quoted in this module's header and in
-    /// `super::manifest`'s, and a silent drift makes both wrong.
-    #[test]
-    fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 88);
-    }
-
-    /// ★ **Every chrome toggle has a registered command, and every one of
-    /// those commands names a toggle.**
-    ///
-    /// The twin of [`every_page_display_mode_has_a_registered_command`], and
-    /// it catches the same failure: a fourth toggle added to
-    /// [`crate::app::actions::ViewChrome`] with no registration would be a
-    /// piece of chrome no operator could reach, and nothing else in the suite
-    /// would notice. Asserted against the **live registry** rather than
-    /// against the mapping's own table, which is the difference between the
-    /// code agreeing with itself and the control existing.
-    #[test]
-    fn every_chrome_toggle_has_a_registered_command() {
-        let reg = registry();
-        for &chrome in crate::app::actions::ViewChrome::ALL {
-            let id = chrome_command(chrome);
-            assert!(
-                reg.get(id).is_some(),
-                "`{id}` names {chrome:?} and is not registered"
-            );
-            assert_eq!(chrome_for_command(id), Some(chrome), "round trip");
-        }
-        let mut ids: Vec<&str> = crate::app::actions::ViewChrome::ALL
-            .iter()
-            .map(|&c| chrome_command(c))
-            .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), crate::app::actions::ViewChrome::ALL.len());
-        // …and the two mappings do not overlap, which is what keeps a
-        // page-display click from toggling a ruler.
-        assert_eq!(chrome_for_command("view.page_single"), None);
-        assert_eq!(page_display_for_command("view.rulers"), None);
-    }
-
-    /// ★ **Every markup kind the canvas can draw has a registered command,
-    /// and no other mapping claims a `markup.*` id.**
-    ///
-    /// The third of this family, and the one with the most room to go wrong,
-    /// because the kinds and the commands were built by different hands: the
-    /// canvas enumerates what the *gesture* can draw, the manifest enumerates
-    /// what `RIBBON_IA.md` §5.5 *names*, and those two sets are deliberately
-    /// different sizes today — ten names, four kinds. This asserts the four
-    /// are a genuine subset and reach real controls, not that the sets match.
-    ///
-    /// The failure it exists to catch is a fifth kind added to `MarkupKind`
-    /// with no registration: a tool an operator could not arm, which is
-    /// precisely the class of half-built surface `panels`' header is about.
-    /// Asserted against the **live registry** rather than the mapping's own
-    /// table — the difference between the code agreeing with itself and the
-    /// control existing.
-    #[test]
-    fn every_markup_kind_has_a_registered_command() {
-        let reg = registry();
-        for &kind in crate::canvas::markup::MarkupKind::ALL {
-            let id = markup_command(kind);
-            assert!(
-                reg.get(id).is_some(),
-                "`{id}` names {kind:?} and is not registered"
-            );
-            assert_eq!(markup_for_command(id), Some(kind), "round trip");
-        }
-        let mut ids: Vec<&str> = crate::canvas::markup::MarkupKind::ALL
-            .iter()
-            .map(|&k| markup_command(k))
-            .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(
-            ids.len(),
-            crate::canvas::markup::MarkupKind::ALL.len(),
-            "two kinds sharing one id would arm the wrong tool from one button"
-        );
-        // …and no other mapping answers to a markup id, nor this one to
-        // theirs. The dispatch arm for markup is a GUARD arm — `id if
-        // markup_for_command(id).is_some()` — so an overlap here would not
-        // merely confuse a lookup, it would swallow another command's arm
-        // entirely, and the arm it swallowed would simply stop happening.
-        assert_eq!(markup_for_command("view.rulers"), None);
-        assert_eq!(markup_for_command("view.tool_hand"), None);
-        assert_eq!(markup_for_command("markup.comments"), None);
-        assert_eq!(chrome_for_command("markup.rectangle"), None);
-        assert_eq!(page_display_for_command("markup.rectangle"), None);
-    }
-
-    /// ★ **Every page-display mode has a registered command, and every one of
-    /// those commands names a mode.**
-    ///
-    /// Both directions, against the **live registry** rather than against the
-    /// mapping's own table — which is the difference between asserting the
-    /// code agrees with itself and asserting that the control exists. The
-    /// failure this catches is a fifth mode added to the enum with no
-    /// registration: the ribbon would draw three buttons, the fourth would be
-    /// unreachable, and nothing else in the suite would notice.
-    #[test]
-    fn every_page_display_mode_has_a_registered_command() {
-        let reg = registry();
-        for &mode in crate::viewer::PageDisplay::ALL {
-            let id = page_display_command(mode);
-            assert!(
-                reg.get(id).is_some(),
-                "`{id}` names {mode:?} and is not registered"
-            );
-            assert_eq!(page_display_for_command(id), Some(mode), "round trip");
-        }
-        // …and the ids are distinct, which the round trip alone would not
-        // prove if two modes shared one command.
-        let mut ids: Vec<&str> = crate::viewer::PageDisplay::ALL
-            .iter()
-            .map(|&m| page_display_command(m))
-            .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), crate::viewer::PageDisplay::ALL.len());
-        assert_eq!(page_display_for_command("view.zoom_actual"), None);
-    }
-
-    /// **★ No two commands share a handler token.**
-    ///
-    /// The shell explicitly permits it — two ids may share a token if the
-    /// application wants two names for one handler — which is exactly why
-    /// this needs asserting on *our* side. pdfce has no such pair, so a
-    /// collision here is a typo in a hand-assigned number, and its symptom
-    /// would be one command silently doing another's work. Nothing else in
-    /// the system can detect that.
-    #[test]
-    fn every_handler_token_is_unique() {
-        let mut seen: BTreeSet<u64> = BTreeSet::new();
-        for command in registry().iter() {
-            assert!(
-                seen.insert(command.handler.get()),
-                "handler token {} is assigned twice; `{}` collides with an earlier command",
-                command.handler.get(),
-                command.id
-            );
-        }
-    }
-
-    /// Handler tokens sit in their tab's hundred-block.
-    ///
-    /// The blocks are what make a collision improbable in the first place
-    /// and what makes a raw token in a trace readable — `4xx` is an Edit
-    /// command without looking anything up. A number in the wrong block is
-    /// how the next one gets assigned on top of an existing command.
-    #[test]
-    fn every_handler_token_is_in_its_tabs_block() {
-        let blocks = [
-            ("file.", 100),
-            ("view.", 200),
-            ("pages.", 300),
-            ("edit.", 400),
-            ("markup.", 500),
-            ("measure.", 600),
-            ("tools.", 700),
-            ("format.", 800),
-            ("mode.", 900),
-        ];
-        for command in registry().iter() {
-            let (prefix, base) = blocks
-                .iter()
-                .find(|(p, _)| command.id.starts_with(p))
-                .unwrap_or_else(|| panic!("`{}` has no known prefix", command.id));
-            let token = command.handler.get();
-            assert!(
-                (*base..base + 100).contains(&token),
-                "`{}` has token {token}, outside the `{prefix}` block {base}..{}",
-                command.id,
-                base + 100
-            );
-        }
-    }
-
-    /// Every enable condition is one of the five documented names.
-    ///
-    /// A predicate naming a condition the application never publishes is a
-    /// command that is permanently greyed — and it fails silently, because
-    /// an unset condition and a false condition are the same value. The
-    /// vocabulary is small on purpose; this is what keeps it small.
-    #[test]
-    fn every_predicate_names_a_documented_condition() {
-        const KNOWN: &[&str] = &[
-            "doc.open",
-            "doc.pages",
-            "undo.available",
-            "redo.available",
-            "selection.any",
-            // Not a refinement of `selection.any` — see `PdfceApp::conditions`.
-            // A selection can exist and resolve to no box.
-            "selection.bounds",
-        ];
-        for command in registry().iter() {
-            if let egui_shell::commands::Enable::When(name) = &command.enable {
-                let bare = name.strip_prefix('!').unwrap_or(name);
-                assert!(
-                    KNOWN.contains(&bare),
-                    "`{}` waits on `{name}`, which is not a published condition",
-                    command.id
-                );
-            }
-        }
-    }
-
-    /// **With no document open, only the commands that make sense without
-    /// one are available.**
-    ///
-    /// The headless equivalent of launching pdfce and looking at the
-    /// ribbon. It is asserted as an exact set rather than a count, because
-    /// the interesting failure is a *specific* command escaping its
-    /// predicate — `pages.delete` live with nothing open — and a count
-    /// would pass as long as some other command lost one.
-    #[test]
-    fn with_no_document_only_the_document_free_commands_are_enabled() {
-        let nothing = ConditionSet::new();
-        let reg = registry();
-        let live: BTreeSet<&str> = reg
-            .iter()
-            .filter(|c| c.is_enabled(&nothing))
-            .map(|c| c.id.as_str())
-            .collect();
-
-        let expected: BTreeSet<&str> = [
-            "file.open",
-            // Available with nothing open, like `file.open`, and for the same
-            // reason: it is how you GET a document. Its own control greys
-            // itself when the list is empty — see the registration's comment
-            // on why that rule lives with the menu rather than in a sixth
-            // published condition.
-            "file.recent",
-            "file.settings",
-            "file.shortcuts",
-            "mode.edit",
-            "mode.read",
-            "mode.review",
-            "tools.font_folders",
-            "tools.merge_files",
-            "tools.split_files",
-            "view.app_initiative",
-            "view.floating_panels",
-            "view.fullscreen",
-            "view.read_mode",
-            "view.render_antialias",
-            "view.render_quality",
-            "view.render_settle",
-            "view.render_strategy",
-            "view.render_thin_lines",
-            "view.reset_layout",
-            "view.sidebar",
-        ]
-        .into_iter()
-        .collect();
-
-        assert_eq!(live, expected);
-    }
-
-    /// A document with no pages is a legal document, and it must not arm
-    /// anything that acts on a page.
-    ///
-    /// `/Count 0` is valid PDF. pdfce opens such a file and says "This
-    /// document has no pages" rather than reporting a failure — so the
-    /// condition set it publishes has `doc.open` and not `doc.pages`, and
-    /// this asserts the consequence.
-    #[test]
-    fn an_empty_document_arms_nothing_that_needs_a_page() {
-        let empty_doc = ConditionSet::new().with("doc.open");
-        let reg = registry();
-        for id in [
-            "pages.rotate_left",
-            "pages.delete",
-            "edit.text",
-            "markup.rectangle",
-            "measure.linear",
-            "view.zoom_fit_page",
-        ] {
-            assert!(
-                !reg.get(id).expect("registered").is_enabled(&empty_doc),
-                "`{id}` acts on a page and must not be armed by a document with none"
-            );
-        }
-        // …while the document-level commands are live, because there is a
-        // document: its properties, its fonts and its metadata all exist.
-        for id in ["file.properties", "file.fonts", "file.close"] {
-            assert!(reg.get(id).expect("registered").is_enabled(&empty_doc));
-        }
-    }
-
-    /// Undo and redo are the canonical *temporarily* unavailable pair.
-    #[test]
-    fn undo_and_redo_follow_their_stacks() {
-        let reg = registry();
-        let undo = reg.get("edit.undo").expect("registered");
-        let redo = reg.get("edit.redo").expect("registered");
-        let nothing = ConditionSet::new();
-        assert!(!undo.is_enabled(&nothing));
-        assert!(!redo.is_enabled(&nothing));
-        assert!(undo.is_enabled(&ConditionSet::new().with("undo.available")));
-        assert!(redo.is_enabled(&ConditionSet::new().with("redo.available")));
-        // And each has a tooltip, which is what P3 requires of anything
-        // that can be greyed.
-        assert!(undo.tooltip.is_some());
-        assert!(redo.tooltip.is_some());
-    }
-
-    /// Every registered command has a tooltip.
-    ///
-    /// The catalog type makes this structurally true, so the test is
-    /// guarding the *wiring*: a command built with `Command::new` and
-    /// never given `.with_tooltip` would compile.
-    #[test]
-    fn every_command_has_a_tooltip() {
-        for command in registry().iter() {
-            assert!(
-                command
-                    .tooltip
-                    .as_ref()
-                    .is_some_and(|t| !t.trim().is_empty()),
-                "`{}` has no tooltip; greying it would be unexplainable",
-                command.id
-            );
-        }
-    }
-
-    /// Icon keys are lower-case kebab, matching the salvaged icon set's
-    /// naming.
-    ///
-    /// A key that does not match the set's spelling resolves to nothing at
-    /// run time and renders as a missing glyph — a placeholder arriving
-    /// through the back door, and one that no headless test would
-    /// otherwise see.
-    #[test]
-    fn icon_keys_are_kebab_case() {
-        for command in registry().iter() {
-            let Some(icon) = &command.icon else { continue };
-            assert!(
-                icon.chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
-                "`{}` names icon `{icon}`, which is not lower-case kebab",
-                command.id
-            );
-        }
-    }
 }

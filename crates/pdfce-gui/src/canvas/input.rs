@@ -111,6 +111,34 @@ pub(super) fn store_gesture(ctx: &egui::Context, gestures: GestureState) {
     ctx.data_mut(|d| d.insert_temp(id, gestures));
 }
 
+/// **Abandon a gesture in flight without committing it**, reporting whether
+/// there was one.
+///
+/// The programmatic equivalent of the operator pressing Escape mid-drag, and it
+/// has exactly one caller: `PdfceApp::on_mode_capabilities_changed`, honouring
+/// `MODES_AND_PANELS.md` rule 1 — *"If a mode change would hide a pending,
+/// uncommitted gesture … that gesture is committed or cancelled first."*
+///
+/// **Cancelled rather than committed**, which is the half of that sentence this
+/// function chooses. The operator asked for a mode; they did not ask for the
+/// half-drawn rectangle their pointer happens to be holding, and committing one
+/// on their behalf would author an annotation nobody typed. Discarding the
+/// state is all that is needed for that to be true — a markup is written only
+/// by `Action::CommitMarkup`, which none of this raises, and a move ghost is a
+/// preview that has changed nothing.
+///
+/// Written by *replacing* the stored state rather than by driving `update` with
+/// a `cancel` frame: there is no frame here to drive it with, and
+/// `GestureOutcome::Cancelled` exists to tell the key handler that Escape was
+/// spent — a fact with no meaning outside the frame that produced it.
+pub(crate) fn abandon_gesture(ctx: &egui::Context) -> bool {
+    let had_one = load_gesture(ctx).active().is_some();
+    if had_one {
+        store_gesture(ctx, GestureState::default());
+    }
+    had_one
+}
+
 /// The pointer movement of an in-progress pan over this canvas, or `None` when
 /// no pan is happening.
 ///

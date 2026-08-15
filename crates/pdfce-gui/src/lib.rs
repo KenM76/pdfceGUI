@@ -72,6 +72,13 @@ pub mod find;
 // the painter `egui-shell`'s ribbon calls back into. Supplying that painter
 // is what stops the ribbon falling back to text labels — see `icons::paint`.
 pub mod icons;
+// OCR: what image the recogniser is shown, the thread it runs on, and the
+// named refusals it can come back with. It authors no PDF — `pdfce-core`'s
+// `ocr::layer` writes the invisible mode-3 sandwich and this shell is that
+// function's first caller anywhere. See OCR's own header for why recognition
+// reads the document as it was OPENED, and for the y-flip it deliberately does
+// not perform.
+pub mod ocr;
 // The dock's panel bodies — Bookmarks, Layers, Signatures, Fonts, Objects and
 // the properties panel. See PANELS' own header for the reachability contract
 // every one of them has to satisfy.

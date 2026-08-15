@@ -950,7 +950,8 @@ fn kind_label(kind: &BoxKind) -> &'static str {
 /// puts on screen for a field that is not being edited — see the module header
 /// §3 on why rule 4 permits a cursor and forbids a tint.
 ///
-/// Set here, before [`crate::canvas::interact`] runs, so
+/// Set here, before
+/// [`crate::canvas::interact`](crate::canvas::interact::interact) runs, so
 /// [`crate::canvas::tool::cursor_for`] still has the last word: with the select
 /// tool it has no opinion and this survives, and where it does have one — an
 /// in-flight drag, a hovered resize grip — that opinion is about a gesture

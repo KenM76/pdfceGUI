@@ -138,6 +138,58 @@ pub trait CanvasTargetProvider {
     /// Empty for an object with no part rung at all (an image), which is why
     /// the ladder caps itself at the Object rung for images by construction
     /// rather than by a check.
+    /// The page's decomposed geometry, for a consumer that needs the model
+    /// itself rather than a hit test over it.
+    ///
+    /// ★ **The one consumer is the two-line measure tool**, whose pick is
+    /// `pdfce_core::vector::linepick::pick_line_in_page` — a query this trait
+    /// deliberately does not wrap. Wrapping it would put a *second* line-pick
+    /// rule in the shell beside the engine's, and the whole point of the
+    /// two-line dimension is that the shell and `pdfce-cli dimension-add`
+    /// resolve the same click to the same line.
+    ///
+    /// `None` is a real answer, not a failure: a provider that has no
+    /// `PageObjects` for `page_index` (the test double has none at all) simply
+    /// cannot be asked, and the caller's correct response is to take no pick
+    /// rather than to substitute one.
+    fn page_objects_model(&self, page_index: usize) -> Option<&pdfce_core::vector::PageObjects> {
+        let _ = page_index;
+        None
+    }
+
+    /// One object's page-space anchor samples — **the circular measure tool's
+    /// fit input**, and the only query on this trait whose result is not
+    /// canvas space.
+    ///
+    /// ★ **PDF user space, deliberately**, where every other geometric value
+    /// crossing this trait is canvas space. The reason is the same one that
+    /// keeps the two-line pick going through
+    /// [`Self::page_objects_model`]: these points are handed straight to
+    /// [`fit_circle_taubin`](pdfce_core::dimension::fit_circle_taubin), which
+    /// is the **engine's** fit, and the engine works in PDF user space. A
+    /// canvas-space sample set would have to be converted back before the fit,
+    /// which is a second Y-flip in a shell whose header says there is exactly
+    /// one. The provider already stores its `PageObjects` in that frame, so
+    /// this is a read rather than a conversion.
+    ///
+    /// Empty is a real answer and the common one: a text, image or form object
+    /// carries no anchors — the same exclusion the snap engine applies — and so
+    /// does a query about a page this provider does not serve or an index it
+    /// does not have. A caller that must distinguish those is asking the wrong
+    /// object; the *canvas* knows which page it drew.
+    ///
+    /// **A provided method returning nothing**, so a future provider over
+    /// annotations or placed dimensions does not have to invent anchors for
+    /// objects that have none in order to compile.
+    fn object_sample_points(
+        &self,
+        page_index: usize,
+        index: usize,
+    ) -> Vec<pdfce_core::vector::Point> {
+        let _ = (page_index, index);
+        Vec::new()
+    }
+
     fn part_hits(
         &self,
         page_index: usize,
@@ -196,8 +248,29 @@ pub trait CanvasTargetProvider {
 /// index space, which is the same class of error the `TargetId` newtype
 /// exists to prevent — and the guard costs one comparison.
 impl CanvasTargetProvider for ObjectModelProvider {
+    /// The real model. Guarded on the page, because this provider decomposes
+    /// exactly one page and answering for another would hand the measure tool
+    /// geometry from a different sheet.
+    fn page_objects_model(&self, page_index: usize) -> Option<&pdfce_core::vector::PageObjects> {
+        (page_index == self.page_index()).then(|| self.page_objects())
+    }
+
     fn hit_test_all(&self, page_index: usize, point: Pos2, tolerance: f64) -> Vec<TargetId> {
         Self::hit_test_all(self, page_index, point, tolerance)
+    }
+
+    /// The real samples, guarded on the page for the reason the block's own
+    /// docs give: the provider decomposes exactly one page, and answering for
+    /// another would fit a circle to a different sheet's geometry.
+    fn object_sample_points(
+        &self,
+        page_index: usize,
+        index: usize,
+    ) -> Vec<pdfce_core::vector::Point> {
+        if page_index != self.page_index() {
+            return Vec::new();
+        }
+        Self::object_sample_points(self, index)
     }
 
     fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
@@ -271,6 +344,16 @@ pub struct StubTargets {
     /// Optional per-object part rects, in part order. An object with no
     /// entry has no parts — the image case.
     pub parts: std::collections::BTreeMap<usize, Vec<Rect>>,
+    /// Optional per-object anchor samples, in **PDF user space** — the
+    /// circular measure tool's fit input.
+    ///
+    /// Absent for an object means *"carries no fit geometry"*, which is the
+    /// text/image case the real provider answers the same way. Stated
+    /// explicitly rather than derived from [`Self::objects`] because that
+    /// distinction is precisely what `measure::circular::click` refuses on, and
+    /// a stub that manufactured four corners for every object could not
+    /// express the refusal at all.
+    pub samples: std::collections::BTreeMap<usize, Vec<pdfce_core::vector::Point>>,
 }
 
 #[cfg(test)]
@@ -281,6 +364,7 @@ impl StubTargets {
             page,
             objects: objects.into_iter().collect(),
             parts: std::collections::BTreeMap::new(),
+            samples: std::collections::BTreeMap::new(),
         }
     }
 
@@ -288,6 +372,18 @@ impl StubTargets {
     #[must_use]
     pub fn with_parts(mut self, object: usize, parts: impl IntoIterator<Item = Rect>) -> Self {
         self.parts.insert(object, parts.into_iter().collect());
+        self
+    }
+
+    /// Give `object` some page-space anchor samples — what makes it pickable
+    /// by the circular measure tool.
+    #[must_use]
+    pub fn with_samples(
+        mut self,
+        object: usize,
+        samples: impl IntoIterator<Item = pdfce_core::vector::Point>,
+    ) -> Self {
+        self.samples.insert(object, samples.into_iter().collect());
         self
     }
 
@@ -320,6 +416,17 @@ impl CanvasTargetProvider for StubTargets {
             // Paint order is back to front; the contract is front-most first.
             .rev()
             .collect()
+    }
+
+    fn object_sample_points(
+        &self,
+        page_index: usize,
+        index: usize,
+    ) -> Vec<pdfce_core::vector::Point> {
+        if page_index != self.page {
+            return Vec::new();
+        }
+        self.samples.get(&index).cloned().unwrap_or_default()
     }
 
     fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {

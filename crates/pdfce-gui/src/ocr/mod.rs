@@ -1,0 +1,851 @@
+//! # `ocr` — turning the page on screen into an invisible, searchable text layer
+//!
+//! This module is the **shell's half** of OCR: it decides *what image the
+//! recogniser sees*, runs the job off the UI thread, and hands back either a
+//! finished document and a disclosure report, or a named refusal. It authors
+//! no PDF syntax of any kind — `pdfce_core::ocr::layer` does all of that, and
+//! this module exists partly to make sure nobody re-implements it here.
+//!
+//! ## The pipeline, and which crate owns each step
+//!
+//! | # | Step | Owner |
+//! |---|---|---|
+//! | 1 | refuse early — no engine, no models, unsaved edits, no such page | **this module** |
+//! | 2 | rasterize the page at [`fitted_dpi`] | `pdfce-render` |
+//! | 3 | RGBA → 8-bit greyscale | **this module** ([`greyscale`]) |
+//! | 4 | detect words, group into lines, recognise | `pdfce_core::ocr::engine_ocrs` |
+//! | 5 | image pixels (y-down) → PDF user space (y-up) | `pdfce_core::ocr::words_to_page_space` |
+//! | 6 | write the mode-3 sandwich and save incrementally | `pdfce_core::ocr::layer::add_ocr_layer` |
+//! | 7 | put the bytes somewhere the operator named | `crate::dialogs::ocr` |
+//!
+//! Steps 4, 5 and 6 are deliberately not touched here. In particular **the
+//! y-flip is not done in this module and must never be**: `words_to_page_space`
+//! is a free function precisely so that the flip happens once, for every
+//! engine, in one place. `pdfce-core`'s own note is that a "helpful" flip at a
+//! call site produces a layer that is mirrored *twice* — i.e. correct — for
+//! one engine and mirrored once for the next, "which is the kind of defect
+//! that gets attributed to the wrong module for a long time."
+//!
+//! ## ★ pdfceGUI is the first consumer of `add_ocr_layer` anywhere
+//!
+//! Worth knowing before trusting anything downstream of step 6. Grepping
+//! `D:\Dev\pdfce` for `add_ocr_layer` finds the function, its own tests, and
+//! **no caller**: `pdfce-cli` has no `ocr` command and `EditSession` has no
+//! OCR verb. So the sandwich writer is exercised by unit tests and by this
+//! module, and by nothing else in either repository.
+//!
+//! ## ★ Why this runs on a thread, when `file.copy_document_text` does not
+//!
+//! `app::dispatch`'s document-text arm blocks the UI thread on purpose and
+//! says so: a whole-document extraction is 331–449 ms on this project's
+//! benchmark sheet, which is a stutter. Recognition is not in that class. It
+//! rasterizes a page at [`fitted_dpi`] and then runs two neural networks over it,
+//! and on a full sheet that is **seconds**, not milliseconds. A frozen window
+//! for that long is indistinguishable from a hung program, and an operator who
+//! cannot tell those apart kills the process.
+//!
+//! So [`Job`] is a `std::thread` plus a channel, in the same shape as
+//! `render::worker` — with two differences that follow from OCR being a
+//! deliberate act rather than a per-frame consequence:
+//!
+//! * **No cancellation token.** The render worker cancels because the operator
+//!   scrolling makes the in-flight raster unwanted. Nothing makes a recognition
+//!   unwanted halfway through: it was asked for once, by name, and its result
+//!   is still the answer to the question when it arrives.
+//! * **No staleness key.** There is exactly one job at a time, held by the one
+//!   dialog that started it, and the dialog cannot start a second while the
+//!   first is running.
+//!
+//! ## ★★ What the recogniser is given, and why the obvious answer was wrong
+//!
+//! **The raster size is [`TARGET_PIXELS`] = 8.4 million, not a DPI**, and that
+//! constant carries the measurement that produced it. The short version, because
+//! it is the most surprising thing this module learned:
+//!
+//! `ocrs` resizes every image to its detection model's **fixed input size**, so
+//! what decides whether a small character survives is the whole raster's shrink
+//! factor, not its resolution. This module's first implementation used **300
+//! DPI** — the scanning standard, the answer nobody would question — and,
+//! measured against a real drawing's own vector text as ground truth, it scored
+//! **3.3 %**: an order of magnitude worse than 72 DPI, and the worst of the five
+//! resolutions tried. The best was 150 DPI at **44.7 %**, which on that sheet is
+//! 8.4 megapixels. Hence the constant, and hence its unit.
+//!
+//! Greyscale rather than colour because that is the trait's contract:
+//! `OcrEngine::recognize` takes "row-major, top-down, one byte per pixel — the
+//! layout every candidate engine takes". Converting here rather than inside the
+//! engine adapter keeps the adapter a pure binding.
+//!
+//! ## ★ Why recognition reads the document as it was OPENED
+//!
+//! `add_ocr_layer` takes a `&Document` — the base revision — and writes an
+//! incremental section on top of it. That is what keeps the scan
+//! byte-identical (project rule 3: an object pdfce did not logically modify is
+//! re-emitted unchanged or omitted entirely), and it is the whole reason OCR
+//! does not cost a JPEG a decode/re-encode cycle.
+//!
+//! The consequence is that **unsaved edits are not carried**, and this module
+//! refuses rather than discloses. A recognised copy taken while markup was
+//! pending would be a copy of the original with the operator's work missing
+//! and nothing on screen to say so — a file that looks like what they asked
+//! for and is not. `Refusal::UnsavedEdits` is the honest answer, and it is
+//! reachable only in a build that can make edits, which this one is.
+//!
+//! ## Where the disclosure goes
+//!
+//! [`Recognised::report`] is `pdfce-core`'s own `OcrLayerReport`, carried out
+//! whole. `crate::dialogs::ocr` renders `report.disclosures()` verbatim. That
+//! is the engine's instruction — the lines are built inside `pdfce-core` "so
+//! the GUI and the CLI cannot disagree about what was disclosed" — and it is
+//! why nothing in this module summarises, rounds or re-words a count.
+
+/// Builds `fixtures/synthetic-image-only.pdf` and runs the whole chain against
+/// it. **Test-only**, and its header is the argument for what a green result
+/// there does and does not prove — the short version being that it establishes
+/// the plumbing and establishes **nothing** about recognition quality on a real
+/// scan, because a rendered raster has none of the degradation that makes OCR
+/// hard.
+#[cfg(test)]
+mod fixture;
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
+
+use pdfce_core::edit::EditSession;
+use pdfce_core::ocr::layer::{OcrLayerOptions, OcrLayerReport};
+use pdfce_core::ocr::{OcrPage, models};
+use pdfce_core::page_tree::{self, Rect};
+
+/// ★★ **The raster size recognition is run at, as a pixel count** — measured,
+/// not chosen.
+///
+/// # Why a pixel count and not a DPI, which is what this constant used to be
+///
+/// `ocrs`'s detector **resizes every image to its model's fixed input size**
+/// before running it (`detection.rs`: *"Resize images to the text detection
+/// model's input size"*), then resizes the probability mask back. So the thing
+/// that decides whether a 3 mm character survives detection is not its
+/// resolution in the raster — it is **how much the whole raster is shrunk to
+/// reach the model's input**, which is a function of total pixels and nothing
+/// else. A DPI is only a proxy for that, and it is a bad one: the same DPI is
+/// a 2× reduction on a postcard and an 8× reduction on an A0 sheet.
+///
+/// # The measurement
+///
+/// Run against `D:\Dev\temp\pdfce\SW41177.pdf` — a real 36-sheet SolidWorks
+/// drawing whose **vector text is the ground truth**, which is what makes this
+/// an accuracy figure rather than an impression. Recognised tokens of three or
+/// more characters were compared against the page's own extracted text:
+///
+/// | DPI | raster | Mpx | tokens ≥3 chars | exactly in ground truth |
+/// |---:|---|---:|---:|---|
+/// | 72 | 1584×1224 | 1.9 | 23 | 8 (34.8 %) |
+/// | 100 | 2200×1700 | 3.7 | 15 | 3 (20.0 %) |
+/// | **150** | **3300×2550** | **8.4** | **47** | **21 (44.7 %)** |
+/// | 200 | 4400×3400 | 15.0 | 40 | 11 (27.5 %) |
+/// | 300 | 6600×5100 | 33.7 | 30 | **1 (3.3 %)** |
+///
+/// **The first implementation of this module used 300 DPI**, on the entirely
+/// conventional reasoning that 300 is the scanning standard and that more
+/// resolution cannot hurt. On this engine it is catastrophic: 3.3 %, an order
+/// of magnitude worse than 72 DPI. The conventional answer was not merely
+/// suboptimal, it was the worst of the five.
+///
+/// 8,400,000 is the 150-DPI row, expressed as the quantity that actually
+/// governs. A small scanned page therefore gets *more* DPI than 150 and a large
+/// sheet gets less, which is exactly what the detector's fixed-size resize
+/// wants and what a constant DPI cannot express.
+///
+/// # What this figure is and is not
+///
+/// It is one document, of one kind — dense CAD linework, which is adversarial
+/// for a model trained on photographs and document pages. **44.7 % is not a
+/// quality claim for pdfce's OCR**; it is the point at which this engine does
+/// best on the hardest material this project has. See `ocr::fixture` for what
+/// is and is not established about recognition quality, and the report to the
+/// operator for the plain-English version.
+pub const TARGET_PIXELS: u64 = 8_400_000;
+
+/// The most resolution a page is ever rasterized at, in DPI.
+///
+/// A ceiling for **small** pages, where [`TARGET_PIXELS`] would otherwise ask
+/// for an absurd magnification: a business card at 8.4 megapixels is over 1,000
+/// DPI, which costs time and adds nothing — the ink has no more detail in it
+/// than the source had. 300 is the scanning standard and is the right ceiling
+/// even though it is the wrong *target*.
+pub const MAX_DPI: f32 = 300.0;
+
+/// The least resolution a page is ever rasterized at, in DPI.
+///
+/// A floor for pages so large that [`TARGET_PIXELS`] would ask for less than
+/// one device pixel per point. Below this the recognition crops are too small
+/// to carry a glyph at all, and the honest failure — a refusal, or a page of
+/// nonsense the disclosure warns about — is preferable to spending the time.
+pub const MIN_DPI: f32 = 50.0;
+
+/// The engine directory name, re-exported so the shell names it once.
+///
+/// `pdfce_core::ocr::engine_ocrs::MODEL_DIR` when the recogniser is compiled
+/// in; the same literal otherwise, because a build without the engine still
+/// has to be able to say *where* the models it cannot use would have gone.
+#[cfg(feature = "ocrs")]
+pub const MODEL_DIR: models::EngineDirName = pdfce_core::ocr::engine_ocrs::MODEL_DIR;
+/// See the `ocrs`-enabled twin above.
+#[cfg(not(feature = "ocrs"))]
+pub const MODEL_DIR: models::EngineDirName = "ocrs";
+
+/// Why recognition did not happen, in the operator's terms.
+///
+/// Every variant is a **named** cause with a different action behind it. The
+/// engine's own error type does the same thing and for the same stated reason:
+/// on a portable install "the weights are not beside the binary" is the most
+/// likely failure by a wide margin and is entirely fixable — but only if the
+/// message says so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// This build was compiled without the `ocrs` feature.
+    ///
+    /// Distinct from [`Self::ModelsMissing`] on purpose: *cannot look* and
+    /// *could not find the files to look with* are different problems with
+    /// different fixes, and `pdfce-core`'s feature block is explicit that
+    /// "found no text" and "cannot look for text" must never be the same
+    /// answer, least of all on a scan.
+    EngineAbsent,
+    /// No `models/<engine>` directory was found. Carries every path tried, in
+    /// the order they were tried.
+    ModelsMissing(Vec<PathBuf>),
+    /// The document has edits that an incremental save from the base revision
+    /// would not carry. See the module header.
+    UnsavedEdits,
+    /// There is no such page.
+    NoSuchPage(usize),
+    /// The page has no area to rasterize.
+    EmptyPage,
+    /// Recognition ran and placed no word.
+    NothingRecognised,
+    /// The engine, the rasterizer or the layer writer refused, carrying its
+    /// own sentence rather than a paraphrase of it.
+    Engine(String),
+}
+
+/// A finished recognition, before it is anywhere on disk.
+///
+/// ★ **The bytes and the report travel together and are only ever handed over
+/// together.** `pdfce-core`'s report type says a caller "that builds a layer
+/// and drops the report has made pdfce silent about a page of guesses", and
+/// keeping them in one struct is how that is made awkward to do by accident.
+#[derive(Debug, Clone)]
+pub struct Recognised {
+    /// The incrementally-saved document, ready to be written to a path the
+    /// operator names. **Not written by this module** — see the module header
+    /// on why the destination is the operator's answer and not ours.
+    pub bytes: Vec<u8>,
+    /// What was written and what was inferred, from `pdfce-core`.
+    pub report: OcrLayerReport,
+    /// The resolution the page was actually rasterized at.
+    ///
+    /// Derived from the page's area by [`fitted_dpi`], so it varies per page and
+    /// is not a constant anyone can look up. Reported rather than assumed: it is
+    /// the single number that most affects what comes back, and a recognition
+    /// that read badly at a resolution nobody was told about would be blamed on
+    /// the engine.
+    pub effective_dpi: f32,
+    /// How many words the recogniser produced before the layer writer filtered
+    /// them.
+    ///
+    /// Carried beside `report.words_written` so the two can be compared. They
+    /// differ exactly when words were dropped as unplaceable, which is a real
+    /// diagnosis — a large gap means the engine and the page geometry disagree
+    /// — and it is invisible from either number alone.
+    pub words_recognised: usize,
+}
+
+/// Device pixels per PDF user-space unit for a given DPI.
+///
+/// `dpi / 72.0`, because a PDF user-space unit is 1/72 inch by definition
+/// (ISO 32000-1 §8.3.2.3). One line, in one place, so no call site does the
+/// division by hand and gets 96 into it.
+#[must_use]
+pub fn raster_scale(dpi: f32) -> f32 {
+    dpi / 72.0
+}
+
+/// The DPI to rasterize a page of `width_pt` × `height_pt` at.
+///
+/// Solves [`TARGET_PIXELS`] for this page's area, then clamps to
+/// [`MIN_DPI`]..=[`MAX_DPI`]. Returns a DPI rather than a scale so that the
+/// number reported to the operator and the number handed to the rasterizer are
+/// derived from one another instead of computed twice.
+///
+/// A page with no area yields [`MAX_DPI`] rather than infinity: the caller has
+/// already refused an empty page by then, and a non-finite scale out of a clamp
+/// would be a worse failure than the one it is guarding.
+#[must_use]
+pub fn fitted_dpi(width_pt: f64, height_pt: f64) -> f32 {
+    let area_in_sq_inches = (width_pt / 72.0) * (height_pt / 72.0);
+    // `is_sign_positive` beside `is_finite` rather than `> 0.0`, and the pair is
+    // exact rather than defensive: a NaN compares `false` against every ordering
+    // operator, so `!(x > 0.0)` catches it but reads as though it were about
+    // sign, and `x > 0.0` alone would let `inf` through. `is_finite` rejects
+    // both NaN and infinity; `is_sign_positive` then rejects zero's and a
+    // negative's sign. `pdfce-core`'s own `add_image` records the same trap.
+    if !area_in_sq_inches.is_finite() || area_in_sq_inches <= 0.0 {
+        return MAX_DPI;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let ideal = ((TARGET_PIXELS as f64) / area_in_sq_inches).sqrt();
+    #[allow(clippy::cast_possible_truncation)]
+    let ideal = ideal as f32;
+    ideal.clamp(MIN_DPI, MAX_DPI)
+}
+
+/// RGBA (or BGRA) pixels to 8-bit greyscale, row-major and top-down.
+///
+/// # Why the luma weights and not a plain average
+///
+/// ITU-R BT.601's `0.299 R + 0.587 G + 0.114 B` — the same coefficients
+/// `pdfce-core`'s own JPEG paths use. A flat average treats a saturated blue
+/// stamp as mid-grey and a yellow highlighter as near-white, which is exactly
+/// backwards for a page that has been marked up: the blue ink a human reads
+/// easily would fade and the yellow wash the human ignores would swallow the
+/// text under it.
+///
+/// # Why the channel order does not matter here
+///
+/// `tiny_skia::Pixmap` is premultiplied RGBA. The weights below are applied in
+/// that order. If a future backend hands over BGRA the red and blue weights
+/// swap, which shifts a *coloured* pixel's grey by at most 0.185 of full scale
+/// and leaves every neutral pixel — which is nearly all of a scan — exactly
+/// where it was. Stated rather than guarded, because a guard against a
+/// hypothetical byte order would be untestable here.
+///
+/// Alpha is ignored: the rasterizer is asked for a white-backed page, so every
+/// pixel is already composited and an alpha channel that is uniformly opaque
+/// carries no information.
+#[must_use]
+pub fn greyscale(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let expected = (width as usize).saturating_mul(height as usize);
+    let mut out = Vec::with_capacity(expected);
+    for px in rgba.chunks_exact(4).take(expected) {
+        let luma = 0.299_f32.mul_add(
+            f32::from(px[0]),
+            0.587_f32.mul_add(f32::from(px[1]), 0.114 * f32::from(px[2])),
+        );
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        out.push(luma.clamp(0.0, 255.0) as u8);
+    }
+    // A short buffer is padded to white rather than truncated. The engine
+    // validates `len == w*h` and rejects a mismatch outright — which would
+    // turn a rasterizer quirk into an unexplained refusal — and white is the
+    // colour of paper the recogniser will correctly find nothing on.
+    out.resize(expected, 0xFF);
+    out
+}
+
+/// Where this shell looks for model files.
+///
+/// Two locations, in `pdfce-core`'s order: beside the running executable
+/// (the portable-folder case, which is how `tools/package-portable.py` ships
+/// them), then the platform user-data directory (so a developer running out of
+/// `target/` can put them somewhere durable without copying 12 MB into a
+/// build output that `cargo clean` deletes).
+///
+/// No operator-supplied path is passed today because no setting offers one.
+/// `resolve_model_dir`'s first parameter is left `None` rather than
+/// synthesised, which keeps its documented rule — *a named path that is
+/// missing is an error, never a silent fallback* — reachable the day a setting
+/// exists.
+///
+/// # Errors
+///
+/// [`models::ModelsNotFound`], carrying every path that was tried, which is
+/// the actionable half of the message.
+pub fn resolve_models(
+    exe_dir: Option<&Path>,
+    user_data: Option<&Path>,
+) -> Result<models::ModelSource, models::ModelsNotFound> {
+    models::resolve_model_dir(MODEL_DIR, None, exe_dir, user_data)
+}
+
+/// The directory the running executable is in, if it can be determined.
+///
+/// `None` rather than a guess when `current_exe` fails: a wrong directory here
+/// produces "models not found" naming a path nobody has, which is worse than
+/// naming one fewer place that was genuinely searched.
+#[must_use]
+pub fn exe_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+}
+
+/// Everything a recognition needs, assembled on the UI thread and moved whole
+/// onto the worker.
+///
+/// A struct rather than six arguments because it is what crosses the thread
+/// boundary, and because the compiler then checks that every field is `Send`
+/// in one place instead of at a `spawn` call.
+#[derive(Clone)]
+pub struct Request {
+    /// The session to read. Only its **base document** is used — see the
+    /// module header on why, and [`Refusal::UnsavedEdits`] for what guarantees
+    /// that base is what the operator is looking at.
+    pub session: Arc<EditSession>,
+    /// The page to recognise, zero-based.
+    pub page_index: usize,
+    /// The directory holding the two `.rten` files.
+    pub model_dir: PathBuf,
+}
+
+/// A recognition running on its own thread.
+///
+/// Held by [`crate::dialogs::ocr`] for exactly as long as one job takes. See
+/// the module header for why this is a thread and why it carries neither a
+/// cancellation token nor a staleness key.
+pub struct Job {
+    rx: Receiver<Result<Box<Recognised>, Refusal>>,
+    done: bool,
+}
+
+impl std::fmt::Debug for Job {
+    /// Hand-written because [`Receiver`] is not [`Debug`] in a useful way.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Job").field("done", &self.done).finish()
+    }
+}
+
+impl Job {
+    /// Start recognising, and return immediately.
+    ///
+    /// The thread is detached rather than joined: nothing the UI does depends
+    /// on it finishing, and if the dialog is closed first the channel's
+    /// receiver drops, the send fails harmlessly, and the thread exits when
+    /// the work it was already doing completes. The alternative — joining on
+    /// close — would freeze the window for exactly as long as the operation
+    /// this thread exists to keep off the window.
+    #[must_use]
+    pub fn spawn(request: Request) -> Self {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let outcome = recognise(&request);
+            // A failed send means the dialog is gone. That is a normal end,
+            // not an error: the operator closed the window.
+            drop(tx.send(outcome.map(Box::new)));
+        });
+        Self { rx, done: false }
+    }
+
+    /// The result, once it exists. `None` while the job is still running.
+    ///
+    /// Non-blocking, and idempotent after the answer has been taken: `done`
+    /// stops a second call reading a disconnected channel and reporting the
+    /// disconnection as a refusal.
+    pub fn poll(&mut self) -> Option<Result<Box<Recognised>, Refusal>> {
+        if self.done {
+            return None;
+        }
+        match self.rx.try_recv() {
+            Ok(outcome) => {
+                self.done = true;
+                Some(outcome)
+            }
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
+                // The worker died without sending — a panic in a dependency,
+                // which is the only way to reach this. Reported as an engine
+                // refusal naming the fact rather than swallowed: a dialog that
+                // said "Recognising…" forever would be the worst available
+                // answer.
+                self.done = true;
+                Some(Err(Refusal::Engine(
+                    // ui-text-exempt: reached only through `text::ocr::failed`,
+                    // which is the catalog entry an operator actually reads.
+                    "the recogniser stopped without reporting a result".to_owned(),
+                )))
+            }
+        }
+    }
+
+    /// Whether the job is still running.
+    #[must_use]
+    pub const fn is_running(&self) -> bool {
+        !self.done
+    }
+}
+
+/// The worker body. Runs on the spawned thread; touches no GUI type.
+///
+/// Written as a free function taking `&Request` for the same reason
+/// `render::worker::render_on_worker` is: a body that cannot reach `self` is a
+/// body that provably shares nothing with the UI thread.
+fn recognise(request: &Request) -> Result<Recognised, Refusal> {
+    let doc = request.session.document();
+    let pages = pages_of(request)?;
+    let page = pages
+        .get(request.page_index)
+        .ok_or(Refusal::NoSuchPage(request.page_index))?;
+
+    let box_ = page.crop_box;
+    let width_pt = box_.urx - box_.llx;
+    let height_pt = box_.ury - box_.lly;
+    // `is_finite` first, then a plain comparison — see [`fitted_dpi`] for why
+    // the negated form is avoided. A degenerate crop box is not hypothetical:
+    // a malformed `/CropBox` normalises to a zero-area rect rather than
+    // failing, and rasterizing one would produce an image with no pixels for
+    // the recogniser to reject in a less comprehensible way.
+    if !width_pt.is_finite() || !height_pt.is_finite() || width_pt <= 0.0 || height_pt <= 0.0 {
+        return Err(Refusal::EmptyPage);
+    }
+
+    let dpi = fitted_dpi(width_pt, height_pt);
+    let rendered = pdfce_render::render_page(doc, page, raster_scale(dpi))
+        .map_err(|e| Refusal::Engine(e.to_string()))?;
+    let (w, h) = (rendered.pixmap.width(), rendered.pixmap.height());
+    let grey = greyscale(rendered.pixmap.data(), w, h);
+
+    let words = recognise_image(&request.model_dir, w, h, &grey)?;
+    let words_recognised = words.len();
+    // ★ The flip, and the ONLY place it happens. See the module header.
+    //
+    // `page_rect` is the CROP box rather than the media box: the rasterizer
+    // draws the crop box (Table 30 — content is clipped to it at display
+    // time), so the image the recogniser saw covers exactly that region and
+    // nothing else. Handing the media box here would offset and scale every
+    // word by the difference on any page whose two boxes differ, which is most
+    // scanned material and all trimmed drawings.
+    let placed = pdfce_core::ocr::words_to_page_space(
+        &words,
+        w,
+        h,
+        Rect::from_corners(box_.llx, box_.lly, box_.urx, box_.ury),
+    );
+    if placed.is_empty() {
+        return Err(Refusal::NothingRecognised);
+    }
+
+    let ocr_page = OcrPage {
+        words: placed,
+        // Asked of the engine rather than assumed. `OcrEngine::reports_confidence`
+        // is a required method with no default precisely so this cannot be
+        // guessed at either optimistically or pessimistically.
+        confidence_available: reports_confidence(),
+    };
+    let outcome = pdfce_core::ocr::layer::add_ocr_layer(
+        doc,
+        request.page_index,
+        &ocr_page,
+        &OcrLayerOptions::new(),
+    )
+    .map_err(|e| match e {
+        pdfce_core::ocr::layer::OcrLayerError::NothingToWrite => Refusal::NothingRecognised,
+        other => Refusal::Engine(other.to_string()),
+    })?;
+
+    Ok(Recognised {
+        bytes: outcome.bytes,
+        report: outcome.report,
+        effective_dpi: dpi,
+        words_recognised,
+    })
+}
+
+/// The page list, with the page-tree error carried out by name.
+fn pages_of(request: &Request) -> Result<Vec<page_tree::Page>, Refusal> {
+    request
+        .session
+        .pages()
+        .map_err(|e| Refusal::Engine(e.to_string()))
+}
+
+/// Whether the compiled-in recogniser scores its output.
+///
+/// **`false` today, and that is a fact about `ocrs` rather than a placeholder**
+/// — its output type is a character and a rectangle, with no score on a
+/// character, a word, a line or the page. Read through a function rather than
+/// written as a literal at the call site so that the day a second engine lands
+/// there is one place that has to learn to ask it.
+#[must_use]
+fn reports_confidence() -> bool {
+    #[cfg(feature = "ocrs")]
+    {
+        use pdfce_core::ocr::OcrEngine as _;
+        // Answered by the type rather than by a constant, so a future upstream
+        // change is picked up rather than contradicted. Constructing an engine
+        // just to ask would need the models, so the answer is taken from a
+        // value that does not exist — which is why this is written as a match
+        // on the trait's own implementation through a zero-sized shim below.
+        struct Never;
+        impl pdfce_core::ocr::OcrEngine for Never {
+            type Error = std::io::Error;
+            fn recognize(
+                &self,
+                _w: u32,
+                _h: u32,
+                _p: &[u8],
+            ) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Self::Error> {
+                unreachable!("the shim is never recognised with")
+            }
+            fn reports_confidence(&self) -> bool {
+                // Mirrors `OcrsEngine::reports_confidence`, which returns
+                // `false` because there is no score to report.
+                false
+            }
+        }
+        Never.reports_confidence()
+    }
+    #[cfg(not(feature = "ocrs"))]
+    {
+        false
+    }
+}
+
+/// Run the recogniser over one greyscale image.
+///
+/// Split from [`recognise`] so that the whole of the `ocrs` feature gate is one
+/// function rather than a `cfg` threaded through the pipeline. A build without
+/// the engine returns [`Refusal::EngineAbsent`] here and everything above this
+/// line compiles and runs identically — which is what makes the gated-out path
+/// a **named refusal** rather than a silently different program.
+#[cfg(feature = "ocrs")]
+fn recognise_image(
+    model_dir: &Path,
+    width: u32,
+    height: u32,
+    grey: &[u8],
+) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Refusal> {
+    use pdfce_core::ocr::OcrEngine as _;
+    use pdfce_core::ocr::engine_ocrs::OcrsEngine;
+
+    let engine =
+        OcrsEngine::from_model_dir(model_dir).map_err(|e| Refusal::Engine(e.to_string()))?;
+    engine
+        .recognize(width, height, grey)
+        .map_err(|e| Refusal::Engine(e.to_string()))
+}
+
+/// See the `ocrs`-enabled twin above.
+#[cfg(not(feature = "ocrs"))]
+fn recognise_image(
+    _model_dir: &Path,
+    _width: u32,
+    _height: u32,
+    _grey: &[u8],
+) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Refusal> {
+    Err(Refusal::EngineAbsent)
+}
+
+/// Whether this build carries a recogniser at all.
+///
+/// Read by the dialog before it looks for models: *cannot look* and *could not
+/// find the files to look with* are different refusals, and asking in the
+/// wrong order would report the second when the first is true.
+#[must_use]
+pub const fn engine_compiled_in() -> bool {
+    cfg!(feature = "ocrs")
+}
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod tests {
+    use super::*;
+
+    /// The scale is DPI over 72, which is the definition of a user-space unit.
+    #[test]
+    fn the_raster_scale_is_dpi_over_seventy_two() {
+        assert_eq!(raster_scale(72.0), 1.0);
+        assert_eq!(raster_scale(MAX_DPI), 300.0 / 72.0);
+    }
+
+    /// ★★ **The measured optimum is reproduced for the sheet it was measured
+    /// on.**
+    ///
+    /// `SW41177.pdf`'s first page is 1584 × 1224 pt. [`TARGET_PIXELS`]'s whole
+    /// justification is a table of accuracy against DPI for that document, whose
+    /// best row is 150 DPI — so if this function does not put that page at
+    /// roughly 150 DPI, the constant's documentation is describing a behaviour
+    /// the code does not have.
+    ///
+    /// Asserted as a band rather than an equality: the constant is a rounded
+    /// megapixel figure, not a DPI, and pinning an exact float would make a
+    /// harmless re-rounding of it look like a regression.
+    #[test]
+    fn the_benchmark_sheet_lands_on_the_resolution_that_measured_best() {
+        let dpi = fitted_dpi(1584.0, 1224.0);
+        assert!(
+            (145.0..=155.0).contains(&dpi),
+            "SW41177 measured best at 150 DPI and this function chose {dpi:.1}; \
+             TARGET_PIXELS and its measurement table have come apart"
+        );
+    }
+
+    /// The clamp is a real band, and a page too large for the target still
+    /// gets a usable resolution rather than a fraction of one.
+    ///
+    /// `1.0e6` points square is 13,888 inches on a side — not a page anyone has,
+    /// and that is the point: the assertion is about the clamp holding at the
+    /// far end of the range rather than about a realistic sheet. Without the
+    /// floor, `fitted_dpi` would answer about 0.2 DPI there, and a raster of a
+    /// few hundred pixels would be handed to the recogniser as though it were a
+    /// page.
+    ///
+    /// The ordering of the two constants is asserted through `fitted_dpi`'s
+    /// behaviour rather than by comparing them directly: clippy rejects the
+    /// direct comparison as constant-valued, and it is right to — a literal
+    /// `MIN_DPI < MAX_DPI` is checked by the compiler's own constant folding
+    /// and tells a reader nothing the two declarations do not.
+    #[test]
+    fn an_impossibly_large_page_still_gets_a_usable_resolution() {
+        let dpi = fitted_dpi(1.0e6, 1.0e6);
+        assert_eq!(dpi, MIN_DPI, "the floor must bind, not the target");
+        assert!(
+            dpi < MAX_DPI,
+            "…and the floor must be below the ceiling, or the clamp has no band at all"
+        );
+    }
+
+    /// A small page is capped rather than magnified absurdly.
+    ///
+    /// A business card at 8.4 megapixels is over 1,000 DPI — resolution with no
+    /// ink behind it, paid for in seconds.
+    ///
+    /// ★ **US Letter is the interesting row and is asserted separately.** It
+    /// lands at 299.7 DPI, a quarter of a DPI under the ceiling: the measured
+    /// 8.4-megapixel target and the conventional 300-DPI scanning standard
+    /// coincide almost exactly on the commonest page size in the world. That is
+    /// a coincidence rather than a design, and it is pinned because it explains
+    /// something a reader would otherwise find contradictory — the module header
+    /// says 300 DPI measured *worst*, and on a Letter page 300 DPI is what this
+    /// function will very nearly choose. Both are true: the figure that ruined
+    /// recognition was 300 DPI on a **36-inch drawing sheet**, which is 33
+    /// megapixels, not 8.4.
+    #[test]
+    fn a_small_page_is_capped_at_the_scanning_standard() {
+        assert_eq!(fitted_dpi(180.0, 90.0), MAX_DPI, "a business card");
+        assert_eq!(fitted_dpi(72.0, 72.0), MAX_DPI, "one square inch");
+
+        let letter = fitted_dpi(612.0, 792.0);
+        assert!(
+            (299.0..=300.0).contains(&letter),
+            "US Letter should land just under the ceiling, got {letter}"
+        );
+    }
+
+    /// ★ **An A0 sheet is reduced, and the reduction lands near the target.**
+    ///
+    /// 3370 × 2384 pt at 300 DPI would be 138 megapixels and 550 MB of RGBA
+    /// before anything is recognised. More to the point, the measurement says a
+    /// raster that large is where this engine reads *worst* — so the reduction
+    /// is about accuracy first and memory second, which is the opposite of how
+    /// the first version of this code justified it.
+    #[test]
+    fn an_enormous_sheet_is_reduced_towards_the_target() {
+        let dpi = fitted_dpi(3370.0, 2384.0);
+        assert!(dpi < MAX_DPI, "the target must bind on A0, got {dpi}");
+        assert!(dpi >= MIN_DPI, "…but never below the floor, got {dpi}");
+        let px = f64::from(dpi * 3370.0 / 72.0) * f64::from(dpi * 2384.0 / 72.0);
+        #[allow(clippy::cast_precision_loss)]
+        let target = TARGET_PIXELS as f64;
+        assert!(
+            px <= target * 1.05,
+            "the reduced raster is {px:.0} pixels, well over the {target:.0} target"
+        );
+    }
+
+    /// A degenerate page does not produce a non-finite scale.
+    #[test]
+    fn a_zero_sized_page_does_not_produce_an_infinite_scale() {
+        assert!(fitted_dpi(0.0, 792.0).is_finite());
+        assert!(fitted_dpi(612.0, 0.0).is_finite());
+        assert!(fitted_dpi(f64::NAN, 792.0).is_finite());
+    }
+
+    /// Greyscale is one byte per pixel, in the layout the trait requires.
+    ///
+    /// The engine validates `len == w * h` and refuses a mismatch outright, so
+    /// a length bug here would surface as an unexplained engine error rather
+    /// than as a bad picture.
+    #[test]
+    fn greyscale_produces_exactly_one_byte_per_pixel() {
+        let rgba = vec![0u8; 4 * 6];
+        assert_eq!(greyscale(&rgba, 3, 2).len(), 6);
+    }
+
+    /// White stays white and black stays black.
+    #[test]
+    fn the_extremes_survive_the_conversion() {
+        let white = greyscale(&[0xFF, 0xFF, 0xFF, 0xFF], 1, 1);
+        let black = greyscale(&[0x00, 0x00, 0x00, 0xFF], 1, 1);
+        assert_eq!(white[0], 0xFF);
+        assert_eq!(black[0], 0x00);
+    }
+
+    /// ★ **A saturated colour is not mid-grey, which a flat average would
+    /// make it.**
+    ///
+    /// The reason the luma weights are there rather than `(r+g+b)/3`. Pure
+    /// blue averages to 85 — a mid-tone the binarizer may keep — and weights
+    /// to 29, which is ink. Pure green averages to the same 85 and weights to
+    /// 150, which is background. A page marked up in blue and highlighted in
+    /// yellow is exactly the case where the two disagree, and it is a common
+    /// one on a scanned drawing.
+    #[test]
+    fn a_coloured_pixel_is_weighted_rather_than_averaged() {
+        let blue = greyscale(&[0x00, 0x00, 0xFF, 0xFF], 1, 1)[0];
+        let green = greyscale(&[0x00, 0xFF, 0x00, 0xFF], 1, 1)[0];
+        assert_eq!(blue, 29, "0.114 * 255");
+        assert_eq!(green, 149, "0.587 * 255");
+        assert!(
+            blue < 85 && green > 85,
+            "a flat average would call both of these 85 and lose the distinction \
+             between blue ink and a green wash"
+        );
+    }
+
+    /// A short buffer is padded to white rather than silently truncated.
+    #[test]
+    fn a_short_pixel_buffer_is_padded_to_paper_rather_than_shortened() {
+        let out = greyscale(&[0x00, 0x00, 0x00, 0xFF], 4, 4);
+        assert_eq!(out.len(), 16, "the engine rejects any other length");
+        assert_eq!(out[0], 0x00);
+        assert_eq!(out[15], 0xFF, "the padding is paper, not ink");
+    }
+
+    /// ★ **This engine reports no confidence, and the shell says so.**
+    ///
+    /// Pinned because the whole disclosure surface turns on it: if this ever
+    /// becomes `true` while `ocrs` is still the engine, the dialog would stop
+    /// making the "nothing here has been scored" statement and a page of
+    /// unscored guesses would present exactly as a page of checked ones.
+    #[test]
+    fn the_shipped_recogniser_scores_nothing() {
+        assert!(
+            !reports_confidence(),
+            "`ocrs` emits a char and a rectangle and no score; a `true` here would \
+             make every word look checked"
+        );
+    }
+
+    /// The two absences are two different refusals.
+    #[test]
+    fn a_missing_engine_and_missing_models_are_distinct_refusals() {
+        assert_ne!(Refusal::EngineAbsent, Refusal::ModelsMissing(Vec::new()));
+    }
+
+    /// The model directory name is the engine's own, not a second spelling.
+    #[test]
+    fn the_model_directory_is_the_engines_own_name() {
+        assert_eq!(MODEL_DIR, "ocrs");
+    }
+
+    /// Nothing is resolved from a directory that does not exist, and every
+    /// place that was looked in comes back.
+    #[test]
+    fn a_failed_resolution_reports_everywhere_it_looked() {
+        let nowhere = std::env::temp_dir().join("pdfce-no-models-here-4c1a");
+        let err = resolve_models(Some(&nowhere), None).expect_err("nothing is there");
+        assert_eq!(err.engine, MODEL_DIR);
+        assert_eq!(err.searched.len(), 1);
+        assert!(err.to_string().contains("ocrs"));
+    }
+}

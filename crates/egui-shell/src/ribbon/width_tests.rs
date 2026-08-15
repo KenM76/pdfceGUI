@@ -62,7 +62,7 @@
 
 use egui::{Pos2, Rect, Vec2};
 
-use crate::commands::ConditionSet;
+use crate::commands::{CommandRegistry, ConditionSet};
 use crate::manifest::{Group, Item, Mode, Shell, Tab};
 
 use super::tests::{registry, shell};
@@ -74,28 +74,77 @@ use super::{Ribbon, RibbonState, report, testfont};
 /// can land a fraction of a point beyond an exact arithmetic boundary
 /// without anything being wrong. One point is well below anything a person
 /// could see and well above the rounding.
-const SLACK: f32 = 1.0;
+pub(super) const SLACK: f32 = 1.0;
 
 /// One rendered ribbon: the state after the frame, and every rect the
 /// frame published.
-struct Rendered {
-    state: RibbonState,
-    rects: Vec<(String, Rect)>,
+pub(super) struct Rendered {
+    pub(super) state: RibbonState,
+    pub(super) rects: Vec<(String, Rect)>,
+    /// The height the whole ribbon occupied in the `Ui` it was handed,
+    /// read back after [`Ribbon::render`] returned.
+    ///
+    /// **`Option`, and it matters.** `HANDOFF.md` §10: a layout test can be
+    /// entirely vacuous under one of the two test commands, and an
+    /// assertion about a number nobody produced passes exactly like an
+    /// assertion about a number that was right. `None` means the closure
+    /// that measures never ran, which is a different failure from "the
+    /// height was wrong" and gets a different message.
+    pub(super) ribbon_height: Option<f32>,
+    /// The whole rectangle the ribbon occupied, same frame and same
+    /// `Option` discipline as [`Self::ribbon_height`].
+    ///
+    /// Kept alongside the height rather than replacing it because the two
+    /// answer different questions and only one of them is R128's. R128 is
+    /// about the *extent* — does the number the canvas sees change when the
+    /// tab does. [`super::height_tests::the_band_leaves_clear_space_beneath_its_captions`]
+    /// is about the **bottom edge**: how far below the last caption the
+    /// ribbon stops, which an extent cannot answer without also knowing where
+    /// it started.
+    pub(super) ribbon_rect: Option<Rect>,
 }
 
 impl Rendered {
     /// The single rect published under `name`, if any.
-    fn rect(&self, name: &str) -> Option<Rect> {
+    pub(super) fn rect(&self, name: &str) -> Option<Rect> {
         self.rects.iter().find(|(n, _)| n == name).map(|(_, r)| *r)
     }
 
     /// Every rect whose name starts with `prefix`.
-    fn all(&self, prefix: &str) -> Vec<Rect> {
+    pub(super) fn all(&self, prefix: &str) -> Vec<Rect> {
         self.rects
             .iter()
             .filter(|(n, _)| n.starts_with(prefix))
             .map(|(_, r)| *r)
             .collect()
+    }
+
+    /// The height of the **band**, measured from the groups it drew.
+    ///
+    /// Every group in a band is padded to the same height (see
+    /// [`super::band::captioned_group`]'s `rows_height`), so any one of
+    /// them reports it — and the maximum is taken rather than the first so
+    /// that a group which somehow drew taller than the others is a failure
+    /// rather than a coin toss.
+    ///
+    /// `None` when the band drew no group at all, which is a real state:
+    /// at a width narrower than one group plus the overflow reservation,
+    /// every group is in the menu. A caller that wants R128's claim at
+    /// *those* widths has to ask [`Self::ribbon_height`] instead, and the
+    /// two are deliberately separate so neither can be mistaken for the
+    /// other.
+    pub(super) fn band_height(&self, tab: &str) -> Option<f32> {
+        let prefix = format!("ribbon.group.{tab}.");
+        self.rects
+            .iter()
+            // A caption's rect is inside its group's, so it would never win
+            // the maximum — but excluding it keeps the claim "this is a
+            // group's height" literally true rather than true by luck.
+            .filter(|(n, _)| n.starts_with(&prefix) && !n.ends_with(".caption"))
+            .map(|(_, r)| r.height())
+            .fold(None, |acc: Option<f32>, h| {
+                Some(acc.map_or(h, |a| a.max(h)))
+            })
     }
 }
 
@@ -104,7 +153,7 @@ impl Rendered {
 /// `install` asserts that text measures non-zero and that the face is
 /// proportional, so a test built on this context cannot silently revert to
 /// measuring nothing.
-fn context() -> egui::Context {
+pub(super) fn context() -> egui::Context {
     let ctx = egui::Context::default();
     testfont::install(&ctx);
     ctx
@@ -131,13 +180,34 @@ fn render_shell(
     conditions: &ConditionSet,
     width: f32,
 ) -> Rendered {
-    let registry = registry();
+    render_shell_with(ctx, shell, &registry(), active_tab, conditions, width)
+}
+
+/// [`render_shell`] against a caller-supplied [`CommandRegistry`].
+///
+/// The two-row tests need labels long enough to trip
+/// [`super::plan::GROUP_WRAP_WIDTH`], and the shared fixture registry is
+/// deliberately small and short-labelled — widening it would change the
+/// measured numbers in every other test in this file for a reason that has
+/// nothing to do with what they are about.
+pub(super) fn render_shell_with(
+    ctx: &egui::Context,
+    shell: &Shell,
+    registry: &CommandRegistry,
+    active_tab: &str,
+    conditions: &ConditionSet,
+    width: f32,
+) -> Rendered {
     let mut state = RibbonState::new();
     state.set_active_tab(active_tab);
 
     let mut rects = Vec::new();
+    let mut ribbon_height = None;
+    let mut ribbon_rect = None;
     for _ in 0..2 {
         rects.clear();
+        ribbon_height = None;
+        ribbon_rect = None;
         let mut sink = |name: &str, rect: Rect| rects.push((name.to_owned(), rect));
         let input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 400.0))),
@@ -147,10 +217,21 @@ fn render_shell(
             let _ = Ribbon::new()
                 .with_conditions(conditions)
                 .reporting_rects_to(&mut sink)
-                .render(ui, shell, &registry, &mut state);
+                .render(ui, shell, registry, &mut state);
+            // Read back what the ribbon actually consumed of the `Ui` it was
+            // handed. This — not any rect the ribbon publishes — is the
+            // number the canvas below it sees, and R128 is a claim about
+            // that number.
+            ribbon_height = Some(ui.min_rect().height());
+            ribbon_rect = Some(ui.min_rect());
         });
     }
-    Rendered { state, rects }
+    Rendered {
+        state,
+        rects,
+        ribbon_height,
+        ribbon_rect,
+    }
 }
 
 /// The ids of [`strip_shell`]'s ordinary tabs, in manifest order.
@@ -383,18 +464,24 @@ fn no_visible_group_overlaps_the_overflow_affordance() {
 /// separately) and asserts **there**, where any shortfall at all is
 /// visible, plus at the two widths above it.
 ///
-/// # Its sensitivity floor, stated honestly
+/// # Its sensitivity floor, and why it improved on 2026-08-14
 ///
 /// [`super::plan::GROUP_PADDING`] contributes 2 × 6 pt to every group's
-/// planned width, and nothing in [`super::band::captioned_group`] draws
-/// it. Every band is therefore over-planned by 12 pt per group, which acts
-/// as an accidental safety margin: an under-estimate smaller than that is
-/// absorbed and this test cannot see it. Measured — cutting the item
-/// padding by 20 % is invisible here; removing it entirely fails at the
-/// transition width. The margin is a finding in its own right (the model
-/// and the renderer disagree about whether a group has padding), not
-/// something this test should paper over by claiming a precision it does
-/// not have.
+/// planned width. Until 2026-08-14 **nothing drew it**, so every band was
+/// over-planned by 12 pt per group and that surplus acted as an accidental
+/// safety margin: an under-estimate smaller than it was absorbed and this
+/// test could not see it. Measured at the time — cutting the item padding by
+/// 20 % was invisible here; removing it entirely failed at the transition
+/// width.
+///
+/// [`super::band::captioned_group`] now insets the group by that same
+/// constant, so the surplus is spent on ink rather than on slack and this
+/// test is 12 pt per group **more** sensitive than it was. Nothing about it
+/// had to change: it asserts that a band claiming to fit really fits, which
+/// is a claim about the renderer, and the renderer now consumes what the plan
+/// reserves. It is worth knowing that the floor moved, because a future
+/// under-estimate this test starts catching will look like a new defect and
+/// will in fact be an old one that finally became visible.
 #[test]
 fn a_band_that_claims_to_fit_really_does_fit() {
     let ctx = context();

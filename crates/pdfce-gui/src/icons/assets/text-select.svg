@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic I-beam text-cursor shape — universal, no trademark risk -->
+  <!-- No ui-spec row: the icon spec's section 0 audited the OLD shell's toolbar, which
+       had no text tool at all, so this is another instance of assets.rs section 5
+       deviation #7. Authored in the section 3 style contract.
+
+       A bare I-beam. It is the most conventional glyph available anywhere in this
+       application: every operating system, every word processor and every PDF reader
+       draws exactly this shape over selectable text, and the command's own label is
+       the word Text — so a cleverer metaphor would only have made the button harder
+       to find. It is also literally the cursor the tool installs
+       (CursorIcon::Text), which is the strongest thing an icon can be: a picture of
+       what the control does to the pointer.
+
+       Deliberately NOT add-text.svg, which is this glyph with a small plus badge.
+       The badge is the whole difference and it is the right difference: a plus
+       CREATES text, and this tool creates nothing at all — it selects what the page
+       already has. The two never share a band (add-text is Edit ▸ Text, this is
+       View ▸ Navigate), and the badge is what tells them apart for an operator
+       carrying the vocabulary between tabs. To widen that gap at 16 pt the beam here
+       is CENTRED and full-width where add-text's is pushed left to clear its badge:
+       the crossbars are 14 units against add-text's 10, so the two silhouettes
+       differ in composition and not only in stroke count.
+
+       Deliberately NOT fonts.svg's A-on-a-baseline, which reads as "type" — a
+       property of the document — where this must read as "cursor", a property of the
+       pointer. And not edit.svg's pencil, for add-text's objection twice over: a
+       pencil promises that the text can be changed, and Phase 5 has not landed.
+
+       Rejected: an arrow-plus-I-beam pair, which is what Acrobat's Select tool
+       draws. Two glyphs in one 16 pt slot is unreadable, and the arrow half would
+       claim object selection — which in this shell is the SELECT tool, the thing
+       this control switches away from. -->
+  <path d="M17 11h14M17 37h14M24 11v26" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

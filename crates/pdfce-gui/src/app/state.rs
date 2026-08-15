@@ -56,10 +56,16 @@
 //!   this document and has not been told how.
 //!
 //! The branch between them is made on **structured error data** from
-//! `pdfce-core` ([`DocError`], [`XrefErrorKind`]), never by matching on a
-//! message string. That is exactly what "core errors are stable, structured
-//! diagnostics" is *for*, and it is what makes the distinction reliable
-//! rather than a heuristic that decays as error prose is edited.
+//! `pdfce-core`, never by matching on a message string. That is exactly what
+//! "core errors are stable, structured diagnostics" is *for*, and it is what
+//! makes the distinction reliable rather than a heuristic that decays as error
+//! prose is edited.
+//!
+//! ★ The branch itself now lives in [`crate::app::lifecycle`], with
+//! `is_unsupported_structure` and the two methods that move `Status` between
+//! these variants. This file kept the **shape** of the answer (the enum, and
+//! why it has these variants); that one has *when each one is produced*. See
+//! that module's header for the seam.
 //!
 //! ## Rendering happens on state change, never per frame
 //!
@@ -90,15 +96,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use pdfce_core::document::{DocError, Document};
 use pdfce_core::edit::EditSession;
 use pdfce_core::object::ObjId;
 use pdfce_core::page_tree::Page;
-use pdfce_core::xref::XrefErrorKind;
 use pdfce_render::LayerVisibility;
 
-use crate::app::PdfceApp;
-use crate::app::cache::{FontCache, PageObjectCache};
+// `Document` is reached only by the test-only fixture opener below, which is
+// the one place this module constructs an `OpenDoc` from a file — the loading
+// path proper moved to `crate::app::lifecycle`.
+#[cfg(test)]
+use pdfce_core::document::Document;
+
+use crate::app::cache::{FontCache, PageObjectCache, PageTextCache};
 use crate::canvas::selection::SelectionState;
 use crate::render::raster::PageTexture;
 use crate::render::worker::{RenderKey, RenderRequest, RenderWorker};
@@ -176,9 +185,32 @@ struct LayerOverride {
     generation: u64,
 }
 
+/// **Whether an open document has a file behind it.**
+///
+/// Two variants rather than an `Option<PathBuf>` on [`OpenDoc::path`], and the
+/// choice is deliberate. Every document — created or opened — needs a
+/// *identity* that is path-shaped: the forms cache keys on it, the Pages panel
+/// captions from it, the trace names it, and a save suggestion would be built
+/// from it. Making the path optional would push an `unwrap_or_default()` into
+/// each of those, and `""` is the identity every unnamed document would then
+/// share. What actually varies is one much narrower fact — *is there a file
+/// there* — so that is what is stored, and [`OpenDoc::stored_under`] is the
+/// only place it is asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// Loaded from [`OpenDoc::path`], which names a file that existed.
+    Opened,
+    /// Made by `file.new` from `crate::app::blank::TEMPLATE`.
+    ///
+    /// [`OpenDoc::path`] is a **name** — `crate::text::files::untitled` — and
+    /// nothing is at it. Anything that would write to, read from, or remember
+    /// something *about a file* must consult [`OpenDoc::stored_under`] first.
+    Created,
+}
+
 /// One open document and everything the shell knows about looking at it.
 pub struct OpenDoc {
-    /// Where it came from.
+    /// Where it came from — or, for a created document, what it is called.
     ///
     /// Read by [`PdfceApp::open_path`], which hands it to
     /// [`crate::app::recent::RecentFiles::remember`] — so the recent list is
@@ -187,7 +219,29 @@ pub struct OpenDoc {
     /// distinction that makes the recording conditional on the open having
     /// succeeded. Still also what the window title becomes (`<file> — pdfce`)
     /// and what a document switcher will need.
+    ///
+    /// ★ **It is not always a location.** `file.new` sets it to a name, and
+    /// [`Self::origin`] is what says which of the two this is. Every consumer
+    /// that treats it as an *identity* or a *label* — the forms cache key, the
+    /// Pages panel caption, the trace — is correct either way. Every consumer
+    /// that treats it as a **file** must go through [`Self::stored_under`].
     pub path: PathBuf,
+    /// Whether [`Self::path`] names a file, or only names the document.
+    ///
+    /// Set once at construction and never changed: a created document that
+    /// gains a file gains it through a save, and this build has no save that
+    /// gives it one.
+    ///
+    /// ★ **`file.save_copy` landed on 2026-08-14 and is deliberately not that
+    /// save.** *Save a copy* writes the document somewhere and leaves the
+    /// document alone — Inkscape's verb, and the only one of the three
+    /// reference applications that has it — so a created document saved to
+    /// `D:\jobs\sheet.pdf` is still called `Untitled 1.pdf` afterwards and still
+    /// reads [`Origin::Created`] here. The save that would write this field is
+    /// `file.save_as`, which does not exist. See [`crate::app::save`] §3.4,
+    /// which carries the argument and the reason writing it here would rename
+    /// the operator's open document because they asked for a copy.
+    pub origin: Origin,
     /// The edit session — the single owner of the document, through which
     /// every future mutation will pass.
     ///
@@ -409,9 +463,27 @@ pub struct OpenDoc {
     /// why it is behind a `RefCell`, and why the accessors live there while the
     /// field lives here.
     pub(super) page_objects: PageObjectCache,
-    /// The document's font inventory. Read through
+    /// The current page's font inventory. Read through
     /// [`Self::font_inventory`]; see [`crate::app::cache`].
     pub(super) fonts: FontCache,
+    /// The current page's extracted text. Read through [`Self::page_text`];
+    /// see [`crate::app::cache`] for the cost measurement that made it a cache
+    /// and for why it is per-page where a search is per-document.
+    pub(super) page_text: PageTextCache,
+    /// **What text the operator has selected on the canvas**, if any.
+    ///
+    /// Beside [`Self::selection`] rather than inside it, and the separation is
+    /// the design: that one names *page content objects* and is gated on
+    /// `Capabilities::edit_content`, this one names *a range of characters* and
+    /// is offered precisely where the other is not. `crate::canvas::textsel`'s
+    /// header §3 carries the whole argument, including why this needed no new
+    /// capability and why the two can never both be non-empty.
+    ///
+    /// Document-scoped for the same reason the object selection is: a range of
+    /// characters on page 3 of this file means nothing in the next one, and a
+    /// fresh [`OpenDoc`] per document is what makes that true by construction
+    /// rather than by a `forget_document` somebody has to call.
+    pub text_selection: Option<crate::canvas::textsel::TextSelection>,
     /// Whether annotation appearances (`/AP` `/N`, §12.5) are painted over
     /// the page content.
     ///
@@ -445,12 +517,52 @@ impl OpenDoc {
     /// would be a second way to assemble an `OpenDoc`, which is precisely
     /// what this function's own argument says not to have.
     pub(crate) fn new(path: PathBuf, session: EditSession, pages: Vec<Page>) -> Self {
+        Self::assemble(path, Origin::Opened, session, pages)
+    }
+
+    /// Build the state for a document `file.new` has just **created**.
+    ///
+    /// `name` is what the document is called, not where it is —
+    /// `crate::text::files::untitled`. See [`Origin::Created`].
+    ///
+    /// A sibling of [`Self::new`] rather than a flag on it, because the two
+    /// read differently at the call site and one of them is rare: `open_path`
+    /// and `new_document` each say which they mean, and neither passes a
+    /// boolean whose meaning a reader has to look up.
+    pub(crate) fn created(name: PathBuf, session: EditSession, pages: Vec<Page>) -> Self {
+        Self::assemble(name, Origin::Created, session, pages)
+    }
+
+    /// The one place an `OpenDoc` is assembled, for both origins.
+    ///
+    /// [`Self::new`]'s own argument — *"a `reset()` method would be a second,
+    /// weaker way to achieve the same thing"* — applies with equal force to a
+    /// second struct literal. Two constructors that each listed thirty fields
+    /// would drift the moment one of them gained a field, and the drift would
+    /// be invisible: the compiler is satisfied by both.
+    fn assemble(path: PathBuf, origin: Origin, session: EditSession, pages: Vec<Page>) -> Self {
         // ★ The one field read from disk here rather than started empty, and
         // the one `ViewState` default it overrides. `canvas::guides::opening`
         // owns both halves and the rule joining them.
-        let (guides, view) = crate::canvas::guides::opening(&path);
+        //
+        // ★ …and it is read only for a document that **has** a file. A created
+        // document's `path` is a name, so `guides::recall` would absolutize it
+        // against the working directory and look up a location nothing is at —
+        // usually finding nothing, and finding somebody else's guides on the
+        // day an operator really does have `Untitled 1.pdf` in the folder they
+        // launched pdfce from. Both outcomes are wrong for the same reason:
+        // per-document state belongs to a document that can be identified, and
+        // a name is not an identity.
+        let (guides, view) = match origin {
+            Origin::Opened => crate::canvas::guides::opening(&path),
+            Origin::Created => (
+                crate::canvas::guides::Guides::default(),
+                ViewState::default(),
+            ),
+        };
         Self {
             path,
+            origin,
             session: Arc::new(session),
             pages,
             observed_zoom: view.zoom,
@@ -489,6 +601,9 @@ impl OpenDoc {
             guides,
             page_objects: PageObjectCache::default(),
             fonts: FontCache::default(),
+            page_text: PageTextCache::default(),
+            // Empty, like every other derived field here — see `selection`.
+            text_selection: None,
             // What a reader shows. `pdfce_render::RenderOptions` defaults the
             // same way, and agreeing with it means a document opened here and
             // a page rendered by `pdfce-cli` start from the same picture.
@@ -497,6 +612,35 @@ impl OpenDoc {
             // — which is a distinct state from "hide nothing". See
             // `LayerOverride`.
             layers: LayerOverride::default(),
+        }
+    }
+
+    /// **The file this document's per-document preferences belong to**, or
+    /// `None` when it has no file for a preference to belong to.
+    ///
+    /// The single predicate that separates [`Origin::Opened`] from
+    /// [`Origin::Created`] at every site that cares, and it is deliberately
+    /// shaped as *"give me the path if there is one"* rather than as
+    /// `is_created()`: the three call sites all want the path, so a boolean
+    /// would leave each of them reaching for `self.path` afterwards and one of
+    /// them eventually forgetting the test.
+    ///
+    /// Its three readers, and what each would do wrong without it:
+    ///
+    /// | site | without this |
+    /// |---|---|
+    /// | `PdfceApp::open_path` → `RecentFiles::remember` | the Recent menu gains a row for a file that does not exist, whose whole promise is *"this worked before"* |
+    /// | `viewer::remembered` (read at open, written by `SetPageDisplay`) | a page-display choice stored against a fabricated path, and inherited by the next document that happens to be called the same thing |
+    /// | `canvas::guides` (read in [`Self::assemble`], written by `SetGuides`) | the same, for guide positions |
+    ///
+    /// It is **not** consulted by the forms cache key, the Pages panel caption
+    /// or the trace, and that is correct rather than an omission: those want an
+    /// identity or a label, and a name is both.
+    #[must_use]
+    pub fn stored_under(&self) -> Option<&std::path::Path> {
+        match self.origin {
+            Origin::Opened => Some(&self.path),
+            Origin::Created => None,
         }
     }
 
@@ -853,292 +997,6 @@ impl OpenDoc {
     }
 }
 
-impl PdfceApp {
-    /// Open `path`, replacing whatever was open.
-    ///
-    /// The document is loaded **read-only**: `Document::load` maps the
-    /// bytes, `page_tree::pages` flattens the page tree, and nothing here
-    /// writes. S0 is a viewer.
-    ///
-    /// Note the deliberate structure of the match: each `Err` arm is chosen
-    /// by *structured* error data, never by inspecting a message. See the
-    /// module docs on the three-way failure distinction.
-    pub fn open_path(&mut self, path: PathBuf) {
-        self.status = match Document::load(&path) {
-            Ok(doc) => match pdfce_core::page_tree::pages(&doc) {
-                Ok(pages) => {
-                    Status::Open(Box::new(OpenDoc::new(path, EditSession::new(doc), pages)))
-                }
-                // The header and cross-reference table were fine and the
-                // page tree is not. That is a damaged file, not an
-                // unimplemented feature.
-                Err(err) => Status::Failed {
-                    path,
-                    message: err.to_string(),
-                },
-            },
-            // §7.6: pdfce CAN decrypt this one and has not been told how.
-            // Neither damaged nor unsupported — a third thing.
-            Err(DocError::PasswordRequired | DocError::PasswordRequiresNormalisation) => {
-                Status::NeedsPassword { path }
-            }
-            Err(err) if is_unsupported_structure(&err) => Status::Unsupported {
-                path,
-                message: err.to_string(),
-            },
-            Err(err) => Status::Failed {
-                path,
-                message: err.to_string(),
-            },
-        };
-        // ★ Forget the panels' own view state, because a NEW DOCUMENT is
-        // open and none of it describes anything any more.
-        //
-        // This is the second half of deleting `panels::DocKey`. The caches it
-        // used to guard now live on `OpenDoc` and die with it, but what is
-        // left on `PanelsState` — which object rows are expanded, which row
-        // the Properties panel is describing — hangs off the *application*
-        // and therefore does outlive a document. Those are paint-order
-        // indices: positions on one page of one revision, not identities.
-        //
-        // The old answer was to give the cache a document identity and
-        // compare it every frame, which is what needed an `Arc` address and
-        // carried the ABA hazard. The answer here is that documents are
-        // opened in exactly one place — this function — so forgetting is a
-        // single statement at the one moment it is true, and there is no
-        // identity to key on at all.
-        //
-        // Unconditional, including on a failed open: whatever was showing is
-        // gone either way, and stale expansion state over a document that
-        // could not be read is the worse of the two states to leave behind.
-        self.panels.forget_document();
-        // ★ …and the search results, for a stronger version of the same
-        // reason.
-        //
-        // A hit carries a page index and a page-space rectangle, both of which
-        // are positions in ONE file. Carrying them into another is not
-        // staleness — a freshly opened document's `edit_epoch` is 0, so the
-        // epoch test that catches an edit would happily declare them current —
-        // it is nonsense, and it would put highlights on whatever happens to
-        // be at those coordinates in the new file. The query and the operator's
-        // options survive; see `crate::find::FindState::forget_document`.
-        self.find.forget_document();
-
-        // ★ Remember the file — but only if it actually opened.
-        //
-        // The recent list is a list of documents the operator has *read*, and
-        // offering one that cannot be opened invites the same failure again
-        // from a surface whose whole promise is "this worked before". A file
-        // that failed is not lost: it is still wherever the operator got it
-        // from, and `Open…` reaches it.
-        //
-        // Placed here rather than in the `Action::Open` arm on purpose: this
-        // is the one function that opens documents, and `argv` reaches it
-        // without an action, so a caller-side call would miss the first
-        // document of every session — the one an operator is most likely to
-        // want back.
-        //
-        // `remember` absolutizes, de-duplicates, caps and writes; re-opening
-        // what is already at the front of the list writes nothing at all.
-        if let Status::Open(doc) = &self.status {
-            let path = doc.path.clone();
-            self.recent.remember(&path);
-        }
-
-        // ★ **The page-display mode this document opens in.**
-        //
-        // Two sources, in this precedence, and the order is the operator's
-        // requirement of 2026-08-12 rather than a convenience:
-        //
-        // 1. **what this document was last shown in**, from
-        //    `viewer::remembered` — *"so a sheet set does not inherit a
-        //    report's setting"*;
-        // 2. failing that, **the ribbon mode's default**, from
-        //    `PageDisplay::default_for_mode` — which is where
-        //    `MODES_AND_PANELS.md`'s "Read defaults to continuous scroll;
-        //    Review and Edit default to single page" lives.
-        //
-        // The two are genuinely different questions and the `Option` between
-        // them carries the difference: `None` from the store means "nobody has
-        // chosen for this document", which in Read mode must become
-        // continuous. A store that returned `Single` for an unknown document
-        // would silently invert the operator decision of 2026-08-13, and it is
-        // exactly the collapse `remembered::recall`'s own docs refuse.
-        //
-        // Placed here, in the one function that opens documents, for the same
-        // reason the recent-list call is: `argv` reaches this without an
-        // action, so a caller-side version would miss the first document of
-        // every session.
-        //
-        // The ribbon mode is read out first, as an owned `String`, so the
-        // `&mut self.status` borrow below does not have to be interleaved with
-        // a read of a sibling field inside a trace closure.
-        let ribbon_mode = self.ribbon.mode().unwrap_or_default().to_owned();
-        if let Status::Open(doc) = &mut self.status {
-            let remembered = viewer::remembered::recall(&doc.path);
-            let display =
-                remembered.unwrap_or_else(|| viewer::PageDisplay::default_for_mode(&ribbon_mode));
-            doc.view.display = display;
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    "page-display mode={} source={} ribbon-mode={ribbon_mode}",
-                    display.id(),
-                    if remembered.is_some() {
-                        "document"
-                    } else {
-                        "mode-default"
-                    },
-                )
-            });
-        }
-
-        // Forget every de-duplicated trace slot, so this document gets its
-        // own canvas line and its own region declarations rather than
-        // inheriting the previous document's because the numbers happened to
-        // match. §4.3 requirement 1 is "at least once per document open", and
-        // a consumer is entitled to read that as a line about *this*
-        // document. (Written before there was an Open command, when this
-        // fired once per process, precisely because the SECOND open is the one
-        // that would silently break it. There is an Open command now — this
-        // function is reached from `argv`, from `file.open`'s picker and from
-        // the Recent menu — so the second open happens routinely and the gate
-        // reset is load-bearing rather than anticipatory.)
-        crate::diag::reset_change_gates();
-        crate::diag::trace(|| {
-            let kind = match &self.status {
-                Status::Empty => "empty",
-                Status::Open(d) => {
-                    return format!("open ok pages={} path={:?}", d.pages.len(), d.path);
-                }
-                Status::Failed { .. } => "failed",
-                Status::Unsupported { .. } => "unsupported",
-                Status::NeedsPassword { .. } => "needs-password",
-            };
-            format!("open {kind}")
-        });
-    }
-
-    /// **Close whatever is open and go back to [`Status::Empty`].**
-    ///
-    /// The other half of [`Self::open_path`], and it forgets exactly what
-    /// that function forgets — which is the whole of why it exists as a
-    /// sibling rather than as `self.status = Status::Empty` at the call site.
-    ///
-    /// # What closing has to forget, and why each thing is here
-    ///
-    /// - **The document itself.** Dropping the [`Status::Open`] box drops the
-    ///   `Arc<EditSession>`, the page vector, the cached texture, the
-    ///   decomposition and the font inventory, the selection, and the render
-    ///   worker — every one of which lives *inside* `OpenDoc` precisely so
-    ///   that this is a single move rather than a checklist. `OpenDoc::new`'s
-    ///   own docs make the argument from the other direction: state that dies
-    ///   with the document belongs on the document.
-    /// - **The panels' view state**, through [`crate::panels::PanelsState::forget_document`].
-    ///   Expansion sets and the Properties focus are paint-order indices —
-    ///   positions on one page of one revision — and they hang off the
-    ///   *application*, so they genuinely do outlive a document. Leaving them
-    ///   behind means the Objects panel keeps rows expanded for a file that is
-    ///   no longer open, which is the same staleness `open_path` forgets for
-    ///   the same reason.
-    /// - **The search results**, through
-    ///   [`crate::find::FindState::forget_document`], for a stronger version
-    ///   of that argument: a hit's page index and its page-space rectangle are
-    ///   positions in one file, and the epoch test that catches an *edit*
-    ///   cannot catch a *different document* — a freshly opened one's
-    ///   `edit_epoch` is 0, so stale hits would read as current. The query and
-    ///   the search options survive, because those describe the operator
-    ///   rather than the document.
-    /// - **The de-duplicated trace slots**, so the next document opened in
-    ///   this session gets its own canvas line and its own region
-    ///   declarations rather than inheriting these because the numbers
-    ///   happened to match.
-    ///
-    /// # What it deliberately does NOT forget
-    ///
-    /// The **recent list**. Closing a document is not disowning it; it is the
-    /// single most likely moment for an operator to reach for the one they
-    /// had before it.
-    ///
-    /// The **dock arrangement** and the **mode**. Those belong to the
-    /// operator and outlive every document, which is what
-    /// [`crate::app::persistence`] exists to make true across restarts, let
-    /// alone across a close.
-    pub fn close_document(&mut self) {
-        // Traced before the drop, because after it there is nothing left to
-        // say which document this was — and "closed" with no name is a line
-        // that cannot be matched against the `open` line that preceded it.
-        crate::diag::trace(|| match &self.status {
-            Status::Open(doc) => format!("close path={:?} pages={}", doc.path, doc.pages.len()),
-            Status::Empty => "close nothing-open".to_owned(),
-            Status::Failed { path, .. }
-            | Status::Unsupported { path, .. }
-            | Status::NeedsPassword { path } => format!("close unopened path={path:?}"),
-        });
-        self.status = Status::Empty;
-        self.panels.forget_document();
-        // The hit list describes a document that is no longer open. See
-        // `open_path` for the argument; the two sites are deliberately
-        // symmetric.
-        self.find.forget_document();
-        crate::diag::reset_change_gates();
-    }
-
-    /// **Whether a save is in flight, so an Open or a Close must wait.**
-    ///
-    /// # The rule, stated where it will be needed
-    ///
-    /// A document is written by appending an incremental update to a file the
-    /// operator names. While that is happening, the bytes on disk are a
-    /// partial revision and the `EditSession` the writer is reading from must
-    /// not be dropped or replaced. So:
-    ///
-    /// > **An Open or a Close must not proceed while a save is pending.** The
-    /// > operator is asked what to do about it — wait, or discard — and the
-    /// > action is applied afterwards or not at all. It is never applied
-    /// > underneath the save.
-    ///
-    /// # Why it answers `false`, and why that is not a stub
-    ///
-    /// **There is no save in this build.** `file.save` is in
-    /// `crate::shell::manifest::PLANNED`, blocked on autosave and crash
-    /// recovery; `file.save_copy` is registered and has no dispatch arm. There
-    /// is therefore no state in which this could be true, and
-    /// `PROJECT_PLAN.md`'s no-placeholders invariant is explicit that the
-    /// answer to that is **nothing** — not a confirmation dialog wired to a
-    /// condition that cannot occur, and not an `unimplemented!()` waiting for
-    /// an operator to find it.
-    ///
-    /// What this is instead is the **seam**: one predicate, consulted by both
-    /// [`crate::app::actions::Action::Open`] and
-    /// [`crate::app::actions::Action::Close`], carrying the rule in its own
-    /// docs. When the save lands, it reads that subsystem's state and the two
-    /// arms grow their confirmation — in one place, already wired, rather
-    /// than in two arms somebody has to remember to find. `file.close`'s own
-    /// tooltip already promises the operator this behaviour
-    /// ("You are asked what to do about unsaved edits first"), which is the
-    /// other reason the rule is written down here rather than left implicit:
-    /// the promise exists on an operator-visible surface today.
-    #[must_use]
-    pub fn save_pending(&self) -> bool {
-        false
-    }
-}
-
-/// Whether a load failure is "pdfce is not finished" rather than "your file
-/// is broken".
-///
-/// Matched on the structured error, never on its message. Today the live
-/// case is an encryption configuration pdfce will not decrypt (§7.6) —
-/// reached either as the cross-reference layer's capability-gap refusal or
-/// as a `crypto::EncryptionUnsupported` in its own right.
-fn is_unsupported_structure(err: &DocError) -> bool {
-    matches!(
-        err,
-        DocError::Xref(x) if matches!(x.kind, XrefErrorKind::EncryptionUnsupported)
-    ) || matches!(err, DocError::Encryption(_))
-}
-
 /// Open a fixture the way [`PdfceApp::open_path`] does, without a frame —
 /// the same three calls in the same order, so what is under test is the state
 /// machine rather than an approximation of it.
@@ -1169,7 +1027,6 @@ pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::panels::objects::test_support::engine_fixture;
 
     // =======================================================================
     // The staleness keys that landed at S4
@@ -1393,106 +1250,4 @@ mod tests {
     // =======================================================================
     // Opening a document is what forgets the panels' state
     // =======================================================================
-
-    /// **★ Opening a document forgets the panels' view state.**
-    ///
-    /// The second half of the `DocKey` deletion. Expansion sets and the
-    /// Properties focus are paint-order indices that live on `PdfceApp`, so
-    /// they genuinely do outlive a document. The old answer was to compare a
-    /// document identity every frame; the answer here is that documents are
-    /// opened in exactly one place, so forgetting is one statement at the one
-    /// moment it is true.
-    ///
-    /// Without it, opening a second document leaves the Objects panel with
-    /// rows expanded for a page that no longer exists and the Properties
-    /// panel describing whatever object lands at that index in the new
-    /// file.
-    #[test]
-    fn opening_a_document_forgets_the_panels_focus_and_expansion() {
-        let mut app = PdfceApp::new();
-        app.panels.set_focus(7);
-        app.panels.tree_mut().toggle_object(7);
-        assert_eq!(app.panels.focus(), Some(7));
-
-        app.open_path(engine_fixture(FOUR_PAGES));
-        assert!(matches!(app.status, Status::Open(_)), "the fixture opens");
-        assert_eq!(
-            app.panels.focus(),
-            None,
-            "a new document makes every paint-order index meaningless"
-        );
-        assert!(app.panels.tree_mut().objects_expanded.is_empty());
-    }
-
-    // =======================================================================
-    // Phase 4 — which arrangement a document opens in
-    // =======================================================================
-
-    /// ★ **Read mode opens a document continuous; every other mode opens it
-    /// single page.**
-    ///
-    /// `MODES_AND_PANELS.md`'s table and the operator decision of 2026-08-13,
-    /// asserted through the **open path** rather than through
-    /// `PageDisplay::default_for_mode` — which is already tested in its own
-    /// module. What this adds is that `open_path` actually consults it: the
-    /// rule existing and the rule being applied are two different facts, and
-    /// the second is the one an operator experiences.
-    ///
-    /// Driven with no remembered choice for the fixture (nothing has ever set
-    /// one for a path under the engine fixtures directory), so what is measured
-    /// is the mode default and not a leftover.
-    #[test]
-    fn read_mode_opens_a_document_continuous_and_the_others_paged() {
-        for (mode, expected) in [
-            ("read", viewer::PageDisplay::Continuous),
-            ("review", viewer::PageDisplay::Single),
-            ("edit", viewer::PageDisplay::Single),
-        ] {
-            let mut app = PdfceApp::new();
-            app.ribbon.set_mode(mode.to_owned());
-            app.open_path(engine_fixture(FOUR_PAGES));
-            let Status::Open(doc) = &app.status else {
-                panic!("the fixture opens");
-            };
-            assert_eq!(
-                doc.view.display, expected,
-                "{mode} mode opened the document in {:?}",
-                doc.view.display
-            );
-        }
-    }
-
-    /// A freshly opened document is not mistaken for one that has been
-    /// navigated to.
-    ///
-    /// `tracked_page` starting anywhere but at `view.page_index` would make
-    /// the canvas scroll a continuous strip on the first frame after an open,
-    /// which the operator did not ask for and which would fight a saved scroll
-    /// position the moment there is one.
-    #[test]
-    fn a_freshly_opened_document_is_not_mid_navigation() {
-        let doc = open_fixture(FOUR_PAGES);
-        assert_eq!(doc.tracked_page, doc.view.page_index);
-        assert!(doc.strip_visible.is_empty());
-        assert!(doc.strip_rasters.is_empty());
-        assert!(doc.render_in_flight.is_none());
-    }
-
-    /// …and a FAILED open forgets it too.
-    ///
-    /// Whatever was showing is gone either way, and stale expansion state
-    /// over a document that could not be read is the worse of the two states
-    /// to leave behind: the panel would look populated while the shell says
-    /// the file is damaged.
-    #[test]
-    fn a_failed_open_forgets_the_panels_state_as_well() {
-        let mut app = PdfceApp::new();
-        app.panels.set_focus(3);
-        app.open_path(engine_fixture("not-a-pdf.bin"));
-        assert!(
-            matches!(app.status, Status::Failed { .. }),
-            "this fixture must fail to open, or the test proves nothing"
-        );
-        assert_eq!(app.panels.focus(), None);
-    }
 }

@@ -20,87 +20,45 @@
 //! | [`gesture`] | press / drag / release, the clear that must not happen on a press, Escape's abort, and the one rubber band's two intents |
 //! | [`moving`] | which move verb each rung reaches, the canvas→page delta, and the ghost's honesty rule |
 //! | [`handles`] | eight grips plus move, and the cursor over each |
+//! | [`textsel`] | selecting **text**: why it needs no capability, why it is offered exactly where content selection is not, and the single pass that makes the highlight and the copy one value |
 //! | [`menus`] | the right-click: which of the two canvas menus opens, and the select-first rule that makes it about the thing you pointed at |
 //! | [`overlay`] | what all of it looks like — and what rule 4 forbids it looking like |
 //! | [`geometry`] | the pan and zoom-anchor arithmetic |
 //! | [`keys`] | Escape and Delete, and which of Escape's three claimants gets it |
 //! | [`tool`] | select or hand, and the space bar that borrows the hand |
 //! | [`zoom`] | **the anchor rule**, the two-frame handshake, and the five zoom paths that route through it |
+//! | [`interact`](mod@interact) | **what the operator just did, and what happens as a result** — the pointer frame, the gesture application, the right-click, the keys, the re-resolve, the cursor |
 //!
-//! Everything above is pure except this file, [`overlay`], and [`moving`]'s
-//! one wiring function ([`moving::drag`], which is the only thing there that
-//! touches the live object model — its rules are pure). That is the
-//! point: `PROJECT_PLAN.md`'s split is driven by testability, and the
+//! Everything above is pure except this file, [`interact`](mod@interact),
+//! [`overlay`], and [`moving`]'s one wiring function ([`moving::drag`], which
+//! is the only thing there that touches the live object model — its rules are
+//! pure). That is the point: `PROJECT_PLAN.md`'s split is driven by
+//! testability, and the
 //! selection invariants are exactly the kind of property a unit test can hold
 //! and a running window cannot be trusted to demonstrate.
 //!
-//! ## ★ Selection survives navigation — the invariant this stage is accountable for
+//! ## What is in this file, and what is next door in [`interact`](mod@interact)
 //!
-//! `GUI_ROADMAP.md` Phase 1 states it and names three ways it is lost.
-//! [`selection`]'s header carries the full table; the wiring's share of it is
-//! visible right here in [`show`]:
+//! This file is **composition**. [`show`] and [`show_in`], the `ScrollArea`,
+//! the strip of page rectangles and the raster or the state sentence drawn into
+//! each, the fit resolved against this frame's viewport, the placeholder a
+//! document with no pages gets, the [`CanvasGeometry`] the rulers are then
+//! painted against, and the layout trace. It needs a live `Ui`, and it answers
+//! one question: **where does everything go on screen?**
 //!
-//! - the selection is **read, resolved and stored** on every frame, and the
-//!   resolve does no work unless `(page, edit epoch)` moved — so a zoom, a
-//!   pan, a fit change, a view rotation, a page-display change and a ribbon-tab
-//!   change all cost one comparison and change nothing;
-//! - the only thing that can clear it is [`gesture::GestureOutcome::Click`],
-//!   which is raised on a **completed click with no drag**;
-//! - a decomposition is built **only when a gesture needs one or the epoch
-//!   moved** — never per frame, and never merely because the view changed.
+//! [`interact`](mod@interact) is **interaction**. The pointer frame, what a
+//! press would land on, the gesture machine's outcome and its application, the
+//! right-click, the keys, the re-resolve of the selection, the overlay draw and
+//! the cursor. It needs this frame's input, and it answers the other question:
+//! **what did the operator just do, and what happens as a result?**
 //!
-//! **A move does not threaten the invariant, and that is measured rather than
-//! hoped.** `move_*` rewrites operator operands in place, adds and removes no
-//! operator, and therefore renumbers nothing — `pdfce-core`'s
-//! `object_identity_across_edits.rs` decomposes, edits and decomposes again to
-//! prove it. So a committed move leaves every `Selection` untouched and only
-//! the *outlines* have to catch up, which the epoch bump already handles. The
-//! `delete_*` family is the one that renumbers. See [`moving`]'s header for the
-//! full table.
-//!
-//! ## ★ The two seams that were wiring, and how they were closed
-//!
-//! Both were recorded here as *"one-line changes once the field they want
-//! exists"*. The field exists; both are closed. They are written up rather
-//! than deleted because each closed a live hazard, and the next person to
-//! consider reopening one should have to read what it cost.
-//!
-//! 1. **The selection was held in `egui`'s `Memory`.** It is document-scoped
-//!    state, and `Memory` outlives documents — so the canvas had to *detect*
-//!    a document change with a `DocumentToken` built from the
-//!    `Arc<EditSession>`'s **allocation address** mixed with the page count,
-//!    compared once per frame. That is the same address-as-identity key
-//!    `panels::DocKey` was deleted for earlier in this stage, with the same
-//!    ABA hazard.
-//!
-//!    It now lives on [`crate::app::state::OpenDoc::selection`], and
-//!    `DocumentToken` and `SelectionState::sync_document` are **deleted**.
-//!    `OpenDoc::new`'s own argument does the work: constructing fresh state
-//!    per document is what makes *"a cached value can never refer to a
-//!    previous file"* true by construction, on every frame, with nothing to
-//!    compare. The canvas still owns the selection in the sense that matters —
-//!    it is the only writer — and the *edit* a Delete leads to is still an
-//!    [`Action`] applied after the frame.
-//!
-//! 2. **The decomposition was built transiently, per gesture.** The Objects
-//!    panel's cache moved onto `OpenDoc` earlier in this stage; until this
-//!    change the canvas could not reach it, so `build_targets` called
-//!    `ObjectModelProvider::build` for itself on every click and every marquee
-//!    release — a **second** decomposition of a page the panel had already
-//!    decomposed, which is the *"two decompositions quietly diverge"* failure
-//!    decision 011 names.
-//!
-//!    [`interact`] now reads [`crate::app::state::OpenDoc::page_objects`], and
-//!    `build_targets` is deleted. One decomposition per `(page, epoch)`, shared
-//!    by the panel, the Properties row, the `objects n=` trace and the hit
-//!    test — the same value, not two values that agree. [`show`] needs no
-//!    provider argument, because the document it already takes carries it.
-//!
-//!    The gating is kept and still matters: the cache is asked for **only**
-//!    when a gesture needs a hit test or when `(page, epoch)` has moved, so a
-//!    zoom or a pan with the Objects panel closed still decomposes nothing.
-//!    Drawing needs no provider at all — the outlines are cached in canvas
-//!    space, which is zoom-independent.
+//! The two change for different reasons — a page-display mode is a layout
+//! question, a new tool is an interaction one — which is the seam rule R2
+//! forced this file along when it reached 1,526 lines. The invariants that
+//! belong to the second half travel with it, and are written up in
+//! [`interact`](mod@interact)'s header rather than here: **selection survives
+//! navigation**, and the two closed seams (where the selection lives, and the
+//! one shared decomposition).
 //!
 //! ## Actions, not mutations — and the two documented exceptions
 //!
@@ -189,6 +147,14 @@ pub mod handles;
 // kept between frames. Split out under R2 when the rulers landed; see its
 // header on why the forced seam is a real one.
 pub mod input;
+// What the operator just did, and what happens as a result: the seven ordered
+// steps of the one gesture function, the `Frame` of settled facts it is handed,
+// and the two invariants it is accountable for. Split from this file under R2
+// along the seam the two subjects already drew — composition needs a live `Ui`
+// and answers *where does everything go?*, interaction needs this frame's input
+// and answers *what did the operator just do?* Its items are `pub(super)`: this
+// module is the only caller and nothing outside `canvas` can name them.
+pub mod interact;
 // Escape and Delete, and the precedence between the three things that would
 // like Escape. Split from this file along the seam every other split here
 // follows: that module is drivable by a headless `egui::Context`, this one
@@ -198,6 +164,7 @@ pub mod mapping;
 // Drawing a markup annotation where the operator points: the rubber band, the
 // four kinds it can author, and the raw endpoints an arrow's head depends on.
 pub mod markup;
+pub mod measure;
 pub mod menus;
 // Dragging a selection: which verb each rung reaches, the canvas→page delta,
 // and the ghost's honesty rule. Kept out of `selection` deliberately — that
@@ -211,11 +178,19 @@ pub mod overlay;
 // reservation it takes out of the viewport is a constant (R128).
 pub mod rulers;
 pub mod selection;
+// The GUI half of snapping: the zoom-invariant catch radius, the master/Alt
+// gates, the Tab cycle, the two-click confirm, and the indicator glyph.
+pub mod snap;
 // Which page the frame is about, in what order the rest should be drawn, and
 // where a navigated-to page lands. The canvas's half of Phase 4's strip.
 pub mod strip;
 pub mod target;
-// The three `PDFCE_DIAG` lines the canvas writes, and the shape contract
+// Selecting TEXT on the page, and copying it: the mode gate that needs no
+// capability, the interaction decisions and which of Acrobat / Inkscape /
+// SolidWorks each came from, and the one derivation that makes what is
+// highlighted and what is copied the same value.
+pub mod textsel;
+// The `PDFCE_DIAG` lines the canvas writes, and the shape contract
 // `tools/ui-verify` reads them under.
 pub mod trace;
 // Which pointer tool the canvas is in — select or hand — and the space bar
@@ -225,17 +200,20 @@ pub mod tool;
 // paths that route through it.
 pub mod zoom;
 
-use egui::{Key, PointerButton, Pos2, Rect, Sense, scroll_area::ScrollSource, vec2};
+use egui::{PointerButton, Pos2, Rect, Sense, scroll_area::ScrollSource, vec2};
 use egui_shell::HandlerToken;
 
 use crate::app::actions::Action;
+use crate::app::modes::Capabilities;
 use crate::app::state::OpenDoc;
-use crate::canvas::gesture::{GestureOutcome, MarqueeIntent, Phase, PointerFrame};
-use crate::canvas::input::{load_gesture, pan_delta, probe, store_gesture};
+use crate::canvas::input::pan_delta;
+// The interaction half, next door. `Frame` is this frame's settled facts on the
+// way in; `interact` is everything that follows from them. Imported by name
+// rather than called as `interact::interact(…)` so the one call site below
+// reads exactly as it did before the split.
+use crate::canvas::interact::{Frame, interact};
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::rulers::CanvasGeometry;
-use crate::canvas::target::CanvasTargetProvider;
-use crate::canvas::tool::CanvasTool;
 use crate::shell::menus::MenuHost;
 use crate::viewer;
 
@@ -252,40 +230,6 @@ use crate::viewer;
 /// region flush against the panel edges while "Fit page" left 16 points would
 /// read as two different ideas of what fitting means.
 pub const CANVAS_MARGIN: f32 = 16.0;
-
-/// The three facts about *this frame's canvas* that [`interact`] needs, and
-/// that every part of it must agree on.
-///
-/// A struct rather than three parameters, and the reason is the same one that
-/// made [`PageMapping`] a struct: these are facts about one frame, they are
-/// settled together once the scroll area has laid out, and passing them
-/// separately invites a call site to compute one of them for itself. `tool` is
-/// the newest member and the most dangerous to re-derive — two readings of
-/// "is the hand active?" within one frame that disagreed would be a drag that
-/// panned **and** marquee'd, which is exactly what Phase 3.2 must not ship.
-#[derive(Debug, Clone, Copy)]
-struct Frame<'a> {
-    /// The frame's ONE screen ⟷ canvas map, **for the page being acted on**.
-    ///
-    /// Every gesture, every hit test and every selection outline goes through
-    /// this one. Phase 4 did not add a second: a strip shows several pages, but
-    /// input is about exactly one of them, and which one is settled before this
-    /// struct is built (see [`show`]).
-    map: PageMapping,
-    /// One map per page this frame drew, for the **Find wash** — the single
-    /// thing that is legitimately about pages other than the one being acted
-    /// on, because a search describes the whole document and its hits have to
-    /// land on the pages they are on.
-    ///
-    /// Exactly one entry under [`viewer::PageDisplay::Single`], and it is the
-    /// same page `map` describes.
-    pages: &'a [strip::PageView],
-    /// The scroll viewport, which is both the painter's clip rect and the
-    /// region "is the pointer over the canvas?" is asked against.
-    clip: Rect,
-    /// What the primary button means this frame.
-    tool: CanvasTool,
-}
 
 /// Draw the page, read the canvas gestures, and attach the canvas context
 /// menus.
@@ -327,11 +271,12 @@ pub fn show(
     doc: &mut OpenDoc,
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
+    caps: Capabilities,
     actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
     let gutters = rulers::reserve(ui, doc.view.rulers && !doc.pages.is_empty());
     let mut content = gutters.content_ui(ui);
-    let (tokens, geometry) = show_in(&mut content, doc, host, find, actions);
+    let (tokens, geometry) = show_in(&mut content, doc, host, find, caps, actions);
     rulers::draw(ui, doc, gutters, geometry.as_ref());
     // Starting a guide drag needs a ruler to drag out of; *finishing* one does
     // not, because it may have started on the canvas. So the two halves are
@@ -352,6 +297,7 @@ fn show_in(
     doc: &mut OpenDoc,
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
+    caps: Capabilities,
     actions: &mut Vec<Action>,
 ) -> (Vec<HandlerToken>, Option<CanvasGeometry>) {
     if doc.pages.is_empty() {
@@ -837,6 +783,7 @@ fn show_in(
             pages: &page_views,
             clip: scroll_output.inner_rect,
             tool: active_tool,
+            caps,
         },
         host,
         find,
@@ -898,554 +845,4 @@ fn show_in(
             viewport: scroll_output.inner_rect,
         }),
     )
-}
-
-/// Read the frame's canvas gestures and keys, update the selection, draw it,
-/// and return how many entries are selected (for the trace line) together
-/// with any context-menu commands the operator invoked.
-///
-/// # The order of the steps, and why it is this order
-///
-/// 1. **Read the pointer**, converting once through `map` — the boundary.
-///    Escape rides in on the same frame, so a drag in flight can abort.
-/// 2. **Decide what a press would land on**, from the *previous* frame's
-///    selection. A grip is a target because it is already on screen.
-/// 3. **Advance the gesture machine.** A press produces nothing; only a
-///    completed click, a released marquee, a move drag or an Escape-abort
-///    produces an outcome.
-/// 4. **Build a decomposition only if something needs one.** A click, a
-///    released marquee, **a right-click**, **a move drag**, or a
-///    `(page, epoch)` that moved. Never merely because the view changed — that
-///    is the invariant, and it is this `if`.
-/// 5. **Apply the outcome**, then **the right-click**, then **re-resolve**,
-///    then **draw** (outlines, then the marquee, then the move ghost).
-/// 6. **Keys**, guarded by `text_edit_focused()` — `DEFECTS.md` D1 — and by
-///    whether step 3 already spent the Escape on a drag.
-///
-/// Step 4 sitting *after* step 3 is what makes the whole thing affordable:
-/// the expensive work is behind the gesture, not in front of it.
-///
-/// # ★ Why Escape is read in step 1 and honoured in step 6
-///
-/// Two things want the key and exactly one may have it per press: a drag in
-/// flight wants to abandon itself, and the selection ladder wants to ascend a
-/// rung. The gesture machine gets first refusal because it is the only thing
-/// that knows whether there *is* a drag under the press — it takes the key only
-/// when there is, and reports [`gesture::GestureOutcome::Cancelled`] when it
-/// does. Step 6 passes that on to [`canvas_keys`], so a cancelled drag does not
-/// also cost the operator the rung they were working in. With no drag in
-/// flight, nothing is consumed and Escape ascends exactly as it always did.
-///
-/// # ★ Where the right-click sits, and why it is not step 5's business
-///
-/// The secondary button never reaches [`gesture`]: that machine reads
-/// `PointerButton::Primary` throughout, deliberately, because the middle
-/// button pans and the primary button owns press/drag/release. A right-click
-/// is not a gesture with a beginning and an end — it is a single event that
-/// asks a question — so it is read straight off the `Response` in step 5b,
-/// *after* the primary gesture has been applied and *before* the resolve.
-///
-/// Before the resolve matters: a right-click over an unselected object
-/// **selects it** ([`menus::select_under_right_click`]), and the outlines
-/// drawn in step 8 have to be the new selection's or the highlight would lag
-/// the menu by a frame — the operator would see a menu about an object that
-/// is not yet outlined, which is the "which of these is it about?" ambiguity
-/// the select-first rule exists to remove.
-///
-/// # ★ Why the selection is moved out of the document and back again
-///
-/// The selection now lives on [`OpenDoc`], and the decomposition it resolves
-/// against is a [`std::cell::Ref`] **borrowed from the same `OpenDoc`**. Those
-/// two cannot be held at once through one `&mut` — a `Ref` keeps a shared
-/// borrow of the whole document alive, and mutating the selection in place
-/// would need a mutable one.
-///
-/// So the selection is taken by value at the top and put back at the bottom.
-/// That is not a workaround for the borrow checker so much as an honest
-/// statement of what this function does: it computes *the next* selection from
-/// the previous one and the frame's input, and stores it. Two further
-/// properties fall out, both of which the `egui::Memory` version relied on and
-/// documented:
-///
-/// * **nothing is cloned.** A marquee over a dense sheet can select thousands
-///   of entries, and cloning that per frame at 60 Hz would be a real cost for
-///   no reason;
-/// * **a frame that panicked between the take and the put leaves an empty
-///   selection**, not a half-updated one — a state the operator can see and
-///   recover from with one click.
-///
-/// # ★ The hand tool suppresses the whole of step 1, and that is the fix
-///
-/// When [`tool::active`] reports `Hand` — chosen, or borrowed by a held space
-/// bar — the primary button pans, and a `PointerFrame` describing that drag
-/// would make it marquee **as well**. So the frame is built **blank** apart
-/// from Escape: no press, no drag, no click, no position. Not "the marquee arm
-/// checks the tool", not "the selection is restored afterwards" — the gesture
-/// simply is not offered, which is the only version of this that cannot leave
-/// a half-applied selection behind if a future arm forgets to ask.
-///
-/// A drag already in flight when the space bar goes down is therefore
-/// *interrupted*, and [`gesture::GestureState::update`]'s last branch already
-/// knows what to do with that: abandon it, commit nothing. An operator who
-/// starts a marquee and then reaches for space has changed their mind, and the
-/// worst outcome available is that nothing happened.
-fn interact(
-    ui: &mut egui::Ui,
-    doc: &mut OpenDoc,
-    response: &egui::Response,
-    frame_ctx: &Frame,
-    host: Option<&MenuHost<'_>>,
-    find: &crate::find::FindState,
-    actions: &mut Vec<Action>,
-) -> (usize, Vec<HandlerToken>) {
-    // Destructured through the reference, so `map` stays a borrow — it is
-    // handed on to the overlay and the probe, both of which take one.
-    let Frame {
-        map,
-        pages,
-        clip,
-        tool: active_tool,
-    } = frame_ctx;
-    let (clip, active_tool) = (*clip, *active_tool);
-    let ctx = ui.ctx().clone();
-    let page_index = doc.view.page_index;
-
-    // Out of the document for the duration of the frame's gesture — see this
-    // function's docs. The `&mut doc` borrow ends on this line, which is what
-    // lets the decomposition below be borrowed out of `doc` at all.
-    //
-    // ★ Notice what is NOT here: no document token is compared, because none
-    // exists. A selection belongs to the `OpenDoc` it is a field of, so a
-    // different document is a different `OpenDoc` carrying its own empty one.
-    // A page change is not a document change and neither is an edit — both
-    // re-resolve at step 7. See `selection`'s invariant 3.
-    let mut selection = std::mem::take(&mut doc.selection);
-    let mut gestures = load_gesture(&ctx);
-
-    // ---- 1. the pointer, converted once ------------------------------
-    //
-    // `interact_pointer_pos` first: during a drag it keeps reporting even
-    // after the pointer has left the widget, which is exactly the case a
-    // rubber-band dragged off the page depends on. `pointer_latest_pos` is
-    // the hover fallback, which is what the grip cursor needs.
-    let screen_pos = response
-        .interact_pointer_pos()
-        .or_else(|| ctx.pointer_latest_pos());
-    let shift = ctx.input(|i| i.modifiers.shift);
-    // Escape is read whatever the tool is: a hand-tool frame still has to be
-    // able to abandon a drag the previous tool left in flight, and it is still
-    // the ladder's key when there is no drag. See this function's header.
-    let cancel = !ctx.text_edit_focused() && ctx.input(|i| i.key_pressed(Key::Escape));
-    let frame = if active_tool.pans_with_primary() {
-        PointerFrame {
-            cancel,
-            ..PointerFrame::default()
-        }
-    } else {
-        PointerFrame {
-            // `..._by(PointerButton::Primary)` throughout: the bare forms are
-            // button-agnostic, and the middle button is the pan. See `gesture`.
-            drag_started: response.drag_started_by(PointerButton::Primary),
-            dragging: response.dragged_by(PointerButton::Primary),
-            drag_stopped: response.drag_stopped_by(PointerButton::Primary),
-            clicked: response.clicked_by(PointerButton::Primary),
-            double_clicked: response.double_clicked_by(PointerButton::Primary),
-            pos: screen_pos.map(|p| map.to_page(p)),
-            // ★ Where the button actually went down, through the frame's ONE
-            // map. Without it every drag begins wherever the pointer had got to
-            // by the frame egui called it a drag — measured at 94 page points
-            // on an A1 sheet. See `gesture::PointerFrame::press_origin`.
-            press_origin: ctx
-                .input(|i| i.pointer.press_origin())
-                .map(|p| map.to_page(p)),
-            shift,
-            // Escape reaches the gesture machine BEFORE it reaches the ladder,
-            // so a drag in flight can abandon itself. The machine consumes the
-            // key only if there was a drag to abandon, and says so by returning
-            // `Cancelled` — which is what step 6 passes on to `canvas_keys`.
-            cancel,
-        }
-    };
-
-    // ---- 2. what a press would land on -------------------------------
-    //
-    // The armed tool and the marquee's INTENT are sampled here, at press time,
-    // alongside what the press landed on — see `gesture`'s header on why a
-    // release must not re-read either. The precedence between the four answers
-    // lives in `gesture::press_kind`, which is pure and tested; this is the one
-    // call that supplies it with the frame's facts.
-    let grip_box = overlay::grip_box(map, &selection);
-    let hovered_grip = grip_box
-        .zip(screen_pos)
-        .and_then(|(bounds, p)| handles::grip_at(bounds, p));
-    let press_kind = gesture::press_kind(active_tool, hovered_grip, zoom::region_zoom_armed(&ctx));
-
-    // ---- 3. advance the gesture --------------------------------------
-    let outcome = gestures.update(frame, press_kind);
-
-    // ---- 4. the decomposition, only if a HIT TEST needs one -------------
-    //
-    // ★ `doc.page_objects()` — THE decomposition, the one the Objects panel
-    // lists and the `objects n=` trace counts. The canvas used to build its
-    // own here (module docs, seam 2); that second `decompose_page` over the
-    // same page is gone.
-    //
-    // The gate is kept even though the value is now cached, and it still buys
-    // something real: `page_objects()` builds on first use, so asking for it
-    // on a frame that has no hit test to do would decompose the page the first
-    // time the operator merely zoomed — with the Objects panel closed, that is
-    // a whole content-stream walk bought by a mouse wheel. Drawing needs no
-    // provider at all (the outlines are cached in canvas space, which is
-    // zoom-independent), so on the overwhelming majority of frames nothing is
-    // asked for and nothing is built.
-    //
-    // Not "if a resolve needs one" — see step 6 for why the resolve's build
-    // has to happen after the keys rather than before them.
-    //
-    // A **right-click** is in this set for the same reason a click is: it has
-    // to know what is under the pointer in order to select it, and a menu
-    // about the wrong object is worse than no menu. It is a rare event, so
-    // the gate still buys what it always bought — a zoom or a pan with the
-    // Objects panel closed decomposes nothing.
-    // A **move drag** is in the set too, at either phase, and it is the one
-    // member that is not a hit test — which is why the flag is named for what
-    // it gates rather than for what most of its members do. It needs the model
-    // to answer two questions the selection alone cannot: *is every selected
-    // object a path* (a non-path refuses the whole move, and a ghost drawn over
-    // one would promise a move that gets refused), and, at the Node rung,
-    // *where is the anchor now* (`move_node` takes a destination, not a delta).
-    //
-    // Asking on every frame of an in-flight drag is affordable because the
-    // answer is already built: the selection cannot have outlines to drag
-    // without a decomposition, so `page_objects()` is a cache hit for the
-    // whole gesture. The gate still buys what it always bought — a zoom or a
-    // pan with nothing being dragged decomposes nothing.
-    //
-    // ★ A **zoom** marquee is deliberately NOT in the set. It selects nothing,
-    // so it hit-tests nothing, so it decomposes nothing — a region zoom over a
-    // 129,758-object drawing costs one scroll offset. That falls out of the
-    // intent being carried on the outcome rather than being asked for at the
-    // release, and it is the concrete payoff for sampling it at the press.
-    let secondary_clicked = response.secondary_clicked();
-    let needs_targets = secondary_clicked
-        || matches!(
-            outcome,
-            GestureOutcome::Click { .. }
-                | GestureOutcome::Move { .. }
-                | GestureOutcome::Marquee {
-                    phase: Phase::Complete,
-                    intent: MarqueeIntent::Select,
-                    ..
-                }
-        );
-    let mut targets = if needs_targets {
-        doc.page_objects()
-    } else {
-        None
-    };
-
-    // ---- 5. apply the gesture -----------------------------------------
-    let mut marquee = None;
-    let mut ghost = None;
-    let mut band = None;
-    let mut zoom_region = None;
-    match outcome {
-        GestureOutcome::Click {
-            point,
-            shift,
-            double,
-        } => {
-            let hit = targets
-                .as_ref()
-                .map(|t| probe(&**t, &selection, page_index, point, map))
-                .unwrap_or_default();
-            selection.click(page_index, hit, shift, double);
-            trace::selection_event(&selection, "click", double);
-        }
-        GestureOutcome::Marquee {
-            rect,
-            shift,
-            intent: MarqueeIntent::Select,
-            phase: Phase::Complete,
-        } => {
-            let hits = targets
-                .as_ref()
-                .map(|t| t.hit_test_rect(page_index, rect))
-                .unwrap_or_default();
-            selection.marquee(page_index, &hits, shift);
-            trace::selection_event(&selection, "marquee", shift);
-        }
-        // ★ The same rubber band, released with the other intent. **The
-        // selection is not touched** — not cleared, not replaced, not even
-        // read: a navigation gesture that rearranged the selection would break
-        // the invariant this whole stage is accountable for, and the way to not
-        // break it is to have no line of code here that could. `zoom_to_rect`
-        // takes the band in canvas space, which is the space it already
-        // arrived in.
-        //
-        // Disarmed on release, not on press: the one-shot has to survive the
-        // whole drag, or an Escape-cancelled zoom marquee would leave the
-        // operator with a disarmed tool and nothing to show for it.
-        GestureOutcome::Marquee {
-            rect,
-            intent: MarqueeIntent::Zoom,
-            phase: Phase::Complete,
-            ..
-        } => {
-            zoom::disarm_region_zoom(&ctx);
-            // Deferred to step 7b for one structural reason: `targets` is a
-            // `Ref` borrowed out of `doc`, and arming an anchor needs `&mut
-            // doc`. The same constraint the `drop(targets)` below exists for,
-            // and the same answer the marquee and the ghost already use —
-            // decide here, act once the borrow has ended.
-            zoom_region = Some(rect);
-        }
-        GestureOutcome::Marquee {
-            rect,
-            phase: Phase::InFlight,
-            ..
-        } => marquee = Some(rect),
-        // ★ The move. `moving::drag` owns every rule — which verb the rung
-        // reaches, whether the operands qualify, the canvas→page delta — and
-        // returns the ghost's canvas-space offset when, and only when, the
-        // release would commit. Nothing about the move is decided here, on
-        // purpose: this arm is wiring, and the rules are unit-tested without a
-        // window in `moving`.
-        GestureOutcome::Move { delta, phase } => {
-            ghost = moving::drag(
-                delta,
-                phase,
-                &selection,
-                page_index,
-                targets.as_deref(),
-                doc.current_page(),
-                actions,
-            );
-        }
-        // ★ The markup band. `markup::drag` owns every rule — the canvas→page
-        // conversion, the degenerate-drag refusal, which endpoints stay raw —
-        // and hands back a band only when the release would commit, which is
-        // the same honesty contract the move ghost is held to. Nothing about a
-        // markup is decided here: this arm is wiring, and the rules are
-        // unit-tested without a window in `markup`. Note what it does NOT need:
-        // a decomposition. A markup hit-tests nothing, which is why this
-        // outcome is absent from `needs_targets` above.
-        GestureOutcome::Markup {
-            kind,
-            from,
-            to,
-            phase,
-        } => {
-            band = markup::drag(
-                kind,
-                from,
-                to,
-                phase,
-                page_index,
-                doc.current_page(),
-                actions,
-            );
-        }
-        // A resize drag is CONSUMED and commits nothing. Consuming it is the
-        // load-bearing part: without it the drag would fall through to a
-        // marquee, so aiming at a grip would replace the selection the operator
-        // was trying to act on. `pdfce-core` has no scale verb, so there is
-        // nothing to commit and — see `overlay::draw_move_ghost` — nothing to
-        // preview either. See `handles` for the whole argument.
-        //
-        // `Cancelled` lands here too: an abandoned drag draws nothing, commits
-        // nothing, and its only remaining effect is to keep Escape away from
-        // the ladder at step 6.
-        GestureOutcome::Resize { .. } | GestureOutcome::Cancelled | GestureOutcome::Idle => {}
-    }
-
-    // ---- 5b. the right-click ---------------------------------------------
-    //
-    // ★ The hit test is deliberately the OBJECT rung only — `hit_test`, not
-    // `probe`. `probe` also asks for the nearest part and node so that a
-    // double-click can descend, and a right-click never descends: it names a
-    // whole object, because the verbs a context menu offers act on whole
-    // objects. Asking for the deeper rungs here would pay for two extra
-    // provider queries on every right-click and then discard both.
-    //
-    // `screen_pos` rather than the gesture's own `pos`: the `PointerFrame`
-    // was consumed by the gesture machine above, and re-deriving the page
-    // point from the same `screen_pos` through the same `map` is the frame's
-    // ONE conversion applied twice, not a second conversion.
-    //
-    // `attach` is called on EVERY frame, not only on the frame of the click,
-    // because `egui` draws an open popup until it is dismissed and a popup
-    // only exists while something is attached to the response. On a frame
-    // with no secondary click and nothing open it does nothing at all.
-    let right_clicked_object = if secondary_clicked {
-        targets.as_ref().and_then(|t| {
-            screen_pos.and_then(|p| t.hit_test(page_index, map.to_page(p), map.tolerance()))
-        })
-    } else {
-        None
-    };
-    let tokens = menus::attach(
-        response,
-        &mut selection,
-        page_index,
-        right_clicked_object,
-        host,
-    );
-
-    // ---- 6. keys, BEFORE the resolve -----------------------------------
-    //
-    // Escape ascends a rung, which changes which box each entry outlines —
-    // the part's, or the object's. Running the keys after the resolve would
-    // leave the outline one frame behind the rung, visible as the part's box
-    // lingering for a frame after the operator stepped out of it.
-    //
-    // `Cancelled` at step 3 means Escape was spent abandoning a drag, and one
-    // press may have one effect: the ladder must not also ascend, or an
-    // operator who cancels a move drag finds they have left the rung they were
-    // working in as well.
-    keys::canvas_keys(
-        &ctx,
-        &mut selection,
-        page_index,
-        actions,
-        matches!(outcome, GestureOutcome::Cancelled),
-    );
-
-    // ---- 7. re-resolve -------------------------------------------------
-    //
-    // ★ A decomposition is attempted whenever a resolve is due, and `resolve`
-    // records the key either way. Both halves matter and the pairing is easy
-    // to get wrong:
-    //
-    // * passing `None` when no decomposition was ATTEMPTED would clear the
-    //   outlines and then record the key, so they would never come back —
-    //   a selection that is still selected and no longer drawn;
-    // * not recording the key on a failed attempt would re-decompose an
-    //   undecodable page on every single frame.
-    // `!needs_targets` rather than `targets.is_none()`: a build that was
-    // already attempted and failed must not be attempted a second time in the
-    // same frame.
-    if !needs_targets && selection.needs_resolve(page_index, doc.edit_epoch) {
-        targets = doc.page_objects();
-    }
-    selection.resolve(
-        targets.as_ref().map(|t| &**t as &dyn CanvasTargetProvider),
-        page_index,
-        doc.edit_epoch,
-    );
-
-    // The decomposition is a `Ref` into `doc`, and `Ref` implements `Drop` —
-    // so its borrow does NOT end at its last use, and the store at the bottom
-    // of this function needs `&mut doc`. Dropped explicitly rather than by
-    // shuffling the code into a block, because the ordering is a real
-    // constraint worth naming: nothing below this line may read the
-    // decomposition.
-    drop(targets);
-
-    // ---- 7b. the released zoom marquee ----------------------------------
-    //
-    // Here rather than in its arm because arming an anchor writes to `doc` and
-    // the decomposition's `Ref` has only just been released. The outcome is
-    // reported by `zoom` on the diagnostic channel; there is nothing for this
-    // frame to do with it, because a region zoom that hit the raster ceiling
-    // still zooms — to the ceiling, centred on the region — and the status
-    // bar's readout states the scale that was actually pinned. See
-    // [`zoom::ZoomOutcome::ceiling_changed_the_answer`].
-    if let Some(rect) = zoom_region {
-        let _ = zoom::zoom_to_rect(&ctx, doc, rect, CANVAS_MARGIN, actions);
-    }
-
-    // ---- 8. draw --------------------------------------------------------
-    let painter = ui.painter().with_clip_rect(clip);
-    // ★ The grid goes UNDER everything, including the find wash. It is the
-    // only thing painted here that is about the *paper* rather than about
-    // something the operator has selected, searched for or is dragging, so
-    // anything drawn over it is a statement about the drawing and must win.
-    // Draws nothing at all with the toggle off. See `rulers`' header §2 for
-    // why it is per page rather than across the viewport.
-    if doc.view.grid {
-        grid::draw(ui, doc, pages, clip);
-    }
-    // ★ The find highlights go on FIRST, under everything else.
-    //
-    // They are a wash over page content — an answer to "where is the text I
-    // asked about" — while the selection outline is a statement about what a
-    // verb would act on. Painting the wash over the outline would dim the
-    // control feedback with a hint; painting it under leaves both readable.
-    //
-    // `page_highlights` yields nothing at all when the results are not current
-    // — a stale epoch, a query the operator has edited, a closed bar — so an
-    // edit stops the highlights by supplying an empty iterator rather than by
-    // a check here. That is what keeps rule 4: this file cannot paint a mark
-    // over content the search no longer describes, because it is never handed
-    // one. See `crate::find`'s staleness section.
-    //
-    // ★ **Once per drawn page, each through its own map** — the one place the
-    // canvas is legitimately about pages other than the one being acted on. A
-    // search describes the whole document, so under a continuous mode its hits
-    // are on several of the pages on screen at once, and painting them all
-    // through the acting page's map would stack every page's highlights onto
-    // one page. That is the failure this feature was most likely to ship
-    // silently: the hits are found, the wash is drawn, and it is drawn in the
-    // wrong place — which looks like a highlight bug rather than a mapping one.
-    //
-    // The loop reduces to exactly the previous call under `Single`, where
-    // `pages` holds one entry and it is the acting page.
-    for view in *pages {
-        overlay::draw_find_hits(
-            &painter,
-            ui.visuals(),
-            &view.map,
-            find.page_highlights(view.page, doc.edit_epoch),
-        );
-    }
-    overlay::draw_selection(&painter, ui.visuals(), map, &selection);
-    if let Some(rect) = marquee {
-        overlay::draw_marquee(&painter, ui.visuals(), map, rect);
-    }
-    // The ghost sits ON TOP of the real outline, and both stay visible: the
-    // pair is what states the displacement. `ghost` is `Some` only when
-    // `moving::drag` has already established that the release will commit — a
-    // preview of a move that will be refused is the thing rule 4 and the
-    // no-placeholders invariant both forbid.
-    // The guides sit on TOP of the selection, and the order is the point: a
-    // guide is a line the operator has to see while they align something to
-    // it, and a selection outline is a box a few points across that a hairline
-    // crossing it does not hide. The reverse order would hide a guide behind
-    // exactly the object the operator is aligning to it.
-    guides::draw(ui, doc, pages, clip);
-    if let Some(delta) = ghost {
-        overlay::draw_move_ghost(&painter, ui.visuals(), map, &selection, delta);
-    }
-    // Last, and over everything: the band IS the cursor for as long as it
-    // exists, and a guide or an outline drawn over the shape being authored
-    // would obscure the one thing the operator is aiming.
-    if let Some(band) = band {
-        markup::draw_preview(&painter, map, band);
-    }
-
-    // ★ The cursor — the whole precedence in one pure function, in `tool`,
-    // where the first rung of it already lived. See [`tool::cursor_for`]; this
-    // is only the gathering of the four facts that are knowable nowhere but
-    // here. `clip` is the scroll VIEWPORT rather than the page's rect, because
-    // the hand pans the grey surround as readily as the paper.
-    let pointer_down = ctx.input(|i| i.pointer.primary_down() || i.pointer.middle_down());
-    let over_canvas = ctx.pointer_latest_pos().is_some_and(|p| clip.contains(p));
-    if let Some(icon) = tool::cursor_for(
-        active_tool,
-        gestures.active(),
-        hovered_grip.filter(|_| response.hovered()),
-        pointer_down,
-        over_canvas,
-    ) {
-        ctx.set_cursor_icon(icon);
-    }
-
-    let count = selection.len();
-    // Back onto the document, by value. Moved rather than cloned: a marquee
-    // over a dense sheet can select thousands of entries, and cloning that per
-    // frame at 60 Hz would be a real cost for no reason.
-    doc.selection = selection;
-    store_gesture(&ctx, gestures);
-    (count, tokens)
 }

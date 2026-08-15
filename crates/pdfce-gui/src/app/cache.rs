@@ -1,13 +1,14 @@
-//! # `app::cache` — the two derived values a document is worth keeping, and why they live on it
+//! # `app::cache` — the three derived values a document is worth keeping, and why they live on it
 //!
 //! ## What is in here
 //!
-//! Two caches, and the four [`OpenDoc`] methods that read them:
+//! Three caches, and the [`OpenDoc`] methods that read them:
 //!
 //! | cache | what it holds | keyed on | read by |
 //! |---|---|---|---|
 //! | [`PageObjectCache`] | the current page's decomposition | `(page index, edit epoch)` | the Objects panel, the Properties panel, the canvas hit test, the `objects n=` trace |
 //! | [`FontCache`] | the document's font inventory | `edit epoch` | the Fonts panel, the Properties panel |
+//! | [`PageTextCache`] | the current page's **extracted text** | `(page index, edit epoch)` | canvas text selection, `file.copy_page_text` |
 //!
 //! ## ★ Why this is a module of its own — the seam, stated
 //!
@@ -72,8 +73,10 @@
 //! argued.
 
 use std::cell::{Cell, Ref, RefCell};
+use std::time::Instant;
 
 use pdfce_core::fontinfo::FontInventory;
+use pdfce_core::text_extract::{ExtractOptions, PageText};
 
 use crate::app::state::OpenDoc;
 use crate::panels::objects::provider::ObjectModelProvider;
@@ -122,6 +125,72 @@ pub(in crate::app) struct PageObjectCache {
     /// not be re-decomposed on every frame. That is the same reasoning the
     /// render-error hold in `PdfceApp::settle_and_rasterize` uses.
     provider: RefCell<Option<Result<ObjectModelProvider, String>>>,
+}
+
+/// The current page's **extracted text**, held for as long as the document is
+/// open.
+///
+/// # ★ Why this cache exists, and the measurement that forced it
+///
+/// `crate::find`'s header records the trap in its own words:
+///
+/// > `EditSession::find_text_with` runs `text_extract::extract_document_view`
+/// > over the **whole document** on every call […] There is no cache in
+/// > `pdfce-core` and none here.
+///
+/// That was measured at **331–449 ms per search** on the project's fixtures,
+/// which is why Find never searches on a keystroke. Canvas text selection
+/// cannot pay that: a drag is sixty frames a second, and each frame has to
+/// know which glyphs the pointer has swept over.
+///
+/// Two things make it affordable, and both are choices rather than luck:
+///
+/// 1. **One page, not the document.** `pdfce_core::text_extract` publishes a
+///    per-page twin of every entry point — [`extract_page_view`] beside
+///    `extract_document_view` — and it exists for exactly this consumer: its
+///    own doc comment names *"the GUI's in-place text-edit model and Copy
+///    Text"*. A selection is a range on **one** page (see
+///    `crate::canvas::textsel`'s header §4 on why it does not cross pages), so
+///    the whole-document walk is not merely expensive here, it is answering a
+///    question nobody asked.
+/// 2. **Keyed on `(page, edit epoch)`**, exactly as [`PageObjectCache`] is, so
+///    a drag pays for the first frame and hits the cache for the rest of the
+///    gesture. Panning, zooming and scrolling never touch it at all, because
+///    nothing asks for it unless a text gesture is live — see
+///    `canvas::interact`'s step 4a.
+///
+/// [`extract_page_view`]: pdfce_core::text_extract::extract_page_view
+///
+/// # ★ The revision is the SESSION's, and that is not the same choice Find made
+///
+/// `extract_page_view` takes a `DocumentView`, and core made the revision the
+/// caller's explicit decision (Pass 17.1, decision 018 §8) precisely because
+/// the two consumers want different answers: *"What does this FILE say?"*
+/// against the base document, *"What does the page IN FRONT OF ME say?"*
+/// against the session.
+///
+/// This is the second question. The operator is dragging across glyphs they can
+/// **see**, and after one accepted edit the base revision describes a page that
+/// is no longer on screen — a selection resolved against it would highlight one
+/// set of glyphs and copy another. So this passes `self.session.view()`, which
+/// is the same choice [`OpenDoc::page_objects`] makes and for the same stated
+/// reason (decision 018).
+///
+/// # Why the failure is kept rather than collapsed to `None`
+///
+/// Same argument as [`PageObjectCache::provider`]: `None` means *not
+/// attempted*, `Some(Err(_))` means *attempted and failed*, and the failure is
+/// deterministic — same bytes, same code — so a page whose content stream will
+/// not tokenize must not be re-walked sixty times a second.
+#[derive(Default)]
+pub(in crate::app) struct PageTextCache {
+    /// The `(page index, edit epoch)` the extraction below describes, or
+    /// `None` before the first attempt. See [`PageObjectCache::built_for`] for
+    /// the borrow argument this `Cell` is half of — it is the same two-field
+    /// shape for the same reason.
+    pub(in crate::app) built_for: Cell<Option<(usize, u64)>>,
+    /// The extraction, or the engine's own reason it would not run.
+    text: RefCell<Option<Result<PageText, String>>>,
 }
 
 /// The document's font inventory, held for as long as the document is open.
@@ -267,6 +336,181 @@ impl OpenDoc {
         *self.page_objects.provider.borrow_mut() = built;
     }
 
+    /// **The current page's extracted text**, building it on first use.
+    ///
+    /// The one extraction. Canvas text selection resolves its range against
+    /// this, the highlight's quads are derived from it, the copied string is
+    /// sliced out of it, and `file.copy_page_text` writes it to the clipboard —
+    /// all from *this* value, for the same reason [`Self::page_objects`] is the
+    /// one decomposition. Two extractions of one page would be two chances for
+    /// what is shown and what is copied to disagree, which is the single defect
+    /// this feature was most likely to ship.
+    ///
+    /// # Returns
+    ///
+    /// `None` when there is no such page, or when the page's content stream
+    /// cannot be walked. A caller says so rather than presenting an empty
+    /// selection, because a page with no text and a page that would not parse
+    /// need different responses from the operator. The reason is kept for the
+    /// trace channel; see [`Self::page_text_failure`].
+    ///
+    /// # Cost, and how to re-measure it
+    ///
+    /// Every *build* writes one `PDFCE_DIAG` line:
+    ///
+    /// ```text
+    /// pdfce-diag page-text page=0 runs=412 chars=3106 ms=27 status=ok
+    /// ```
+    ///
+    /// A cache **hit** writes nothing, so the number of these lines in a run is
+    /// the number of extractions the session actually paid for — which is the
+    /// measurement that matters, and the one a prose claim in this file would
+    /// otherwise drift from. `crate::find`'s `find … ms=` line is the
+    /// whole-document comparison to read it against.
+    ///
+    /// # Holding the `Ref`
+    ///
+    /// As [`Self::page_objects`]: the return keeps a shared borrow of `*self`
+    /// alive, so a caller that needs `&mut OpenDoc` afterwards must drop it
+    /// first. `canvas::interact` does, and says why.
+    #[must_use]
+    pub fn page_text(&self) -> Option<Ref<'_, PageText>> {
+        self.ensure_page_text();
+        Ref::filter_map(self.page_text.text.borrow(), |slot| {
+            slot.as_ref().and_then(|built| built.as_ref().ok())
+        })
+        .ok()
+    }
+
+    /// ★ **Does this page carry any extractable text at all?**
+    ///
+    /// The question *"is this page an image rather than a document"*, answered
+    /// as a **cache read** rather than as an extraction. Read by
+    /// [`crate::find::bar`] to decide whether to offer OCR when a search comes
+    /// back empty, and it is the whole reason that offer is affordable.
+    ///
+    /// # ★ Why this is not "the search found nothing"
+    ///
+    /// The operator's rule for the Find offer, and the trap inside it: the
+    /// trigger is *"this document is images"*, **not** *"this search had no
+    /// matches"*. A search for `flange` that finds nothing on a text PDF is an
+    /// ordinary empty result and offering to recognise it would be nonsense —
+    /// the words are there, that one just is not among them.
+    ///
+    /// This function is what tells the two apart, and it does so by asking
+    /// about the **page** rather than about the query. `false` means the
+    /// extractor walked this page's content streams and found no character on
+    /// it: there is nothing here for *any* search to have matched.
+    ///
+    /// # `false` covers two different states, on purpose
+    ///
+    /// A page with no text, and a page whose content stream will not walk, both
+    /// answer `false`. [`Self::page_text`] separates them and
+    /// [`Self::page_text_failure`] carries the reason; this predicate
+    /// deliberately does not, because the *offer* is right in both cases —
+    /// a page whose stream pdfce cannot read is exactly a page where
+    /// recognising the pixels is the remaining route to its words.
+    ///
+    /// # Cost
+    ///
+    /// One extraction per `(page, edit epoch)`, shared with canvas text
+    /// selection and `file.copy_page_text` — see [`Self::page_text`]'s cost
+    /// section. The first caller on a page pays it and the rest are a `Cell`
+    /// comparison, so this is affordable **as long as it is asked at a moment
+    /// the operator caused**. `crate::find::bar` asks it only when the readout
+    /// is already `Empty`, i.e. after a committed search has run a
+    /// whole-document extraction — which is strictly more expensive than this
+    /// and has just been paid. Calling it every frame the bar is open would be
+    /// `HANDOFF.md` §2's defect 9 in miniature: the right work, charged at the
+    /// wrong moment.
+    ///
+    /// Whitespace does not count as text. A page carrying one space is an
+    /// image page with a stray operator on it, and an offer suppressed by that
+    /// would be suppressed on exactly the scans most in need of it.
+    #[must_use]
+    pub fn page_has_extractable_text(&self) -> bool {
+        self.page_text()
+            .is_some_and(|text| !text.plain_text().trim().is_empty())
+    }
+
+    /// Why the current page's text would not be extracted, if it would not.
+    ///
+    /// Separate from [`Self::page_text`] for the reason
+    /// [`Self::page_objects_failure`] is separate: the `PDFCE_DIAG` channel
+    /// wants the engine's own error text, and a consumer that learns only
+    /// *that* extraction failed has to work out *why* by hand.
+    ///
+    /// Read by the `file.copy_page_text` dispatch arm, which uses it to tell
+    /// three states apart — *the content stream would not walk*, *there is no
+    /// such page*, and *the page has no text on it* — rather than reporting one
+    /// "unavailable" for all three.
+    pub(in crate::app) fn page_text_failure(&self) -> Option<Ref<'_, String>> {
+        self.ensure_page_text();
+        Ref::filter_map(self.page_text.text.borrow(), |slot| {
+            slot.as_ref().and_then(|built| built.as_ref().err())
+        })
+        .ok()
+    }
+
+    /// Extract the current page's text if the cache does not already describe
+    /// it.
+    ///
+    /// The key is recorded **before** the work, for the reason
+    /// [`Self::ensure_page_objects`] records its own: the failure is
+    /// deterministic, and retrying it every frame would peg a core producing
+    /// the same error.
+    fn ensure_page_text(&self) {
+        let key = (self.view.page_index, self.edit_epoch);
+        if self.page_text.built_for.get() == Some(key) {
+            return;
+        }
+        self.page_text.built_for.set(Some(key));
+        let started = Instant::now();
+        let built = self.current_page().map(|page| {
+            // ★ The SESSION view, never the base document's — see
+            // `PageTextCache`'s header. The operator is dragging across glyphs
+            // they can see, and the base revision may no longer describe them.
+            //
+            // `ExtractOptions::default()` and not a customized one:
+            // `capture_provenance` is the substrate for *editing* text and this
+            // feature only reads it, and the derived word/line thresholds are
+            // the same ones `EditableTextModel` clusters lines with — a second
+            // set here would put the segmentation this shell paints and the
+            // segmentation core derives one step out of step.
+            pdfce_core::text_extract::extract_page_view(
+                &self.session.view(),
+                page,
+                self.view.page_index,
+                &ExtractOptions::default(),
+            )
+            .map_err(|e| e.to_string())
+        });
+        let elapsed = started.elapsed();
+        if let Some(built) = &built {
+            // ★ Not de-duplicated through `trace_changed`: two extractions are
+            // two events, and the count of these lines IS the measurement (see
+            // `page_text`'s docs). A gate that silenced the second would make a
+            // harness unable to tell a cache that works from one that does not.
+            crate::diag::trace(|| match built {
+                Ok(text) => format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "page-text page={} runs={} chars={} ms={} status=ok",
+                    self.view.page_index,
+                    text.runs.len(),
+                    text.plain_text().len(),
+                    elapsed.as_millis(),
+                ),
+                Err(reason) => format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "page-text page={} ms={} status=failed reason={reason:?}",
+                    self.view.page_index,
+                    elapsed.as_millis(),
+                ),
+            });
+        }
+        *self.page_text.text.borrow_mut() = built;
+    }
+
     /// The document's font inventory, building it on first use.
     ///
     /// Moved here from `crate::panels::PanelsState` at S4 for exactly the
@@ -404,6 +648,82 @@ mod tests {
             Some((99, 0)),
             "the attempt is still recorded, or it is retried every frame"
         );
+    }
+
+    // =======================================================================
+    // The page-text cache
+    // =======================================================================
+
+    /// ★ **The page's text is extracted once per `(page, epoch)`**, and asking
+    /// twice does not extract twice.
+    ///
+    /// The property the whole feature's affordability rests on: a text drag
+    /// asks for this on every frame of the gesture, and `crate::find`'s header
+    /// records what an unconditional extraction costs — 331–449 ms, for the
+    /// *document*. Holding the first `Ref` across the second call is the
+    /// assertion rather than an accident of how the test is written: it is also
+    /// the case that would panic if the validity key lived inside the `RefCell`
+    /// instead of beside it.
+    #[test]
+    fn a_pages_text_is_extracted_once_and_shared() {
+        let doc = open_fixture(FOUR_PAGES);
+        let first = doc.page_text().expect("page 0 has extractable text");
+        let second = doc.page_text().expect("…and again, from the cache");
+        assert!(
+            !first.plain_text().is_empty(),
+            "the fixture must actually contain text, or every assertion below is vacuous"
+        );
+        assert_eq!(second.plain_text(), first.plain_text());
+        assert_eq!(doc.page_text.built_for.get(), Some((0, 0)));
+    }
+
+    /// **A page step re-extracts; so does an edit.**
+    ///
+    /// Both halves of the `(page, epoch)` key, one at a time — the same two
+    /// failures [`the_decomposition_is_rebuilt_when_the_page_or_the_revision_moves`]
+    /// guards, and sharper here: a stale `PageText` does not merely list the
+    /// wrong objects, it makes every `TextPosition` in a live selection name a
+    /// run that has moved, so the highlight would be drawn over the wrong
+    /// glyphs and the copy would carry them.
+    #[test]
+    fn the_page_text_is_rebuilt_when_the_page_or_the_revision_moves() {
+        let mut doc = open_fixture(FOUR_PAGES);
+        let first = doc.page_text().expect("page 0").plain_text();
+
+        doc.view.page_index = 2;
+        let third = doc.page_text().expect("page 2").plain_text();
+        assert_eq!(doc.page_text.built_for.get(), Some((2, 0)));
+        assert_ne!(
+            first, third,
+            "the fixture stamps a page number on each sheet, so two pages must not \
+             produce the same text — if they do, this test cannot see a stale cache"
+        );
+
+        doc.edit_epoch = 1;
+        let _ = doc.page_text();
+        assert_eq!(
+            doc.page_text.built_for.get(),
+            Some((2, 1)),
+            "an edit renumbers runs, so a selection resolved against the pre-edit \
+             extraction would name the wrong glyphs"
+        );
+    }
+
+    /// **A page that is not there yields no text and no invented reason.**
+    ///
+    /// The attempt is still recorded, or it is retried every frame — the same
+    /// rule [`a_missing_page_yields_no_decomposition_and_no_invented_reason`]
+    /// states for the decomposition.
+    #[test]
+    fn a_missing_page_yields_no_text_and_no_invented_reason() {
+        let mut doc = open_fixture(FOUR_PAGES);
+        doc.view.page_index = 99;
+        assert!(doc.page_text().is_none());
+        assert!(
+            doc.page_text_failure().is_none(),
+            "there is no page, so there is no extraction failure to report"
+        );
+        assert_eq!(doc.page_text.built_for.get(), Some((99, 0)));
     }
 
     /// **The font inventory survives a page step and is dropped by an edit.**

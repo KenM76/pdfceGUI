@@ -44,10 +44,19 @@
 # its own planted violation, its verdict on the real crate is worth nothing,
 # and finding that out after a green run is finding it out too late.
 #
-# Two gates carry one: `check-ui-strings.sh` and `check-theme-colors.sh`. Both
-# are greps over source, which is the category that fails SILENTLY — a pattern
-# that stops matching, a path that stops resolving, and a find that walks an
-# empty tree all print exactly what a clean run prints.
+# Three gates carry one: `check-ui-strings.sh`, `check-theme-colors.sh` and
+# `check-shipped-assets.sh`. The first two are greps over source, which is the
+# category that fails SILENTLY — a pattern that stops matching, a path that
+# stops resolving, and a find that walks an empty tree all print exactly what a
+# clean run prints.
+#
+# The third fails silently for a different and worse reason. It checks that
+# every redistributed third-party asset's licence reaches the operator, and a
+# repository with no asset directories, or a scan that finds none, prints
+# "clean" just as loudly as one where every obligation is discharged. That gate
+# ALSO has no natural failure in daily use: assets are added rarely, so it
+# could sit green for months while quietly checking nothing. Its self-test
+# plants four separate violations, exempts a fifth, and passes a sixth.
 #
 # fmt and clippy run LAST, because they are the slow ones and because a
 # formatting complaint is the least interesting thing this script can tell you.
@@ -99,12 +108,14 @@ echo ""
 # --- 0. the gates prove they can fail, before their verdicts are believed ---
 run "check-ui-strings --self-test"  bash "$HERE/check-ui-strings.sh" --self-test
 run "check-theme-colors --self-test" bash "$HERE/check-theme-colors.sh" --self-test
+run "check-shipped-assets --self-test" bash "$HERE/check-shipped-assets.sh" --self-test
 
 # --- 1. the gates themselves ------------------------------------------------
 run "check-ui-strings"   bash "$HERE/check-ui-strings.sh"
 run "check-theme-colors" bash "$HERE/check-theme-colors.sh"
 run "check-file-size"    bash "$HERE/check-file-size.sh"
 run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
+run "check-shipped-assets" bash "$HERE/check-shipped-assets.sh"
 
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #

@@ -45,13 +45,58 @@
 //! something is wrong. Moving it here also gives it room to be more than
 //! one line.
 //!
+//! # ★★ Recognise shipped 2026-08-14, and it is NOT on this tab
+//!
+//! `RIBBON_IA.md` §5.7 specifies **Tools ▸ Recognise ▸ OCR…**, and this file
+//! carried it for about an hour before the placement was found to be
+//! unbuildable. The command is `file.ocr`, on **File ▸ Recognise**, and the
+//! reason is the operator's:
+//!
+//! > *"if in read mode ocr should still be available, but it will prompt to
+//! > save changes as save as instead of save."*
+//!
+//! **Read's tab list is `["file", "view"]`.** A command on the Tools tab is
+//! therefore not merely inconvenient in Read, it is *unreachable* — no tab, no
+//! band, no control, and `modes::capability::offers_command` would refuse a
+//! chord for it too. Shipping OCR here would have satisfied the specification
+//! and broken the instruction.
+//!
+//! ### This is the THIRD time, and the fix is the same one both previous times
+//!
+//! `HANDOFF.md` states the pattern outright: *"a chord refused in a mode where
+//! the operator plainly needs it is evidence that the command's tab is wrong,
+//! not that the gate needs an exception. That is twice this has happened and
+//! twice the fix has been a tab move."* It was `edit.form_fill` →
+//! `view.panel_forms`, then `edit.copy_page_text` → `file.copy_page_text`.
+//! This is the third, and it needed no new machinery because the pattern was
+//! already written down.
+//!
+//! ### Why FILE, and not View
+//!
+//! Read is shown two tabs and only one of them can be right. View answers
+//! *"what is on my screen, and how is the page laid out?"* — OCR changes
+//! neither; the page renders pixel-identically afterwards, which is the whole
+//! point of the mode-3 sandwich. File answers *"what do I do with the file as a
+//! whole?"*, and OCR's product is **a new file**. That is the same sentence
+//! that moved the two text-copy commands onto File ▸ Export, and it is the
+//! operator's own general rule for Read: *Read may produce a new document; it
+//! may not modify this one.*
+//!
+//! ### ★ What is left for the operator to rule on
+//!
+//! This departs from a written specification, so it is flagged rather than
+//! quietly done. If §5.7's Tools placement is preferred, the instruction it
+//! collides with has to be settled instead — either Read gains the Tools tab
+//! (which would also hand it batch merge, split and font embedding, all of
+//! which genuinely author) or OCR is not available in Read after all.
+//!
 //! # What is absent
 //!
-//! `Batch print…`, the whole **Compare** group, `OCR…` (blocked), and the
-//! whole **Validate** group (PDF/A validate & convert, Optimise) are
-//! **N**. Compare is the one absence an AEC reviewer will name first, and
-//! it is a large build; it is an open question in `RIBBON_IA.md` §8 rather
-//! than a scheduled item, and [`super::PLANNED`] records it as such.
+//! `Batch print…`, the whole **Compare** group, and the whole **Validate**
+//! group (PDF/A validate & convert, Optimise) are **N**. Compare is the one
+//! absence an AEC reviewer will name first, and it is a large build; it is an
+//! open question in `RIBBON_IA.md` §8 rather than a scheduled item, and
+//! [`super::PLANNED`] records it as such.
 
 use super::{command, group};
 use crate::text::ribbon;

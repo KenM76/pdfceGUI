@@ -122,6 +122,7 @@
 //! | Ctrl+`-` | zoom out one rung | here ([`OWNED`]) |
 //! | PageDown / PageUp | next / previous page | here ([`OWNED`]) — the unmodified keys D1 killed |
 //! | Home / End | first / last page | here ([`OWNED`]) |
+//! | Ctrl+`N` | `file.new` → a blank document | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`O` | `file.open` → the file picker | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`F` | `edit.find` → open or close the Find bar | the manifest keymap ([`DERIVED`]) |
 //! | Ctrl+`0` | `view.zoom_actual` → actual size | the manifest keymap ([`DERIVED`]) |
@@ -202,6 +203,17 @@ pub const DERIVED: &[(Key, &str)] = &[
     // Ctrl+Y, Ctrl+E and the rest stay unspellable until the same is true of
     // each of them.
     (Key::F, "Ctrl+F"),
+    // ★ The third letter chord, and the rule above is followed rather than
+    // stretched: `file.new` is registered, has a dispatch arm that raises
+    // `Action::New`, and has a control in File ▸ File. It was added in the same
+    // edit as the manifest's `Ctrl+N` binding, which is the pairing the two
+    // paragraphs above exist to insist on — `Ctrl+O` spent the whole life of
+    // the ribbon bound in the keymap, printed in a tooltip, and unspellable
+    // here, so pressing it did nothing at all.
+    //
+    // Ctrl+S, Ctrl+Z, Ctrl+Y and Ctrl+E stay unspellable until the same is
+    // true of each of them.
+    (Key::N, "Ctrl+N"),
     (Key::Num0, "Ctrl+0"),
     (Key::Num1, "Ctrl+1"),
     (Key::Num2, "Ctrl+2"),

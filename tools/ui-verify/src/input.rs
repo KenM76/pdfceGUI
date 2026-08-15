@@ -106,6 +106,22 @@ const CLICK_HOLD: Duration = Duration::from_millis(60);
 /// on the preceding frame.
 const MOVE_SETTLE: Duration = Duration::from_millis(80);
 
+/// How many intermediate positions [`Driver::drag`] walks through.
+///
+/// Enough that the application sees the pointer *travel* rather than teleport —
+/// see that method's docs on why a two-point drag can be delivered as a click.
+/// Not more, because each step costs [`DRAG_STEP_SETTLE`] and a check that holds
+/// the operator's desktop is one that should finish.
+const DRAG_STEPS: u32 = 8;
+
+/// How long to pause between the intermediate positions of a drag.
+///
+/// Shorter than [`MOVE_SETTLE`]: the application does not need to settle at each
+/// waypoint, it only needs to *observe* each one, which is one frame at 60 Hz.
+/// 25 ms is comfortably more than one frame on any machine that can render a
+/// PDF page at all.
+const DRAG_STEP_SETTLE: Duration = Duration::from_millis(25);
+
 /// The OS-level input driver.
 ///
 /// Owns the operator's pointer position for its lifetime and returns it on
@@ -140,6 +156,64 @@ impl Driver {
         std::thread::sleep(MOVE_SETTLE);
         sys::mouse_button(true);
         std::thread::sleep(CLICK_HOLD);
+        sys::mouse_button(false);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    /// **Press at `from`, travel to `to`, release** — a real primary-button
+    /// drag.
+    ///
+    /// # Why the harness had none until now
+    ///
+    /// It did not need one. Every check that drives the ribbon uses
+    /// [`Self::click_at`], and even `markup_rectangle` — whose *subject* is a
+    /// drag gesture — asserts on the ribbon arming rather than on the band,
+    /// because a markup band is checkable from the command trace. Canvas **text
+    /// selection** is the first feature whose entire behaviour is a drag: there
+    /// is no button to press that produces one, and a click alone can only ever
+    /// clear a selection.
+    ///
+    /// # The intermediate moves are the whole reason this is not three calls
+    ///
+    /// egui decides that a press has become a *drag* rather than a *click* by
+    /// distance travelled, and it samples the pointer once per frame. A press
+    /// followed immediately by a release at a distant point is delivered as a
+    /// single jump: egui sees one position, then another, and may report a
+    /// **click** at the far end rather than a drag at all — which for this
+    /// feature is the difference between selecting a paragraph and clearing the
+    /// selection.
+    ///
+    /// So the pointer is walked in [`DRAG_STEPS`] increments with a settle
+    /// between each, which is what a hand does. The application gets several
+    /// frames of `dragged_by(Primary)` with a moving position, which is
+    /// precisely the sequence `canvas::gesture::GestureState` is written for.
+    ///
+    /// The button is held across the walk rather than being pressed at each
+    /// step: a released-and-pressed pointer is *n* gestures, not one.
+    pub fn drag(&self, from: ScreenPoint, to: ScreenPoint) -> Result<()> {
+        self.raise();
+        sys::set_cursor_position(from.x(), from.y())?;
+        std::thread::sleep(MOVE_SETTLE);
+        sys::mouse_button(true);
+        std::thread::sleep(CLICK_HOLD);
+        for step in 1..=DRAG_STEPS {
+            // Integer arithmetic in i64 rather than f64: the endpoints are
+            // whole pixels and the intermediate points should be too, so the
+            // application is never handed a coordinate a real mouse could not
+            // produce.
+            let lerp = |a: i32, b: i32| -> i32 {
+                let n = i64::from(DRAG_STEPS);
+                let (wide_a, wide_b) = (i64::from(a), i64::from(b));
+                // The endpoint on overflow rather than a clamp to `i32::MAX`: a
+                // coordinate that far out is not a screen position, and
+                // finishing where the drag was aimed is the only answer that is
+                // not silently somewhere else.
+                i32::try_from(wide_a + (wide_b - wide_a) * i64::from(step) / n).unwrap_or(b)
+            };
+            sys::set_cursor_position(lerp(from.x(), to.x()), lerp(from.y(), to.y()))?;
+            std::thread::sleep(DRAG_STEP_SETTLE);
+        }
         sys::mouse_button(false);
         std::thread::sleep(MOVE_SETTLE);
         Ok(())

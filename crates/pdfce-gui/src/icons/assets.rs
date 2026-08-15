@@ -28,12 +28,31 @@
 //! `include_str!` — rather than a runtime file read — is carried across
 //! unchanged, and its reason is unchanged: pdfce ships single-folder
 //! portable, so the executable must not depend on an `assets/` directory
-//! travelling beside it. The whole set is **71 files, 70 KB** of text and an
-//! icon that fails to load at startup is not a failure mode worth having.
-//! (It was 46 files and 34 KB when this module landed; the 2026-08-14 pass
-//! that filled the ribbon's remaining text buttons added 25. Roughly half of
-//! the growth is the embedded rationale comments, which are the point of
-//! copying assets verbatim rather than re-emitting them — see §4.)
+//! travelling beside it. The whole set is **79 files, 82,336 bytes** of text
+//! (measured 2026-08-14) and an icon that fails to load at startup is not a
+//! failure mode worth having. (It was 46 files and 34 KB when this module
+//! landed; the 2026-08-14 pass that filled the ribbon's remaining text
+//! buttons added 25. Roughly half of the growth is the embedded rationale
+//! comments, which are the point of copying assets verbatim rather than
+//! re-emitting them — see §4.)
+//!
+//! ★ **That figure read "75 files, ~76 KB" until 2026-08-14 and was wrong by
+//! four files**, having been written before the three Phase 6 markup glyphs
+//! and `text-select` landed. It is the same defect `HANDOFF.md` §10 names —
+//! *prose that quotes a number drifts from the number* — and it is corrected
+//! here rather than silently updated, because the correction is the fifth
+//! instance and the pattern is the useful part. Unlike `Icon::ALL`'s size,
+//! which `catalog.rs` pins with an assertion, **nothing tests this one**: it
+//! counts files on disk, and no test walks the directory.
+//!
+//! ## Licensing
+//!
+//! `assets/PROVENANCE.md` is the licensing record for this directory, and
+//! `tools/gates/check-shipped-assets.py` requires it to exist and to name
+//! terms. In one line: the art is the operator's own, under the project's own
+//! MIT licence, which is why it needs **no** entry in `about.hbs` — the
+//! shipped `LICENSE` already covers it, and there is no third-party grant to
+//! reproduce. §1 below is the primary record of how that was established.
 //!
 //! ## ★ Why the SVG text is NOT inlined into Rust source
 //!
@@ -300,6 +319,21 @@
 //!      path whatsoever (verified by reading it: the string `icon` does not
 //!      appear in the file). A key on these would be art nothing can draw.
 //!
+//! ## §5b — One glyph added on 2026-08-14, for the text tool
+//!
+//! `text-select.svg`, and it is recorded here rather than folded into §5's
+//! deviation #7 because that entry is a dated block about one pass and this is a
+//! separate occasion. The cause is nonetheless #7's: the spec's §0 audited the
+//! **old** shell's toolbar, and that toolbar had no text tool, because this
+//! shell had no `CanvasTool::Text` until the same day.
+//!
+//! It sits beside `add-text.svg` in the I-beam family and the difference between
+//! them is the badge: a plus **creates** text, and the bare beam **selects** it.
+//! The asset's own comment carries the construction, the two refusals
+//! (`fonts.svg`'s A-on-a-baseline, `edit.svg`'s pencil) and the one rejected
+//! alternative (Acrobat's arrow-plus-I-beam pair, unreadable at 16 pt and
+//! claiming the wrong half of the tool it switches away from).
+//!
 //! ## §6 — Rendering, and why no new dependency appears here
 //!
 //! These SVGs are **not** rasterized by any SVG library. [`super::svg`]
@@ -462,6 +496,11 @@ pub(super) const HAND: &str = include_str!("assets/hand.svg");
 /// Copied from ScripTree's `icon-image.svg` (the operator's own art; header §4b) — ui-spec §8.5 reserved the picture metaphor, and Insert image is its primary claim.
 pub(super) const IMAGE: &str = include_str!("assets/image.svg");
 
+/// `info.svg` — the art for [`super::Icon::Info`].
+///
+/// Authored for pdfce in the header §3 style contract. A circle enclosing a lower-case "i", drawn as geometry rather than set as text — the most conventional glyph in the whole set, and metaphor-level by construction under header §2 (no single author owns "an i in a circle").
+pub(super) const INFO: &str = include_str!("assets/info.svg");
+
 /// `keyboard.svg` — the art for [`super::Icon::Keyboard`].
 ///
 /// Authored for pdfce in the header §3 style contract.
@@ -592,6 +631,21 @@ pub(super) const SHAPE_ARROW: &str = include_str!("assets/shape-arrow.svg");
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const SHAPE_ELLIPSE: &str = include_str!("assets/shape-ellipse.svg");
 
+/// `shape-ink.svg` — the art for [`super::Icon::ShapeInk`].
+///
+/// Authored for pdfce in the header §3 style contract — one irregular flowing stroke, and the asset records why it is emphatically not `text-squiggly.svg`'s periodic wave.
+pub(super) const SHAPE_INK: &str = include_str!("assets/shape-ink.svg");
+
+/// `shape-polygon.svg` — the art for [`super::Icon::ShapePolygon`].
+///
+/// Authored for pdfce in the header §3 style contract — an IRREGULAR closed pentagon; the asset records why regularity and why four corners would both be wrong.
+pub(super) const SHAPE_POLYGON: &str = include_str!("assets/shape-polygon.svg");
+
+/// `shape-polyline.svg` — the art for [`super::Icon::ShapePolyline`].
+///
+/// Authored for pdfce in the header §3 style contract — `shape-polygon.svg` with its closing segment removed, which is exactly how the two annotations differ.
+pub(super) const SHAPE_POLYLINE: &str = include_str!("assets/shape-polyline.svg");
+
 /// `shape-highlight.svg` — the art for [`super::Icon::ShapeHighlight`].
 ///
 /// Authored for pdfce in the header §3 style contract — the one asset with a 1-unit stroke (its 45° hatch is a texture, not a contour).
@@ -627,10 +681,30 @@ pub(super) const STAMP: &str = include_str!("assets/stamp.svg");
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const TEXT_FREETEXT: &str = include_str!("assets/text-freetext.svg");
 
+/// `text-select.svg` — the art for [`super::Icon::TextSelect`].
+///
+/// Authored for pdfce in the header §3 style contract — a bare I-beam for the View ▸ Navigate text tool, which is literally the cursor that tool installs. See the asset for why it is not `add-text.svg` without its badge.
+pub(super) const TEXT_SELECT: &str = include_str!("assets/text-select.svg");
+
+/// `text-squiggly.svg` — the art for [`super::Icon::TextSquiggly`].
+///
+/// Authored for pdfce in the header §3 style contract — the wavy member of the text-markup family, whose four lobes are a legibility decision the asset records.
+pub(super) const TEXT_SQUIGGLY: &str = include_str!("assets/text-squiggly.svg");
+
 /// `text-sticky.svg` — the art for [`super::Icon::TextSticky`].
 ///
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const TEXT_STICKY: &str = include_str!("assets/text-sticky.svg");
+
+/// `text-strikeout.svg` — the art for [`super::Icon::TextStrikeout`].
+///
+/// Authored for pdfce in the header §3 style contract — text-underline's sibling with the rule moved between the text lines.
+pub(super) const TEXT_STRIKEOUT: &str = include_str!("assets/text-strikeout.svg");
+
+/// `text-underline.svg` — the art for [`super::Icon::TextUnderline`].
+///
+/// Authored for pdfce in the header §3 style contract — the first of the three text-markup glyphs, which differ only in where the third stroke goes.
+pub(super) const TEXT_UNDERLINE: &str = include_str!("assets/text-underline.svg");
 
 /// `text.svg` — the art for [`super::Icon::Text`].
 ///

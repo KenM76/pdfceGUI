@@ -248,6 +248,20 @@ pub fn built_in() -> Shell {
         // a reason for the command to be on no TAB, not a reason for its chord
         // to be bound somewhere else.
         // -------------------------------------------------------------------
+        // ★ Ctrl+N — the universal chord, bound the day its command landed.
+        //
+        // Acrobat, Inkscape and SolidWorks all bind Ctrl+N to New, as does
+        // every other document application; there was nothing to decide here
+        // beyond whether it was allowed to be bound at all, and the rule in
+        // `crate::app::keyboard::DERIVED`'s header says it is: *"a chord here
+        // dispatches a command, and a command with no dispatch arm would trace
+        // `command-unimplemented` on a keypress that used to do nothing
+        // quietly. They land with their commands."* `file.new` has an arm, so
+        // the chord lands with it — and `Key::N` joins `DERIVED`'s spelling
+        // table in the same edit, because a chord this file binds and that
+        // table cannot spell is a chord no keypress delivers. That is the
+        // defect `Ctrl+O` sat in for the whole life of the ribbon.
+        .with_binding("Ctrl+N", "file.new")
         .with_binding("Ctrl+O", "file.open")
         .with_binding("Ctrl+S", "file.save_copy")
         .with_binding("Ctrl+Z", "edit.undo")
@@ -255,7 +269,18 @@ pub fn built_in() -> Shell {
         .with_binding("Ctrl+Shift+Z", "edit.redo")
         .with_binding("Ctrl+E", "edit.text")
         .with_binding("Ctrl+Shift+E", "edit.add_text")
-        .with_binding("Ctrl+Shift+C", "edit.copy_page_text")
+        // ★ Was bound to `edit.copy_page_text` until 2026-08-14. The COMMAND
+        // moved to File ▸ Export and the chord followed it here, in the same
+        // edit, because this keymap is the only place a chord is bound to a
+        // meaning: a binding left pointing at the old id would not fail the
+        // build — an unknown id is a disclosed skip, not an error — it would
+        // simply make `Ctrl+Shift+C` do nothing, which is the silent failure
+        // this block's header is entirely about.
+        //
+        // The move is what makes the chord work in **Read**: the gate in
+        // `crate::app::modes::capability::offers_command` lets a chord reach a
+        // command the active mode shows, and Read shows File.
+        .with_binding("Ctrl+Shift+C", "file.copy_page_text")
         .with_binding("Ctrl+F", "edit.find")
         .with_binding("Ctrl+0", "view.zoom_actual")
         .with_binding("[", "pages.rotate_left")
@@ -425,10 +450,30 @@ fn command(id: &str) -> Item {
 /// the document's order.
 pub const PLANNED: &[(&str, &str)] = &[
     // -- File -- `RIBBON_IA.md` §5.1 ----------------------------------------
+    //
+    // ★ `file.new` was here — "N — a blank or from-template document. pdfce has
+    // no document-creation path at all." It shipped on 2026-08-14, and the note
+    // is kept as a comment for the same reason `file.recent`'s is: "this used to
+    // be planned and is now built" is the one transition this list exists to
+    // make legible. Its second sentence remains true of the ENGINE and always
+    // will — `pdfce-core`'s `document.rs:10-19` states "no separate
+    // builder/generation model may ever be introduced" as a named invariant —
+    // which is exactly why the shipped command opens a bundled blank template
+    // instead of asking pdfce to grow a creation path. See `crate::app::blank`.
+    //
+    // What did NOT ship is the other half of §5.1's row, and it has its own
+    // entry below rather than being folded into a comment, because it is a
+    // capability an operator will ask for by name.
     (
-        "file.new",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — a blank or from-template document. pdfce has no document-creation path at all.",
+        "file.new_from_template",
+        "N — §5.1's `New (blank / from template)` row shipped only its BLANK half. This is \
+         where a page-SIZE choice belongs: `file.new` makes A4 with no dialog, which is what \
+         Acrobat and Inkscape do, and an operator whose sheets are A3 and A1 will want to say \
+         so. Inkscape's own split is the shape to copy — Ctrl+N makes a document, Ctrl+Alt+N \
+         chooses what kind — so this is a second command and not a dialog bolted onto the \
+         first. It needs one template asset per offered size (each ~450 bytes, own work, \
+         covered by `crates/pdfce-gui/src/app/assets/PROVENANCE.md`) and a chooser; no engine \
+         work at all.",
     ),
     // `file.recent` was here — "N — needs a persisted recent-files list;
     // nothing writes one today." Something writes one now
@@ -454,8 +499,10 @@ pub const PLANNED: &[(&str, &str)] = &[
     ),
     (
         "file.export_text",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "C — pdfce-core extracts text already. Needs a save dialog and nothing else.",
+        "C — pdfce-core extracts text already. Needs a save dialog and nothing else. Not to be \
+         confused with `file.copy_page_text` / `file.copy_document_text`, which sit in the same \
+         band and are shipped: those write the extracted text to the CLIPBOARD, this one writes \
+         it to a file the operator names.",
     ),
     (
         "file.imposition",
@@ -467,8 +514,18 @@ pub const PLANNED: &[(&str, &str)] = &[
         "N — no encryption or permissions surface. Encryption is disclosed in the status bar \
          today, and opening a signed or encrypted document into Read mode is the nearer fix.",
     ),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("file.about", "N — there is no about box."),
+    // `file.about` was here — "N — there is no about box." There is one now
+    // (`crate::dialogs::about`), so the command is registered and draws in
+    // File ▸ pdfce. Recorded as a comment rather than silently deleted, on the
+    // `file.recent` precedent above: "this used to be planned and is now
+    // built" is the one transition this list exists to make legible.
+    //
+    // Worth keeping the reason it stopped being optional. The box was N for as
+    // long as this shell redistributed only permissively-licensed code, whose
+    // notices the shipped `LICENSE` covers. The operator's 2026-08-14 decision
+    // to ship CC-BY-SA-4.0 OCR model weights ends that: BY requires the notice
+    // to reach the RECIPIENT of the work, and nothing in this program reached
+    // them. See `crate::text::about`.
     // -- View -- `RIBBON_IA.md` §5.2 ----------------------------------------
     // ★ `view.page_continuous`, `view.page_facing` and
     // `view.page_facing_continuous` were here until Phase 4, marked N with the
@@ -621,8 +678,9 @@ pub const PLANNED: &[(&str, &str)] = &[
     ),
     (
         "edit.cut",
-        "N — there is no object clipboard. The two text-copy commands in Edit ▸ Clipboard \
-         are a different mechanism and do not imply one.",
+        "N — there is no object clipboard. The two text-copy commands in File ▸ Export are a \
+         different mechanism and do not imply one. (They were in Edit ▸ Clipboard until \
+         2026-08-14; that group is deleted, so this row no longer has a band waiting for it.)",
     ),
     // ui-text-exempt: developer note about an ABSENT command; never rendered.
     ("edit.copy", "N — as `edit.cut`, the object clipboard."),
@@ -644,26 +702,40 @@ pub const PLANNED: &[(&str, &str)] = &[
         "N — the shipped build has four markup kinds and none is a plain line; the existing \
          `Arrow line` is the arrow. See markup.rs.",
     ),
-    (
-        "markup.polyline",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — deferred in the canvas alongside Ink, Polygon, Underline, StrikeOut and Squiggly.",
-    ),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("markup.polygon", "N — as `markup.polyline`."),
+    // ★ `markup.polyline`, `markup.polygon` and `markup.ink` were here and are
+    // now REGISTERED — Phase 6, 2026-08-14, on the two gestures that were their
+    // only blocker. Their shared reason read:
+    //
+    //   "N — not drag-shaped: deferred in the canvas alongside Ink and Polygon,
+    //    all three needing a multi-click or freehand gesture the two-point band
+    //    cannot express."
+    //
+    // Every word of which was true, and all of it was about a **gesture** rather
+    // than about the engine: `MarkupSpec::PolyLine`, `Polygon` and `Ink` have
+    // been in `pdfce-core` since Pass 6.1. `canvas::markup::vertex` built the
+    // multi-click gesture — with two endings, on the operator's own 2026-08-14
+    // ruling for `measure.finish` — and `canvas::markup::ink` built the freehand
+    // one. `markup.finish` is registered with them and was never in this list,
+    // because the problem it solves did not exist until the tools did.
+    //
+    // Removed rather than annotated, because this list's contract is that
+    // everything in it is absent and a "planned" row for a shipped command is the
+    // drift the list exists to prevent — the same treatment the three text-markup
+    // rows below got earlier the same day. The removal is recorded in
+    // `manifest::markup`'s header instead, where a reader is looking at the band
+    // that gained them.
     (
         "markup.cloud",
-        "N — revision clouds. Not even in the canvas's deferred list, and the one this \
-         audience will miss first: AEC table stakes.",
+        "N — revision clouds, and now the ONLY markup kind still absent for an ENGINE reason \
+         rather than a gesture one. The one this audience will miss first: AEC table stakes.",
     ),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("markup.ink", "N — freehand; as `markup.polyline`."),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("markup.underline", "N — as `markup.polyline`."),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("markup.strikeout", "N — as `markup.polyline`."),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("markup.squiggly", "N — as `markup.polyline`."),
+    // ★ `markup.underline`, `markup.strikeout` and `markup.squiggly` were here
+    // and are now REGISTERED — Phase 6, 2026-08-14, on the text-selection
+    // gesture that was their only blocker. Their entries are removed rather
+    // than annotated, because this list's contract is that everything in it is
+    // absent, and a "planned" row for a shipped command is the drift the list
+    // exists to prevent. The removal is recorded in `manifest::markup`'s header
+    // instead, where a reader is looking at the band that gained them.
     (
         "markup.callout",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
@@ -699,18 +771,18 @@ pub const PLANNED: &[(&str, &str)] = &[
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
         "N — angular dimensions. One of the two conspicuous absences for takeoff work.",
     ),
-    // ★ Corrected 2026-08-14. This entry read "the pick gesture has no
-    // caller", which was false — the old shell calls `pick_line_in_page` at
-    // `main.rs:23564` and takes the pick at `:23592`, and pdfce's own ledger
-    // marks the row `gui [x]`. The caller that is missing is ours. See
-    // `SALVAGE.md`'s correction note for the full account; the practical
-    // difference is salvage-plus-hosting rather than one line of wiring.
-    (
-        "measure.two_line",
-        "C — core and CLI shipped and were measured, and the pick gesture is BUILT in the \
-         old shell (`measure_tool.rs` `TwoLinePick`). Shell-only work, but a salvage: this \
-         build has no measure tool to arm at all.",
-    ),
+    // ★ `measure.two_line` was here and is now REGISTERED — Phase 7,
+    // 2026-08-14. Its entry is removed rather than annotated, because this
+    // list's contract is that everything in it is absent, and a "planned"
+    // row for a shipped command is the drift the list exists to prevent.
+    //
+    // Worth recording where it went, because this entry had already been
+    // wrong once: it read *"the pick gesture has no caller"*, which was false
+    // in five documents at once — the old shell calls `pick_line_in_page` at
+    // `main.rs:23564` and pdfce's own ledger marks the row `gui [x]`. The
+    // caller that was missing was ours, and it now exists:
+    // `crate::canvas::measure` hosts the pick and `TwoLinePick` came across
+    // with it. See `SALVAGE.md`'s correction note for the full account.
     (
         "measure.calibrate",
         "partial G — calibrate from a known length. The least certain judgement in this \
@@ -752,11 +824,31 @@ pub const PLANNED: &[(&str, &str)] = &[
         "N — document comparison. A large build, and an OPEN QUESTION in RIBBON_IA.md §8 \
          rather than a scheduled item: it is the one absence an AEC reviewer names first.",
     ),
-    (
-        "tools.ocr",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — blocked on an OCR engine decision; see the roadmap.",
-    ),
+    // `tools.ocr` was here — "N — blocked on an OCR engine decision; see the
+    // roadmap." It is registered now as **`file.ocr`** (`super::commands`, token
+    // 160) and draws in File ▸ Recognise — not Tools ▸ Recognise, for the
+    // reason `super::tools`'s header gives. The entry is removed rather than
+    // left with a
+    // stale reason: `planned_commands_are_genuinely_absent` asserts in both
+    // directions and fails on an entry that has shipped. Recorded as a comment
+    // on the `file.recent` and `file.about` precedents above — "this used to be
+    // planned and is now built" is the one transition this list exists to make
+    // legible.
+    //
+    // ★ The reason is worth keeping, because the note was wrong about what the
+    // blocker was. It said "an OCR engine decision"; the engine had been chosen
+    // (`ocrs`, for being the only surveyed candidate that passes pdfce's wasm32
+    // gate) and the whole recognition path had shipped in `pdfce-core`. What was
+    // actually blocked was **redistributing CC-BY-SA-4.0 model weights from an
+    // MIT repository**, which is a licensing question and not a GUI one at all.
+    // The operator answered it on 2026-08-14 — "yes ship that model in the mit
+    // repo with proper credit" — and the credit mechanism was built first, so
+    // `about.hbs`, `crates/pdfce-gui/src/text/about.rs` and
+    // `tools/package-portable.py` now fail together if any one of them forgets.
+    //
+    // The lesson is the general one this list is for: a one-line reason is a
+    // claim, and a claim that names the wrong blocker sends the next reader to
+    // solve the wrong problem.
     (
         "tools.pdfa_validate",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
@@ -998,6 +1090,14 @@ mod tests {
     /// - [`crate::shell::ron`]'s header (groups **and** key bindings);
     /// - [`crate::text::ribbon`]'s header.
     ///
+    /// ★ It went back **32 → 31** on 2026-08-14, and the same five sites were
+    /// edited with it. The cause was a *deletion*, which is the direction that
+    /// makes this test most valuable: the two text-copy commands moved to
+    /// File ▸ Export, Edit ▸ Clipboard was left with no members, and an empty
+    /// group is a captioned band offering nothing — the placeholder P3
+    /// forbids. Deleting it is what the rule requires; editing the number in
+    /// six places is what this test makes unavoidable.
+    ///
     /// The keymap is counted here for the same reason: `ron`'s header
     /// argues that the format can express *the real ribbon* and then lists
     /// its parts, so a binding added without that list moving turns the
@@ -1015,8 +1115,8 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            19,
-            "nineteen key bindings"
+            20,
+            "twenty key bindings"
         );
     }
 

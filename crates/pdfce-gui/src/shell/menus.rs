@@ -86,7 +86,7 @@
 //!
 //! | Context id | Right-click site | Items | The reasoning |
 //! |---|---|---|---|
-//! | [`CANVAS_OBJECT`] | a selected object on the page | `format.delete` | §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. |
+//! | [`CANVAS_OBJECT`] | a selected object on the page | `view.zoom_selection`, `format.delete` | Zoom to selection is here because **SolidWorks and Acrobat both reach it by right-click** and only Inkscape binds a key for it — operator instruction of 2026-08-14 to match those three; see the registration site for why no chord was invented. Then §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. |
 //! | [`CANVAS_EMPTY`] | blank page, or the paper beside the drawing | `view.zoom_fit_page`, `view.zoom_fit_width`, `view.zoom_actual` | The three **named** zoom levels, all of which have a live dispatch arm today. A right-click on paper is about the *view*, because there is no object to be about. |
 //! | [`DOCK_TAB`] | a panel tab in the dock | `view.reset_layout` | The only registered command that acts on the dock. The **command** is wired (`PdfceApp::dispatch_command` calls `Modes::reset` with `ResetScope::All`); the **menu** still cannot be attached — see the warning below. |
 //! | [`OBJECTS_ROW`] | a row in the Objects panel | `file.properties` | The Properties panel is *where an object row is described*; right-clicking a row focuses it and this is the command that puts the description on screen — which it now does: `PdfceApp::show_panel` activates the panel, mounting it first if the operator's arrangement no longer holds it. |
@@ -227,8 +227,8 @@ pub fn built_in() -> Menus {
         // this build does not have in any form:
         //
         //   edit.cut   "N — there is no object clipboard. The two text-copy
-        //               commands in Edit ▸ Clipboard are a different
-        //               mechanism and do not imply one."
+        //               commands in File ▸ Export are a different mechanism
+        //               and do not imply one."
         //
         // So a faithful reading of §6 would produce a menu of one live row
         // and three dead ones. P3 says the dead ones render nothing, and the
@@ -242,7 +242,46 @@ pub fn built_in() -> Menus {
         // stale document degrades into a clean menu rather than into two
         // horizontal lines above one row.)
         // -------------------------------------------------------------------
-        .with(Menu::new(CANVAS_OBJECT).with_items([Item::command("format.delete")]))
+        // ★ **Zoom to selection is here because that is where two of the three
+        // reference applications put it.**
+        //
+        // Operator instruction, 2026-08-14: *"make your best educated guesses
+        // to match what inkscape, acrobat, and SolidWorks do."* Applied to the
+        // open question of how `view.zoom_selection` is reached:
+        //
+        // | | how it is reached |
+        // |---|---|
+        // | **SolidWorks** | right-click ▸ Zoom to Selection. No default chord. |
+        // | **Acrobat** | View ▸ Zoom menu, and the marquee-zoom tool. No default chord. |
+        // | **Inkscape** | a chord — bare `3`, in its zoom family `1`–`6`. |
+        //
+        // Two of three reach it from a menu, so it goes in the menu. **No chord
+        // is invented**, and the reason is not only the two-to-one split:
+        // Inkscape's family is *bare digits*, this shell's manifest chords are
+        // `Ctrl`-modified by construction (`app::keyboard::commands` refuses a
+        // frame without `command`), and its `Ctrl+1`/`2`/`3` are the
+        // Read/Review/Edit selector that `MODES_AND_PANELS.md` Part 1 §6
+        // specifies. Transposing Inkscape's `3` onto `Ctrl+4` would match the
+        // letter of neither convention and the muscle memory of nobody.
+        //
+        // This also gives the command a **second reachable route**, which it
+        // needed for a reason worth recording: its ribbon control is
+        // `enabled_when("selection.bounds")`, so it is greyed exactly when it
+        // would decline — see `app::status::decline`. The menu does not change
+        // that (a menu on an object implies a selection), so the decline stays
+        // reachable only by the race in which bounds evaporate between the
+        // frame that drew the enabled control and the frame that applied it.
+        // That is now a **decided** outcome rather than an open question: the
+        // decline is a race-only safety net, and it is correct for it to be
+        // rare.
+        //
+        // Ordered zoom-then-delete because `RIBBON_IA.md` §5.8's rule for
+        // menus is least-destructive first, and Delete is the one entry here
+        // that cannot be undone by looking somewhere else.
+        .with(Menu::new(CANVAS_OBJECT).with_items([
+            Item::command("view.zoom_selection"),
+            Item::command("format.delete"),
+        ]))
         // -------------------------------------------------------------------
         // canvas.empty — the view menu.
         //
@@ -869,7 +908,7 @@ mod tests {
     fn each_menu_holds_exactly_the_documented_items() {
         let menus = built_in();
         for (context, expected) in [
-            (CANVAS_OBJECT, &["format.delete"][..]),
+            (CANVAS_OBJECT, &["view.zoom_selection", "format.delete"][..]),
             (
                 CANVAS_EMPTY,
                 &[

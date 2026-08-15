@@ -1,4 +1,4 @@
-//! # `canvas::markup` — drawing a markup annotation where the operator points
+//! # `canvas::markup` — what a markup annotation IS, and the pen it is drawn with
 //!
 //! ## ★ The defect this module exists so that we never ship again
 //!
@@ -27,14 +27,46 @@
 //! is not a cosmetic complaint: it is the feature not working, and it passed
 //! whatever tests it had because a shape really was added to the document.
 //!
+//! ---
+//!
+//! ## ★ THE SHAPE OF THIS MODULE CHANGED ON 2026-08-14, AND THIS IS WHY
+//!
+//! Until Ink, PolyLine and Polygon landed, this file held **one** family of
+//! markup and its gesture together: the two-point rubber band, its preview, its
+//! commit. That was right while there was one gesture. There are now **four**
+//! families, and they differ in the only thing that matters here — *what the
+//! operator does with the pointer*:
+//!
+//! | family | gesture | module |
+//! |---|---|---|
+//! | Rectangle · Ellipse · Arrow · Highlight | press, drag out a band, release | [`band`] |
+//! | PolyLine · Polygon | click, click, click, then **say when** | [`vertex`] |
+//! | Ink | press, follow the pointer, release | [`ink`] |
+//! | Underline · StrikeOut · Squiggly | no pointer at all — the operand is a text selection | [`text`] |
+//!
+//! So the split is **by subject and not by line count**, and the subject is the
+//! one this file is now left holding: *what a markup **is***. The kinds
+//! ([`MarkupKind`]), the geometry an authored markup carries ([`Geometry`]), the
+//! one place a gesture becomes a `MarkupSpec` ([`spec`]), the one place a
+//! completed gesture becomes an `Action` ([`action`]), the refusals, and the
+//! **pen** every family draws with. Each submodule answers *"how is this family
+//! gestured?"* and none of them decides what it authors.
+//!
+//! That division is what keeps [`spec`] the single place a gesture becomes a
+//! `MarkupSpec` — the property the whole equivalence argument rests on (§5
+//! below) — while three genuinely different gestures feed it.
+//!
+//! ---
+//!
 //! ## The four obligations, in the shape [`crate::canvas::moving`] states them
 //!
-//! 1. **The geometry is PDF page space, never screen pixels.** [`endpoints`] is
-//!    the only place in this module that crosses the boundary, and it does it
-//!    through [`crate::viewer::canvas_to_pdf_space`] — the renderer's own
-//!    transform — rather than by writing the Y-flip out again. A drag measured
-//!    on screen and handed to `add_markup` compiles, runs, and merely scales
-//!    with magnification: the same silent class as the hit-tolerance defect
+//! 1. **The geometry is PDF page space, never screen pixels.**
+//!    [`band::endpoints`] and [`vertex::page_point`] are the only two places in
+//!    this module tree that cross the boundary, and both do it through
+//!    [`crate::viewer::canvas_to_pdf_space`] — the renderer's own transform —
+//!    rather than by writing the Y-flip out again. A drag measured on screen and
+//!    handed to `add_markup` compiles, runs, and merely scales with
+//!    magnification: the same silent class as the hit-tolerance defect
 //!    [`crate::canvas::mapping`] was built to make unavailable.
 //! 2. **The preview must describe what the release will actually commit.**
 //!    `D:\Dev\FeatureRequests\pdfce_FeatureRequests\README.md` rule 4 welcomes a
@@ -45,21 +77,28 @@
 //!    only honest if it is drawn **in the shape being authored**: an ellipse
 //!    previewed as its bounding box, or an arrow previewed as a plain segment
 //!    with no head, misdescribes the thing the operator is about to commit. So
-//!    [`draw_preview`] draws an ellipse as an ellipse and an arrow with its
-//!    head on, and it draws in the **pen's own colour** rather than in a chrome
-//!    tint, because the pen colour is what will land in the file.
-//! 3. **Escape abandons the drag, and abandons exactly that.** A markup drag is
-//!    a `DragKind` in [`crate::canvas::gesture`], so it is already Escape's
-//!    claimant 1 — the *drag in flight* row of [`crate::canvas::keys`]'s
-//!    precedence table — with no new mechanism and no second rule. What is new
-//!    is retiring the armed **tool**, which is a different act from abandoning
-//!    a drag and takes its own row; see [`crate::canvas::keys`]'s header for
-//!    where it landed and why.
+//!    [`band::draw_preview`] draws an ellipse as an ellipse and an arrow with
+//!    its head on; [`vertex::preview`] draws a polygon's **closing segment**,
+//!    because that segment is in the file and a polyline's is not; and
+//!    [`ink::draw_preview`] draws the **simplified** trail rather than the raw
+//!    one, because the simplified trail is what lands. All three draw in the
+//!    **pen's own colour** rather than in a chrome tint, because the pen colour
+//!    is what will land in the file.
+//! 3. **Escape abandons the gesture, and abandons exactly that.** A band drag
+//!    and an ink drag are both a `DragKind` in [`crate::canvas::gesture`], so
+//!    both are already Escape's claimant 1 — the *drag in flight* row of
+//!    [`crate::canvas::keys`]'s precedence table — with no new mechanism and no
+//!    second rule. A **vertex run** is a sequence of clicks and therefore has no
+//!    drag for that claimant to cancel, exactly as a measure pick has none, so
+//!    it takes its own rung beside [`crate::canvas::measure::abandon`]; see
+//!    [`crate::canvas::keys`]'s header. Retiring the armed **tool** is a
+//!    different act again and takes its own row.
 //! 4. **An arrow keeps its RAW endpoints.** See [`spec`]. This is the one
 //!    decision in the module that a reader will be tempted to "tidy up", and
 //!    tidying it up silently reverses half of all arrows the operator draws.
 //!
-//! ## ★ A click with no drag places NOTHING, and that is a decision
+//! ## ★ A click with no drag places NOTHING for the band kinds, and that is a
+//! ## decision
 //!
 //! The old shell answered the other way: `default_markup_at` (`main.rs:19770`)
 //! turned a bare click into a 120 × 60 point box centred on the pointer, with
@@ -88,11 +127,18 @@
 //!   [`crate::canvas::moving::PageDelta::is_travel`] makes for refusing a
 //!   second one.
 //!
-//! What a click does instead is **nothing, out loud**: [`drag`] is never
+//! What a click does instead is **nothing, out loud**: [`band::drag`] is never
 //! reached, and the tool stays armed with its crosshair, so the operator's next
 //! gesture — a drag — does what they asked. The cost is that a click is a
 //! no-op; the alternative is authoring a shape nobody chose the size of and
 //! cannot change.
+//!
+//! ★ **The two vertex kinds are the exception, and it is not an inconsistency**:
+//! for them a click is the *whole* gesture, so of course it does something. The
+//! rule above is about a gesture that has a drag and did not get one. See
+//! [`vertex`]'s header, and [`crate::canvas::gesture::press_kind`], which gives
+//! the vertex kinds a live click and **no drag at all** — the same shape it
+//! gives the measure tools, and for the same reason.
 //!
 //! The same rule guards the degenerate *drag*: a press, a wander, and a release
 //! back on the origin has zero extent on both axes, and
@@ -101,33 +147,68 @@
 //! refused here as [`Refusal::NoExtent`] rather than committed, which is also
 //! how the list-driven kinds' `EditError::EmptyGeometry` is kept off the
 //! operator's screen: the shell never sends the engine geometry that draws
-//! nothing, so the engine never has to refuse one. (For the four kinds here,
-//! `validate_geometry` cannot fire at all — Square, Circle and Line always have
-//! geometry, and a `TextMarkup` built here always carries exactly one quad.
-//! The guard is ours, upstream of theirs, and it is the one that catches the
-//! case the operator can actually produce.)
+//! nothing, so the engine never has to refuse one. **Our guard is upstream of
+//! theirs and is strictly the stricter of the two** — `validate_geometry`
+//! accepts a `/Polygon` with two vertices, and [`action`] does not, because a
+//! two-vertex closed polygon is a line drawn there and back and is not a shape
+//! any operator meant to place.
 //!
 //! ## Which kinds are here, and which are deliberately not
 //!
-//! [`MarkupKind`] carries **four**: the three drag-shaped kinds this work is
-//! accountable for (Rectangle, Ellipse, Arrow) plus Highlight, which is the
-//! same rubber band, is engine-ready, and already has a registered command.
-//! The remaining Phase 6 kinds are absent, and each absence is a different
-//! reason rather than one blanket "later":
+//! [`MarkupKind`] carries **seven**, in three gesture families, and the
+//! remaining Phase 6 kinds are absent for reasons that are each different rather
+//! than one blanket "later":
 //!
-//! | kind | why it is not a variant yet |
+//! | kind | where it is |
 //! |---|---|
-//! | Underline · StrikeOut · Squiggly | Same `/QuadPoints` family as Highlight and equally engine-ready, but they mark **text**. This substrate has a rubber band and no text-selection gesture, and a squiggly under blank paper is a mark describing nothing. |
-//! | Polygon · PolyLine · Ink | **Not drag-shaped.** They need a multi-click or freehand gesture that this two-point band cannot express; adding the variants now would put states into the type that no [`GestureOutcome`](crate::canvas::gesture::GestureOutcome) can reach. |
+//! | Rectangle · Ellipse · Arrow · Highlight | here, gestured by [`band`] |
+//! | ~~Polygon · PolyLine · Ink~~ | **Built 2026-08-14**, gestured by [`vertex`] and [`ink`] |
+//! | ~~Underline · StrikeOut · Squiggly~~ | **Built 2026-08-14**, in [`text`], and they are still not variants of [`MarkupKind`] — see below |
 //! | Revision cloud | Blocked on the engine — `/BE` is never written and `MarkupSpec` is `#[non_exhaustive]`. Filed in `D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\`. |
+//! | Plain line | The engine has `MarkupSpec::Line` and this shell spends it on Arrow. A second command differing only in its `/LE` is a Style question, not a kind. |
 //! | Note · text box · sticky · stamp | Text-bearing, not geometric. A different gesture (place, then type) and a different spec type (`TextAnnotSpec`). |
 //!
-//! This is the old shell's own reasoning applied to a different boundary: its
-//! `MarkupKind` declared four of the spec's ten because *"declaring all ten now
-//! would add six variants that no control can select and no gesture can draw —
-//! dead states in a type whose whole purpose is to say what the tool is
-//! currently doing"*. The boundary here is the **gesture**: a variant belongs in
-//! this enum when this rubber band can draw it.
+//! ### ★ The boundary this enum draws was RESTATED when the three new kinds
+//! ### arrived, and the restatement is the useful part
+//!
+//! It used to read: *"a variant belongs in this enum when this rubber band can
+//! draw it"*, and on that boundary Polygon, PolyLine and Ink were excluded in
+//! terms — *"adding the variants now would put states into the type that no
+//! `GestureOutcome` can reach."* That was exactly right **while the band was the
+//! only gesture**, and it is the wrong boundary now, because the thing it was
+//! really protecting was never the band: it was the pair of properties
+//! `shell::commands::mapping` and `app::conditions` actually assert, namely that
+//! **every variant has a command that arms this tool and a `selected:` condition
+//! that lights while it is armed.**
+//!
+//! So the boundary is now stated as the property that is tested:
+//!
+//! > A variant belongs in [`MarkupKind`] when a `markup.*` command **arms the
+//! > canvas tool with it**.
+//!
+//! All three new kinds clear that: each has a command, each arms
+//! [`crate::canvas::tool::CanvasTool::Markup`], each renders pressed, and each
+//! has a `GestureOutcome` that reaches it — a `DragKind::Markup` for Ink, and a
+//! `GestureOutcome::Click` for the two vertex kinds, which is the same outcome
+//! the measure tools have been reached by since Phase 7. Nothing about the old
+//! sentence's *caution* is abandoned; only its proxy. The old wording is kept
+//! above rather than deleted, because the mistake it guards against — variants
+//! nothing can reach — is real, and the next reader adding a kind should be made
+//! to show which control arms it.
+//!
+//! ## ★ The three text-markup kinds live in [`text`], and the boundary holds
+//!
+//! Underline, strikeout and squiggly shipped on 2026-08-14, and they are in a
+//! submodule with an enum of their own rather than three variants here — which
+//! is the boundary above being *applied* rather than being made an exception to,
+//! under the new wording as much as the old. Their commands act at once and
+//! **arm no tool at all**, so a `MarkupKind` variant would be a tool nothing can
+//! arm, a pressed state that never lights, and a
+//! [`crate::canvas::tool::CanvasTool`] state no
+//! [`GestureOutcome`](crate::canvas::gesture::GestureOutcome) can reach.
+//!
+//! [`text`]'s own header carries the interaction decision — *select first, then
+//! mark*, which is Acrobat's — and the mode intersection it produces.
 //!
 //! ## The names are the operator's, not the PDF specification's
 //!
@@ -139,23 +220,47 @@
 //! the mapping to the subtype lives in exactly one place, [`spec`], where the
 //! dictionary is built.
 //!
-//! ## The split between the pure rules and the wiring
+//! ★ **`PolyLine` and `Polygon` are the exception, and they are the exception
+//! because the operator's word and the specification's word are the same word.**
+//! Bluebeam, Acrobat and every drafting office say "polyline" and "polygon";
+//! there is no plainer name to prefer, so the rule above simply does not bite.
+//! `Ink` is the specification's name for what the operator calls *freehand*, and
+//! the **label** says Freehand (`text/commands.rs`) while the type says `Ink` —
+//! which is the same split `Rectangle`/`/Square` makes, in the other direction.
 //!
-//! [`endpoints`], [`action`] and [`spec`] are pure functions of plain data, so
-//! every rule above is testable with no window and no document — the same
-//! discipline that makes [`crate::canvas::moving::eligible`] and
-//! [`crate::canvas::selection::SelectionState::click`] pure. [`drag`] is the one
-//! function that touches the frame, and it does nothing except gather those
-//! inputs, call the pure functions in order, and trace what happened.
+//! ## §5 — The split between the pure rules and the wiring
+//!
+//! [`spec`] and [`action`] are pure functions of plain data, so every rule above
+//! is testable with no window and no document — the same discipline that makes
+//! [`crate::canvas::moving::eligible`] and
+//! [`crate::canvas::selection::SelectionState::click`] pure. The submodules'
+//! entry points are the ones that touch the frame, and they do nothing except
+//! gather inputs, call the pure functions in order, and trace what happened.
+//!
+//! **Nothing here builds an appearance stream.** [`spec`] hands `pdfce-core` a
+//! `MarkupSpec` and `EditSession::add_markup` does the rest, which is the same
+//! route `pdfce-cli`'s `markup-add` takes with the same value — the equivalence
+//! the measure salvage's tests exist to protect, and the reason a canvas-authored
+//! annotation is byte-identical to a CLI-authored one.
 
-use egui::{Color32, CornerRadius, Painter, Pos2, Stroke, StrokeKind};
+use egui::{Color32, Pos2};
 use pdfce_core::annot_author::{Color, LineEnding, MarkupSpec, Quad, TextMarkupKind};
-use pdfce_core::page_tree::{Page, Rect as PageRect};
+use pdfce_core::page_tree::Rect as PageRect;
 
 use crate::app::actions::Action;
-use crate::canvas::gesture::Phase;
 use crate::canvas::mapping::PageMapping;
-use crate::viewer;
+
+/// The two-point rubber band: Rectangle, Ellipse, Arrow, Highlight.
+pub mod band;
+/// Freehand: press, follow the pointer, release. `/Ink`.
+pub mod ink;
+/// Underline, strikeout and squiggly — the kinds whose operand is a text
+/// selection rather than a pointer gesture. See this module's header for why
+/// they are not [`MarkupKind`] variants.
+pub mod text;
+/// The click-shaped kinds: PolyLine and Polygon, and the two endings that
+/// finish them.
+pub mod vertex;
 
 /// Which markup annotation the markup tool is currently drawing.
 ///
@@ -164,6 +269,14 @@ use crate::viewer;
 /// argument; the short form is that these are mutually exclusive states of one
 /// mode, and a type that can express "the markup tool and the ellipse tool at
 /// once" is the wrong shape for a thing that is exactly one of them.
+///
+/// **Seven variants in three gesture families** — see the module header's table
+/// and the boundary that admits them. [`Self::is_band`], [`Self::is_vertex`] and
+/// [`Self::is_freehand`] are the three predicates that name the families, and
+/// they partition the enum: [`tests::the_three_families_partition_every_kind`]
+/// is what says so, because a kind belonging to two families would be reached by
+/// two gestures and a kind belonging to none would be armed by a control that
+/// then does nothing at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkupKind {
     /// `/Square` — a rectangle bounded by the drag. *"Drag from one corner to
@@ -174,6 +287,24 @@ pub enum MarkupKind {
     Ellipse,
     /// `/Line` with a head at the far end. *"Drag from the tail to the head."*
     Arrow,
+    /// `/PolyLine` — an **open** run of segments. *"Click each corner; double-click
+    /// the last."*
+    ///
+    /// See [`vertex`] for the gesture, its two endings, and what "open" costs the
+    /// preview.
+    PolyLine,
+    /// `/Polygon` — the same run of clicks, **closed** back to the first vertex
+    /// by the specification rather than by the operator.
+    ///
+    /// The difference from [`Self::PolyLine`] is *one segment in the file*, which
+    /// is why they share a gesture, a state and a commit path and differ only in
+    /// [`spec`] and in whether [`vertex::preview`] draws the closing segment.
+    Polygon,
+    /// `/Ink` — a freehand stroke that follows the pointer. *"Press and draw."*
+    ///
+    /// Drag-shaped like the band kinds, and **not** describable by two points:
+    /// see [`ink`], which owns the trail, the simplification and the preview.
+    Ink,
     /// `/Highlight` — a translucent band over the drag rectangle. *"Drag across
     /// what you want marked."*
     Highlight,
@@ -185,9 +316,12 @@ impl MarkupKind {
     /// Exists for the reason [`crate::app::actions::ViewChrome::ALL`] does, and
     /// is the same shape deliberately: it is what lets the *registry side* map
     /// a command id to a kind and back through one pair of total functions
-    /// (`chrome_command` / `chrome_for_command` is the precedent), so a fifth
+    /// (`chrome_command` / `chrome_for_command` is the precedent), so an eighth
     /// kind added here fails a both-directions test rather than silently
     /// arriving with no command — or, worse, with a command that arms nothing.
+    ///
+    /// The order is the **ribbon's**, which is why Highlight is last: it sits in
+    /// the Text markup band and the other six sit in Shapes.
     ///
     /// The mapping itself deliberately does **not** live here: command ids are
     /// `shell::commands`' vocabulary, and `shell/` is a single-writer resource.
@@ -195,6 +329,9 @@ impl MarkupKind {
         MarkupKind::Rectangle,
         MarkupKind::Ellipse,
         MarkupKind::Arrow,
+        MarkupKind::PolyLine,
+        MarkupKind::Polygon,
+        MarkupKind::Ink,
         MarkupKind::Highlight,
     ];
 
@@ -210,6 +347,45 @@ impl MarkupKind {
     #[must_use]
     pub fn is_rect(self) -> bool {
         matches!(self, Self::Rectangle | Self::Ellipse | Self::Highlight)
+    }
+
+    /// Whether this kind is gestured by the **two-point rubber band**.
+    ///
+    /// The predicate `canvas::interact` branches on to decide which of the three
+    /// gesture modules takes a `GestureOutcome::Markup`, and the one [`band`]
+    /// guards its own entry point with. Written as a question about the family
+    /// rather than as `matches!(kind, Rectangle | Ellipse | Arrow | Highlight)`
+    /// spelled at three call sites, for the reason [`Self::is_rect`] gives.
+    #[must_use]
+    pub fn is_band(self) -> bool {
+        matches!(
+            self,
+            Self::Rectangle | Self::Ellipse | Self::Arrow | Self::Highlight
+        )
+    }
+
+    /// Whether this kind is gestured by a **run of clicks** — PolyLine and
+    /// Polygon.
+    ///
+    /// Read by [`crate::canvas::gesture::press_kind`], which gives these two a
+    /// live click and **no drag at all**, and by `canvas::interact`, which routes
+    /// that click to [`vertex::click`] instead of to the selection. The two
+    /// readers are the reason this is a method rather than a `matches!` in each:
+    /// a press whose *meaning* and whose *routing* disagreed would be a click
+    /// that placed a vertex and replaced the selection.
+    #[must_use]
+    pub fn is_vertex(self) -> bool {
+        matches!(self, Self::PolyLine | Self::Polygon)
+    }
+
+    /// Whether this kind follows the pointer freehand — Ink, and only Ink.
+    ///
+    /// A `bool` rather than a one-variant `Option` because there is nothing to
+    /// carry: [`ink`] handles exactly one kind, and a second freehand kind would
+    /// be a second `/InkList` subtype, of which the specification has none.
+    #[must_use]
+    pub fn is_freehand(self) -> bool {
+        matches!(self, Self::Ink)
     }
 
     /// The pen colour this kind commits, as PDF `/DeviceRGB` components in
@@ -230,14 +406,26 @@ impl MarkupKind {
     /// a comment shape in by default and *"make it work the way other programs
     /// do"* is the operator's stated tie-breaker; yellow for Highlight for the
     /// same reason.
+    ///
+    /// ★ The three kinds added on 2026-08-14 join the **red** arm rather than
+    /// getting a colour each, and that is the same answer
+    /// [`text::TextMarkKind::rgb`] reached: they are comment *linework*, they
+    /// have to be seen against a drawing that is already black on white, and a
+    /// per-kind palette would be a style decision made in code where the Style
+    /// group is the surface that owns it.
     #[must_use]
-    fn rgb(self) -> (f64, f64, f64) {
+    pub(crate) fn rgb(self) -> (f64, f64, f64) {
         match self {
             // DOCUMENT COLOUR: the default markup pen. This is written INTO the
             // annotation's `/C` and therefore into the saved file — restyling
             // the application must never move it, which is exactly the case the
             // theme gate's escape hatch exists for.
-            Self::Rectangle | Self::Ellipse | Self::Arrow => (0.85, 0.16, 0.16),
+            Self::Rectangle
+            | Self::Ellipse
+            | Self::Arrow
+            | Self::PolyLine
+            | Self::Polygon
+            | Self::Ink => (0.85, 0.16, 0.16),
             // DOCUMENT COLOUR: highlighter yellow, likewise `/C` in the file.
             Self::Highlight => (1.0, 1.0, 0.0),
         }
@@ -255,120 +443,145 @@ impl MarkupKind {
 /// drawing has to avoid.
 pub const PEN_WIDTH_PTS: f64 = 2.0;
 
-/// Why a markup drag committed nothing.
+/// **The geometry one completed markup gesture produced**, in PDF user space.
+///
+/// # ★ Why one enum rather than three `Action` variants
+///
+/// Because [`spec`] is *"the single place a gesture becomes a `MarkupSpec`"*,
+/// and that claim is what the whole equivalence argument rests on: a
+/// canvas-authored annotation has to be byte-identical to the one
+/// `pdfce-cli markup-add` writes, and the cheapest way to keep two things
+/// identical is for there to be one of them. Three actions would be three apply
+/// arms, each free to build its own spec, and the day one of them acquired a
+/// normalisation the others did not is the day the claim quietly stopped being
+/// true — with nothing to notice it, because every variant would still author a
+/// perfectly valid annotation.
+///
+/// So the *kind* travels on [`Action::CommitMarkup`] exactly as it always did,
+/// and what changed is that its geometry is no longer assumed to be two points.
+///
+/// Contrast [`Action::CommitTextMarkup`], which **is** a separate action and
+/// stays one: its operand is not a gesture at all — it is a text selection that
+/// already exists on the document — so it shares no rule with anything here. The
+/// line this enum draws is *"produced by the pointer, on the canvas, now"*.
+///
+/// # Every variant is in PDF user space, and that is not a convention
+///
+/// It is the only frame in which an annotation has a place. Canvas-space
+/// geometry stored here would be silently zoom-dependent — the class of defect
+/// [`crate::canvas::mapping`]'s header exists to make unavailable — and the
+/// conversion happens at exactly two places in this module tree, both named in
+/// obligation 1 of the module header.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Geometry {
+    /// The two **raw** endpoints of a rubber-band drag, in drag order.
+    ///
+    /// Un-normalised on purpose: [`spec`] normalises per kind, at the last point
+    /// at which the raw pair is still available, because an arrow's head is at
+    /// `end` and a normalised rect cannot say which corner the operator started
+    /// at. See [`spec`]'s own ★ section.
+    Band {
+        /// Where the press landed. For [`MarkupKind::Arrow`] this is the **tail**.
+        start: (f64, f64),
+        /// Where the release landed. For [`MarkupKind::Arrow`] this is the **head**.
+        end: (f64, f64),
+    },
+    /// A run of clicked vertices, in click order — PolyLine and Polygon.
+    ///
+    /// **Never carries the closing vertex for a polygon.** `/Polygon` closes
+    /// back to the first entry of `/Vertices` by §12.5.6.13, so appending the
+    /// first point again would author a duplicate vertex and a zero-length
+    /// closing segment — visible on a rounded join as a blob, and invisible
+    /// everywhere else, which is the worst of both.
+    Vertices(Vec<(f64, f64)>),
+    /// One or more freehand strokes — Ink, and only Ink.
+    ///
+    /// A list of lists because `/InkList` is one, even though the shipped
+    /// gesture always produces exactly one stroke: [`ink`]'s header records that
+    /// **one drag is one annotation**, and the outer list is the engine's shape
+    /// rather than a promise about a gesture that does not exist yet.
+    Strokes(Vec<Vec<(f64, f64)>>),
+}
+
+impl Geometry {
+    /// Every coordinate this geometry carries, in no particular order.
+    ///
+    /// One iterator so the finiteness check in [`action`] is written once rather
+    /// than three times — which matters more than it looks, because the failure
+    /// of a *missed* variant is a NaN reaching an annotation's `/Rect` and the
+    /// symptom is a document some readers refuse to open.
+    fn coordinates(&self) -> impl Iterator<Item = f64> + '_ {
+        // A boxed iterator rather than three branches at the call site: the arms
+        // have three different concrete types and the alternative is repeating
+        // the predicate per arm, which is the thing this exists to avoid.
+        let it: Box<dyn Iterator<Item = f64> + '_> = match self {
+            Self::Band { start, end } => Box::new([start.0, start.1, end.0, end.1].into_iter()),
+            Self::Vertices(points) => Box::new(points.iter().flat_map(|&(x, y)| [x, y])),
+            Self::Strokes(strokes) => Box::new(
+                strokes
+                    .iter()
+                    .flat_map(|s| s.iter().flat_map(|&(x, y)| [x, y])),
+            ),
+        };
+        it
+    }
+}
+
+/// Why a markup gesture committed nothing.
 ///
 /// Reported rather than silently absorbed, and reported with enough detail to
 /// act on, because *"nothing happened"* has several causes with opposite
 /// responses — the same argument [`crate::canvas::moving::Refusal`] makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
-    /// The gesture ended where it began: no extent on either axis. See the
-    /// module docs on degenerate input.
+    /// The gesture ended where it began: no extent on either axis, or a vertex
+    /// run every point of which is the same point. See the module docs on
+    /// degenerate input.
     NoExtent,
     /// A coordinate was not finite. Refused rather than authored, because the
     /// alternative is a NaN in an annotation's `/Rect`.
     NotFinite,
     /// The page's device transform is not invertible, so there is no
-    /// well-defined page-space position for the drag. Declining is the only
+    /// well-defined page-space position for the gesture. Declining is the only
     /// honest answer; authoring fabricated geometry is not.
     DegeneratePage,
     /// The frame has no page to author onto — a strip whose visible window fell
     /// outside every page, or a document whose pages have not loaded.
     NoPage,
+    /// A vertex run too short for its kind: fewer than two for a `/PolyLine`,
+    /// fewer than **three** for a `/Polygon`.
+    ///
+    /// ★ **This is the one place the shell is deliberately stricter than the
+    /// engine.** `pdfce-core`'s `validate_geometry` refuses `vertices.len() < 2`
+    /// for both, so a two-vertex `/Polygon` would be accepted and authored: a
+    /// closed shape drawn from A to B and back to A, which renders as a single
+    /// line and is not a polygon anybody meant. The engine is right to accept it
+    /// — it is legal PDF and a CLI caller may have reason — and the shell is
+    /// right to refuse it, because a *gesture* that produced it is an operator
+    /// who double-clicked one click early.
+    TooFewVertices,
+    /// The geometry does not describe the kind — a `Band` for `/Ink`, a
+    /// `Vertices` for a `/Square`.
+    ///
+    /// **Structurally unreachable from any gesture**: each family builds its own
+    /// [`Geometry`] variant beside the kind it belongs to, and the two are
+    /// written on adjacent lines. Refused explicitly anyway, for the reason
+    /// [`text::Refusal::NoQuads`] is: an [`Action`] is plain data, it can be
+    /// constructed by a test or replayed by a future undo/redo surface, and the
+    /// alternative to a named refusal is a panic or a silently wrong annotation.
+    Mismatched,
 }
 
-/// A markup drag in flight, in **canvas space**, ready to be drawn.
+/// Build the `pdfce-core` spec one markup gesture authors.
 ///
-/// Returned by [`drag`] only while the pointer is down, and only when the
-/// release would commit — the same "the preview describes something that will
-/// actually happen" contract [`crate::canvas::moving::drag`] honours with its
-/// ghost.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Preview {
-    /// Which shape is being authored.
-    pub kind: MarkupKind,
-    /// Where the press landed. For [`MarkupKind::Arrow`] this is the **tail**.
-    pub from: Pos2,
-    /// Where the pointer is now. For [`MarkupKind::Arrow`] this is the **head**.
-    pub to: Pos2,
-}
-
-/// Convert a **canvas-space** drag into a pair of **PDF user-space** endpoints.
+/// **The single place a gesture becomes a `MarkupSpec`** — the property the
+/// equivalence with `pdfce-cli markup-add` rests on, and the reason [`Geometry`]
+/// is one enum rather than three actions. Pure, and unit-tested, which is the
+/// reason it is here rather than inline in the apply arm: the arm is a routing
+/// line, and the decisions below are rules that deserve a test each.
 ///
-/// # Why two point conversions and no arithmetic of our own
-///
-/// [`viewer::canvas_to_pdf_space`] applies the renderer's own page transform —
-/// the crop-box origin, the `/Rotate`, and the Y flip. Writing any part of that
-/// out here would be a second derivation of the page transform, which is the
-/// precise failure `viewer`'s header warns about: *"PDF user space is y-UP;
-/// canvas and screen are y-DOWN. The failure is silent — the page looks perfect
-/// until someone selects a line and gets a different one."* For a markup the
-/// symptom is worse than a mis-selection, because it is written to the file: a
-/// rectangle dragged over the title block lands mirrored about the page's
-/// horizontal centre line, and the operator finds out after saving.
-///
-/// Unlike [`crate::canvas::moving::page_delta`] this maps **positions**, not a
-/// displacement, so the transform's translation is *not* cancelled — which is
-/// the whole point. A markup has an absolute place on the page.
-///
-/// Returns `None` for a page whose device transform cannot be inverted, which
-/// is the same condition under which both halves of the `viewer` bridge
-/// decline.
-#[must_use]
-pub fn endpoints(from: Pos2, to: Pos2, page: &Page) -> Option<((f64, f64), (f64, f64))> {
-    let start = viewer::canvas_to_pdf_space(from, page)?;
-    let end = viewer::canvas_to_pdf_space(to, page)?;
-    Some((
-        (f64::from(start.x), f64::from(start.y)),
-        (f64::from(end.x), f64::from(end.y)),
-    ))
-}
-
-/// The ONE action a completed markup drag becomes.
-///
-/// Pure, and the only place the degenerate-input rule is applied. Deliberately
-/// says nothing about *which* page is current or what the pen is: those are the
-/// caller's and [`spec`]'s respectively, so this function is a statement about
-/// the gesture alone and can be tested as one.
-///
-/// # Why the raw endpoints travel, un-normalised
-///
-/// Because normalising here would destroy the arrow's direction before anything
-/// downstream could ask about it. The rectangle kinds are normalised in
-/// [`spec`], at the moment the `Rect` is built, which is the last point at which
-/// the raw pair is still available. See [`spec`]'s own note.
-pub fn action(
-    kind: MarkupKind,
-    page: usize,
-    start: (f64, f64),
-    end: (f64, f64),
-) -> Result<Action, Refusal> {
-    if ![start.0, start.1, end.0, end.1]
-        .iter()
-        .all(|v| v.is_finite())
-    {
-        return Err(Refusal::NotFinite);
-    }
-    // ★ No second threshold, and none in page space. egui's own drag threshold
-    // has already separated a click from a drag in SCREEN space; all that is
-    // refused here is a drag that ended exactly where it began, which would
-    // author a 1-point mark nobody can see. See the module docs.
-    if start.0 == end.0 && start.1 == end.1 {
-        return Err(Refusal::NoExtent);
-    }
-    Ok(Action::CommitMarkup {
-        page,
-        kind,
-        start,
-        end,
-    })
-}
-
-/// Build the `pdfce-core` spec one markup drag authors.
-///
-/// Pure, and unit-tested, which is the reason it is here rather than inline in
-/// the apply arm: the arm is a routing line, and the two decisions below are
-/// rules that deserve a test each.
+/// Returns `None` for a kind/geometry pair no gesture constructs — see
+/// [`Refusal::Mismatched`], which is where the apply arm's refusal is named.
 ///
 /// # ★ An arrow keeps its RAW endpoints; a rectangle kind is normalised
 ///
@@ -389,257 +602,230 @@ pub fn action(
 /// The rectangle kinds go the other way and *must* be normalised: `Rect` with
 /// `llx > urx` is not a rectangle any reader will draw, and the operator may
 /// drag in any of the four directions.
+///
+/// # ★ A vertex run is never re-ordered, and neither is an ink stroke
+///
+/// The same rule as the arrow's, one dimension up. `/Vertices` and `/InkList`
+/// are **sequences**, and their order is the order the operator drew: a
+/// polyline's segments join consecutive entries, so sorting or normalising the
+/// list would author a different figure from the one that was previewed. There
+/// is nothing here that could tempt a tidy-up in the way `Rect::from_corners`
+/// does, which is precisely why it is written down.
+///
+/// # Neither vertex kind is filled
+///
+/// `/Polygon` accepts an `/IC` interior and this authors `None`, for the reason
+/// the Square and Circle arms already give: a filled comment shape hides the
+/// drawing it is a comment about, which on a CAD sheet is the whole content
+/// under it. A fill is a Style property (`markup.fill`, still in `PLANNED`) and
+/// belongs to the surface that will set the pen colour too.
 #[must_use]
-pub fn spec(kind: MarkupKind, start: (f64, f64), end: (f64, f64)) -> MarkupSpec {
+pub fn spec(kind: MarkupKind, geometry: &Geometry) -> Option<MarkupSpec> {
     let (r, g, b) = kind.rgb();
     let color = Color::Rgb(r, g, b);
-    let rect = PageRect::from_corners(
-        start.0.min(end.0),
-        start.1.min(end.1),
-        start.0.max(end.0),
-        start.1.max(end.1),
-    );
-    match kind {
-        MarkupKind::Rectangle => MarkupSpec::Square {
-            rect,
-            border: Some(color),
-            // No fill. A filled comment shape hides the drawing it is a comment
-            // about, which on a CAD sheet is the whole content under it.
-            interior: None,
-            border_width: PEN_WIDTH_PTS,
-        },
-        MarkupKind::Ellipse => MarkupSpec::Circle {
-            rect,
-            border: Some(color),
-            interior: None,
-            border_width: PEN_WIDTH_PTS,
-        },
-        // ★ RAW `start` and `end` — see this function's docs.
-        MarkupKind::Arrow => MarkupSpec::Line {
-            start,
-            end,
+    match (kind, geometry) {
+        (
+            MarkupKind::Rectangle | MarkupKind::Ellipse | MarkupKind::Arrow | MarkupKind::Highlight,
+            Geometry::Band { start, end },
+        ) => {
+            let rect = PageRect::from_corners(
+                start.0.min(end.0),
+                start.1.min(end.1),
+                start.0.max(end.0),
+                start.1.max(end.1),
+            );
+            Some(match kind {
+                MarkupKind::Rectangle => MarkupSpec::Square {
+                    rect,
+                    border: Some(color),
+                    // No fill. A filled comment shape hides the drawing it is a
+                    // comment about, which on a CAD sheet is the whole content
+                    // under it.
+                    interior: None,
+                    border_width: PEN_WIDTH_PTS,
+                },
+                MarkupKind::Ellipse => MarkupSpec::Circle {
+                    rect,
+                    border: Some(color),
+                    interior: None,
+                    border_width: PEN_WIDTH_PTS,
+                },
+                // ★ RAW `start` and `end` — see this function's docs.
+                MarkupKind::Arrow => MarkupSpec::Line {
+                    start: *start,
+                    end: *end,
+                    color,
+                    width: PEN_WIDTH_PTS,
+                    // Tail then head, in the operator's own words. `None` at the
+                    // start is what makes the raw-endpoint rule above
+                    // load-bearing rather than decorative.
+                    endings: (LineEnding::None, LineEnding::OpenArrow),
+                },
+                // Exactly one quad, always, so `validate_geometry`'s empty-quad
+                // refusal is structurally unreachable from this path.
+                _ => MarkupSpec::TextMarkup {
+                    kind: TextMarkupKind::Highlight,
+                    quads: vec![Quad::from_rect(rect)],
+                    color,
+                },
+            })
+        }
+        (MarkupKind::PolyLine, Geometry::Vertices(vertices)) => Some(MarkupSpec::PolyLine {
+            vertices: vertices.clone(),
             color,
             width: PEN_WIDTH_PTS,
-            // Tail then head, in the operator's own words. `None` at the start
-            // is what makes the raw-endpoint rule above load-bearing rather
-            // than decorative.
-            endings: (LineEnding::None, LineEnding::OpenArrow),
-        },
-        // Exactly one quad, always, so `validate_geometry`'s empty-quad refusal
-        // is structurally unreachable from this path.
-        MarkupKind::Highlight => MarkupSpec::TextMarkup {
-            kind: TextMarkupKind::Highlight,
-            quads: vec![Quad::from_rect(rect)],
+        }),
+        (MarkupKind::Polygon, Geometry::Vertices(vertices)) => Some(MarkupSpec::Polygon {
+            vertices: vertices.clone(),
+            border: Some(color),
+            interior: None,
+            width: PEN_WIDTH_PTS,
+        }),
+        (MarkupKind::Ink, Geometry::Strokes(strokes)) => Some(MarkupSpec::Ink {
+            strokes: strokes.clone(),
             color,
-        },
+            width: PEN_WIDTH_PTS,
+        }),
+        // Every remaining pair is a kind holding another family's geometry. See
+        // `Refusal::Mismatched`: unreachable from a gesture, refused rather than
+        // guessed.
+        _ => None,
     }
 }
 
-/// Apply one frame of a markup drag: return the preview, or commit the markup.
+/// The ONE action a completed markup gesture becomes.
 ///
-/// The **only** function here that touches the frame. It does one of two
-/// things:
+/// Pure, and the only place the degenerate-input rules are applied. Deliberately
+/// says nothing about *which* page is current or what the pen is: those are the
+/// caller's and [`spec`]'s respectively, so this function is a statement about
+/// the gesture alone and can be tested as one.
 ///
-/// * [`Phase::InFlight`] — returns the band for [`draw_preview`] and changes
-///   nothing. Nothing is decomposed and nothing is re-rasterized: a markup drag
-///   hit-tests nothing at all, which is why `canvas::interact` deliberately
-///   leaves it out of the set of outcomes that need an object model. A preview
-///   over a 129,758-object drawing costs one stroke.
-/// * [`Phase::Complete`] — converts both endpoints to page space and pushes
-///   exactly one [`Action::CommitMarkup`].
+/// # The three degeneracy rules, and why each has to be here rather than in
+/// # `pdfce-core`
 ///
-/// Returns `Some` only when a band should be drawn, and — as with the move
-/// ghost — only when the release would actually commit. A drag with no page
-/// under it draws nothing rather than a band that promises an annotation the
-/// frame cannot author.
+/// | rule | refused as | what it prevents |
+/// |---|---|---|
+/// | any coordinate non-finite | [`Refusal::NotFinite`] | a NaN in an annotation's `/Rect` |
+/// | a band with identical endpoints, or a vertex/ink run with no extent at all | [`Refusal::NoExtent`] | a 1-point mark nobody can see, holding a slot on the undo stack |
+/// | a run too short for its kind | [`Refusal::TooFewVertices`] | a two-vertex "polygon" that renders as a line |
 ///
-/// # Why the refusal is traced only on release
+/// The engine refuses the *empty* cases and only those. Everything above is
+/// about a gesture the operator could actually produce, and refusing it here is
+/// what keeps `EditError::EmptyGeometry` off their screen: the shell never
+/// sends geometry that draws nothing, so the engine never has to explain one.
 ///
-/// An in-flight drag is re-evaluated 60 times a second, and the `canvas-pointer`
-/// lesson — fifty identical lines in nine seconds from a stationary pointer —
-/// is what a per-frame refusal trace would reproduce. The release is one event,
-/// and it is the one a harness reading the trace is asking about.
-pub fn drag(
-    kind: MarkupKind,
-    from: Pos2,
-    to: Pos2,
-    phase: Phase,
-    page_index: usize,
-    page: Option<&Page>,
-    actions: &mut Vec<Action>,
-) -> Option<Preview> {
-    let Some(page) = page else {
-        if phase == Phase::Complete {
-            decline(kind, page_index, Refusal::NoPage);
-        }
-        return None;
-    };
-    let Some((start, end)) = endpoints(from, to, page) else {
-        if phase == Phase::Complete {
-            decline(kind, page_index, Refusal::DegeneratePage);
-        }
-        return None;
-    };
-
-    if phase == Phase::InFlight {
-        return Some(Preview { kind, from, to });
+/// # Why the geometry travels un-normalised
+///
+/// Because normalising here would destroy the arrow's direction before anything
+/// downstream could ask about it, and would re-order a vertex run into a figure
+/// nobody drew. Normalisation happens in [`spec`], per kind, at the moment the
+/// `Rect` is built — the last point at which the raw data is still available.
+pub fn action(kind: MarkupKind, page: usize, geometry: Geometry) -> Result<Action, Refusal> {
+    if !geometry.coordinates().all(f64::is_finite) {
+        return Err(Refusal::NotFinite);
     }
-
-    match action(kind, page_index, start, end) {
-        Ok(raised) => {
-            crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed in the UI.
-                    //
-                    // ★ Traced with its COORDINATES, not a success flag. The old
-                    // shell's own note says why, and it is the sharpest sentence
-                    // in that file: "the whole defect this Pass fixes was a shape
-                    // landing somewhere the operator did not choose, and a trace
-                    // saying only 'committed' would have been equally true before
-                    // and after the fix."
-                    //
-                    // The RAW endpoints, in drag order — so a harness can prove
-                    // the arrow's head is at the end the operator dragged to,
-                    // which a normalised rect could not express.
-                    "markup-commit kind={kind:?} page={page_index} \
-                     x0={:.2} y0={:.2} x1={:.2} y1={:.2}",
-                    start.0, start.1, end.0, end.1,
-                )
-            });
-            actions.push(raised);
+    match (&geometry, kind) {
+        (Geometry::Band { start, end }, k) if k.is_band() => {
+            // ★ No second threshold, and none in page space. egui's own drag
+            // threshold has already separated a click from a drag in SCREEN
+            // space; all that is refused here is a drag that ended exactly where
+            // it began, which would author a 1-point mark nobody can see. See
+            // the module docs.
+            if start == end {
+                return Err(Refusal::NoExtent);
+            }
         }
-        Err(reason) => decline(kind, page_index, reason),
+        (Geometry::Vertices(points), MarkupKind::PolyLine) => {
+            if points.len() < 2 {
+                return Err(Refusal::TooFewVertices);
+            }
+            if all_the_same(points) {
+                return Err(Refusal::NoExtent);
+            }
+        }
+        (Geometry::Vertices(points), MarkupKind::Polygon) => {
+            // Three, not two — the module header's "stricter than the engine"
+            // note, and `Refusal::TooFewVertices`' own docs.
+            if points.len() < 3 {
+                return Err(Refusal::TooFewVertices);
+            }
+            if all_the_same(points) {
+                return Err(Refusal::NoExtent);
+            }
+        }
+        (Geometry::Strokes(strokes), MarkupKind::Ink) => {
+            // A stroke of one point draws nothing at all: `ink`'s builder emits
+            // a `move_to` and then paints, which strokes zero length. The engine
+            // would accept it (its guard is `strokes.iter().all(Vec::is_empty)`)
+            // and the operator would get an invisible annotation and an undo
+            // step. Refused as NoExtent, which is the same fact the band kinds'
+            // zero-length drag reports.
+            if strokes.iter().all(|s| s.len() < 2) {
+                return Err(Refusal::NoExtent);
+            }
+            if strokes.iter().all(|s| all_the_same(s)) {
+                return Err(Refusal::NoExtent);
+            }
+        }
+        // A kind holding another family's geometry — see `Refusal::Mismatched`.
+        _ => return Err(Refusal::Mismatched),
     }
-    None
+    Ok(Action::CommitMarkup {
+        page,
+        kind,
+        geometry,
+    })
 }
 
-/// Report a markup drag that committed nothing, with the reason.
+/// Whether every point in a run is the same point.
+///
+/// The vertex and ink form of *"the drag ended where it began"*. A run of forty
+/// identical points is what a press-and-hold with no movement produces once the
+/// duplicate filter is off, and it authors an annotation with a zero-area
+/// `/Rect` that `pdfce-core`'s `bounds_of` then pads to the pen's half-width —
+/// a 1-point blob nobody chose.
+fn all_the_same(points: &[(f64, f64)]) -> bool {
+    points.first().is_none_or(|first| {
+        points
+            .iter()
+            .all(|p| (p.0 - first.0).abs() < f64::EPSILON && (p.1 - first.1).abs() < f64::EPSILON)
+    })
+}
+
+/// Report a markup gesture that committed nothing, with the reason.
 ///
 /// One trace shape for every refusal, so a harness reads `markup-declined` and
 /// finds the cause on the same line rather than inferring it from an absence —
 /// the contract `canvas-move-declined` and `canvas-delete-declined` already
-/// honour.
-fn decline(kind: MarkupKind, page: usize, reason: Refusal) {
+/// honour. Shared by all three gesture modules, so the channel carries one line
+/// shape whichever family declined.
+pub(crate) fn decline(kind: MarkupKind, page: usize, reason: Refusal) {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         format!("markup-declined kind={kind:?} page={page} reason={reason:?}")
     });
 }
 
-/// The number of segments an ellipse preview is drawn with.
+/// Report a markup that is about to be authored, with its geometry.
 ///
-/// 48 is enough that the polyline is indistinguishable from a curve at any zoom
-/// this canvas reaches, and it is cheap: one band, once per frame of one drag.
-const ELLIPSE_SEGMENTS: usize = 48;
-
-/// The arrowhead barb length, in **screen** points, and the angle it opens at.
+/// ★ **Traced with numbers, not a success flag.** The old shell's own note says
+/// why, and it is the sharpest sentence in that file: *"the whole defect this
+/// Pass fixes was a shape landing somewhere the operator did not choose, and a
+/// trace saying only 'committed' would have been equally true before and after
+/// the fix."*
 ///
-/// Screen-space, deliberately: the head is part of the *cursor*, and a head that
-/// shrank to nothing at 25 % would stop saying which end of the band is the
-/// head — which is the one thing this preview exists to say. The committed
-/// annotation's own `/LE` head is drawn by the appearance stream at whatever
-/// size the engine chooses; this is not a promise about that size, it is a
-/// statement about direction.
-const HEAD_LEN_PX: f32 = 14.0;
-/// Half-angle of the arrowhead, in radians (≈ 24°).
-const HEAD_ANGLE: f32 = 0.42;
-
-/// Paint the markup band, given the [`Preview`] [`drag`] returned.
-///
-/// # ★ Why this is not `draw_marquee` with a different colour
-///
-/// Because a marquee and a markup band answer different questions. A marquee
-/// asks *"what does this rectangle enclose?"* and is therefore always a
-/// rectangle whatever it is about to select. A markup band asks *"is this the
-/// shape you meant?"*, and the only way it can answer is by **being that
-/// shape**: an ellipse drawn as its bounding box misstates the geometry by the
-/// difference between a box and the ellipse inside it — 21 % of the area — and
-/// an arrow drawn as a plain segment says nothing about which end the head is
-/// on, which is the single most reversible property of the thing being
-/// committed.
-///
-/// The old shell previewed a Circle as `circle_stroke` with the *smaller* of
-/// the two half-extents, i.e. as the inscribed **circle** rather than the
-/// ellipse it was about to author. That is drawn correctly here instead: on a
-/// wide drag the two differ by the whole aspect ratio, and the operator would
-/// have released expecting the circle they were shown.
-///
-/// # The colours are document colours, and that is why they are literals
-///
-/// Everything painted here is the pen — the colour and width that are about to
-/// be written into the file. Reading it from [`egui::Visuals`] would be wrong in
-/// the way `check-theme-colors.sh`'s own header describes: restyling the
-/// application would change the colour of markup about to be committed, and the
-/// change would only become visible after saving.
-pub fn draw_preview(painter: &Painter, mapping: &PageMapping, preview: Preview) {
-    let Preview { kind, from, to } = preview;
-    let (a, b) = (mapping.to_screen(from), mapping.to_screen(to));
-    let stroke = Stroke::new(pen_px(mapping), pen_color(kind));
-
-    match kind {
-        MarkupKind::Rectangle => {
-            painter.rect_stroke(
-                egui::Rect::from_two_pos(a, b),
-                CornerRadius::ZERO,
-                stroke,
-                StrokeKind::Middle,
-            );
-        }
-        MarkupKind::Ellipse => {
-            let rect = egui::Rect::from_two_pos(a, b);
-            let (cx, cy) = (rect.center().x, rect.center().y);
-            let (rx, ry) = (rect.width() / 2.0, rect.height() / 2.0);
-            let mut points: Vec<Pos2> = (0..=ELLIPSE_SEGMENTS)
-                .map(|i| {
-                    #[allow(clippy::cast_precision_loss)]
-                    let t = (i as f32) / (ELLIPSE_SEGMENTS as f32) * std::f32::consts::TAU;
-                    Pos2::new(cx + rx * t.cos(), cy + ry * t.sin())
-                })
-                .collect();
-            // Close it exactly rather than relying on the last sample landing
-            // on the first: a visible seam in a preview reads as a shape that
-            // did not close.
-            if let (Some(first), Some(last)) = (points.first().copied(), points.last_mut()) {
-                *last = first;
-            }
-            painter.add(egui::Shape::line(points, stroke));
-        }
-        MarkupKind::Arrow => {
-            painter.line_segment([a, b], stroke);
-            for barb in arrowhead(a, b) {
-                painter.line_segment([b, barb], stroke);
-            }
-        }
-        // A wash, not an outline: a highlight IS a translucent fill, and an
-        // outlined empty box would describe a rectangle annotation instead.
-        MarkupKind::Highlight => {
-            painter.rect_filled(
-                egui::Rect::from_two_pos(a, b),
-                CornerRadius::ZERO,
-                highlight_wash(kind),
-            );
-        }
-    }
-}
-
-/// The two barb endpoints of the preview arrowhead at `head`.
-///
-/// Returns an empty array's worth of coincident points for a zero-length band,
-/// which draws nothing — a head with no direction to point in must not be
-/// invented from a normalised zero vector (which would be NaN).
-fn arrowhead(tail: Pos2, head: Pos2) -> [Pos2; 2] {
-    let dir = head - tail;
-    let len = dir.length();
-    if !len.is_finite() || len <= f32::EPSILON {
-        return [head, head];
-    }
-    let back = -dir / len;
-    let (s, c) = (HEAD_ANGLE.sin(), HEAD_ANGLE.cos());
-    let rot = |x: f32, y: f32| Pos2::new(head.x + x * HEAD_LEN_PX, head.y + y * HEAD_LEN_PX);
-    [
-        rot(back.x * c - back.y * s, back.x * s + back.y * c),
-        rot(back.x * c + back.y * s, -back.x * s + back.y * c),
-    ]
+/// What each family puts on the line is what can be *wrong* about it: the band
+/// kinds print their raw endpoints in drag order, so a harness can prove the
+/// arrow's head is at the end the operator dragged to; the vertex kinds print
+/// the vertex count and the first and last vertex, so a run that lost its ends
+/// or gained a duplicate closing point is visible; ink prints the raw and kept
+/// point counts, which is the only place the simplification's effect is
+/// observable from outside the process.
+pub(crate) fn trace_commit(kind: MarkupKind, page: usize, detail: &str) {
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        format!("markup-commit kind={kind:?} page={page} {detail}")
+    });
 }
 
 /// The pen's width in **screen** points at this frame's magnification.
@@ -653,7 +839,11 @@ fn arrowhead(tail: Pos2, head: Pos2) -> [Pos2; 2] {
 ///
 /// Floored at one point so the band is never invisible at low zoom — a preview
 /// the operator cannot see is a preview they cannot aim.
-fn pen_px(mapping: &PageMapping) -> f32 {
+///
+/// Shared by all three gesture modules: the pen is a property of the *markup*,
+/// not of the gesture that draws it, so a second copy here would be a second
+/// place the preview could stop matching the annotation.
+pub(crate) fn pen_px(mapping: &PageMapping) -> f32 {
     #[allow(clippy::cast_possible_truncation)]
     let width = PEN_WIDTH_PTS as f32;
     let scale = mapping.to_screen(Pos2::new(1.0, 0.0)).x - mapping.to_screen(Pos2::ZERO).x;
@@ -665,7 +855,7 @@ fn pen_px(mapping: &PageMapping) -> f32 {
 }
 
 /// The pen colour, as egui sees it.
-fn pen_color(kind: MarkupKind) -> Color32 {
+pub(crate) fn pen_color(kind: MarkupKind) -> Color32 {
     let (r, g, b) = kind.rgb();
     let byte = |v: f64| {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -679,135 +869,47 @@ fn pen_color(kind: MarkupKind) -> Color32 {
     Color32::from_rgb(byte(r), byte(g), byte(b))
 }
 
-/// The highlight preview's fill: the pen colour at the alpha a highlight reads
-/// at over content.
-fn highlight_wash(kind: MarkupKind) -> Color32 {
-    let c = pen_color(kind);
-    // DOCUMENT COLOUR: arithmetic on the pen colour above, not a second choice
-    // of colour. The alpha is a legibility figure for the *preview* — the
-    // committed annotation's translucency is the engine's `/CA`, which pdfce
-    // does not yet write (filed in `open/`), so this states "a highlight" and
-    // does not promise a specific opacity.
-    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 90)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pdfce_core::object::{Dict, ObjId};
 
-    /// A minimal page fixture — the same one `viewer`'s and `moving`'s geometry
-    /// tests use, because these functions read exactly what those do:
-    /// `crop_box` and `rotate`.
-    fn test_page(w: f64, h: f64, rotate: u16) -> Page {
-        Page {
-            id: ObjId::new(1, 0),
-            resources: Dict::new(),
-            media_box: PageRect::from_corners(0.0, 0.0, w, h),
-            crop_box: PageRect::from_corners(0.0, 0.0, w, h),
-            rotate,
-            contents: Vec::new(),
-            contents_unresolved: 0,
-        }
+    /// A band geometry from two corners.
+    fn band(start: (f64, f64), end: (f64, f64)) -> Geometry {
+        Geometry::Band { start, end }
     }
 
     // -----------------------------------------------------------------
-    // ★ The defect this whole module exists to prevent
+    // ★ The families partition the kinds
     // -----------------------------------------------------------------
 
-    /// ★ **The markup lands where the operator dragged, not at the page
-    /// centre.**
+    /// ★ **Every kind belongs to exactly one gesture family.**
     ///
-    /// The regression test for *"they just drop things into the center of the
-    /// pdf window."* It is written as a **magnitude** assertion against the
-    /// dragged corners and, separately, as a statement that the result is
-    /// nowhere near the media-box centre — because `HANDOFF.md` §2's lesson is
-    /// that a test asserting a relation rather than a magnitude is satisfied by
-    /// any absurdity in the right direction. "The shape is on the page" would
-    /// have passed on the defective build; "the shape's corners ARE the corners
-    /// dragged" cannot.
+    /// The property `canvas::interact`'s routing and
+    /// `gesture::press_kind`'s early return both rest on, asserted as a
+    /// partition rather than as three membership lists. A kind in **two**
+    /// families would be reached by two gestures — a press that both started a
+    /// band and placed a vertex — and a kind in **none** would arm a tool whose
+    /// press means nothing, which is the *"visible control, silently inert"*
+    /// failure with a crosshair on it.
     #[test]
-    fn the_markup_lands_where_the_drag_was_and_not_at_the_page_centre() {
-        let page = test_page(612.0, 792.0, 0);
-        // A drag in the lower-left quadrant of the canvas, i.e. the UPPER-left
-        // of the page in PDF space.
-        let (start, end) =
-            endpoints(Pos2::new(72.0, 90.0), Pos2::new(200.0, 150.0), &page).expect("invertible");
-
-        assert!((start.0 - 72.0).abs() < 1e-3, "{start:?}");
-        assert!((end.0 - 200.0).abs() < 1e-3, "{end:?}");
-        // Canvas Y is down, PDF Y is up: 90 from the top of a 792-high page is
-        // 702 from the bottom.
-        assert!((start.1 - 702.0).abs() < 1e-3, "{start:?}");
-        assert!((end.1 - 642.0).abs() < 1e-3, "{end:?}");
-
-        let MarkupSpec::Square { rect, .. } = spec(MarkupKind::Rectangle, start, end) else {
-            panic!("Rectangle must author a /Square");
-        };
-        let (cx, cy) = ((rect.llx + rect.urx) / 2.0, (rect.lly + rect.ury) / 2.0);
-        assert!(
-            (cx - 306.0).abs() > 100.0 && (cy - 396.0).abs() > 100.0,
-            "the shape drifted toward the page centre: centre=({cx}, {cy})"
-        );
-    }
-
-    /// The same drag, at four magnifications, through the frame's real
-    /// mapping — because the pointer only ever reports **screen** positions and
-    /// a stray zoom would enter exactly there.
-    ///
-    /// This is the markup gesture's form of
-    /// `moving::a_drag_between_two_page_points_moves_the_same_distance_at_every_zoom`,
-    /// and it is the stronger of the two statements: a move only has to be the
-    /// same *displacement* at every zoom, while a markup has to land on the same
-    /// *absolute* page coordinates.
-    #[test]
-    fn the_same_drag_authors_the_same_page_coordinates_at_every_zoom() {
-        use crate::viewer::page_extent_pts;
-
-        let page = test_page(612.0, 792.0, 0);
-        let extent = page_extent_pts(&page);
-        let (grabbed, dropped) = (Pos2::new(100.0, 120.0), Pos2::new(260.0, 300.0));
-
-        let mut seen: Vec<((f64, f64), (f64, f64))> = Vec::new();
-        for &zoom in &[0.25_f32, 1.0, 4.0, 12.0] {
-            let image_rect = egui::Rect::from_min_size(
-                Pos2::new(37.0, 11.0),
-                egui::vec2(extent.0 * zoom, extent.1 * zoom),
-            );
-            let map = PageMapping::new(image_rect, extent, zoom);
-            let from = map.to_page(map.to_screen(grabbed));
-            let to = map.to_page(map.to_screen(dropped));
-            seen.push(endpoints(from, to, &page).expect("invertible"));
+    fn the_three_families_partition_every_kind() {
+        for &kind in MarkupKind::ALL {
+            let members = usize::from(kind.is_band())
+                + usize::from(kind.is_vertex())
+                + usize::from(kind.is_freehand());
+            assert_eq!(members, 1, "{kind:?} belongs to {members} families");
         }
-        for got in &seen {
-            assert!(
-                (got.0.0 - seen[0].0.0).abs() < 1e-2
-                    && (got.0.1 - seen[0].0.1).abs() < 1e-2
-                    && (got.1.0 - seen[0].1.0).abs() < 1e-2
-                    && (got.1.1 - seen[0].1.1).abs() < 1e-2,
-                "the page coordinates changed with the zoom: {seen:?}"
-            );
+        // …and each family is non-empty, so the partition is a real one rather
+        // than "everything is a band".
+        assert!(MarkupKind::ALL.iter().any(|k| k.is_band()));
+        assert!(MarkupKind::ALL.iter().any(|k| k.is_vertex()));
+        assert!(MarkupKind::ALL.iter().any(|k| k.is_freehand()));
+        // The rect predicate is a refinement of the band family, not a fourth
+        // one: an Arrow is a band and is not a rect.
+        for &kind in MarkupKind::ALL {
+            assert!(!kind.is_rect() || kind.is_band(), "{kind:?}");
         }
-        // …and they are the right coordinates, not merely consistent ones.
-        assert!((seen[0].0.0 - 100.0).abs() < 1e-2, "{seen:?}");
-        assert!((seen[0].0.1 - 672.0).abs() < 1e-2, "{seen:?}");
-        assert!((seen[0].1.0 - 260.0).abs() < 1e-2, "{seen:?}");
-        assert!((seen[0].1.1 - 492.0).abs() < 1e-2, "{seen:?}");
-    }
-
-    /// A rotated page rotates the placement, through the renderer's own
-    /// transform rather than a formula written out here.
-    #[test]
-    fn a_rotated_page_places_the_markup_through_the_page_transform() {
-        let upright = test_page(612.0, 792.0, 0);
-        let turned = test_page(612.0, 792.0, 90);
-        let at = Pos2::new(100.0, 120.0);
-        let a = endpoints(at, at + egui::vec2(10.0, 10.0), &upright).expect("invertible");
-        let b = endpoints(at, at + egui::vec2(10.0, 10.0), &turned).expect("invertible");
-        assert_ne!(
-            a, b,
-            "a 90° page must not author the same coordinates as an upright one"
-        );
+        assert!(!MarkupKind::Arrow.is_rect());
     }
 
     // -----------------------------------------------------------------
@@ -826,12 +928,12 @@ mod tests {
     fn an_arrow_dragged_backwards_keeps_its_head_at_the_end() {
         let tail = (400.0, 500.0);
         let head = (120.0, 700.0); // up and to the left: both axes reversed
-        let MarkupSpec::Line {
+        let Some(MarkupSpec::Line {
             start,
             end,
             endings,
             ..
-        } = spec(MarkupKind::Arrow, tail, head)
+        }) = spec(MarkupKind::Arrow, &band(tail, head))
         else {
             panic!("Arrow must author a /Line");
         };
@@ -866,9 +968,9 @@ mod tests {
                 ((corners[0].0, corners[1].1), (corners[1].0, corners[0].1)),
                 ((corners[1].0, corners[0].1), (corners[0].0, corners[1].1)),
             ] {
-                let rect = match spec(kind, a, b) {
-                    MarkupSpec::Square { rect, .. } | MarkupSpec::Circle { rect, .. } => rect,
-                    MarkupSpec::TextMarkup { quads, .. } => {
+                let rect = match spec(kind, &band(a, b)) {
+                    Some(MarkupSpec::Square { rect, .. } | MarkupSpec::Circle { rect, .. }) => rect,
+                    Some(MarkupSpec::TextMarkup { quads, .. }) => {
                         assert_eq!(quads.len(), 1, "a highlight authors exactly one quad");
                         PageRect::from_corners(100.0, 200.0, 300.0, 500.0)
                     }
@@ -881,52 +983,155 @@ mod tests {
                 assert!((rect.llx - 100.0).abs() < 1e-9 && (rect.ury - 500.0).abs() < 1e-9);
             }
         }
-        assert!(!MarkupKind::Arrow.is_rect());
     }
 
     /// Each kind authors its own subtype, and nothing borrows another's.
     #[test]
     fn each_kind_authors_its_own_subtype() {
         let (a, b) = ((10.0, 20.0), (30.0, 40.0));
+        let run = Geometry::Vertices(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]);
+        let ink = Geometry::Strokes(vec![vec![(0.0, 0.0), (1.0, 1.0), (2.0, 0.5)]]);
         assert!(matches!(
-            spec(MarkupKind::Rectangle, a, b),
-            MarkupSpec::Square { .. }
+            spec(MarkupKind::Rectangle, &band(a, b)),
+            Some(MarkupSpec::Square { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Ellipse, a, b),
-            MarkupSpec::Circle { .. }
+            spec(MarkupKind::Ellipse, &band(a, b)),
+            Some(MarkupSpec::Circle { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Arrow, a, b),
-            MarkupSpec::Line { .. }
+            spec(MarkupKind::Arrow, &band(a, b)),
+            Some(MarkupSpec::Line { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Highlight, a, b),
-            MarkupSpec::TextMarkup {
+            spec(MarkupKind::Highlight, &band(a, b)),
+            Some(MarkupSpec::TextMarkup {
                 kind: TextMarkupKind::Highlight,
                 ..
-            }
+            })
         ));
+        assert!(matches!(
+            spec(MarkupKind::PolyLine, &run),
+            Some(MarkupSpec::PolyLine { .. })
+        ));
+        assert!(matches!(
+            spec(MarkupKind::Polygon, &run),
+            Some(MarkupSpec::Polygon { .. })
+        ));
+        assert!(matches!(
+            spec(MarkupKind::Ink, &ink),
+            Some(MarkupSpec::Ink { .. })
+        ));
+        assert_eq!(
+            MarkupKind::ALL.len(),
+            7,
+            "an eighth kind must be given a subtype here, not left to inherit one"
+        );
+    }
+
+    /// ★ **A vertex run and an ink stroke reach the file in the order they were
+    /// drawn**, point for point.
+    ///
+    /// The one-derivation promise for the two list-driven families. `/Vertices`
+    /// and `/InkList` are sequences whose consecutive entries are joined by a
+    /// segment, so a build that sorted, de-duplicated or re-ordered them would
+    /// author a *different figure* from the one the preview drew — and the
+    /// difference would only be visible after saving.
+    ///
+    /// The polygon row carries the extra claim: the closing vertex is **not**
+    /// appended, because `/Polygon` closes by specification and a duplicate
+    /// first point would author a zero-length segment.
+    #[test]
+    fn a_vertex_run_and_an_ink_stroke_are_authored_in_drawing_order() {
+        let points = vec![(10.0, 10.0), (40.0, 12.0), (25.0, 60.0), (12.0, 30.0)];
+        let Some(MarkupSpec::PolyLine { vertices, .. }) =
+            spec(MarkupKind::PolyLine, &Geometry::Vertices(points.clone()))
+        else {
+            panic!("PolyLine must author a /PolyLine");
+        };
+        assert_eq!(vertices, points, "the run must arrive as it left");
+
+        let Some(MarkupSpec::Polygon { vertices, .. }) =
+            spec(MarkupKind::Polygon, &Geometry::Vertices(points.clone()))
+        else {
+            panic!("Polygon must author a /Polygon");
+        };
+        assert_eq!(
+            vertices, points,
+            "a /Polygon closes by specification; appending the first point again \
+             would author a duplicate vertex and a zero-length closing segment"
+        );
+
+        let strokes = vec![vec![(0.0, 0.0), (5.5, 9.25), (12.0, 3.0)]];
+        let Some(MarkupSpec::Ink {
+            strokes: authored, ..
+        }) = spec(MarkupKind::Ink, &Geometry::Strokes(strokes.clone()))
+        else {
+            panic!("Ink must author an /Ink");
+        };
+        assert_eq!(authored, strokes);
     }
 
     /// ★ **No geometric markup is authored with a filled interior**, so a
     /// comment never hides the drawing it is a comment about.
+    ///
+    /// The Polygon row is the new one and is the one that could plausibly have
+    /// gone the other way: `/Polygon` is the only new kind with an `/IC` slot.
     #[test]
     fn a_shape_markup_is_never_filled() {
-        for kind in [MarkupKind::Rectangle, MarkupKind::Ellipse] {
-            match spec(kind, (0.0, 0.0), (10.0, 10.0)) {
-                MarkupSpec::Square {
-                    interior, border, ..
-                }
-                | MarkupSpec::Circle {
-                    interior, border, ..
-                } => {
+        let cases: [(MarkupKind, Geometry); 3] = [
+            (MarkupKind::Rectangle, band((0.0, 0.0), (10.0, 10.0))),
+            (MarkupKind::Ellipse, band((0.0, 0.0), (10.0, 10.0))),
+            (
+                MarkupKind::Polygon,
+                Geometry::Vertices(vec![(0.0, 0.0), (10.0, 0.0), (5.0, 8.0)]),
+            ),
+        ];
+        for (kind, geometry) in cases {
+            match spec(kind, &geometry) {
+                Some(
+                    MarkupSpec::Square {
+                        interior, border, ..
+                    }
+                    | MarkupSpec::Circle {
+                        interior, border, ..
+                    }
+                    | MarkupSpec::Polygon {
+                        interior, border, ..
+                    },
+                ) => {
                     assert_eq!(interior, None, "{kind:?} must not fill");
                     assert!(border.is_some(), "{kind:?} must have a visible border");
                 }
                 other => panic!("{kind:?} authored {other:?}"),
             }
         }
+    }
+
+    /// A kind holding another family's geometry authors nothing rather than
+    /// guessing — [`Refusal::Mismatched`], from both ends.
+    #[test]
+    fn a_mismatched_kind_and_geometry_authors_nothing() {
+        assert_eq!(
+            spec(MarkupKind::Ink, &band((0.0, 0.0), (1.0, 1.0))),
+            None,
+            "an /Ink cannot be built from two points"
+        );
+        assert_eq!(
+            spec(
+                MarkupKind::Rectangle,
+                &Geometry::Vertices(vec![(0.0, 0.0), (1.0, 1.0)])
+            ),
+            None
+        );
+        assert_eq!(
+            action(
+                MarkupKind::Polygon,
+                0,
+                Geometry::Strokes(vec![vec![(0.0, 0.0), (1.0, 1.0)]])
+            ),
+            Err(Refusal::Mismatched)
+        );
     }
 
     // -----------------------------------------------------------------
@@ -944,197 +1149,153 @@ mod tests {
             MarkupKind::Highlight,
         ] {
             assert_eq!(
-                action(kind, 0, (100.0, 200.0), (100.0, 200.0)),
+                action(kind, 0, band((100.0, 200.0), (100.0, 200.0))),
                 Err(Refusal::NoExtent),
                 "{kind:?}"
             );
         }
     }
 
-    /// …but the smallest real extent on **either** axis does commit. There is
+    /// …and the smallest real extent on **either** axis does commit. There is
     /// no page-space threshold; egui's screen-space drag threshold is the only
     /// one, which is what keeps a deliberate small mark at 16 % zoom from being
     /// silently replaced by something else.
     #[test]
     fn the_smallest_real_extent_on_either_axis_still_commits() {
         for end in [(100.01, 200.0), (100.0, 200.01)] {
-            let raised = action(MarkupKind::Rectangle, 3, (100.0, 200.0), end).expect("committed");
+            let raised =
+                action(MarkupKind::Rectangle, 3, band((100.0, 200.0), end)).expect("committed");
             assert_eq!(
                 raised,
                 Action::CommitMarkup {
                     page: 3,
                     kind: MarkupKind::Rectangle,
-                    start: (100.0, 200.0),
-                    end,
+                    geometry: band((100.0, 200.0), end),
                 }
             );
         }
     }
 
-    /// A non-finite coordinate is refused rather than authored into an
-    /// annotation's `/Rect`.
+    /// ★ **A polygon needs three vertices and a polyline needs two** — the one
+    /// place this shell is deliberately stricter than `pdfce-core`.
+    ///
+    /// The engine's `validate_geometry` refuses `< 2` for both, so a two-vertex
+    /// `/Polygon` is legal PDF it would happily author: a closed shape from A to
+    /// B and back, which renders as a line. That is never what a gesture meant,
+    /// so the shell refuses it — and refuses it by **name**, so the trace
+    /// distinguishes "you double-clicked one click early" from "the run had no
+    /// extent".
     #[test]
-    fn a_non_finite_endpoint_is_refused() {
-        for end in [(f64::NAN, 1.0), (1.0, f64::INFINITY)] {
+    fn a_polygon_needs_three_vertices_where_a_polyline_needs_two() {
+        let two = Geometry::Vertices(vec![(0.0, 0.0), (10.0, 5.0)]);
+        let three = Geometry::Vertices(vec![(0.0, 0.0), (10.0, 5.0), (4.0, 9.0)]);
+        assert!(action(MarkupKind::PolyLine, 0, two.clone()).is_ok());
+        assert_eq!(
+            action(MarkupKind::Polygon, 0, two),
+            Err(Refusal::TooFewVertices),
+            "a two-vertex polygon is a line drawn there and back"
+        );
+        assert!(action(MarkupKind::Polygon, 0, three).is_ok());
+        assert_eq!(
+            action(
+                MarkupKind::PolyLine,
+                0,
+                Geometry::Vertices(vec![(1.0, 1.0)])
+            ),
+            Err(Refusal::TooFewVertices)
+        );
+    }
+
+    /// A run every point of which is the same point authors nothing — the
+    /// vertex and ink form of the zero-extent drag.
+    #[test]
+    fn a_run_with_no_extent_commits_nothing() {
+        let same = vec![(50.0, 50.0), (50.0, 50.0), (50.0, 50.0)];
+        for kind in [MarkupKind::PolyLine, MarkupKind::Polygon] {
             assert_eq!(
-                action(MarkupKind::Arrow, 0, (0.0, 0.0), end),
-                Err(Refusal::NotFinite)
+                action(kind, 0, Geometry::Vertices(same.clone())),
+                Err(Refusal::NoExtent),
+                "{kind:?}"
             );
         }
-    }
-
-    /// ★ **A click with no drag never reaches this module at all**, and the
-    /// degenerate drag it would look like is refused.
-    ///
-    /// The module docs' decision, pinned from both ends: the gesture machine
-    /// raises `Click` (not a `DragKind`) for a press-and-release under egui's
-    /// threshold, and if a zero-extent drag does arrive it commits nothing.
-    /// Without the second half, "a click places nothing" would rest on egui's
-    /// behaviour alone.
-    #[test]
-    fn a_click_places_nothing_and_the_degenerate_drag_it_resembles_is_refused() {
-        use crate::canvas::gesture::{DragKind, GestureOutcome, GestureState, PointerFrame};
-
-        let mut gestures = GestureState::default();
-        let out = gestures.update(
-            PointerFrame {
-                clicked: true,
-                pos: Some(Pos2::new(150.0, 150.0)),
-                ..PointerFrame::default()
-            },
-            DragKind::Markup(MarkupKind::Rectangle),
+        assert_eq!(
+            action(MarkupKind::Ink, 0, Geometry::Strokes(vec![same.clone()])),
+            Err(Refusal::NoExtent)
         );
-        assert!(
-            matches!(out, GestureOutcome::Click { .. }),
-            "a click must stay a click: {out:?}"
-        );
-
-        let page = test_page(612.0, 792.0, 0);
-        let mut actions = Vec::new();
-        let at = Pos2::new(150.0, 150.0);
-        let preview = drag(
-            MarkupKind::Rectangle,
-            at,
-            at,
-            Phase::Complete,
-            0,
-            Some(&page),
-            &mut actions,
-        );
-        assert_eq!(preview, None);
-        assert!(
-            actions.is_empty(),
-            "a zero-extent drag must author nothing, not a default-sized box"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // The preview
-    // -----------------------------------------------------------------
-
-    /// An in-flight drag previews and commits nothing; the release commits
-    /// exactly one action and previews nothing.
-    #[test]
-    fn a_markup_draws_in_flight_and_commits_once() {
-        let page = test_page(612.0, 792.0, 0);
-        let (from, to) = (Pos2::new(50.0, 60.0), Pos2::new(150.0, 200.0));
-
-        let mut actions = Vec::new();
-        let preview = drag(
-            MarkupKind::Ellipse,
-            from,
-            to,
-            Phase::InFlight,
-            2,
-            Some(&page),
-            &mut actions,
+        // …and a single-point stroke, which the ENGINE would accept: its guard
+        // is "every stroke is empty", and one point is not empty. It strokes
+        // zero length and draws nothing.
+        assert_eq!(
+            action(
+                MarkupKind::Ink,
+                0,
+                Geometry::Strokes(vec![vec![(1.0, 2.0)]])
+            ),
+            Err(Refusal::NoExtent)
         );
         assert_eq!(
-            preview,
-            Some(Preview {
-                kind: MarkupKind::Ellipse,
-                from,
-                to
-            })
+            action(MarkupKind::Ink, 0, Geometry::Strokes(Vec::new())),
+            Err(Refusal::NoExtent)
         );
-        assert!(actions.is_empty(), "an in-flight drag must not commit");
-
-        let preview = drag(
-            MarkupKind::Ellipse,
-            from,
-            to,
-            Phase::Complete,
-            2,
-            Some(&page),
-            &mut actions,
-        );
-        assert_eq!(preview, None, "a released drag draws no band");
-        assert_eq!(actions.len(), 1);
-        assert!(matches!(
-            actions[0],
-            Action::CommitMarkup {
-                page: 2,
-                kind: MarkupKind::Ellipse,
-                ..
-            }
-        ));
     }
 
-    /// With no page under it, a markup drag draws nothing and commits nothing —
-    /// a band that promised an annotation the frame cannot author would be the
-    /// dishonest preview rule 4 forbids.
+    /// A non-finite coordinate is refused rather than authored into an
+    /// annotation's `/Rect`, in every family — because the check is written once
+    /// and a family it did not reach would be the one that shipped the NaN.
     #[test]
-    fn a_frame_with_no_page_draws_no_band_and_commits_nothing() {
-        let mut actions = Vec::new();
-        for phase in [Phase::InFlight, Phase::Complete] {
+    fn a_non_finite_coordinate_is_refused_in_every_family() {
+        assert_eq!(
+            action(MarkupKind::Arrow, 0, band((0.0, 0.0), (f64::NAN, 1.0))),
+            Err(Refusal::NotFinite)
+        );
+        assert_eq!(
+            action(
+                MarkupKind::PolyLine,
+                0,
+                Geometry::Vertices(vec![(0.0, 0.0), (1.0, f64::INFINITY)])
+            ),
+            Err(Refusal::NotFinite)
+        );
+        assert_eq!(
+            action(
+                MarkupKind::Ink,
+                0,
+                Geometry::Strokes(vec![vec![(0.0, 0.0), (f64::NEG_INFINITY, 1.0)]])
+            ),
+            Err(Refusal::NotFinite)
+        );
+    }
+
+    /// The preview colour is the colour that will be committed, component for
+    /// component — one source, so the band cannot show one pen and the file
+    /// carry another. Asserted over every kind, because the pen is now read by
+    /// three gesture modules and a kind added to the wrong `rgb` arm would draw
+    /// a yellow polyline.
+    #[test]
+    fn the_preview_colour_is_the_committed_colour() {
+        for &kind in MarkupKind::ALL {
+            let (r, g, b) = kind.rgb();
+            let c = pen_color(kind);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let expect = |v: f64| (v * 255.0).round() as u8;
             assert_eq!(
-                drag(
-                    MarkupKind::Arrow,
-                    Pos2::ZERO,
-                    Pos2::new(10.0, 10.0),
-                    phase,
-                    0,
-                    None,
-                    &mut actions,
-                ),
-                None
+                (c.r(), c.g(), c.b()),
+                (expect(r), expect(g), expect(b)),
+                "{kind:?}"
             );
         }
-        assert!(actions.is_empty());
-    }
-
-    /// ★ **The preview's arrowhead is at the head end**, whichever way the
-    /// operator drags — the on-screen half of the raw-endpoint rule.
-    ///
-    /// Asserted as a distance, not as a side: both barbs must be within a barb's
-    /// length of the head and nowhere near the tail. A "the head is drawn"
-    /// assertion would pass on an implementation that drew it at the wrong end.
-    #[test]
-    fn the_preview_arrowhead_sits_at_the_head_whichever_way_the_drag_went() {
-        for (tail, head) in [
-            (Pos2::new(10.0, 10.0), Pos2::new(200.0, 120.0)),
-            (Pos2::new(200.0, 120.0), Pos2::new(10.0, 10.0)),
-            (Pos2::new(200.0, 10.0), Pos2::new(10.0, 120.0)),
-        ] {
-            for barb in arrowhead(tail, head) {
-                assert!(
-                    (barb - head).length() <= HEAD_LEN_PX + 1e-3,
-                    "a barb landed {} from the head",
-                    (barb - head).length()
-                );
-                assert!(
-                    (barb - tail).length() > HEAD_LEN_PX,
-                    "a barb landed at the TAIL: the arrow is drawn backwards"
-                );
-            }
+        // …and only the highlighter is yellow. A yellow line on white paper
+        // under black glyphs marks nothing visible, which is the one failure a
+        // comment cannot afford — the same assertion `text::TextMarkKind` makes.
+        for &kind in MarkupKind::ALL {
+            let (r, g, b) = kind.rgb();
+            let yellow = r > 0.5 && g > 0.5 && b < 0.5;
+            assert_eq!(
+                yellow,
+                kind == MarkupKind::Highlight,
+                "{kind:?} draws in ({r}, {g}, {b})"
+            );
         }
-    }
-
-    /// A zero-length band produces no head rather than a NaN one.
-    #[test]
-    fn a_zero_length_band_has_no_arrowhead() {
-        let at = Pos2::new(5.0, 5.0);
-        assert_eq!(arrowhead(at, at), [at, at]);
     }
 
     /// The preview's stroke is the pen's real width at this magnification, and
@@ -1157,28 +1318,5 @@ mod tests {
         assert!((widths[1] - pen).abs() < 1e-3, "{widths:?}");
         assert!((widths[2] - pen * 8.0).abs() < 1e-2, "{widths:?}");
         assert!(widths[0] >= 1.0, "a hairline must stay visible: {widths:?}");
-    }
-
-    /// The preview colour is the colour that will be committed, component for
-    /// component — one source, so the band cannot show one pen and the file
-    /// carry another.
-    #[test]
-    fn the_preview_colour_is_the_committed_colour() {
-        for kind in [MarkupKind::Rectangle, MarkupKind::Highlight] {
-            let (r, g, b) = kind.rgb();
-            let c = pen_color(kind);
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let expect = |v: f64| (v * 255.0).round() as u8;
-            assert_eq!((c.r(), c.g(), c.b()), (expect(r), expect(g), expect(b)));
-            let authored = match spec(kind, (0.0, 0.0), (1.0, 1.0)) {
-                MarkupSpec::Square { border, .. } => border.expect("a border colour"),
-                MarkupSpec::TextMarkup { color, .. } => color,
-                other => panic!("{kind:?} authored {other:?}"),
-            };
-            let Color::Rgb(sr, sg, sb) = authored else {
-                panic!("{kind:?} authored a non-RGB colour");
-            };
-            assert!((sr - r).abs() < 1e-9 && (sg - g).abs() < 1e-9 && (sb - b).abs() < 1e-9);
-        }
     }
 }

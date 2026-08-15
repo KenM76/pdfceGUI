@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Generic wavy-underlined-text shape — generic, no trademark risk -->
+  <!-- ui-spec §3.3 "text markup family": text-underline.svg with the rule replaced by
+       a four-lobe wave, which is what the /Squiggly appearance stream draws. Four
+       lobes and not two: at 16 px a two-lobe wave flattens into a slightly thick
+       line and becomes indistinguishable from the underline glyph, which is the one
+       confusion this family cannot afford. The amplitude (4 units peak to trough) is
+       the largest that keeps the wave inside the same band the straight rule
+       occupies, so the three glyphs share a baseline. -->
+  <path d="M15 17h18M15 25h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M11 33q3.25-4 6.5 0t6.5 0t6.5 0t6.5 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

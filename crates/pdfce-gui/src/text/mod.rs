@@ -46,11 +46,13 @@
 //! | Module | Surface |
 //! |---|---|
 //! | `mod.rs` (this file) | shell-wide strings: window title, canvas states, the three open failures |
+//! | [`about`] | the About dialog — the product line, pdfce's own licence, and the **attribution catalog** for every third-party work the binary redistributes |
 //! | [`ribbon`] | the ribbon's *structural* strings — tab labels, the one-line question each tab answers, group captions, mode labels |
 //! | [`commands`] | the label and tooltip of every ribbon command |
 //! | [`files`] | the open/close/recent surface: the file dialog's title and filters, and everything the Recent control draws |
 //! | [`find`] | the Find bar — the field, the step buttons, the position readout, the four search options, and the status bar's Find toggle |
 //! | [`menus`] | the copy a **context menu** owns rather than borrows. Empty by construction — a menu row's words are its command's — and its header is the argument for why |
+//! | [`ocr`] | the Recognise-text dialog and the Find bar's offer. The catalog with the hardest job in the crate: it has to disclose that **every word OCR produces is a guess and this engine scores none of them**, without ever implying a mark on the page |
 //! | [`pages`] | the Pages panel — the page counts, the tile tooltip, the **four sentences an undrawn thumbnail can say**, and the preview control that stops the grid |
 //! | [`panels`] | every string the dock's panel bodies show — Bookmarks, Layers, Signatures, Fonts, Objects, Properties |
 //! | [`print`] | the print dialog — three tabs, the preview, the device refusals, and the commit button whose label carries the clip count |
@@ -64,6 +66,10 @@
 //! directory, because six panel bodies' worth of copy is more than one file
 //! should hold and the 1,500-line ceiling is not raised for catalogs.
 
+/// Every word the About dialog shows, plus the structured attribution catalog
+/// naming the third-party material this binary redistributes. Consumed by
+/// `crate::dialogs::about`.
+pub mod about;
 /// The label and tooltip of every ribbon command. Consumed by
 /// `crate::shell::commands`.
 pub mod commands;
@@ -80,6 +86,10 @@ pub mod forms;
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
 pub mod menus;
+/// Every word the Recognise-text surface says — the dialog that runs OCR and
+/// discloses what it inferred, and the offer the Find bar makes on a page with
+/// no text on it. Consumed by `crate::dialogs::ocr` and `crate::find::bar`.
+pub mod ocr;
 /// Every string the Pages panel shows — the counts, the tile tooltip, the
 /// four sentences an *undrawn* thumbnail can say, and the preview control.
 /// Consumed by `crate::panels::pages`.
@@ -122,7 +132,7 @@ pub fn window_title() -> &'static str {
 /// still how a file association or a shell "Open with" reaches pdfce.
 #[must_use]
 pub fn canvas_no_document() -> &'static str {
-    "No document open. Choose File ▸ Open, press Ctrl+O, or start pdfce with a PDF path."
+    "No document open. Choose File > Open, press Ctrl+O, or start pdfce with a PDF path."
 }
 
 /// Shown when a document opened successfully but contains no pages.

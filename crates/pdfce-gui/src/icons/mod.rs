@@ -128,6 +128,16 @@ pub mod catalog;
 pub mod paint;
 pub mod svg;
 
+/// Font-glyph coverage: *can the stack actually draw this character?*
+///
+/// Test-only, and the sibling of [`paint_missing_mark`] on the text side —
+/// same question ("what happens when a mark cannot be drawn?"), different
+/// pipeline. It carries the widened glyph gate over `crate::text`, and the
+/// finding that `egui`'s own `has_glyph` answers the question incorrectly.
+/// See `DEFECTS.md` D12 and the module header.
+#[cfg(test)]
+pub mod glyphs;
+
 pub use cache::IconCache;
 pub use catalog::Icon;
 pub use paint::{paint_icon, paint_missing_mark, paint_ribbon_icon};

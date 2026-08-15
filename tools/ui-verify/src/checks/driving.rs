@@ -1,0 +1,429 @@
+//! `checks::driving` — the moves that **every check which drives the ribbon**
+//! has to make, in one place.
+//!
+//! # Why this module exists
+//!
+//! [`crate::checks::markup_rectangle`] was the first check to click a ribbon
+//! control, and it had to invent five small things to do it: read the last
+//! rect the application declared for a name, list the names it *did* declare
+//! for a SKIP reason, re-parse the same captured stderr under the **shell's**
+//! line prefix, measure a control's fill out of a capture, and compare two
+//! fills. All five are properties of *driving an `egui-shell` ribbon*, not of
+//! markup.
+//!
+//! The second and third such checks — [`crate::checks::measure_linear`] and
+//! [`crate::checks::read_mode`] — needed the same five, and a third copy of a
+//! function is where copies start to disagree. So they live here, with the
+//! reasoning that shaped them carried across rather than summarised.
+//!
+//! `markup_rectangle` deliberately keeps its own copies. Rewriting a check
+//! that is already known to detect its defect, in the same change that adds
+//! two new ones, would mean the three checks stopped being independent
+//! evidence of each other at exactly the moment the harness grew. This module
+//! is a *widening*, not a refactor; when someone next has cause to touch
+//! `markup_rectangle` for its own sake, folding it onto these is a one-line
+//! change per helper.
+//!
+//! # The two diagnostic channels, and why a check reads both
+//!
+//! One captured stderr file, two vocabularies:
+//!
+//! | Channel | Switch | Prefix | Says |
+//! |---|---|---|---|
+//! | the shell | [`SHELL_DIAG_ENV`] | [`SHELL_TRACE_PREFIX`] | a segment/tab/control took a click |
+//! | the application | the profile's `diag_env` | the profile's `trace_prefix` | what the application did about it |
+//!
+//! The split is not an accident of this build. `egui_shell::verify`'s header
+//! explains that one environment variable name lets a harness arm tracing on
+//! *any* `egui-shell` application without first discovering its name, and the
+//! prefix is the application's so two crates' lines never blur together. The
+//! consequence for a check is the thing that makes a failure attributable: a
+//! present `ribbon-command-invoked` with an absent application-side effect
+//! names the application's dispatch and nothing else, and an absent
+//! `ribbon-command-invoked` means no click was ever delivered — which is a
+//! SKIP, because a check that could not deliver a click has learned nothing.
+
+use crate::coords::WindowFrame;
+use crate::error::{Error, Result};
+use crate::geom::LRect;
+use crate::image::{Image, Rgb};
+use crate::input::Driver;
+use crate::launch::Session;
+use crate::trace::Trace;
+
+/// The shell's own diagnostic switch, and its value.
+///
+/// See the module header. `pdfce-gui` does not call
+/// `egui_shell::verify::set_prefix`, so the shell's lines arrive under the
+/// crate's default prefix, [`SHELL_TRACE_PREFIX`].
+pub const SHELL_DIAG_ENV: (&str, &str) = ("EGUI_SHELL_DIAG", "1");
+
+/// The line prefix `egui-shell` uses when the application has not set one.
+pub const SHELL_TRACE_PREFIX: &str = "egui-shell-diag";
+
+/// `ribbon-mode-selected mode=…` — the shell reporting a mode-segment click.
+///
+/// Emitted on **every** click of a segment, including a click on the segment
+/// that is already selected (`ribbon::mode_selector` sets `chosen` from the
+/// click and filters for "did this change anything" only in its *return
+/// value*, after the line is written). That is what makes it usable as the
+/// input-channel proof for a mode a check merely wants to be *in*, rather than
+/// only for a mode it is switching *to*.
+pub const MODE_EVENT: &str = "ribbon-mode-selected";
+
+/// `ribbon-tab-activated tab=…` — the shell reporting a tab click.
+pub const TAB_EVENT: &str = "ribbon-tab-activated";
+
+/// `ribbon-command-invoked id=… handler=…` — the shell reporting that a band
+/// control was clicked and its token handed to the application.
+pub const INVOKE_EVENT: &str = "ribbon-command-invoked";
+
+/// `command-unimplemented id=…` — `app/dispatch.rs`'s fall-through arm.
+///
+/// Read only to *improve a failure message*: its presence alongside a missing
+/// application-side effect is the signature of a dispatch that received the
+/// command and had no arm for it, which is a different fix from a dispatch
+/// that never received it at all.
+pub const UNIMPLEMENTED_EVENT: &str = "command-unimplemented";
+
+/// The namespace one ribbon command control's rect is published under.
+pub const ITEM_PREFIX: &str = "ribbon.item.";
+
+/// The last rect the application declared under `name`, if any.
+///
+/// **Last wins.** A region is re-declared whenever it moves, and an early
+/// frame can carry a rect from before the layout settled — the find bar's
+/// one-frame misplacement was exactly that, and taking the first occurrence
+/// would aim a check's clicks at it.
+#[must_use]
+pub fn declared(trace: &Trace, ui_rect: &str, name: &str) -> Option<LRect> {
+    trace
+        .events(ui_rect)
+        .filter(|l| l.get("name") == Some(name))
+        .filter_map(|l| l.get_rect("rect"))
+        .last()
+}
+
+/// Every distinct region name the application declared beginning with
+/// `prefix`, in first-seen order.
+///
+/// Used only for SKIP reasons. A reason that says "I did not find X" and does
+/// not say what it *did* find sends its reader to guess; this crate has a
+/// standing rule about that ([`crate::checks`] rule 5).
+#[must_use]
+pub fn declared_names(trace: &Trace, ui_rect: &str, prefix: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in trace.events(ui_rect) {
+        let Some(name) = line.get("name") else {
+            continue;
+        };
+        if name.starts_with(prefix) && !out.iter().any(|n| n == name) {
+            out.push(name.to_owned());
+        }
+    }
+    out
+}
+
+/// Read the same captured stderr a second time, under the **shell's** line
+/// prefix.
+///
+/// One file, two vocabularies — see the module header. `Session::trace` parses
+/// with the profile's prefix; everything `egui-shell` writes carries its own
+/// and lands in [`Trace::other`] on that parse. Re-parsing is cheap next to a
+/// click and keeps both streams honest: a line is attributed to whichever
+/// crate actually wrote it.
+///
+/// # Errors
+///
+/// If the captured stderr cannot be read at all.
+pub fn shell_trace(session: &Session) -> Result<Trace> {
+    Trace::read(session.trace_path(), SHELL_TRACE_PREFIX)
+}
+
+/// Render a list of names for a reason string, or say plainly that there were
+/// none.
+///
+/// `"none"` rather than `""`, because an empty list printed as nothing reads
+/// as a formatting bug and hides the fact that was being reported.
+#[must_use]
+pub fn list(names: &[String]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// [`list`] for borrowed strings.
+#[must_use]
+pub fn list_str(names: &[&str]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// The dominant colour of a declared region in a capture — a control's fill.
+///
+/// `None` when the region resolved to no pixels, which means the application
+/// declared it outside its own client area. That is a finding rather than a
+/// measurement and the caller reports it as one.
+#[must_use]
+pub fn fill_of(image: &Image, frame: &WindowFrame, rect: LRect) -> Option<Rgb> {
+    let px = frame.logical_to_capture_pixels(rect);
+    if px.area() == 0 {
+        return None;
+    }
+    let report = crate::pixels::contrast_at(image, px);
+    (report.sampled > 0).then_some(report.background)
+}
+
+/// Maximum absolute per-channel difference between two colours.
+#[must_use]
+pub fn delta(a: Rgb, b: Rgb) -> u16 {
+    let d = |x: u8, y: u8| u16::from(x.abs_diff(y));
+    d(a.r, b.r).max(d(a.g, b.g)).max(d(a.b, b.b))
+}
+
+/// How far apart two dominant fills must be to count as "one of these is
+/// pressed", as a maximum absolute per-channel difference in 0–255.
+///
+/// The derivation is [`crate::checks::markup_rectangle`]'s `MIN_PRESSED_DELTA`
+/// and is not restated here, because restating it would create two accounts of
+/// one measurement that can drift apart. In summary, and only as a pointer
+/// into that argument:
+///
+/// * `egui`'s stock light palette — which is what the built binary actually
+///   paints with, because nothing in `crates/pdfce-gui` calls
+///   `egui_shell::theme::Theme::apply` — separates unpressed `#E5E5E5` from
+///   pressed `#90D1FF` by **85**;
+/// * `egui-shell`'s `quiet` preset, if it were installed, would separate them
+///   by **39**;
+/// * two identically filled controls in a lossless BGRA capture differ by
+///   **0**, not by a small number.
+///
+/// Twelve sits above zero and a factor of three below the smaller of the two
+/// real differences, so the verdict is the same whichever palette is in force.
+///
+/// A channel difference rather than a contrast ratio, because both pairs are
+/// near-equal in luminance (about 1.5:1 and 1.3:1) and would therefore be
+/// called *identical* by [`crate::pixels::AA_LARGE`]. Contrast answers "can
+/// this be read"; the question here is "is this a different colour".
+pub const MIN_PRESSED_DELTA: u16 = 12;
+
+/// **Click a mode segment and confirm the shell saw the click.**
+///
+/// The move both new checks make repeatedly, with the counting that makes it
+/// honest folded in.
+///
+/// # Why the count rather than "is there a line for this mode?"
+///
+/// Because a run switches modes more than once, and a check that asked
+/// "did the shell ever report `mode=read`?" would be satisfied by a click it
+/// made a minute ago. The event is emitted on every segment click — including
+/// a click on the already-selected segment — so the number of them is the only
+/// thing that distinguishes *this* click from the previous one.
+///
+/// # Why a failure here is a SKIP and not a FAIL
+///
+/// Same reason [`crate::checks::find_bar`]'s chord control exists: a check
+/// that could not deliver a click has learned nothing about the application,
+/// and naming a feature as the culprit when nothing was ever clicked at it is
+/// worse than no check at all. The two readings — pointer injection is not
+/// reaching this window, or the shell diagnostic switch did not reach the
+/// process — are both stated, and this function declines to choose between
+/// them.
+///
+/// # Errors
+///
+/// * the application declared no rect for the segment, so there is nothing to
+///   aim at (the reason lists the segments it *did* declare);
+/// * the segment was declared at no usable size;
+/// * the pointer could not be driven;
+/// * the shell traced no new [`MODE_EVENT`] for this mode after the click.
+pub fn click_mode_segment(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    mode_id: &str,
+) -> Result<()> {
+    let region = format!("ribbon.mode.{mode_id}");
+    let trace = session.trace()?;
+    let rect = declared(&trace, ui_rect, &region).ok_or_else(|| {
+        Error::new(format!(
+            "the application declared no `{region}` region, so there is no mode segment to \
+             click and this check cannot put the application into the mode it is about. \
+             Regions it did declare under `ribbon.mode.`: {}.",
+            list(&declared_names(&trace, ui_rect, "ribbon.mode."))
+        ))
+    })?;
+    if !rect.is_substantial() {
+        return Err(Error::new(format!(
+            "`{region}` was declared at {rect:?}, which has no usable area. A click aimed at a \
+             degenerate rectangle proves nothing, so this is reported rather than driven — and \
+             it is itself the finding: `MODES_AND_PANELS.md` Part 1 requires the selector to \
+             render as a real segmented control with every label visible."
+        )));
+    }
+
+    let before = shell_trace(session)?
+        .events(MODE_EVENT)
+        .filter(|l| l.get("mode") == Some(mode_id))
+        .count();
+    driver.click_at(session.frame()?.declared_center(rect))?;
+    session.settle(12);
+    let after = shell_trace(session)?
+        .events(MODE_EVENT)
+        .filter(|l| l.get("mode") == Some(mode_id))
+        .count();
+    if after <= before {
+        let shell = shell_trace(session)?;
+        return Err(Error::new(format!(
+            "the click on `{region}` produced no new `{MODE_EVENT} mode={mode_id}` line, so no \
+             click reached the ribbon and nothing after it would mean anything. Two readings, \
+             and this check declines to choose between them: the pointer injection is not \
+             reaching this window, or the shell diagnostic switch {}={} did not reach the \
+             process — the shell trace carries {} line(s) under `{SHELL_TRACE_PREFIX}`. \
+             Trace: {}.",
+            SHELL_DIAG_ENV.0,
+            SHELL_DIAG_ENV.1,
+            shell.lines.len(),
+            session.trace_path().display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geom::Pt;
+
+    /// Last wins, per name, and a name that was never declared is `None`.
+    ///
+    /// The same property [`crate::checks::markup_rectangle`] pins for its own
+    /// copy. Pinned twice on purpose: the two copies exist to be independent,
+    /// and an independent copy with no test of its own is not independent
+    /// evidence, it is an untested duplicate.
+    #[test]
+    fn a_regions_last_declaration_is_the_one_that_is_used() {
+        let trace = Trace::parse(
+            "pdfce-diag start argv1=None\n\
+             pdfce-diag ui-rect name=ribbon.item.measure.linear rect=[[0.0 0.0] - [10.0 10.0]]\n\
+             pdfce-diag ui-rect name=ribbon.item.measure.two_line rect=[[20.0 0.0] - [30.0 10.0]]\n\
+             pdfce-diag ui-rect name=ribbon.item.measure.linear rect=[[4.0 30.0] - [84.0 54.0]]",
+            "pdfce-diag",
+        );
+        assert_eq!(
+            declared(&trace, "ui-rect", "ribbon.item.measure.linear"),
+            Some(LRect::new(Pt::new(4.0, 30.0), Pt::new(84.0, 54.0))),
+            "an early frame can carry a rect from before the layout settled"
+        );
+        assert_eq!(
+            declared(&trace, "ui-rect", "ribbon.item.measure.area"),
+            None
+        );
+        assert_eq!(
+            declared_names(&trace, "ui-rect", ITEM_PREFIX),
+            vec![
+                "ribbon.item.measure.linear".to_owned(),
+                "ribbon.item.measure.two_line".to_owned()
+            ],
+            "each name once, in first-seen order"
+        );
+    }
+
+    /// **The two channels are parsed out of one file without contaminating
+    /// each other.**
+    ///
+    /// If a future prefix change made one a prefix of the other, this test is
+    /// what says so — and the symptom otherwise would be a check that reads a
+    /// `ribbon-command-invoked` that is not there, or misses one that is.
+    #[test]
+    fn the_application_and_shell_streams_do_not_contaminate_each_other() {
+        let text = "pdfce-diag start argv1=None\n\
+                    egui-shell-diag ribbon-mode-selected mode=review\n\
+                    egui-shell-diag ribbon-command-invoked id=measure.linear handler=600\n\
+                    pdfce-diag measure-tool tool=Measure(Linear)\n";
+        let app = Trace::parse(text, "pdfce-diag");
+        let shell = Trace::parse(text, SHELL_TRACE_PREFIX);
+
+        assert!(app.started("start"));
+        assert!(
+            app.events(INVOKE_EVENT).next().is_none(),
+            "the shell's line must not be read as the application's"
+        );
+        assert_eq!(
+            app.last("measure-tool").and_then(|l| l.get("tool")),
+            Some("Measure(Linear)")
+        );
+        assert!(
+            shell
+                .events(MODE_EVENT)
+                .any(|l| l.get("mode") == Some("review"))
+        );
+        assert!(
+            shell.events("measure-tool").next().is_none(),
+            "the application's line must not be read as the shell's"
+        );
+    }
+
+    /// The difference is symmetric and takes the largest channel, so a shift
+    /// confined to one channel still registers.
+    #[test]
+    fn the_difference_is_the_largest_channel_and_is_symmetric() {
+        let a = Rgb::new(200, 100, 50);
+        let b = Rgb::new(190, 100, 90);
+        assert_eq!(delta(a, b), 40);
+        assert_eq!(delta(b, a), 40);
+        assert_eq!(delta(a, a), 0, "identical fills differ by nothing at all");
+    }
+
+    /// **The threshold separates pressed from unpressed under both palettes
+    /// this build might paint with — and a contrast ratio separates neither.**
+    ///
+    /// The second assertion is the one that matters: `AA_LARGE` is 3.0 and
+    /// these fills are 1.5:1 and 1.3:1 apart, so a check written against the
+    /// harness's usual legibility oracle would report "no difference" about a
+    /// control that is visibly blue.
+    #[test]
+    fn the_threshold_separates_pressed_from_unpressed_under_both_palettes() {
+        let pairs = [
+            (
+                Rgb::new(229, 229, 229),
+                Rgb::new(144, 209, 255),
+                85_u16,
+                "egui's stock light palette — MEASURED from a real capture",
+            ),
+            (
+                Rgb::new(232, 232, 234),
+                Rgb::new(193, 207, 230),
+                39_u16,
+                "egui-shell's `quiet` preset, composited — computed",
+            ),
+        ];
+        for (unpressed, pressed, expected, what) in pairs {
+            assert_eq!(delta(unpressed, pressed), expected, "{what}");
+            assert!(
+                expected > MIN_PRESSED_DELTA * 3,
+                "the threshold must sit well below the difference produced by {what}"
+            );
+            let ratio = crate::pixels::contrast_ratio(unpressed, pressed);
+            assert!(
+                ratio < crate::pixels::AA_LARGE,
+                "a contrast threshold would call these two fills the same colour \
+                 ({ratio:.2}:1) under {what}, which is why this module measures a channel \
+                 difference instead"
+            );
+        }
+    }
+
+    /// A list with nothing in it says so in words.
+    #[test]
+    fn an_empty_list_reads_as_none_rather_than_as_nothing() {
+        assert_eq!(list(&[]), "none");
+        assert_eq!(list_str(&[]), "none");
+        assert_eq!(list_str(&["a", "b"]), "a, b");
+    }
+}

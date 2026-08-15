@@ -70,12 +70,87 @@
 //! gesture-suppression paths share, and [`CanvasTool::cursor`] is still the
 //! single place a tool's cursor is decided.
 //!
-//! Measure and text are **still** outside, and for the original reason rather
-//! than by inertia: `MEASURE`'s tool is a two-point pick with a snap indicator
-//! and a live readout, and text editing is a caret in a re-laid-out box. Neither
-//! is "what does the primary button mean"; both would drag a whole subsystem's
-//! state through this type. When one of them arrives, whoever writes it should
-//! have to make the same argument this paragraph makes, in this file.
+//! ## ★ …and that paragraph then named two exclusions, both of which have since
+//! ## been overtaken. What is left of it, and what replaced it
+//!
+//! It used to close: *"Measure and text are **still** outside, and for the
+//! original reason rather than by inertia."* That sentence was stale twice over
+//! by 2026-08-14 and is kept here in quotation rather than deleted, because the
+//! **bar** it set is the useful part and both admissions were argued against it.
+//!
+//! **Measure came in first**, as [`CanvasTool::Measure`], and the old sentence's
+//! objection to it — *"a two-point pick with a snap indicator and a live
+//! readout"* — turned out to describe the pick machinery in
+//! [`crate::canvas::measure::pick`] rather than anything this enum has to hold.
+//! What crossed the boundary was one [`MeasureKind`], exactly as markup's one
+//! [`markup::MarkupKind`] had.
+//!
+//! **Text selection came in second, and it clears the bar more cleanly than
+//! either.** The bar is *"arrives with its own state"*, and the standing set is:
+//!
+//! | it arrives with | where |
+//! |---|---|
+//! | a selection type, with its own staleness rule | [`crate::canvas::textsel::TextSelection`] |
+//! | a [`PressMeaning`](crate::canvas::gesture::PressMeaning) and a `DragKind` | [`crate::canvas::gesture::DragKind::TextSelect`] |
+//! | a resolver — one pass producing the string, the canvas boxes and the page quads | `canvas::textsel::resolve`, reached through `drag` / `click` / `select_all` |
+//! | a commit path, in the only sense it has one: three markup kinds whose operand is the selection | [`crate::canvas::markup::text`] |
+//! | two keyboard verbs of its own | [`crate::canvas::textsel::clipboard`] |
+//!
+//! …and **the only thing it needs to persist is that it is armed.** Not a range,
+//! not a caret, not an anchor: the range lives on the document beside the object
+//! selection, the anchor is re-derived from the press origin on every frame of a
+//! sweep (`textsel::drag`'s own header says why that is exact rather than lazy),
+//! and there is no caret at all (`textsel` §1.2 — a caret promises an insertion
+//! point, and there is nothing to insert). So the variant carries **nothing**,
+//! where `Markup` and `Measure` each carry a kind. That is the smallest thing
+//! this enum can be asked to hold and still be worth holding.
+//!
+//! What the admission *buys* is two things at once, and the second is the one
+//! that made it urgent. `canvas::textsel` §3 gave a press its text meaning
+//! *"when the select tool is active and the mode cannot select content"*, which
+//! yields Read ✓, Review ✓, **Edit ✗** — so a reviewer could sweep text and an
+//! editor could not, and, worse, the three text-markup controls drawn on Edit's
+//! Markup tab could **never enable**, because `selection.text` was never true
+//! there. That is a live tension with `RIBBON_IA.md` P3, which reserves greying
+//! for *temporarily* unavailable, and it could not be closed by hiding the
+//! controls, because a command lives on exactly one tab and the Markup tab is in
+//! both Review and Edit. One variant closes both.
+//!
+//! ### ★ The reference applications DISAGREE here, and Inkscape wins
+//!
+//! `HANDOFF.md` §3's standing instruction is to match Inkscape, Acrobat and
+//! SolidWorks, and to say which won where they disagree. On this question they
+//! genuinely do:
+//!
+//! * **Acrobat and SolidWorks resolve text-versus-object *contextually*, within
+//!   one tool** — hover text, get an I-beam; hover an object, get an arrow.
+//! * **Inkscape uses a separate Text tool**, distinct from its Selector.
+//!
+//! **Inkscape wins, and the reason is not a head-count.** An object marquee over
+//! *vector content* is a surface Acrobat does not have at all: its "objects" are
+//! annotations and form fields, never the page's own path and text operators, so
+//! its contextual answer is not an answer to this conflict — it never has the
+//! conflict. The conflict exists only in the Inkscape-shaped mode, which is what
+//! makes Inkscape's resolution the applicable one rather than merely the
+//! outvoted one.
+//!
+//! The concrete failure a contextual press would produce is the deciding
+//! argument. In Edit the primary drag is the content marquee, and the commonest
+//! gesture on a drawing sheet is a marquee over a *region* — which on any real
+//! sheet contains text. Under a contextual rule that drag would mean "sweep
+//! text" or "marquee objects" depending on whether the pixel under the button-
+//! down happened to be inside a glyph's box, a distinction the operator cannot
+//! see and cannot aim at. A tool makes the answer a thing they chose.
+//!
+//! ### What is STILL outside, and it is the half the old sentence was right about
+//!
+//! **Text *editing*** — Phase 5, the defect that began this project — remains
+//! outside, and for exactly the original reason: it is a caret in a re-laid-out
+//! box, it would drag a whole subsystem's state through this type, and
+//! `HANDOFF.md` says in terms *do not start it early*. Selecting text and
+//! editing text are different features with different state, and this variant is
+//! the first one only. Whoever brings the second should have to make this
+//! argument again, in this file.
 //!
 //! ## Where the state lives, and why `egui::Memory` is right here when it was
 //! wrong for the selection
@@ -91,7 +166,9 @@
 
 use egui::{CursorIcon, Key};
 
+use crate::app::modes::Capabilities;
 use crate::canvas::markup::MarkupKind;
+use crate::canvas::measure::MeasureKind;
 
 /// `egui::Memory` key for the operator's chosen pointer tool.
 const TOOL_MEMORY_KEY: &str = "pdfce-canvas-tool"; // ui-text-exempt: internal memory id, never displayed
@@ -102,10 +179,10 @@ const TOOL_MEMORY_KEY: &str = "pdfce-canvas-tool"; // ui-text-exempt: internal m
 /// the pan, marquee and markup paths need settled, and settling it here keeps
 /// them from inventing three different answers.
 ///
-/// Three variants, not five: [`Self::Markup`] carries **which** shape is being
-/// drawn rather than there being one variant per shape. See that variant's docs
-/// for the argument, and the module header for what changed since this enum
-/// said it would stay at two.
+/// Four variants, not nine: [`Self::Markup`] and [`Self::Measure`] each carry
+/// **which** kind is armed rather than there being one variant per shape or per
+/// dimension. See those variants' docs for the argument, and the module header
+/// for what changed since this enum said it would stay at two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CanvasTool {
     /// Click selects, drag rubber-bands. The shipped behaviour, and the
@@ -147,6 +224,89 @@ pub enum CanvasTool {
     /// one gets from the gesture machine's existing "a drag keeps the kind it
     /// started with" rule.
     Markup(MarkupKind),
+    /// Clicks author a **dimension** of the carried kind.
+    ///
+    /// One variant carrying a kind, for the argument spelled out on
+    /// [`MeasureKind`] — which is the same argument `Markup` above makes, and
+    /// which the old shell did *not* apply here: it had three separate
+    /// `CanvasTool` variants for the measure tools plus five helper predicates
+    /// to ask which was active.
+    ///
+    /// # ★ Unlike every other tool, this one works on CLICKS
+    ///
+    /// A ce dimension is picked, not dragged: point A, point B, and a third
+    /// click saying how far off the geometry the dimension sits. So
+    /// [`crate::canvas::gesture::press_kind`] returns a
+    /// [`crate::canvas::gesture::PressMeaning`] with **no drag and a live
+    /// click** for this tool, and the pick state machines in
+    /// [`crate::canvas::measure::pick`] advance one click at a time.
+    ///
+    /// That is why the mode gate had to grow two answers rather than one. A
+    /// gate that suppressed the click whenever it suppressed the drag would be
+    /// correct in Read — where neither means anything — and would silently
+    /// break **Review**, whose whole purpose is placing dimensions on a page
+    /// whose content is not the reviewer's to select.
+    Measure(MeasureKind),
+    /// A drag sweeps a **range of text**, and a click resolves one — in every
+    /// mode, including the ones whose primary button is otherwise the content
+    /// marquee.
+    ///
+    /// # ★ The variant that carries nothing, and why that is the point
+    ///
+    /// `Markup` and `Measure` each carry a kind because the operator is drawing
+    /// exactly one shape or placing exactly one dimension, and a type that could
+    /// say two at once would need discipline to keep honest. There is no
+    /// corresponding choice here: text selection has **one** meaning, so there is
+    /// nothing to carry, and the module header's admission bar — *"arrives with
+    /// its own state"* — is met by state that lives everywhere except in this
+    /// enum. The range is on [`crate::app::state::OpenDoc`] beside the object
+    /// selection; the sweep's anchor is re-derived from the press origin every
+    /// frame; there is no caret. **Armed or not armed** is the whole of what has
+    /// to persist, and that is exactly one bit in a value this module already
+    /// stores in `egui::Memory`.
+    ///
+    /// # What arming it changes, and what it deliberately does not
+    ///
+    /// It changes exactly one predicate:
+    /// [`crate::canvas::textsel::takes_the_press`] gains a disjunct, so a press
+    /// means text when this is armed **or** under the pre-existing rule (the
+    /// select tool, in a mode that cannot select content). Read and Review are
+    /// therefore **unchanged** — their select tool already swept text, and an
+    /// operator who never presses this control will not notice it exists. What
+    /// changes is Edit, where the select tool keeps the content marquee and this
+    /// tool is how an editor reaches a text range at all.
+    ///
+    /// It changes **no capability**. Selecting text authors nothing — it reads
+    /// the page and writes to the clipboard, which is the operator's own
+    /// *copying is not authoring* ruling of 2026-08-14 — so this tool is
+    /// permitted in every mode, and [`retire_forbidden`] says so explicitly
+    /// rather than by omission.
+    ///
+    /// # ★ It is exclusive with the content marquee by PRECEDENCE, where the
+    /// mode rule was exclusive by construction
+    ///
+    /// This is the one property the addition genuinely weakens, so it is stated
+    /// here rather than left to be discovered. Under the old rule the two
+    /// meanings read the same flag on both sides of one branch — `edit_content`
+    /// true meant content, false meant text — so no state could produce both and
+    /// there was no ordering to get wrong. With this tool armed in Edit, *both*
+    /// underlying facts are true: the mode can select content, and the operator
+    /// has asked for text.
+    ///
+    /// The tie is broken where every other armed tool's is, in
+    /// [`crate::canvas::gesture::press_kind`], by the rung that already reads
+    /// **an armed tool takes the press**. That is not a new rule invented for
+    /// this variant; it is the rule `Markup` has relied on since it landed, and
+    /// the alternative — leaving the mode branch to win — would be a control that
+    /// arms, shows an I-beam, and marquees objects.
+    ///
+    /// One consequence follows and is real: an object selection and a text
+    /// selection can now both be non-empty at once, in Edit, which
+    /// `canvas::textsel` §3 previously argued could never happen. That is why
+    /// they are two fields on the document rather than one enum, and the shape
+    /// turns out to have been right for a reason its own argument got wrong. See
+    /// [`crate::canvas::keys`]'s rung 5, which orders them.
+    Text,
 }
 
 impl CanvasTool {
@@ -197,13 +357,41 @@ impl CanvasTool {
     /// armed until it is retired, and returning it also **suppresses the grip
     /// cursors** — correctly, because a markup drag over a selected object
     /// draws a shape rather than resizing anything.
+    ///
+    /// ★ `Text` returns `CursorIcon::Text` in both states, on the same argument
+    /// the crosshair makes and with one extra consequence worth naming. The
+    /// I-beam is what Acrobat, Inkscape and SolidWorks all show over selectable
+    /// text, and [`cursor_for`]'s own note records why this shell would not
+    /// paint it on **hover** — answering *"is there a glyph under the pointer?"*
+    /// per frame is a hit test against the page's extraction on every frame the
+    /// pointer moves, paid on canvases nobody is selecting on. Armed, the
+    /// question does not arise: the tool is a statement about what the next drag
+    /// means, so the cursor is constant while it is armed and costs nothing.
+    /// That is precisely the "becomes free on the day a `CanvasTool::Text`
+    /// lands" this pair of comments anticipated.
+    ///
+    /// It suppresses the grip cursors too, and here that is load-bearing rather
+    /// than incidental: in Edit a content selection can be on the page *while*
+    /// this tool is armed, and [`crate::canvas::gesture::press_kind`] gives the
+    /// armed tool the press. A grip that still showed its resize cursor would be
+    /// promising a gesture the press rule has already decided against — the
+    /// exact mismatch [`retire_forbidden`] exists to prevent at the other end of
+    /// a tool's life.
     #[must_use]
     pub fn cursor(self, dragging: bool) -> Option<CursorIcon> {
         match self {
             Self::Select => None,
             Self::Hand if dragging => Some(CursorIcon::Grabbing),
             Self::Hand => Some(CursorIcon::Grab),
-            Self::Markup(_) => Some(CursorIcon::Crosshair),
+            // A crosshair for both authoring tools, and for the same reason:
+            // it says "this canvas places something now" and it suppresses the
+            // grip cursors, which is correct because a click with a measure
+            // tool armed picks a point rather than grabbing a handle.
+            Self::Markup(_) | Self::Measure(_) => Some(CursorIcon::Crosshair),
+            // …and an I-beam for the one tool that places nothing. The pointer
+            // says which of the two things a drag on this page is about to do,
+            // which is the whole reason the tool exists.
+            Self::Text => Some(CursorIcon::Text),
         }
     }
 
@@ -220,6 +408,44 @@ impl CanvasTool {
             Self::Markup(kind) => Some(kind),
             _ => None,
         }
+    }
+
+    /// Which measure kind is armed, if any.
+    ///
+    /// [`Self::markup_kind`]'s twin, and it exists for the identical two
+    /// callers: `crate::app::PdfceApp::conditions`, so exactly one Measure
+    /// button renders pressed, and
+    /// [`crate::canvas::gesture::press_kind`], so a click is offered to the
+    /// pick machines instead of to the selection.
+    #[must_use]
+    pub fn measure_kind(self) -> Option<MeasureKind> {
+        match self {
+            Self::Measure(kind) => Some(kind),
+            _ => None,
+        }
+    }
+
+    /// **Whether the text tool is armed.**
+    ///
+    /// [`Self::markup_kind`]'s and [`Self::measure_kind`]'s third sibling,
+    /// answering `bool` rather than `Option<Kind>` because [`Self::Text`] carries
+    /// no kind — see that variant's docs for why it carries nothing at all.
+    ///
+    /// It exists for the same reason the other two do, and it has the same three
+    /// callers, which is what stops them writing three `matches!` that could
+    /// drift: [`crate::canvas::textsel::takes_the_press`], which decides what a
+    /// press means; `crate::app::PdfceApp::conditions`, which decides whether the
+    /// ribbon control renders **pressed**; and [`crate::canvas::gesture::press_kind`],
+    /// which reads it through `takes_the_press` rather than directly, so the
+    /// drag's meaning and the click's routing cannot disagree.
+    ///
+    /// Deliberately `selected`-agnostic: like its siblings it is a question about
+    /// a [`CanvasTool`] value, and *which* value — the chosen one or the one a
+    /// held space bar composes — is the caller's decision. [`active`] and
+    /// [`selected`] answer differently on purpose.
+    #[must_use]
+    pub fn is_text(self) -> bool {
+        matches!(self, Self::Text)
     }
 }
 
@@ -282,6 +508,41 @@ pub fn cursor_for(
             DragKind::Marquee(_) | DragKind::Markup(_) => CursorIcon::Crosshair,
             DragKind::Move => CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),
+            // ★ The I-beam for a sweep that began under the MODE rule rather
+            // than under an armed tool — and that distinction is now the whole
+            // of what this arm is for.
+            //
+            // ★ **The paragraph that used to stand here has been half
+            // discharged, and the discharged half is quoted rather than
+            // deleted** because it predicted its own expiry: *"The hover I-beam
+            // becomes free on the day a `CanvasTool::Text` lands, because it is
+            // then rung 1's answer like every other tool's."* That day is
+            // 2026-08-14. With the tool armed, `CanvasTool::Text`'s `cursor`
+            // answers `Text` at rung 1, so the pointer is an I-beam from the
+            // moment the tool is chosen — on hover, before any drag, over the
+            // grey surround as readily as the paper — and it costs one match arm
+            // per frame rather than a hit test.
+            //
+            // The undischarged half stands unchanged and is why this arm
+            // survives: in **Read and Review** a press means text with *no tool
+            // armed at all* (the select tool, under
+            // `textsel::takes_the_press`'s original disjunct), so rung 1 has
+            // nothing to answer with there and this rung is the only one that
+            // can. Making it hover in those modes would still mean asking "is
+            // there a glyph under the pointer?" on every frame the pointer moves
+            // — a hit test against the page's extraction, paid on canvases
+            // nobody is selecting on, which is most of them. And threading
+            // `Capabilities` into this function to synthesise a tool from the
+            // mode would put the mode gate in a second place, which is the thing
+            // `canvas::textsel`'s header §3 spends its length arguing against.
+            //
+            // So the shipped rule is: **armed ⇒ I-beam always; un-armed ⇒ I-beam
+            // once the sweep starts.** A reader may reasonably ask whether that
+            // is an inconsistency an operator would notice, and the answer is
+            // that they cannot: the two cases never coexist on one canvas,
+            // because arming the tool is what moves a mode from the second to
+            // the first.
+            DragKind::TextSelect => CursorIcon::Text,
         });
     }
     hovered_grip.map(crate::canvas::handles::Grip::cursor)
@@ -330,13 +591,74 @@ pub fn select(ctx: &egui::Context, tool: CanvasTool) {
 pub fn toggle_hand(ctx: &egui::Context) -> CanvasTool {
     let next = match selected(ctx) {
         CanvasTool::Hand => CanvasTool::Select,
-        // A markup tool is *left* by pressing Hand, not toggled through — the
+        // Any other tool is *left* by pressing Hand, not toggled through — the
         // operator asked for the hand, and returning them to Select would make
         // one press mean "put the pen down" and a second one mean "pick the
-        // hand up".
-        CanvasTool::Select | CanvasTool::Markup(_) => CanvasTool::Hand,
+        // hand up". The text tool joins that arm rather than earning its own for
+        // the identical reason: pressing Hand while sweeping text means Hand.
+        CanvasTool::Select | CanvasTool::Markup(_) | CanvasTool::Measure(_) | CanvasTool::Text => {
+            CanvasTool::Hand
+        }
     };
     select(ctx, next);
+    next
+}
+
+/// Flip between the text tool and the select tool. **The entry point the
+/// `view.tool_text` toggle command calls.**
+///
+/// [`toggle_hand`]'s twin, deliberately down to the shape of the `match`: these
+/// are the two pointer tools that carry no kind, they sit in the same ribbon
+/// group, and a single press of either is how an operator both enters and leaves
+/// it. The same-press-retires rule is [`arm_markup`]'s argument applied to a tool
+/// with one kind instead of four — *the button is pressed, so pressing it is how
+/// you un-press it* — and without it an operator who armed Text by mistake would
+/// have no way back to the select tool except by arming something else.
+///
+/// # Why it returns to `Select` and not to whatever was armed before
+///
+/// Because nothing is stored to return to, and that is the same refusal this
+/// module's header makes about the space bar: a "previous tool" is state that can
+/// be lost, and losing it leaves the canvas in a tool the operator never chose.
+/// [`CanvasTool::Select`] is this enum's `#[default]` and the stance every other
+/// retirement path in this file returns to ([`disarm_markup`],
+/// [`disarm_measure`], [`retire_forbidden`]), so a reader has one answer to learn
+/// rather than four.
+///
+/// Note what that means in a **reading** mode, and it is deliberate rather than a
+/// gap: in Read and Review the select tool already sweeps text
+/// ([`crate::canvas::textsel::takes_the_press`]'s original rule), so toggling
+/// this off there changes the pressed control and changes no behaviour. The tool
+/// is not suppressed in those modes for that reason — a control that vanished
+/// from View in two of three modes would be a per-mode visibility rule invented
+/// to hide a redundancy, and View is shown in every mode precisely so its
+/// contents do not have to be.
+///
+/// Returns the tool now chosen, honouring the same report-rather-than-re-ask
+/// contract [`toggle_hand`] and [`arm_markup`] do.
+pub fn toggle_text(ctx: &egui::Context) -> CanvasTool {
+    let next = match selected(ctx) {
+        CanvasTool::Text => CanvasTool::Select,
+        // …and from any other tool this *takes* the text tool rather than
+        // returning to Select, which is `toggle_hand`'s rule above and
+        // `arm_markup`'s different-kind-re-arms rule, spelled once more.
+        CanvasTool::Select | CanvasTool::Hand | CanvasTool::Markup(_) | CanvasTool::Measure(_) => {
+            CanvasTool::Text
+        }
+    };
+    select(ctx, next);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI.
+        //
+        // The same argument `markup-tool` and `measure-tool` carry, and it is
+        // sharper here than for either: an armed text tool changes the CURSOR and
+        // nothing else on screen, so an armed canvas and an un-armed one are not
+        // merely the same screenshot — they are the same screenshot even with the
+        // pointer in it, because a captured window does not carry the cursor.
+        // This line is the only way a harness can prove the ribbon button armed
+        // anything.
+        format!("text-tool tool={next:?}")
+    });
     next
 }
 
@@ -380,6 +702,57 @@ pub fn arm_markup(ctx: &egui::Context, kind: MarkupKind) -> CanvasTool {
     next
 }
 
+/// Arm the measure tool with `kind`, or retire it if that kind is already
+/// armed. **The entry point every `measure.*` tool command calls.**
+///
+/// [`arm_markup`]'s twin, with the identical same-kind-retires rule and for the
+/// identical reason — see that function's header, which is the argument for
+/// both. The two are separate functions rather than one generic over the kind
+/// because the tools are separate: a shared one would have to take a
+/// `CanvasTool` already built, which moves the "which variant" decision back out
+/// to the four call sites this pair exists to keep it away from.
+///
+/// **It arms a tool; it authors nothing.** The clicks are taken by
+/// [`crate::canvas::measure`], and only the pick that completes a dimension
+/// raises an `Action`.
+pub fn arm_measure(ctx: &egui::Context, kind: MeasureKind) -> CanvasTool {
+    let next = if selected(ctx) == CanvasTool::Measure(kind) {
+        CanvasTool::Select
+    } else {
+        CanvasTool::Measure(kind)
+    };
+    select(ctx, next);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI.
+        //
+        // Same argument as `markup-tool` above: an armed canvas and an un-armed
+        // one are the same screenshot, so this line is the only way a harness
+        // can prove the ribbon button armed anything.
+        format!("measure-tool tool={next:?}")
+    });
+    next
+}
+
+/// Retire the measure tool, returning to [`CanvasTool::Select`], and report
+/// whether there was one to retire.
+///
+/// **Escape's claimant, alongside [`disarm_markup`]**, and it sits at the same
+/// rung for the same reason — see [`crate::canvas::keys`]'s precedence table.
+///
+/// ★ Note what this does **not** do: it does not discard a half-finished pick.
+/// A linear dimension with point A taken and point B not is in-progress work
+/// held by [`crate::canvas::measure::pick`], and Escape retires *one* thing per
+/// press (decision 025's L1). So the first Escape abandons the pick and the
+/// second puts the tool down — which is the order the operator means, because
+/// the pick is the more transient of the two.
+pub fn disarm_measure(ctx: &egui::Context) -> bool {
+    if selected(ctx).measure_kind().is_none() {
+        return false;
+    }
+    select(ctx, CanvasTool::Select);
+    true
+}
+
 /// Retire the markup tool, returning to [`CanvasTool::Select`], and report
 /// whether there was one to retire.
 ///
@@ -395,6 +768,82 @@ pub fn arm_markup(ctx: &egui::Context, kind: MarkupKind) -> CanvasTool {
 /// to be the hand at that instant.
 pub fn disarm_markup(ctx: &egui::Context) -> bool {
     if selected(ctx).markup_kind().is_none() {
+        return false;
+    }
+    select(ctx, CanvasTool::Select);
+    true
+}
+
+/// **Retire an armed tool the mode being entered does not permit**, and report
+/// whether there was one.
+///
+/// Called from `PdfceApp`'s mode-change arm, once, on the frame the operator
+/// moves the selector.
+///
+/// # ★ Why arming has to be undone rather than merely refused
+///
+/// The armed tool lives in `egui::Memory` and is **application**-scoped, not
+/// per-mode — see this module's header. So a Rectangle armed in Edit is still
+/// armed after a switch to Read, and it survives a switch back. That is the
+/// right lifetime for a tool (an operator who returns to Edit expects their
+/// pen), and it is exactly wrong across a mode that forbids the pen.
+///
+/// [`crate::canvas::gesture::press_kind`] already refuses to give a forbidden
+/// tool a meaning, so nothing would be drawn either way. What that refusal
+/// cannot fix is the **cursor**: [`CanvasTool::cursor`] gives an armed markup
+/// tool a crosshair, so without this the operator would be shown a drawing
+/// cursor over every page of a document they cannot draw on — a promise the
+/// canvas has already decided not to keep. Retiring the tool is what makes the
+/// pointer tell the truth.
+///
+/// Returns to [`CanvasTool::Select`] rather than to `Hand`, matching
+/// [`disarm_markup`]: Select is this enum's `#[default]` and the stance every
+/// other retirement path returns to, and a mode change that silently swapped in
+/// a *different* tool would be a second surprise on top of the first.
+pub fn retire_forbidden(ctx: &egui::Context, caps: Capabilities) -> bool {
+    let armed = selected(ctx);
+    let permitted = match armed {
+        // None of the three touches the document: Select is inert in a mode that
+        // cannot select (`press_kind` gives its presses no meaning), Hand only
+        // pans, and Text reads the page and writes to the clipboard. Retiring any
+        // of them would take a navigation or reading tool away from the mode that
+        // navigates and reads.
+        //
+        // ★ **Text is on this arm and NOT on the markup arm below, and the
+        // difference is the operator's own ruling rather than a judgement made
+        // here.** The obvious move when adding a tool is to copy the line above
+        // the cursor and swap the capability — `CanvasTool::Text => caps.???` —
+        // and there is no capability to put there. Three steps:
+        //
+        // 1. **Selecting text authors nothing.** It changes no byte, bumps no
+        //    `edit_epoch`, and touches no `EditSession`. `app::modes::capability`
+        //    §4's not-gated list is exactly that class — *"pan, zoom, the hand
+        //    tool, marquee zoom, Find, guides, rulers, grid: navigation and
+        //    inspection, none of which touches the document"* — and its nearest
+        //    neighbour there is Find, which also extracts the page's text, also
+        //    derives quads from it, and also washes the result.
+        // 2. **The operator settled it for the commands already.** On 2026-08-14
+        //    both text-copy verbs moved off the authoring tab under the sentence
+        //    *copying is not authoring*. A capability invented here would be that
+        //    ruling restated in a second place, free to disagree with it — which
+        //    is the same argument `canvas::textsel` §3 makes for why there is no
+        //    `select_text` flag.
+        // 3. **The retirement would be actively wrong in both directions.**
+        //    Retiring it on the way into Read would take away a tool that mode
+        //    plainly permits (its select tool already sweeps text). Retiring it on
+        //    the way into **Edit** would be worse: Edit is the one mode this tool
+        //    exists for, so a capability check that failed there would delete the
+        //    feature on the frame the operator entered the mode that needs it.
+        //
+        // So the honest answer is *none*, and it is written as membership of this
+        // arm — where the reason is stated — rather than as a `true` on a line of
+        // its own, so that a future reader adding a fifth tool has to decide which
+        // of the two groups it joins.
+        CanvasTool::Select | CanvasTool::Hand | CanvasTool::Text => true,
+        CanvasTool::Markup(_) => caps.author_markup,
+        CanvasTool::Measure(_) => caps.author_measure,
+    };
+    if permitted {
         return false;
     }
     select(ctx, CanvasTool::Select);
@@ -471,6 +920,182 @@ mod tests {
         }
         assert_eq!(CanvasTool::Select.markup_kind(), None);
         assert_eq!(CanvasTool::Hand.markup_kind(), None);
+    }
+
+    /// ★ **The text tool does not pan, shows an I-beam in both states, and is
+    /// the only tool `is_text` answers `true` for.**
+    ///
+    /// All three halves, because each has a distinct and plausible failure. A
+    /// text tool that answered `true` to `pans_with_primary` would be handed a
+    /// **blank** pointer frame by `canvas::interact` and could never sweep
+    /// anything at all — a tool that arms, shows an I-beam and does nothing,
+    /// which is the exact shape of an affordance that looks available and is
+    /// inert. A tool with no cursor would be indistinguishable from the select
+    /// tool it replaces, on a control whose entire visible effect is the pointer.
+    /// And an `is_text` that answered `true` for a *markup* tool would hand an
+    /// armed pen's press to the text gesture.
+    #[test]
+    fn the_text_tool_sweeps_rather_than_pans_and_says_so_with_the_pointer() {
+        let text = CanvasTool::Text;
+        assert!(!text.pans_with_primary());
+        assert_eq!(text.cursor(false), Some(CursorIcon::Text));
+        assert_eq!(text.cursor(true), Some(CursorIcon::Text));
+        assert!(text.is_text());
+        assert_eq!(text.markup_kind(), None);
+        assert_eq!(text.measure_kind(), None);
+
+        for other in [
+            CanvasTool::Select,
+            CanvasTool::Hand,
+            CanvasTool::Markup(MarkupKind::Rectangle),
+            CanvasTool::Measure(MeasureKind::Linear),
+        ] {
+            assert!(!other.is_text(), "{other:?} is not the text tool");
+        }
+
+        // ★ Rung 1 of `cursor_for`, on hover with no button down and no gesture
+        // — which is the whole difference the tool makes to the pointer, and the
+        // half the un-armed rule could not pay for. It also outranks a hovered
+        // grip, which is load-bearing in Edit: a content selection can be on the
+        // page while this tool is armed, and `press_kind` gives the armed tool
+        // the press, so a grip that kept its resize cursor would promise a
+        // gesture already decided against.
+        assert_eq!(
+            cursor_for(CanvasTool::Text, None, None, false, true),
+            Some(CursorIcon::Text),
+            "an armed text tool paints the I-beam ON HOVER, before any drag"
+        );
+        assert_eq!(
+            cursor_for(
+                CanvasTool::Text,
+                None,
+                Some(crate::canvas::handles::Grip::SouthEast),
+                true,
+                true,
+            ),
+            Some(CursorIcon::Text),
+            "…and it suppresses the grip cursors, as every armed tool does"
+        );
+        assert_eq!(
+            cursor_for(CanvasTool::Text, None, None, false, false),
+            None,
+            "but it does not claim the pointer over the ribbon"
+        );
+    }
+
+    /// ★ **Pressing the armed Text button again retires it; pressing it from
+    /// another tool takes it.**
+    ///
+    /// `arm_markup`'s two halves for a tool with no kind, and both matter for the
+    /// reason that test gives: a build that only ever armed would pass a test of
+    /// the first press alone, and the operator's complaint would be that the tool
+    /// cannot be put down.
+    ///
+    /// The third case is the one `toggle_text`'s own docs argue: arriving from a
+    /// markup tool must **take** the text tool rather than dropping to Select,
+    /// or one press would mean "put the pen down" and a second one "pick up the
+    /// I-beam".
+    #[test]
+    fn toggling_the_text_tool_arms_it_retires_it_and_takes_it_from_another_tool() {
+        let ctx = Context::default();
+        assert_eq!(selected(&ctx), CanvasTool::Select);
+
+        assert_eq!(toggle_text(&ctx), CanvasTool::Text);
+        assert_eq!(selected(&ctx), CanvasTool::Text);
+        assert_eq!(
+            toggle_text(&ctx),
+            CanvasTool::Select,
+            "a second press retires"
+        );
+
+        arm_markup(&ctx, MarkupKind::Ellipse);
+        assert_eq!(
+            toggle_text(&ctx),
+            CanvasTool::Text,
+            "from a pen, Text takes the tool rather than returning to Select"
+        );
+        // …and Hand still takes it back from Text, which is `toggle_hand`'s
+        // matching arm and would silently answer `Select` if the variant had been
+        // added to the wrong side of that match.
+        assert_eq!(toggle_hand(&ctx), CanvasTool::Hand);
+        assert_eq!(toggle_hand(&ctx), CanvasTool::Select);
+    }
+
+    /// ★ **Space borrows the hand out of the text tool and gives it back**, and
+    /// **Escape does not claim the text tool.**
+    ///
+    /// The first is the property the derived-never-stored design exists for,
+    /// asserted for the new tool exactly as it is for markup above.
+    ///
+    /// The second is a **deliberate absence**, asserted so that adding an Escape
+    /// rung later is a decision rather than an accident. `canvas::keys`' rung 3b
+    /// retires an armed markup or measure tool, and the text tool is
+    /// deliberately not on it: those two paint a crosshair promising a gesture
+    /// that *writes to the document*, while this one promises a selection, and —
+    /// the deciding half — Escape's rung 5 already means "clear the selection"
+    /// in this tool. A further press that silently moved the operator from
+    /// sweeping text to marqueeing objects would be a change of gesture they did
+    /// not ask for, on the key they pressed to clear something. See
+    /// `canvas::keys`' header.
+    #[test]
+    fn space_borrows_the_hand_out_of_the_text_tool_and_escape_leaves_it_alone() {
+        assert_eq!(resolve(CanvasTool::Text, true), CanvasTool::Hand);
+        assert_eq!(resolve(CanvasTool::Text, false), CanvasTool::Text);
+
+        let ctx = Context::default();
+        select(&ctx, CanvasTool::Text);
+        assert!(
+            !disarm_markup(&ctx),
+            "the markup claimant must not take Escape for a tool that is not a pen"
+        );
+        assert!(!disarm_measure(&ctx));
+        assert_eq!(
+            selected(&ctx),
+            CanvasTool::Text,
+            "and the tool is still armed afterwards"
+        );
+    }
+
+    /// ★ **No mode retires the text tool** — the `retire_forbidden` decision,
+    /// asserted over every capability combination rather than over the three
+    /// shipped modes.
+    ///
+    /// The Edit row (`FULL`) is the one that would break the feature outright: a
+    /// capability check copied from the markup arm would fail on the frame the
+    /// operator entered the one mode this tool exists for. The Read row
+    /// (`NONE`) is the one that would break it quietly, by taking a reading tool
+    /// away from the reading mode.
+    ///
+    /// Asserted beside the *markup* tool in the same loop, so this is a statement
+    /// about the difference rather than about the text tool alone: a build that
+    /// stopped retiring anything would pass the first half and fail the second.
+    #[test]
+    fn the_text_tool_is_permitted_in_every_mode_where_a_pen_is_not() {
+        for markup in [false, true] {
+            for measure in [false, true] {
+                for content in [false, true] {
+                    let caps = Capabilities {
+                        edit_content: content,
+                        author_markup: markup,
+                        author_measure: measure,
+                    };
+                    let ctx = Context::default();
+                    select(&ctx, CanvasTool::Text);
+                    assert!(
+                        !retire_forbidden(&ctx, caps),
+                        "the text tool authors nothing, so {caps:?} has nothing to forbid"
+                    );
+                    assert_eq!(selected(&ctx), CanvasTool::Text);
+
+                    select(&ctx, CanvasTool::Markup(MarkupKind::Rectangle));
+                    assert_eq!(
+                        retire_forbidden(&ctx, caps),
+                        !markup,
+                        "a pen IS retired by a mode that cannot author markup: {caps:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// ★ **The cursor precedence**, all four rungs, in one test that would
