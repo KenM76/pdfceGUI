@@ -24,7 +24,7 @@ them.
 | **Latest build** | `D:\builds\pdfcegui-20260813-2248-b943ea1-a748414\` |
 | **Requests owed by pdfce** | **none.** Four filed and answered on 2026-08-14 — revision clouds, markup note text, markup opacity, tab-order authoring. Three are **accepted and scheduled, none started**; they block *items within* Phase 6, not Phase 6 itself. From the fourth, **`widget_rects(page_index)` shipped immediately** (engine `e8e9881`) and canvas form filling uses it. Tab-order *writing* stays blocked on their F4 — see §8. |
 
-> **★ The table above is from 2026-08-13 and is superseded twice over.**
+> **★ The table above is from 2026-08-13 and is superseded three times over.**
 > A 2026-08-14 session landed the Read-mode gate and Phase 7; a
 > 2026-08-15 session landed Phase 5's one-run text editor. Measured at
 > the end of the latter: **1,744 tests passing, 0 failing · 10 of 10
@@ -33,6 +33,33 @@ them.
 > Re-measure rather than quoting either table if any time has passed;
 > the numbers above are the ones a test pins, and prose drifting from
 > them is a defect this project has now had four times.
+>
+> **Measured 2026-08-18 at `8931f0b`: 1,818 tests passing, 0 failing ·
+> 12 of 12 gates, 0 skipped.** Note the gate count is **12**, not the 8
+> the table says and not the 10 the paragraph above says — it has grown
+> twice since either was written, which is the same drift again. Run
+> `bash tools/gates/run-all.sh` and read the summary rather than
+> believing any of the three numbers on this screen.
+
+### ★★★ 2026-08-18 — the machine was in use, so NOTHING below is driven
+
+**Read this before trusting any of the four commits of 2026-08-18.** The
+operator was working on the same PC, so `ui-verify` could not be run: it
+launches the real binary, takes the foreground and drives the OS. Everything
+landed that day is **unit-tested and unverified in pixels**, which by R1 is not
+"done".
+
+The queue, in the order worth running when the machine is free:
+
+| what | why it needs pixels specifically |
+|---|---|
+| **UI scale**, at 0.8 and at 2.0 | The strongest pixels case in the queue. **Every layout in the shell re-flows** — ribbon groups, dock tabs, the status bar, the settings window's own scroll area. This project has already shipped a control laid out *below the bottom of its own pane* (§2 defect 11) and a two-row ribbon one gap short (§10), both invisible to a green suite. A 200 % run is the cheapest possible search for the next one |
+| **The opening view**, all three fits × the overlay trio | Assert on the `opening-view` trace line, then confirm the rulers really took their gutters. The remembered-guides OR is the subtle case: open a document that *has* saved guides with the preference off and check they still show |
+| **Freehand at a 0.25 pt pen** | Read `markup-commit … raw= kept=` off the trace. The unit test proves the tolerance follows the pen; only a driven stroke proves the pen the *gesture* uses is the pen the *control* set — which is exactly the wiring-order class of defect that produced §2's defect 10 |
+| **Settings window headings** | `settings_headings_legible` is a live check now and two of the four new controls added headings to it |
+
+Two of these are cheap to add to `ui-verify` and one — the freehand trace check
+— already has its assertion shape from the `raw=`/`kept=` work.
 
 ### ★★ 2026-08-17 — the operator's report, and what it turned up
 
@@ -110,6 +137,26 @@ one operator question about print:
 | `orientation_auto_is_per_job_not_per_page` | documented as per-page in a heading that says so, implemented per-job — `build_devmode` is called once with `first_page_pt` |
 | `no_paper_size_selection_in_the_print_path` | no paper list, no way to request one, no route to the driver's properties dialog. The dialog now **discloses** which paper the job is planned against and that pdfce cannot change it |
 | `no_verb_modifies_an_existing_annotation` | the Format-tab blocker above |
+
+### …and three more on 2026-08-18, so `open/` holds SEVEN
+
+All three came out of working through `NO_SURFACE.md`'s rows, and **all three
+are the same shape**: a GUI surface that looked unbuilt turned out to be an
+engine capability that is absent, or present-and-unreachable.
+
+| request | finding |
+|---|---|
+| `redaction_fill_is_unreachable_from_the_search_path` | `/IC` is written, read and painted — but `EditSession::author_text_matches` hard-codes `fill: None` (`edit.rs:11719`), so no caller can set it on a mark from *Find and mark*. A swatch would be honoured on whole-page marks and silently dropped on searched ones |
+| `overlay_text_is_recorded_and_then_dropped` | `/OverlayText` is **written into the PDF and never read**. `gather_page` does not look at it, `build_overlay` draws filled boxes only, and the annotation carrying the string is deleted at apply. Type *REDACTED*, get plain black boxes, no report row |
+| `no_verb_sets_a_pages_media_box` | nothing in `pdfce-core` writes a `/MediaBox`, so `file.new` can only ever be A4 without ten template assets — and still no custom size. Priority **low**, stated as such |
+
+**★ The pattern across all three, worth carrying into the next sweep.** An
+engine field that exists, is documented, and is even **written into the file**
+is not evidence that anything reads it. Two of these three reach the PDF today.
+Distinguishing *supported* from *accepted and discarded* takes following the
+value to its **consumer** — which is §10's *"registration is not
+implementation"* one layer down, and it is why a `NO_SURFACE.md` row is never
+automatically a build-the-surface task.
 
 ### `NO_SURFACE.md` — the inventory, kept
 
