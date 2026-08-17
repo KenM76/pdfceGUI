@@ -402,10 +402,18 @@ impl PdfceApp {
             // second time for a second family of annotation.
             //
             // The arm routes; it does not compute. `markup::text::spec` is a
-            // pure, unit-tested function of the kind and the quads, and the
-            // quads themselves were derived once, by `textsel::resolve`, from
-            // the same pass that painted the wash the operator was looking at
-            // when they pressed the button.
+            // pure, unit-tested function of the kind, the quads and the pen, and
+            // the quads themselves were derived once, by `textsel::resolve`,
+            // from the same pass that painted the wash the operator was looking
+            // at when they pressed the button.
+            //
+            // ★ The `pen` comes off the ACTION, never off `self`. It was sampled
+            // in `dispatch` at the moment the operator invoked the command; this
+            // arm runs at the end of the frame, by which time the live pen may
+            // have moved. Reading it here would author the mark in a colour the
+            // operator had not chosen when they asked — the exact hazard
+            // `Action::CommitMarkup`'s `pen` field documents, and the exact
+            // reason this variant grew one.
             //
             // ★ Note the second-order consequence, which is deliberate and is
             // documented at `canvas::textsel` §7: `vector_edit` bumps
@@ -415,8 +423,13 @@ impl PdfceApp {
             // the only staleness signal there is and refining it into kinds of
             // edit would be a second rule living outside the module that owns
             // the first.
-            Action::CommitTextMarkup { page, kind, quads } => {
-                let spec = crate::canvas::markup::text::spec(kind, quads);
+            Action::CommitTextMarkup {
+                page,
+                kind,
+                quads,
+                pen,
+            } => {
+                let spec = crate::canvas::markup::text::spec(kind, quads, pen);
                 vector_edit(doc, "add-text-markup", page, 1, |session| {
                     session.add_markup(page, &spec).map(|_| Vec::new())
                 });

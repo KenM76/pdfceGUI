@@ -910,6 +910,25 @@ pub enum Action {
         /// `crate::canvas::textsel::TextSelection::page_quads`, which is the
         /// same list the wash was painted from.
         quads: Vec<pdfce_core::annot_author::Quad>,
+        /// The pen at the moment the command was invoked.
+        ///
+        /// ★ **Added 2026-08-17, closing a shipped inconsistency.** This variant
+        /// went without a pen for the whole of the project because
+        /// `crate::canvas::markup::text` held its own hard-coded red — and when
+        /// the Style group landed in `4035b64` and gave [`Self::CommitMarkup`]
+        /// this field, the text sibling was not given it too. The result an
+        /// operator saw: the swatch moved the colour of every drawn shape and
+        /// none of the three text marks.
+        ///
+        /// The field carries the same three obligations its twin's does — see
+        /// [`Self::CommitMarkup`]'s `pen`, which states them at length and is
+        /// not repeated here — of which the load-bearing one is that the pen is
+        /// **sampled when the operator asks**, not read when the queue drains.
+        ///
+        /// Only [`crate::canvas::markup::text::TextMarkKind::rgb`] reads it, and
+        /// it takes the **ink**: these three kinds are lines, so they are the
+        /// biro rather than the marker. Highlight is not in this variant at all.
+        pen: crate::canvas::markup::pen::Pen,
     },
     /// ★ **Replace the words in ONE show operator** — `DEFECTS.md` D4's verb.
     ///

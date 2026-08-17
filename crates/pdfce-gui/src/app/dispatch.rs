@@ -681,6 +681,11 @@ impl PdfceApp {
                         kind,
                         doc.text_selection.as_ref(),
                         doc.edit_epoch,
+                        // The live pen, sampled now. `canvas::interact` samples
+                        // it at the same moment for the drag kinds — the start
+                        // of the gesture — and for a ribbon command the whole
+                        // gesture is this press.
+                        self.pen,
                     )
                 } else {
                     Err(crate::canvas::markup::text::Refusal::NoSelection)

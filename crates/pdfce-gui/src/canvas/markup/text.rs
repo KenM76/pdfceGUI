@@ -326,31 +326,69 @@ impl TextMarkKind {
         }
     }
 
-    /// The pen colour this kind commits, as PDF `/DeviceRGB` components in
-    /// `0.0..=1.0`.
+    /// ★ **All three take the INK, and none of them takes the highlighter.**
     ///
-    /// The same argument `super::MarkupKind::rgb` carries, and the same seam:
-    /// there is no pen control in this shell yet, so the default is stated once,
-    /// in the one place a spec is built, and a real pen replaces exactly this
-    /// function.
+    /// [`super::pen::Pen`] holds two colours because a stroke and a wash are
+    /// different instruments — `pen.rs`' own words, *"an operator who sets the
+    /// pen to green does not thereby want a green highlight, any more than
+    /// picking a green biro changes the marker in their other hand."* This
+    /// function is where that split is applied to the text kinds, and the answer
+    /// is not a judgement call: **Underline, StrikeOut and Squiggly are lines**,
+    /// so they are the biro. `Highlight` is the wash, and it is not in this enum
+    /// at all — it is a *band* gesture handled by [`super::band`], which reaches
+    /// the highlighter through [`super::pen::Pen::colour_for`].
     ///
-    /// **Red for all three**, matching the geometric kinds rather than
-    /// Highlight's yellow, because these three are *lines* and a line has to be
-    /// seen against the text it marks: a yellow underline on white paper under
-    /// black glyphs is very nearly invisible, which is the one failure a mark
-    /// whose entire job is to be noticed cannot afford. It is also what every
-    /// PDF reader draws them in by default, and *"make it work the way other
-    /// programs do"* is the operator's stated tie-breaker.
+    /// So the two modules partition [`super::pen::Pen`] exactly, with no kind
+    /// reaching both colours and no kind reaching neither, and
+    /// `pen::tests::every_geometric_kind_takes_the_ink_and_only_highlight_does_not`
+    /// pins the half it can see.
+    ///
+    /// # ★ Why this used to be a hard-coded triple, and why that stopped being
+    /// right
+    ///
+    /// Until 2026-08-17 this was `fn rgb(self) -> (f64, f64, f64)` returning
+    /// `(0.85, 0.16, 0.16)` for all three, under a doc comment that said:
+    ///
+    /// > there is no pen control in this shell yet, so the default is stated
+    /// > once, in the one place a spec is built, and **a real pen replaces
+    /// > exactly this function**.
+    ///
+    /// That was correct when written. The real pen arrived in `4035b64` — two
+    /// swatches and a width in Markup ▸ Style — and **did not replace this
+    /// function**, because nothing connected the two: the constant compiled, the
+    /// tests asserted the constant, and the swatch worked perfectly on every
+    /// kind that went through [`super::spec`]. The observable result was a
+    /// shipped inconsistency in the commit that answered *"I can't change a
+    /// markup's colour"* — set the pen to blue, draw a rectangle, get blue;
+    /// underline a word, get red.
+    ///
+    /// The generalisable part is not "remember to update duplicates". It is
+    /// that **a doc comment naming its own seam is an asset only if something
+    /// checks the seam when it is filled.** `NO_SURFACE.md` §1 praised exactly
+    /// this style of comment for predicting `super::spec`'s refactor — and the
+    /// same sweep listed this line as *"Underline / StrikeOut / Squiggly colour
+    /// — surface: none"* without noticing that it was no longer a missing
+    /// control but a **stale duplicate of one that now existed**. A prose seam
+    /// marker is a note to a human; the thing that would have caught this is a
+    /// test asserting the two paths agree, which is now
+    /// `tests::the_ink_reaches_every_text_kind`.
+    ///
+    /// # Why the default is unchanged, and why that is not a coincidence
+    ///
+    /// [`super::pen::Pen::default`]'s ink is `(0.85, 0.16, 0.16)` — the same
+    /// triple this function returned. So a build whose operator has never
+    /// touched the swatch authors byte-identical annotations before and after
+    /// this change, and the original argument for red still stands and still
+    /// belongs somewhere: these three are lines, a line must be seen against the
+    /// text it marks, a yellow underline under black glyphs on white paper is
+    /// very nearly invisible, and red is what every other reader draws them in.
+    /// That argument is now `pen.rs`' to make, because it is now `pen.rs`' value
+    /// — which is the right home for it, since it is one default rather than
+    /// two that must be kept equal.
     #[must_use]
-    fn rgb(self) -> (f64, f64, f64) {
+    fn rgb(self, pen: super::pen::Pen) -> (f64, f64, f64) {
         match self {
-            // DOCUMENT COLOUR: the default markup pen, written INTO the
-            // annotation's `/C` and therefore into the saved file. Restyling the
-            // application must never move it — the case the theme gate's escape
-            // hatch exists for — and it is the same triple `super::MarkupKind`
-            // uses for its geometric kinds, spelled again rather than shared
-            // because a future pen control will make them independent.
-            Self::Underline | Self::StrikeOut | Self::Squiggly => (0.85, 0.16, 0.16),
+            Self::Underline | Self::StrikeOut | Self::Squiggly => pen.ink,
         }
     }
 }
@@ -403,9 +441,18 @@ pub enum Refusal {
 /// arrive from [`TextSelection::marks`] already grouped one per line of the
 /// selection, in content order, in PDF user space — see `canvas::textsel` §5.1.
 /// Touching them here would be the second geometry that section is about.
+///
+/// # The `pen` is a parameter, not a read
+///
+/// The exact signature change [`super::spec`] took when the Style group landed,
+/// and for the same reason: this is a pure function whose job is to say what a
+/// given request authors, and a colour it fetched for itself would make it a
+/// function of application state that a test cannot vary. It takes the pen the
+/// [`Action`] carried, and [`TextMarkKind::rgb`] decides which of the pen's two
+/// colours a text kind is entitled to.
 #[must_use]
-pub fn spec(kind: TextMarkKind, quads: Vec<Quad>) -> MarkupSpec {
-    let (r, g, b) = kind.rgb();
+pub fn spec(kind: TextMarkKind, quads: Vec<Quad>, pen: super::pen::Pen) -> MarkupSpec {
+    let (r, g, b) = kind.rgb(pen);
     MarkupSpec::TextMarkup {
         kind: kind.subtype(),
         quads,
@@ -436,10 +483,25 @@ pub fn spec(kind: TextMarkKind, quads: Vec<Quad>) -> MarkupSpec {
 /// title-block sheet and marked after paging away must mark the sheet it was
 /// made on; re-deriving the page in the apply would silently author it wherever
 /// the operator happens to be looking.
+///
+/// # ★ The pen is sampled HERE, not read in the apply arm
+///
+/// [`Action::CommitMarkup`]'s `pen` field carries the argument in full and it
+/// applies here without amendment: *"reading the live pen in the apply arm
+/// would author a mark in whatever colour the operator happened to have
+/// selected by the time the queue drained, which for a queue is a real gap and
+/// not a theoretical one: the dispatcher raises actions during the frame and
+/// `apply` runs at the end of it."*
+///
+/// It is the same rule this function's own docs already make about the quads
+/// and the page, applied to the third thing that can change between the ask and
+/// the apply. An action is a complete statement of intent; a statement of
+/// intent that omits the colour is one the apply arm has to finish guessing.
 pub fn mark(
     kind: TextMarkKind,
     selection: Option<&TextSelection>,
     epoch: u64,
+    pen: super::pen::Pen,
 ) -> Result<Action, Refusal> {
     let selection = selection.ok_or(Refusal::NoSelection)?;
     let quads = selection.marks(epoch);
@@ -458,6 +520,7 @@ pub fn mark(
         page: selection.page,
         kind,
         quads: quads.to_vec(),
+        pen,
     })
 }
 
@@ -511,6 +574,16 @@ mod tests {
         )
     }
 
+    /// The default pen, for the tests whose subject is not the colour.
+    ///
+    /// Named rather than spelled `Pen::default()` at nine call sites so that the
+    /// tests which *are* about colour stand out by building their own — the
+    /// reader can tell at a glance which assertions would move if the default
+    /// moved.
+    fn pen() -> crate::canvas::markup::pen::Pen {
+        crate::canvas::markup::pen::Pen::default()
+    }
+
     // -----------------------------------------------------------------
     // ★ The subtype, the colour and the quads
     // -----------------------------------------------------------------
@@ -529,7 +602,8 @@ mod tests {
             (TextMarkKind::Squiggly, TextMarkupKind::Squiggly),
         ];
         for (kind, want) in expected {
-            let MarkupSpec::TextMarkup { kind: got, .. } = spec(kind, vec![quad(700.0)]) else {
+            let MarkupSpec::TextMarkup { kind: got, .. } = spec(kind, vec![quad(700.0)], pen())
+            else {
                 panic!("{kind:?} must author a /QuadPoints text markup");
             };
             assert_eq!(got, want, "{kind:?}");
@@ -553,21 +627,72 @@ mod tests {
         let quads: Vec<Quad> = (0..4).map(|i| quad(700.0 - 12.0 * f64::from(i))).collect();
         let MarkupSpec::TextMarkup {
             quads: authored, ..
-        } = spec(TextMarkKind::StrikeOut, quads.clone())
+        } = spec(TextMarkKind::StrikeOut, quads.clone(), pen())
         else {
             panic!("a text mark must author a /QuadPoints text markup");
         };
         assert_eq!(authored, quads, "the boxes must arrive as they left");
     }
 
-    /// The pen is a real colour, it is the same one the geometric kinds use, and
-    /// it is emphatically not the highlighter's yellow — see
-    /// [`TextMarkKind::rgb`] on why a yellow line would be the one failure a
-    /// mark cannot afford.
+    /// ★★ **The operator's ink reaches every text kind** — the test that would
+    /// have caught the defect this function was changed to fix.
+    ///
+    /// # What was here before, and why it passed through the whole bug
+    ///
+    /// This test used to be `the_pen_is_the_visible_one`, and it asserted the
+    /// literal triple `(0.85, 0.16, 0.16)` against a function that returned the
+    /// literal triple `(0.85, 0.16, 0.16)`. It was green for the entire life of
+    /// the defect and would have stayed green forever, because **it and the code
+    /// it tested were two copies of the same constant** — a test that restates
+    /// its subject can only fail if someone edits one copy, which is the one
+    /// thing nobody did.
+    ///
+    /// So the assertion is now a **relation, not a magnitude**: whatever colour
+    /// the pen holds, that is the colour the spec authors. It is driven with a
+    /// pen deliberately unlike the default in all three channels, so a build
+    /// that went back to a hard-coded red fails on the first kind — and it would
+    /// have failed at `4035b64`, which is the point of writing it this way.
+    ///
+    /// # Why it also checks the DEFAULT, in the same test
+    ///
+    /// Because the relation alone would be satisfied by a build that had
+    /// silently changed what an untouched shell authors. Every annotation this
+    /// project has ever written is `(0.85, 0.16, 0.16)`, and a change that
+    /// quietly moved the default would alter the appearance of new marks in
+    /// files sitting beside old ones. The second half pins that the *migration*
+    /// was colour-preserving; the first half pins that the control now works.
+    /// Neither implies the other.
     #[test]
-    fn the_pen_is_the_visible_one() {
+    fn the_ink_reaches_every_text_kind() {
+        // A pen unlike the default in all three channels, so no component can
+        // agree by coincidence. Not the highlighter's yellow either — that is
+        // the subject of the sibling assertion below.
+        let chosen = crate::canvas::markup::pen::Pen {
+            ink: (0.10, 0.35, 0.90),
+            ..Default::default()
+        };
         for &kind in TextMarkKind::ALL {
-            let MarkupSpec::TextMarkup { color, .. } = spec(kind, vec![quad(700.0)]) else {
+            let MarkupSpec::TextMarkup { color, .. } = spec(kind, vec![quad(700.0)], chosen) else {
+                panic!("{kind:?} must author a /QuadPoints text markup");
+            };
+            let Color::Rgb(r, g, b) = color else {
+                panic!("{kind:?} authored a non-RGB colour");
+            };
+            assert!(
+                (r - chosen.ink.0).abs() < 1e-9
+                    && (g - chosen.ink.1).abs() < 1e-9
+                    && (b - chosen.ink.2).abs() < 1e-9,
+                "{kind:?} ignored the operator's ink and authored ({r}, {g}, {b}) — the Markup ▸ \
+                 Style swatch moves shapes and not text marks again"
+            );
+
+            // The default is colour-preserving: an operator who never touches
+            // the swatch gets exactly what every earlier build authored.
+            let MarkupSpec::TextMarkup { color, .. } = spec(
+                kind,
+                vec![quad(700.0)],
+                crate::canvas::markup::pen::Pen::default(),
+            ) else {
                 panic!("{kind:?} must author a /QuadPoints text markup");
             };
             let Color::Rgb(r, g, b) = color else {
@@ -575,11 +700,43 @@ mod tests {
             };
             assert!(
                 (r - 0.85).abs() < 1e-9 && (g - 0.16).abs() < 1e-9 && (b - 0.16).abs() < 1e-9,
-                "{kind:?} authored ({r}, {g}, {b})"
+                "{kind:?} changed what an untouched shell authors: ({r}, {g}, {b})"
             );
+        }
+    }
+
+    /// ★ **No text kind may reach the highlighter**, whatever the pen holds.
+    ///
+    /// [`TextMarkKind::rgb`]'s partition, asserted from this side: these three
+    /// are lines and take the ink; Highlight is a wash, takes the highlighter,
+    /// and is not in this enum. The failure it catches is a plausible one — a
+    /// future hand "simplifying" `rgb` to `pen.colour_for(kind.into())` would
+    /// route all three to whichever colour that mapping picked, and with the
+    /// default pen that is **yellow**: a yellow underline under black glyphs on
+    /// white paper marks nothing an operator can see, which is the one failure a
+    /// mark whose entire job is to be noticed cannot afford.
+    ///
+    /// Driven with a highlighter that is *not* the default yellow, so the
+    /// assertion catches the wiring rather than the hue.
+    #[test]
+    fn no_text_kind_takes_the_highlighter() {
+        let chosen = crate::canvas::markup::pen::Pen {
+            ink: (0.10, 0.35, 0.90),
+            highlighter: (0.95, 0.90, 0.05),
+            ..Default::default()
+        };
+        for &kind in TextMarkKind::ALL {
+            let MarkupSpec::TextMarkup { color, .. } = spec(kind, vec![quad(700.0)], chosen) else {
+                panic!("{kind:?} must author a /QuadPoints text markup");
+            };
+            let Color::Rgb(r, g, b) = color else {
+                panic!("{kind:?} authored a non-RGB colour");
+            };
             assert!(
-                !(g > 0.5 && b < 0.5 && r > 0.5),
-                "{kind:?} is drawing a yellow line, which on white paper marks nothing visible"
+                (r - chosen.highlighter.0).abs() > 1e-9
+                    || (g - chosen.highlighter.1).abs() > 1e-9
+                    || (b - chosen.highlighter.2).abs() > 1e-9,
+                "{kind:?} took the highlighter — a wash colour on a line"
             );
         }
     }
@@ -599,8 +756,12 @@ mod tests {
     #[test]
     fn a_live_selection_marks_its_own_page() {
         let sel = selection(7, 3, 2);
-        let raised = mark(TextMarkKind::Underline, Some(&sel), 3).expect("a live selection marks");
-        let Action::CommitTextMarkup { page, kind, quads } = raised else {
+        let raised =
+            mark(TextMarkKind::Underline, Some(&sel), 3, pen()).expect("a live selection marks");
+        let Action::CommitTextMarkup {
+            page, kind, quads, ..
+        } = raised
+        else {
             panic!("a text-markup command must raise CommitTextMarkup: {raised:?}");
         };
         assert_eq!(page, 7, "the selection's page, not the visible one");
@@ -620,12 +781,12 @@ mod tests {
     fn a_stale_selection_is_refused_and_says_so() {
         let sel = selection(0, 4, 1);
         assert_eq!(
-            mark(TextMarkKind::Squiggly, Some(&sel), 5),
+            mark(TextMarkKind::Squiggly, Some(&sel), 5, pen()),
             Err(Refusal::Stale),
             "one edit later, the boxes may be over other glyphs"
         );
         assert_eq!(
-            mark(TextMarkKind::Squiggly, None, 5),
+            mark(TextMarkKind::Squiggly, None, 5, pen()),
             Err(Refusal::NoSelection),
             "…and no selection at all is a different fact with a different answer"
         );
@@ -643,7 +804,7 @@ mod tests {
     fn a_selection_with_no_boxes_authors_nothing() {
         let empty = TextSelection::for_test(0, 1, Vec::new());
         assert_eq!(
-            mark(TextMarkKind::Underline, Some(&empty), 1),
+            mark(TextMarkKind::Underline, Some(&empty), 1, pen()),
             Err(Refusal::NoQuads)
         );
     }
@@ -658,15 +819,23 @@ mod tests {
     fn every_kind_marks_and_refuses_alike() {
         let live = selection(2, 9, 3);
         for &kind in TextMarkKind::ALL {
-            let raised = mark(kind, Some(&live), 9).unwrap_or_else(|e| {
+            let raised = mark(kind, Some(&live), 9, pen()).unwrap_or_else(|e| {
                 panic!("{kind:?} refused a live selection: {e:?}");
             });
             assert!(
                 matches!(raised, Action::CommitTextMarkup { kind: k, .. } if k == kind),
                 "{kind:?} raised {raised:?}"
             );
-            assert_eq!(mark(kind, None, 9), Err(Refusal::NoSelection), "{kind:?}");
-            assert_eq!(mark(kind, Some(&live), 10), Err(Refusal::Stale), "{kind:?}");
+            assert_eq!(
+                mark(kind, None, 9, pen()),
+                Err(Refusal::NoSelection),
+                "{kind:?}"
+            );
+            assert_eq!(
+                mark(kind, Some(&live), 10, pen()),
+                Err(Refusal::Stale),
+                "{kind:?}"
+            );
         }
     }
 }
