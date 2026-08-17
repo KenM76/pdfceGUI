@@ -126,22 +126,31 @@ through rather than deleted, because the **shape** of that failure recurs.
 
 ### What is still missing, from the inventory sweep
 
-Not asked for, and worth having on the record — every one is a shipped feature
-with a hard-coded value and no surface:
+**★ This list was worked through on 2026-08-18 and four of its five rows turned
+out to be something other than what they said.** The corrected list is below;
+the original is kept in each row because *the shape of the mis-reading is the
+reusable part*, and it recurs.
 
-- **Redaction**: fill colour, overlay text and quadding are three `None`s at
-  `panels/redact.rs:418-420`. The engine takes all three.
-- **Snap and drafting**: snap tolerance (10 px), selection tolerance (6 px),
-  grid alphas, guide catch radius, ruler pitch and thickness, zoom min/max,
-  default fit mode. All compiled-in, all preference-shaped, and `app::prefs`
-  now exists as their home.
-- **New document**: `file.new` always makes an A4 from a baked-in template with
-  no chooser. `file.new_from_template` is `PLANNED`.
-- **Markup, the rest of the Style group**: arrowhead length and angle, ink
-  simplification tolerance. Fill and opacity stay blocked (design decision and
-  engine respectively).
-- **No UI-scale or base-font-size control anywhere**, which is an accessibility
-  gap rather than a preference.
+| the sweep said | what it actually was |
+|---|---|
+| **Redaction** — fill, overlay text, quadding are three `None`s, *"the engine takes all three"* | ⛔ **Blocked, both of them, and not visible from the type.** `fill` is honoured only when the GUI builds the spec — `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`, so every mark from *Find and mark* ignores it. `overlay_text` is **written into the PDF and never read**: `gather_page` does not look at `/OverlayText` and the annotation carrying it is deleted at apply. Two requests filed; **no control shipped**, because a half-honoured setting on the one irreversible operation is worse than none |
+| **Markup** — arrowhead length and angle | ⛔ **A category error.** They are screen-space **cursor** constants and `band.rs` says so: *"this is not a promise about that size, it is a statement about direction."* The annotation's own `/LE` head is the engine's. A control would read back a value and change nothing about the authored arrow. `RIBBON_IA.md`'s Format ▸ Arrowheads means the `/LE` style, which is a different thing entirely |
+| **Markup** — ink simplification tolerance | ✅ **Not a missing setting — a live defect, fixed.** It was a `const` derived from the pen's *default* width, and the pen became a control on 2026-08-17. At 0.25 pt the fixed tolerance was **4× the stroke's half-width**, so the simplification could author a curve the operator did not draw. Now `Pen::simplify_tolerance_pts`, asserted at both ends of the range |
+| **Snap and drafting** — *"zoom min/max, default fit mode …"* | ⬜ **Partly closed.** Default fit mode and the rulers/grid/guides default visibility shipped as `app::prefs::opening` on 2026-08-18. Snap tolerance (10 px), selection tolerance (6 px), zoom min/max and the alphas are still open and still preference-shaped |
+| **No UI-scale or base-font-size control anywhere** | ⬜ **Still true**, and still the one accessibility gap rather than a preference. `egui`'s `ctx.set_zoom_factor` is the mechanism and nothing calls it. Note `zoom_with_keyboard` is deliberately **off** (`app::configure_context`) because Ctrl+Plus means *page* zoom here, so a UI-scale control has no chord and belongs in Settings alone — which is where Inkscape puts it and where Acrobat has none |
+
+Still open and unexamined: **New document** — `file.new` always makes an A4
+from a baked-in template with no chooser, on a machine whose drawings are A1
+and A3. `file.new_from_template` is `PLANNED`.
+
+**★ The generalisation, which is the point of keeping this table.** A row in
+`NO_SURFACE.md` says *a value is hard-coded*. It does **not** say the value
+should become a control, and it does not say the value is correct. Of the four
+worked through, one had to stay hard-coded, one was a bug rather than a gap,
+one was blocked in the engine in a way the type signature actively conceals,
+and only part of one was the ordinary "build the surface" task it looked like.
+**The only way to tell is to read what consumes the value** — the same move
+that separates a registered command from an implemented one.
 
 ---
 

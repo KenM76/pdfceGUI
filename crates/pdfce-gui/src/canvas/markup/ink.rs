@@ -104,16 +104,45 @@
 //!
 //! ### 3.2 The tolerance is derived from the pen, not chosen
 //!
-//! [`SIMPLIFY_TOLERANCE_PTS`] is **0.5 pt**, and it is not a feel:
+//! The tolerance is a **quarter of the stroke width**, and it is not a feel:
 //! Ramer–Douglas–Peucker guarantees that no removed point lay further than ε from
 //! the line that replaced it, so ε is a bound on how far the *drawn centreline*
-//! can move. The stroke is drawn at [`super::PEN_WIDTH_PTS`] = 2 pt, i.e. a
-//! half-width of 1 pt. Setting ε to **half of that half-width** means the
-//! simplified centreline stays strictly inside the body of the stroke the raw
-//! trail would have drawn: no pixel of the mark can move outside the mark. That
-//! is the strongest statement available about a lossy simplification, and it is a
-//! *rule* — if the pen ever becomes an operator control, the tolerance follows it
-//! rather than being re-tuned by eye.
+//! can move. A stroke drawn at width *w* has a half-width of *w*/2. Setting ε to
+//! **half of that half-width** means the simplified centreline stays strictly
+//! inside the body of the stroke the raw trail would have drawn: no pixel of the
+//! mark can move outside the mark. That is the strongest statement available
+//! about a lossy simplification.
+//!
+//! At the shipped [`super::PEN_WIDTH_PTS`] of 2 pt that is
+//! [`SIMPLIFY_TOLERANCE_PTS`] = **0.5 pt**, which is what §3.3 measures.
+//!
+//! #### ★ …and this paragraph used to say the rule, and then the rule was broken
+//!
+//! It read: *"it is a rule — if the pen ever becomes an operator control, the
+//! tolerance follows it rather than being re-tuned by eye."* **The pen became an
+//! operator control on 2026-08-17 and the tolerance did not follow**, because it
+//! was a `const` and a `const` cannot follow anything. For a day, every freehand
+//! stroke was simplified against the *default* pen's width whatever pen the
+//! operator had set.
+//!
+//! At the thin end that changes what is authored and does it silently: a
+//! 0.25 pt pen — the width that exists to match a CAD sheet's own linework — has
+//! a 0.125 pt half-width, against which a fixed 0.5 pt ε is **four times** too
+//! loose. The centreline is then free to leave the stroke entirely, and the
+//! operator gets a curve they did not draw. The claim in the paragraph above was
+//! false for every pen but one.
+//!
+//! Fixed 2026-08-18: [`drag`] reads [`super::pen::Pen::simplify_tolerance_pts`],
+//! the derivation now lives on `Pen` beside the width it derives from, and
+//! `tests::the_guarantee_holds_at_every_width_the_operator_can_set` asserts the
+//! bound at both ends of the operator's range rather than at the shipped middle.
+//!
+//! **The lesson is not about ink.** A constant derived from another value is
+//! safe exactly as long as that value is also a constant. The moment the input
+//! becomes settable, the derivation stays pinned to the old input and *nothing
+//! about it looks wrong* — the expression still names the right thing. Writing
+//! down the rule for that day, as this paragraph did, turned out not to be
+//! enough; only a test that varies the input can notice.
 //!
 //! ### 3.3 What it measures out at
 //!
@@ -202,12 +231,36 @@ use crate::canvas::mapping::PageMapping;
 // ui-text-exempt: an `egui::Id` source string, never displayed.
 const INK_MEMORY_KEY: &str = "pdfce-markup-ink-trail";
 
-/// **The simplification tolerance, in PDF points** — the largest distance a
-/// removed point may have lain from the line that replaced it.
+/// **The simplification tolerance of the SHIPPED pen**, in PDF points — the
+/// largest distance a removed point may have lain from the line that replaced
+/// it.
 ///
 /// **0.5 pt, derived from the pen rather than chosen.** See §3.2: it is half of
 /// [`super::PEN_WIDTH_PTS`]'s half-width, so the simplified centreline stays
 /// strictly inside the body of the stroke the raw trail would have drawn.
+///
+/// # ★ This is no longer what the running code reads — 2026-08-18
+///
+/// [`drag`] calls [`super::pen::Pen::simplify_tolerance_pts`], which derives
+/// the same quarter-width from the pen the operator actually set. This constant
+/// remains as **the value the shipped pen implies**, which is what §3.3's
+/// measurement table is measured at and what the tests below sweep around; it
+/// is deliberately *not* deleted, because the measurements are meaningless
+/// without a named value to attach them to.
+///
+/// It was the live value until 2026-08-18 and by then it was stale: the pen
+/// became an operator control on 2026-08-17 and this `const` went on deriving
+/// itself from the *default* width. §3.2 had already written the rule for that
+/// day — *"if the pen ever becomes an operator control, the tolerance follows
+/// it"* — so the module predicted its own defect and then had it anyway,
+/// because a `const` cannot follow anything.
+///
+/// **The generalisable half:** a constant derived from another value is safe
+/// exactly as long as that value is also a constant. The moment the input
+/// becomes settable, the derivation is silently pinned to its old input, and
+/// nothing about it looks wrong — the expression still names the right thing.
+/// [`tests::the_shipped_constant_matches_the_shipped_pen`] is what now welds
+/// the two, so this cannot drift a second time.
 ///
 /// Measured retention at this value is in §3.3 and is asserted, with the RDP
 /// deviation bound, by [`tests::the_measured_retention_at_the_shipped_tolerance`].
@@ -337,7 +390,20 @@ pub(in crate::canvas) fn drag(
         trail.points.push(to);
     }
     let raw = trail.points.len();
-    let kept = simplify(&trail.points, SIMPLIFY_TOLERANCE_PTS);
+    // ★ The PEN's tolerance, not the shipped constant — §3.2's rule, honoured.
+    //
+    // This read `SIMPLIFY_TOLERANCE_PTS` until 2026-08-18, which was a `const`
+    // derived from the pen's *default* 2 pt width. At a 0.25 pt pen — the
+    // width that exists to match a CAD sheet's own linework — a fixed 0.5 pt
+    // tolerance is four times the stroke's half-width, so the simplified
+    // centreline can leave the body of the stroke entirely and the operator
+    // gets a visibly different curve from the one they drew. See
+    // `Pen::simplify_tolerance_pts` for the table.
+    //
+    // Read here rather than inside `simplify`, so that function stays a pure
+    // `(points, tolerance)` and its measurement tests can sweep the tolerance
+    // without constructing a pen.
+    let kept = simplify(&trail.points, pen.simplify_tolerance_pts());
     store(ctx, trail);
 
     if phase == Phase::InFlight {
@@ -857,6 +923,71 @@ mod tests {
         assert!(
             (SIMPLIFY_TOLERANCE_PTS - half_width / 2.0).abs() < 1e-6,
             "the simplified centreline must stay strictly inside the drawn stroke"
+        );
+    }
+
+    /// ★ **The guarantee holds at EVERY width the operator can set**, not just
+    /// at the shipped one.
+    ///
+    /// The test above was true and insufficient, and the gap between them is
+    /// the defect this pair now pins. It asserts a relation between two
+    /// *constants*, so it went on passing unchanged on 2026-08-17 when the pen
+    /// width became an operator control from 0.25 to 12 pt and the tolerance
+    /// stayed welded to the default 2 pt.
+    ///
+    /// At the thin end that is not a rounding difference: a 0.25 pt pen has a
+    /// 0.125 pt half-width, and a fixed 0.5 pt ε is **four times** it — so
+    /// Ramer–Douglas–Peucker is free to move the centreline clean outside the
+    /// stroke, and the operator gets a curve they did not draw. §3.2's whole
+    /// claim is *"no pixel of the mark can move outside the mark"*, and that
+    /// claim was false for every pen but one.
+    ///
+    /// This asserts it across the range, which is the only form that can
+    /// notice the input becoming settable again.
+    #[test]
+    fn the_guarantee_holds_at_every_width_the_operator_can_set() {
+        use super::super::pen::{MAX_WIDTH_PTS, MIN_WIDTH_PTS, Pen};
+
+        // The two ends and the shipped middle. The ends are what matter: a
+        // derivation that had been pinned to the default would pass at the
+        // middle and fail at both ends, which is exactly the shape of the
+        // defect.
+        for width in [MIN_WIDTH_PTS, super::super::PEN_WIDTH_PTS, MAX_WIDTH_PTS] {
+            let pen = Pen {
+                width_pts: width,
+                ..Pen::default()
+            };
+            #[allow(clippy::cast_possible_truncation)]
+            let half_width = (width as f32) / 2.0;
+            let tolerance = pen.simplify_tolerance_pts();
+            assert!(
+                (tolerance - half_width / 2.0).abs() < 1e-6,
+                "at a {width} pt pen the tolerance is {tolerance} pt but the \
+                 half-width is {half_width} pt — the simplified centreline can \
+                 leave the stroke it is meant to stay inside"
+            );
+        }
+    }
+
+    /// ★ The shipped constant and the shipped pen agree.
+    ///
+    /// The weld between the two halves of this module's tolerance story:
+    /// [`SIMPLIFY_TOLERANCE_PTS`] is the value §3.3's measurement table was
+    /// measured at, and [`super::super::pen::Pen::simplify_tolerance_pts`] is
+    /// what the running code reads. If they ever disagreed, the table would be
+    /// documenting a tolerance the shipped build does not use — a measurement
+    /// that is still *reproducible* and no longer *about* anything.
+    ///
+    /// The two are separate on purpose (the constant names a value, the method
+    /// derives one), so this is what stops them being separate in effect.
+    #[test]
+    fn the_shipped_constant_matches_the_shipped_pen() {
+        assert!(
+            (SIMPLIFY_TOLERANCE_PTS - super::super::pen::Pen::default().simplify_tolerance_pts())
+                .abs()
+                < 1e-6,
+            "§3.3's measurements are quoted against a tolerance the shipped \
+             build no longer uses"
         );
     }
 }

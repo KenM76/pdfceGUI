@@ -61,12 +61,56 @@ Colour and width are live as of `4035b64`. The rows below are what is left.
 | ~~Stroke width~~ | `2.0` pt | now `Pen::width_pts`, range 0.25–12 | ✅ **Markup ▸ Style** | — |
 | Fill | never authored — `border` only | `canvas/markup.rs` | ⛔ **design decision** — a filled comment hides the drawing it comments on | operator call |
 | Opacity | never authored at all | — | ⛔ **blocked on the engine** — `/CA` is not written | Markup ▸ Style, when it lands |
-| Arrow head length | `HEAD_LEN_PX = 14.0` | `canvas/markup/band.rs:193` | **none** | Format ▸ Arrowheads |
-| Arrow head angle | `HEAD_ANGLE = 0.42` rad | `canvas/markup/band.rs:195` | **none** | Format ▸ Arrowheads |
-| Ink simplification tolerance | 0.5 pt (`PEN_WIDTH_PTS / 4`) | `canvas/markup/ink.rs:214` | **none** | Settings ▸ (new) Markup |
-| Preview band alpha | 90 | `canvas/markup/band.rs:311` | **none** | — |
-| Ellipse tessellation | 48 segments | `canvas/markup/band.rs:183` | **none** | — |
+| ~~Arrow head length~~ | `HEAD_LEN_PX = 14.0` | `canvas/markup/band.rs` | ⛔ **MIS-FILED — it is the cursor, not the mark** | ~~Format ▸ Arrowheads~~ |
+| ~~Arrow head angle~~ | `HEAD_ANGLE = 0.42` rad | `canvas/markup/band.rs` | ⛔ same | ~~Format ▸ Arrowheads~~ |
+| ~~Ink simplification tolerance~~ | ~~0.5 pt fixed~~ | now `Pen::simplify_tolerance_pts` | ✅ **already settable — it follows the pen width**, and it was a live defect until 2026-08-18 |  — |
+| Preview band alpha | 90 | `canvas/markup/band.rs:311` | **none** — the cursor again | — |
+| Ellipse tessellation | 48 segments | `canvas/markup/band.rs:183` | **none** — the cursor again | — |
 | Author / subject / note text | not authored at all | — | **none** | Format ▸ Note text |
+
+### ★ Three of those rows were wrong, and in two different ways — 2026-08-18
+
+**The two arrowhead rows asked for a setting that must not exist.** They are
+screen-space **preview** constants, and `band.rs`'s own doc comment says so
+before the code does:
+
+> the head is part of the *cursor* … The committed annotation's own `/LE` head
+> is drawn by the appearance stream at whatever size the engine chooses; **this
+> is not a promise about that size, it is a statement about direction.**
+
+Exposing them would let an operator tune the arrowhead on the *rubber band* and
+change nothing about the arrow they author — a control whose readback is real
+and whose effect is imaginary. Worse, it would break the one thing the preview
+is for: the head is fixed in **screen** points precisely so it does not shrink
+to nothing at 25 % zoom and stop saying which end is the head.
+
+`Belongs: Format ▸ Arrowheads` was the mis-reading. `RIBBON_IA.md`'s Arrowheads
+group means the **annotation's** `/LE` style — open, closed, diamond, none — a
+document property that this shell does not author and that has nothing to do
+with these two numbers. Two rows that look identical in a table were a real gap
+and a category error.
+
+The same verdict covers the **preview band alpha** and the **ellipse
+tessellation** below them, for the same reason, which is why they are annotated
+rather than left blank.
+
+**The ink tolerance row was the opposite mistake: it was not a missing setting,
+it was a live defect.** `SIMPLIFY_TOLERANCE_PTS` was a `const` derived from
+`PEN_WIDTH_PTS`, the pen's *default* width — which was right until the pen
+became an operator control on 2026-08-17 and then silently stopped being right.
+At a 0.25 pt pen the fixed 0.5 pt tolerance is **four times** the stroke's
+half-width, so the simplification could move the drawn centreline outside the
+stroke and author a curve the operator did not draw. `ink.rs` §3.2 had written
+down the rule for that exact day — *"if the pen ever becomes an operator
+control, the tolerance follows it"* — and having written it down was not enough,
+because a `const` cannot follow anything. It now derives from the live pen and
+is asserted at both ends of the operator's range.
+
+**What to take from all three:** a row in this file says *a value is
+hard-coded*. It does **not** say the value should become a control, and it does
+not say the value is even correct. Three of these rows needed three different
+answers — *must not exist*, *already fixed by making it follow something else*,
+and *blocked* — and the only way to tell was to read what consumes the value.
 
 `canvas/markup.rs` named its own seam before the build: *"the seam for a real
 pen control is exactly this function: give it a colour and a width from the

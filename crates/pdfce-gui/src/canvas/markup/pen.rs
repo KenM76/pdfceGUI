@@ -140,6 +140,60 @@ impl Default for Pen {
 }
 
 impl Pen {
+    /// **The freehand simplification tolerance this pen implies**, in PDF
+    /// points — a quarter of the stroke width.
+    ///
+    /// # ★ This function exists because the constant it replaced went stale
+    /// the day the pen became a control
+    ///
+    /// `ink::SIMPLIFY_TOLERANCE_PTS` was `PEN_WIDTH_PTS / 4.0`, a `const`
+    /// derived from the pen's **shipped** width of 2 pt. That was exactly
+    /// right while the width was a constant, and `canvas::markup::ink`'s §3.2
+    /// wrote down what to do when it stopped being one:
+    ///
+    /// > it is a *rule* — **if the pen ever becomes an operator control, the
+    /// > tolerance follows it** rather than being re-tuned by eye.
+    ///
+    /// The pen became an operator control on 2026-08-17 and the tolerance did
+    /// not follow. This is that rule, honoured, and the module predicted its
+    /// own defect a day before it had it.
+    ///
+    /// # Why the stale value was wrong in a way an operator would see
+    ///
+    /// The derivation is not arbitrary. Ramer–Douglas–Peucker guarantees that
+    /// no removed point lay further than ε from the line replacing it, so ε
+    /// bounds how far the **drawn centreline** can move. Setting ε to half of
+    /// the stroke's *half*-width means the simplified centreline stays strictly
+    /// inside the body of the stroke the raw trail would have drawn: **no pixel
+    /// of the mark can move outside the mark.** That is the strongest statement
+    /// available about a lossy simplification, and it is the whole reason the
+    /// number is defensible rather than tuned.
+    ///
+    /// A fixed 0.5 pt breaks it in one direction and merely wastes work in the
+    /// other:
+    ///
+    /// | pen width | half-width | fixed ε = 0.5 | verdict |
+    /// |---:|---:|---:|---|
+    /// | 0.25 pt | 0.125 pt | **4× the half-width** | ⛔ the centreline can move well outside the stroke. An operator drawing a fine detail line gets a visibly different curve from the one they drew |
+    /// | 2 pt | 1 pt | 0.5 = half the half-width | ✅ the shipped case, and the only one that was ever right |
+    /// | 12 pt | 6 pt | 0.17× the half-width | ⚠ correct but pointlessly tight — keeps far more points than the guarantee needs |
+    ///
+    /// The thin-pen row is the one that matters: it is the direction that
+    /// **changes what is authored**, it is silent, and it is worst on exactly
+    /// the drawings this shell is for, where a 0.25 pt pen exists to match a
+    /// CAD sheet's own linework.
+    ///
+    /// # It lives here rather than in `ink`
+    ///
+    /// Because the rule is *"the tolerance follows the pen"*, and a derivation
+    /// kept beside the value it derives from cannot be forgotten when that
+    /// value changes — which is precisely what happened when it lived
+    /// elsewhere as a `const`.
+    #[must_use]
+    pub fn simplify_tolerance_pts(self) -> f32 {
+        (self.width_pts as f32) / 4.0
+    }
+
     /// The colour this kind is authored in.
     ///
     /// The one place the two-pens rule is applied. `MarkupKind::rgb`'s
