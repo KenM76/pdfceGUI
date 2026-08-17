@@ -619,6 +619,45 @@ can resolve to that is correct on both an accent fill and a panel. Emphasis
 belongs to layout and wording, or to an explicit `palette` colour chosen for
 the surface the text is actually on.
 
+### ★ The rule was broken again three days later, and now there is a gate
+
+**2026-08-17.** The Settings window was built and its seven group headings and
+thirteen setting titles used `.strong()`. On screen they were pale grey on pale
+grey while the radio labels beneath them read normally — the same picture as
+the six labels above, in a window whose whole job is to be read.
+
+It was found the same way, by capturing the running program, and the person who
+wrote it had read this entry. That is the finding worth keeping: **this rule was
+written down, in the file whose purpose is to stop repeats, and the document did
+not stop it.** A rule that lives only in prose is enforced exactly as often as
+somebody remembers to read the prose.
+
+So `tools/gates/check-strong-text.sh` now enforces it, and the exact form it
+enforces is narrower and more useful than the prose:
+
+> `.strong()` is a defect **unless an explicit `.color()` is within two code
+> lines of it.**
+
+That admits the two legitimate uses — `egui-shell`'s ribbon and dock tab labels,
+which are drawn *on* the accent fill, where `on_accent` is correct and R84 wants
+the weight because weight survives greyscale and colour-vision deficiency — and
+refuses everything else.
+
+**Its first real run found a third instance**, latent, in
+`egui-shell/src/ribbon/tabs.rs`: the weight and the colour were applied under
+two independent `if`s, so a `TabCues` with `emphasised_text` and not `filled`
+produced a bare `.strong()`. Unreachable through this crate's own `tab_cues`,
+which derives all four cues from one flag — and reachable by anyone building
+the struct by hand, which its own tests do. The guarantee rested on a
+coincidence between two lines. It is now nested, so the weight cannot be reached
+without the colour having been stated.
+
+The gate also had to learn something in that run: it measures its window in
+**code lines, not source lines**, because the safest shape of the fix had four
+lines of comment between the colour and the weight. A gate that failed a
+well-documented pairing while passing a terse one would push the next person to
+delete the explanation.
+
 ---
 
 ## D10 — The theme system is built, tested, gated, and never installed
@@ -686,6 +725,30 @@ Note this also means **every screenshot in `evidence/`, and every legibility and
 contrast assertion `ui-verify` has ever made against the running binary, was
 measured against the wrong palette.** The assertions were not wrong — the
 contrast they measured was real — but they were measuring `egui`, not pdfce.
+
+### ★ CLOSED 2026-08-17 — both halves, and the second is proved in pixels
+
+The first half was fixed on 2026-08-14 by calling `apply`. **The second half —
+*"there is also no way to choose a preset"* — was closed on 2026-08-17 when the
+Settings window landed.** `dialogs::settings::appearance` is the chooser; the
+per-frame install reads the token from the draft when the window is open and
+from the live settings otherwise, so a theme takes effect *as you click it* and
+Cancel puts it back.
+
+The evidence is `ui-verify --check settings_theme_takes_effect`, which drives
+the real binary with no document open, expands the Appearance group, clicks
+**Dark**, and measures the window's own body before and after:
+
+```text
+window body Rgb { r: 232, g: 232, b: 234 } -> Rgb { r: 45, g: 49, b: 54 }
+                (#E8E8EA — quiet's panel)      (mean channel drop 183)
+```
+
+That is the only oracle that could have said so. Every cheaper one was
+available throughout D10's shipped life and every one was green — the theme
+gate asserts a property of the *source*, the contrast gate renders pairs *from
+the theme* and never asks the application what it drew, and `FEATURES.md`
+ticked the row. D10's own summary was *"No test saw it."* One does now.
 
 ### Fix
 

@@ -76,6 +76,16 @@ pub mod dispatch;
 /// [`actions::Action::Open`]. The picker, the diagnostics seam that answers
 /// it without a human, and the dirty-document rule.
 pub mod files;
+
+/// ★ The per-frame update — `eframe`'s entry point, and the one order the
+/// frame's eleven steps may happen in.
+///
+/// Split out of this file on 2026-08-17 at rule R2's ceiling. The seam is the
+/// question each half answers: this file is *what the application is*, that one
+/// is *what happens sixty times a second*. Almost every comment in it is about
+/// sequence, which is the class of bug that needs a file of its own to be
+/// visible.
+pub mod frame;
 pub mod gating;
 pub mod keyboard;
 // Opening a document, closing it, and the three ways an open can fail. Split
@@ -94,6 +104,23 @@ pub mod recent;
 /// `OpenDoc` moves when one succeeds, and why the picker runs in the apply
 /// phase rather than in the dispatcher.
 pub mod save;
+
+/// ★ The operator's configuration, and the **funnel** that makes it reach the
+/// engine.
+///
+/// Not a struct-holder. Of the thirteen settings the old shell persisted,
+/// **nine were never read by anything** — they were saved, loaded, shown,
+/// edited, and then discarded at every call site that wrote
+/// `ExtractOptions::default()` or `RenderOptions::default()` or
+/// `SaveOptions::identity()`. This module owns the three replacements and a
+/// `syn` check that no other file may bypass them.
+pub mod settings;
+
+/// The host half of the Settings window — what pressing Save, Cancel or
+/// Restore defaults actually does, and the order the four consequences of a
+/// Save happen in.
+pub mod settings_window;
+
 pub mod state;
 pub mod status;
 /// Read mode and full screen — the two View ▸ Window verbs that change the
@@ -134,7 +161,20 @@ const DOCK_SLOT: &str = "dock"; // ui-text-exempt: trace slot name, never displa
 /// is for and, where it is not obvious, why it is *here* rather than inside
 /// [`state::OpenDoc`]. The rule of thumb: state that dies with the document
 /// lives on `OpenDoc`; state that outlives it lives here.
-#[derive(Default)]
+/// ## ★ No `Default`, as of 2026-08-17
+///
+/// It derived one until the settings store arrived, and nothing in the
+/// workspace ever called it — checked, not assumed. Removing it is the right
+/// answer rather than a workaround for `StoreLocation` having no `Default`:
+///
+/// A defaulted `PdfceApp` would have **no shell manifest, no command registry,
+/// no panel registry and no settings store** — a state [`PdfceApp::new`] can
+/// never produce and every method here assumes away. Deriving a constructor
+/// for an unreachable state is how a test ends up asserting something about a
+/// program that cannot exist, and this crate has a standing preference for
+/// making such states unrepresentable rather than merely unused.
+///
+/// `new()` is the constructor. It is the only one.
 pub struct PdfceApp {
     /// What, if anything, is open.
     pub status: Status,
@@ -293,6 +333,44 @@ pub struct PdfceApp {
     /// panel — it takes the frame, does one job, and leaves. The stance is
     /// about surfaces that hover over a document you are still working in.
     pub dialogs: crate::dialogs::DialogsState,
+
+    /// The operator's answers to the thirteen questions the PDF standard
+    /// declines to answer, live.
+    ///
+    /// # ★ This is the LIVE configuration, not what is on disk
+    ///
+    /// The distinction is load-bearing in one direction: when a save to disk
+    /// fails, the session still adopts the choice and says it will not survive
+    /// a restart. So this field can be ahead of the file, never behind it, and
+    /// the Settings window opens a draft from **this** rather than from a
+    /// re-read — an operator whose last save failed must be shown what pdfce is
+    /// actually doing, not what it wished it had written.
+    ///
+    /// Nothing reads these fields directly. Every consumer goes through
+    /// [`crate::app::settings::SettingsExt`], which is enforced by a `syn`
+    /// check rather than by convention — see that module's header for the nine
+    /// settings the old shell persisted and never honoured.
+    pub settings: pdfce_core::settings::Settings,
+
+    /// Where [`Self::settings`] is written, resolved once at start-up.
+    ///
+    /// Cloned from `pdfce_core::settings::resolve_store()`, which is memoised
+    /// per process — and that memoisation is a **correctness** property rather
+    /// than a performance one. This project's own 2026-08-13 report found the
+    /// symptom: two callers in one process disagreeing, the layout store
+    /// resolving `Portable` while the recent list resolved `PlatformFallback`,
+    /// so two files meant to sit beside each other did not. Holding the answer
+    /// here as well means the settings window's store-location line and the
+    /// save path cannot diverge even within one frame.
+    pub settings_store: pdfce_core::settings::StoreLocation,
+
+    /// The draft the Settings window is editing, if it is open.
+    ///
+    /// `None` is the normal state and the window renders nothing. `Some` is
+    /// both "the window is open" and "here is the working copy" — one field,
+    /// because two would admit the state where a window is open with no draft
+    /// behind it.
+    pub settings_draft: Option<crate::dialogs::settings::Draft>,
 }
 
 impl PdfceApp {
@@ -309,6 +387,10 @@ impl PdfceApp {
     /// not compiled in disappear from the ribbon rather than render as a
     /// dead control (`R8`, `SHELL_FRAMEWORK.md` §5b).
     #[must_use]
+    #[allow(
+        clippy::new_without_default,
+        reason = "a defaulted PdfceApp would have no shell manifest, no command registry, no                   panel registry and no settings store — a state this constructor can never                   produce and every method assumes away. See the type's own docs." // ui-text-exempt: lint justification, never displayed
+    )]
     pub fn new() -> Self {
         let mut commands = egui_shell::commands::CommandRegistry::new();
         crate::shell::commands::register(&mut commands);
@@ -439,6 +521,33 @@ impl PdfceApp {
             crate::app::recent::RecentFiles::load()
         };
 
+        // ★ Settings, loaded for real EXCEPT under `cfg(test)`, for exactly the
+        // reason the recent list above is.
+        //
+        // `Settings::load` never fails — a missing file, an unreadable one, a
+        // broken line or a newer schema all yield defaults with a reason in the
+        // report — so the risk here is not a crash. It is that a unit test
+        // would run against **the operator's own configuration**, so a suite
+        // that passes on this machine could fail on another because somebody
+        // had chosen `unmappable_code = omit`. A test asserting what the
+        // application does must not depend on what its user prefers.
+        //
+        // `settings_report` is deliberately dropped rather than stored. Its
+        // notes are a start-up disclosure — "line 4 is not a setting and was
+        // skipped" — which belongs in the status bar, and wiring that surface
+        // is a separate piece of work from making the settings reachable. What
+        // must not happen is the notes being *shown in a dialog*: a
+        // configuration problem may not stop pdfce opening a file.
+        let settings_store = if cfg!(test) {
+            pdfce_core::settings::StoreLocation {
+                path: None,
+                kind: pdfce_core::settings::StoreKind::None,
+            }
+        } else {
+            pdfce_core::settings::resolve_store()
+        };
+        let (settings, _report) = pdfce_core::settings::Settings::load(settings_store.clone());
+
         Self {
             status: Status::default(),
             shell,
@@ -458,6 +567,9 @@ impl PdfceApp {
             panels: crate::panels::PanelsState::default(),
             find: crate::find::FindState::default(),
             dialogs: crate::dialogs::DialogsState::default(),
+            settings,
+            settings_store,
+            settings_draft: None,
         }
     }
 
@@ -712,282 +824,6 @@ impl PdfceApp {
 /// canvas is free to interpret it.
 pub fn configure_context(ctx: &egui::Context) {
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
-}
-
-impl eframe::App for PdfceApp {
-    /// eframe 0.35's entry point is `ui`, **not** `update`.
-    ///
-    /// The trait hands a root [`egui::Ui`] rather than a [`egui::Context`]
-    /// (`eframe-0.35.0/src/epi.rs:176`), and panels are added *inside* that
-    /// `Ui` — `CentralPanel::show(ui, …)`, not `show(ctx, …)`. Anyone
-    /// arriving from an older eframe, or from a code sample, will write
-    /// `update` and get a "not a member of trait" error whose message does
-    /// not say what to write instead; hence this note.
-    ///
-    /// The context is cloned out at the top because the raster bookkeeping
-    /// needs it after the panel closure has ended, and `Ui::ctx()` borrows.
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-
-        // ★ Step 0 — install the theme. See `DEFECTS.md` D10.
-        //
-        // **This call did not exist until 2026-08-14**, and the whole theme
-        // subsystem — three presets, a palette, a role per colour, a
-        // rendered-pair contrast gate over five widget states, and a gate
-        // self-test — was compiled into the binary and never handed to the
-        // `Context`. Every colour an operator has ever seen in this shell was
-        // `egui`'s stock light style. Found by a `ui-verify` check sampling a
-        // pressed ribbon button and getting `egui`'s `selection.bg_fill`
-        // instead of the preset's.
-        //
-        // Two things are installed, and the second is the one whose absence
-        // was invisible: `apply` writes the palette into **both** of egui's
-        // light and dark `Style`s, and it stashes the whole `Theme` in
-        // `ctx.data` where `Theme::of` retrieves it. `egui-shell`'s ribbon,
-        // dock and splitter all call `Theme::of` for roles that have nowhere
-        // to live in an `egui::Style` — the content backdrop, the label
-        // plate. Without the stash they silently got the DEFAULT theme, so
-        // the framework's chrome and egui's widgets painted from two
-        // different palettes. `apply`'s own doc comment names that failure
-        // and calls it the thing the module exists to prevent.
-        //
-        // **Per frame, not once at startup**, which is what that doc
-        // prescribes: a theme change then takes effect immediately, with no
-        // restart and no cache to invalidate. It is a handful of field writes
-        // against a struct egui already owns.
-        //
-        // The preset is the default until the settings dialog is salvaged —
-        // it is the surface that would let an operator choose one, and it is
-        // still Class B in `SALVAGE.md`. A hard-coded preset here is
-        // therefore a placeholder in the honest sense: the *mechanism* is
-        // real and reachable, and only the chooser is missing.
-        egui_shell::theme::Theme::default().apply(&ctx);
-
-        // Step 1 — keyboard, before any widget can consume a key.
-        let page_count = match &self.status {
-            Status::Open(doc) => Some(doc.pages.len()),
-            _ => None,
-        };
-        let mut actions = keyboard::collect(&ctx, page_count);
-
-        // Step 1a — the chords the MANIFEST binds.
-        //
-        // ★ This is the second half of the one-owner-per-chord fix. The
-        // keymap is data — `egui-shell` deliberately does not dispatch it,
-        // because "the application owns the question of what has focus and
-        // what a chord means" — so until now every binding in it was a
-        // documented promise with nothing behind it, and `keyboard::collect`
-        // quietly bound two of the same chords to something else.
-        //
-        // `keyboard::commands` returns command *ids*, which go through the
-        // same dispatcher a ribbon click does. That is what makes a chord and
-        // its button incapable of disagreeing.
-        //
-        // Owned rather than borrowed (`Vec<String>`) because dispatching
-        // needs `&mut self` and the keymap lives in `self.shell`. It is empty
-        // on all but the handful of frames where a chord was actually
-        // pressed.
-        //
-        // ★ **Filtered by the active mode**, which is the keymap's share of
-        // the mode gate. Operator decision, 2026-08-14.
-        //
-        // The ribbon hides a tab and the canvas asks `Capabilities`; between
-        // them sat this, dispatching by id and consulting neither — so Read
-        // hid the Edit tab and `Ctrl+E` still reached `edit.text`. The rule
-        // lives in `modes::capability::offers_command`, beside the other
-        // statement of what a mode permits, rather than here: this is the
-        // choke point that *applies* it, and a second copy of the rule at the
-        // point of application is how the two come to disagree.
-        //
-        // Filtered rather than refused inside `dispatch_command`, because a
-        // command the mode does not offer is not a command that *failed* —
-        // there is nothing to report and nothing to trace as declined. The
-        // chord simply is not bound in this mode, which is what the operator
-        // sees: no tab, no button, no effect.
-        let chord_commands =
-            keyboard::commands(&ctx, self.shell.as_ref().and_then(|s| s.keymap.as_ref()));
-        let mode = self.ribbon.mode().map(str::to_owned);
-        for id in chord_commands {
-            if !modes::capability::offers_command(self.shell.as_ref(), mode.as_deref(), &id) {
-                crate::diag::trace(|| {
-                    format!(
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "chord-not-offered id={id} mode={}",
-                        mode.as_deref().unwrap_or("-")
-                    )
-                });
-                continue;
-            }
-            self.dispatch_command(&ctx, &id, &mut actions);
-        }
-
-        // Step 1b — the ribbon, above the canvas.
-        //
-        // Added before the `CentralPanel` because panel composition order is
-        // load-bearing for both geometry and Tab focus: a panel added later
-        // carves its space from what is left, so the canvas must be last or
-        // it takes the whole window and the ribbon draws over it.
-        //
-        // The shell executes nothing. `show` returns the handler tokens the
-        // operator invoked this frame, and they are translated into
-        // `Action`s here — the same one-choke-point discipline every other
-        // surface follows. A token with no arm yet is not an error; at S2
-        // most of the ribbon is scaffolding for behaviour that lands later,
-        // and `dispatch_token` says so per token rather than silently.
-        // ★ Read mode's whole effect is here: the ribbon and the docks are not
-        // added to the frame. Why it is not `mode.read`, why the status bar
-        // below stays and how the operator gets back out are all in [`window`];
-        // a composition step deciding any of that would be a second rule.
-        let chrome = window::draws_chrome(&ctx);
-        if chrome {
-            self.ribbon_band(ui, &mut actions);
-        }
-
-        // Step 1b² — the status bar, before the docks.
-        //
-        // **Order, not preference.** This module's own header states the rule
-        // the old shell was bitten by: *"a full-width bar must be added
-        // before any side panel, or it starts at the side panel's edge
-        // instead of spanning the window."* A status bar that stops at the
-        // dock is not a status bar.
-        //
-        // `exact_size`, never `default_height`: a content-driven status
-        // height and a per-frame fit-to-viewport zoom form a measured
-        // feedback loop — 230 % → 224 % → 215 % drift from a status line
-        // that grew (R128, `D:\dev\rag\egui\bottom_panel_height_...md`).
-        egui::Panel::bottom("status")
-            .exact_size(crate::app::status::HEIGHT_PTS)
-            .show(ui, |ui| {
-                // Two disjoint field borrows through `self`, as at the canvas
-                // call site below: the bar reads the status and writes the
-                // Find toggle's own state.
-                crate::app::status::show(ui, &self.status, &mut self.find, &mut actions);
-            });
-
-        // Step 1c — the docks, between the ribbon and the canvas.
-        //
-        // Order is load-bearing twice over. The ribbon is a full-width bar
-        // and must be added *before* any side panel, or it would start at
-        // the dock's edge instead of spanning the window. The canvas must
-        // be added *after* both, because a `CentralPanel` takes whatever is
-        // left and there must be something left for it to take.
-        if chrome {
-            self.docks(ui, &mut actions);
-        }
-
-        // Step 1c² — the debounced workspace write, dock drawn or not. ★ Moved
-        // out of `Self::docks` when read mode landed; [`window`] §3 has why the
-        // debounce belongs to the frame and what quitting from read mode would
-        // otherwise lose.
-        if let Some(after) = self.layout.tick(std::time::Instant::now()) {
-            ctx.request_repaint_after(after);
-        }
-
-        // Step 2 — compose. Nothing here mutates a document; surfaces push
-        // onto `actions`.
-        egui::CentralPanel::default().show(ui, |ui| {
-            // Declare the panel's own rect before drawing into it. This is
-            // the outermost named region the application owns, and it is the
-            // one a screenshot oracle uses to tell "the control is drawn but
-            // clipped out of its pane" from "the control is not drawn" —
-            // `PROJECT_PLAN.md` §4.2 prerequisite 2 records two cases where a
-            // traced rect was correct and the control was still clipped.
-            crate::diag::ui_rect(REGION_CENTRAL_PANEL, ui.max_rect());
-            self.central(ui, &mut actions);
-        });
-
-        // Step 2a² — the FIND OVERLAY, over the page.
-        //
-        // ★ After the canvas, and the order IS the placement. The box is an
-        // `egui::Area` positioned from the CANVAS VIEWPORT's rect, which
-        // `canvas::show` records through `zoom::remember_frame` as the last
-        // thing it does — so drawing it before the canvas would position this
-        // frame's box from last frame's layout, visible as a one-frame lag
-        // every time a dock splitter is dragged.
-        //
-        // Before the dialogs, because a modal takes the frame and must be over
-        // everything, this included.
-        //
-        // It draws nothing when the bar is closed and nothing when no document
-        // is open, so on the overwhelming majority of frames this line costs
-        // one boolean. Two disjoint field borrows through `self`, as at the
-        // canvas call site: `&mut self.find` and `&self.status`.
-        crate::find::bar::show(ui, &mut self.find, &self.status, &mut actions);
-
-        // Step 2a³ — drain any `Action::Command` raised by a surface that is
-        // not the ribbon, and route it through the one dispatch choke point.
-        //
-        // ★ Here, and not in the apply phase, and the position is the design.
-        //
-        // The Find bar's OCR offer is the first control outside the ribbon that
-        // means an existing *command* rather than a document change. Wiring it
-        // straight to `DialogsState::open_ocr` would have been one line and
-        // would have put `file.ocr`'s guards in two places — the failure this
-        // module's "one choke point for dispatch" invariant exists to prevent.
-        //
-        // It has to run **now** rather than at step 3 for two reasons, both
-        // hard rather than stylistic: `dispatch_command` needs an
-        // `&egui::Context` and the apply phase is deliberately given none, and
-        // a dialog opened by the dispatch must be drawn by `DialogsState::show`
-        // three lines below — on this frame, not the next one.
-        //
-        // The drain is unconditional and cheap: on the overwhelming majority of
-        // frames `actions` is empty and this is one `iter().any`. Dispatched
-        // commands may themselves raise actions, which is why the loop pushes
-        // into the same vector the apply phase will read.
-        if actions.iter().any(|a| matches!(a, Action::Command(_))) {
-            let mut invoked: Vec<String> = Vec::new();
-            actions.retain(|a| match a {
-                Action::Command(id) => {
-                    invoked.push(id.clone());
-                    false
-                }
-                _ => true,
-            });
-            for id in invoked {
-                self.dispatch_command(&ctx, &id, &mut actions);
-            }
-        }
-
-        // Step 2b — modal dialogs, LAST among the surfaces.
-        //
-        // After the canvas and the docks, because egui draws in call order
-        // and a dialog shown before them would be painted under the very
-        // content it is modal over. It takes `&self.status` so it can close
-        // itself when the document does — a print dialog outliving its
-        // document would offer to print pages that are gone.
-        self.dialogs.show(&ctx, &self.status);
-
-        // Step 2c — give every pending zoom an anchor, in ONE place.
-        //
-        // `ZoomIn`, `ZoomOut` and `ZoomTo` are raised from five call sites —
-        // `view.zoom_actual` in the dispatcher, the keyboard, and three
-        // status-bar controls. Anchoring them where they are raised would
-        // mean the same rule spelled six times, and a seventh surface added
-        // later would silently zoom to the top-left corner: the exact defect
-        // this closes, which is why it is one statement here rather than six
-        // there.
-        //
-        // The rule it applies lives in `canvas::zoom::anchor_point` and
-        // nowhere else: **a zoom holds one page point still, and that point
-        // is where the operator is looking** — the pointer when it is over
-        // the canvas, the viewport's centre when it is not.
-        //
-        // It skips an action whose anchor is already armed, so the framing
-        // verbs (fit, zoom-to-selection, region zoom) and the Ctrl+wheel keep
-        // the anchors they set deliberately.
-        if let Status::Open(doc) = &mut self.status {
-            crate::canvas::zoom::arm_for_actions(&ctx, doc, &actions);
-        }
-
-        // Step 3 — apply, after the frame is drawn.
-        let pixels_per_point = ctx.pixels_per_point();
-        self.apply_actions(actions, pixels_per_point);
-
-        // Step 4 — decide whether the picture on screen still matches the
-        // state that was just updated, and start a render if not.
-        self.settle_and_rasterize(&ctx, pixels_per_point);
-    }
 }
 
 impl PdfceApp {

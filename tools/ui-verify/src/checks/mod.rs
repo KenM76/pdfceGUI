@@ -194,6 +194,11 @@ pub mod ribbon_captions;
 /// phases and the different wrong build each one catches.
 pub mod save_copy;
 pub mod settings_headings;
+
+/// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
+/// operator could press chose one. Proved the only way a theme can be proved:
+/// two captures of one window, before and after the click.
+pub mod settings_theme;
 /// Marking a text selection — underline, strikeout, squiggly. The first
 /// commands in this shell whose operand is **not the pointer**, and therefore
 /// the first check that asserts a control is *correctly disabled* as well as
@@ -385,6 +390,15 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // print job will eventually start one by accident. The module header
         // states what that costs and why the cost is worth paying.
         Box::new(print_dialog::PrintDialogReachesTheSpooler),
+        // ★ Beside it because it is the same shape — two ribbon clicks into a
+        // dialog — and because both are checks whose subject is a control that
+        // was drawn and did nothing.
+        //
+        // It launches with NO fixture, deliberately: `file.settings` is
+        // application-scoped and must work with nothing open. That also makes
+        // it the cheapest driving check in the suite, so a run whose ribbon
+        // channel is broken says so here without paying for a render.
+        Box::new(settings_theme::SettingsThemeTakesEffect),
         // ★ Directly after it, and for the same dependency reason it sits
         // after the markup checks: this one also begins by arming Rectangle and
         // dragging, so a run in which the four-link arm chain is broken should

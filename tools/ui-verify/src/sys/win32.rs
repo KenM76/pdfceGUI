@@ -45,7 +45,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId,
-    IsWindowVisible, SW_SHOW, SetCursorPos, SetForegroundWindow, ShowWindow,
+    IsWindowVisible, SW_MAXIMIZE, SW_SHOW, SetCursorPos, SetForegroundWindow, ShowWindow,
 };
 
 use crate::coords::WindowFrame;
@@ -168,6 +168,38 @@ pub fn raise_window(w: WindowHandle) {
     unsafe {
         ShowWindow(w.hwnd(), SW_SHOW);
         SetForegroundWindow(w.hwnd());
+    }
+}
+
+/// Maximise the window.
+///
+/// # ★ Why a harness needs this, and what it stops being a false failure
+///
+/// A ribbon **overflows** when it is wider than its window: groups past the fold
+/// move into an overflow menu, and their controls stop publishing a rect. That
+/// is correct application behaviour and it is indistinguishable, from a check's
+/// point of view, from *"the control does not exist"*.
+///
+/// It was found the way these things are always found: `settings_theme` clicked
+/// the File tab, asked for `ribbon.item.file.settings`, and was told the tab
+/// published ten controls of which that was not one — because at the default
+/// window size the File tab's last two groups were in the overflow. The check
+/// would have reported a shipped feature as missing.
+///
+/// Maximising is the right fix rather than *"open the overflow menu"* for two
+/// reasons. A menu's contents are not published as regions, so a check could
+/// not aim at them anyway; and a maximised window is the state an operator
+/// running a drawing tool on a desktop is overwhelmingly in, so it is also the
+/// state most worth verifying.
+///
+/// What it costs is real and belongs in the record: a check that maximises is
+/// **not** testing the narrow-window layout. Whether every control survives a
+/// small window is a separate question and needs its own check.
+pub fn maximize_window(w: WindowHandle) {
+    // SAFETY: `w` is a handle this module produced. `ShowWindow` is
+    // side-effect-only and tolerates a stale handle by returning false.
+    unsafe {
+        ShowWindow(w.hwnd(), SW_MAXIMIZE);
     }
 }
 

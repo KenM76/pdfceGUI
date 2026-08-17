@@ -507,7 +507,19 @@ impl ThumbnailCache {
     ) -> Duration {
         let scale = raster_scale_for(page, pixels_per_point);
 
-        let mut options = pdfce_render::RenderOptions::default();
+        // ★ Through the funnel, not `RenderOptions::default()`.
+        //
+        // A thumbnail is a small picture of the same page the canvas draws, so
+        // it must obey the same five rendering settings — otherwise an operator
+        // who sets "black ink is black" gets a black drawing and a grey rail of
+        // thumbnails of it, which reads as a rendering bug rather than as a
+        // setting only half applied.
+        //
+        // What the funnel does NOT decide is on the next two lines, and that is
+        // the point of the split: annotations and layers are *this surface's*
+        // answer to what a thumbnail is for, and no setting may override them.
+        use crate::app::settings::SettingsExt;
+        let mut options = doc.settings.render_options();
         // Annotations always on, and the layer override deliberately absent
         // — the two decisions that make a thumbnail a *fixed overview* rather
         // than a second copy of the canvas.

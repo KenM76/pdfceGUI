@@ -76,7 +76,9 @@ use std::cell::{Cell, Ref, RefCell};
 use std::time::Instant;
 
 use pdfce_core::fontinfo::FontInventory;
-use pdfce_core::text_extract::{ExtractOptions, PageText};
+use pdfce_core::text_extract::PageText;
+
+use crate::app::settings::SettingsExt;
 
 use crate::app::state::OpenDoc;
 use crate::panels::objects::provider::ObjectModelProvider;
@@ -190,7 +192,7 @@ pub(in crate::app) struct PageTextCache {
     /// shape for the same reason.
     pub(in crate::app) built_for: Cell<Option<(usize, u64)>>,
     /// The extraction, or the engine's own reason it would not run.
-    text: RefCell<Option<Result<PageText, String>>>,
+    pub(in crate::app) text: RefCell<Option<Result<PageText, String>>>,
 }
 
 /// The document's font inventory, held for as long as the document is open.
@@ -471,17 +473,24 @@ impl OpenDoc {
             // `PageTextCache`'s header. The operator is dragging across glyphs
             // they can see, and the base revision may no longer describe them.
             //
-            // `ExtractOptions::default()` and not a customized one:
-            // `capture_provenance` is the substrate for *editing* text and this
-            // feature only reads it, and the derived word/line thresholds are
-            // the same ones `EditableTextModel` clusters lines with — a second
-            // set here would put the segmentation this shell paints and the
-            // segmentation core derives one step out of step.
+            // ★ Through the funnel, and NOT `ExtractOptions::default()`.
+            //
+            // This call site is why `crate::app::settings::SettingsExt` exists:
+            // it is the extraction the canvas's text selection, the find bar
+            // and `file.copy_page_text` all read, and a bare `::default()` here
+            // silently discarded three of the operator's settings — the word
+            // gap, the unmappable sentinel and the replacement-text precedence.
+            // The old shell had exactly this line and exactly that consequence.
+            //
+            // `capture_provenance` stays off: it is the substrate for *editing*
+            // text and this feature only reads it. `canvas::textedit` turns it
+            // on with `.with_provenance(true)` **on top of** the funnel's
+            // output, which is a modifier rather than a second construction.
             pdfce_core::text_extract::extract_page_view(
                 &self.session.view(),
                 page,
                 self.view.page_index,
-                &ExtractOptions::default(),
+                &self.settings.extract_options(),
             )
             .map_err(|e| e.to_string())
         });
@@ -536,6 +545,57 @@ impl OpenDoc {
             // the slot for this epoch, so `None` is not a reachable state.
             slot.as_ref().expect("just built for this epoch") // ui-text-exempt: panic message, never displayed
         })
+    }
+}
+
+impl OpenDoc {
+    /// ★ **Drop every value derived from a text extraction.**
+    ///
+    /// Called from `PdfceApp::adopt_settings` and from nowhere else, because
+    /// there is exactly one thing that invalidates these without also
+    /// invalidating everything: the operator changing a setting.
+    ///
+    /// # Why the ordinary staleness keys do not cover this
+    ///
+    /// Every cache in this module is keyed on document state — a page index, an
+    /// edit epoch. Those keys are complete for the question they were built to
+    /// answer, which is *"has the document changed under this?"*. They are
+    /// silent on *"has the configuration this was computed under changed?"*,
+    /// and three settings change what an extraction produces:
+    ///
+    /// | setting | what moves |
+    /// |---|---|
+    /// | `word_gap_ratio` | where spaces appear between words |
+    /// | `unmappable_code` | what stands in for undecodable text — **and whether a whole run survives at all** |
+    /// | `actual_text` | whether a document's own replacement text wins over the glyphs |
+    ///
+    /// The middle row is why this is not cosmetic. Under *Leave it out*, a run
+    /// whose codes are all unmappable **disappears entirely**, so a stale
+    /// extraction is not merely differently spaced — it can be missing content
+    /// that a find, a text selection or a redaction-by-pattern would then fail
+    /// to see. A cache holding one of those after the setting has changed is a
+    /// surface confidently reporting the wrong answer.
+    ///
+    /// # Why the keys are not extended instead
+    ///
+    /// Adding the settings to `built_for` would mean hashing a
+    /// `#[non_exhaustive]` struct from another crate into every key, and it
+    /// would spread the answer across three tuples that must each be updated
+    /// when a fourteenth setting arrives. Clearing at the one moment the
+    /// configuration changes is both cheaper and visible in one place — the
+    /// same reasoning `render::settle` applies to the raster keys.
+    ///
+    /// # What is NOT cleared, and why
+    ///
+    /// [`PageObjectCache`] and [`FontCache`] hold structure rather than text:
+    /// the object model's paint-order inventory and the document's font list.
+    /// No setting in the window changes either. They are left alone rather than
+    /// swept along for tidiness, because clearing a cache nothing invalidated
+    /// makes the next frame pay for a rebuild that changes nothing — and on the
+    /// benchmark sheet the object model is the expensive one.
+    pub(crate) fn invalidate_derived_text(&mut self) {
+        self.page_text.built_for.set(None);
+        *self.page_text.text.borrow_mut() = None;
     }
 }
 

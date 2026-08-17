@@ -728,7 +728,7 @@ impl PrintDialog {
         // The SAME builder the preview calls. See `render_options` for the
         // choices it encodes and why a second copy of them here would defeat
         // the preview's purpose.
-        let options = render_options(self.scope);
+        let options = render_options(self.scope, &doc.settings);
         let view = doc.session.view();
 
         let mut bitmaps = Vec::with_capacity(job.plans.len());
@@ -834,15 +834,34 @@ const US_LETTER_PORTRAIT_PT: (f64, f64) = (612.0, 792.0);
 /// - **The annotation scope IS the operator's**, because it is a statement
 ///   about the job rather than about the view.
 ///
-/// One choice the old shell encoded is missing here and its absence is not an
-/// omission: **the CMYK conversion intent**. `pdfce-core`'s settings surface
-/// does not exist in this crate yet, so there is no operator choice to carry.
-/// When it lands, it belongs here *and* in [`preview::PreviewKey`] in the same
-/// commit — otherwise the preview keeps showing a page rendered under the
-/// previous intent, which is the exact staleness class that key exists to
-/// close.
-fn render_options(scope: pdfce_render::AnnotationScope) -> pdfce_render::RenderOptions {
-    pdfce_render::RenderOptions::default().with_annotation_scope(scope)
+/// ## ★ The settings surface landed, and this paragraph is what it changed
+///
+/// This doc comment used to say:
+///
+/// > One choice the old shell encoded is missing here and its absence is not an
+/// > omission: **the CMYK conversion intent**. `pdfce-core`'s settings surface
+/// > does not exist in this crate yet, so there is no operator choice to carry.
+/// > When it lands, it belongs here *and* in [`preview::PreviewKey`] in the
+/// > same commit — otherwise the preview keeps showing a page rendered under
+/// > the previous intent, which is the exact staleness class that key exists to
+/// > close.
+///
+/// It landed on 2026-08-17 and both halves were done together, as instructed.
+/// The options now come from `crate::app::settings::SettingsExt`, which carries
+/// **five** settings rather than the one that note anticipated — the CMYK
+/// intent, the mask resampling filter, the minification filter, the CMYK JPEG
+/// polarity, and what is drawn for an annotation with no stated appearance
+/// state. That last one reaches paper as well as the screen, which is why its
+/// radius line in the settings window is the only one that separately names
+/// printing.
+///
+/// [`preview::PreviewKey`] gained the same five, for the reason that note gave.
+fn render_options(
+    scope: pdfce_render::AnnotationScope,
+    settings: &pdfce_core::settings::Settings,
+) -> pdfce_render::RenderOptions {
+    use crate::app::settings::SettingsExt;
+    settings.render_options().with_annotation_scope(scope)
 }
 
 #[cfg(test)]

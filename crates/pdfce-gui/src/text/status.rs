@@ -488,6 +488,39 @@ pub fn save_copy_failed() -> &'static str {
     "⊗ The copy was not written — check that the folder exists and can be written to"
 }
 
+/// Shown when the Settings window's Save reached no disk.
+///
+/// # ★ Why this is not [`save_copy_failed`]'s sentence, though both are writes
+///
+/// Because the two have to say **opposite things about the operator's work**,
+/// and getting that backwards costs them either their trust or their time.
+///
+/// A failed save-a-copy produced no file: nothing happened, and the operator
+/// should try again. A failed settings save is the reverse — pdfce **adopted
+/// the configuration anyway**, deliberately, because a disk that refuses should
+/// not cost somebody a choice they deliberately made. So what is true is *"this
+/// is in force now, and it will be gone when you restart"*, and the sentence
+/// has to carry both halves or it is misleading in one direction or the other:
+///
+/// - Say only "settings were not saved" and the operator makes the choice
+///   again, or concludes the setting does not work.
+/// - Say only "settings applied" and they restart and lose it silently, which
+///   is the failure the whole store exists to prevent.
+///
+/// # Why the reason is not in the sentence
+///
+/// The store's `SaveError` has a `Display` — *"no writable location"*, *"could
+/// not write settings to {path}: {reason}"* — and it is a developer's sentence,
+/// not an operator's. It goes to the trace beside the store kind, from
+/// `crate::app::settings_window`. The operator's actionable half is *the
+/// folder*, and the settings window itself states which folder that is, on a
+/// line it draws every time it opens.
+#[must_use]
+pub fn settings_not_saved() -> &'static str {
+    "⊗ Your choices are in use now but could not be written down — they will be \
+     gone when pdfce restarts"
+}
+
 /// Shown when `edit.undo` was invoked and the command log was empty.
 ///
 /// # Why this sentence exists at all, when the control is greyed

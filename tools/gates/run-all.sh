@@ -108,11 +108,16 @@ echo ""
 # --- 0. the gates prove they can fail, before their verdicts are believed ---
 run "check-ui-strings --self-test"  bash "$HERE/check-ui-strings.sh" --self-test
 run "check-theme-colors --self-test" bash "$HERE/check-theme-colors.sh" --self-test
+run "check-strong-text --self-test" bash "$HERE/check-strong-text.sh" --self-test
 run "check-shipped-assets --self-test" bash "$HERE/check-shipped-assets.sh" --self-test
 
 # --- 1. the gates themselves ------------------------------------------------
 run "check-ui-strings"   bash "$HERE/check-ui-strings.sh"
 run "check-theme-colors" bash "$HERE/check-theme-colors.sh"
+# ★ DEFECTS.md D11, mechanised. The rule was written on 2026-08-14 and broken
+# again on 2026-08-17 by someone who had read it; a rule that lives only in a
+# document is enforced as often as somebody remembers to read it.
+run "check-strong-text" bash "$HERE/check-strong-text.sh"
 run "check-file-size"    bash "$HERE/check-file-size.sh"
 run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
 run "check-shipped-assets" bash "$HERE/check-shipped-assets.sh"

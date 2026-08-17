@@ -195,19 +195,47 @@ const PREVIEW_TEXTURE_ID: &str = "pdfce-print-preview"; // ui-text-exempt: inter
 /// turn the page. So the key stays as it is, and putting orientation in it
 /// would throw the cache away on every radio click for nothing.
 ///
-/// **Two fields the old shell's key carried are absent because their inputs
-/// do not exist in this crate yet**: a font-environment generation (nothing
-/// here lets an operator name a font folder) and the CMYK conversion intent
-/// (no settings surface). `crate::render::worker`'s header states the rule
-/// they are absent under — *the key ships in the same commit as its control*
-/// — and this key must gain both in the same commit as those surfaces, or the
-/// preview will keep showing a page rendered under the previous choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// ## ★ The settings field, added 2026-08-17 in the commit that added its control
+///
+/// This paragraph used to read:
+///
+/// > **Two fields the old shell's key carried are absent because their inputs
+/// > do not exist in this crate yet**: a font-environment generation (nothing
+/// > here lets an operator name a font folder) and the CMYK conversion intent
+/// > (no settings surface). … this key must gain both in the same commit as
+/// > those surfaces, or the preview will keep showing a page rendered under the
+/// > previous choice.
+///
+/// The settings surface landed and the field landed with it, as instructed. It
+/// covers **five** rendering settings rather than the one that note anticipated
+/// — see [`crate::app::settings::SettingsExt::render_options`].
+///
+/// A **font-environment generation is still absent**, and still for the stated
+/// reason: nothing in this build lets an operator name a font folder, so there
+/// is no input to key on. `tools.font_folders` is registered with no dispatch
+/// arm; the day it gains one, this key gains a field in the same commit.
+///
+/// ### Why the whole `Settings` and not the five fields it reads
+///
+/// Because listing five would be a second statement of which settings affect a
+/// render — one here and one in `SettingsExt::render_options` — and the failure
+/// mode of the two disagreeing is silent: a sixth rendering setting added to
+/// the funnel and not to this list produces a preview that never updates, with
+/// no error anywhere. Keying on the whole value cannot drift, and the cost is a
+/// `String` comparison on a cache hit against a rasterisation on a miss.
+///
+/// This is why the type is `Clone`/`PartialEq` rather than `Copy`/`Eq`: the
+/// settings carry the theme token, which is a `String`. The theme is not a
+/// rendering input, but excluding it would mean naming fields again.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct PreviewKey {
     /// Which document page (0-based).
     page: usize,
     /// Which annotation classes are painted.
     scope: pdfce_render::AnnotationScope,
+    /// The operator's configuration, whole — see the type's own docs on why it
+    /// is not the five rendering fields spelled out.
+    settings: pdfce_core::settings::Settings,
 }
 
 /// Everything the preview needs that is NOT the dialog's own state.
@@ -687,6 +715,7 @@ fn texture_for(
     let key = PreviewKey {
         page,
         scope: dialog.scope,
+        settings: inputs.doc.settings.clone(),
     };
     if let Some((cached, texture)) = &dialog.preview_texture
         && *cached == key
@@ -698,7 +727,7 @@ fn texture_for(
     // The SAME builder the spooler calls. See `super::render_options` for the
     // choices it encodes and why a second copy of them here would defeat the
     // preview's entire purpose.
-    let options = super::render_options(dialog.scope);
+    let options = super::render_options(dialog.scope, &inputs.doc.settings);
     // `session.view()`, NOT `session.document()` — the view composes the
     // overlay and the staging buffer, so unsaved edits are what the operator
     // is about to print.

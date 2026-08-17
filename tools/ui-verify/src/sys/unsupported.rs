@@ -53,6 +53,11 @@ pub fn window_frame(_w: WindowHandle) -> Result<WindowFrame> {
 /// No-op: there is nothing to raise.
 pub fn raise_window(_w: WindowHandle) {}
 
+/// Does nothing. See [`raise_window`] for why the no-op stubs are silent while
+/// the reading ones refuse: a check that cannot maximise still runs, it just
+/// runs against whatever size the window happened to open at.
+pub fn maximize_window(_w: WindowHandle) {}
+
 /// Always refuses.
 pub fn cursor_position() -> Result<(i32, i32)> {
     refuse("reading the pointer position")

@@ -241,6 +241,33 @@ impl Session {
         }
     }
 
+    /// Maximise the window, so a ribbon control past the fold is on screen
+    /// rather than in the overflow menu.
+    ///
+    /// # ★ Call this before looking for a control the tab lists LAST
+    ///
+    /// A ribbon overflows when it is wider than its window, and a control in
+    /// the overflow **stops publishing a rect** — which a check cannot tell
+    /// apart from a control that does not exist. `settings_theme` found this
+    /// the hard way: it asked the File tab for `ribbon.item.file.settings`, was
+    /// handed ten controls ending at `file.print`, and would have reported a
+    /// shipped feature as missing.
+    ///
+    /// It is opt-in per check rather than done on every launch, because a
+    /// maximised window is a **different layout**, and several checks measure
+    /// things — the canvas rect, the find bar's placement, the page strip — for
+    /// which the size is part of the subject. Making it universal would change
+    /// what those are testing without changing a line of them.
+    ///
+    /// A no-op on platforms with no window control, exactly as [`Self::raise`]
+    /// is: a check that cannot maximise still runs, against whatever size the
+    /// window opened at.
+    pub fn maximize(&self) {
+        if let Some(w) = self.window {
+            sys::maximize_window(w);
+        }
+    }
+
     /// Read and parse everything the application has written so far.
     ///
     /// Safe to call while it is still running: the trace goes to stderr

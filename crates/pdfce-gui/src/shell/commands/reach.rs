@@ -166,15 +166,14 @@
 //! (`RIBBON_IA.md` P3: "An unavailable capability renders nothing, not a
 //! disabled stub").
 //!
-//! **It is now 31 and 8.** Three of the eleven were wired the next day rather
+//! **It is now 30 and 8.** Three of the eleven were wired the next day rather
 //! than argued for: `view.read_mode` and `view.fullscreen` (`app::window` — and
 //! `view.read_mode` was first established *not* to be a duplicate of
 //! `mode.read`, which would have made deletion the honest answer instead), and
 //! `tools.render_diagnostics` (`dialogs::diagnostics`, the readout moved off the
 //! status bar to a surface with room for it). A fourth, `view.show_points`, was
-//! investigated and **deliberately left here**: the reason it had none was that
-//! there is nothing for it to show — see its entry — which is a better outcome
-//! than a toggle that toggles nothing.
+//! investigated and **deliberately left here**: there is nothing for it to show,
+//! which is a better outcome than a toggle that toggles nothing.
 //!
 //! ★ **35 → 33 on 2026-08-15**, and this pair is the clearest illustration of
 //! what this list is for. `edit.redact` and `edit.redact_apply` were registered,
@@ -209,6 +208,17 @@
 //! follower disposition D4b records the old shell as never having chosen. Both
 //! entries were deleted rather than reworded. Neither carried a `★ P3` mark, so
 //! that subset is unchanged at 8.
+//!
+//! ★ **31 → 30 on 2026-08-17** — one entry with the longest reach on the list.
+//! `file.settings` was drawn on File ▸ pdfce and inert, and its blast radius
+//! was far wider than one control: it was the surface through which **thirteen
+//! engine settings** and the **three shipped themes** were chosen, which is why
+//! `DEFECTS.md` D10 named this entry as what stopped its second half being
+//! fixable. Its removal changed more code outside this module than any other
+//! entry's, because a dialog that lets an operator *choose* a setting is
+//! worthless unless something *reads* it — nine of the thirteen were being
+//! discarded at call sites building their own option structs, so
+//! `crate::app::settings` landed with it. No `★ P3` mark; that subset stays 8.
 //!
 //! The instructive part is the contrast with the pair above. `edit.redact`'s
 //! reason was a *blocker* — a proof that lived elsewhere — and blockers expire
@@ -335,14 +345,6 @@ pub(super) const SCAFFOLDED: &[(&str, &str)] = &[
          three modes since 2026-08-14); create field, flatten and FDF/XFDF/CSV still ⬜” — \
          and this command IS the FDF/XFDF/CSV half. Filling a form and serialising the \
          values to a foreign format are different builds; the first shipped.",
-    ),
-    (
-        "file.settings",
-        "Blocked on the settings dialog, which is salvaged-but-unbuilt. `FEATURES.md`: \
-         “Settings dialog — the spec-ambiguity model, plus the new Render group” (⬜), and \
-         the theme row states the live consequence in its own words: “The preset is not yet \
-         choosable — that is the settings dialog, still unsalvaged.” An arm here would open \
-         a window this build does not have.",
     ),
     (
         "file.shortcuts",
@@ -1470,7 +1472,7 @@ pub const FX_CONST: &str = "fx.constant";
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
         assert_eq!(
-            total, 31,
+            total, 30,
             "the allow-list holds {total} entries; this module's header quotes the \
              figure, so move both together"
         );

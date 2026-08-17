@@ -169,7 +169,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdfce_core::writer::{SaveOptions, SaveReport, WriteError};
+use pdfce_core::writer::{SaveReport, WriteError};
 
 use crate::app::files::{self, Picked};
 use crate::app::state::OpenDoc;
@@ -319,7 +319,24 @@ fn write_and_report(doc: &OpenDoc, target: &Path) {
 /// document pdfce cannot express as an update, the other is a folder that does
 /// not exist or cannot be written to.
 fn write_copy(doc: &OpenDoc, target: &Path) -> Result<SaveReport, SaveError> {
-    let (bytes, report) = doc.session.to_incremental_bytes(&SaveOptions::default())?;
+    // ★ Through the funnel, not `SaveOptions::default()`.
+    //
+    // Two settings ride on this — the cross-reference entry line ending and the
+    // trailing newline — and both change the bytes of the file the operator is
+    // about to receive. A bare `::default()` here would honour neither, which is
+    // exactly what the old shell did: `xref_entry_eol`'s whole default was
+    // changed on an operator ruling because a fixed form produced a
+    // ten-thousand-byte diff on an unedited file, and the GUI could not honour
+    // anything but the default anyway.
+    //
+    // The producer policy is the funnel's, which is `Preserve` — carried over
+    // from `identity()` rather than chosen, because what pdfce writes into
+    // `/Producer` is a decision about attribution rather than about bytes and
+    // no setting governs it.
+    use crate::app::settings::SettingsExt;
+    let (bytes, report) = doc
+        .session
+        .to_incremental_bytes(&doc.settings.save_options())?;
     std::fs::write(target, &bytes)?;
     Ok(report)
 }

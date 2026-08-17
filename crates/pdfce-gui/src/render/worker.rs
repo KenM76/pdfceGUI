@@ -461,6 +461,26 @@ pub struct RenderRequest {
     /// reproduces the content-only raster, which is what View ▸ Display's
     /// `view.show_annotations` exists to ask for.
     pub annotations: bool,
+    /// ★ The operator's configuration, as of the frame this request was built.
+    ///
+    /// **Five of the thirteen settings change what a rasterization looks
+    /// like** — the CMYK intent, the mask resampling filter, the minification
+    /// filter, the CMYK JPEG polarity, and what is drawn for an annotation
+    /// with no stated appearance state — and until 2026-08-17 not one of them
+    /// reached this worker. The old shell had the same hole: every setting in
+    /// that group was persisted, shown in a window, edited by the operator,
+    /// and then discarded here by a bare `RenderOptions::default()`.
+    ///
+    /// It is **not** a staleness key, and that is a decision. Adding it to
+    /// [`RenderKey`] would mean deriving `Hash`/`Eq` over a struct that is
+    /// `#[non_exhaustive]` in another crate, and the invalidation it would buy
+    /// already happens explicitly: `app::settings_window` drops every cached
+    /// raster the moment a Save is adopted, which is both more direct and
+    /// visible in one place rather than emergent from a key comparison.
+    ///
+    /// Carried by value so the worker thread owns it. See
+    /// `OpenDoc::render_request_for` for why it is cloned rather than shared.
+    pub settings: pdfce_core::settings::Settings,
     /// The operator's optional-content override, or `None` to obey the
     /// document's own default configuration (§8.11.4.3).
     ///
@@ -722,13 +742,21 @@ impl Drop for RenderWorker {
 
 /// The worker body. Runs on the spawned thread; touches no GUI type.
 fn render_on_worker(request: &RenderRequest, cancel: &RenderCancel) -> Outcome {
-    let mut options = pdfce_render::RenderOptions::default();
-    // Everything NOT set here keeps its `RenderOptions` default
-    // deliberately — see the module docs' salvage note: the bundled font
-    // environment (reproducible on any machine), the operator-ruled CMYK
-    // intent, and `None` view magnification (the print-correct answer,
-    // T-12.8). Each becomes a request field when a surface exists to vary
-    // it, not before.
+    // ★ Through the funnel, never `RenderOptions::default()`.
+    //
+    // `crate::app::settings::SettingsExt` is the one place that turns the
+    // operator's configuration into render options, and a `syn` check in that
+    // module fails the build if any other file constructs these itself. The
+    // reason is the defect it replaced: a bare `::default()` here is correct
+    // in isolation and silently discards five settings, which is exactly how
+    // the old shell came to persist nine settings it never read.
+    //
+    // Everything NOT set below keeps whatever the funnel produced: the bundled
+    // font environment (reproducible on any machine) and `None` view
+    // magnification (the print-correct answer, T-12.8). Each becomes a request
+    // field when a surface exists to vary it, not before.
+    use crate::app::settings::SettingsExt;
+    let mut options = request.settings.render_options();
     options.cancel = Some(cancel.clone());
     options.annotations = request.annotations;
     // Cloned rather than moved because the worker takes the request by

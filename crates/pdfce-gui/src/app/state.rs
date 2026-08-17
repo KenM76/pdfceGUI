@@ -210,6 +210,35 @@ pub enum Origin {
 
 /// One open document and everything the shell knows about looking at it.
 pub struct OpenDoc {
+    /// ★ **The operator's configuration, as this document's derived data was
+    /// computed under it.**
+    ///
+    /// # Why a snapshot lives here at all, when the live answer is on `PdfceApp`
+    ///
+    /// Because everything this type caches was produced under *some* settings,
+    /// and the question every consumer actually asks is not "what are the
+    /// settings?" but "what were the settings when this cache was filled?".
+    /// Five of the thirteen change what a rasterization looks like and three
+    /// change what an extraction produces, so a page texture, a strip entry and
+    /// a page-text cache are all derived values with a configuration baked into
+    /// them.
+    ///
+    /// Keeping the snapshot beside them makes that explicit and makes the
+    /// invalidation one act rather than two: `PdfceApp::adopt_settings` writes
+    /// this field **and** drops every cache in the same function, so there is
+    /// no state in which the snapshot and the derived data disagree. A
+    /// threaded `&Settings` would give the *renderer* the right answer while
+    /// leaving a cached texture that was drawn under the old one — the same
+    /// answer arriving by two routes, which is the shape of bug this project
+    /// keeps finding.
+    ///
+    /// # It starts as the shipped defaults, and that is not the operator's
+    ///
+    /// `assemble` cannot reach `PdfceApp`. Every real open path calls
+    /// `adopt_settings` immediately afterwards, and
+    /// `PdfceApp::tests::opening_a_document_gives_it_the_operators_settings`
+    /// is what stops a fourth open path forgetting to.
+    pub(crate) settings: pdfce_core::settings::Settings,
     /// Where it came from — or, for a created document, what it is called.
     ///
     /// Read by [`PdfceApp::open_path`], which hands it to
@@ -561,6 +590,12 @@ impl OpenDoc {
             ),
         };
         Self {
+            // The shipped defaults, replaced immediately by
+            // `PdfceApp::adopt_settings` on every path that can reach the
+            // operator's own. `assemble` cannot see `PdfceApp`, and giving it
+            // an argument for this would mean every test constructing an
+            // `OpenDoc` had to state a configuration it does not care about.
+            settings: pdfce_core::settings::Settings::default(),
             path,
             origin,
             session: Arc::new(session),
@@ -833,6 +868,21 @@ impl OpenDoc {
             annotations: self.annotations,
             layers: self.layer_visibility(),
             layers_generation: self.layers.generation,
+            // ★ The SNAPSHOT, not a live read — see the field's own docs.
+            //
+            // The worker runs on another thread and may finish after the
+            // operator has changed a setting, so what it must be given is the
+            // configuration this document's caches are keyed to. Handing it a
+            // live value would produce a texture drawn under settings that no
+            // cached neighbour shares, and nothing would notice: the render key
+            // does not carry the settings, because `adopt_settings` drops every
+            // cache instead, which is the more direct mechanism and the visible
+            // one.
+            //
+            // Cloned rather than shared: one `String` and twelve `Copy` fields,
+            // paid once per render request, against a rasterization measured in
+            // tens of milliseconds.
+            settings: self.settings.clone(),
         })
     }
 

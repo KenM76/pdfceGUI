@@ -190,6 +190,38 @@ pub(crate) enum Declined {
     /// `crate::app::save`; see [`crate::text::status::save_copy_failed`] for why
     /// a `Display` impl's prose is not operator copy.
     SaveFailed,
+    /// **The Settings window's Save wrote nothing.**
+    ///
+    /// # ★ Why this is not [`Self::SaveFailed`], although both are failed writes
+    ///
+    /// Because the two sentences have to say opposite things about what
+    /// happened to the operator's work.
+    ///
+    /// A failed `file.save_copy` produced **no file**: the operator asked for
+    /// something and got nothing, and there is no partial state to explain.
+    ///
+    /// A failed settings save is the opposite shape. The application **adopted
+    /// the configuration anyway** — deliberately, because the operator asked
+    /// for it and a disk that refuses should not cost them a choice they made —
+    /// so what is true is *"this is in force now and will be gone when pdfce
+    /// restarts"*. Reusing the save-a-copy sentence would tell them their
+    /// choice did not take, which is false, and they would make it again.
+    ///
+    /// Sharing a variant would also make the two indistinguishable in the one
+    /// place it matters: an operator who pressed Save in two different windows
+    /// in one minute.
+    ///
+    /// # Retired by the operator's next command, like its neighbour
+    ///
+    /// [`Self::still_true`] answers `true` unconditionally, for the same reason
+    /// `SaveFailed` does: the folder is not going to become writable on the
+    /// next frame, and if it did, the sentence would still be a true report of
+    /// what happened when Save was pressed.
+    ///
+    /// The engine's own reason is **not** carried — it goes to the trace from
+    /// `crate::app::settings_window`, which is where the store location is also
+    /// recorded. A `Display` impl's prose is not operator copy.
+    SettingsNotSaved,
     /// **`edit.undo` was invoked with an empty command log.**
     ///
     /// # ★ Why this is worded when the control that raises it is greyed
@@ -299,7 +331,7 @@ impl Declined {
             // which `retire` catches. See the variant's own docs; the two
             // parameters are deliberately ignored rather than being joined by a
             // third that would always be `true`.
-            Self::SaveFailed => true,
+            Self::SaveFailed | Self::SettingsNotSaved => true,
             // ★ The stack filled up. Something was authored — or, for redo,
             // something was undone — and the sentence is now history, exactly
             // as `NothingToFrame` is once something is selected. The operator
@@ -321,6 +353,7 @@ impl Declined {
             Self::NothingToFrame => t::zoom_declined_no_selection(),
             Self::CanvasNotDrawn => t::zoom_declined_not_drawn(),
             Self::SaveFailed => t::save_copy_failed(),
+            Self::SettingsNotSaved => t::settings_not_saved(),
             Self::NothingToUndo => t::undo_declined_empty(),
             Self::NothingToRedo => t::redo_declined_empty(),
         }
@@ -410,6 +443,26 @@ pub(crate) fn record(outcome: ZoomOutcome) {
 /// [`retire`] before its own arm runs.
 pub(crate) fn record_save_failure() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::SaveFailed));
+}
+
+/// Record that the Settings window's Save reached no disk.
+///
+/// Called from `crate::app::settings_window::save_settings`, and **only** on
+/// the failure path — there is deliberately no matching "the settings saved"
+/// call. A successful settings save is not narrated for the same reason a
+/// successful save-a-copy is not: the operator pressed a button in a window
+/// they were looking at, the window closed, and a sentence telling them so
+/// would narrate what they just did.
+///
+/// # ★ What must be true at the call site before this is reached
+///
+/// The configuration has **already been adopted**. That ordering is the whole
+/// meaning of [`Declined::SettingsNotSaved`]'s sentence, and calling this
+/// before the adoption — or instead of it — would make the sentence a lie in
+/// the more damaging direction: the operator would be told their choice is
+/// in force for this session when it is not.
+pub(crate) fn record_settings_not_saved() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::SettingsNotSaved));
 }
 
 /// Record that `edit.undo` or `edit.redo` arrived with an empty stack.

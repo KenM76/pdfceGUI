@@ -117,6 +117,16 @@ pub mod redact;
 /// The ribbon's structural strings: tab labels and questions, group
 /// captions, mode labels. Consumed by `crate::shell::manifest`.
 pub mod ribbon;
+
+/// Every word the Settings window shows — the thirteen spec-ambiguity choices,
+/// what each leaves open, and what each costs.
+///
+/// The one area of this catalog with a rule of its own: a string here must be
+/// readable by someone who has never opened the PDF standard, because the
+/// operator is being asked to make a judgement and a judgement cannot be made
+/// from a clause number.
+pub mod settings;
+
 /// Every string the status bar shows. Consumed by `crate::app::status`.
 pub mod status;
 

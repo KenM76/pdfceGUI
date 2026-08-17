@@ -351,13 +351,41 @@ fn draw_tab(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, tab: &Tab, is_active: bool) ->
     // Keeping `Button::selectable` rather than hand-painting preserves the
     // inactive tab's *unplated* look, the truncation promise, the sizing
     // and the `Response`; only the two colours are taken back.
-    let mut text = if cues.emphasised_text {
-        RichText::new(label).strong()
-    } else {
-        RichText::new(label)
-    };
+    // ★ WEIGHT AND COLOUR ARE ONE DECISION, and `.strong()` is unreachable
+    // without the colour that makes it legible — 2026-08-17.
+    //
+    // This was two independent `if`s, one on `emphasised_text` and one on
+    // `filled`, and it was a latent repeat of `DEFECTS.md` **D11**: a tab with
+    // `emphasised_text` and not `filled` got a bare `.strong()`, which `egui`
+    // resolves to `widgets.active.fg_stroke` — the foreground chosen for the
+    // accent-FILLED state — on a background that is not the accent. Pale text
+    // on a pale plate, exactly the six labels D11 records.
+    //
+    // It was not reachable through this crate's own constructor, because
+    // `tab_cues` derives all four cues from one `active` flag. It was reachable
+    // by anyone building a `TabCues` by hand — every field is `pub`, and this
+    // module's own tests do it — so the guarantee rested on a coincidence
+    // between two lines rather than on anything structural.
+    //
+    // Nesting is what makes it structural: the weight can now only be applied
+    // inside the branch that has already stated the colour, so the two cannot
+    // be separated by an edit that only looks at one of them. Behaviour is
+    // unchanged for every caller that uses `tab_cues`.
+    //
+    // Found by `tools/gates/check-strong-text.sh`, on the run that introduced
+    // it — which is the argument for that gate existing: D11 wrote the rule
+    // down on 2026-08-14 and it was broken again on 2026-08-17, in a different
+    // crate, by someone who had read it.
+    let mut text = RichText::new(label);
     if cues.filled {
         text = text.color(ctx.theme.palette.on_accent);
+        if cues.emphasised_text {
+            // R84's non-colour cue: weight survives greyscale and
+            // colour-vision deficiency, which the fill alone does not. Safe
+            // here and only here, because the line above has already said what
+            // colour the text is.
+            text = text.strong();
+        }
     }
 
     let mut button = egui::Button::selectable(cues.filled, text).truncate();

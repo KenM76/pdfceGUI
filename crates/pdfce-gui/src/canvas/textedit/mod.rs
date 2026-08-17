@@ -625,7 +625,19 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
     // worth stating: `capture_provenance` populates a field and changes no
     // segmentation, so `runs[i]` names the same run under both options.
     if let Some(page_ref) = doc.pages.get(page) {
-        let opts = pdfce_core::text_extract::ExtractOptions::default().with_provenance(true);
+        // ★ The funnel's output, MODIFIED — not a second construction.
+        //
+        // `with_provenance(true)` is the one thing no setting governs: it is the
+        // substrate for editing text, and `app::cache`'s read-only extraction
+        // deliberately leaves it off because it costs and it is not needed
+        // there. Everything else — the word gap, the unmappable sentinel, the
+        // replacement-text precedence — comes from the operator, so the runs
+        // this editor addresses are segmented exactly as the runs the canvas
+        // paints and the find bar searches. Two extractions of one page under
+        // two configurations would put the glyph the operator clicked and the
+        // glyph this code edits one step out of step.
+        use crate::app::settings::SettingsExt;
+        let opts = doc.settings.extract_options().with_provenance(true);
         if let Ok(text) =
             pdfce_core::text_extract::extract_page_view(&doc.session.view(), page_ref, page, &opts)
         {

@@ -73,6 +73,18 @@ pub mod print;
 /// and why the destination is asked for every time.
 pub mod redact;
 
+/// ★ The Settings window — the thirteen questions the PDF standard declines to
+/// answer, and the operator's answers to them.
+///
+/// **Application-scoped and not held in [`DialogsState`]**, which is the one
+/// departure in this directory and is forced rather than chosen. Its draft has
+/// to be readable at the *top* of the frame, before any widget is built,
+/// because the theme is installed there and a draft theme must take effect
+/// immediately — you cannot judge a theme from a radio label. So the draft
+/// lives on `PdfceApp` as `settings_draft`, and this module is a renderer with
+/// no state of its own.
+pub mod settings;
+
 use crate::app::state::{OpenDoc, Status};
 
 /// Every dialog this build has, and whether each is open.

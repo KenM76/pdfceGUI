@@ -1,0 +1,428 @@
+//! # `text::settings::look` — what changing it makes you SEE
+//!
+//! One of three copy modules under [`crate::text::settings`], split on
+//! 2026-08-17 at rule R2's 1,500-line ceiling.
+//!
+//! ## ★ The split is by BLAST RADIUS, which is the window's own taxonomy
+//!
+//! Not by dialog group, and not alphabetically. Every setting in this window
+//! carries a `*_radius` line stating *which way costs what*, and that line is
+//! one of exactly three things:
+//!
+//! | module | radius | settings |
+//! |---|---|---|
+//! | [`super::look`] | changes what you SEE; the file is untouched | theme, CMYK intent, CMYK JPEG polarity, mask resampling, minification |
+//! | [`super::extract`] | changes what you GET OUT — copy, search, redaction-by-pattern, new dimensions | word gap, unmappable codes, replacement text, parallel tolerance |
+//! | [`super::bytes`] | changes what pdfce WRITES | separations, missing appearance state, index line endings, trailing newline |
+//!
+//! That taxonomy is load-bearing rather than a filing convenience: it is the
+//! distinction the window exists to make legible, and a test in
+//! [`super`] asserts that exactly the byte-changing settings say they change
+//! the file — in both directions, so a preview setting cannot quietly claim a
+//! consequence it does not have.
+//!
+//! One setting is filed by its radius rather than by its group and it is worth
+//! naming: **CMYK JPEG polarity** appears above under *look*, and its radius
+//! line also says *"and the saved file if pdfce re-compresses the image"*. It
+//! is the only setting whose radius spans two of the three. It sits with the
+//! others in its dialog group, where an operator looks for it.
+
+use super::*;
+
+// ===========================================================================
+// Appearance — theme
+// ===========================================================================
+
+/// Theme: what it is.
+#[must_use]
+pub const fn theme_title() -> &'static str {
+    "Theme"
+}
+
+/// Theme: what the standard leaves open.
+///
+/// Nothing — and saying so is the point. This is the one setting in the window
+/// that is not a spec ambiguity, and letting it silently share the shape of
+/// the twelve that are would imply pdfce thinks the standard has an opinion
+/// about window colours.
+#[must_use]
+pub const fn theme_silence() -> &'static str {
+    "Changes the window only. It never alters a document, and nothing here is \
+     written into a PDF you save."
+}
+
+/// Theme: what changing it costs.
+#[must_use]
+pub const fn theme_radius() -> &'static str {
+    "Applies as soon as you pick it, so you can see it. Cancel puts it back."
+}
+
+/// One preset's name.
+///
+/// # The catch-all arm is required, and it is not a `todo!()`
+///
+/// `egui_shell::theme::Preset` is `#[non_exhaustive]` — deliberately, because
+/// the whole point of the shell crate is that another application may ship
+/// presets pdfce has never heard of. So this catalog cannot be exhaustive over
+/// it and the compiler says so.
+///
+/// The fallback returns the preset's own **key** rather than a placeholder.
+/// That is the honest answer: a theme this catalog has no prose for still has
+/// a name the operator can recognise, since the key is what they would have
+/// typed into the settings file. A `todo!()` would crash the settings window
+/// on a preset the *shell* is entitled to add, and a literal like "Other"
+/// would tell them nothing and would be indistinguishable between two such
+/// presets.
+#[must_use]
+pub fn theme_preset_label(preset: Preset) -> &'static str {
+    match preset {
+        Preset::Quiet => "Quiet",
+        Preset::Airy => "Airy",
+        Preset::Dark => "Dark",
+        // ui-text-exempt: not a literal — the shell's own key for a preset this
+        // catalog predates. See the doc comment.
+        other => other.key(),
+    }
+}
+
+/// One preset's description.
+///
+/// Each says what it looks like *and* what it costs, because "which theme do I
+/// want" is not answerable from three adjectives. Airy's *"uses more screen"*
+/// and Dark's *"as CAD tools do it"* are the two facts that actually decide it
+/// for this audience.
+/// The catch-all returns an **empty** description rather than inventing one,
+/// and the window omits the line entirely when it is empty — an absent note is
+/// truthful about a preset this catalog cannot describe, whereas a generic one
+/// would be prose pdfce made up about somebody else's theme.
+#[must_use]
+pub const fn theme_preset_note(preset: Preset) -> &'static str {
+    match preset {
+        Preset::Quiet => {
+            "Muted greys, one accent, tight spacing. The page dominates and the \
+             window recedes."
+        }
+        Preset::Airy => {
+            "Lighter and roomier, with softer edges and clearer grouping. Easier \
+             to scan; uses more screen."
+        }
+        Preset::Dark => {
+            "A dark window against a light page, as CAD tools do it. Strong page \
+             edge, easier on a long session."
+        }
+        _ => "",
+    }
+}
+
+/// The settings file names a theme this build does not have.
+///
+/// # Why this is said out loud, with the name quoted
+///
+/// Without it the operator sees none of the three radios selected and no
+/// explanation, which reads as a rendering fault. And the likeliest cause is
+/// benign and worth knowing: a settings file written by a **newer** pdfce,
+/// whose token this build is **preserving rather than overwriting**. Quoting
+/// the name is what makes that legible — and telling them it is kept is what
+/// stops them "fixing" it by picking one of the three, which would discard it.
+#[must_use]
+pub fn theme_unknown(token: &str) -> String {
+    format!(
+        "This settings file asks for a theme named \"{token}\", which this version \
+         does not have. Using Quiet for now. The name is kept, not overwritten."
+    )
+}
+
+// ===========================================================================
+// Colour — CMYK intent
+// ===========================================================================
+
+/// CMYK intent: what it is.
+#[must_use]
+pub const fn cmyk_intent_title() -> &'static str {
+    "How CMYK colour is shown on screen"
+}
+
+/// CMYK intent: what the standard leaves open.
+#[must_use]
+pub const fn cmyk_intent_silence() -> &'static str {
+    "The standard (section 8.6.4.4) defines no conversion from CMYK ink to \
+     screen colour at all — it depends on the device. Acrobat's answer is a \
+     profile you can change; this is pdfce's."
+}
+
+/// CMYK intent: what changing it costs.
+#[must_use]
+pub const fn cmyk_intent_radius() -> &'static str {
+    "Affects what you see. Does not change the file."
+}
+
+/// The shipped default, listed first because it is the one in force.
+#[must_use]
+pub const fn cmyk_intent_neutral_label() -> &'static str {
+    "Black ink is black (pdfce's default)"
+}
+
+/// Why the shipped default exists.
+///
+/// The last sentence is the one that matters: the divergence is **narrow by
+/// construction**. Only the pure-K axis moves and every mixed colour still
+/// uses the measured table, so an operator worrying that pdfce has invented
+/// its own colour science can be answered from the window.
+#[must_use]
+pub const fn cmyk_intent_neutral_note() -> &'static str {
+    "Pure black ink shows as true black. Right for CAD and engineering drawings, \
+     where every line is drawn in black ink alone. Only pure black changes; \
+     every mixed colour is still the measured one."
+}
+
+/// The option that agrees with other readers.
+#[must_use]
+pub const fn cmyk_intent_calibrated_label() -> &'static str {
+    "Match other PDF viewers"
+}
+
+/// What matching costs.
+#[must_use]
+pub const fn cmyk_intent_calibrated_note() -> &'static str {
+    "Colours are measured to match what Acrobat and most other viewers show. \
+     Solid black ink appears as a very dark warm grey rather than true black, \
+     because that is what those viewers do. Choose this when you want to see a \
+     document the way someone else will."
+}
+
+/// The superseded formula.
+#[must_use]
+pub const fn cmyk_intent_naive_label() -> &'static str {
+    "The old pdfce formula"
+}
+
+/// Why it is still offered.
+#[must_use]
+pub const fn cmyk_intent_naive_note() -> &'static str {
+    "A rough calculation pdfce used before it was measured. Only useful for \
+     comparing against something pdfce produced earlier."
+}
+
+/// **pdfce's default here knowingly differs from Acrobat, and says so.**
+///
+/// # Why this sentence exists, and why it is at the setting
+///
+/// By the standing rule the default would be *Match other PDF viewers* — that
+/// is tier (a)/(c) evidence, the strongest in the whole register, since
+/// Acrobat's shipped profile and pdfium both produce it. It is not, because
+/// the operator looked at what calibrated rendering does to pure-K line art
+/// and overruled it.
+///
+/// That has to be **visible at the point of choosing**, not in a footnote,
+/// because the person reading this radio group is precisely the person who has
+/// noticed pdfce and Acrobat disagree and is deciding whether it is a bug. A
+/// future session must be able to see that pdfce chose differently **on
+/// purpose**, or the next render-parity difference gets investigated as a
+/// defect — and this default gets read as evidence of what other readers do,
+/// which it is the opposite of.
+#[must_use]
+pub const fn cmyk_intent_divergence() -> &'static str {
+    "Note: pdfce's default deliberately differs from Acrobat here. \"Match other \
+     PDF viewers\" is the option that agrees with them; black-ink-is-black was \
+     chosen because line drawings are what this is mostly used for."
+}
+
+// ===========================================================================
+// Colour — CMYK JPEG polarity
+// ===========================================================================
+
+/// Polarity: what it is.
+#[must_use]
+pub const fn polarity_title() -> &'static str {
+    "Reading a CMYK JPEG that does not say which way round it is"
+}
+
+/// Polarity: what the standard leaves open.
+#[must_use]
+pub const fn polarity_silence() -> &'static str {
+    "Some CMYK JPEGs store their ink values inverted and nothing in the file says \
+     so. No document defines how to tell — the marker people point at carries no \
+     such flag."
+}
+
+/// Polarity: what changing it costs.
+///
+/// **The only preview setting that can also change saved bytes**, and it is
+/// the second half of the sentence that says so. A re-encode under the wrong
+/// polarity bakes the inversion in permanently.
+#[must_use]
+pub const fn polarity_radius() -> &'static str {
+    "Affects what you see, and the saved file if pdfce re-compresses the image."
+}
+
+/// The default.
+#[must_use]
+pub const fn polarity_never_label() -> &'static str {
+    "Take the values as stored (pdfce's default)"
+}
+
+/// ★ **The one positively-sourced default in the window, and it says so.**
+///
+/// Every other note either says "this is a guess" or says nothing about
+/// provenance. This one claims the opposite, and it is entitled to: `"invert"`
+/// occurs **zero times** in the Adobe technical note the standard makes
+/// normative, the marker carries no polarity flag at all, and all four
+/// reference engines make the same choice.
+///
+/// The distinction is the point. "pdfce matched every other implementation"
+/// and "pdfce guessed" must not read alike, or the operator has no way to tell
+/// which of thirteen defaults to trust.
+#[must_use]
+pub const fn polarity_never_note() -> &'static str {
+    "The best-supported answer here: the reference document never mentions \
+     inverting, the marker carries no flag to test, and all four major PDF \
+     engines make the same choice."
+}
+
+/// The opt-in.
+#[must_use]
+pub const fn polarity_invert_label() -> &'static str {
+    "Invert when an Adobe marker is present"
+}
+
+/// Why getting this wrong is safe to discover.
+#[must_use]
+pub const fn polarity_invert_note() -> &'static str {
+    "For a library of old Photoshop-authored images that genuinely do store \
+     inverted ink. Getting this wrong renders a photographic negative — an \
+     obvious failure rather than a subtle one, so it is easy to tell which way \
+     your files need."
+}
+
+// ===========================================================================
+// Images and transparency — mask resampling
+// ===========================================================================
+
+/// Mask resampling: what it is.
+#[must_use]
+pub const fn mask_title() -> &'static str {
+    "Smoothing a transparency mask that is a different size"
+}
+
+/// Mask resampling: what the standard leaves open.
+#[must_use]
+pub const fn mask_silence() -> &'static str {
+    "An image's transparency mask can be a different size from the image it \
+     applies to. The standard says the two are stretched over the same area, and \
+     says nothing at all about how to fill in the in-between values."
+}
+
+/// Mask resampling: what changing it costs.
+#[must_use]
+pub const fn mask_radius() -> &'static str {
+    "Affects what you see. Does not change the file."
+}
+
+/// The default.
+#[must_use]
+pub const fn mask_nearest_label() -> &'static str {
+    "Use the nearest value (pdfce's default)"
+}
+
+/// Why, and that the why is pdfce's own.
+#[must_use]
+pub const fn mask_nearest_note() -> &'static str {
+    "Never invents a transparency value that is not in the mask. Matters for a \
+     hard-edged cut-out, where blending would fabricate soft edges that were \
+     never there. Edges can look slightly stepped. This is pdfce's own \
+     reasoning, not a rule from anywhere — no standard or reference program \
+     defines it."
+}
+
+/// The middle option.
+#[must_use]
+pub const fn mask_box_label() -> &'static str {
+    "Average the surrounding values"
+}
+
+/// When it is the right answer.
+///
+/// The second sentence is not in the source and is the case that actually
+/// decides it: a mask at **higher** resolution than the base read one sample
+/// per texel discards fifteen sixteenths of what the producer supplied.
+#[must_use]
+pub const fn mask_box_note() -> &'static str {
+    "Smoother on photographic masks, at the cost of softening edges that were \
+     meant to be sharp. It is also the better answer when the mask is finer than \
+     the image it covers, where taking one value per pixel throws most of it away."
+}
+
+/// The smoothest option.
+#[must_use]
+pub const fn mask_bilinear_label() -> &'static str {
+    "Blend smoothly"
+}
+
+/// What it risks.
+#[must_use]
+pub const fn mask_bilinear_note() -> &'static str {
+    "The smoothest result, and the most likely to invent transparency values the \
+     mask never contained."
+}
+
+// ===========================================================================
+// Images and transparency — minification
+// ===========================================================================
+
+/// Minification: what it is.
+#[must_use]
+pub const fn minify_title() -> &'static str {
+    "Shrinking a large image to fit"
+}
+
+/// Minification: what the standard leaves open.
+#[must_use]
+pub const fn minify_silence() -> &'static str {
+    "The standard describes smoothing only for images being ENLARGED. It says \
+     nothing about images being shrunk, which is what happens whenever a \
+     high-resolution scan is displayed at page size."
+}
+
+/// Minification: what changing it costs.
+#[must_use]
+pub const fn minify_radius() -> &'static str {
+    "Affects what you see. Does not change the file."
+}
+
+/// The default.
+#[must_use]
+pub const fn minify_point_label() -> &'static str {
+    "Take one pixel in each area (pdfce's default)"
+}
+
+/// ★ **The guess disclosure the old window omitted.**
+///
+/// `pdfce-core` grades this default tier (d) — reasoned inference — as
+/// explicitly as it grades the mask filter beside it, and the old note read as
+/// a confident recommendation with no such admission. Obligation 1 was
+/// therefore unmet for this setting for the whole of its shipped life.
+///
+/// The final sentence is more than a disclosure: it names the **specific
+/// observation that would change the default**, which is what turns a
+/// confessed guess into a piece of work somebody can do.
+#[must_use]
+pub const fn minify_point_note() -> &'static str {
+    "Fast, and follows the standard's wording literally. Fine detail such as thin \
+     lines or small text in a scan can shimmer or disappear entirely. This is \
+     pdfce's own reading rather than a rule from anywhere: what other viewers \
+     actually do when shrinking has not been checked, and if it turns out they \
+     smooth, this default should change."
+}
+
+/// The alternative.
+#[must_use]
+pub const fn minify_smooth_label() -> &'static str {
+    "Average the area"
+}
+
+/// What it buys and costs.
+#[must_use]
+pub const fn minify_smooth_note() -> &'static str {
+    "Better-looking on scanned pages and photographs — detail is averaged rather \
+     than dropped. Slower, and goes beyond what the standard describes."
+}

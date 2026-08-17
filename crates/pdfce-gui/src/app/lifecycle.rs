@@ -178,6 +178,28 @@ impl PdfceApp {
     /// keeping them after an Open, and it would have been found later and by an
     /// operator.
     fn adopt(&mut self) {
+        // ★ Give the document the operator's settings — FIRST, before anything
+        // below can cause a render or an extraction.
+        //
+        // `OpenDoc::assemble` starts every document on the *shipped defaults*,
+        // because it cannot reach `PdfceApp`. Without this line an operator who
+        // has configured anything would open a file and see it rendered under
+        // pdfce's answers rather than their own — and the settings window would
+        // still show their choices, correctly, which is the worst combination:
+        // a control that reads back what you set and does not do it.
+        //
+        // Here rather than at the two `Status::Open(...)` construction sites,
+        // because this function's own header states why it exists: *documents
+        // are opened in exactly one place*, so a thing that must be true of
+        // every newly opened document is one statement at the one moment it is
+        // true. A third open path added later inherits it.
+        //
+        // Unconditional, exactly as the two `forget_document` calls below are.
+        // On a failed open there is no document to adopt into and the call does
+        // nothing; branching on the status here would be a condition whose only
+        // effect is to make the next reader check what it guards.
+        self.adopt_settings();
+
         // ★ Forget the panels' own view state, because a NEW DOCUMENT is
         // open and none of it describes anything any more.
         //
