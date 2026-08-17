@@ -92,6 +92,25 @@ pub struct SettingsHeadingsLegible;
 /// The region set this check asks a profile for.
 const SET: &str = "settings_headings";
 
+/// The prefix the application publishes each collapsible heading's rect under.
+///
+/// Matched **literally**, so it is part of the contract with
+/// `crate::dialogs::settings::REGION_HEADING_PREFIX`. That constant's own doc
+/// comment states the other half of the bargain: the key is deliberately not
+/// derived from the caption, because a caption is operator copy that may be
+/// reworded or translated, and a check aimed at a region named after it would
+/// silently stop finding its subject and report *a heading that is not there*
+/// rather than *a heading that is illegible*. Those are different verdicts and
+/// only one of them is true.
+const HEADING_PREFIX: &str = "settings.heading.";
+
+/// How this check describes what it looked for, when it found nothing.
+///
+/// Completes the sentence "the application declared no …", so it names this
+/// check's own convention rather than a generic one — a reader who gets this
+/// SKIP should know exactly which string to grep the application for.
+const CONVENTION: &str = "settings dialog heading regions (`settings.heading.<group>`)";
+
 impl Check for SettingsHeadingsLegible {
     fn name(&self) -> &'static str {
         "settings_headings_legible"
@@ -131,40 +150,190 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
         ));
     }
 
-    // Live mode. Everything below is a precondition, and it is absent for both
-    // known binaries — which is the correct report, not a defect in the check.
-    let _exe = ctx.resolve_exe().ok_or_else(|| {
+    // ★★ LIVE MODE — built 2026-08-17, after this check had SKIPPED for the
+    // whole life of the project.
+    //
+    // The reason it skipped was correct when written and had gone stale twice
+    // over: *"the new application has no Settings dialog at S2"* — it has had
+    // one since 2026-08-17 — and *"neither known binary accepts a scripted way
+    // in"*, which stopped being the blocker the moment the dialog landed with
+    // a ribbon control that can be clicked.
+    //
+    // That is worth a sentence rather than a quiet deletion, because a SKIP
+    // whose reason has expired is the most comfortable kind of untested code:
+    // it reports honestly, it is not a failure, and nothing ever revisits it.
+    // This one guarded **D2**, which is the defect that justified building the
+    // harness — headings rendering at about 1.1:1 against a 3:1 floor.
+    let exe = ctx.resolve_exe().ok_or_else(|| {
         crate::error::Error::new(format!(
-            "no binary to drive and no --image to assert against. Pass --exe, or build the \
-             profile's default at {}, or point the check at a captured screenshot.",
+            "no binary to drive and no --image to assert against. Pass --exe, or build the              profile's default at {}, or point the check at a captured screenshot.",
             ctx.profile.default_exe
         ))
     })?;
+    if !ctx.allow_input {
+        return Err(crate::error::Error::new(
+            "input is disabled (--no-input). This check has to click the Settings control              open before there is a heading to measure. Reported as SKIPPED rather than              passed: a check that did not run has learned nothing.",
+        ));
+    }
+    let ui_rect = ctx.profile.vocab.ui_rect_event.ok_or_else(|| {
+        crate::error::Error::new(format!(
+            "the `{}` profile declares no ui-rect trace event, so the application cannot say              where its headings are.",
+            ctx.profile.name
+        ))
+    })?;
 
-    // Deliberately NOT a launch, and this is the difference from
-    // `super::ribbon_captions`. That check launches because its subject is
-    // chrome: the ribbon is on screen the moment the window is, so reading the
-    // trace is enough to learn whether its captions exist. The Settings dialog
-    // is *modal state* — it is not on screen until something opens it, so
-    // launching would only ever confirm that a dialog nobody opened declared
-    // no regions, at the cost of a window on the operator's desktop.
+    let mut spec = crate::launch::LaunchSpec::new(&exe, ctx.out("settings_headings.trace.txt"));
+    spec.pdf = ctx.pdf.clone();
+    spec.env.push((
+        ctx.profile.diag_env.0.to_owned(),
+        ctx.profile.diag_env.1.to_owned(),
+    ));
+    spec.env.push((
+        crate::checks::driving::SHELL_DIAG_ENV.0.to_owned(),
+        crate::checks::driving::SHELL_DIAG_ENV.1.to_owned(),
+    ));
+    spec.allow_stale = ctx.allow_stale;
+    spec.source_root = ctx.source_root.clone();
+
+    let session = crate::launch::Session::launch(&spec, ctx.profile.trace_prefix)?;
+    report.note(format!(
+        "launched {} as pid {}",
+        exe.display(),
+        session.pid()
+    ));
+    report.artifact(session.trace_path().to_path_buf());
+    session.settle(40);
+
+    let driver = crate::input::Driver::new(session.window());
+    open_settings(&session, &driver, ui_rect, report)?;
+
+    // The headings only exist once the dialog is up, so the plan is resolved
+    // from the trace taken AFTER it opened — not from the launch trace, which
+    // is the ordering mistake that would report "no headings declared" about a
+    // dialog that had not been asked to appear yet.
+    let trace = session.trace()?;
+    let png = ctx.out("settings_headings.png");
+    let image = crate::capture::window_to_png(&session, &png)?;
+    report.artifact(png);
+
+    // The regions this check is about: every `settings.heading.<key>` the
+    // dialog declared. One per collapsible header, so each is measured against
+    // ITS OWN background — D2 was a foreground/background pairing, and a
+    // pairing only exists once something is drawn.
+    let frame = session.frame()?;
+    let declared_regions = ctx.profile.vocab.declared_regions(&trace);
+    let trace_regions = legibility::TraceRegions {
+        matched: declared_regions
+            .iter()
+            .filter(|r| r.name.starts_with(HEADING_PREFIX))
+            .map(|r| legibility::PlannedRegion {
+                name: r.name.clone(),
+                area: legibility::RegionArea::Pixels(frame.logical_to_capture_pixels(r.rect)),
+            })
+            .collect(),
+        declared: declared_regions.iter().map(|r| r.name.clone()).collect(),
+        convention: CONVENTION,
+    };
+    // ★ A NAMED LIMIT, reported rather than left for a reader to infer from a
+    // small number.
     //
-    // The missing capability is therefore a scripted step, not a trace
-    // channel. Naming the trace channel here would be the stale-reason defect
-    // this file's own audit corrected elsewhere: the application HAS a
-    // `ui-rect` channel and uses it on every frame, so a reader sent to
-    // `diag.rs` would find a finished module and no defect.
-    Err(crate::error::Error::new(format!(
-        "live mode needs a way to open the Settings dialog, and neither known binary accepts \
-         one. The `{}` channel this check would read its heading rects from already exists in \
-         the new application and is used for the regions that ARE on screen ({} declares \
-         `page`, `central-panel` and `canvas-viewport` on a plain document window) — so the \
-         missing piece is the dialog and a scripted step that opens it, not the trace. The \
-         new application has no Settings dialog at S2; the old one has a dialog and no \
-         scripted way in. Until either changes, run this check offline against the dated \
-         capture, which is where its acceptance evidence lives anyway: \
-         `--image evidence/crop_settings.png --profile pdfce-legacy`.",
-        ctx.profile.vocab.ui_rect_event.unwrap_or("ui-rect"),
-        crate::profile::PDFCE_GUI.name,
-    )))
+    // The application only declares a heading it can actually draw (see
+    // `diag::ui_rect_visible`), so this measures the headings **currently in
+    // view** and not the whole window. Scrolling is not driven. Without this
+    // note a reader sees "2 region(s)" beside a dialog they know has eight
+    // groups and has to work out whether six are missing or six are below the
+    // fold — and the first of those readings is alarming and wrong.
+    //
+    // Left as a limit rather than fixed because fixing it means driving the
+    // scroll area and re-capturing per scroll position, which is a real piece
+    // of work; and because the value here is mostly in the FIRST heading. D2
+    // was a theme-wide pairing — `widgets.active.fg_stroke` against a fill the
+    // palette never assigned — so it would show on every heading at once, not
+    // on the seventh.
+    report.note(format!(
+        "measures the {} heading(s) currently IN VIEW; the dialog scrolls and this check          does not drive the scroll, so headings below the fold are not measured. D2 was a          theme-wide foreground/background pairing and would show on the first heading as          readily as the last",
+        trace_regions.matched.len()
+    ));
+
+    let plan = legibility::resolve_set(ctx.profile, SET, None, Some(&trace_regions))
+        .map_err(crate::error::Error::new)?;
+    Ok(legibility::assess(
+        &image,
+        &plan,
+        ctx.contrast_threshold,
+        report,
+    ))
+}
+
+/// **Get the Settings dialog on screen**, by whichever route this window
+/// offers.
+///
+/// # ★ Two routes, because the control moves
+///
+/// `file.settings` is the first item of the *pdfce* group, which is the LAST
+/// group on the File tab. At the shipped 1100 pt window width that group does
+/// not fit and the ribbon correctly folds it into an overflow button — so the
+/// item has no rect of its own until the overflow is open.
+///
+/// Both routes are tried rather than one being assumed, and the order is
+/// deliberate: the direct item first, because a wider window (or a future
+/// narrower ribbon) puts it on the band and clicking the overflow would then
+/// be clicking something else. Only if it is absent is the overflow opened.
+///
+/// This is also why the failure text lists what *was* declared. A check that
+/// says "I could not find the control" and does not say what it did find sends
+/// its reader to guess, and the guess here is between two very different
+/// worlds — the control moved, or the ribbon did not draw at all.
+fn open_settings(
+    session: &crate::launch::Session,
+    driver: &crate::input::Driver,
+    ui_rect: &str,
+    report: &mut CheckReport,
+) -> crate::error::Result<()> {
+    use crate::checks::driving::{declared, declared_names, list};
+
+    const ITEM: &str = "ribbon.item.file.settings";
+    const OVERFLOW: &str = "ribbon.overflow";
+
+    let trace = session.trace()?;
+    if declared(&trace, ui_rect, ITEM).is_none() {
+        let overflow = declared(&trace, ui_rect, OVERFLOW).ok_or_else(|| {
+            crate::error::Error::new(format!(
+                "neither `{ITEM}` nor `{OVERFLOW}` was declared, so there is no route to the                  Settings dialog on this window. Ribbon regions declared: {}.",
+                list(&declared_names(&trace, ui_rect, "ribbon."))
+            ))
+        })?;
+        report.note(
+            "the Settings control is not on the ribbon band at this window width — it is the              first item of the LAST group on the File tab, which the ribbon correctly folds              into the overflow. Opening the overflow to reach it.",
+        );
+        driver.click_at(session.frame()?.declared_center(overflow))?;
+        session.settle(16);
+    }
+
+    let trace = session.trace()?;
+    let item = declared(&trace, ui_rect, ITEM).ok_or_else(|| {
+        crate::error::Error::new(format!(
+            "`{ITEM}` was still not declared after opening the overflow, so this check cannot              put the dialog on screen. Regions declared under `ribbon.item.file.`: {}.",
+            list(&declared_names(&trace, ui_rect, "ribbon.item.file."))
+        ))
+    })?;
+    driver.click_at(session.frame()?.declared_center(item))?;
+    session.settle(24);
+
+    // ★ Assert the dialog actually appeared before measuring anything.
+    //
+    // Without this the contrast pass would run against a window with no
+    // dialog, find no heading regions, and report whatever `resolve_set` makes
+    // of an empty set — a verdict about nothing, dressed as a verdict about
+    // D2. The dialog declares its own body rect precisely so a harness can ask
+    // this question.
+    let trace = session.trace()?;
+    if declared(&trace, ui_rect, "dialog:settings").is_none() {
+        return Err(crate::error::Error::new(format!(
+            "the Settings control was clicked and no `dialog:settings` region appeared, so              the dialog did not open and there is nothing to measure. Regions declared              beginning `dialog`: {}.",
+            list(&declared_names(&trace, ui_rect, "dialog"))
+        )));
+    }
+    report.note("the Settings dialog is open and declared its own body rect");
+    Ok(())
 }

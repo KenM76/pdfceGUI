@@ -95,9 +95,18 @@ pub fn group(
     // measuring that would sample a hundred lines of prose and average the
     // heading away. D2 was a defect in one row of pixels, and it measured about
     // 1.1:1 — a figure only obtainable from the row itself.
-    crate::diag::ui_rect(
+    // ★ `ui_rect_visible`, not `ui_rect` — these headings live in a
+    // `ScrollArea` and `egui` lays out the ones below the fold before clipping
+    // them. Publishing a rect for a heading nobody can see makes a contrast
+    // check measure whatever is genuinely at those coordinates, which on the
+    // first live run of `settings_headings_legible` was the Pages panel and
+    // the drawing behind the dialog — reported as three illegible headings in
+    // a dialog whose visible headings measured 13.91:1. See
+    // `crate::diag::ui_rect_visible`.
+    crate::diag::ui_rect_visible(
         &format!("{}{key}", super::REGION_HEADING_PREFIX),
         response.header_response.rect,
+        ui.clip_rect(),
     );
     ui.add_space(2.0);
 }

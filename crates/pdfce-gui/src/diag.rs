@@ -339,6 +339,60 @@ fn record_if_changed(
 /// pick a stable, lowercase, hyphenated noun for the thing an operator would
 /// point at (`page`, `canvas-viewport`, `ribbon-group-caption:view/zoom`).
 /// Renaming one silently un-aims whatever check was measuring it.
+/// [`ui_rect`], but **only if the region is actually visible** inside `clip`.
+///
+/// # ★ Why a scroll area needs this, and why the plain call is a trap there
+///
+/// `egui` lays out every child of a `ScrollArea` and then *clips* the ones
+/// outside the viewport. So a collapsible header scrolled below the fold still
+/// runs its layout, still has a perfectly good `Rect`, and calling [`ui_rect`]
+/// with it publishes coordinates for something **nobody can see**.
+///
+/// A harness reading that declaration measures the pixels at those coordinates
+/// — which belong to whatever is genuinely on screen there: another panel, the
+/// document, the desktop. It then reports a contrast figure that is a fact
+/// about the wrong widget.
+///
+/// That is not hypothetical. The first live run of `settings_headings_legible`
+/// — the regression check for `DEFECTS.md` **D2**, which had SKIPPED for the
+/// whole life of the project — reported three of eight headings as illegible
+/// or blank. The dialog was fine: the two headings actually on screen measured
+/// **13.91:1** against a 3:1 floor. All three "failures" were headings
+/// scrolled out of view, and the check was reading the Pages panel and the
+/// drawing behind the dialog.
+///
+/// A check that fires when nothing is wrong is one that gets switched off, and
+/// this one guards the defect that justified building the harness.
+///
+/// # Why the fix is here rather than in the harness
+///
+/// The harness *could* intersect every rect with the dialog's body. Doing it
+/// here is better for a reason that outlives this dialog: it makes the
+/// declaration **mean** something — *this region is on screen at this rect* —
+/// so every consumer gets the guarantee rather than each one re-deriving it.
+/// It is the same repair as `ui-rect-gone`: the channel should describe what
+/// is visible, not what was laid out.
+///
+/// # The test is intersection, not containment
+///
+/// A heading half-scrolled off the bottom is still partly on screen and still
+/// worth measuring — a contrast check samples what it can reach. Requiring
+/// full containment would silently drop the boundary case, which on a scroll
+/// area is a case that exists on almost every frame.
+pub fn ui_rect_visible(name: &str, rect: egui::Rect, clip: egui::Rect) {
+    if !enabled() {
+        return;
+    }
+    if clip.intersects(rect) {
+        ui_rect(name, rect);
+    }
+    // Deliberately silent when it does not intersect. This is not a retirement
+    // — `end_ui_frame` handles that, and a region that scrolls out of view and
+    // back is exactly the case it was built for: it emits `ui-rect-gone` on the
+    // frame the region stops being declared, and the rect is re-emitted when it
+    // returns.
+}
+
 pub fn ui_rect(name: &str, rect: egui::Rect) {
     if !enabled() {
         return;
