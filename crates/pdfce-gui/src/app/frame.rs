@@ -113,6 +113,61 @@ impl eframe::App for PdfceApp {
         let preset = egui_shell::theme::Preset::from_key(theme_token).unwrap_or_default();
         egui_shell::theme::Theme::new(preset).apply(&ctx);
 
+        // ★ Step 0b — install the UI scale. The theme's twin, added 2026-08-18.
+        //
+        // # Why it is here and not in `configure_context`
+        //
+        // Same reason the theme is: the operator can change it, so a one-time
+        // call at start-up would mean a restart to see the effect. It is one
+        // comparison and, on the frames where nothing changed, no work at all
+        // — `set_zoom_factor` is guarded below rather than called blindly,
+        // because egui **requests a repaint and re-lays-out everything** when
+        // the factor moves, and doing that every frame would put the
+        // application into a permanent repaint loop that never idles.
+        //
+        // # ★ The draft wins, exactly as it does for the theme
+        //
+        // These two are the only settings in the window that take effect
+        // before Save, and the argument is identical in both cases: **you
+        // cannot judge either from a label.** A theme is chosen by seeing it;
+        // a scale is chosen by seeing whether you can read the ribbon at it.
+        // The draft still governs what is SAVED — Cancel drops it and the size
+        // reverts with it, with no separate preview state to get out of step.
+        //
+        // The settings window's own radius line says so, so this is disclosed
+        // rather than merely true.
+        //
+        // # What it does NOT do, and why that is right
+        //
+        // It does not touch the page. `set_zoom_factor` moves
+        // `ctx.pixels_per_point`, which `viewer::raster_scale` already reads —
+        // so the canvas re-rasterises at the new device density and the
+        // document stays exactly the same size **relative to the window**. A
+        // bigger UI genuinely does mean a smaller visible page, because the
+        // ribbon and the panels take more of the window; that is the honest
+        // consequence of the setting and not something to compensate for.
+        //
+        // The rasters keyed on `pixels_per_point` — the page texture, the
+        // strip, the Pages thumbnails — invalidate through their own existing
+        // keys, so nothing here has to know about them.
+        let ui_scale = self
+            .settings_draft
+            .as_ref()
+            .map_or(self.prefs.ui_scale, |draft| draft.working_prefs.ui_scale);
+        // A tenth of a step: finer than any change an operator can make with
+        // the control, coarse enough that float noise never trips the setter.
+        if (ctx.zoom_factor() - ui_scale).abs() > crate::app::prefs::UI_SCALE_STEP / 10.0 {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "ui-scale from={:.2} to={ui_scale:.2} ppp={:.3}",
+                    ctx.zoom_factor(),
+                    ctx.pixels_per_point(),
+                )
+            });
+            ctx.set_zoom_factor(ui_scale);
+        }
+
         // Step 1 — keyboard, before any widget can consume a key.
         let page_count = match &self.status {
             Status::Open(doc) => Some(doc.pages.len()),

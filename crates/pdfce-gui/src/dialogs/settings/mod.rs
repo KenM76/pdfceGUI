@@ -335,6 +335,14 @@ pub fn show(
                     // image settings and splitting them.
                     widgets::group(ui, "appearance", t::group_appearance(), false, |ui| {
                         appearance::theme(ui, draft);
+                        // ★ The group's second member, and the two belong
+                        // together: they are the only settings in this window
+                        // that change the PROGRAM's appearance rather than the
+                        // document's, and the only two that take effect before
+                        // Save. Grouping them makes that exception legible in
+                        // one place instead of scattered across the window.
+                        ui.add_space(10.0);
+                        appearance::ui_scale(ui, &mut draft.working_prefs);
                     });
                     // ★ Colour is the expanded one. See the module header for
                     // the contradiction in the source this resolves.

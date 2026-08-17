@@ -428,6 +428,87 @@ pub const fn minify_smooth_note() -> &'static str {
 }
 
 // ===========================================================================
+// Appearance — how big pdfce's own controls are drawn
+// ===========================================================================
+//
+// The theme's twin: the second of the two settings in this window that change
+// the PROGRAM's appearance and nothing about the document, and the second of
+// the two that take effect before Save.
+
+/// UI scale: what it is.
+///
+/// **"pdfce's own"** does the work in this title. The word an operator is most
+/// likely to arrive with is *"zoom"*, and zoom in this application means the
+/// page — so the title has to draw the line before the operator has read a
+/// word of the body, or they will set this expecting the document to change.
+#[must_use]
+pub const fn ui_scale_title() -> &'static str {
+    "Size of pdfce's own menus, buttons and text"
+}
+
+/// UI scale: what is open.
+///
+/// Says what it multiplies, because that is the fact that stops it being
+/// misread as an override. An operator who has already set Windows display
+/// scaling to 150 % needs to know this stacks on top rather than replacing it.
+#[must_use]
+pub const fn ui_scale_silence() -> &'static str {
+    "Not a standards question. Windows already tells pdfce how big to draw \
+     things; this adjusts that up or down for pdfce alone, without changing \
+     any other program."
+}
+
+/// UI scale: what changing it costs.
+///
+/// ★ Two disclosures in one line, and both are needed. It takes effect
+/// immediately — the exception to the whole window's draft-until-Save contract
+/// that this setting shares with the theme — and it does **not** resize the
+/// page, which is the thing an operator will most reasonably expect it to do
+/// given that the word "size" is in the title.
+#[must_use]
+pub const fn ui_scale_radius() -> &'static str {
+    "Applies as soon as you drag it, so you can see it. Cancel puts it back. \
+     It never changes the page or the file — only the window around them."
+}
+
+/// The slider's own label.
+#[must_use]
+pub const fn ui_scale_slider_label() -> &'static str {
+    "Size"
+}
+
+/// The slider's value, as a percentage of the system setting.
+///
+/// A percentage rather than the stored multiplier, because *"125 %"* is a
+/// quantity an operator can hold against the Windows display setting they
+/// already know, and *"1.25"* is one they have to interpret. Same value, and
+/// the unit is doing the explaining.
+///
+/// Rounded to whole percent: the step is 0.05, so every value the control can
+/// produce is a whole number of percent and no precision is lost. A decimal
+/// place would show `100.0 %` and imply a fineness the control does not have.
+#[must_use]
+pub fn ui_scale_percent(multiplier: f64) -> String {
+    format!("{:.0} %", multiplier * 100.0)
+}
+
+/// How to choose one.
+///
+/// Names the two failure modes rather than recommending a number, as the
+/// zoom-settle note does — and for a stronger version of the same reason:
+/// which value is right depends on the operator's eyes and their monitor, so
+/// there is no number to recommend. What can be said is what going too far in
+/// each direction looks like, and an operator who knows that can find their
+/// value in two drags.
+#[must_use]
+pub const fn ui_scale_note() -> &'static str {
+    "Larger is easier to read and leaves less room for the drawing, because \
+     the ribbon and the side panels take more of the window. Smaller gives the \
+     drawing more room until the labels start to crowd. pdfce ships 100 %, \
+     which means exactly what Windows asked for."
+}
+
+// ===========================================================================
 // Display — how pdfce draws (the SHELL's own preferences)
 // ===========================================================================
 //

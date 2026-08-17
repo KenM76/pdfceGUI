@@ -87,6 +87,9 @@
 //! discards both, one Save writes both, and `is_dirty` is true if either
 //! moved."*
 
+/// How big the **program's own controls** are drawn — the one accessibility
+/// preference, and the only one here that changes nothing about the document.
+pub mod chrome;
 /// What an operator is shown when a page **first appears** — read once per
 /// document open, never on the hot path.
 pub mod opening;
@@ -96,6 +99,7 @@ pub mod quality;
 
 use std::path::PathBuf;
 
+pub use chrome::{DEFAULT_UI_SCALE, MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
 pub use opening::{OpeningFit, PageChrome};
 pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
 
@@ -104,7 +108,17 @@ pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality
 pub const PREFS_FILE: &str = "preferences.txt";
 
 /// The shell's own preferences.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// ## `PartialEq` but not `Eq` — and it was `Eq` until [`Self::ui_scale`] landed
+///
+/// A scale is a continuous quantity and `f32` has no total equality, so the
+/// derive cannot be kept. Nothing is lost: the only thing that compares two
+/// `Prefs` is `dialogs::settings::Draft::is_dirty`, which asks *"has the
+/// operator changed anything?"* — and `PartialEq` answers that exactly. `Eq`
+/// would additionally promise reflexivity, which the one field that could
+/// break it (a `NaN` scale) cannot reach, because [`chrome::normalise_ui_scale`]
+/// clamps every value that enters the struct.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Prefs {
     /// How sharply a page is rasterised.
     pub render_quality: RenderQuality,
@@ -127,6 +141,40 @@ pub struct Prefs {
     ///
     /// Read once, with [`Self::opening_fit`], and for the same reason.
     pub chrome: PageChrome,
+    /// **How big the program's own controls are drawn**, as a multiplier on
+    /// whatever the operating system already asked for.
+    ///
+    /// # ★ A multiplier, not a size, and the distinction is the whole design
+    ///
+    /// `egui`'s `Context::set_zoom_factor` multiplies the *native* pixels per
+    /// point — the value the window system reports, which on Windows is the
+    /// display-scaling percentage the operator set for every application on the
+    /// machine. So `1.0` here does not mean *"draw at 96 dpi"*; it means
+    /// **"whatever you already decided"**, and this preference expresses only
+    /// the delta pdfce needs on top of it.
+    ///
+    /// That is the correct relationship and it is easy to get backwards.
+    /// Storing an absolute point size would make pdfce the one application on
+    /// the machine that ignores the display setting — so an operator who moved
+    /// a 4K laptop to a 1080p monitor would fix every program but this one.
+    ///
+    /// # It is not stored as a `Duration`-style integer, unlike its neighbours
+    ///
+    /// [`Self::zoom_settle_ms`] is a `u64` because the file holds a whole
+    /// number of milliseconds. A scale has no such natural unit, and rounding
+    /// it to, say, whole percent in the struct would put the rounding rule in
+    /// two places — the parser and the control. [`chrome::normalise_ui_scale`]
+    /// is the one place instead, applied on the way in.
+    ///
+    /// # ★ Live-previewed, like the theme, and for the identical reason
+    ///
+    /// `app::frame`'s step 0 reads this from the **draft** while the settings
+    /// window is open. A scale cannot be judged from a number — you choose it
+    /// by seeing whether you can read the ribbon — so it is the second of the
+    /// two settings in this window that take effect before Save. Cancel drops
+    /// the draft and the size reverts with it; there is no separate preview
+    /// state that could get out of step with what will be written.
+    pub ui_scale: f32,
 }
 
 impl Default for Prefs {
@@ -136,6 +184,7 @@ impl Default for Prefs {
             zoom_settle_ms: DEFAULT_SETTLE_MS,
             opening_fit: OpeningFit::default(),
             chrome: PageChrome::default(),
+            ui_scale: DEFAULT_UI_SCALE,
         }
     }
 }
@@ -284,6 +333,38 @@ impl Prefs {
                         line,
                     }),
                 },
+                "ui_scale" => match value.parse::<f32>() {
+                    // ★ `is_finite` first, and it is not defensive padding.
+                    // `"nan"` and `"inf"` both parse successfully as `f32`, so
+                    // without this a hand-edited `ui_scale = nan` would reach
+                    // `normalise_ui_scale`, where `clamp` propagates NaN rather
+                    // than rejecting it — and a NaN zoom factor is a window
+                    // that draws nothing. It is reported as a bad value, which
+                    // is what it is, rather than clamped to an end the operator
+                    // did not name.
+                    Ok(raw) if raw.is_finite() => {
+                        let scale = chrome::normalise_ui_scale(raw);
+                        // Reported when the file's value is not one the control
+                        // can produce — see `normalise_ui_scale` on why the
+                        // rounding happens at all. The epsilon is a tenth of a
+                        // step, comfortably finer than any difference that
+                        // matters and coarse enough that float noise from the
+                        // round trip does not raise a note on a clean file.
+                        if (scale - raw).abs() > UI_SCALE_STEP / 10.0 {
+                            notes.push(PrefNote::Clamped {
+                                key: key.to_owned(),
+                                value: value.to_owned(),
+                                line,
+                            });
+                        }
+                        prefs.ui_scale = scale;
+                    }
+                    _ => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "opening_fit" => match OpeningFit::from_key(value) {
                     Some(f) => prefs.opening_fit = f,
                     None => notes.push(PrefNote::BadValue {
@@ -364,6 +445,22 @@ impl Prefs {
         // ui-text-exempt: a file KEY, as above.
         out.push_str("zoom_settle_ms = ");
         out.push_str(&self.zoom_settle_ms.to_string());
+        out.push('\n');
+        out.push_str(
+            "\n\
+             # How big pdfce's own menus, buttons and labels are drawn, as a\n\
+             # MULTIPLIER on your Windows display setting -- not a replacement\n\
+             # for it. 0.8 to 2.0, in steps of 0.05. A value of 1 means exactly\n\
+             # what Windows asked for. Changes the program, never the page.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("ui_scale = ");
+        // Two decimals: the step is 0.05, so two places represent every value
+        // the control can produce exactly and none that it cannot. The default
+        // `f32` formatting would write `1` for 1.0 and `1.1500001` for a value
+        // that arrived through a slider, and the second of those is a number no
+        // operator should have to read in a file they are invited to edit.
+        out.push_str(&format!("{:.2}", self.ui_scale));
         out.push('\n');
         out.push_str(
             "\n\
@@ -514,6 +611,10 @@ mod tests {
                         grid: false,
                         guides: true,
                     },
+                    // A non-default that is ON the control's step, so the round
+                    // trip tests the writer's formatting rather than the
+                    // loader's rounding — that is `an_off_step_ui_scale_is_rounded_and_reported`'s job.
+                    ui_scale: 1.25,
                 };
                 let (read_back, notes) = Prefs::parse(&original.write_to_string());
                 assert!(
@@ -746,6 +847,64 @@ mod tests {
         assert!(notes.iter().any(|n| matches!(n, PrefNote::Clamped { .. })));
     }
 
+    /// An off-step UI scale is rounded to one the control can produce, and the
+    /// substitution is reported.
+    ///
+    /// Rounding rather than accepting, because the file is hand-editable and
+    /// the slider is not: a value of `1.234` would sit in the control until the
+    /// operator touched it, at which point it would jump — a change they did
+    /// not make, to a setting they did. Reported for the same reason the settle
+    /// clamp is: the operator wrote a number and is getting a different one.
+    #[test]
+    fn an_off_step_ui_scale_is_rounded_and_reported() {
+        let (prefs, notes) = Prefs::parse("ui_scale = 1.234\n");
+        assert!(
+            (prefs.ui_scale - 1.25).abs() < 1e-5,
+            "1.234 became {}",
+            prefs.ui_scale
+        );
+        assert!(notes.iter().any(|n| matches!(n, PrefNote::Clamped { .. })));
+
+        // …and a value already on the step is NOT reported. The other half:
+        // a note on every clean file would train the operator to ignore notes.
+        let (prefs, notes) = Prefs::parse("ui_scale = 1.25\n");
+        assert!((prefs.ui_scale - 1.25).abs() < 1e-5);
+        assert!(notes.is_empty(), "a clean value was reported: {notes:?}");
+    }
+
+    /// ★ **A UI scale of `nan` or `inf` is refused, not clamped.**
+    ///
+    /// The one parse arm in this file that needs a guard beyond `parse()`
+    /// succeeding. `"nan"` and `"inf"` are both valid `f32` literals, and
+    /// `f32::clamp` **propagates** NaN rather than rejecting it — so without
+    /// the `is_finite` check a hand-edited `ui_scale = nan` would flow through
+    /// `normalise_ui_scale` untouched and reach `Context::set_zoom_factor`,
+    /// which is a window that draws nothing.
+    ///
+    /// Reported as a bad value rather than clamped to an end, because the
+    /// operator did not name an end. `inf` is included for the same reason
+    /// even though clamping would in fact handle it: two spellings of "this is
+    /// not a size" should not get two different treatments.
+    #[test]
+    fn a_non_finite_ui_scale_is_refused_rather_than_clamped() {
+        for spelling in ["nan", "NaN", "inf", "-inf", "infinity"] {
+            let (prefs, notes) = Prefs::parse(&format!("ui_scale = {spelling}\n"));
+            assert!(
+                (prefs.ui_scale - DEFAULT_UI_SCALE).abs() < 1e-6,
+                "{spelling:?} produced a scale of {}",
+                prefs.ui_scale
+            );
+            assert!(
+                prefs.ui_scale.is_finite(),
+                "{spelling:?} reached the zoom factor"
+            );
+            assert!(
+                notes.iter().any(|n| matches!(n, PrefNote::BadValue { .. })),
+                "{spelling:?} was substituted silently: {notes:?}"
+            );
+        }
+    }
+
     /// A missing file is silent.
     ///
     /// A first run is the expected state, not a fault. Reporting it would train
@@ -783,6 +942,7 @@ mod tests {
                 grid: true,
                 guides: true,
             },
+            ui_scale: 1.65,
         };
         let (_, notes) = Prefs::parse(&prefs.write_to_string());
         assert!(

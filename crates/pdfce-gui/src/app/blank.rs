@@ -97,6 +97,43 @@
 //! That is what the size picker is for, and it is a follow-up row rather than a
 //! silent guess dressed up as a default.
 //!
+//! ### ★ 3a. The size picker is BLOCKED on the engine — checked 2026-08-18
+//!
+//! It is not merely unbuilt, and the reason is worth having here so the next
+//! session does not spend an afternoon rediscovering it.
+//!
+//! **Nothing in `pdfce-core` writes a `/MediaBox`.** Verified three ways:
+//! `grep -rn "MediaBox" crates/pdfce-core/src/` returns two non-test hits and
+//! both are comments; `EditSession`'s page verbs are rotate, delete, reorder
+//! and nothing else (`edit.rs:3848`, `:3981`, `:14739`, `:15039`, `:15158`);
+//! and `pageops` only ever takes pages from an already-loaded `DocumentView`.
+//! A page's size is fixed at parse time and no caller can change it.
+//!
+//! Which leaves exactly one implementation open to the shell: **one checked-in
+//! template asset per size**, because §2 forbids authoring PDF bytes at
+//! runtime. Counted honestly, that is A0–A4 = five, doubled to **ten** because
+//! a drafting sheet is landscape, more again for ANSI sizes — **and a custom
+//! size is still impossible at any count.** An operator who needs 900 × 600 is
+//! not served by twenty assets.
+//!
+//! A `set_media_box` verb makes it one asset and one dialog, every size, both
+//! orientations, custom included. So the request is filed
+//! (`request_no_verb_sets_a_pages_media_box.md`) and **neither implementation
+//! was built** — ten assets that still cannot answer the custom case is the
+//! kind of half-capability that looks like progress and forecloses the real
+//! fix.
+//!
+//! The request deliberately does not specify the semantics — whether content
+//! moves, whether `/CropBox` follows, whether shrinking below content is a
+//! refusal — because those are the engine's questions and the narrow answer
+//! (*"only on a page with no content"*) is **entirely sufficient** here:
+//! `file.new`'s page is empty by construction.
+//!
+//! Priority stated in the request is **low**, and honestly so. Nobody drafts a
+//! sheet in pdfce; documents arrive from SolidWorks. What the filing buys is
+//! that `NO_SURFACE.md`'s row stops looking like an unbuilt GUI surface when
+//! it is an absent engine capability.
+//!
 //! ## ★ 4. What a document with no file is, and what must not happen to it
 //!
 //! `crate::app::state::OpenDoc::path` means *where this came from*. A created

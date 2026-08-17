@@ -316,8 +316,8 @@ mod tests {
     /// meaningful without the other: a catalog can describe a setting nobody
     /// draws, and a dialog can draw one nobody described.
     ///
-    /// 13 answers to a silent standard, plus 4 preferences of the shell's own.
-    const SETTINGS_COUNT: usize = 17;
+    /// 13 answers to a silent standard, plus 5 preferences of the shell's own.
+    const SETTINGS_COUNT: usize = 18;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -389,6 +389,9 @@ mod tests {
                 opening_fit_radius(),
             ),
             (chrome_title(), chrome_silence(), chrome_radius()),
+            // The theme's twin in the Appearance group — the second setting
+            // that changes the program rather than the document.
+            (ui_scale_title(), ui_scale_silence(), ui_scale_radius()),
         ]
     }
 
@@ -587,14 +590,35 @@ mod tests {
             settle_radius(),
             opening_fit_radius(),
             chrome_radius(),
+            ui_scale_radius(),
         ] {
             assert!(
                 !touches_bytes(radius),
                 "a preview-only setting claims it changes the file: {radius:?}"
             );
+            // ★ An EXPLICIT list of accepted phrasings, widened 2026-08-18 and
+            // deliberately not loosened to "contains the word file".
+            //
+            // A loose match would be satisfied by a radius line saying the
+            // setting *does* change the file — the exact opposite claim — so
+            // the looseness would cost the assertion its meaning in the one
+            // direction it exists to catch. Each entry below is a full
+            // negation, and adding one is a two-second edit for whoever writes
+            // a fourteenth way to say it.
+            //
+            // The third entry is the UI scale's, and it says more than the
+            // other two rather than merely differently: *"never changes the
+            // page or the file"*. That extra clause is load-bearing for that
+            // setting specifically — its title contains the word "size", so
+            // the thing an operator will most reasonably expect it to resize is
+            // the document, and the radius line has to say it does not.
+            const LEAVES_THE_FILE_ALONE: &[&str] = &[
+                "does not change the file",
+                "Does not change the file",
+                "never changes the page or the file",
+            ];
             assert!(
-                radius.contains("does not change the file")
-                    || radius.contains("Does not change the file"),
+                LEAVES_THE_FILE_ALONE.iter().any(|p| radius.contains(p)),
                 "a preview-only setting does not say it leaves the file alone: {radius:?}"
             );
         }

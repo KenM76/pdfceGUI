@@ -98,6 +98,63 @@ pub fn theme(ui: &mut Ui, draft: &mut Draft) {
     }
 }
 
+/// **How big pdfce's own controls are drawn.**
+///
+/// # Why it is in this group rather than with the other preferences
+///
+/// The other four preferences live in *Drawing the page*, and this one does
+/// not, because the window's groups are a **navigation model**: an operator
+/// arrives with a symptom and the heading is how the symptom finds its
+/// setting. The symptom here is *"the program's text is too small to read"*,
+/// which is a question about the window, not about the page — and Appearance
+/// is the group of settings that change **the program's own appearance and
+/// nothing about the document.** Theme is the other one.
+///
+/// It also means the group's two members are the only two settings in the
+/// window that preview live, which makes that exception legible in one place
+/// instead of scattered.
+///
+/// # A slider, not a radio group
+///
+/// Unlike every enum in this window there are no named alternatives to
+/// compare: the values are a continuum and the right one is *the one at which
+/// this operator can read this screen*. There is nothing to explain per value
+/// and everything to try. Twenty-five steps is far too many radios and exactly
+/// the right number for a drag.
+///
+/// The range and the step are the store's constants rather than local
+/// literals, for the reason repeated at every slider in this window: a control
+/// narrower than what the file accepts silently rewrites a hand-edited value
+/// on open, and the operator never touched the control.
+///
+/// # Why the value is shown as a percentage
+///
+/// Because "125 %" is a quantity an operator can compare against the Windows
+/// display setting they already know, and "1.25" is a number they have to
+/// interpret. It is the same value; the suffix is doing the explaining.
+pub fn ui_scale(ui: &mut Ui, prefs: &mut crate::app::prefs::Prefs) {
+    use crate::app::prefs::{MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
+
+    widgets::header(
+        ui,
+        t::ui_scale_title(),
+        t::ui_scale_silence(),
+        t::ui_scale_radius(),
+    );
+    ui.add(
+        egui::Slider::new(&mut prefs.ui_scale, MIN_UI_SCALE..=MAX_UI_SCALE)
+            .step_by(f64::from(UI_SCALE_STEP))
+            // The slider edits the multiplier and displays the percentage.
+            // `custom_formatter` rather than storing a percentage, because the
+            // file, the frame hook and `egui`'s own `zoom_factor` all speak
+            // multipliers — converting at the one place a human reads it keeps
+            // a single unit everywhere else.
+            .custom_formatter(|value, _| t::ui_scale_percent(value))
+            .text(t::ui_scale_slider_label()),
+    );
+    ui.label(egui::RichText::new(t::ui_scale_note()).small().weak());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

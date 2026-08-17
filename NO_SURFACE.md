@@ -224,7 +224,7 @@ feature that has quietly been made their job.
 | Print preview zoom min / max / step | 0.25 / 40 / 1.25 | `dialogs/print/preview.rs:158-163` | none |
 | Print preview DPI / max side | 150 / 2200 px | `dialogs/print/preview.rs:133,151` | none |
 | Default paper | US Letter portrait 612×792 | `dialogs/print/mod.rs:794` | none |
-| **New blank page size** | A4, 595.276 × 841.89, baked-in template | `app/blank.rs:172-175` (`TEMPLATE` is `include_bytes!`) | **none** — `file.new_from_template` PLANNED at `manifest/mod.rs:468` |
+| **New blank page size** | A4, 595.276 × 841.89, baked-in template | `app/blank.rs` (`TEMPLATE` is `include_bytes!`) | ⛔ **blocked on the engine, 2026-08-18** — nothing in `pdfce-core` writes a `/MediaBox`, so the only shell-side implementation is one asset per size (ten, with landscape) and a custom size is impossible at any count. Filed as `request_no_verb_sets_a_pages_media_box.md`; **neither implementation built** |
 
 ### ★ The three redaction rows, resolved 2026-08-18 — and the answer was *do not build it*
 
@@ -268,7 +268,7 @@ believing the wrong thing about content that no longer exists.
 | Remembered per-document entries | 200 | `viewer/remembered.rs:134` | none |
 | Navigator / inspector default width | 280 / 320 | `app/modes/defaults.rs:253,260` | none |
 | Window initial / min size | 1100×800 / 640×480 | `lib.rs:107,114` | none |
-| Icon size | 16.0 pt | `icons/mod.rs:171` | none — **no UI-scale or base-font-size control anywhere** |
+| Icon size | 16.0 pt | `icons/mod.rs:171` | ✅ **scales with the UI now** — `Settings ▸ Appearance ▸ Size of pdfce's own menus, buttons and text`, 2026-08-18. The 16 pt is still a constant and is now a size *in points*, which `pixels_per_point` multiplies; ~~no UI-scale or base-font-size control anywhere~~ |
 | Icon cache | 512 | `icons/cache.rs:92` | none |
 | Status bar height / row | 30.0 / 24.0 pt | `app/status.rs:378,386` | none |
 | Object-tree point rows per part | 200 | `panels/objects/mod.rs:197` | none |
