@@ -97,12 +97,51 @@ pub const ITEM_PREFIX: &str = "ribbon.item.";
 /// would aim a check's clicks at it.
 #[must_use]
 pub fn declared(trace: &Trace, ui_rect: &str, name: &str) -> Option<LRect> {
-    trace
+    // ★ A region that was RETIRED after its last declaration is not declared.
+    //
+    // The application's `ui-rect` channel is a CHANGE LOG — it emits only when
+    // a rect moves — so a control that stops being drawn leaves its last rect
+    // standing in the trace with nothing after it. Reading `.last()` alone
+    // therefore returns a fossil, and a caller cannot tell it from a live
+    // region.
+    //
+    // That is not hypothetical: it made the UI-scale check report eighteen
+    // ribbon controls as lying outside the window at a large scale, when the
+    // ribbon's overflow had correctly swallowed every one of them and the
+    // screenshot showed a clean layout with a *5 more* button. A confident,
+    // detailed, entirely wrong layout-defect report, produced by reading a
+    // change log as a snapshot.
+    //
+    // The application now closes each frame with a `ui-rect-gone name=…` line
+    // per region it stopped drawing, so the log reports both directions. This
+    // compares positions in the trace: a `gone` after the last `ui-rect` means
+    // the region is not on screen, whatever rect it last had.
+    //
+    // Older traces — captured before that line existed — carry no `gone`
+    // events at all, so this degrades to the previous behaviour rather than
+    // to an error. That matters because `--image` runs replay dated captures.
+    // `TraceLine::lineno` is the position in the FILE, so the two event
+    // streams are comparable. Enumerating each iterator separately would give
+    // two independent counters and compare a ui-rect's ordinal against a
+    // gone-event's ordinal, which is meaningless — and would silently be
+    // *mostly* right, since there are far more of the former.
+    let (line_of_last_rect, rect) = trace
         .events(ui_rect)
         .filter(|l| l.get("name") == Some(name))
-        .filter_map(|l| l.get_rect("rect"))
-        .last()
+        .filter_map(|l| l.get_rect("rect").map(|r| (l.lineno, r)))
+        .last()?;
+    let retired_after = trace
+        .events(UI_RECT_GONE_EVENT)
+        .any(|l| l.lineno > line_of_last_rect && l.get("name") == Some(name));
+    if retired_after { None } else { Some(rect) }
 }
+
+/// The event the application emits for a region it has stopped drawing.
+///
+/// Matched literally, like every other event name in this crate, so renaming
+/// it in `crate::diag` without changing it here silently returns [`declared`]
+/// to reading fossils.
+pub const UI_RECT_GONE_EVENT: &str = "ui-rect-gone";
 
 /// Every distinct region name the application declared beginning with
 /// `prefix`, in first-seen order.

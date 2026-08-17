@@ -178,6 +178,41 @@ pub fn run(initial: Option<PathBuf>) -> eframe::Result {
         Box::new(move |cc| {
             app::configure_context(&cc.egui_ctx);
             let mut app = app::PdfceApp::new();
+            // ★ Apply the operator's UI scale BEFORE the first frame is laid
+            // out — 2026-08-17.
+            //
+            // `app::frame`'s step 0b applies it every frame and would reach the
+            // same value on frame 2, so this is not what makes the preference
+            // work. What it removes is a **visible flash**: without it, frame 1
+            // is laid out at 1.0, the hook moves the factor at the end of that
+            // frame, and frame 2 re-lays-out at the operator's scale. Every
+            // launch of a scaled profile starts with one frame of the wrong
+            // size.
+            //
+            // Found by `ui-verify`'s `ui_scale_resizes_the_chrome`, and found
+            // sideways: the check read ribbon regions from the whole trace and
+            // flagged nine controls as lying outside the window. They did — on
+            // the pre-scale frame, where the window was still 1100 pt wide.
+            // The overflow had correctly swallowed them by the time the scale
+            // settled. So the harness's false positive was pointing at a real
+            // defect one layer down, which is the more useful half of the two.
+            //
+            // `PdfceApp::new` has already loaded the preferences, so this is
+            // the first moment the value exists and the last moment before a
+            // frame runs.
+            cc.egui_ctx.set_zoom_factor(app.prefs.ui_scale);
+            // Traced unconditionally, including at 1.0, and that is the point:
+            // `app::frame`'s per-frame hook only traces when it MOVES the
+            // factor, so once this line exists the hook is correctly silent on
+            // every launch and there would otherwise be no positive evidence
+            // anywhere that the preference was read at all. A diagnostic that
+            // only appears when something is out of step cannot answer "was my
+            // setting picked up?", which is the question an operator actually
+            // has.
+            diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("ui-scale-initial to={:.2}", app.prefs.ui_scale)
+            });
             if let Some(path) = initial {
                 app.open_path(path);
             }

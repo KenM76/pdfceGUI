@@ -185,6 +185,37 @@ static LAST_LINE: LazyLock<Mutex<HashMap<&'static str, String>>> =
 static LAST_UI_RECT: LazyLock<Mutex<HashMap<String, egui::Rect>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// The region names [`ui_rect`] has been called with **so far this frame**.
+///
+/// ## ★ Why this exists: the trace is a CHANGE LOG, and a change log cannot
+/// say that something stopped
+///
+/// [`ui_rect`] emits only when a region's rect *differs* from the last one
+/// emitted for that name, which is what keeps the channel usable — a per-frame
+/// dump of ~60 regions at 60 fps is a torrent nobody can read. The cost is
+/// that a region which stops being drawn **emits nothing**, so its last known
+/// rect stands in the trace forever and a reader has no way to tell "still
+/// there, unmoved" from "gone forty frames ago".
+///
+/// That is not academic. It made `ui-verify`'s UI-scale check report **18
+/// ribbon controls as lying outside the window** at a large scale. They did
+/// not: the ribbon's overflow had correctly swallowed them, and every one of
+/// those rects was its position from an earlier frame at a smaller scale. The
+/// screenshot showed a perfectly laid-out ribbon with a *5 more* button. The
+/// harness was reading a fossil and reporting it as a live layout defect —
+/// the exact false-defect outcome `crate::diag`'s own contract is written to
+/// avoid.
+///
+/// So [`end_ui_frame`] diffs this set against the previous frame's and emits
+/// `ui-rect-gone name=…` for anything that disappeared. The log stays a change
+/// log and becomes an *honest* one, reporting both directions of change.
+static UI_RECTS_THIS_FRAME: LazyLock<Mutex<std::collections::HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// The region names that were drawn during the **previous** frame.
+static UI_RECTS_LAST_FRAME: LazyLock<Mutex<std::collections::HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
 /// Lock a registry, ignoring poisoning.
 ///
 /// A panic while one of these locks was held would otherwise disable the
@@ -312,11 +343,62 @@ pub fn ui_rect(name: &str, rect: egui::Rect) {
     if !enabled() {
         return;
     }
+    // Recorded before the change test, so a region that is drawn at an
+    // unchanged rect still counts as PRESENT this frame. Getting this the
+    // other way round would make every unmoved region look retired, which is
+    // the failure this set exists to prevent, inverted.
+    lock(&UI_RECTS_THIS_FRAME).insert(name.to_owned());
     let changed = record_rect_if_changed(&mut lock(&LAST_UI_RECT), name, rect);
     if changed {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         eprintln!("pdfce-diag ui-rect name={name} rect={rect:?}");
     }
+}
+
+/// **Close a frame's region census and report anything that stopped being
+/// drawn.**
+///
+/// Called once at the end of every frame, from `crate::app::frame`. See
+/// [`UI_RECTS_THIS_FRAME`] for the defect this exists to remove — in one
+/// sentence: a change log that only reports appearances lets a consumer read a
+/// stale rect as a live one, and that produced a confident, wrong,
+/// eighteen-item layout-defect report.
+///
+/// # What it emits
+///
+/// One `ui-rect-gone name=…` line per region that was drawn last frame and was
+/// not drawn this frame. Nothing at all on a steady frame, which is the common
+/// case and keeps the channel as quiet as it was before.
+///
+/// # It also forgets the region's last rect
+///
+/// Deliberately, and it is the half that is easy to omit. Without it, a region
+/// that disappears and later comes back **at the same rect** would emit
+/// nothing on its return — `record_rect_if_changed` would compare against the
+/// remembered value and suppress it — leaving the trace saying the region went
+/// away and never saying it returned. Forgetting on retirement makes a
+/// reappearance always visible.
+pub fn end_ui_frame() {
+    if !enabled() {
+        return;
+    }
+    let mut this = lock(&UI_RECTS_THIS_FRAME);
+    let mut last = lock(&UI_RECTS_LAST_FRAME);
+    let mut retired: Vec<String> = last.difference(&this).cloned().collect();
+    if !retired.is_empty() {
+        // Sorted so a diff between two runs of the same scenario is stable.
+        // `HashSet` iteration order is not, and an unstable trace is one that
+        // cannot be compared against a previous capture.
+        retired.sort();
+        let mut rects = lock(&LAST_UI_RECT);
+        for name in &retired {
+            rects.remove(name);
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            eprintln!("pdfce-diag ui-rect-gone name={name}");
+        }
+    }
+    std::mem::swap(&mut *last, &mut this);
+    this.clear();
 }
 
 /// The decision [`ui_rect`] makes, over an explicit map — see
@@ -358,6 +440,13 @@ pub fn reset_change_gates() {
     }
     lock(&LAST_LINE).clear();
     lock(&LAST_UI_RECT).clear();
+    // The frame census goes with them. Not clearing it would make the first
+    // frame after a document open emit `ui-rect-gone` for every region of the
+    // PREVIOUS document that the new one happens not to draw yet — a burst of
+    // retirements that describe a document nobody has open, at the one moment
+    // a reader is most likely to be looking.
+    lock(&UI_RECTS_THIS_FRAME).clear();
+    lock(&UI_RECTS_LAST_FRAME).clear();
 }
 
 #[cfg(test)]

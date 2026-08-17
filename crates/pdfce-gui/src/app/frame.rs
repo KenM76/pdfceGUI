@@ -418,5 +418,19 @@ impl eframe::App for PdfceApp {
         // Step 4 — decide whether the picture on screen still matches the
         // state that was just updated, and start a render if not.
         self.settle_and_rasterize(&ctx, pixels_per_point);
+
+        // ★ LAST — close the frame's region census.
+        //
+        // Every `diag::ui_rect` call for this frame has happened by now, so
+        // this is the first moment at which "which regions were NOT drawn this
+        // frame?" has an answer. It emits `ui-rect-gone` for each, and
+        // `crate::diag::end_ui_frame` carries the argument for why a trace
+        // that only reports appearances is not merely incomplete but
+        // actively misleading.
+        //
+        // After `settle_and_rasterize` rather than before it, because that
+        // call can still declare regions — and a census closed one line early
+        // would retire whatever it was about to draw, every frame, forever.
+        crate::diag::end_ui_frame();
     }
 }

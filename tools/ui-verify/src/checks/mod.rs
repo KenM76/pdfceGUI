@@ -235,6 +235,7 @@ pub mod text_tool;
 /// oracles include two *invalidation* signals — a fresh `objects` line and a
 /// fresh `render-spawn` — because the build it exists to catch is one whose
 /// every count is already correct. Its header carries the argument.
+pub mod ui_scale;
 pub mod undo_redo;
 
 use std::path::{Path, PathBuf};
@@ -501,5 +502,21 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // and no keystroke.
         Box::new(read_mode_chrome::ReadModeHidesTheChrome),
         Box::new(settings_headings::SettingsHeadingsLegible),
+        // ★ LAST, and for a reason that is the mirror of the one above.
+        //
+        // This check WRITES `userdata/preferences.txt` beside the binary and
+        // deliberately does not restore it — see `write_preference` on why
+        // tidying up would hide the state the next check inherits. Every check
+        // that runs after it would therefore start at whatever scale it left
+        // behind, and a window at 1.8x is a window whose every coordinate
+        // differs from what the others were written against.
+        //
+        // Putting it last makes that a property of the *file on disk* between
+        // runs rather than a property of the *suite*, which is the same
+        // distinction `delete_key`'s persisted-mode defect turned on. The file
+        // is left holding the large scale on purpose: the next run's base
+        // launch then has something to move away from, which is what makes its
+        // `ui-scale` trace line meaningful rather than vacuous.
+        Box::new(ui_scale::UiScaleResizesTheChrome),
     ]
 }
