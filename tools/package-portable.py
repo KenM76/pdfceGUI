@@ -276,6 +276,53 @@ def git(*args: str, cwd: Path = ENGINE) -> str:
     ).stdout.strip()
 
 
+def locked_engine_rev(repo: Path) -> str | None:
+    """The engine revision `Cargo.lock` says this build actually links.
+
+    **This, not the engine tree's HEAD, is the engine's identity.** The
+    distinction became real on 2026-08-18, when `pdfce-gui` moved from a
+    path dependency to `git = "file:///D:/Dev/pdfce", branch = "main"`: a
+    path dependency compiles the working tree, a git dependency compiles a
+    committed revision out of `~/.cargo/git/`, and the two can differ by
+    any number of commits plus whatever is uncommitted.
+
+    `Cargo.lock` is the only artefact that records what was compiled, and
+    it moves only on `cargo update`. So committing in the engine — or
+    editing it, or checking out another branch — does not change this
+    build, and reading HEAD would credit the binary with commits it does
+    not contain.
+
+    Parsed with a regex rather than a TOML library on purpose: this script
+    has no third-party dependencies and gains none for one line. The shape
+    it matches is Cargo's own and is stable —
+
+        [[package]]
+        name = "pdfce-core"
+        version = "0.5.3"
+        source = "git+file:///D:/Dev/pdfce?branch=main#13456637..."
+
+    Returns `None` rather than raising when the lock has no such entry,
+    which is the state a **path** dependency produces (path deps record no
+    `source` at all). The caller reports "unknown" and the build still
+    happens: refusing to package because an identity could not be read
+    would be this script deciding it knows better than the operator who
+    ran it.
+    """
+    lock = repo / "Cargo.lock"
+    if not lock.is_file():
+        return None
+    text = lock.read_text(encoding="utf-8", errors="replace")
+    # Non-greedy across the entry so `name` and `source` are matched within
+    # the SAME `[[package]]` block. A greedy match would happily pair
+    # `pdfce-core`'s name with some later package's source.
+    match = re.search(
+        r'\[\[package\]\]\s*\nname = "pdfce-core"\n.*?source = "git\+[^"]*#([0-9a-f]{7,40})"',
+        text,
+        re.DOTALL,
+    )
+    return match.group(1) if match else None
+
+
 def source_digest(repo: Path) -> str:
     """A 12-hex digest identifying this workspace's build-affecting source.
 
@@ -656,9 +703,46 @@ def main() -> int:
         build = [p for p in changed if p.startswith(BUILD_AFFECTING)]
         return build, [p for p in changed if p not in build]
 
-    engine_short = git("rev-parse", "--short", "HEAD") or "unknown"
-    engine_subject = git("log", "-1", "--format=%s")
+    # ★★ THE ENGINE'S IDENTITY IS THE LOCKED REVISION, NOT THE TREE'S HEAD —
+    # rewritten 2026-08-18 when the dependency form changed.
+    #
+    # This used to read `git rev-parse HEAD` in the engine tree, which was
+    # correct while `pdfce-gui` took the engine by PATH: a path dependency
+    # compiles the working tree, so the tree's HEAD (plus a dirty flag) was
+    # what got linked.
+    #
+    # It is now `git = "file:///D:/Dev/pdfce", branch = "main"`. Cargo clones
+    # that repository and builds a **specific commit** out of `~/.cargo/git/`,
+    # so the working tree is not compiled at all. Two consequences, and both
+    # would have made the old code lie:
+    #
+    #   1. **A dirty engine worktree can no longer reach the binary.** The
+    #      `-enginedirty` suffix would have fired on a build it does not
+    #      describe — and this script's own docstring says a warning that
+    #      fires when nothing is wrong is one that gets ignored when
+    #      something is.
+    #   2. **HEAD can be AHEAD of what was linked.** `Cargo.lock` pins a
+    #      revision and only `cargo update` moves it, so committing in the
+    #      engine does not change this build. Naming HEAD would have credited
+    #      the binary with commits it does not contain, which is the more
+    #      dangerous error of the two.
+    #
+    # So the identity is read from `Cargo.lock`, which is the only artefact
+    # that records what was actually compiled. `git log` in the engine tree is
+    # still used to turn that revision into a subject line, because a hash
+    # with no sentence beside it tells the operator nothing.
+    engine_locked = locked_engine_rev(REPO)
+    engine_short = (engine_locked or "unknown")[:7]
+    engine_subject = (
+        git("log", "-1", "--format=%s", engine_locked) if engine_locked else ""
+    )
+    # Reported, never in the name: the tree may be mid-edit by the session
+    # that owns it, and that is now simply none of this build's business.
     dirty_build, dirty_other = dirty_of(ENGINE)
+    engine_head = git("rev-parse", "--short", "HEAD") or "unknown"
+    engine_behind = (
+        git("rev-list", "--count", f"{engine_locked}..HEAD") if engine_locked else ""
+    )
 
     shell_short = git("rev-parse", "--short", "HEAD", cwd=REPO) or "unknown"
     shell_subject = git("log", "-1", "--format=%s", cwd=REPO)
@@ -675,8 +759,12 @@ def main() -> int:
     name = f"pdfcegui-{stamp}-{engine_short}-{shell_short}"
     if shell_dirty_build:
         name += f"-dirty-{src}"
-    if dirty_build:
-        name += "-enginedirty"
+    # ★ No `-enginedirty`. It was removed on 2026-08-18 with the dependency
+    # change above: the engine is built from a committed revision out of
+    # cargo's git cache, so its working tree cannot reach this binary and a
+    # suffix claiming otherwise would be false. The tree's state is still
+    # REPORTED in `BUILD-INFO.txt` — it is useful context about the
+    # repository — it is just no longer a claim about the payload.
     out = args.dest / name
 
     if out.exists() and any(out.iterdir()):
@@ -815,23 +903,35 @@ def main() -> int:
             "code itself is in no commit and cannot be recovered from the hash.\n"
             f"{listed}{more}\n"
         )
-    if dirty_other and not dirty_build:
-        listed = "\n".join(f"  {q}" for q in dirty_other[:10])
-        more = "\n  ..." if len(dirty_other) > 10 else ""
+    # ★ The engine tree's state is CONTEXT now, not a warning about the
+    # payload. Since 2026-08-18 the engine is compiled from a committed
+    # revision out of cargo's git cache, so nothing uncommitted in
+    # D:\Dev\pdfce can reach this binary — see `locked_engine_rev`.
+    #
+    # It is still reported, because it answers the question an operator
+    # actually has when a fix they know landed is not in the build: *is the
+    # engine ahead of what I am running?* That question used to be
+    # unanswerable and it is the one that cost eighteen images on a real file.
+    if dirty_build or dirty_other:
+        changed = dirty_build + dirty_other
+        listed = "\n".join(f"  {q}" for q in changed[:10])
+        more = "\n  ..." if len(changed) > 10 else ""
         warn += (
-            "\nEngine tree note: files outside the build were modified when this\n"
-            "was packaged (documentation, fixtures, or agent memory). None of them\n"
-            "reach the compiler, so the engine linked here IS the commit below:\n"
+            "\nEngine tree note: D:\\Dev\\pdfce had uncommitted changes when this was\n"
+            "packaged. They are NOT in this binary — the engine is built from the\n"
+            "committed revision named below, out of cargo's git cache — so this is\n"
+            "context rather than a warning:\n"
             f"{listed}{more}\n"
         )
-    if dirty_build:
-        listed = "\n".join(f"  {q}" for q in dirty_build[:10])
-        more = "\n  ..." if len(dirty_build) > 10 else ""
+    if engine_behind and engine_behind not in ("", "0"):
         warn += (
-            "\n*** THE ENGINE WAS BUILT FROM AN UNCOMMITTED WORKING TREE ***\n"
-            "The commit below identifies D:\\Dev\\pdfce's last COMMIT, not what was\n"
-            "linked into this binary. These build-affecting files were modified:\n"
-            f"{listed}{more}\n"
+            f"\n*** THE ENGINE HAS MOVED ON: {engine_behind} COMMIT(S) NOT IN THIS BUILD ***\n"
+            f"This binary links {engine_short}; D:\\Dev\\pdfce's main is at {engine_head}.\n"
+            "Cargo.lock pins the revision and only `cargo update` moves it, so this\n"
+            "is deliberate rather than broken. To pick them up:\n"
+            "  cargo update -p pdfce-core -p pdfce-render -p pdfce-print\n"
+            "Worth checking before investigating any RENDERING complaint as a shell\n"
+            "defect: a stale engine pin has already produced exactly that confusion.\n"
         )
 
     # Hoisted out of the f-string: an expression part may not contain a

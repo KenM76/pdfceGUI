@@ -205,27 +205,101 @@ egui-shell.workspace = true
 # and at fold-in it would have been deleted in favour of exactly this line.
 rfd = "0.17.2"
 
-# ★ PINNED to a commit, not a branch or a tag — 2026-08-14.
+# ★★ BACK TO PATHS — operator instruction, 2026-08-18.
 #
-# These were relative paths (`../../../pdfce/...`) for the whole of
-# development, which is right for editing both repos at once and wrong for
-# publishing: source cloned from GitHub would not build for anyone who did
-# not happen to have `pdfce` checked out as a sibling directory. The
-# compiled binary was never affected — Rust links the engine statically, so
-# a packaged build has always been self-contained.
+# > *"let's point back to using the commits from D:\Dev\pdfce."*
 #
-# A COMMIT rather than a branch, deliberately: `main` moves, and a shell
-# built against whatever the engine happened to be that morning is a build
-# nobody can reproduce. Bumping this is then a deliberate act with a diff,
-# which is what `HANDOFF.md` §11 assumes when it talks about filing against
-# a specific engine revision.
+# This is a deliberate reversal of the 2026-08-14 pin, and both halves of
+# the trade are kept below rather than the losing one being deleted,
+# because this has now been decided in both directions and will be again.
 #
-# This pin was verified before it was written: local HEAD, `origin/main`
-# and the source every binary in the 2026-08-14 session was compiled
-# against were all exactly this commit, with a clean tree — so the exe
-# attached to the release and the source a cloner gets are the same engine.
-pdfce-core = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", default-features = false }
-pdfce-render = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", default-features = false }
+# WHY IT WAS PINNED (2026-08-14), and what that bought:
+#
+#   A commit rather than a branch, because `main` moves and a shell built
+#   against whatever the engine happened to be that morning is a build
+#   nobody can reproduce. It also made source cloned from GitHub build for
+#   someone who does not happen to have `pdfce` checked out as a sibling
+#   directory. Bumping was then a deliberate act with a diff.
+#
+# WHY THAT FAILED IN PRACTICE, measured 2026-08-18:
+#
+#   Nothing makes a pin's staleness visible. There is no compile error, no
+#   warning and no test — the shell goes on building happily against a
+#   revision the repository left behind. It measured **eight commits
+#   behind** on 2026-08-18, and one of the eight (`1e7a0be`) was the fix
+#   that made `Separation`, `DeviceN`, `Lab`, `CalGray` and `CalRGB`
+#   IMAGES decode instead of being dropped from the raster entirely —
+#   eighteen pictures on the operator's own file.
+#
+#   Worse, the eight were **unpushed**: `origin/main` was still at the
+#   pinned commit. So the pin could not have been bumped even by someone
+#   who noticed, because the commits this shell needed did not exist at
+#   the place it fetches from. A pin to a remote is only as current as the
+#   last push, and pushing is not this project's act.
+#
+#   Net effect: the OLD shell in `D:\Dev\pdfce` — which uses
+#   `.workspace = true` and therefore builds the local crates — rendered
+#   the operator's file correctly while this one did not. That is the
+#   reverse of what anybody expects of a rebuild, and it was caused
+#   entirely by the dependency form.
+#
+# WHAT PATHS COST, so it is on the record and not rediscovered:
+#
+#   1. **Source cloned from GitHub will not build** without `pdfce`
+#      checked out as a sibling directory. The compiled binary is
+#      unaffected — Rust links the engine statically, so a packaged build
+#      has always been self-contained and still is.
+#   2. **A build is only as reproducible as the engine tree was clean.**
+#      `BUILD-INFO.txt` records the engine's HEAD *and whether its tree was
+#      dirty*, because a path build against three uncommitted files is a
+#      binary no commit describes. That is not hypothetical: the engine
+#      tree had three modified source files at the moment this change was
+#      made, with another session working in it live.
+#
+# `../../../pdfce/…` resolves from `D:\Dev\pdfceGUI\crates\pdfce-gui\`:
+# crates/pdfce-gui -> crates -> pdfceGUI -> Dev, then down into
+# `pdfce/crates/…`. Verified to resolve, not assumed.
+#
+# ★★★ …AND THE FORM IS `file://` + BRANCH, NOT A BARE PATH. Read this
+# before "simplifying" it to `path = `.
+#
+# A bare path dependency compiles the engine's WORKING TREE, and that tree
+# has another session editing it live. The first attempt at this change did
+# exactly that and **failed to compile** — `redact.rs` was mid-rewrite:
+#
+#     redact.rs:1776  no variant `Quadding::LeftJustified`
+#     redact.rs:1781  no function `Object::as_bool`
+#
+# Half-written new code, three modified files, entirely reasonable for a
+# repository somebody is working in. But it means a path build is hostage
+# to another session's save-point, and it would have been worse if it had
+# compiled: a binary built from somebody's uncommitted half-finished edit,
+# with no commit to name in `BUILD-INFO.txt` and no way to reproduce it.
+#
+# `file://` + `branch` takes the same repository's **committed history**
+# instead. Cargo clones it into `~/.cargo/git/`, so:
+#
+#   * the working tree's cleanliness is irrelevant — a build always comes
+#     from a real commit and `BUILD-INFO.txt` can name it;
+#   * unpushed commits ARE reachable, which is the whole reason the GitHub
+#     pin failed (see above — the eight commits this shell needed had never
+#     been pushed);
+#   * `Cargo.lock` still records an exact revision, so a build is
+#     reproducible and picking up new engine commits is a deliberate
+#     `cargo update -p pdfce-core -p pdfce-render -p pdfce-print`, not
+#     something that happens silently under a rebuild.
+#
+# That last property is what the 2026-08-14 pin was actually protecting and
+# it is kept. What is dropped is only the pin's dependence on a REMOTE,
+# which is the part that broke.
+#
+# `D:\Dev\pdfce` remains READ-ONLY to this project (PROJECT_PLAN.md §6.1).
+# Cargo reads that repository and clones from it; it writes nothing there,
+# and builds into THIS workspace's `target/`. Do not `cd` into it to build
+# — that is the one way this arrangement can breach the rule, and it has
+# happened once already (HANDOFF.md §4).
+pdfce-core = { git = "file:///D:/Dev/pdfce", branch = "main", default-features = false }
+pdfce-render = { git = "file:///D:/Dev/pdfce", branch = "main", default-features = false }
 
 # pdfce-print — printer enumeration, device capabilities and spooling.
 #
@@ -239,7 +313,7 @@ pdfce-render = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", def
 # from "no printers found": `pdfce-print` is explicit that a build which
 # cannot ask and a machine with nothing to ask about must never collapse into
 # one message.
-pdfce-print = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4" }
+pdfce-print = { git = "file:///D:/Dev/pdfce", branch = "main" }
 
 [dev-dependencies]
 # flate2 — used by ONE ignored test, `ocr::fixture::write_synthetic_image_only`,
