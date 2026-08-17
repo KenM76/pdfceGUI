@@ -41,25 +41,79 @@ them.
 > `bash tools/gates/run-all.sh` and read the summary rather than
 > believing any of the three numbers on this screen.
 
-### ★★★ 2026-08-17 — the machine was in use, so NOTHING below is driven
+### ★★★ 2026-08-17 evening — the machine was freed, and everything was driven
 
-**Read this before trusting any of the four commits of 2026-08-17.** The
-operator was working on the same PC, so `ui-verify` could not be run: it
-launches the real binary, takes the foreground and drives the OS. Everything
-landed that day is **unit-tested and unverified in pixels**, which by R1 is not
-"done".
+The morning's four commits landed with the operator using the PC, so nothing
+was verified in pixels. That queue is now **worked through**, and driving it
+found more than it confirmed. Measured at `a709afc`:
 
-The queue, in the order worth running when the machine is free:
-
-| what | why it needs pixels specifically |
+| | |
 |---|---|
-| **UI scale**, at 0.8 and at 2.0 | The strongest pixels case in the queue. **Every layout in the shell re-flows** — ribbon groups, dock tabs, the status bar, the settings window's own scroll area. This project has already shipped a control laid out *below the bottom of its own pane* (§2 defect 11) and a two-row ribbon one gap short (§10), both invisible to a green suite. A 200 % run is the cheapest possible search for the next one |
-| **The opening view**, all three fits × the overlay trio | Assert on the `opening-view` trace line, then confirm the rulers really took their gutters. The remembered-guides OR is the subtle case: open a document that *has* saved guides with the preference off and check they still show |
-| **Freehand at a 0.25 pt pen** | Read `markup-commit … raw= kept=` off the trace. The unit test proves the tolerance follows the pen; only a driven stroke proves the pen the *gesture* uses is the pen the *control* set — which is exactly the wiring-order class of defect that produced §2's defect 10 |
-| **Settings window headings** | `settings_headings_legible` is a live check now and two of the four new controls added headings to it |
+| **`ui-verify`** | **22 passed · 0 failed · 3 skipped** (was 19/1/4) |
+| **Tests** | 1,823 passing, 0 failing |
+| **Gates** | 12 of 12, 0 skipped |
+| **Engine** | `D:\Dev\pdfce` local `main`, via `git = "file://…", branch = "main"` |
 
-Two of these are cheap to add to `ui-verify` and one — the freehand trace check
-— already has its assertion shape from the `raw=`/`kept=` work.
+**Three harness defects, each producing a confident wrong answer, and each
+worth more than the check that found it.**
+
+1. **`delete_key` was reporting the Read-mode gate as a selection defect.** It
+   clicked page content and asserted a selection appeared, having never set the
+   mode — and the shell's **default mode is Read**, where that click is
+   correctly refused. What gave it away was not reading code: **six doc-points
+   spread across a dense CAD sheet all reported `hit 0 object(s)`.** A hit test
+   that misses everywhere is not a hit test, it is a gate. Two checks in this
+   suite were asserting **opposite** things about the same gesture and only one
+   established the mode.
+
+2. **Chords never worked, for the whole life of the project, and the recorded
+   diagnosis was too broad.** §8 said *"synthetic keyboard input does not reach
+   the target window"*. It does — the same API delivers a plain Delete. Only
+   **modified** chords failed, because `keybd_event` posts asynchronously and an
+   egui app drains the queue once per frame: modifier-down and key-down in the
+   same microsecond give it no frame in which the modifier is held and the key
+   is not, so `Ctrl+2` arrives as a bare `2`. **Three 12 ms sleeps.**
+   `find_opens_and_finds`, which had never passed here, now does.
+
+3. **The `ui-rect` trace is a CHANGE LOG and could not say a control had
+   stopped being drawn.** It emits only when a rect *moves*, so a control
+   swallowed by the ribbon overflow left its last rect standing forever. That
+   made the new UI-scale check report **18 controls as laid out outside the
+   window**; all 18 were fine and the screenshot showed a clean ribbon with a
+   *5 more* button. Fixed at the source: the application now emits
+   `ui-rect-gone name=…` at frame end and forgets the retired rect. **Every
+   region-based check in the suite is sounder for it.**
+
+**And one I caused by arguing myself into it**, which is the one to read
+twice. The UI-scale check writes `preferences.txt` and I left it holding 1.8
+"on purpose", reasoning that tidying up would hide inherited state. Next full
+run: **3 passed, 1 failed, 21 skipped.** Twenty-one checks could not begin,
+because they are written against an 1100 pt window and met a 611 pt one. The
+distinction I had missed is **who owns the state**: `layout.ron` and
+`recent.txt` are written by the *application* as a consequence of being driven
+and erasing them would hide what driving it does; `preferences.txt` here is an
+**input the harness injects**, and an injected input is one it owes the suite
+a return to neutral on. Restored via a `Drop` guard, because that function has
+eleven returns.
+
+**What the driving confirmed about the application**, as opposed to the
+harness: UI scale is correct and shipping-quality — client area 1100→611 pt at
+1.8× exactly, all measured chrome at ×1.80 of the window, all 68 declared
+regions inside it, and the 180 % screenshot fully legible. One real app defect
+fell out: a scaled profile **flashed at 1.0 for the first frame**, now fixed by
+applying the scale in `lib.rs` before the first frame and tracing
+`ui-scale-initial`.
+
+**Known limit, not yet a defect worth fixing:** at 1.8× on the shipped
+1100×800 window the two default dock panels take 550 of 611 pt and the canvas
+is squeezed to a sliver at 10 % zoom. Correct behaviour from every component —
+the docks are sized in points and points got bigger — but the *composition* is
+poor, and there is no minimum-canvas guard. On a maximised window it does not
+arise. Worth a `MODES_AND_PANELS.md` decision before anyone calls it a bug.
+
+**Still not driven:** the opening-view trio and the freehand-at-0.25 pt stroke.
+Both have their assertion shapes ready (`opening-view` and
+`markup-commit raw=/kept=` are live trace lines) and neither has a check yet.
 
 ### ★★ 2026-08-17 — the operator's report, and what it turned up
 
