@@ -429,10 +429,57 @@ pub const fn duplex_short() -> &'static str {
     "Two-sided, short-edge binding"
 }
 
-/// The tray checkbox.
+/// ★ **Which paper this job is being laid out on, and that it cannot be
+/// chosen here.**
+///
+/// # Why this sentence exists at all
+///
+/// `pdfce-print` exposes no paper-size list and no way to request one:
+/// `build_devmode` sets `DM_ORIENTATION` and `DM_DUPLEX` and never
+/// `DM_PAPERSIZE`, and `printer_caps` reads the device's **default** DEVMODE.
+/// So the job is planned against whatever paper this printer's Windows
+/// preferences are set to.
+///
+/// That is a fact pdfce inferred and the operator did not choose, which under
+/// rule 4 is exactly the kind of thing that must be disclosed — *fuzzy, never
+/// sneaky*. And it is disclosed **off-canvas, in words, where the decision it
+/// affects is being made**, rather than by a badge on the preview.
+///
+/// The alternative — a combo box of paper sizes — would be a lie: it would list
+/// sizes pdfce cannot request, and choosing one would change nothing while
+/// looking exactly like it had.
+///
+/// # Why it names the size in millimetres as well as points
+///
+/// Points are the document's unit and the one the rest of this dialog speaks,
+/// so they come first. Millimetres are the unit the operator's paper is sold in
+/// and the one they will compare against — *"210 × 297"* is recognisable as A4
+/// in a way that *"595 × 842 pt"* is not, and recognising it is the whole
+/// purpose of the line.
+///
+/// # The `None` case is not an error
+///
+/// It is simply "no plan yet" — no printer chosen, or the device would not
+/// describe itself. The device-unavailable sentence covers the second and the
+/// selector covers the first, so this line steps back rather than adding a
+/// third refusal to a column that already has one.
 #[must_use]
-pub const fn pick_tray() -> &'static str {
-    "Let the printer choose the tray from each page's size"
+pub fn sheet_from_driver(sheet: Option<(f64, f64)>) -> String {
+    let Some((w_pt, h_pt)) = sheet else {
+        return "Paper comes from this printer's own settings in Windows.".to_owned();
+    };
+    // 1 pt = 1/72 inch, 1 inch = 25.4 mm. Rounded to whole millimetres: the
+    // operator is matching this against a ream label, and a tenth of a
+    // millimetre of driver rounding is noise that makes a familiar size look
+    // unfamiliar.
+    let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
+    format!(
+        "Paper: {} × {} pt ({} × {} mm), from this printer's own settings in          Windows. pdfce cannot change it — set it in the printer's preferences          and reopen this dialog.",
+        w_pt.round() as i64,
+        h_pt.round() as i64,
+        mm(w_pt),
+        mm(h_pt),
+    )
 }
 
 // ---------------------------------------------------------------------------

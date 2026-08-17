@@ -346,6 +346,34 @@ impl PdfceApp {
             // future undo/redo surface could replay. Declining by name beats a
             // panic in the frame that is trying to draw, and it emphatically
             // beats authoring a shape nobody asked for.
+            // ★ A recalibration, which is one undo step however many
+            // dimensions it rewrites.
+            //
+            // `vector_edit` is the shared path, and the page it is given is
+            // **0** with a note rather than an `Option`, because a group is
+            // document-scoped: its members may be anywhere. The page reaches
+            // `vector_edit` only for the trace line and the raster
+            // invalidation, and the invalidation is deliberately wider than
+            // the page — see below.
+            Action::SetGroupScale {
+                group,
+                scale,
+                format,
+            } => {
+                // Every cached raster is dropped, not just one page's. A
+                // dimension group's members are wherever the operator put
+                // them, so a recalibration can change a page the operator is
+                // not looking at — and a strip entry drawn before it would
+                // keep showing the old number with nothing to say so. This is
+                // the same wholesale-invalidation argument `app::pages` makes
+                // for a permutation, arriving from a different direction.
+                doc.strip_rasters.clear();
+                vector_edit(doc, "set-group-scale", 0, 1, |session| {
+                    session
+                        .set_group_scale(group, scale, format)
+                        .map(|_| Vec::new())
+                });
+            }
             Action::CommitMarkup {
                 page,
                 kind,

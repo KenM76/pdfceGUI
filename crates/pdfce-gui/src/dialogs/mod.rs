@@ -73,6 +73,14 @@ pub mod print;
 /// and why the destination is asked for every time.
 pub mod redact;
 
+/// ★ The Set-scale dialog — what a dimension's number *means*.
+///
+/// Phase 7 shipped three tools that place dimensions and no way to say what
+/// scale they are at, so every label read in PDF points: a measurement of the
+/// **paper** rather than of the thing drawn on it. A plausible answer to a
+/// question nobody asked, which is worse than a missing feature.
+pub mod scale;
+
 /// ★ The Settings window — the thirteen questions the PDF standard declines to
 /// answer, and the operator's answers to them.
 ///
@@ -135,6 +143,19 @@ pub struct DialogsState {
     /// forgets nothing — but it must still close, for the same reason print
     /// does.
     diagnostics: Option<diagnostics::DiagnosticsDialog>,
+
+    /// The Set-scale dialog, when one is open.
+    ///
+    /// Document-scoped, and the first dialog here that **edits the document
+    /// through the action funnel**. Print writes to a spooler and OCR and
+    /// redaction produce new files; this one recalibrates a dimension group in
+    /// the open document, which is an undoable edit — see
+    /// `crate::app::actions::Action::SetGroupScale`.
+    ///
+    /// That is why [`Self::show`] takes an action queue at all: this module's
+    /// header says a dialog that edits the document *"must use the funnel"*,
+    /// and this is the first one that does.
+    scale: Option<scale::ScaleDialog>,
 
     /// The Apply-redactions dialog, when one is open.
     ///
@@ -262,6 +283,23 @@ impl DialogsState {
     /// no texture yet is precisely when an operator asks what the renderer did
     /// — so the dialog opens and *says* that nothing has been drawn, rather
     /// than the command silently doing nothing.
+    /// Open the Set-scale dialog on `group`.
+    ///
+    /// The already-open guard is the same one every dialog here has, and it
+    /// matters more than usual: a second press must not discard a ratio the
+    /// operator has half typed, and re-opening would also re-capture the active
+    /// group — so a group change made while the dialog was up would silently
+    /// redirect the calibration.
+    pub fn open_scale(&mut self, status: &Status, group: pdfce_core::dimension::GroupId) {
+        if !matches!(status, Status::Open(_)) {
+            return;
+        }
+        if self.scale.is_some() {
+            return;
+        }
+        self.scale = Some(scale::ScaleDialog::open(group));
+    }
+
     pub fn open_diagnostics(&mut self, status: &Status) {
         if !matches!(status, Status::Open(_)) {
             return;
@@ -320,7 +358,12 @@ impl DialogsState {
     /// title-bar cross and its own Close button are both widgets), so the
     /// answer arrives out of the same call that needs `&mut` on the state
     /// being dropped.
-    pub fn show(&mut self, ctx: &egui::Context, status: &Status) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        status: &Status,
+        actions: &mut Vec<crate::app::actions::Action>,
+    ) {
         // Application-scoped first, so that an empty canvas cannot skip it.
         // Ordering is the whole guard here: putting this after the early
         // return below is a one-line edit that would silently restore the old
@@ -346,6 +389,13 @@ impl DialogsState {
         if self.redact.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
             self.redact = None;
         }
+        // ★ Takes the action queue, unlike its four neighbours. See the field.
+        // It does not take `doc`: the scale it sets belongs to a *group*, which
+        // is document-scoped but not page-scoped, and the entry fields need
+        // nothing from the open document at all.
+        if self.scale.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.scale = None;
+        }
     }
 
     /// Drop the state of every dialog that is about the open document.
@@ -359,6 +409,7 @@ impl DialogsState {
         self.ocr = None;
         self.diagnostics = None;
         self.redact = None;
+        self.scale = None;
     }
 }
 

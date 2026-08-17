@@ -835,6 +835,44 @@ pub enum Action {
         /// different colour.
         pen: crate::canvas::markup::pen::Pen,
     },
+
+    /// ★ **Calibrate a dimension group** — say what its numbers mean.
+    ///
+    /// Raised by `crate::dialogs::scale` and by nothing else.
+    ///
+    /// # Why this is an `Action` and not a call
+    ///
+    /// `EditSession::set_group_scale` **re-propagates every member's baked
+    /// appearance stream**. A dimension's label is drawn into its `/AP`, so
+    /// changing the scale rewrites every dimension in the group — which may be
+    /// dozens of annotations across several pages.
+    ///
+    /// That makes it a document edit with an undo step, and the funnel's whole
+    /// purpose is that such an edit is ordered against every other and appears
+    /// **once** in the command log. One `Ctrl+Z` undoes a recalibration,
+    /// whatever it touched. That is the group model's own promise — *a group
+    /// exists so its members agree* — and a dialog issuing one call per member
+    /// would break it in the most annoying way available: an undo stack the
+    /// operator has to press forty times.
+    ///
+    /// # Why it carries no page
+    ///
+    /// Every other document-editing variant here names one. A group is
+    /// **document-scoped by construction**: its members may be on any page, and
+    /// the sidecar that records it is not a page property. Adding a page here
+    /// would be a field the apply arm had to ignore, which is how a reader
+    /// comes to believe a recalibration is page-local.
+    SetGroupScale {
+        /// The group to recalibrate.
+        group: pdfce_core::dimension::GroupId,
+        /// The tri-state scale to store — always `Calibrated` from this
+        /// dialog, because a back-calculated scale is by definition neither
+        /// "1:1" nor "never set".
+        scale: pdfce_core::dimension::ScaleState,
+        /// The number format: the display unit, and how its fractional part is
+        /// written.
+        format: pdfce_core::dimension::NumberFormat,
+    },
     /// ★ **Mark the text the operator has selected** — underline, strikeout or
     /// squiggly.
     ///

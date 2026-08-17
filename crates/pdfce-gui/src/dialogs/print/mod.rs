@@ -643,7 +643,17 @@ impl PrintDialog {
         ui.separator();
 
         match self.active_tab {
-            PrintTab::PagesLayout => tabs::pages_layout(ui, self, page_count),
+            PrintTab::PagesLayout => tabs::pages_layout(
+                ui,
+                self,
+                page_count,
+                // The TURNED sheet, from the plan — so the sentence
+                // names the rectangle the job was actually laid out
+                // against rather than the device's un-rotated default.
+                // `None` while there is no plan, which the sentence
+                // handles rather than the caller guessing.
+                job.map(|j| j.device.physical_pt),
+            ),
             PrintTab::CopiesFinishing => tabs::copies_finishing(ui, self),
             PrintTab::CommentsResolution => {
                 tabs::comments_resolution(ui, self, job.map(|j| j.resolution));

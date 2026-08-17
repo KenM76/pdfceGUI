@@ -125,6 +125,10 @@ pub mod redact;
 /// The ribbon's structural strings: tab labels and questions, group
 /// captions, mode labels. Consumed by `crate::shell::manifest`.
 pub mod ribbon;
+/// Every word the Set-scale dialog shows. The hardest job in this catalog:
+/// explaining what a ratio is measured *against*, when the honest answer for a
+/// PDF is 1/72 inch and nobody's intuition is in those.
+pub mod scale;
 
 /// Every word the Settings window shows — the thirteen spec-ambiguity choices,
 /// what each leaves open, and what each costs.

@@ -182,7 +182,12 @@ pub(super) fn parse_page_range(spec: &str, count: usize) -> Option<Vec<usize>> {
 // ---------------------------------------------------------------------------
 
 /// Which pages, and how each one lands on the sheet.
-pub(super) fn pages_layout(ui: &mut Ui, dialog: &mut PrintDialog, page_count: usize) {
+pub(super) fn pages_layout(
+    ui: &mut Ui,
+    dialog: &mut PrintDialog,
+    page_count: usize,
+    sheet: Option<(f64, f64)>,
+) {
     ui.label(t::pages_heading());
     ui.radio_value(&mut dialog.range, PrintRange::All, t::range_all(page_count));
     ui.radio_value(&mut dialog.range, PrintRange::Current, t::range_current());
@@ -274,6 +279,32 @@ pub(super) fn pages_layout(ui: &mut Ui, dialog: &mut PrintDialog, page_count: us
             dialog.device.orientation = orientation;
         }
     }
+
+    // ★ WHICH PAPER, disclosed — because it cannot be chosen.
+    //
+    // `pdfce-print` exposes no paper-size list and no way to request one:
+    // `build_devmode` sets `DM_ORIENTATION` and `DM_DUPLEX` and never
+    // `DM_PAPERSIZE`, and `printer_caps` reads the device's **default**
+    // DEVMODE. So the job is planned against whatever paper this printer's
+    // Windows preferences happen to be set to, and the operator's only route
+    // to changing it is outside pdfce.
+    //
+    // A combo box would be the obvious thing to add and would be a lie — it
+    // would list sizes pdfce cannot request. Rule 4's *fuzzy, never sneaky*
+    // says what to do instead: the inference is disclosed off-canvas, in
+    // words, at the place the operator is making the decision it affects.
+    // Someone whose A3 drawing came out on A4 gets the answer from this
+    // dialog rather than from a support thread.
+    //
+    // Filed as `request_no_paper_size_selection_in_the_print_path.md`; when a
+    // `paper_sizes` query lands this sentence becomes a combo box and the
+    // preview draws the chosen sheet.
+    ui.add_space(8.0);
+    ui.label(
+        egui::RichText::new(t::sheet_from_driver(sheet))
+            .small()
+            .weak(),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +350,30 @@ pub(super) fn copies_finishing(ui: &mut Ui, dialog: &mut PrintDialog) {
         ui.add_space(8.0);
     }
 
-    ui.checkbox(&mut dialog.device.pick_tray_by_page_size, t::pick_tray());
+    // ★ THE TRAY CHECKBOX WAS REMOVED, 2026-08-17. It did nothing.
+    //
+    // `DeviceSettings::pick_tray_by_page_size` is a field with a doc comment
+    // and no implementation: `pdfce-print` declares it at `lib.rs:1579` and
+    // **reads it nowhere** — `build_devmode` sets `DM_ORIENTATION` and
+    // `DM_DUPLEX` and never touches `dmDefaultSource`. Verified by grep over
+    // the whole crate: one hit, the declaration.
+    //
+    // This is the worst variety of inert control, and it is worth naming
+    // because it is not the same as the ones this project has already found.
+    // A command with no dispatch arm traces `command-unimplemented`. A print
+    // adapter that refuses says so in the dialog. This one **succeeds**: the
+    // job spools, the paper comes out of the default tray, and nothing
+    // anywhere reports that the request was dropped — which is also exactly
+    // what a driver that *declined* the request would look like, so even a
+    // suspicious operator cannot tell.
+    //
+    // Absent rather than greyed, on the same rule the duplex block above
+    // follows: greying is for *temporarily* unavailable, and no setting in
+    // this dialog will ever make this field mean anything.
+    //
+    // The field survives on this crate's own mirrored `DeviceSettings`, so
+    // restoring the control is one line the day the engine honours it. Filed
+    // as `request_devicesettings_pick_tray_is_never_read.md`.
 }
 
 // ---------------------------------------------------------------------------

@@ -232,6 +232,26 @@ pub fn cycle_snap(ctx: &egui::Context) -> bool {
 /// would build a fresh `MeasureState` for either, which would then be written
 /// back by the next `store` and leave the canvas holding a state for a tool
 /// nobody armed.
+/// The group the next dimension will join, for a surface that needs to name
+/// it — today, the Set-scale dialog.
+///
+/// # Why `Option`, and why the caller does not get a default
+///
+/// `None` means the measure tool has never been entered this session, so there
+/// is no state in `egui::Memory` and no group has been chosen. The caller could
+/// substitute `DEFAULT_GROUP_ID` — and must not, silently: calibrating the
+/// default group when the operator has been working in a named one is a wrong
+/// answer that looks exactly like a right one, because both are "a group got a
+/// scale".
+///
+/// `crate::app::dispatch`'s arm therefore falls back **deliberately and with a
+/// trace line**, so a run where the fallback fired is distinguishable from one
+/// where it did not.
+#[must_use]
+pub fn active_group(ctx: &egui::Context) -> Option<pdfce_core::dimension::GroupId> {
+    read(ctx).map(|st| st.group)
+}
+
 fn read(ctx: &egui::Context) -> Option<MeasureState> {
     ctx.data_mut(|d| d.get_temp::<MeasureState>(egui::Id::new(MEASURE_MEMORY_KEY)))
 }

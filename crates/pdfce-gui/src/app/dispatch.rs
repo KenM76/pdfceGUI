@@ -549,6 +549,41 @@ impl PdfceApp {
             // mode says no" and "there was nothing to finish" are different
             // facts, and a reader of a trace from a machine they cannot see
             // should not have to guess which kind of nothing happened.
+            // ★ Set scale — the arm `shell::commands::reach` called *"the
+            // clearest statement of a missing arm in the crate"*.
+            //
+            // Gated on `author_measure` exactly as `measure.finish` is, and for
+            // the same reason: a mode that cannot author a dimension has no
+            // business recalibrating the group they live in, and the two
+            // refusals must be the same sentence or the mode gate reads as
+            // arbitrary.
+            //
+            // # ★ Which group, and why the fallback is traced
+            //
+            // The measure tool's active authoring group, when the tool has been
+            // entered this session. When it has not, there is no state in
+            // memory and the arm falls back to the default group — which is the
+            // right answer for an operator who has drawn nothing yet, and the
+            // WRONG one for anybody whose state was somehow lost. Both would
+            // look identical afterwards ("a group got a scale"), so the
+            // fallback says so in the trace rather than being silent.
+            "measure.set_scale" => {
+                if !self.capabilities().author_measure {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-author-measure")
+                    });
+                    return;
+                }
+                let group = crate::canvas::measure::active_group(ctx).unwrap_or_else(|| {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        "scale-group-fallback reason=no-measure-state".to_owned()
+                    });
+                    pdfce_core::dimension::DEFAULT_GROUP_ID
+                });
+                self.dialogs.open_scale(&self.status, group);
+            }
             "measure.finish" => {
                 if !self.capabilities().author_measure {
                     crate::diag::trace(|| {
