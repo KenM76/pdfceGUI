@@ -131,53 +131,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // the decision to draw them is recorded, argued and the operator's —
     // with the gap between the argument and the artefact stated at each.
     // ===================================================================
-    (
-        "view.render_strategy",
-        "`manifest::DIRECTED`: “Whole page · Tiled progressive. Named explicitly when the \
-         View ▸ Render group was commissioned; whole-page is the default because it measured \
-         better in use.” Drawn as a button rather than as the two-position control that \
-         argument assumes — see this group's note above.",
-    ),
-    (
-        "view.render_quality",
-        "`manifest::DIRECTED`: “partial G — the raster-scale multiplier is a compiled-in \
-         constant today. What is new is the knob, not the value.” The knob is still the \
-         part that is missing; a press does nothing. See this group's note above.",
-    ),
-    (
-        "view.render_settle",
-        "`manifest::DIRECTED`: “partial G — `ZOOM_SETTLE` is a compiled-in constant today.” \
-         Its twin one row up carries the same status for the raster scale. Drawn as a button \
-         rather than as a value control — see this group's note above.",
-    ),
-    (
-        "view.render_thin_lines",
-        "`manifest::DIRECTED`: “Named explicitly when the View ▸ Render group was \
-         commissioned. RIBBON_IA.md §5.2 lists it under both Render and Display; it is kept \
-         here, once.” See this group's note above for the gap between that argument and \
-         what is drawn.",
-    ),
-    (
-        "view.render_antialias",
-        "`manifest::DIRECTED`: “Named explicitly when the View ▸ Render group was \
-         commissioned (text / vector).” The value set the specification gave it has no \
-         control to show it in yet — see this group's note above.",
-    ),
-    (
-        "view.floating_panels",
-        "`manifest::DIRECTED`: “Off · Allowed, default Allowed. Operator decision \
-         2026-08-13, retiring ‘nothing floats over the canvas’ as an absolute. Off \
-         restores today's behaviour exactly.” The default is the shipped behaviour, so the \
-         inert control changes nothing an operator can observe — which is the strongest \
-         version of that register's argument and still not the same as showing a value.",
-    ),
-    (
-        "view.app_initiative",
-        "`manifest::DIRECTED`: “Never · Ask · Allowed, default NEVER. The half that carries \
-         the original complaint; its default preserves the shipped behaviour as a choice \
-         rather than a law.” As its neighbour above: the default is what ships, so nothing \
-         is misreported — but nothing is shown either.",
-    ),
     // ===================================================================
     // VIEW — the two that are not settings
     //

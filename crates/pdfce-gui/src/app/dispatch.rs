@@ -266,8 +266,10 @@ impl PdfceApp {
             // window's whole promise is that nothing takes effect until Save.
             "file.settings" => {
                 if self.settings_draft.is_none() {
-                    self.settings_draft =
-                        Some(crate::dialogs::settings::Draft::new(&self.settings));
+                    self.settings_draft = Some(crate::dialogs::settings::Draft::new(
+                        &self.settings,
+                        &self.prefs,
+                    ));
                 }
             }
             // ★ Recognise text. A dialog rather than an immediate action, and

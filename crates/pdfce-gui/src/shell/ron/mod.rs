@@ -18,7 +18,7 @@
 //! satisfies the *types* and none of the point. The operator's
 //! customization layer is a file; the application-override layer is a
 //! file; a saved workspace is a file. If the format cannot express the
-//! real ribbon — all eight tabs, thirty-two groups, three modes, the QAT
+//! real ribbon — all eight tabs, thirty-one groups, three modes, the QAT
 //! and twenty key bindings — then "the shell is data" is a description
 //! of a data structure rather than of a product, and nobody finds out
 //! until an operator opens `userdata/shell.ron` and it does not round

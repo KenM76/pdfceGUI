@@ -211,7 +211,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 101);
+        assert_eq!(registry().len(), 94);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -251,8 +251,8 @@ mod tests {
         // the count is a fact about the registry and the sentence is a claim
         // about it, and this test exists because the claim has been wrong four
         // times.
-        assert_eq!(named, 86, "`## Coverage` says 86 named; update it together");
-        assert_eq!(refused, 15, "…and 15 refused");
+        assert_eq!(named, 85, "`## Coverage` says 85 named; update it together");
+        assert_eq!(refused, 9, "…and 9 refused");
         // Each refusal is argued at its own registration and listed in the
         // header's table. Asserting the ids too would be a third copy of that
         // list; asserting the *count* is what stops a glyph being quietly
@@ -434,15 +434,8 @@ mod tests {
             "tools.font_folders",
             "tools.merge_files",
             "tools.split_files",
-            "view.app_initiative",
-            "view.floating_panels",
             "view.fullscreen",
             "view.read_mode",
-            "view.render_antialias",
-            "view.render_quality",
-            "view.render_settle",
-            "view.render_strategy",
-            "view.render_thin_lines",
             "view.reset_layout",
             "view.sidebar",
         ]

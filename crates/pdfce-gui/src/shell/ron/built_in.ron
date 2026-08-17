@@ -118,17 +118,6 @@
                     ],
                 ),
                 (
-                    id: "render",
-                    caption: "Render",
-                    items: [
-                        Command("view.render_strategy"),
-                        Command("view.render_quality"),
-                        Command("view.render_settle"),
-                        Command("view.render_thin_lines"),
-                        Command("view.render_antialias"),
-                    ],
-                ),
-                (
                     id: "navigate",
                     caption: "Navigate",
                     items: [
@@ -177,8 +166,6 @@
                     items: [
                         Command("view.read_mode"),
                         Command("view.fullscreen"),
-                        Command("view.floating_panels"),
-                        Command("view.app_initiative"),
                         Command("view.reset_layout"),
                     ],
                 ),

@@ -94,6 +94,27 @@ use crate::viewer;
 pub const ZOOM_SETTLE: Duration = Duration::from_millis(150);
 
 impl OpenDoc {
+    /// How long this document's zoom must stop changing before it is committed.
+    ///
+    /// ★ **The operator's, as of 2026-08-17.** [`ZOOM_SETTLE`] was the whole
+    /// answer and is now only the *default* — `manifest::DIRECTED` carried this
+    /// as *"partial G — `ZOOM_SETTLE` is a compiled-in constant today"*, and
+    /// that was accurate: the control was missing, not the value.
+    ///
+    /// Read from the document's preferences **snapshot** rather than from the
+    /// application, for the same reason its settings snapshot exists: this is a
+    /// per-frame read inside a `&mut doc` borrow, and reaching back to
+    /// `PdfceApp` would be a second borrow of the whole struct.
+    ///
+    /// The snapshot cannot be meaningfully stale here — `adopt_settings` writes
+    /// it and drops every raster in the same statement, so a settle read after
+    /// a change is a settle for a cache that no longer exists.
+    fn zoom_settle(&self) -> Duration {
+        Duration::from_millis(self.prefs.zoom_settle_ms)
+    }
+}
+
+impl OpenDoc {
     /// Hand a page to the worker and, if it beats the in-frame budget, absorb
     /// the result immediately.
     ///
@@ -334,12 +355,13 @@ impl PdfceApp {
             doc.zoom_commit_at = if doc.zoom_commanded {
                 now // discrete command: no gesture in flight, do not wait
             } else {
-                now + ZOOM_SETTLE
+                now + doc.zoom_settle()
             };
         }
         doc.zoom_commanded = false;
 
-        let wanted_scale = viewer::raster_scale(doc.view.zoom, pixels_per_point);
+        let wanted_scale =
+            viewer::raster_scale(doc.view.zoom, pixels_per_point, doc.prefs.render_quality);
         let wanted = doc.render_key(wanted_scale);
 
         // ★ Step 2 of the priority (see the module header), and it runs before

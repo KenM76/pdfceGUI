@@ -413,64 +413,6 @@ pub const fn view_panel_pages() -> CommandText {
     )
 }
 
-/// `view.render_strategy`
-///
-/// The operator decision of 2026-08-12, in one control. Measured on a
-/// large drawing, pdfce's whole-page raster is *smoother* to pan and zoom
-/// than progressive tiling — no seams, no piece-by-piece fill-in — at the
-/// cost of a full re-raster once motion stops. Those are two legitimate
-/// trades, not a better and a worse, so the tooltip states the trade
-/// rather than recommending one.
-#[must_use]
-pub const fn view_render_strategy() -> CommandText {
-    CommandText::new(
-        "Strategy",
-        "Whether pdfce rasterises the whole page at once and scales that while you move, or \
-         fills the page in as progressive tiles. Whole page is smoother to pan and re-rasters \
-         once you stop; tiles show detail sooner on a very large sheet.",
-    )
-}
-
-/// `view.render_quality`
-#[must_use]
-pub const fn view_render_quality() -> CommandText {
-    CommandText::new(
-        "Raster scale",
-        "How many pixels pdfce rasterises for each screen pixel. Higher stays sharper while \
-         you zoom, and costs memory and time on every re-raster.",
-    )
-}
-
-/// `view.render_settle`
-#[must_use]
-pub const fn view_render_settle() -> CommandText {
-    CommandText::new(
-        "Settle delay",
-        "How long pdfce waits after you stop moving before it rasterises the page again at \
-         full quality.",
-    )
-}
-
-/// `view.render_thin_lines`
-#[must_use]
-pub const fn view_render_thin_lines() -> CommandText {
-    CommandText::new(
-        "Thin lines",
-        "Draw hairline strokes at least one pixel wide, so a line the drawing defines as \
-         zero-width does not vanish when you zoom out.",
-    )
-}
-
-/// `view.render_antialias`
-#[must_use]
-pub const fn view_render_antialias() -> CommandText {
-    CommandText::new(
-        "Antialias",
-        "Whether text and vector edges are smoothed. Turning it off makes a dense drawing \
-         crisper and a page of body text harder to read.",
-    )
-}
-
 /// `view.zoom_actual`
 #[must_use]
 pub const fn view_zoom_actual() -> CommandText {
@@ -738,37 +680,6 @@ pub const fn view_read_mode() -> CommandText {
 #[must_use]
 pub const fn view_fullscreen() -> CommandText {
     CommandText::new("Full screen", "Fill the whole display with pdfce (F11).")
-}
-
-/// `view.floating_panels`
-///
-/// One half of the pair that retires `FEATURES.md`'s "nothing floats over
-/// the canvas" invariant, per the operator decision of 2026-08-13. This
-/// one governs what the **operator** may do; [`view_app_initiative`]
-/// governs what **pdfce** may do unasked, and only the second carries the
-/// original complaint.
-#[must_use]
-pub const fn view_floating_panels() -> CommandText {
-    CommandText::new(
-        "Floating panels",
-        "Whether you may tear a panel out into a window of its own. Off keeps every panel \
-         docked, which is how earlier builds behaved.",
-    )
-}
-
-/// `view.app_initiative`
-///
-/// Default **Never**, which preserves the shipped behaviour the operator
-/// asked for — no accept/reject box appearing over the drawing — while
-/// making it a choice rather than a law.
-#[must_use]
-pub const fn view_app_initiative() -> CommandText {
-    CommandText::new(
-        "App initiative",
-        "Whether pdfce may float a surface over the page on its own, without you having asked \
-         for it — a tool's option box, a transient property bar, a notification. Never means \
-         it does not, and is the default.",
-    )
 }
 
 /// `view.reset_layout`
@@ -1254,11 +1165,6 @@ mod tests {
             view_page_continuous(),
             view_page_facing(),
             view_page_facing_continuous(),
-            view_render_strategy(),
-            view_render_quality(),
-            view_render_settle(),
-            view_render_thin_lines(),
-            view_render_antialias(),
             view_zoom_actual(),
             view_zoom_fit_page(),
             view_zoom_fit_width(),
@@ -1276,8 +1182,6 @@ mod tests {
             view_panel_forms(),
             view_read_mode(),
             view_fullscreen(),
-            view_floating_panels(),
-            view_app_initiative(),
             view_reset_layout(),
             pages_insert_from_file(),
             pages_delete(),

@@ -1,7 +1,7 @@
 //! # shell::manifest — pdfce's ribbon, as an `egui_shell::Shell` value
 //!
 //! [`built_in`] returns the complete pdfce shell: eight tabs (seven
-//! ordinary plus the contextual Format tab), thirty-two groups, three
+//! ordinary plus the contextual Format tab), thirty-one groups, three
 //! modes, the quick-access toolbar and the keymap. It is the **built-in
 //! layer** of `SHELL_FRAMEWORK.md` §4's three-layer merge:
 //!
@@ -412,7 +412,7 @@ pub const CUSTOM_BACKED: &[(&str, &str, &str)] = &[(
 /// A captioned band of items.
 ///
 /// A two-line convenience over `Group::new(..).with_items(..)`, because
-/// this manifest writes thirty-two of them and the builder chain is the
+/// this manifest writes thirty-one of them and the builder chain is the
 /// noisiest thing on the page when every group is one expression.
 fn group(id: &str, caption: &str, items: impl IntoIterator<Item = Item>) -> Group {
     Group::new(id, caption).with_items(items)
@@ -1029,50 +1029,12 @@ pub const PLANNED: &[(&str, &str)] = &[
 /// down here so that if it turns out to be wrong, the fix is deleting
 /// eight rows from one list rather than re-deriving which entries were
 /// deliberate.
-pub const DIRECTED: &[(&str, &str)] = &[
-    (
-        "view.render_strategy",
-        "Whole page · Tiled progressive. Named explicitly when the View ▸ Render group was \
-         commissioned; whole-page is the default because it measured better in use.",
-    ),
-    (
-        "view.render_quality",
-        "partial G — the raster-scale multiplier is a compiled-in constant today. What is new \
-         is the knob, not the value.",
-    ),
-    (
-        "view.render_settle",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "partial G — `ZOOM_SETTLE` is a compiled-in constant today. As `view.render_quality`.",
-    ),
-    (
-        "view.render_thin_lines",
-        "Named explicitly when the View ▸ Render group was commissioned. RIBBON_IA.md §5.2 \
-         lists it under both Render and Display; it is kept here, once.",
-    ),
-    (
-        "view.render_antialias",
-        // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "Named explicitly when the View ▸ Render group was commissioned (text / vector).",
-    ),
-    (
-        "view.floating_panels",
-        "Off · Allowed, default Allowed. Operator decision 2026-08-13, retiring \"nothing \
-         // ui-text-exempt: developer note about an ABSENT command; never rendered.
-         floats over the canvas\" as an absolute. Off restores today's behaviour exactly.",
-    ),
-    (
-        "view.app_initiative",
-        "Never · Ask · Allowed, default NEVER. The half that carries the original complaint; \
-         its default preserves the shipped behaviour as a choice rather than a law.",
-    ),
-    (
-        "format.delete",
-        "Not status-marked: RIBBON_IA.md §5.8 lists Delete in every selection type's row \
+pub const DIRECTED: &[(&str, &str)] = &[(
+    "format.delete",
+    "Not status-marked: RIBBON_IA.md §5.8 lists Delete in every selection type's row \
          without a mark. Modeless select-and-delete works today — it is what the removal of \
          the `Editing on` toggle relies on — so the command is real.",
-    ),
-];
+)];
 
 #[cfg(test)]
 mod tests {
@@ -1126,8 +1088,8 @@ mod tests {
         assert_eq!(shell.contextual_tabs().len(), 1, "one contextual tab");
         assert_eq!(
             shell.all_tabs().flat_map(Tab::groups).count(),
-            32,
-            "thirty-two groups"
+            31,
+            "thirty-one groups"
         );
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
@@ -1230,7 +1192,7 @@ mod tests {
     /// it, then how to put it all back — and the reset belongs last for
     /// the same reason a reset button always does.
     #[test]
-    fn the_window_group_holds_the_two_new_settings_in_order() {
+    fn the_window_group_holds_the_commands_it_still_has() {
         let shell = built_in();
         let view = shell
             .tabs()
@@ -1245,13 +1207,7 @@ mod tests {
         let ids: Vec<&str> = window.items().iter().filter_map(Item::command_id).collect();
         assert_eq!(
             ids,
-            [
-                "view.read_mode",
-                "view.fullscreen",
-                "view.floating_panels",
-                "view.app_initiative",
-                "view.reset_layout",
-            ]
+            ["view.read_mode", "view.fullscreen", "view.reset_layout",]
         );
     }
 

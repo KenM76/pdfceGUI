@@ -166,7 +166,7 @@
 //! (`RIBBON_IA.md` P3: "An unavailable capability renders nothing, not a
 //! disabled stub").
 //!
-//! **It is now 29 and 8.** Three of the eleven were wired the next day rather
+//! **It is now 22 and 8.** Three of the eleven were wired the next day rather
 //! than argued for: `view.read_mode` and `view.fullscreen` (`app::window` — and
 //! `view.read_mode` was first established *not* to be a duplicate of
 //! `mode.read`, which would have made deletion the honest answer instead), and
@@ -208,6 +208,24 @@
 //! follower disposition D4b records the old shell as never having chosen. Both
 //! entries were deleted rather than reworded. Neither carried a `★ P3` mark, so
 //! that subset is unchanged at 8.
+//!
+//! ★ **30 → 29, then 29 → 22, both on 2026-08-17.** The second is the largest
+//! single drop this list has had, and it is a **deletion of controls** rather
+//! than a wiring of them — which is the outcome `manifest::DIRECTED`'s own doc
+//! comment said to expect if its argument turned out to be wrong.
+//!
+//! Seven `view.*` settings were registered, drawn, and inert. Checked against
+//! the engine: there is no tiled-progressive path in this shell, `RenderOptions`
+//! has neither a thin-lines nor an antialiasing field, and the dock has no
+//! floating mode — so four named capabilities that do not exist. `app_initiative`
+//! is the fifth and the instructive one: its specified default is **Never**,
+//! nothing in this build floats a surface unasked, so the control existed to
+//! switch off a behaviour pdfce does not have. The remaining two were real and
+//! became **settings** in the Settings window, which is not a command surface.
+//!
+//! All seven were unregistered, not hidden. R8: *registering a command is the
+//! only way the GUI may learn that a capability exists.* `crate::app::prefs`'
+//! header carries the evidence per verdict.
 //!
 //! ★ **31 → 30 on 2026-08-17** — one entry with the longest reach on the list.
 //! `file.settings` was drawn on File ▸ pdfce and inert, and its blast radius
@@ -1056,7 +1074,7 @@ pub const FX_CONST: &str = "fx.constant";
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
         assert_eq!(
-            total, 29,
+            total, 22,
             "the allow-list holds {total} entries; this module's header quotes the \
              figure, so move both together"
         );

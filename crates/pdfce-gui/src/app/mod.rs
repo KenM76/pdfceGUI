@@ -96,6 +96,16 @@ pub mod lifecycle;
 pub mod modes;
 pub mod panels;
 pub mod persistence;
+
+/// ★ The shell's OWN preferences — how pdfce draws, as distinct from how it
+/// reads and writes PDFs.
+///
+/// A separate store from `pdfce_core::settings` on purpose: that one exists
+/// because a **standard declines to have an opinion**, and every entry cites
+/// the clause that is silent. How sharply a page is rasterised cites nothing.
+/// Its header also records which five of the seven commissioned View ▸ Render
+/// settings turned out to have nothing behind them, and why.
+pub mod prefs;
 /// The documents this operator had open: the capped, persisted list and the
 /// ribbon control that draws it.
 pub mod recent;
@@ -379,6 +389,12 @@ pub struct PdfceApp {
     /// why it is also not in the settings file.
     pub pen: crate::canvas::markup::pen::Pen,
 
+    /// ★ **The shell's own preferences** — render quality and the zoom settle
+    /// delay. See [`prefs`] for why these are not in the engine's settings
+    /// store, and for the five commissioned neighbours that turned out to have
+    /// nothing behind them.
+    pub prefs: prefs::Prefs,
+
     /// The draft the Settings window is editing, if it is open.
     ///
     /// `None` is the normal state and the window renders nothing. `Some` is
@@ -586,6 +602,15 @@ impl PdfceApp {
             settings_store,
             settings_draft: None,
             pen: crate::canvas::markup::pen::Pen::default(),
+            // ★ Loaded for real EXCEPT under `cfg(test)`, for exactly the
+            // reason the settings and the recent list above are: a suite that
+            // read the developer's own preferences would pass on this machine
+            // and fail on another because somebody had chosen `faster`.
+            prefs: if cfg!(test) {
+                prefs::Prefs::default()
+            } else {
+                prefs::Prefs::load().0
+            },
         }
     }
 

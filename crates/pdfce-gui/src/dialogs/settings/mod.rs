@@ -110,6 +110,11 @@
 
 pub mod appearance;
 pub mod colour;
+
+/// ★ The eighth group, and the only one not about the PDF standard: how pdfce
+/// draws, as distinct from what it draws. Two settings out of seven that were
+/// commissioned — its header says which five had nothing behind them.
+pub mod display;
 pub mod images;
 pub mod measuring;
 pub mod pages;
@@ -176,6 +181,20 @@ pub struct Draft {
     pub working: Settings,
     /// What the settings were when the window opened.
     pub original: Settings,
+    /// The shell's own preferences, in progress.
+    ///
+    /// ★ **A second pair, not a second draft.** The window edits two stores —
+    /// `pdfce_core::settings` and `crate::app::prefs` — and the operator must
+    /// not be able to tell: one Cancel discards both, one Save writes both, and
+    /// `is_dirty` is true if *either* moved. A separate draft per store would
+    /// give the window two Save buttons or one that lied.
+    ///
+    /// They are two stores because they answer different questions — see
+    /// `crate::app::prefs`' header — and that is an implementation fact the
+    /// operator has no business meeting.
+    pub working_prefs: crate::app::prefs::Prefs,
+    /// What the preferences were when the window opened.
+    pub original_prefs: crate::app::prefs::Prefs,
 }
 
 impl Draft {
@@ -186,10 +205,12 @@ impl Draft {
     /// choice the disk does not have. The window must show what pdfce is
     /// actually doing, not what it wished it had written.
     #[must_use]
-    pub fn new(current: &Settings) -> Self {
+    pub fn new(current: &Settings, prefs: &crate::app::prefs::Prefs) -> Self {
         Self {
             working: current.clone(),
             original: current.clone(),
+            working_prefs: prefs.clone(),
+            original_prefs: prefs.clone(),
         }
     }
 
@@ -204,7 +225,7 @@ impl Draft {
     /// would make Save mean "you visited this window".
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        self.working != self.original
+        self.working != self.original || self.working_prefs != self.original_prefs
     }
 
     /// Whether every value is still pdfce's own answer.
@@ -219,6 +240,7 @@ impl Draft {
     #[must_use]
     pub fn is_all_default(&self) -> bool {
         self.working == Settings::default()
+            && self.working_prefs == crate::app::prefs::Prefs::default()
     }
 }
 
@@ -344,6 +366,17 @@ pub fn show(
                         ui.add_space(10.0);
                         pages::missing_as(ui, draft);
                     });
+                    // ★ The shell's own preferences, LAST — after the twelve
+                    // that are about the document and before nothing. They are
+                    // the only group here whose values live in a different
+                    // file, and putting them at the end keeps the window
+                    // reading as "everything about your documents, then
+                    // everything about the program".
+                    widgets::group(ui, "display", t::group_display(), false, |ui| {
+                        display::render_quality(ui, &mut draft.working_prefs);
+                        ui.add_space(10.0);
+                        display::zoom_settle(ui, &mut draft.working_prefs);
+                    });
                     widgets::group(ui, "saving", t::group_saving(), false, |ui| {
                         saving::xref_entry_eol(ui, draft);
                         ui.add_space(10.0);
@@ -398,7 +431,7 @@ mod tests {
     /// Opening the window is not an edit.
     #[test]
     fn a_fresh_draft_is_not_dirty() {
-        let draft = Draft::new(&Settings::default());
+        let draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
         assert!(!draft.is_dirty());
         assert!(draft.is_all_default());
     }
@@ -406,7 +439,7 @@ mod tests {
     /// Changing a value makes Save live and Restore live.
     #[test]
     fn changing_a_value_makes_the_draft_dirty() {
-        let mut draft = Draft::new(&Settings::default());
+        let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
         draft.working.cmyk_intent = CmykIntent::Calibrated;
         assert!(draft.is_dirty());
         assert!(!draft.is_all_default());
@@ -420,7 +453,7 @@ mod tests {
     /// that is always live, arrived at by a different route.
     #[test]
     fn changing_a_value_back_makes_it_clean_again() {
-        let mut draft = Draft::new(&Settings::default());
+        let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
         let was = draft.working.cmyk_intent;
         draft.working.cmyk_intent = CmykIntent::Naive;
         assert!(draft.is_dirty());
@@ -442,7 +475,7 @@ mod tests {
         // assign, which is what this seeds through.
         let mut seed = Settings::default();
         seed.separations = SeparationPolicy::Refuse;
-        let draft = Draft::new(&seed);
+        let draft = Draft::new(&seed, &crate::app::prefs::Prefs::default());
         assert!(!draft.is_dirty(), "loading is not editing");
         assert!(
             !draft.is_all_default(),
@@ -455,7 +488,7 @@ mod tests {
     fn restoring_defaults_is_a_draft_edit_and_nothing_else() {
         let mut seed = Settings::default();
         seed.separations = SeparationPolicy::Refuse;
-        let mut draft = Draft::new(&seed);
+        let mut draft = Draft::new(&seed, &crate::app::prefs::Prefs::default());
         draft.working = Settings::default();
         assert!(draft.is_all_default());
         // …and it is an *edit*, so Save is offered. The operator must confirm.

@@ -527,13 +527,29 @@ pub fn max_zoom_for_page(page_pts: (f32, f32), pixels_per_point: f32) -> f32 {
 /// permanently slightly blurry on every HiDPI laptop and perfectly sharp
 /// on the developer's external monitor.
 #[must_use]
-pub fn raster_scale(zoom: f32, pixels_per_point: f32) -> f32 {
+pub fn raster_scale(
+    zoom: f32,
+    pixels_per_point: f32,
+    quality: crate::app::prefs::RenderQuality,
+) -> f32 {
     let ppp = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
         pixels_per_point
     } else {
         1.0
     };
-    zoom * ppp
+    // ★ The operator's quality multiplier — 2026-08-17.
+    //
+    // `RIBBON_IA.md` §5.2 commissioned this as View ▸ Render ▸ Quality and
+    // `manifest::DIRECTED` carried it as *"partial G — the raster-scale
+    // multiplier is a compiled-in constant today. What is new is the knob, not
+    // the value."* That description was optimistic: there was no multiplier at
+    // all, compiled-in or otherwise. This function was `zoom * ppp` exactly.
+    //
+    // So the knob and the value arrived together, and `Normal` is `1.0` — one
+    // raster pixel per device pixel, which is what the line above produced
+    // before and is what a build that never opens the Settings window still
+    // gets, byte for byte.
+    zoom * ppp * quality.multiplier()
 }
 
 /// A page's on-screen extent in PDF user-space units, with `/Rotate`
@@ -931,8 +947,14 @@ mod tests {
 
     #[test]
     fn raster_scale_multiplies_zoom_by_the_display_density() {
-        assert_eq!(raster_scale(1.5, 2.0), 3.0);
-        assert_eq!(raster_scale(1.5, 1.0), 1.5);
+        assert_eq!(
+            raster_scale(1.5, 2.0, crate::app::prefs::RenderQuality::Normal),
+            3.0
+        );
+        assert_eq!(
+            raster_scale(1.5, 1.0, crate::app::prefs::RenderQuality::Normal),
+            1.5
+        );
     }
 
     #[test]
@@ -940,8 +962,14 @@ mod tests {
         // egui should never hand us these, but a zero here would render
         // a zero-size pixmap and a NaN would render nothing at all —
         // both far worse than ignoring a bad density.
-        assert_eq!(raster_scale(2.0, 0.0), 2.0);
-        assert_eq!(raster_scale(2.0, f32::NAN), 2.0);
+        assert_eq!(
+            raster_scale(2.0, 0.0, crate::app::prefs::RenderQuality::Normal),
+            2.0
+        );
+        assert_eq!(
+            raster_scale(2.0, f32::NAN, crate::app::prefs::RenderQuality::Normal),
+            2.0
+        );
         assert_eq!(
             max_zoom_for_page((14_400.0, 1.0), 0.0),
             max_zoom_for_page((14_400.0, 1.0), 1.0)
@@ -957,7 +985,8 @@ mod tests {
         let max_1x = max_zoom_for_page(page, 1.0);
         let max_2x = max_zoom_for_page(page, 2.0);
         assert!(max_2x < max_1x);
-        let edge = (page.0 * raster_scale(max_2x, 2.0)).ceil() as u32;
+        let edge = (page.0 * raster_scale(max_2x, 2.0, crate::app::prefs::RenderQuality::Normal))
+            .ceil() as u32;
         assert!(edge <= pdfce_render::MAX_PIXMAP_EDGE);
     }
 

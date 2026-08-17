@@ -239,6 +239,15 @@ pub struct OpenDoc {
     /// `PdfceApp::tests::opening_a_document_gives_it_the_operators_settings`
     /// is what stops a fourth open path forgetting to.
     pub(crate) settings: pdfce_core::settings::Settings,
+    /// ★ The shell's own preferences, snapshotted for the same reason
+    /// [`Self::settings`] is and updated in the same one function.
+    ///
+    /// `render_quality` multiplies the raster scale, so it is baked into every
+    /// cached texture exactly as the engine's five rendering settings are —
+    /// which makes it the same kind of value and gives it the same home. A
+    /// second mechanism for a second store would be two things to keep in step
+    /// with one set of caches.
+    pub(crate) prefs: crate::app::prefs::Prefs,
     /// Where it came from — or, for a created document, what it is called.
     ///
     /// Read by [`PdfceApp::open_path`], which hands it to
@@ -596,6 +605,7 @@ impl OpenDoc {
             // an argument for this would mean every test constructing an
             // `OpenDoc` had to state a configuration it does not care about.
             settings: pdfce_core::settings::Settings::default(),
+            prefs: crate::app::prefs::Prefs::default(),
             path,
             origin,
             session: Arc::new(session),

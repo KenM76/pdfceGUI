@@ -127,21 +127,30 @@ pub(super) fn tab() -> Tab {
                 ],
             ),
             // ---------------------------------------------------------------
-            // Render — see the module header. Five knobs, in the order the
-            // operator meets them: what strategy, then how sharp, then how
-            // long before it re-rasters, then the two correctness switches.
+            // ★ Render — DELETED 2026-08-17, and this comment is the record.
+            //
+            // It held five commissioned knobs — strategy, quality, settle,
+            // thin lines, antialiasing — all registered, all drawn, all inert.
+            // Checked against the engine on 2026-08-17:
+            //
+            //   strategy    no tiled-progressive path exists in this shell
+            //   thin lines  `RenderOptions` has no such field
+            //   antialias   `interpret.rs` sets `anti_alias: true` as a literal
+            //   quality     REAL — moved to Settings ▸ Drawing the page
+            //   settle      REAL — moved to Settings ▸ Drawing the page
+            //
+            // The two that were real are **settings**, and a settings window
+            // now exists to hold them. `RIBBON_IA.md` §6 lists what deliberately
+            // does not go on the ribbon and these belong on it: a value an
+            // operator sets once and forgets is not an activity, which is what
+            // P2 says a ribbon tab picks.
+            //
+            // The group is deleted rather than shipped empty, because an empty
+            // captioned band is a caption offering nothing — the placeholder P3
+            // forbids, and the same call made for Edit ▸ Clipboard on
+            // 2026-08-14. `crate::app::prefs`' header carries the evidence for
+            // each of the five verdicts.
             // ---------------------------------------------------------------
-            group(
-                "render",
-                ribbon::group_view_render(),
-                [
-                    command("view.render_strategy"),
-                    command("view.render_quality"),
-                    command("view.render_settle"),
-                    command("view.render_thin_lines"),
-                    command("view.render_antialias"),
-                ],
-            ),
             // ---------------------------------------------------------------
             // Navigate — what a drag on the page does. **Two items**, since
             // 2026-08-14.
@@ -322,8 +331,6 @@ pub(super) fn tab() -> Tab {
                 [
                     command("view.read_mode"),
                     command("view.fullscreen"),
-                    command("view.floating_panels"),
-                    command("view.app_initiative"),
                     command("view.reset_layout"),
                 ],
             ),

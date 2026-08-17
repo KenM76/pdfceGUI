@@ -643,13 +643,38 @@ impl ThumbnailCache {
 /// size guard refuses. Falling back to 1.0 draws the page at its natural size
 /// instead, which is wrong-looking and *present*, and the tile is scaled into
 /// its box anyway.
+///
+/// # ★ The rail is pinned to `Normal` quality, and that is a decision
+///
+/// Every other raster in the application follows the operator's
+/// `RenderQuality`. This one does not, and the reason is the same one that
+/// keeps annotations and layers out of the thumbnail's invalidation key: **a
+/// thumbnail answers "which sheet is this?"**, and that answer must not change
+/// with a setting made for a different surface.
+///
+/// Concretely, both directions are wrong here. `Sharper` multiplies the whole
+/// rail — forty tiles, not one page — by 2.25× in pixels, to add detail to an
+/// image already scaled down to a hundred points wide, where none of it is
+/// resolvable. `Faster` saves almost nothing, because a thumbnail is already
+/// the cheapest raster in the program, and buys that nothing at the cost of the
+/// one thing a rail has to do: be recognisable at a glance.
+///
+/// This is not the module second-guessing the operator. It is the same
+/// distinction the settings window itself draws between a preference and a
+/// property of a surface — and it is stated here rather than being an omission
+/// somebody later reads as a missed call site.
 #[must_use]
 pub fn raster_scale_for(page: &Page, pixels_per_point: f32) -> f32 {
+    use crate::app::prefs::RenderQuality;
     let (width, _) = crate::viewer::page_extent_pts(page);
     if width > 0.0 {
-        crate::viewer::raster_scale(THUMBNAIL_WIDTH_PTS / width, pixels_per_point)
+        crate::viewer::raster_scale(
+            THUMBNAIL_WIDTH_PTS / width,
+            pixels_per_point,
+            RenderQuality::Normal,
+        )
     } else {
-        crate::viewer::raster_scale(1.0, pixels_per_point)
+        crate::viewer::raster_scale(1.0, pixels_per_point, RenderQuality::Normal)
     }
 }
 

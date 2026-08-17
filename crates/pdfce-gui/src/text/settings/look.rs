@@ -426,3 +426,126 @@ pub const fn minify_smooth_note() -> &'static str {
     "Better-looking on scanned pages and photographs — detail is averaged rather \
      than dropped. Slower, and goes beyond what the standard describes."
 }
+
+// ===========================================================================
+// Display — how pdfce draws (the SHELL's own preferences)
+// ===========================================================================
+//
+// ★ These two are not spec ambiguities and their `_silence` lines say so
+// rather than inventing a clause. That distinction is the window's whole
+// framing — its opening paragraph promises that everything below exists
+// because the standard declines to have an opinion — so a group that does not
+// fit it has to say why it is here, not pretend it fits.
+
+/// Render quality: what it is.
+#[must_use]
+pub const fn quality_title() -> &'static str {
+    "How sharply pages are drawn"
+}
+
+/// Render quality: what is open.
+///
+/// Nothing, and it says so. This is a **preference**, a trade between sharpness
+/// and speed that depends on the machine and on how big the drawings are — not
+/// a question the standard leaves unanswered. Saying "the standard does not
+/// define…" here would be inventing a clause to fit a template, which is the
+/// dishonest version of consistency.
+#[must_use]
+pub const fn quality_silence() -> &'static str {
+    "Not a question about the PDF standard — a trade between how sharp a page \
+     looks and how long it takes to draw. Big engineering drawings are where it \
+     shows."
+}
+
+/// Render quality: what changing it costs.
+#[must_use]
+pub const fn quality_radius() -> &'static str {
+    "Affects what you see and how fast it appears. Does not change the file, \
+     and does not change what prints."
+}
+
+/// One quality's name.
+#[must_use]
+pub const fn quality_label(quality: crate::app::prefs::RenderQuality) -> &'static str {
+    use crate::app::prefs::RenderQuality as Q;
+    match quality {
+        Q::Faster => "Faster",
+        Q::Normal => "Normal (pdfce's default)",
+        Q::Sharper => "Sharper",
+    }
+}
+
+/// One quality's description.
+///
+/// Each names **what it costs**, not just what it does — which is the whole
+/// content of the choice. "Faster" without "softer" is half a sentence, and it
+/// is the half that makes the setting look free.
+#[must_use]
+pub const fn quality_note(quality: crate::app::prefs::RenderQuality) -> &'static str {
+    use crate::app::prefs::RenderQuality as Q;
+    match quality {
+        Q::Faster => {
+            "Three quarters of the detail, and quicker on a large sheet. Thin \
+             lines go soft, which on a drawing made of thin lines is what you \
+             notice."
+        }
+        Q::Normal => {
+            "One dot drawn for every dot your screen has. As sharp as the \
+             display can show, and no work wasted going finer."
+        }
+        Q::Sharper => {
+            "Half again as much detail as the screen can show. Worth it for \
+             small text over fine linework, where a single screen dot has to \
+             carry two strokes; wasted effort on anything else."
+        }
+    }
+}
+
+/// Zoom settle: what it is.
+#[must_use]
+pub const fn settle_title() -> &'static str {
+    "How long zooming waits before redrawing"
+}
+
+/// Zoom settle: what is open. As the quality setting — nothing.
+#[must_use]
+pub const fn settle_silence() -> &'static str {
+    "Also not a standards question. While you are zooming, pdfce stretches the \
+     picture it already has rather than redrawing the page for every step — \
+     this is how long it waits for you to stop."
+}
+
+/// Zoom settle: what changing it costs.
+#[must_use]
+pub const fn settle_radius() -> &'static str {
+    "Affects how zooming feels. Does not change the file."
+}
+
+/// The slider's own label.
+#[must_use]
+pub const fn settle_slider_label() -> &'static str {
+    "Wait"
+}
+
+/// The slider's unit.
+///
+/// A catalog entry rather than a literal, for the reason the degree sign and
+/// the point abbreviation are: the ui-strings gate looks for exactly this, and
+/// a translator has to be able to see that a unit exists.
+#[must_use]
+pub const fn settle_suffix() -> &'static str {
+    " ms"
+}
+
+/// How to choose one.
+///
+/// Names both failure modes rather than recommending a number, because which
+/// one bites depends on the machine — and an operator who knows what going too
+/// far in each direction looks like can find their own value in two tries.
+#[must_use]
+pub const fn settle_note() -> &'static str {
+    "Shorter feels more responsive and redraws the page more often, which on a \
+     dense drawing can make zooming stutter. Longer leaves the stretched \
+     picture on screen for a moment after you stop, which reads as blurry. \
+     pdfce ships 150."
+}

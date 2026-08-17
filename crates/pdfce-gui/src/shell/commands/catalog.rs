@@ -407,14 +407,24 @@ pub(super) fn all() -> Vec<Command> {
         // a settings knob is decoration, and decoration on a ribbon costs the
         // legibility of the glyphs that mean something.
         //
-        // It also leaves Render reading as the settings group it is — a band
-        // of labelled values among bands of pictured verbs — which is a
-        // property worth keeping rather than an inconsistency to fix.
-        command("view.render_strategy", t::view_render_strategy(), 210),
-        command("view.render_quality", t::view_render_quality(), 211),
-        command("view.render_settle", t::view_render_settle(), 212),
-        command("view.render_thin_lines", t::view_render_thin_lines(), 213),
-        command("view.render_antialias", t::view_render_antialias(), 214),
+        // ★ **All five were UNREGISTERED on 2026-08-17**, and tokens 210-214
+        // are retired rather than reused — a token is an operator's saved
+        // keybinding, and handing 211 to something else would silently rebind
+        // whatever they had put on it.
+        //
+        // Three of the five had nothing behind them: there is no
+        // tiled-progressive path in this shell, and `RenderOptions` has neither
+        // a thin-lines nor an antialiasing field (`interpret.rs` sets
+        // `anti_alias: true` as a literal). The other two were real and became
+        // **settings** — Settings ▸ Drawing the page — because a value an
+        // operator sets once and forgets is not an activity, which is what P2
+        // says a ribbon tab picks.
+        //
+        // R8 is the rule that makes this a deletion rather than a hidden
+        // control: *registering a command is the only way the GUI may learn
+        // that a capability exists*. Three of these named no capability, and
+        // the other two are no longer reached by a command at all.
+        // `crate::app::prefs`' header carries the evidence per verdict.
         // ★ **No icon, on the icon ui-spec's own explicit instruction.**
         //
         // §3.2 is a whole section devoted to this one control: "Recommend
@@ -638,25 +648,25 @@ pub(super) fn all() -> Vec<Command> {
         // called View. They have controls now, so they have glyphs.
         command("view.read_mode", t::view_read_mode(), 250).with_icon("read-mode"),
         command("view.fullscreen", t::view_fullscreen(), 251).with_icon("fullscreen"),
-        command("view.floating_panels", t::view_floating_panels(), 252)
-            .with_icon("floating-panels"),
-        // ★ **No icon**, and it is the one refusal in this group.
+        // ★ `view.floating_panels` (252) and `view.app_initiative` (253) were
+        // UNREGISTERED on 2026-08-17, tokens retired rather than reused.
         //
-        // The setting is a three-position policy — Never · Ask · Allowed —
-        // about whether pdfce may float a surface over the page **on its own
-        // initiative**. Every honest drawing of it is a picture of that
-        // floating surface, which is to say a picture of what the default
-        // (Never) forbids. `crate::icons::catalog`'s header states the rule
-        // this runs into: an icon is a claim, and it reaches the operator
-        // before the tooltip does.
+        // Neither had anything behind it. `egui-shell`'s dock has no floating
+        // mode at all — its only `floating` is `egui`'s scroll-bar style — so
+        // the first governed a capability that does not exist.
         //
-        // Its neighbour `view.floating_panels` looks like the same kind of
-        // thing and is not: that one governs whether the OPERATOR may tear a
-        // panel out, so a torn-out panel is a picture of the capability
-        // rather than of the prohibition, and it gets a glyph. The two
-        // settings being separable is the whole point of there being two, and
-        // the icons follow the distinction instead of blurring it.
-        command("view.app_initiative", t::view_app_initiative(), 253),
+        // The second is the more interesting deletion, and worth keeping the
+        // reasoning for. `view.app_initiative` was a three-position policy —
+        // Never · Ask · Allowed — about whether pdfce may float a surface over
+        // the page **on its own initiative**. Its specified default was
+        // **Never**, and *nothing in this build does that*: the default is
+        // already true by construction. So the control existed to switch off a
+        // behaviour pdfce does not have, which is a control that cannot do
+        // anything whichever way it is set.
+        //
+        // Building it would mean building the behaviour first, and the
+        // behaviour is the thing the operator objected to. It goes back on the
+        // list the day something wants to float unasked, and not before.
         command("view.reset_layout", t::view_reset_layout(), 254).with_icon("reset-layout"),
         // ===================================================================
         // PAGES — tokens 300-399

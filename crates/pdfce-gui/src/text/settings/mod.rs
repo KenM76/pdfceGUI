@@ -288,6 +288,22 @@ pub const fn group_saving() -> &'static str {
     "Saving files"
 }
 
+/// Group 8 — the only one that is not about the PDF standard.
+///
+/// ★ **Named for what it is about, not for where its values are stored.** These
+/// two settings live in `preferences.txt` rather than `settings.txt`, which is
+/// an implementation fact the operator has no business meeting: they opened one
+/// window, they press one Save, and one Cancel discards the lot.
+///
+/// *"Drawing"* rather than *"Rendering"* or *"Performance"*. "Rendering" is a
+/// word from our side of the fence; "Performance" promises a tuning panel and
+/// there are two controls. What both settings actually change is how the page
+/// gets drawn, which is what the heading says.
+#[must_use]
+pub const fn group_display() -> &'static str {
+    "Drawing the page"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

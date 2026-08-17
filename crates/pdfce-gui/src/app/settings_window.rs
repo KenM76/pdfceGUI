@@ -51,6 +51,9 @@ impl PdfceApp {
                 // this one must not be. The operator still has to press Save,
                 // and still has Cancel.
                 draft.working = Settings::default();
+                // Both stores, because the operator pressed one button. See
+                // `Draft::working_prefs`.
+                draft.working_prefs = crate::app::prefs::Prefs::default();
             }
             Outcome::Idle => {}
         }
@@ -115,8 +118,12 @@ impl PdfceApp {
             return;
         };
 
-        // 1 + 2.
+        // 1 + 2. BOTH stores adopted, and both before either write is
+        // attempted — the window edits two files and the operator pressed one
+        // button, so a half-adopted state would be a state they cannot see and
+        // cannot have asked for.
         self.settings = draft.working;
+        self.prefs = draft.working_prefs;
 
         // ★ Trace before the write, so a harness can see the adopted values
         // even if the write is what fails. `theme` is named separately because
@@ -184,6 +191,36 @@ impl PdfceApp {
             }
         }
 
+        // ★ The shell's own preferences, written to their own file.
+        //
+        // Separate from the engine's store and reported separately, because
+        // they can fail separately — a settings write can succeed while a
+        // preferences write fails, and telling the operator "settings were not
+        // saved" when twelve of the fourteen were would be worse than useless.
+        //
+        // The failure sentence is deliberately the SAME one, though: from the
+        // operator's side both are "the choices I made in that window", they
+        // pressed one button, and what they need to know is identical — this is
+        // in force now and will be gone when pdfce restarts. Two sentences
+        // would be pdfce explaining its own file layout.
+        if let Err(error) = self.prefs.save() {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "prefs-save-failed reason={error}"
+                )
+            });
+            crate::app::status::decline::record_settings_not_saved();
+        } else {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "prefs-saved quality={:?} settle_ms={}",
+                    self.prefs.render_quality, self.prefs.zoom_settle_ms,
+                )
+            });
+        }
+
         // 3 — hand the new configuration to the open document and drop
         // everything derived under the old one, LAST, so a failed write still
         // leaves the session rendering under the settings it adopted.
@@ -226,8 +263,14 @@ impl PdfceApp {
     /// invalidates the strip.
     pub(crate) fn adopt_settings(&mut self) {
         let settings = self.settings.clone();
+        let prefs = self.prefs.clone();
         if let crate::app::state::Status::Open(doc) = &mut self.status {
             doc.settings = settings;
+            // The shell's own preferences ride along, because `render_quality`
+            // is baked into a cached texture exactly as the engine's five
+            // rendering settings are. Two stores, one snapshot point, one
+            // invalidation — see `OpenDoc::prefs`.
+            doc.prefs = prefs;
             // Rasters: the current page and every strip entry.
             doc.page_texture = None;
             doc.strip_rasters.clear();

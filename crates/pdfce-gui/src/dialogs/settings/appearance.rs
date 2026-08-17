@@ -148,7 +148,7 @@ mod tests {
     fn an_unknown_token_is_not_silently_replaced() {
         let mut settings = Settings::default();
         settings.theme = "midnight".to_owned();
-        let draft = Draft::new(&settings);
+        let draft = Draft::new(&settings, &crate::app::prefs::Prefs::default());
         assert_eq!(draft.working.theme, "midnight");
         assert!(Preset::from_key(&draft.working.theme).is_none());
     }

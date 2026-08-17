@@ -409,7 +409,8 @@ fn show_in(
     // inside the draw loop is how a page could be *drawn* against one key while
     // being *requested* against another, which would show as a page that never
     // stops saying it is not drawn yet.
-    let raster_scale = viewer::raster_scale(doc.view.zoom, pixels_per_point);
+    let raster_scale =
+        viewer::raster_scale(doc.view.zoom, pixels_per_point, doc.prefs.render_quality);
 
     // `ScrollSource::ALL` = scroll bars + plain mouse wheel + drag-to-pan.
     // Ctrl+wheel never reaches this, because egui routes a modified wheel
