@@ -147,8 +147,35 @@ engine capability that is absent, or present-and-unreachable.
 | request | finding |
 |---|---|
 | `redaction_fill_is_unreachable_from_the_search_path` | `/IC` is written, read and painted — but `EditSession::author_text_matches` hard-codes `fill: None` (`edit.rs:11719`), so no caller can set it on a mark from *Find and mark*. A swatch would be honoured on whole-page marks and silently dropped on searched ones |
-| `overlay_text_is_recorded_and_then_dropped` | `/OverlayText` is **written into the PDF and never read**. `gather_page` does not look at it, `build_overlay` draws filled boxes only, and the annotation carrying the string is deleted at apply. Type *REDACTED*, get plain black boxes, no report row |
+| `redaction_overlay_text_is_authored_and_never_drawn` | `/OverlayText` is **written into the PDF and never read**. `gather_page` does not look at it, `build_overlay` draws filled boxes only, and the annotation carrying the string is deleted at apply. Type *REDACTED*, get plain black boxes, no report row. **The sharpest form of it is the disclosure, not the paint**: `ARCHITECTURE.md` says the deferral is *"disclosed at mark time"* and there is no mechanism in the API that discloses it at mark time or ever — so a shell reading only the API cannot know to say anything |
 | `no_verb_sets_a_pages_media_box` | nothing in `pdfce-core` writes a `/MediaBox`, so `file.new` can only ever be A4 without ten template assets — and still no custom size. Priority **low**, stated as such |
+
+#### ★★ Two pdfceGUI sessions were running at once, and both filed the same request
+
+The overlay-text finding was reached **independently by two sessions four
+minutes apart** on 2026-08-18, and filed twice. The duplicate
+(`request_overlay_text_is_recorded_and_then_dropped.md`) has been **withdrawn**
+and its one unique contribution folded into the surviving file, which was both
+earlier and better — it identified that the real gap is the missing
+**disclosure** rather than the missing paint, which the duplicate did not.
+
+Three things to carry:
+
+1. **The channel's `open/` is shared mutable state and nothing locks it.** The
+   README's *"one topic per file"* rule is written against a file carrying
+   several asks; this was the mirror failure, several files carrying one ask,
+   and it costs the same in triage — the reader answers one and the other
+   lingers looking unanswered. **List `open/` again immediately before writing
+   into it**, not only at session start.
+2. **The other session found things this one missed**, and the difference was
+   not effort: it read `carrier_detect_disclose` and `ARCHITECTURE.md` as well
+   as the code path, and found a `/IC` **non-RGB** defect that is a third
+   distinct problem in the same struct. Converging on the same file is
+   evidence the finding is real; the *differences* between two independent
+   write-ups are where the value is.
+3. **Withdraw your own duplicate rather than the other's**, and say in the
+   surviving file that you did. A deletion nobody records reads, to the next
+   session, as a request that was never filed.
 
 **★ The pattern across all three, worth carrying into the next sweep.** An
 engine field that exists, is documented, and is even **written into the file**

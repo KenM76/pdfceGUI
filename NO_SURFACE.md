@@ -237,12 +237,23 @@ different answer.
 |---|---|
 | `fill` | Honoured — `/IC` is written (`annot_author.rs:942`), read (`annot_fill`, `redact.rs:1373`) and painted (`build_overlay`, `redact.rs:1026`). **But `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`**, so no caller can set it on a mark made by *Find and mark*. A swatch would work on whole-page marks and be silently dropped on searched ones |
 | `overlay_text` | **Written and never read.** `gather_page` (`redact.rs:1259`) does not look at `/OverlayText`, `build_overlay` draws filled boxes only, and the annotation carrying the string is **deleted** at `redact.rs:1167`. Type *REDACTED*, apply, get plain black boxes, no report row |
-| `quadding` | `/Q` justifies the overlay text. Nothing to justify until it burns in |
+| `quadding` | `/Q` justifies the overlay text — and is only *written at all* inside the `if let Some(text)` branch, so with no overlay text the value is discarded at authoring. A justification control for text that is never drawn would be a control governing a control governing nothing |
 
-Both are filed as separate requests (`request_redaction_fill_is_unreachable_from_the_search_path.md`,
-`request_overlay_text_is_recorded_and_then_dropped.md`) and the reasoning is
-duplicated into `panels/redact.rs`'s `whole_page_spec`, because the request
-folder is explicitly **not** a durable record.
+Filed as separate requests — `request_redaction_fill_is_unreachable_from_the_search_path.md`
+and `request_redaction_overlay_text_is_authored_and_never_drawn.md` — with the
+reasoning duplicated into `panels/redact.rs`'s `whole_page_spec`, because the
+request folder is explicitly **not** a durable record.
+
+**★ The overlay-text row has a sharper form than the one above, found by a
+concurrent session and worth having here.** The gap is the **disclosure**, not
+the paint. `pdfce`'s own `ARCHITECTURE.md` describes the deferral as *"disclosed
+at mark time"* — and no mechanism in `pdfce-core` discloses it at mark time or
+at any other time: `add_redaction` takes the text without comment and the
+`RedactionReport` has no note for it. **The disclosure exists in their documents
+and not in their API**, so a shell reading only the API — which is the situation
+`docs/core-api/` was written for — cannot know to make it. That matters more
+than the missing paint, because the operator's words are cosmetic but their
+belief that a reader will see them is not.
 
 **The lesson generalises past redaction and is the one to carry:** an engine
 field that exists, is documented, and is *written into the file* is not

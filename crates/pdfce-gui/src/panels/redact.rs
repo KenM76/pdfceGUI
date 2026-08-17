@@ -420,7 +420,21 @@ fn mark_rows(
 /// |---|---|
 /// | `fill` | ⛔ **honoured here and unreachable from the other marking path.** `/IC` is written (`annot_author.rs:942`), read at apply (`annot_fill`, `redact.rs:1373`) and painted (`build_overlay`, `redact.rs:1026`) — but `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`, so every mark made by *Find and mark* ignores it. A swatch would be honoured on whole-page marks and silently dropped on searched ones |
 /// | `overlay_text` | ⛔ **written into the file and never read.** `gather_page` (`redact.rs:1259`) does not look at `/OverlayText`, `build_overlay` draws filled boxes only, and the annotation carrying the string is deleted at `redact.rs:1167`. An operator would type *REDACTED*, apply, and get plain black boxes with nothing said |
-/// | `quadding` | ⛔ **a consequence of the row above.** `/Q` justifies the overlay text; it has nothing to justify until the text burns in |
+/// | `quadding` | ⛔ **a consequence of the row above**, and more tightly than it looks: `/Q` is only written *at all* inside `build_redact_mark`'s `if let Some(text)` branch, so with no overlay text the value is discarded at the point of authoring. A justification control for text that is never drawn would be a control governing a control governing nothing |
+///
+/// # ★ The overlay-text row's sharper form: the missing DISCLOSURE
+///
+/// Found by a concurrent session the same afternoon and worth having at the
+/// call site. `pdfce`'s `ARCHITECTURE.md` describes the burn-in deferral as
+/// *"disclosed at mark time"* — and **nothing in `pdfce-core` discloses it at
+/// mark time or at any other time.** `add_redaction` takes the text without
+/// comment, and `RedactionReport` has no note for it.
+///
+/// So the disclosure exists in their **documents** and not in their **API**,
+/// which means a shell reading only the API cannot know to say anything. That
+/// is a worse gap than the missing paint: the operator's words are cosmetic,
+/// but their belief that a reader will see them is not, and a redaction
+/// feature's whole value is that the operator's belief about it is accurate.
 ///
 /// The generalisation is the useful part and it is not about redaction: **an
 /// engine field that exists, is documented and is written is not evidence that
