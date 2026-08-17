@@ -113,7 +113,7 @@ impl eframe::App for PdfceApp {
         let preset = egui_shell::theme::Preset::from_key(theme_token).unwrap_or_default();
         egui_shell::theme::Theme::new(preset).apply(&ctx);
 
-        // ★ Step 0b — install the UI scale. The theme's twin, added 2026-08-18.
+        // ★ Step 0b — install the UI scale. The theme's twin, added 2026-08-17.
         //
         // # Why it is here and not in `configure_context`
         //

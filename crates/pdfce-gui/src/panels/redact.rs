@@ -407,7 +407,7 @@ fn mark_rows(
 /// apart: *"strip metadata, scripts and hidden content. Distinct from
 /// redaction."*
 ///
-/// # ★ The three `None`s are BLOCKED, not merely unbuilt — checked 2026-08-18
+/// # ★ The three `None`s are BLOCKED, not merely unbuilt — checked 2026-08-17
 ///
 /// This comment used to say they were neutral *"because this build has no
 /// surface to choose them from"*, which invited the obvious next session to

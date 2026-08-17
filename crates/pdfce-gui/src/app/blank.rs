@@ -97,7 +97,7 @@
 //! That is what the size picker is for, and it is a follow-up row rather than a
 //! silent guess dressed up as a default.
 //!
-//! ### ★ 3a. The size picker is BLOCKED on the engine — checked 2026-08-18
+//! ### ★ 3a. The size picker is BLOCKED on the engine — checked 2026-08-17
 //!
 //! It is not merely unbuilt, and the reason is worth having here so the next
 //! session does not spend an afternoon rediscovering it.

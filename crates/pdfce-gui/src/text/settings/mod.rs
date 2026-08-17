@@ -321,7 +321,7 @@ mod tests {
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
-    /// ★ **Hoisted out of the test it used to live inside, on 2026-08-18, when
+    /// ★ **Hoisted out of the test it used to live inside, on 2026-08-17, when
     /// it turned out to be four short.**
     ///
     /// The list held exactly the thirteen `pdfce_core::settings` entries and
@@ -419,7 +419,7 @@ mod tests {
 
     /// ★ **The window draws exactly the settings this catalog describes.**
     ///
-    /// Written 2026-08-18, and it is the guard that would have caught the
+    /// Written 2026-08-17, and it is the guard that would have caught the
     /// omission [`triples`] documents. Everything else about the window's
     /// contract is enforced from the copy side: `header`'s signature forces
     /// three arguments, and the test above forces three non-empty answers. Both
@@ -596,7 +596,7 @@ mod tests {
                 !touches_bytes(radius),
                 "a preview-only setting claims it changes the file: {radius:?}"
             );
-            // ★ An EXPLICIT list of accepted phrasings, widened 2026-08-18 and
+            // ★ An EXPLICIT list of accepted phrasings, widened 2026-08-17 and
             // deliberately not loosened to "contains the word file".
             //
             // A loose match would be satisfied by a radius line saying the

@@ -63,12 +63,12 @@ Colour and width are live as of `4035b64`. The rows below are what is left.
 | Opacity | never authored at all | — | ⛔ **blocked on the engine** — `/CA` is not written | Markup ▸ Style, when it lands |
 | ~~Arrow head length~~ | `HEAD_LEN_PX = 14.0` | `canvas/markup/band.rs` | ⛔ **MIS-FILED — it is the cursor, not the mark** | ~~Format ▸ Arrowheads~~ |
 | ~~Arrow head angle~~ | `HEAD_ANGLE = 0.42` rad | `canvas/markup/band.rs` | ⛔ same | ~~Format ▸ Arrowheads~~ |
-| ~~Ink simplification tolerance~~ | ~~0.5 pt fixed~~ | now `Pen::simplify_tolerance_pts` | ✅ **already settable — it follows the pen width**, and it was a live defect until 2026-08-18 |  — |
+| ~~Ink simplification tolerance~~ | ~~0.5 pt fixed~~ | now `Pen::simplify_tolerance_pts` | ✅ **already settable — it follows the pen width**, and it was a live defect until 2026-08-17 |  — |
 | Preview band alpha | 90 | `canvas/markup/band.rs:311` | **none** — the cursor again | — |
 | Ellipse tessellation | 48 segments | `canvas/markup/band.rs:183` | **none** — the cursor again | — |
 | Author / subject / note text | not authored at all | — | **none** | Format ▸ Note text |
 
-### ★ Three of those rows were wrong, and in two different ways — 2026-08-18
+### ★ Three of those rows were wrong, and in two different ways — 2026-08-17
 
 **The two arrowhead rows asked for a setting that must not exist.** They are
 screen-space **preview** constants, and `band.rs`'s own doc comment says so
@@ -156,7 +156,7 @@ constant is left in place of a control.
 
 ## 2. Zero surface — snap / grid / guides / rulers / zoom
 
-**★ Two rows here were closed on 2026-08-18** and are struck through rather than
+**★ Two rows here were closed on 2026-08-17** and are struck through rather than
 deleted, for the reason the markup correction above is kept: the *shape* is what
 recurs. Both were **defaults**, not capabilities — the toggle and the fit command
 both existed and worked — and both cost the operator something on **every
@@ -179,7 +179,7 @@ feature that has quietly been made their job.
 | Ruler min major pitch | 76.0 pt | `canvas/rulers.rs:250` | none |
 | Ruler major / minor tick | 6.0 / 2.5 pt | `canvas/rulers.rs:263,271` | none |
 | Ruler page-span alpha | 40 | `canvas/rulers.rs:280` | none |
-| ~~Rulers / grid / guides **default visibility**~~ | ~~all `false`~~ | now `app::prefs::PageChrome` | ✅ **Settings ▸ Drawing the page** — 2026-08-18, one setting with three switches |
+| ~~Rulers / grid / guides **default visibility**~~ | ~~all `false`~~ | now `app::prefs::PageChrome` | ✅ **Settings ▸ Drawing the page** — 2026-08-17, one setting with three switches |
 | Zoom min / max | 0.10 / 8.0 | `viewer/mod.rs:127,132` | none |
 | ~~Default fit mode~~ | ~~`FitMode::Page`~~ | now `app::prefs::OpeningFit` | ✅ **Settings ▸ Drawing the page** — and it gained a third value, *actual size*, which `FitMode` alone could not express |
 | Zoom-region min extent | 8.0 px | `canvas/zoom.rs:121` | none |
@@ -224,9 +224,9 @@ feature that has quietly been made their job.
 | Print preview zoom min / max / step | 0.25 / 40 / 1.25 | `dialogs/print/preview.rs:158-163` | none |
 | Print preview DPI / max side | 150 / 2200 px | `dialogs/print/preview.rs:133,151` | none |
 | Default paper | US Letter portrait 612×792 | `dialogs/print/mod.rs:794` | none |
-| **New blank page size** | A4, 595.276 × 841.89, baked-in template | `app/blank.rs` (`TEMPLATE` is `include_bytes!`) | ⛔ **blocked on the engine, 2026-08-18** — nothing in `pdfce-core` writes a `/MediaBox`, so the only shell-side implementation is one asset per size (ten, with landscape) and a custom size is impossible at any count. Filed as `request_no_verb_sets_a_pages_media_box.md`; **neither implementation built** |
+| **New blank page size** | A4, 595.276 × 841.89, baked-in template | `app/blank.rs` (`TEMPLATE` is `include_bytes!`) | ⛔ **blocked on the engine, 2026-08-17** — nothing in `pdfce-core` writes a `/MediaBox`, so the only shell-side implementation is one asset per size (ten, with landscape) and a custom size is impossible at any count. Filed as `request_no_verb_sets_a_pages_media_box.md`; **neither implementation built** |
 
-### ★ The three redaction rows, resolved 2026-08-18 — and the answer was *do not build it*
+### ★ The three redaction rows, resolved 2026-08-17 — and the answer was *do not build it*
 
 The sweep listed them as ordinary gaps: three `None`s against an engine whose
 `RedactSpec` has all three fields, documents all three, and **writes two of
@@ -279,7 +279,7 @@ believing the wrong thing about content that no longer exists.
 | Remembered per-document entries | 200 | `viewer/remembered.rs:134` | none |
 | Navigator / inspector default width | 280 / 320 | `app/modes/defaults.rs:253,260` | none |
 | Window initial / min size | 1100×800 / 640×480 | `lib.rs:107,114` | none |
-| Icon size | 16.0 pt | `icons/mod.rs:171` | ✅ **scales with the UI now** — `Settings ▸ Appearance ▸ Size of pdfce's own menus, buttons and text`, 2026-08-18. The 16 pt is still a constant and is now a size *in points*, which `pixels_per_point` multiplies; ~~no UI-scale or base-font-size control anywhere~~ |
+| Icon size | 16.0 pt | `icons/mod.rs:171` | ✅ **scales with the UI now** — `Settings ▸ Appearance ▸ Size of pdfce's own menus, buttons and text`, 2026-08-17. The 16 pt is still a constant and is now a size *in points*, which `pixels_per_point` multiplies; ~~no UI-scale or base-font-size control anywhere~~ |
 | Icon cache | 512 | `icons/cache.rs:92` | none |
 | Status bar height / row | 30.0 / 24.0 pt | `app/status.rs:378,386` | none |
 | Object-tree point rows per part | 200 | `panels/objects/mod.rs:197` | none |

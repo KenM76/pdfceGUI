@@ -143,7 +143,7 @@ egui.workspace = true
 # DEPENDENCIES ON THE READ-ONLY ENGINE (PROJECT_PLAN.md §2)
 # ---------------------------------------------------------------------------
 #
-# ★ CORRECTED 2026-08-18. This block was headed "PATH DEPENDENCIES" and
+# ★ CORRECTED 2026-08-17. This block was headed "PATH DEPENDENCIES" and
 # argued at length for relative paths into `D:\Dev\pdfce`, above lines that
 # have been **git revision pins** since 2026-08-14. The argument it made —
 # "this crate always builds against the live engine" — stopped being true
@@ -161,7 +161,7 @@ egui.workspace = true
 #     `main` — and this shell keeps building happily against whatever it
 #     was pinned to, INCLUDING PAST A RENDERING FIX IT NEEDS.
 #
-# That is not hypothetical: on 2026-08-18 `D:\Dev\pdfce` was seven commits
+# That is not hypothetical: on 2026-08-17 `D:\Dev\pdfce` was seven commits
 # ahead of this pin and one of them was `1e7a0be`, which made images in
 # `Separation`, `DeviceN`, `Lab`, `CalGray` and `CalRGB` decode at all
 # instead of being dropped from the raster. Eighteen pictures on the
@@ -205,7 +205,7 @@ egui-shell.workspace = true
 # and at fold-in it would have been deleted in favour of exactly this line.
 rfd = "0.17.2"
 
-# ★★ BACK TO PATHS — operator instruction, 2026-08-18.
+# ★★ BACK TO PATHS — operator instruction, 2026-08-17.
 #
 # > *"let's point back to using the commits from D:\Dev\pdfce."*
 #
@@ -221,12 +221,12 @@ rfd = "0.17.2"
 #   someone who does not happen to have `pdfce` checked out as a sibling
 #   directory. Bumping was then a deliberate act with a diff.
 #
-# WHY THAT FAILED IN PRACTICE, measured 2026-08-18:
+# WHY THAT FAILED IN PRACTICE, measured 2026-08-17:
 #
 #   Nothing makes a pin's staleness visible. There is no compile error, no
 #   warning and no test — the shell goes on building happily against a
 #   revision the repository left behind. It measured **eight commits
-#   behind** on 2026-08-18, and one of the eight (`1e7a0be`) was the fix
+#   behind** on 2026-08-17, and one of the eight (`1e7a0be`) was the fix
 #   that made `Separation`, `DeviceN`, `Lab`, `CalGray` and `CalRGB`
 #   IMAGES decode instead of being dropped from the raster entirely —
 #   eighteen pictures on the operator's own file.

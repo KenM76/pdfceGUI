@@ -10,25 +10,41 @@ this to get to where I can use it to replace acrobat reader first."*
 
 "Integrated with pdfce" needed no fold-in, and that is the single most
 important fact about this script. `crates/pdfce-gui` depends on
-`pdfce-core` and `pdfce-render` **by path** into `D:\\Dev\\pdfce` (see the
-workspace root manifest, and PROJECT_PLAN.md §2). Rust links those
-statically. So `cargo build --release -p pdfce-gui` in THIS workspace
-already produces one self-contained executable carrying pdfce's engine
-— the integration the request asks for is a property of the dependency
-graph, not a merge that has to happen first.
+`pdfce-core`, `pdfce-render` and `pdfce-print` from `D:\\Dev\\pdfce`, and
+Rust links them **statically**. So `cargo build --release -p pdfce-gui` in
+THIS workspace already produces one self-contained executable carrying
+pdfce's engine — the integration the request asks for is a property of
+the dependency graph, not a merge that has to happen first.
+
+★ The FORM of that dependency has changed twice and this docstring has
+been wrong after each change, which is why it now says as little about it
+as possible: read `crates/pdfce-gui/Cargo.toml`, which carries the
+argument. In one line: it was a path, then a GitHub revision pin
+(2026-08-14), and is now `git = "file:///D:/Dev/pdfce", branch = "main"`
+(2026-08-17). **The static-linking property above held under all three**
+and is the only part this script depends on.
+
+What DOES depend on the form is how the engine is identified — see
+`locked_engine_rev`, which reads `Cargo.lock` rather than the engine
+tree's HEAD, because a git dependency compiles a committed revision out
+of cargo's cache and the tree can be both dirty and ahead of it.
 
 That matters because the alternative reading — fold the new shell into
-`D:\\Dev\\pdfce` and package from there — would have shipped a REGRESSION.
-`FEATURES.md` § "Not salvaged yet" lists measure, redaction, settings
-and text editing as still living only in the old shell. Replacing that
-shell today to get one exe would trade four working capabilities for a
-packaging convenience. Shipping from here costs nothing and keeps the
-old build intact and installable beside it.
+`D:\\Dev\\pdfce` and package from there — would have shipped a REGRESSION
+when this script was written. That is no longer the reason it is wrong,
+and the change is worth recording rather than quietly deleting: measure,
+redaction, the settings dialog and text editing have all since landed
+HERE. Fold-in is now a scheduling decision under PROJECT_PLAN.md §7
+rather than a thing that would cost four capabilities, and shipping from
+here still costs nothing and keeps the old build installable beside it.
 
 WHAT IT PRODUCES
 ================
 
-``D:\\builds\\pdfcegui-<YYYYMMDD-HHMM>-<engine>-<shell>[-dirty][-enginedirty]\\``
+``D:\\builds\\pdfcegui-<YYYYMMDD-HHMM>-<engine>-<shell>[-dirty-<digest>]\\``
+
+where ``<engine>`` is the revision **`Cargo.lock` says was linked**, not
+the engine tree's HEAD — see `locked_engine_rev`.
 
     pdfce-gui.exe            the new shell, with pdfce's engine linked in
     LICENSE                  MIT
@@ -88,23 +104,35 @@ goes in the folder name; the digest goes in `BUILD-INFO.txt`, and is
 appended to the name too when the shell tree is dirty, because that is
 exactly the case where the commit alone is not an identity.
 
-THE `-enginedirty` SUFFIX IS LOAD-BEARING
-=========================================
+★ THE `-enginedirty` SUFFIX IS GONE — REMOVED 2026-08-17
+========================================================
 
-`D:\\Dev\\pdfce` is read-only *to this project*, not to its own session,
-which means the engine tree can and does move underneath a build. If it
-carried uncommitted changes under `crates/`, the linked engine is **not**
-the commit in the folder name, and the name would otherwise be a claim
-the operator could reasonably rely on and that is false.
+It used to read *"load-bearing"*, and under a **path** dependency it was:
+`D:\\Dev\\pdfce` is read-only to this project but not to its own session,
+so the engine tree moved underneath builds, and a path build compiles
+that tree. If it carried uncommitted changes under `crates/`, the linked
+engine was not the commit in the folder name.
 
-The test is deliberately narrow, copied from pdfce's packager and for the
-reason recorded there: changes under `docs/`, `fixtures/` and `.claude/`
-cannot reach a compiler, so a package built while a documentation agent
-was writing is still exactly the named commit. Flagging those produces a
-warning that fires when nothing is wrong, and a warning that fires when
-nothing is wrong is one that gets ignored when something is. Non-build
-changes are still REPORTED in `BUILD-INFO.txt`, just not as a claim about
-the payload.
+The dependency is now `git = "file://…", branch = "main"`. Cargo builds a
+committed revision out of `~/.cargo/git/`, so **the engine's working tree
+is not compiled at all** and a suffix claiming it was would be false.
+
+The removal is recorded rather than done quietly, because it demonstrates
+the thing the old text was itself warning about. The narrow-test argument
+it made — *"changes under `docs/`, `fixtures/` and `.claude/` cannot reach
+a compiler … a warning that fires when nothing is wrong is one that gets
+ignored when something is"* — was right, and the suffix became exactly
+that kind of warning the moment the dependency form changed underneath it.
+**A guard is only as valid as the mechanism it was reasoned about.**
+
+Two things replace it, and neither is a claim about the payload:
+
+* the engine tree's state is REPORTED in `BUILD-INFO.txt` as context;
+* the engine being **ahead of the locked revision** is warned about, in
+  `BUILD-INFO.txt` and on the console, with the `cargo update` line. That
+  is the condition that actually cost something — a stale pin left the
+  shell eight commits behind an image-decoding fix, and the old shell
+  rendered a file correctly while this one did not.
 
 THE NAME MUST NOT START WITH ``pdfce-``
 =======================================
@@ -280,7 +308,7 @@ def locked_engine_rev(repo: Path) -> str | None:
     """The engine revision `Cargo.lock` says this build actually links.
 
     **This, not the engine tree's HEAD, is the engine's identity.** The
-    distinction became real on 2026-08-18, when `pdfce-gui` moved from a
+    distinction became real on 2026-08-17, when `pdfce-gui` moved from a
     path dependency to `git = "file:///D:/Dev/pdfce", branch = "main"`: a
     path dependency compiles the working tree, a git dependency compiles a
     committed revision out of `~/.cargo/git/`, and the two can differ by
@@ -704,7 +732,7 @@ def main() -> int:
         return build, [p for p in changed if p not in build]
 
     # ★★ THE ENGINE'S IDENTITY IS THE LOCKED REVISION, NOT THE TREE'S HEAD —
-    # rewritten 2026-08-18 when the dependency form changed.
+    # rewritten 2026-08-17 when the dependency form changed.
     #
     # This used to read `git rev-parse HEAD` in the engine tree, which was
     # correct while `pdfce-gui` took the engine by PATH: a path dependency
@@ -759,7 +787,7 @@ def main() -> int:
     name = f"pdfcegui-{stamp}-{engine_short}-{shell_short}"
     if shell_dirty_build:
         name += f"-dirty-{src}"
-    # ★ No `-enginedirty`. It was removed on 2026-08-18 with the dependency
+    # ★ No `-enginedirty`. It was removed on 2026-08-17 with the dependency
     # change above: the engine is built from a committed revision out of
     # cargo's git cache, so its working tree cannot reach this binary and a
     # suffix claiming otherwise would be false. The tree's state is still
@@ -904,7 +932,7 @@ def main() -> int:
             f"{listed}{more}\n"
         )
     # ★ The engine tree's state is CONTEXT now, not a warning about the
-    # payload. Since 2026-08-18 the engine is compiled from a committed
+    # payload. Since 2026-08-17 the engine is compiled from a committed
     # revision out of cargo's git cache, so nothing uncommitted in
     # D:\Dev\pdfce can reach this binary — see `locked_engine_rev`.
     #
@@ -959,9 +987,14 @@ statically. One executable, no installer, no registry writes, nothing
 outside this folder. Run pdfce-gui.exe.
 
 It is not a replacement for a pdfce build yet, and FEATURES.md ships
-beside it so you can tell which is which. Measure, redaction, the
-settings dialog and text editing still live only in the OLD shell —
-install this alongside a pdfce build rather than instead of one.
+beside it so you can tell which is which. Install it alongside a pdfce
+build rather than instead of one.
+
+That sentence used to name measure, redaction, the settings dialog and
+text editing as living only in the OLD shell. All four have since landed
+here, so the honest reason to keep both installed is narrower: this shell
+is still mid-rebuild and FEATURES.md is the list of what is finished.
+Read it before concluding something is broken.
 
 WHAT TO TRY
 -----------
@@ -969,6 +1002,13 @@ Open a PDF, then: click an object and press Delete; drag a selection;
 press Escape mid-drag; switch Read / Review / Edit with Ctrl+1/2/3; drag
 a panel to another dock column and restart to confirm the layout came
 back. FEATURES.md's first list is the full set that should work.
+
+New since the last build, and all of it in File > pdfce > Settings:
+  * Appearance > size of pdfce's own menus and text  (drag it; it
+    applies while you drag, and Cancel puts it back)
+  * Drawing the page > how a page is sized when a document opens, and
+    which of rulers / grid / guides start switched on. Both apply to the
+    NEXT document you open, not the one on screen.
 
 YOUR SETTINGS LIVE IN THIS FOLDER
 ---------------------------------
@@ -1004,8 +1044,16 @@ are in the program itself: File > pdfce > About pdfce.
     for f in sorted(out.iterdir()):
         print(f"  {f.name:<26} {f.stat().st_size:>10,} bytes")
     print(f"  {'TOTAL':<26} {total:>10,} bytes")
-    if dirty_build:
-        print("\n  WARNING: the engine had uncommitted build-affecting changes.")
+    # ★ The engine's WORKING TREE is no longer a warning — it cannot reach the
+    # binary. What IS worth a console line is the engine being ahead of the
+    # locked revision, because that is the question an operator has when a fix
+    # they know landed is not in the build they are holding.
+    if engine_behind and engine_behind not in ("", "0"):
+        print(
+            f"\n  NOTE: D:\\Dev\\pdfce is {engine_behind} commit(s) ahead of the "
+            f"revision\n        linked here ({engine_short}). To pick them up:\n"
+            "        cargo update -p pdfce-core -p pdfce-render -p pdfce-print"
+        )
     return 0
 
 

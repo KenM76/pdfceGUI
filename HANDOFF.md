@@ -34,16 +34,16 @@ them.
 > the numbers above are the ones a test pins, and prose drifting from
 > them is a defect this project has now had four times.
 >
-> **Measured 2026-08-18 at `8931f0b`: 1,818 tests passing, 0 failing ·
+> **Measured 2026-08-17 at `8931f0b`: 1,818 tests passing, 0 failing ·
 > 12 of 12 gates, 0 skipped.** Note the gate count is **12**, not the 8
 > the table says and not the 10 the paragraph above says — it has grown
 > twice since either was written, which is the same drift again. Run
 > `bash tools/gates/run-all.sh` and read the summary rather than
 > believing any of the three numbers on this screen.
 
-### ★★★ 2026-08-18 — the machine was in use, so NOTHING below is driven
+### ★★★ 2026-08-17 — the machine was in use, so NOTHING below is driven
 
-**Read this before trusting any of the four commits of 2026-08-18.** The
+**Read this before trusting any of the four commits of 2026-08-17.** The
 operator was working on the same PC, so `ui-verify` could not be run: it
 launches the real binary, takes the foreground and drives the OS. Everything
 landed that day is **unit-tested and unverified in pixels**, which by R1 is not
@@ -138,7 +138,7 @@ one operator question about print:
 | `no_paper_size_selection_in_the_print_path` | no paper list, no way to request one, no route to the driver's properties dialog. The dialog now **discloses** which paper the job is planned against and that pdfce cannot change it |
 | `no_verb_modifies_an_existing_annotation` | the Format-tab blocker above |
 
-### …and three more on 2026-08-18, so `open/` holds SEVEN
+### …and three more on 2026-08-17, so `open/` holds SEVEN
 
 All three came out of working through `NO_SURFACE.md`'s rows, and **all three
 are the same shape**: a GUI surface that looked unbuilt turned out to be an
@@ -153,7 +153,7 @@ engine capability that is absent, or present-and-unreachable.
 #### ★★ Two pdfceGUI sessions were running at once, and both filed the same request
 
 The overlay-text finding was reached **independently by two sessions four
-minutes apart** on 2026-08-18, and filed twice. The duplicate
+minutes apart** on 2026-08-17, and filed twice. The duplicate
 (`request_overlay_text_is_recorded_and_then_dropped.md`) has been **withdrawn**
 and its one unique contribution folded into the surviving file, which was both
 earlier and better — it identified that the real gap is the missing
@@ -200,7 +200,7 @@ through rather than deleted, because the **shape** of that failure recurs.
 
 ### What is still missing, from the inventory sweep
 
-**★ This list was worked through on 2026-08-18 and four of its five rows turned
+**★ This list was worked through on 2026-08-17 and four of its five rows turned
 out to be something other than what they said.** The corrected list is below;
 the original is kept in each row because *the shape of the mis-reading is the
 reusable part*, and it recurs.
@@ -210,8 +210,8 @@ reusable part*, and it recurs.
 | **Redaction** — fill, overlay text, quadding are three `None`s, *"the engine takes all three"* | ⛔ **Blocked, both of them, and not visible from the type.** `fill` is honoured only when the GUI builds the spec — `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`, so every mark from *Find and mark* ignores it. `overlay_text` is **written into the PDF and never read**: `gather_page` does not look at `/OverlayText` and the annotation carrying it is deleted at apply. Two requests filed; **no control shipped**, because a half-honoured setting on the one irreversible operation is worse than none |
 | **Markup** — arrowhead length and angle | ⛔ **A category error.** They are screen-space **cursor** constants and `band.rs` says so: *"this is not a promise about that size, it is a statement about direction."* The annotation's own `/LE` head is the engine's. A control would read back a value and change nothing about the authored arrow. `RIBBON_IA.md`'s Format ▸ Arrowheads means the `/LE` style, which is a different thing entirely |
 | **Markup** — ink simplification tolerance | ✅ **Not a missing setting — a live defect, fixed.** It was a `const` derived from the pen's *default* width, and the pen became a control on 2026-08-17. At 0.25 pt the fixed tolerance was **4× the stroke's half-width**, so the simplification could author a curve the operator did not draw. Now `Pen::simplify_tolerance_pts`, asserted at both ends of the range |
-| **Snap and drafting** — *"zoom min/max, default fit mode …"* | ⬜ **Partly closed.** Default fit mode and the rulers/grid/guides default visibility shipped as `app::prefs::opening` on 2026-08-18. Snap tolerance (10 px), selection tolerance (6 px), zoom min/max and the alphas are still open and still preference-shaped |
-| **No UI-scale or base-font-size control anywhere** | ✅ **Built 2026-08-18** — `Settings ▸ Appearance`, a multiplier on the OS setting, live-previewed like the theme. It was not a hard-coded constant: `ctx.set_zoom_factor` was never called at all. **`egui` ships a built-in `Ctrl` `+`/`-`/`0` handler for it, and this shell switches that off** (`app::configure_context`) because those chords mean *page* zoom — so the one path that would have surfaced the gap was closed for a good reason, and closing it removed a capability nobody had decided to have |
+| **Snap and drafting** — *"zoom min/max, default fit mode …"* | ⬜ **Partly closed.** Default fit mode and the rulers/grid/guides default visibility shipped as `app::prefs::opening` on 2026-08-17. Snap tolerance (10 px), selection tolerance (6 px), zoom min/max and the alphas are still open and still preference-shaped |
+| **No UI-scale or base-font-size control anywhere** | ✅ **Built 2026-08-17** — `Settings ▸ Appearance`, a multiplier on the OS setting, live-previewed like the theme. It was not a hard-coded constant: `ctx.set_zoom_factor` was never called at all. **`egui` ships a built-in `Ctrl` `+`/`-`/`0` handler for it, and this shell switches that off** (`app::configure_context`) because those chords mean *page* zoom — so the one path that would have surfaced the gap was closed for a good reason, and closing it removed a capability nobody had decided to have |
 | **New document** — always A4, on a machine whose drawings are A1 and A3 | ⛔ **Blocked on the engine, and this is the one that looked most like an ordinary GUI task.** **Nothing in `pdfce-core` writes a `/MediaBox`** — verified three ways; `EditSession`'s page verbs are rotate, delete and reorder. So the only shell-side implementation is one checked-in template per size, which is **ten** once landscape is counted and still cannot answer a custom size. Filed as `request_no_verb_sets_a_pages_media_box.md` (priority **low** — nobody drafts a sheet in pdfce) and **neither implementation built**, because ten assets that still fail the custom case is a half-capability that looks like progress and forecloses the real fix |
 
 **★ A framework default you switch off may have been carrying a capability you
@@ -598,7 +598,7 @@ shell into `D:\Dev\pdfce` today would ship a *regression*, because measure,
 redaction, the settings dialog and text editing still live only in the old
 shell.
 
-### ★★ The engine is PINNED, and it goes stale silently — checked 2026-08-18
+### ★★ The engine is PINNED, and it goes stale silently — checked 2026-08-17
 
 The sentence above used to say *"depends on `pdfce-core` and `pdfce-render`
 **by path**"*. **That has been false since 2026-08-14** and the consequence
@@ -611,7 +611,7 @@ pdfce-render = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", …
 
 It fetches from **GitHub**, not from `D:\Dev\pdfce`. So the local engine tree
 can move arbitrarily far ahead and nothing here notices — no compile error, no
-warning, no test. It measured **seven commits behind** on 2026-08-18, and one
+warning, no test. It measured **seven commits behind** on 2026-08-17, and one
 of the seven was `1e7a0be`: images in `Separation`, `DeviceN`, `Lab`, `CalGray`
 and `CalRGB` went from `UnsupportedColorSpace` — *dropped from the raster
 entirely* — to decoding. Eighteen pictures on the operator's own file. It also
@@ -627,10 +627,10 @@ failure mode a pin creates.
 
 1. **The direction is engine → shells.** Nothing this project builds flows into
    `D:\Dev\pdfce`, and compiling the old GUI there inherits nothing from here.
-   The operator asked this directly on 2026-08-18 and the assumption was the
+   The operator asked this directly on 2026-08-17 and the assumption was the
    other way round.
 2. **`origin/main` is what this shell can see**, not local `main`. On
-   2026-08-18 `origin/main` was `718d1e9` and local `main` was `f08effd`, so
+   2026-08-17 `origin/main` was `718d1e9` and local `main` was `f08effd`, so
    the seven commits were **unpushed** — bumping the pin was impossible until
    they were pushed, which is the operator's act and not this project's.
 3. **Bumping is scheduled work, not remembered work.** It has no failing test

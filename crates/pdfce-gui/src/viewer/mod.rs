@@ -187,7 +187,7 @@ pub struct ZoomAnchor {
 ///
 /// ## ★ `PartialEq` is here for one test, and it is the right one
 ///
-/// Added 2026-08-18 with [`crate::app::prefs::Prefs::seed_view`], whose
+/// Added 2026-08-17 with [`crate::app::prefs::Prefs::seed_view`], whose
 /// contract is *"seeding from the shipped preferences leaves a freshly opened
 /// view untouched"*. That property is only assertable as **whole-struct
 /// equality**: checking the fields the seeder writes would pass while a fifth

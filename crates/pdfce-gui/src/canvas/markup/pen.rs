@@ -155,8 +155,10 @@ impl Pen {
     /// > tolerance follows it** rather than being re-tuned by eye.
     ///
     /// The pen became an operator control on 2026-08-17 and the tolerance did
-    /// not follow. This is that rule, honoured, and the module predicted its
-    /// own defect a day before it had it.
+    /// not follow. This is that rule, honoured — and the module wrote the rule
+    /// down, was read by the session that broke it, and was broken **the same
+    /// day**. Recording the rule in prose was not enough; only a test that
+    /// varies the input could have caught it, and that test now exists.
     ///
     /// # Why the stale value was wrong in a way an operator would see
     ///

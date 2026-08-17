@@ -1,7 +1,7 @@
 //! # `app::prefs::quality` — how sharply a page is drawn, and how long zoom waits
 //!
 //! The two preferences that shipped with [`super`] on 2026-08-17, split out of
-//! its `mod.rs` on 2026-08-18 when the opening-view preferences arrived and the
+//! its `mod.rs` on 2026-08-17 when the opening-view preferences arrived and the
 //! file approached rule R2's 1,500-line ceiling.
 //!
 //! ## Why these two are one module and the opening view is another

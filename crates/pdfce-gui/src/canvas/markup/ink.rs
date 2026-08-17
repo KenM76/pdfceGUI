@@ -121,7 +121,8 @@
 //! It read: *"it is a rule — if the pen ever becomes an operator control, the
 //! tolerance follows it rather than being re-tuned by eye."* **The pen became an
 //! operator control on 2026-08-17 and the tolerance did not follow**, because it
-//! was a `const` and a `const` cannot follow anything. For a day, every freehand
+//! was a `const` and a `const` cannot follow anything. Between the Style group
+//! landing and this fix — the same day, a few commits apart — every freehand
 //! stroke was simplified against the *default* pen's width whatever pen the
 //! operator had set.
 //!
@@ -132,7 +133,7 @@
 //! operator gets a curve they did not draw. The claim in the paragraph above was
 //! false for every pen but one.
 //!
-//! Fixed 2026-08-18: [`drag`] reads [`super::pen::Pen::simplify_tolerance_pts`],
+//! Fixed 2026-08-17: [`drag`] reads [`super::pen::Pen::simplify_tolerance_pts`],
 //! the derivation now lives on `Pen` beside the width it derives from, and
 //! `tests::the_guarantee_holds_at_every_width_the_operator_can_set` asserts the
 //! bound at both ends of the operator's range rather than at the shipped middle.
@@ -239,7 +240,7 @@ const INK_MEMORY_KEY: &str = "pdfce-markup-ink-trail";
 /// [`super::PEN_WIDTH_PTS`]'s half-width, so the simplified centreline stays
 /// strictly inside the body of the stroke the raw trail would have drawn.
 ///
-/// # ★ This is no longer what the running code reads — 2026-08-18
+/// # ★ This is no longer what the running code reads — 2026-08-17
 ///
 /// [`drag`] calls [`super::pen::Pen::simplify_tolerance_pts`], which derives
 /// the same quarter-width from the pen the operator actually set. This constant
@@ -248,7 +249,7 @@ const INK_MEMORY_KEY: &str = "pdfce-markup-ink-trail";
 /// is deliberately *not* deleted, because the measurements are meaningless
 /// without a named value to attach them to.
 ///
-/// It was the live value until 2026-08-18 and by then it was stale: the pen
+/// It was the live value until 2026-08-17 and by then it was stale: the pen
 /// became an operator control on 2026-08-17 and this `const` went on deriving
 /// itself from the *default* width. §3.2 had already written the rule for that
 /// day — *"if the pen ever becomes an operator control, the tolerance follows
@@ -392,7 +393,7 @@ pub(in crate::canvas) fn drag(
     let raw = trail.points.len();
     // ★ The PEN's tolerance, not the shipped constant — §3.2's rule, honoured.
     //
-    // This read `SIMPLIFY_TOLERANCE_PTS` until 2026-08-18, which was a `const`
+    // This read `SIMPLIFY_TOLERANCE_PTS` until 2026-08-17, which was a `const`
     // derived from the pen's *default* 2 pt width. At a 0.25 pt pen — the
     // width that exists to match a CAD sheet's own linework — a fixed 0.5 pt
     // tolerance is four times the stroke's half-width, so the simplified
