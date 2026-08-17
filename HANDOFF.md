@@ -72,25 +72,63 @@ third latent instance in `egui-shell` on its first run, and had to learn to
 measure its window in *code* lines rather than source lines so a well-commented
 fix would not fail a gate a terse one passes.
 
-### What is still missing, in priority order
+### ★ The three follow-ups, resolved — two built, one measured and blocked
 
-The operator's *"add the ones that are missing for all of the features
-currently supported"* is **partly done**. Three groups remain, and all three are
-registered-and-inert rather than unbuilt:
+| | outcome |
+|---|---|
+| **Measure ▸ Set scale** | ✅ `980971f`. The model was salvaged whole in Phase 7 and only a window was missing. **Manage groups stays deferred and its reason was rewritten**: it waited on "the same absent dialog", the dialog landed, and the entry stays — because rename and delete are *not in the shipped `EditSession` surface* and a management window missing half its verbs is worse than none |
+| **The seven `view.*` settings** | ✅ `29cdc31`. **Two built, five deleted.** Four named capabilities that do not exist; the fifth, `app_initiative`, existed to switch off a behaviour pdfce does not have. All seven unregistered on R8, the empty Render group deleted, 32 groups → 31 |
+| **The Format contextual tab** | ⛔ `3784cca`. **Blocked, not unbuilt** — see below |
 
-1. **Measure ▸ Set scale and Manage groups.** Both registered, both with no
-   dispatch arm, both waiting on the same absent dialog. This is the sharpest
-   remaining gap: dimensions can be *placed* and their scale cannot be *set*,
-   which makes every number they show provisional.
-2. **The seven `view.*` render and behaviour settings** — render strategy,
-   quality, settle, thin lines, antialias, floating panels, app initiative.
-   Registered, drawn on the ribbon, no arms. They are settings-shaped and belong
-   in the **Settings window** rather than on a ribbon tab, which is now a real
-   destination rather than a plan; `FEATURES.md` carries a ⬜ row saying so.
-3. **The Format contextual tab.** One command (`format.delete`). §5.8 calls it
-   *"the single largest usability change proposed here"*, and its build order is
-   **panel first, tab second** — the properties panel is the harder half and the
-   tab's contents are a subset of it.
+**The Format tab is the finding worth carrying.** §5.8 specifies twenty-four
+property editors across six selection types and the tab can carry **one**,
+`Delete`, which it already has. Two independent blockers:
+
+1. **`EditSession` has no verb that modifies an annotation.** `add_markup`,
+   `add_text_annotation`, `delete_annotation` and two deletion predicates is the
+   whole surface. Delete-and-re-add is not a workaround — it loses the
+   annotation's identity and with it its `/NM`, its z-order in `/Annots`, and
+   any reply thread hung off it as `/IRT`. The **one** exception is the ce
+   dimension row: dimensions have a style model and nothing else does.
+2. **The canvas selection cannot address an annotation.** `Selection` is
+   `page + object + subpath + node`, a paint-order index into page *content* —
+   which is what makes it immune to zoom, and also means a markup or a dimension
+   is not selectable at all.
+
+The second is ours. The first is filed, along with a request for an
+`annotation_at(page, point)` sibling of the `widget_rects` query that unblocked
+canvas form filling — the exact precedent, and it worked.
+
+### Four requests open to pdfce, all filed 2026-08-17
+
+`open/` was empty before this session. It now holds four, three of them from
+one operator question about print:
+
+| request | finding |
+|---|---|
+| `devicesettings_pick_tray_is_never_read` | the field is declared, documented, plumbed through `spool`'s signature, and **read nowhere**. The GUI shipped a checkbox for it; the checkbox is removed |
+| `orientation_auto_is_per_job_not_per_page` | documented as per-page in a heading that says so, implemented per-job — `build_devmode` is called once with `first_page_pt` |
+| `no_paper_size_selection_in_the_print_path` | no paper list, no way to request one, no route to the driver's properties dialog. The dialog now **discloses** which paper the job is planned against and that pdfce cannot change it |
+| `no_verb_modifies_an_existing_annotation` | the Format-tab blocker above |
+
+### What is still missing, from the inventory sweep
+
+Not asked for, and worth having on the record — every one is a shipped feature
+with a hard-coded value and no surface:
+
+- **Redaction**: fill colour, overlay text and quadding are three `None`s at
+  `panels/redact.rs:418-420`. The engine takes all three.
+- **Snap and drafting**: snap tolerance (10 px), selection tolerance (6 px),
+  grid alphas, guide catch radius, ruler pitch and thickness, zoom min/max,
+  default fit mode. All compiled-in, all preference-shaped, and `app::prefs`
+  now exists as their home.
+- **New document**: `file.new` always makes an A4 from a baked-in template with
+  no chooser. `file.new_from_template` is `PLANNED`.
+- **Markup, the rest of the Style group**: arrowhead length and angle, ink
+  simplification tolerance. Fill and opacity stay blocked (design decision and
+  engine respectively).
+- **No UI-scale or base-font-size control anywhere**, which is an accessibility
+  gap rather than a preference.
 
 ---
 
