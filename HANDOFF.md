@@ -34,6 +34,66 @@ them.
 > the numbers above are the ones a test pins, and prose drifting from
 > them is a defect this project has now had four times.
 
+### ★★ 2026-08-17 — the operator's report, and what it turned up
+
+> *"I tried a lot of the features that have been added only to find there is no
+> surface for changing or editing the settings for them. please add the ones
+> that are missing for all of the features currently supported in the gui. also
+> port the settings dialog from the pdfce gui. also the print dialogue didn't
+> work."*
+
+Three commits. Every one of them found something worse than the thing reported,
+and all three failures are the **same shape** — wiring that no test in the
+workspace could see:
+
+| # | reported | found |
+|---|---|---|
+| `6d790db` | print didn't work | `pdfce-print` was linked into every shipped binary and the adapter's four calls still returned `NotLinked`. **A green test held it there**: `every_hole_refuses_rather_than_guessing` asserted all four refused, which was correct while unlinked and became a lock the moment it was not — doing the right thing would have turned the suite red |
+| `87b4f3d` | no settings surface | `file.settings` inert for the whole project — and, measured against the old shell, **nine of its thirteen settings were persisted, shown, edited and never read by anything**, discarded at every call site that built its own option struct. `app::settings` is now the one funnel and a `syn` check enforces it. D10's second half closed, proved in pixels |
+| `4035b64` | can't change a markup's colour | Markup ▸ Style declared `Item::custom("colour_swatch")` since S2 and **no renderer ever matched the kind**, so the group shipped as a caption over an empty band. The manifest test asserted the item was *declared* and passed correctly |
+
+**The generalisation is worth carrying**: there are now three distinct ways for
+a control to ship inert, and each defeats a different guard.
+
+1. **A command with no dispatch arm.** Caught by `shell::commands::reach`.
+2. **A linked crate with a refusing adapter.** Caught by nothing — the
+   adapter's own tests asserted the refusal.
+3. **A declared `Item::Custom` with no renderer.** Caught by nothing, and it is
+   the quietest: a `Custom` item carries no command id, so it is invisible to
+   every check built on `command_references()`, and the manifest test that
+   *does* see it is asserting the manifest, which was right.
+
+Only one oracle sees all three: driving the binary and reading what it declared.
+
+**D11 was also broken again, three days after being written, by someone who had
+read it** — the settings window's headings used `.strong()` and rendered pale
+grey on pale grey. `tools/gates/check-strong-text.sh` now enforces it, found a
+third latent instance in `egui-shell` on its first run, and had to learn to
+measure its window in *code* lines rather than source lines so a well-commented
+fix would not fail a gate a terse one passes.
+
+### What is still missing, in priority order
+
+The operator's *"add the ones that are missing for all of the features
+currently supported"* is **partly done**. Three groups remain, and all three are
+registered-and-inert rather than unbuilt:
+
+1. **Measure ▸ Set scale and Manage groups.** Both registered, both with no
+   dispatch arm, both waiting on the same absent dialog. This is the sharpest
+   remaining gap: dimensions can be *placed* and their scale cannot be *set*,
+   which makes every number they show provisional.
+2. **The seven `view.*` render and behaviour settings** — render strategy,
+   quality, settle, thin lines, antialias, floating panels, app initiative.
+   Registered, drawn on the ribbon, no arms. They are settings-shaped and belong
+   in the **Settings window** rather than on a ribbon tab, which is now a real
+   destination rather than a plan; `FEATURES.md` carries a ⬜ row saying so.
+3. **The Format contextual tab.** One command (`format.delete`). §5.8 calls it
+   *"the single largest usability change proposed here"*, and its build order is
+   **panel first, tab second** — the properties panel is the harder half and the
+   tab's contents are a subset of it.
+
+---
+
 **Everything the operator asked for is shipped.** Phase 3 and Phase 4 are
 complete, along with Print, Forms-fill, Icons, Open/Recent/Close and Find.
 Every loose end the build agents reported has been closed.
