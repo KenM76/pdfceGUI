@@ -75,9 +75,23 @@ pub const fn printer_label() -> &'static str {
 /// **pdfce could not ask this system about its printers at all.**
 ///
 /// The first of the three no-printer sentences (module docs). It is what this
-/// build says today, because `pdfce-print` is not linked into this crate —
-/// see [`crate::dialogs::print::spooler`]'s header for the one-line manifest
-/// change that makes it unreachable.
+/// build says when the print spooler itself could not be queried.
+///
+/// # ★ This sentence used to be a lie, and the lie is instructive
+///
+/// It read *"This build cannot reach a print device"* for the whole of
+/// v0.1.0, which was true when it was written — `pdfce-print` was not a
+/// dependency — and became false the moment the manifest line landed while
+/// the adapter's four calls were left refusing. So the dialog told every
+/// operator that the program they were running could not print, on a machine
+/// with printers, in a build that had the printing crate linked into it.
+///
+/// The wording is now about the **spooler**, not the build, because that is
+/// the only thing this sentence can honestly be about: a query was attempted
+/// and it failed. [`crate::dialogs::print::spooler::Unavailable`] carries the
+/// engine's own account of *why*, and [`spooler_detail`] is how it is shown —
+/// a general sentence an operator can act on, plus the specific one they can
+/// quote at whoever administers the machine.
 ///
 /// Deliberately **not** "no printers were found": that would be a claim about
 /// the operator's hardware made on evidence pdfce does not have. It also
@@ -89,8 +103,29 @@ pub const fn printer_label() -> &'static str {
 /// [`crate::text::open_needs_password`].
 #[must_use]
 pub const fn spooler_unavailable() -> &'static str {
-    "This build cannot reach a print device, so there is nothing to print to. \
-     Nothing has been sent and nothing will be."
+    "pdfce could not ask this system about its printers, so there is nothing to \
+     print to. Nothing has been sent."
+}
+
+/// The engine's own account of a spooler failure, shown beneath
+/// [`spooler_unavailable`].
+///
+/// # Why two sentences rather than one
+///
+/// They answer different people. [`spooler_unavailable`] tells the operator
+/// what happened and that nothing was printed; this tells them — or whoever
+/// they forward it to — *which* thing failed, in `pdfce-print`'s own words,
+/// which already carry the remedy ("the Print Spooler service may be
+/// stopped", "run `pdfce-cli list-printers` to see the names this machine
+/// knows").
+///
+/// Merging them would mean either dropping the specific half or building one
+/// sentence by concatenation, and a concatenated sentence is the one that
+/// reads badly in exactly the cases nobody tested. This is the same split
+/// [`failed`] already uses for a spool that was attempted and refused.
+#[must_use]
+pub fn spooler_detail(detail: &str) -> String {
+    format!("The print system reported: {detail}")
 }
 
 /// **The spooler answered, and this system has no printers installed.**

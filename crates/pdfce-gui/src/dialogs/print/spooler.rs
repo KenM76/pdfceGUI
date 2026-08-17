@@ -1,61 +1,59 @@
 //! # `dialogs::print::spooler` — the one file that knows `pdfce-print` exists
 //!
-//! ## ★ Read this first: `pdfce-print` is NOT a dependency of this crate
-//!
-//! `crates/pdfce-gui/Cargo.toml` names `pdfce-core` and `pdfce-render` and
-//! **not** `pdfce-print`. That is a fact about the manifest, checked rather
-//! than assumed, and it is why this module exists at all.
+//! ## ★ Read this first: this module is the ADAPTER, and it is now live
 //!
 //! Everything else in [`crate::dialogs::print`] — the three tabs, the range
 //! parser, the zoom anchor, the preview raster cache, the clip disclosure,
 //! the commit button's label — is written against the types *in this file*.
-//! Nothing else in the dialog names a printing type, so linking the real
-//! crate is a change to **one file** rather than a change to four.
+//! Nothing else in the dialog names a printing type, which is what confined
+//! the whole "make printing work" change to this one module.
 //!
-//! ## What this build can actually do, said plainly
+//! ## ★ The defect this file carried for the whole of v0.1.0, recorded
 //!
-//! Nothing spools. [`list_printers`] returns [`Unavailable::NotLinked`], the
-//! dialog renders [`crate::text::print::spooler_unavailable`], and the commit
-//! button **is not drawn at all** — absent rather than greyed, because
-//! greying is for *temporarily* unavailable and no setting in this dialog
-//! would ever make this build reach a spooler (`PROJECT_PLAN.md` §3, the
-//! no-placeholders invariant).
+//! This header used to open with the sentence *"`pdfce-print` is NOT a
+//! dependency of this crate"* and then set out, in full, the two edits that
+//! would make the build print: add the manifest line, then fill the four
+//! holes below. **The manifest line landed and the four holes were never
+//! filled.** `pdfce-print` sat in `Cargo.toml` and in `Cargo.lock`, was
+//! compiled and linked into every shipped binary, and no source file in the
+//! crate contained the identifier `pdfce_print` outside a doc comment. So
+//! [`list_printers`] kept returning a refusal, the dialog kept rendering
+//! *"This build cannot reach a print device"*, and the commit button was
+//! never drawn.
 //!
-//! That is a truthful report, not a stub pretending to be a feature. It is
-//! also deliberately **not** the same sentence as "no printers were found":
-//! `pdfce-print` itself refuses to collapse those two facts — non-Windows
-//! `list_printers` returns `Err(Unsupported)` rather than an empty `Vec`,
-//! because *"reporting the same value for 'this platform cannot enumerate
-//! printers at all' would collapse two different facts into one and send a
-//! caller looking for hardware"* (`lib.rs:1859-1866`). The distinction
-//! survives the port; see [`crate::text::print`]'s header for the three
-//! sentences it feeds.
+//! The operator's report was *"the print dialogue didn't work"*, and it was
+//! exactly right. Two things are worth carrying forward from it:
 //!
-//! ## ★ The exact change that makes this build print
+//! 1. **The whole test suite was green throughout.** It had to be: the tests
+//!    asserted that every hole *refuses*, which is the correct assertion for
+//!    an unlinked build and becomes a lock on the defect the moment the
+//!    manifest line lands. A test that pins a refusal must name the condition
+//!    the refusal is conditional on, or it outlives its own premise. The
+//!    replacement — `every_call_reaches_the_engine_rather_than_refusing` —
+//!    asserts the opposite property, and it is written so that it cannot pass
+//!    on a machine with no printers.
+//! 2. **A doc comment that describes future work is a liability with a shelf
+//!    life.** This one was precise, correct, and read by nobody at the moment
+//!    it became actionable. Where a plan like that is written down again it
+//!    belongs in `GUI_ROADMAP.md`, where something sweeps it, and not only in
+//!    the header of the file it happens to be about.
 //!
-//! Two edits, in this order. They are written out in full because the next
-//! hand should not have to re-derive them from the type definitions below.
+//! ## What this build does now
 //!
-//! **1. `crates/pdfce-gui/Cargo.toml`, in `[dependencies]`, beside the two
-//! existing path dependencies:**
+//! [`list_printers`] enumerates the system's printers, [`device_features`]
+//! reads one device's duplex and copy support, [`plan`] turns the geometry
+//! and places every page, and [`spool`] hands the rendered sheets to the
+//! Windows spooler. The commit button is drawn whenever there is a device and
+//! a non-empty plan, and pressing it consumes paper.
 //!
-//! ```toml
-//! pdfce-print = { path = "../../../pdfce/crates/pdfce-print" }
-//! ```
-//!
-//! No `default-features = false` and no `[features]` forwarding: unlike
-//! `pdfce-core` and `pdfce-render`, `pdfce-print` declares no features, so
-//! there is no strippable capability to forward and nothing for the JPX
-//! lesson in that manifest's header to bite on. It is a **path** dependency
-//! for the same reason the other two are — this crate builds against the
-//! live engine, so divergence surfaces at compile time rather than at
-//! fold-in.
-//!
-//! **2. This file, and only this file.** Each of the four functions below
-//! loses its refusal and gains the call named in its own doc comment. The
-//! type definitions stay: they are the dialog's *view* of a planned job, and
-//! keeping them means the widgets bind to types this crate owns rather than
-//! to a dependency's, which is what confines the change here.
+//! Three ways to have no printer are still said three ways — `pdfce-print`
+//! refuses to collapse them, because non-Windows `list_printers` returns
+//! `Err(Unsupported)` rather than an empty `Vec`, since *"reporting the same
+//! value for 'this platform cannot enumerate printers at all' would collapse
+//! two different facts into one and send a caller looking for hardware"*
+//! (`lib.rs:1859-1866`). [`Unavailable`] carries that distinction across the
+//! port; see [`crate::text::print`]'s header for the three sentences it
+//! feeds.
 //!
 //! ## Why mirror the types rather than re-export them
 //!
@@ -97,39 +95,58 @@ use std::fmt;
 
 /// Why the print system could not be reached.
 ///
-/// # One variant today, and that is honest rather than lazy
+/// # Two variants, mapping onto two of the three sentences
 ///
-/// A build that cannot link `pdfce-print` has exactly one thing to say, and
-/// inventing variants for conditions this build cannot detect would be an
-/// enum full of states nothing can produce — the same "no placeholders" rule
-/// [`crate::app::actions::Action`]'s own docs state for *its* variants.
+/// [`crate::text::print`]'s header sets out three ways to have no printer,
+/// deliberately said three ways. Two of them are failures and live here; the
+/// third is not a failure at all and therefore has no variant:
 ///
-/// When the manifest line lands this becomes three, mapping one-to-one onto
-/// the three sentences in [`crate::text::print`]'s header:
-///
-/// | variant | from | sentence |
+/// | condition | represented by | sentence |
 /// |---|---|---|
-/// | `Spooler(PrintError)` | `list_printers` / `device_features` returning `Err` | [`crate::text::print::spooler_unavailable`] |
-/// | `Device(PrintError)` | `printer_caps` returning `Err` for one device | [`crate::text::print::device_unavailable`] |
-/// | `NotLinked` | *deleted* | — |
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// | pdfce could not ask this system about printers **at all** | [`Unavailable::Spooler`] | [`crate::text::print::spooler_unavailable`] |
+/// | this *particular* device would not describe itself | [`Unavailable::Device`] | [`crate::text::print::device_unavailable`] |
+/// | the spooler answered and reported none installed | `Ok(vec![])` — **not an error** | [`crate::text::print::no_printers`] |
+///
+/// The third row is the one worth stating explicitly, because collapsing it
+/// into the first is the exact defect `pdfce-print` names: a machine with no
+/// printers installed is a *normal machine*, and reporting that as a failure
+/// sends an operator looking for a fault that does not exist. The engine
+/// returns an empty `Vec` there and this type has nowhere to put one, which
+/// is the type system holding the distinction rather than a convention.
+///
+/// # Why a `String` rather than the engine's `PrintError`
+///
+/// `PrintError` is `Debug + Clone` and neither `Copy` nor `Eq`, and this
+/// value is stored in dialog state, compared in tests, and copied into trace
+/// lines. Carrying the engine's own `Display` output — which is written as
+/// operator-facing prose, complete with the remedy — keeps every one of those
+/// cheap while losing nothing: nothing in the shell branches on *which*
+/// `PrintError` it was, only on which of the two rows above applies, and that
+/// is what the variant already encodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Unavailable {
-    /// `pdfce-print` is not a dependency of this crate. See the module docs
-    /// for the one manifest line that removes this variant.
-    NotLinked,
+    /// The spooler itself could not be queried — `list_printers` or
+    /// `device_features` returned `Err`. Carries `PrintError`'s own sentence.
+    Spooler(String),
+    /// One device would not describe itself — `printer_caps` returned `Err`
+    /// for this printer. Carries `PrintError`'s own sentence.
+    ///
+    /// Distinct from [`Self::Spooler`] because the remedy is different:
+    /// *pick another printer* rather than *there is nothing to pick from*.
+    Device(String),
 }
 
 impl fmt::Display for Unavailable {
     /// **Diagnostic text, not operator copy.**
     ///
-    /// It reaches a `PDFCE_DIAG` trace line and, once the spool path is
-    /// reachable, [`crate::text::print::failed`]'s `detail` argument — which
-    /// is the same passing-through of a structured engine error that
+    /// It reaches a `PDFCE_DIAG` trace line and
+    /// [`crate::text::print::failed`]'s `detail` argument — which is the same
+    /// passing-through of a structured engine error that
     /// [`crate::text::canvas_render_failed`] does, and for the same reason:
     /// the engine's own sentence is the specific half.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotLinked => f.write_str("pdfce-print is not linked into this build"),
+            Self::Spooler(detail) | Self::Device(detail) => f.write_str(detail),
         }
     }
 }
@@ -490,41 +507,190 @@ pub(crate) struct SpoolReport {
 }
 
 // ---------------------------------------------------------------------------
-// The four holes
+// Conversions — this crate's view of a job, into the engine's
 // ---------------------------------------------------------------------------
 //
-// Each function below is a hole with a refusal in it. The doc comment on each
-// names the exact engine call that fills it. Nothing here computes a
-// placement, a sequence or a resolution: see the module docs on why a second
+// Every function in this block is a total, field-for-field mapping with no
+// arithmetic in it. That is the whole discipline: if a conversion here ever
+// grows a computation, the second implementation the module header warns
+// about has arrived and it has arrived in the least visible place.
+//
+// They are written as free functions rather than `From` impls deliberately.
+// `DeviceGeometry` is the reason: `pdfce-print` REMOVED its own
+// `From<&PrinterCaps>` impl because a wrong answer that is one `.into()` away
+// will be reached again — the geometry must be turned for the job's
+// orientation, and an ergonomic conversion is exactly what hides that it was
+// not. Following the same posture for the whole set keeps the two directions
+// looking alike.
+
+/// The operator's scaling choice, into the engine's.
+const fn to_engine_scale(mode: ScaleMode) -> pdfce_print::ScaleMode {
+    match mode {
+        ScaleMode::Fit => pdfce_print::ScaleMode::Fit,
+        ScaleMode::ActualSize => pdfce_print::ScaleMode::ActualSize,
+        ScaleMode::ShrinkOversized => pdfce_print::ScaleMode::ShrinkOversized,
+        ScaleMode::Custom(factor) => pdfce_print::ScaleMode::Custom(factor),
+    }
+}
+
+/// The odd/even filter, into the engine's.
+const fn to_engine_subset(subset: PageSubset) -> pdfce_print::PageSubset {
+    match subset {
+        PageSubset::All => pdfce_print::PageSubset::All,
+        PageSubset::Odd => pdfce_print::PageSubset::Odd,
+        PageSubset::Even => pdfce_print::PageSubset::Even,
+    }
+}
+
+/// The copy ordering, into the engine's.
+const fn to_engine_collate(collate: Collate) -> pdfce_print::Collate {
+    match collate {
+        Collate::Collated => pdfce_print::Collate::Collated,
+        Collate::Uncollated => pdfce_print::Collate::Uncollated,
+    }
+}
+
+/// The sheet orientation, into the engine's.
+const fn to_engine_orientation(orientation: Orientation) -> pdfce_print::Orientation {
+    match orientation {
+        Orientation::Auto => pdfce_print::Orientation::Auto,
+        Orientation::Portrait => pdfce_print::Orientation::Portrait,
+        Orientation::Landscape => pdfce_print::Orientation::Landscape,
+    }
+}
+
+/// The duplex request, into the engine's.
+const fn to_engine_duplex(duplex: Duplex) -> pdfce_print::Duplex {
+    match duplex {
+        Duplex::Simplex => pdfce_print::Duplex::Simplex,
+        Duplex::LongEdge => pdfce_print::Duplex::LongEdge,
+        Duplex::ShortEdge => pdfce_print::Duplex::ShortEdge,
+    }
+}
+
+/// The driver half of a job, into the engine's.
+const fn to_engine_settings(settings: DeviceSettings) -> pdfce_print::DeviceSettings {
+    pdfce_print::DeviceSettings {
+        orientation: to_engine_orientation(settings.orientation),
+        duplex: to_engine_duplex(settings.duplex),
+        pick_tray_by_page_size: settings.pick_tray_by_page_size,
+    }
+}
+
+/// The arithmetic half of a job, into the engine's.
+///
+/// `pages` is cloned rather than moved because [`plan`] takes `&JobSpec` — the
+/// dialog rebuilds its spec every frame from the operator's current answers
+/// and keeps ownership of it, and a signature that consumed the spec would
+/// force a clone at every call site instead of the one here.
+fn to_engine_spec(spec: &JobSpec) -> pdfce_print::JobSpec {
+    pdfce_print::JobSpec {
+        pages: spec.pages.clone(),
+        mode: to_engine_scale(spec.mode),
+        max_dpi: spec.max_dpi,
+        subset: to_engine_subset(spec.subset),
+        reverse: spec.reverse,
+        copies: spec.copies,
+        collate: to_engine_collate(spec.collate),
+    }
+}
+
+/// A placement, out of the engine.
+const fn from_engine_placement(placement: pdfce_print::Placement) -> Placement {
+    Placement {
+        scale: placement.scale,
+        offset_x_pt: placement.offset_x_pt,
+        offset_y_pt: placement.offset_y_pt,
+        clipped: placement.clipped,
+    }
+}
+
+/// One rendered sheet, into the engine's.
+///
+/// The pixel buffer is **cloned**, and that is a deliberate cost rather than
+/// an oversight. [`spool`] takes `&[PageBitmap]` because the dialog's commit
+/// path builds the whole set and then hands it over; taking the vector by
+/// value would let the copy be avoided, but it would also mean the commit
+/// path could not re-attempt a spool without re-rendering every page. On a
+/// job large enough for the copy to matter, re-rendering is the far larger
+/// cost.
+fn to_engine_bitmap(bitmap: &PageBitmap) -> pdfce_print::PageBitmap {
+    pdfce_print::PageBitmap {
+        width: bitmap.width,
+        height: bitmap.height,
+        rgba: bitmap.rgba.clone(),
+        placement: pdfce_print::Placement {
+            scale: bitmap.placement.scale,
+            offset_x_pt: bitmap.placement.offset_x_pt,
+            offset_y_pt: bitmap.placement.offset_y_pt,
+            clipped: bitmap.placement.clipped,
+        },
+        page_pt: bitmap.page_pt,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The four calls into the engine
+// ---------------------------------------------------------------------------
+//
+// These were four holes with refusals in them for the whole of v0.1.0; see
+// the module header for what that cost and why. Nothing here computes a
+// placement, a sequence or a resolution — see the module docs on why a second
 // implementation of any of those is worse than no implementation at all.
 
 /// Enumerate the system's printers.
 ///
-/// Fill with `pdfce_print::list_printers()`, mapping each `Printer` field for
-/// field. Called **once**, when the dialog opens — enumerating printers
-/// touches the spooler, and doing it per frame while a dialog sits open would
-/// be rude to a service other applications share.
+/// Called **once**, when the dialog opens — enumerating printers touches the
+/// spooler, and doing it per frame while a dialog sits open would be rude to
+/// a service other applications share. [`super::PrintDialog::new`] is the
+/// only caller and it stores the result.
 ///
 /// # Errors
 ///
-/// [`Unavailable::NotLinked`] in this build, always. Once linked: whatever
-/// `pdfce-print` reports, which on a non-Windows target is `Unsupported` —
-/// **not** an empty `Vec`, and the dialog says something different for each.
+/// [`Unavailable::Spooler`] when the spooler could not be queried at all,
+/// which on a non-Windows target is always (`PrintError::Unsupported`).
+///
+/// **An empty `Vec` is `Ok`, not an error.** A machine with no printers
+/// installed is a normal machine; see [`Unavailable`]'s own documentation for
+/// why the type has nowhere to put that case.
 pub(crate) fn list_printers() -> Result<Vec<Printer>, Unavailable> {
-    Err(Unavailable::NotLinked)
+    match pdfce_print::list_printers() {
+        Ok(found) => Ok(found
+            .into_iter()
+            .map(|printer| Printer {
+                name: printer.name,
+                driver: printer.driver,
+                port: printer.port,
+                is_default: printer.is_default,
+            })
+            .collect()),
+        Err(error) => Err(Unavailable::Spooler(error.to_string())),
+    }
 }
 
 /// Read one device's non-geometric capabilities.
 ///
-/// Fill with `pdfce_print::device_features(printer)`. Consulted **before**
-/// offering the duplex control at all (R83), never after.
+/// Consulted **before** offering the duplex control at all (R83), never
+/// after. [`super::PrintDialog::refresh_features`] calls it once per change
+/// of the selected printer — which is the fix for a defect the old shell
+/// still carries: it read features only for the *initially* selected device
+/// and never again, so switching printers left the duplex control gated on
+/// the previous one's capabilities.
 ///
 /// # Errors
 ///
-/// [`Unavailable::NotLinked`] in this build, always.
+/// [`Unavailable::Spooler`] when the driver would not answer. The caller
+/// falls back to [`DeviceFeatures::default`] — `supports_duplex: false` —
+/// which is the safe direction: a device that cannot describe itself gets no
+/// duplex control, rather than a control that may silently do nothing.
 pub(crate) fn device_features(printer: &str) -> Result<DeviceFeatures, Unavailable> {
-    let _ = printer;
-    Err(Unavailable::NotLinked)
+    match pdfce_print::device_features(printer) {
+        Ok(features) => Ok(DeviceFeatures {
+            supports_duplex: features.supports_duplex,
+            max_copies: features.max_copies,
+        }),
+        Err(error) => Err(Unavailable::Spooler(error.to_string())),
+    }
 }
 
 /// Plan the whole job: turn the geometry, resolve the resolution, place every
@@ -553,41 +719,99 @@ pub(crate) fn device_features(printer: &str) -> Result<DeviceFeatures, Unavailab
 ///
 /// # Errors
 ///
-/// [`Unavailable::NotLinked`] in this build, always. Once linked, an `Err`
-/// means this *particular* device would not describe itself, which is a
-/// different sentence from having no printers at all.
+/// [`Unavailable::Device`] when this *particular* device would not describe
+/// itself, which is a different sentence from having no printers at all —
+/// [`crate::text::print::device_unavailable`] rather than
+/// [`crate::text::print::spooler_unavailable`].
 pub(crate) fn plan(
     printer: &str,
     settings: DeviceSettings,
     page_sizes: &[(f64, f64)],
     spec: &JobSpec,
 ) -> Result<Job, Unavailable> {
-    // Traced in full rather than discarded, for the same two reasons as
-    // [`spool`]: a refusal is what a harness needs to see, and reading every
-    // operand is what keeps the shape of [`JobSpec`] honest — a field nothing
-    // ever reads is a field that can quietly acquire the wrong units or stop
-    // being filled at all.
-    crate::diag::trace(|| {
-        format!(
-            // ui-text-exempt: diagnostic trace, never displayed in the UI
-            "print-plan-refused printer={printer} pages={:?} mode={:?} max_dpi={} \
-             subset={:?} reverse={} copies={} collate={:?} orientation={:?} \
-             duplex={:?} tray={} sizes={} reason={}",
-            spec.pages,
-            spec.mode,
-            spec.max_dpi,
-            spec.subset,
-            spec.reverse,
-            spec.copies,
-            spec.collate,
-            settings.orientation,
-            settings.duplex,
-            settings.pick_tray_by_page_size,
-            page_sizes.len(),
-            Unavailable::NotLinked,
-        )
-    });
-    Err(Unavailable::NotLinked)
+    let engine_spec = to_engine_spec(spec);
+
+    // 1. CAPABILITIES. The only fallible step: everything after it is
+    //    arithmetic over values already in hand.
+    let caps = match pdfce_print::printer_caps(printer) {
+        Ok(caps) => caps,
+        Err(error) => {
+            // Traced rather than discarded. A refusal is exactly the event a
+            // harness needs to see, and reading every operand here is also
+            // what keeps the shape of [`JobSpec`] honest — a field nothing
+            // ever reads is a field that can quietly acquire the wrong units
+            // or stop being filled at all.
+            let detail = error.to_string();
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "print-plan-refused printer={printer} pages={:?} mode={:?} max_dpi={} \
+                     subset={:?} reverse={} copies={} collate={:?} orientation={:?} \
+                     duplex={:?} tray={} sizes={} reason={detail}",
+                    spec.pages,
+                    spec.mode,
+                    spec.max_dpi,
+                    spec.subset,
+                    spec.reverse,
+                    spec.copies,
+                    spec.collate,
+                    settings.orientation,
+                    settings.duplex,
+                    settings.pick_tray_by_page_size,
+                    page_sizes.len(),
+                )
+            });
+            return Err(Unavailable::Device(detail));
+        }
+    };
+
+    // 2. ★ TURN THE GEOMETRY FIRST. Steps 3 and 4 both take `&device`, so a
+    //    geometry turned after them would leave the dialog previewing a sheet
+    //    the job was not planned for — the 77 %-scale defect described on
+    //    [`DeviceGeometry`], reintroduced by sequencing rather than by a
+    //    `From` impl.
+    //
+    //    `first_page_pt` is the FIRST PAGE THE JOB SENDS, not `page_sizes[0]`:
+    //    the sequence may be subset-filtered or reversed, and the `DEVMODE`
+    //    and the geometry rotation must resolve `Auto` from the same page.
+    //    Taking an index of our own here is how the two come to disagree, so
+    //    the engine's own accessor is used rather than an index.
+    let device = pdfce_print::DeviceGeometry::from_caps(
+        &caps,
+        to_engine_orientation(settings.orientation),
+        engine_spec.first_page_pt(page_sizes),
+    );
+
+    // 3. Resolution, against the turned geometry.
+    let resolution = pdfce_print::job_resolution(&device, &engine_spec);
+
+    // 4. Every page placed, against the same turned geometry.
+    let plans = pdfce_print::plan_job(&device, page_sizes, &engine_spec);
+
+    Ok(Job {
+        device: DeviceGeometry {
+            dpi: device.dpi,
+            printable_pt: device.printable_pt,
+            physical_pt: device.physical_pt,
+            offset_pt: device.offset_pt,
+        },
+        resolution: JobResolution {
+            dpi: resolution.dpi,
+            device_dpi: resolution.device_dpi,
+            capped: resolution.capped,
+            // Flattened from the engine's method to a field, so no formula of
+            // the engine's is restated in this crate. See [`JobResolution`].
+            uncapped_page_mb: resolution.uncapped_page_mb(),
+        },
+        plans: plans
+            .into_iter()
+            .map(|plan| PagePlan {
+                index: plan.index,
+                placement: from_engine_placement(plan.placement),
+                render_scale: plan.render_scale,
+            })
+            .collect(),
+    })
 }
 
 /// Hand the rendered sheets to the spooler.
@@ -611,28 +835,29 @@ pub(crate) fn plan(
 ///
 /// # Errors
 ///
-/// [`Unavailable::NotLinked`] in this build, always. Once linked, whatever
-/// the spooler reports — passed through to the operator verbatim by
-/// [`crate::text::print::failed`], because a structured spooler error is the
-/// specific half of that sentence.
+/// [`Unavailable::Spooler`] carrying whatever the spooler reported — passed
+/// through to the operator verbatim by [`crate::text::print::failed`],
+/// because a structured spooler error is the specific half of that sentence.
 pub(crate) fn spool(
     printer: &str,
     bitmaps: &[PageBitmap],
     settings: DeviceSettings,
     first_page_pt: (f64, f64),
 ) -> Result<SpoolReport, Unavailable> {
-    // Traced in full rather than discarded. A refused spool is exactly the
-    // event a harness needs to see, and reading every operand here is also
-    // what keeps the shape of `PageBitmap` honest: a field nothing ever reads
-    // is a field that can quietly acquire the wrong units.
+    // Traced BEFORE the call, not after, and that ordering is the point: this
+    // is the one call in the application that consumes paper, and if it hangs
+    // or takes the process down, the trace line describing what was sent is
+    // the only record that survives. Reading every operand here is also what
+    // keeps the shape of `PageBitmap` honest — a field nothing ever reads is
+    // a field that can quietly acquire the wrong units.
     crate::diag::trace(|| {
         let bytes: usize = bitmaps.iter().map(|b| b.rgba.len()).sum();
         let first = bitmaps.first();
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            "print-spool-refused printer={printer} sheets={} px={:?} bytes={bytes} \
+            "print-spool printer={printer} sheets={} px={:?} bytes={bytes} \
              first_page_pt={first_page_pt:?} placement={:?} page_pt={:?} \
-             orientation={:?} duplex={:?} tray={} reason={}",
+             orientation={:?} duplex={:?} tray={}",
             bitmaps.len(),
             first.map(|b| (b.width, b.height)),
             first.map(|b| b.placement),
@@ -640,29 +865,66 @@ pub(crate) fn spool(
             settings.orientation,
             settings.duplex,
             settings.pick_tray_by_page_size,
-            Unavailable::NotLinked,
         )
     });
-    Err(Unavailable::NotLinked)
+
+    let pages: Vec<pdfce_print::PageBitmap> = bitmaps.iter().map(to_engine_bitmap).collect();
+
+    // ★ `DryRun::No` and `output: None`, both hard-coded, both deliberate.
+    //
+    // The CLI defaults to a dry run and requires `--send`, and that is right
+    // *there*: a command line has no confirmation step of its own, so the
+    // flag is the confirmation. Here the DIALOG is the confirmation — the
+    // operator chose a printer, read a clip count in the button's own label,
+    // and pressed it. A dry-run toggle on this surface would be a second gate
+    // whose only effect is to make the first one mean less.
+    let outcome = pdfce_print::spool(
+        printer,
+        &pages,
+        pdfce_print::DryRun::No,
+        None,
+        to_engine_settings(settings),
+        first_page_pt,
+    );
+
+    match outcome {
+        Ok(report) => {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "print-spool-done printer={printer} pages={} printed={} dpi={:?} \
+                     clipped={} job_id={:?}",
+                    report.pages, report.printed, report.dpi, report.clipped_pages, report.job_id,
+                )
+            });
+            Ok(SpoolReport {
+                pages: report.pages,
+                printed: report.printed,
+                dpi: report.dpi,
+                clipped_pages: report.clipped_pages,
+                job_id: report.job_id,
+            })
+        }
+        Err(error) => {
+            let detail = error.to_string();
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "print-spool-failed printer={printer} reason={detail}"
+                )
+            });
+            Err(Unavailable::Spooler(detail))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// ★ Every hole refuses, and none of them invents an answer.
-    ///
-    /// The test that would fail if somebody "helpfully" filled [`plan`] with a
-    /// local placement calculation to make the preview draw something. That
-    /// would be the worse outcome by a distance: a preview showing a
-    /// confidently wrong sheet is exactly what this dialog exists to prevent,
-    /// and it would be indistinguishable from a correct one until the paper
-    /// came out.
-    #[test]
-    fn every_hole_refuses_rather_than_guessing() {
-        assert_eq!(list_printers(), Err(Unavailable::NotLinked));
-        assert_eq!(device_features("Any"), Err(Unavailable::NotLinked));
-        let spec = JobSpec {
+    /// A spec the plan tests can share.
+    fn one_page_spec() -> JobSpec {
+        JobSpec {
             pages: vec![0],
             mode: ScaleMode::Fit,
             max_dpi: 300,
@@ -670,15 +932,197 @@ mod tests {
             reverse: false,
             copies: 1,
             collate: Collate::Collated,
+        }
+    }
+
+    /// ★ **The regression test for the defect this module carried for the
+    /// whole of v0.1.0.** See the module header.
+    ///
+    /// # What it asserts, and why the obvious assertion is the wrong one
+    ///
+    /// The test this replaces asserted that every one of these four functions
+    /// **refused**. That was correct while `pdfce-print` was not a dependency
+    /// and became a lock on the defect the moment it was — the manifest line
+    /// landed, the refusals stayed, the suite stayed green, and the operator
+    /// found out by opening the dialog.
+    ///
+    /// So this asserts the opposite property, and the wording matters: it
+    /// asserts that a call **reaches the engine**, not that it succeeds.
+    /// Success is not available to assert. This suite runs on machines with
+    /// printers and machines without, on Windows and (at fold-in) not, and a
+    /// test that needed a device would be a test that got `#[ignore]`d and
+    /// then stopped being run at all.
+    ///
+    /// The distinguishing evidence is the **failure text**. Every refusal
+    /// this module can now produce carries `PrintError`'s own `Display`,
+    /// which is written as operator-facing prose; the string the deleted code
+    /// produced was `"pdfce-print is not linked into this build"`. That
+    /// sentence can no longer be constructed — the variant that held it does
+    /// not exist — so this test is really asserting that the type has the
+    /// shape a linked build gives it, which no amount of environment can
+    /// fake.
+    #[test]
+    fn every_call_reaches_the_engine_rather_than_refusing_unconditionally() {
+        // Enumeration either succeeds (any number of printers, INCLUDING
+        // none — an empty list is a normal machine, not a failure) or fails
+        // with the spooler's own words.
+        match list_printers() {
+            Ok(_) => {}
+            Err(Unavailable::Spooler(detail)) => {
+                assert!(
+                    !detail.is_empty(),
+                    "a spooler refusal must carry the engine's sentence, not an empty string"
+                );
+            }
+            Err(Unavailable::Device(detail)) => {
+                panic!("enumeration cannot fail for a single device: {detail}")
+            }
+        }
+
+        // The remaining three are addressed to a printer name chosen so that
+        // it cannot resolve on any machine. Each must come back with the
+        // ENGINE's refusal, which proves the call was made — a stubbed
+        // function could not produce this text.
+        const ABSENT: &str = "pdfce-ui-verify-no-such-printer";
+
+        let features = device_features(ABSENT);
+        assert!(
+            matches!(features, Err(Unavailable::Spooler(_))),
+            "a device that cannot be opened is a spooler-level refusal: {features:?}"
+        );
+
+        let planned = plan(
+            ABSENT,
+            DeviceSettings::default(),
+            &[(612.0, 792.0)],
+            &one_page_spec(),
+        );
+        assert!(
+            matches!(planned, Err(Unavailable::Device(_))),
+            "a plan against an absent device must refuse as a DEVICE failure, so the dialog \
+             says \"choose another printer\" rather than \"there are none\": {planned:?}"
+        );
+
+        // ★ Spooling is called with an EMPTY page list. That is not laziness:
+        // it is the one input for which `spool` cannot start a job whatever
+        // else is true, so a test suite may address it to a real printer name
+        // without any risk of consuming paper. The refusal still comes from
+        // the engine, because the printer name is resolved before the page
+        // count is looked at.
+        let spooled = spool(ABSENT, &[], DeviceSettings::default(), (612.0, 792.0));
+        assert!(
+            matches!(spooled, Err(Unavailable::Spooler(_))),
+            "spooling to an absent printer must refuse with the spooler's own words: {spooled:?}"
+        );
+    }
+
+    /// ★ No refusal this module produces is the string the defect produced.
+    ///
+    /// The narrowest possible statement of the regression, and the one that
+    /// would fail if somebody restored a `NotLinked`-shaped shortcut — for
+    /// instance by wrapping the four calls in a `cfg` that compiled them out
+    /// on a machine where `pdfce-print` was inconvenient.
+    #[test]
+    fn no_refusal_claims_the_engine_is_unlinked() {
+        let sentences = [
+            list_printers().err().map(|e| e.to_string()),
+            device_features("pdfce-ui-verify-no-such-printer")
+                .err()
+                .map(|e| e.to_string()),
+            plan(
+                "pdfce-ui-verify-no-such-printer",
+                DeviceSettings::default(),
+                &[(612.0, 792.0)],
+                &one_page_spec(),
+            )
+            .err()
+            .map(|e| e.to_string()),
+        ];
+        for sentence in sentences.into_iter().flatten() {
+            assert!(
+                !sentence.contains("not linked"),
+                "a refusal still claims pdfce-print is unlinked: {sentence:?}"
+            );
+        }
+    }
+
+    /// Every conversion is total and round-trips the values it carries.
+    ///
+    /// Not a change-detector: these are the functions through which an
+    /// operator's answer becomes paper, and a mapping that sent
+    /// `ShrinkOversized` where `Fit` was meant would enlarge a business card
+    /// to A4 — the exact collapse `pdfce-print` keeps two variants apart to
+    /// prevent. A wrong arm here is silent until the sheet comes out.
+    #[test]
+    fn the_conversions_map_every_variant_to_its_own() {
+        assert!(matches!(
+            to_engine_scale(ScaleMode::Fit),
+            pdfce_print::ScaleMode::Fit
+        ));
+        assert!(matches!(
+            to_engine_scale(ScaleMode::ActualSize),
+            pdfce_print::ScaleMode::ActualSize
+        ));
+        assert!(matches!(
+            to_engine_scale(ScaleMode::ShrinkOversized),
+            pdfce_print::ScaleMode::ShrinkOversized
+        ));
+        match to_engine_scale(ScaleMode::Custom(0.5)) {
+            pdfce_print::ScaleMode::Custom(factor) => assert!((factor - 0.5).abs() < f64::EPSILON),
+            other => panic!("a custom scale lost its multiplier: {other:?}"),
+        }
+
+        assert!(matches!(
+            to_engine_subset(PageSubset::Odd),
+            pdfce_print::PageSubset::Odd
+        ));
+        assert!(matches!(
+            to_engine_subset(PageSubset::Even),
+            pdfce_print::PageSubset::Even
+        ));
+        assert!(matches!(
+            to_engine_collate(Collate::Uncollated),
+            pdfce_print::Collate::Uncollated
+        ));
+        assert!(matches!(
+            to_engine_orientation(Orientation::Landscape),
+            pdfce_print::Orientation::Landscape
+        ));
+        assert!(matches!(
+            to_engine_duplex(Duplex::ShortEdge),
+            pdfce_print::Duplex::ShortEdge
+        ));
+
+        // The spec carries its operands across unchanged. `copies` and
+        // `max_dpi` are the two that a transposed field assignment would
+        // swap without the compiler noticing, since both are integers.
+        let spec = JobSpec {
+            pages: vec![3, 1, 4],
+            mode: ScaleMode::ActualSize,
+            max_dpi: 200,
+            subset: PageSubset::Even,
+            reverse: true,
+            copies: 7,
+            collate: Collate::Uncollated,
         };
-        assert_eq!(
-            plan("Any", DeviceSettings::default(), &[(612.0, 792.0)], &spec),
-            Err(Unavailable::NotLinked)
-        );
-        assert_eq!(
-            spool("Any", &[], DeviceSettings::default(), (612.0, 792.0)),
-            Err(Unavailable::NotLinked)
-        );
+        let engine = to_engine_spec(&spec);
+        assert_eq!(engine.pages, vec![3, 1, 4]);
+        assert_eq!(engine.max_dpi, 200);
+        assert_eq!(engine.copies, 7);
+        assert!(engine.reverse);
+
+        let settings = DeviceSettings {
+            orientation: Orientation::Portrait,
+            duplex: Duplex::LongEdge,
+            pick_tray_by_page_size: true,
+        };
+        let engine = to_engine_settings(settings);
+        assert!(matches!(
+            engine.orientation,
+            pdfce_print::Orientation::Portrait
+        ));
+        assert!(matches!(engine.duplex, pdfce_print::Duplex::LongEdge));
+        assert!(engine.pick_tray_by_page_size);
     }
 
     /// The clip count is over the whole job, and counts sheets not pages.

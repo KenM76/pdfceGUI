@@ -372,10 +372,26 @@ impl PrintDialog {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .open(&mut open)
             .show(ctx, |ui| {
-                if self.unavailable.is_some() {
+                if let Some(unavailable) = &self.unavailable {
                     // No printer list, no printer to choose, nothing to
-                    // preview. One sentence, and a Close button.
+                    // preview. Two sentences and a Close button: the general
+                    // one an operator acts on, then the engine's own account
+                    // of what failed, which is the half they can quote at
+                    // whoever administers the machine.
+                    //
+                    // The specific line is `.small().weak()` for the same
+                    // reason the settings window's store-location line is:
+                    // it is a fact the reader may need and is not the thing
+                    // they are being told. Making it as loud as the sentence
+                    // above would put a Win32 error code at the same weight
+                    // as "nothing has been sent".
                     ui.label(t::spooler_unavailable());
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(t::spooler_detail(&unavailable.to_string()))
+                            .small()
+                            .weak(),
+                    );
                     return;
                 }
                 if self.printers.is_empty() {

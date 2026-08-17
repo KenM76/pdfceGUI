@@ -143,6 +143,17 @@ pub mod ocr;
 /// stop describing a document that no longer exists. Its header carries the
 /// argument and the three falsifying phases.
 pub mod page_ops;
+
+/// ★ `file.print` — the dialog that told every operator this build could not
+/// print, on a machine with twelve printers, in a build that had the printing
+/// crate linked into it.
+///
+/// A new shape of the founding failure and the reason this module exists: the
+/// adapter's own unit test asserted that all four of its calls **refused**,
+/// which was correct while `pdfce-print` was unlinked and became a lock
+/// holding the defect in place the moment the manifest line landed. A green
+/// suite defended the absence of the feature. See the module header.
+pub mod print_dialog;
 pub mod qat_icons;
 pub mod read_mode;
 
@@ -359,6 +370,21 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // in the process that deleted the page is a count the code under test
         // wrote about itself.
         Box::new(page_ops::PageOpsRoundTrip),
+        // ★ Two ribbon clicks and one trace line — cheap, no capture, no
+        // canvas gesture, no keystroke — so its position is chosen for what a
+        // reader wants adjacent rather than for cost.
+        //
+        // It sits here, among the checks that drive a real document, because
+        // its precondition is one: `file.print` is gated on `doc.open`. It
+        // must NOT move up among the chrome checks, which run without a
+        // fixture.
+        //
+        // ★ It never presses the commit button, and no future edit may make it
+        // do so. That button is the one control in the application that
+        // consumes paper and cannot be undone; a harness that can start a
+        // print job will eventually start one by accident. The module header
+        // states what that costs and why the cost is worth paying.
+        Box::new(print_dialog::PrintDialogReachesTheSpooler),
         // ★ Directly after it, and for the same dependency reason it sits
         // after the markup checks: this one also begins by arming Rectangle and
         // dragging, so a run in which the four-link arm chain is broken should
