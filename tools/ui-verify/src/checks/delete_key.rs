@@ -101,6 +101,7 @@
 //! the former when it is the latter is precisely the retracted-false-defect
 //! outcome `crate::coords` documents.
 
+use crate::checks::driving::{SHELL_DIAG_ENV, click_mode_segment};
 use crate::checks::{Check, CheckContext};
 use crate::coords::CanvasMapping;
 use crate::error::Result;
@@ -201,14 +202,27 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         ctx.profile.diag_env.0.to_owned(),
         ctx.profile.diag_env.1.to_owned(),
     ));
+    // ★ The SHELL's diagnostic channel too, added 2026-08-17 with the Edit-mode
+    // step below. `egui-shell` traces ribbon and mode events under its own
+    // prefix and its own switch, separate from the application's — so a check
+    // that sets only the application's env sees no `ribbon-mode-selected` line
+    // and cannot tell "the click missed" from "the channel is off". That is
+    // exactly the ambiguity `click_mode_segment`'s failure text refuses to
+    // resolve, and it is resolved here instead, at the launch that causes it.
+    spec.env
+        .push((SHELL_DIAG_ENV.0.to_owned(), SHELL_DIAG_ENV.1.to_owned()));
     spec.allow_stale = ctx.allow_stale;
     spec.source_root = ctx.source_root.clone();
 
     let session = Session::launch(&spec, ctx.profile.trace_prefix)?;
     report.note(format!(
-        "launched {} as pid {}",
+        "launched {} as pid {} with {}={} and {}={}",
         exe.display(),
-        session.pid()
+        session.pid(),
+        ctx.profile.diag_env.0,
+        ctx.profile.diag_env.1,
+        SHELL_DIAG_ENV.0,
+        SHELL_DIAG_ENV.1
     ));
     report.artifact(session.trace_path().to_path_buf());
     // The measured window geometry, noted before anything depends on it. When
@@ -244,6 +258,66 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             reject.raw
         ));
     }
+
+    // --- step 0: PUT THE APPLICATION IN A MODE THAT CAN SELECT -------------
+    //
+    // ★ Added 2026-08-17, and its absence had turned this check into a
+    // reporter of a defect that does not exist.
+    //
+    // This check was written before Read mode existed. The shell's default
+    // mode is `read` — `mode-changed from=None to=read remembered=false` on a
+    // fresh profile — and a Read-mode canvas click is CORRECTLY refused by
+    // `app::modes::capability`, which is `DEFECTS.md` D6's fix working
+    // exactly as designed.
+    //
+    // So the check clicked page content in a mode that must not select,
+    // observed no selection, and reported *"Selection is not taking the hit
+    // test's result"* — naming the selection subsystem for a refusal the
+    // gate had made on purpose. Six doc-points spread across a dense CAD
+    // sheet all reported `hit 0 object(s)`, which is what finally gave it
+    // away: a hit test that misses everywhere is not a hit test, it is a
+    // gate.
+    //
+    // ★ Two checks in this suite were asserting OPPOSITE things about the
+    // same gesture and only one of them established the mode.
+    // `read_mode_refuses_canvas_edits` clicks the Review segment, then the
+    // Read segment, and asserts the click selects nothing. This one asserts
+    // the click selects something. Both are right; the difference is
+    // entirely the mode, and the one that did not say so was reading a
+    // property of whatever `layout.ron` happened to remember.
+    //
+    // That is the deeper finding and it generalises past this check: **a
+    // driven check that does not establish the state it needs is measuring
+    // the previous run.** The persisted-mode case is especially quiet,
+    // because `read_mode_hides_the_chrome` deliberately *ends in Read mode*
+    // (it says so — the only way out is a chord and this machine cannot
+    // inject one), so a full-suite run leaves a profile that biases the next
+    // one.
+    //
+    // Edit rather than Review: Review offers markup on content but this
+    // check is about selecting page CONTENT and deleting it, which is
+    // authoring, and `app::modes` gives content selection to Edit.
+    let driver = Driver::new(session.window());
+    // `Err` here is a SKIP, which is the right verdict: a profile that cannot
+    // say where its mode segments are leaves this check unable to establish
+    // its own precondition, and a check that cannot establish its precondition
+    // must not report on the property beyond it.
+    let ui_rect = ctx.profile.vocab.ui_rect_event.ok_or_else(|| {
+        crate::error::Error::new(format!(
+            "the `{}` profile declares no ui-rect trace event, so the application cannot \
+             state where its mode segments are and this check cannot leave Read mode — \
+             where a canvas click on content is refused by design.",
+            ctx.profile.name
+        ))
+    })?;
+    click_mode_segment(&session, &driver, ui_rect, "edit")?;
+    report.note(
+        "clicked the Edit mode segment first — the shell's default mode is Read, where a \
+         canvas click on content is refused BY DESIGN (DEFECTS.md D6). Without this step \
+         the check reports the mode gate as a selection defect, which is what it did \
+         before 2026-08-17",
+    );
+    let trace = session.trace()?;
 
     // --- the layout probe --------------------------------------------------
     //
