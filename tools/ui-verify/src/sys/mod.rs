@@ -78,6 +78,10 @@ pub mod vk {
     /// letters more than to anything else, because `pub const A..Z` would be
     /// exactly the "can press any key" the doc comment refuses.
     pub const F: u16 = 0x46;
+
+    /// `H`, for `Ctrl+H` — the read-mode toggle, and the only way back out of
+    /// read mode once the chrome it hides has taken the ribbon with it.
+    pub const H: u16 = 0x48;
     /// `2` — the digit, for the `Ctrl+2` mode chord.
     ///
     /// Present only as a **control probe**: `Ctrl+2` is bound to

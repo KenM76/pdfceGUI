@@ -214,9 +214,9 @@ feature that has quietly been made their job.
 | Thumbnail slow / ceiling | 400 ms / 2 s | `panels/pages/thumbnails.rs:202,227` | none |
 | Thumbnail quality | pinned `Normal` | `panels/pages/thumbnails.rs` | none — **deliberate**, argued in the module header; do not "fix" |
 | Overlay alphas: ghost / find hit / current hit / text selection | 150 / 40 / 96 / 40 | `canvas/overlay.rs:140,281,315,392` | none — **find highlight colours are unreachable** |
-| Redaction fill | `None` | `panels/redact.rs` | ⛔ **blocked** — see below |
-| Redaction overlay text | `None` | `panels/redact.rs` | ⛔ **blocked** — see below |
-| Redaction quadding | `Left` | `panels/redact.rs` | ⛔ **blocked**, on the row above |
+| ~~Redaction fill~~ | ~~`None`~~ | now `panels/redact/appearance.rs` | ✅ **built** — black · white · a colour · nothing |
+| ~~Redaction overlay text~~ | ~~`None`~~ | now `Appearance::overlay_text` | ✅ **built**, 64 chars, with a legibility warning |
+| ~~Redaction quadding~~ | ~~`Left`~~ | now `Appearance::quadding` | ✅ **built** — drawn only when there is a caption to justify |
 | Redaction min verifiable length | 4 | `redact/proof.rs:80` | none |
 | OCR target pixels | 8,400,000 | `ocr/mod.rs:168` | none |
 | OCR DPI ceiling / floor | 300 / 50 | `ocr/mod.rs:177,185` | none |

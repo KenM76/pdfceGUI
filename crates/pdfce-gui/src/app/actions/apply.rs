@@ -626,7 +626,11 @@ impl PdfceApp {
             // changed form and rule 4 owes the operator nothing. It is the same
             // adaptation `CommitMarkup` makes one screen up.
             // ===============================================================
-            Action::MarkRedactionsBySearch { query, pattern } => {
+            Action::MarkRedactionsBySearch {
+                query,
+                pattern,
+                appearance,
+            } => {
                 if !query.is_empty() {
                     let page = doc.view.page_index;
                     // The label distinguishes the two marking modes on the
@@ -651,10 +655,23 @@ impl PdfceApp {
                         // is a name shipped in a document they believe is
                         // redacted. The old shell made the same ruling in the
                         // same words.
+                        //  The `_styled` verbs, which arrived on 2026-08-17
+                        // (`a7210a4`) in answer to this shell's filing: before
+                        // them `author_text_matches` built its spec internally
+                        // with `fill: None`, so a fill the operator chose was
+                        // discarded on this path and honoured on the whole-page
+                        // one. A control honoured on some marks and silently
+                        // dropped on others is worse than no control, on the
+                        // one operation that cannot be undone.
                         if pattern {
-                            session.mark_redactions_by_pattern(&query, true)
+                            session.mark_redactions_by_pattern_styled(&query, true, &appearance)
                         } else {
-                            session.mark_redactions_by_search(&query, true)
+                            session.mark_redactions_by_search_styled(
+                                &query,
+                                &pdfce_core::edit::TextSearchOptions::default()
+                                    .with_case_insensitive(true),
+                                &appearance,
+                            )
                         }
                         .map(|_| Vec::new())
                     });
@@ -678,7 +695,7 @@ impl PdfceApp {
                     });
                 }
             }
-            Action::MarkPageForRedaction { page } => {
+            Action::MarkPageForRedaction { page, appearance } => {
                 // Resolved here rather than carried on the action because the
                 // rectangle is the page's, not the operator's — see the
                 // variant's docs. A page index past the end is unreachable from
@@ -687,7 +704,7 @@ impl PdfceApp {
                 if let Some(spec) = doc
                     .pages
                     .get(page)
-                    .map(crate::panels::redact::whole_page_spec)
+                    .map(|p| crate::panels::redact::whole_page_spec(p, &appearance))
                 {
                     vector_edit(doc, "redact-mark-page", page, 1, |session| {
                         session.add_redaction(page, &spec).map(|_| Vec::new())

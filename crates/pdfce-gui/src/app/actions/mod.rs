@@ -1188,6 +1188,17 @@ pub enum Action {
         /// that builds it, while that one is a positional argument at a call
         /// site where a transposition would write a file.
         pattern: bool,
+        /// How the marks this creates will look once applied.
+        ///
+        /// ★ Carried on the action, not read at apply time, and it is the same
+        /// rule the pen follows for markup: the operator's choice is the one
+        /// they had **when they pressed the control**. Reading it in the
+        /// dispatcher would let a frame in which they also changed the fill
+        /// swatch author marks they did not choose — and on this verb the
+        /// difference is not cosmetic, because the appearance is baked into
+        /// each `/Redact` annotation at creation and there is no verb that
+        /// modifies one afterwards.
+        appearance: pdfce_core::annot_author::RedactAppearance,
     },
     /// **Mark the whole of one page for redaction.**
     ///
@@ -1203,6 +1214,9 @@ pub enum Action {
     MarkPageForRedaction {
         /// The 0-based page to cover.
         page: usize,
+        /// How the mark will look once applied. See
+        /// [`Self::MarkRedactionsBySearch`]'s field of the same name.
+        appearance: pdfce_core::annot_author::RedactAppearance,
     },
     /// **Take one redaction mark off.**
     ///

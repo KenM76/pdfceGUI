@@ -484,10 +484,50 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     report.note(format!(
         "the pixels where `{TAB}` was changed by {delta} ({before_fill:?} → {after_fill:?})"
     ));
-    report.note(
-        "the check ends in read mode: the only way out is Ctrl+H, and this machine cannot \
-         inject keystrokes — see this check's header",
-    );
+    // ★ PHASE D — come back out, added 2026-08-17.
+    //
+    // This check used to end in read mode and say so, on the grounds that
+    // `Ctrl+H` was the only exit and "this machine cannot inject keystrokes".
+    // **That was wrong for the whole life of the project.** Chords failed
+    // because `sys::win32::key_stroke_with` posted the modifier and the key in
+    // the same instant, giving the application no frame in which the modifier
+    // was held and the key was not — so `Ctrl+H` arrived as a bare `h`. Three
+    // 12 ms pauses fixed it, and `find_opens_and_finds` passes for the first
+    // time.
+    //
+    // Driving the return buys two things:
+    //
+    // 1. **Coverage.** The header said the return was covered "as a state
+    //    machine, and by nothing at all as a frame". It is now a frame.
+    // 2. **It stops this check poisoning what runs after it.** Leaving the
+    //    application in read mode is the persisted-state hazard that made
+    //    `delete_key` report the mode gate as a selection defect this morning;
+    //    this check was also seen failing in-suite and passing alone, which is
+    //    that signature exactly.
+    //
+    // Soft: if the chord does not land the check still PASSES on everything
+    // asserted above. The exit is hygiene, not the property under test, and
+    // downgrading a real result because the tidy-up failed would be the
+    // harness reporting its own housekeeping as a defect in the program.
+    driver.press_chord(&[crate::sys::vk::CONTROL], crate::sys::vk::H)?;
+    session.settle(12);
+    if session
+        .trace()?
+        .events(READ_MODE_EVENT)
+        .any(|l| l.get("on") == Some("false"))
+    {
+        report.note(
+            "Ctrl+H brought the chrome back, so the return trip is driven rather than \
+             covered by unit test alone — and this check no longer leaves the application \
+             in read mode for whatever runs next",
+        );
+    } else {
+        report.note(
+            "Ctrl+H produced no `read-mode on=false` line, so the check ends in read mode. \
+             Not a failure of anything asserted above — the exit is hygiene. If this \
+             persists, the chord gap in `sys::win32::key_stroke_with` has regressed",
+        );
+    }
 
     Ok(None)
 }

@@ -113,6 +113,12 @@
 //! `canvas::mapping` is the screen-to-page conversion — plus the five pieces of
 //! tool substrate in item 2.
 
+/// The operator's choice of fill colour and overlay caption — one choice for
+/// the panel, applied to every mark it authors. Split out because it carries
+/// its own reasoning about an engine default that changed meaning underneath
+/// this shell.
+pub mod appearance;
+
 use pdfce_core::object::ObjId;
 
 use crate::app::actions::Action;
@@ -169,6 +175,15 @@ const APPLY_COMMAND: &str = "edit.redact_apply"; // ui-text-exempt: a command id
 /// whatever it happens to hit.
 #[derive(Default)]
 pub struct RedactUi {
+    /// How a redaction authored from this panel will look once applied.
+    ///
+    /// Panel state rather than document state, exactly like
+    /// `canvas::markup::Pen`: it describes what the operator is about to
+    /// author, is read at the moment a mark is created, and is never consulted
+    /// afterwards. The marks themselves live in the document as `/Redact`
+    /// annotations and carry their own appearance from the moment they are
+    /// made.
+    pub(super) appearance: appearance::Appearance,
     /// What the operator has typed into the search field.
     pub(super) query: String,
     /// Whether the search field is read as a pattern rather than as literal
@@ -249,6 +264,14 @@ fn marking_controls(
     // is gated on `doc.pages`, so a document with none cannot normally get
     // here — and the guard is applied anyway, because a saved dock layout can
     // put this panel on screen with anything open.
+    // ★ Read ONCE, here, and used by both marking controls below.
+    //
+    // The appearance is carried on the action rather than read in the
+    // dispatcher, for the reason the action's own field documents: the
+    // operator's choice is the one they had when they pressed the control.
+    // Cloned because both controls need it and the panel keeps editing it.
+    let chosen = state.redact_mut().appearance.to_core();
+
     let whole = ui
         .add_enabled(page_count > 0, egui::Button::new(t::mark_whole_page()))
         .on_hover_text(t::mark_whole_page_tooltip());
@@ -256,10 +279,28 @@ fn marking_controls(
     if whole.clicked() {
         actions.push(Action::MarkPageForRedaction {
             page: doc.view.page_index,
+            appearance: chosen.clone(),
         });
     }
 
     ui.add_space(6.0);
+
+    // ---- how it will look ------------------------------------------------
+    //
+    // ★ BELOW the two marking controls, deliberately, and this is the same
+    // layout rule the panel's header already argues for the apply control:
+    // *state, then action, then detail.* An operator opens this panel to mark
+    // something; the appearance is a refinement they reach for second, and
+    // putting it first would push Find & mark down the pane behind a swatch,
+    // a text field and two notes.
+    //
+    // It is a collapsing group for the same reason: the default — a plain
+    // black box — is what almost every redaction wants, so the controls that
+    // change it should not cost vertical space until somebody asks. This
+    // panel has already shipped its primary verb off the bottom of its own
+    // pane once (`HANDOFF.md` §2 defect 11) and everything added below the
+    // fold is measured against that.
+    appearance::show(ui, state);
 
     // ---- find and mark --------------------------------------------------
     let redact_ui = state.redact_mut();
@@ -280,7 +321,11 @@ fn marking_controls(
             .on_hover_text(t::search_button_tooltip(!query.is_empty()));
         crate::diag::ui_rect(REGION_SEARCH, search.rect);
         if search.clicked() {
-            actions.push(Action::MarkRedactionsBySearch { query, pattern });
+            actions.push(Action::MarkRedactionsBySearch {
+                query,
+                pattern,
+                appearance: chosen,
+            });
         }
     });
 
@@ -407,54 +452,70 @@ fn mark_rows(
 /// apart: *"strip metadata, scripts and hidden content. Distinct from
 /// redaction."*
 ///
-/// # ★ The three `None`s are BLOCKED, not merely unbuilt — checked 2026-08-17
+/// # ★ The three `None`s were BLOCKED, and are now UNBLOCKED — 2026-08-17
 ///
-/// This comment used to say they were neutral *"because this build has no
-/// surface to choose them from"*, which invited the obvious next session to
-/// build the surface. It was checked against the engine and the surface is the
-/// wrong thing to build. Both blockers are filed
-/// (`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\`) and both are silent
-/// failures on the one operation pdfce cannot undo:
+/// This comment has been rewritten twice in one day and both versions are
+/// worth their space, because the sequence is the lesson.
 ///
-/// | field | verdict |
+/// It first said the three values were neutral *"because this build has no
+/// surface to choose them from"* — which invited the next session to build the
+/// surface. Checking the engine said the surface was the wrong thing to build:
+///
+/// | field | the blockage |
 /// |---|---|
-/// | `fill` | ⛔ **honoured here and unreachable from the other marking path.** `/IC` is written (`annot_author.rs:942`), read at apply (`annot_fill`, `redact.rs:1373`) and painted (`build_overlay`, `redact.rs:1026`) — but `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`, so every mark made by *Find and mark* ignores it. A swatch would be honoured on whole-page marks and silently dropped on searched ones |
-/// | `overlay_text` | ⛔ **written into the file and never read.** `gather_page` (`redact.rs:1259`) does not look at `/OverlayText`, `build_overlay` draws filled boxes only, and the annotation carrying the string is deleted at `redact.rs:1167`. An operator would type *REDACTED*, apply, and get plain black boxes with nothing said |
-/// | `quadding` | ⛔ **a consequence of the row above**, and more tightly than it looks: `/Q` is only written *at all* inside `build_redact_mark`'s `if let Some(text)` branch, so with no overlay text the value is discarded at the point of authoring. A justification control for text that is never drawn would be a control governing a control governing nothing |
+/// | `fill` | honoured here and **unreachable from the other marking path** — `EditSession::author_text_matches` hard-coded `fill: None`, so a swatch would work on whole-page marks and be silently dropped on searched ones |
+/// | `overlay_text` | **written into the file and never read.** An operator would type *REDACTED*, apply, and get plain black boxes with nothing said |
+/// | `quadding` | a consequence of the row above — `/Q` is written only inside the `if let Some(text)` branch |
 ///
-/// # ★ The overlay-text row's sharper form: the missing DISCLOSURE
+/// Both were filed rather than worked around. Both came back **fixed the same
+/// day** — `a7210a4` added `RedactAppearance` and the two `_styled` verbs,
+/// `a705d14` implemented the whole Table 192 overlay ladder — and both replies
+/// end *"build the control"*. [`appearance`] is that control.
 ///
-/// Found by a concurrent session the same afternoon and worth having at the
-/// call site. `pdfce`'s `ARCHITECTURE.md` describes the burn-in deferral as
-/// *"disclosed at mark time"* — and **nothing in `pdfce-core` discloses it at
-/// mark time or at any other time.** `add_redaction` takes the text without
-/// comment, and `RedactionReport` has no note for it.
+/// **The generalisation survives the unblocking and is why this stays:** an
+/// engine field that exists, is documented, and is *written into the PDF* is
+/// not evidence that anything **reads** it. Two of these three reached the file
+/// the whole time. The only check that separates *supported* from *accepted and
+/// discarded* is following the value to its consumer — `HANDOFF.md` §10's
+/// *"registration is not implementation"*, one layer down.
 ///
-/// So the disclosure exists in their **documents** and not in their **API**,
-/// which means a shell reading only the API cannot know to say anything. That
-/// is a worse gap than the missing paint: the operator's words are cosmetic,
-/// but their belief that a reader will see them is not, and a redaction
-/// feature's whole value is that the operator's belief about it is accurate.
+/// A second finding came from a concurrent session and is sharper than mine
+/// was: `pdfce`'s `ARCHITECTURE.md` described the burn-in deferral as
+/// *"disclosed at mark time"* while **nothing in the API disclosed it at all**.
+/// The engine's reply put the rule better than either of us: *"Rustdoc is not a
+/// disclosure surface. Treat a doc-comment 'follow-up' as a claim about our
+/// backlog, never as evidence the operator will be told."*
 ///
-/// The generalisation is the useful part and it is not about redaction: **an
-/// engine field that exists, is documented and is written is not evidence that
-/// anything reads it.** Two of these three are written into the PDF today. The
-/// only check that distinguishes "supported" from "accepted and discarded" is
-/// following the value to the code that consumes it — which is what
-/// `HANDOFF.md` §10's *"registration is not implementation"* says about
-/// commands, one layer down.
+/// # ★★ And `fill: None` CHANGED MEANING, which is the dangerous half
 ///
-/// Inventing a default overlay caption would also put words on the operator's
-/// page that they did not write, which was the original reason and still
-/// stands independently.
+/// Under the old engine `None` meant a black box. Under `a705d14` it means
+/// **transparent**, per Table 192 — the old behaviour was wrong against the
+/// standard. So a shell that kept passing `None` would remove the content and
+/// draw **nothing over it**: not a security failure, but an operator seeing no
+/// evidence that anything happened, on the operation they cannot undo.
+///
+/// [`appearance::Appearance::default`] therefore passes an **explicit**
+/// `Color::Gray(0.0)`, and its own test asserts that against the engine's type
+/// rather than against the shell's enum.
+///
+/// Inventing a default overlay caption would still put words on the operator's
+/// page that they did not write, which was the original reason for
+/// `overlay_text: None` and stands unchanged — the field is empty until they
+/// type in it.
+///
 #[must_use]
-pub fn whole_page_spec(page: &pdfce_core::page_tree::Page) -> pdfce_core::annot_author::RedactSpec {
-    pdfce_core::annot_author::RedactSpec {
-        quads: vec![pdfce_core::annot_author::Quad::from_rect(page.crop_box)],
-        fill: None,
-        overlay_text: None,
-        quadding: pdfce_core::vartext::Quadding::Left,
-    }
+pub fn whole_page_spec(
+    page: &pdfce_core::page_tree::Page,
+    appearance: &pdfce_core::annot_author::RedactAppearance,
+) -> pdfce_core::annot_author::RedactSpec {
+    // `to_spec` rather than a struct literal, because it is the engine's own
+    // one place for joining an appearance to a geometry — its docs say why:
+    // *"a caller that acquires geometry some new way cannot accidentally
+    // reintroduce a hard-coded appearance."* That is precisely the defect this
+    // function used to have.
+    appearance.to_spec(vec![pdfce_core::annot_author::Quad::from_rect(
+        page.crop_box,
+    )])
 }
 
 /// The ids of marks currently in `session`, for a caller that needs to know
@@ -487,7 +548,7 @@ mod tests {
     fn a_whole_page_mark_covers_the_displayed_page() {
         let doc = open_fixture(FOUR_PAGES);
         let page = &doc.pages[0];
-        let spec = whole_page_spec(page);
+        let spec = whole_page_spec(page, &appearance::Appearance::default().to_core());
         assert_eq!(spec.quads.len(), 1, "one region, not one per corner");
         let quad = &spec.quads[0];
         assert!(
@@ -500,8 +561,19 @@ mod tests {
         );
         assert!(
             spec.overlay_text.is_none(),
-            "no surface chooses overlay text, and inventing one would put words \
+            "the shipped appearance writes no caption — inventing one would put words \
              on the operator's page that they did not write"
+        );
+        // ★ EXPLICIT black, not `None`. `a705d14` changed `None` from "black
+        // box" to "transparent" per Table 192, so a whole-page mark that
+        // passed `None` would remove the page's content and draw nothing over
+        // it. Asserted here as well as in `appearance` because this is the
+        // path an operator reaches with one click and no configuration.
+        assert_eq!(
+            spec.fill,
+            Some(pdfce_core::annot_author::Color::Gray(0.0)),
+            "a default whole-page mark must apply as a BLACK box; `None` is now \
+             transparent and would remove the content leaving no sign of it"
         );
     }
 
@@ -516,7 +588,7 @@ mod tests {
     fn a_mark_authored_into_the_session_is_visible_to_the_census() {
         let mut doc = open_fixture(FOUR_PAGES);
         assert!(mark_ids(&doc.session).is_empty());
-        let spec = whole_page_spec(&doc.pages[0]);
+        let spec = whole_page_spec(&doc.pages[0], &appearance::Appearance::default().to_core());
         let session = std::sync::Arc::get_mut(&mut doc.session)
             .expect("nothing else holds the session in a test");
         session

@@ -635,6 +635,125 @@ pub fn save_kept_pending_marks(count: usize) -> String {
     )
 }
 
+// ===========================================================================
+// Appearance — what an applied redaction LOOKS like
+// ===========================================================================
+//
+// ★ Unblocked 2026-08-17. These three values shipped as hard-coded `None`s
+// for the life of the project, and the reason was not neglect: `fill` could
+// not reach marks made by Find & mark, and `overlay_text` was written into
+// the PDF and never drawn. Both were filed and both came back fixed the same
+// day. See `panels::redact::appearance` for the sequence and for the one
+// finding that outlives it.
+
+/// The appearance group's heading.
+#[must_use]
+pub const fn appearance_heading() -> &'static str {
+    "How a redaction will look"
+}
+
+/// What the heading means, said once so no control below has to repeat it.
+///
+/// ★ It says **applied**, twice over, because that is the distinction the
+/// whole panel turns on. Nothing chosen here changes anything until the
+/// operator applies — a mark is a red outline whatever fill is set — and an
+/// operator who expected the swatch to recolour their marks would otherwise
+/// conclude the control does nothing.
+#[must_use]
+pub const fn appearance_intro() -> &'static str {
+    "Marks are outlined in red while you review them. These settings are what \
+     replaces the content when you apply, and they are recorded on each mark \
+     as you make it — so changing them affects the next mark, not the ones \
+     already in the list."
+}
+
+/// The fill control's label.
+#[must_use]
+pub const fn fill_label() -> &'static str {
+    "Cover with"
+}
+
+/// One fill's name.
+#[must_use]
+pub const fn fill_option_label(fill: crate::panels::redact::appearance::Fill) -> &'static str {
+    use crate::panels::redact::appearance::Fill as F;
+    match fill {
+        F::Black => "Black",
+        F::White => "White",
+        F::Custom(..) => "Colour…",
+        F::Transparent => "Nothing",
+    }
+}
+
+/// ★ What "Nothing" actually does, which is not what it sounds like.
+///
+/// The one fill an operator can misread as "do not redact". It removes the
+/// content exactly as the others do; what it omits is the box that says so.
+/// Said at the control rather than in a tooltip, because a tooltip is not
+/// read before a choice is made and this is the choice with a surprise in it.
+#[must_use]
+pub const fn fill_transparent_note() -> &'static str {
+    "The content is still removed. Nothing is drawn over the gap, so the page \
+     will not show where it was."
+}
+
+/// The caption field's label.
+#[must_use]
+pub const fn overlay_label() -> &'static str {
+    "Write on it"
+}
+
+/// The caption field's placeholder-ish hint.
+#[must_use]
+pub const fn overlay_hint() -> &'static str {
+    "Optional. Left empty, the box is plain."
+}
+
+/// ★ The warning shown when a caption would be drawn in black on a dark fill.
+///
+/// The engine hard-codes black text in the `/DA` it authors and said so when
+/// it shipped the burn-in: *"Wire a fill-colour picker, let someone choose a
+/// dark red, and the caption will be black on dark red — we saw it in our own
+/// verification render."* There is no overlay-text colour on the API yet.
+///
+/// So this is a **disclosure of a known engine limit**, not a style opinion,
+/// and it names the two ways out rather than only the problem.
+#[must_use]
+pub const fn overlay_illegible_warning() -> &'static str {
+    "pdfce draws this caption in black, and it will be hard to read on a dark \
+     cover. Choose a lighter cover, or leave the caption off."
+}
+
+/// The justification control's label.
+#[must_use]
+pub const fn quadding_label() -> &'static str {
+    "Line it up"
+}
+
+/// One justification's name.
+#[must_use]
+pub const fn quadding_option_label(q: pdfce_core::vartext::Quadding) -> &'static str {
+    use pdfce_core::vartext::Quadding as Q;
+    match q {
+        Q::Left => "Left",
+        Q::Center => "Centre",
+        Q::Right => "Right",
+    }
+}
+
+/// What the operator should know about the caption before they rely on it.
+///
+/// Two engine limits in one sentence, both stated when the burn-in shipped:
+/// the face is Base-14 Latin, so anything outside it becomes `?`; and the
+/// size is auto-chosen within a clamp, so a long caption on a small mark is
+/// not going to be readable however it is justified.
+#[must_use]
+pub const fn overlay_bound() -> &'static str {
+    "Captions use a standard Latin font — other alphabets come out as question \
+     marks — and pdfce picks the size to fit the box, so a long caption on a \
+     small mark ends up tiny."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
