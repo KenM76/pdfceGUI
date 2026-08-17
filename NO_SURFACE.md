@@ -57,7 +57,7 @@ Colour and width are live as of `4035b64`. The rows below are what is left.
 |---|---|---|---|---|
 | ~~Pen colour, geometric kinds~~ | `(0.85, 0.16, 0.16)` red | now `canvas/markup/pen.rs` | ✅ **Markup ▸ Style** | — |
 | ~~Highlight colour~~ | `(1.0, 1.0, 0.0)` | now `canvas/markup/pen.rs` | ✅ **Markup ▸ Style**, a second swatch | — |
-| Underline / StrikeOut / Squiggly colour | `(0.85, 0.16, 0.16)` | `canvas/markup/text.rs:353` | **none** | same |
+| ~~Underline / StrikeOut / Squiggly colour~~ | ~~`(0.85, 0.16, 0.16)`~~ | now `pen.ink` | ✅ **Markup ▸ Style** — see below | — |
 | ~~Stroke width~~ | `2.0` pt | now `Pen::width_pts`, range 0.25–12 | ✅ **Markup ▸ Style** | — |
 | Fill | never authored — `border` only | `canvas/markup.rs` | ⛔ **design decision** — a filled comment hides the drawing it comments on | operator call |
 | Opacity | never authored at all | — | ⛔ **blocked on the engine** — `/CA` is not written | Markup ▸ Style, when it lands |
@@ -75,6 +75,38 @@ prediction was exactly right — `spec` and `action` gained a `Pen` parameter an
 nothing else in the module moved. **A doc comment that names its own seam is the
 cheapest refactoring aid this project has**, and it is worth writing one when a
 constant is left in place of a control.
+
+> ### ★★ And then the same habit failed, in the file directly below that row
+>
+> **Corrected 2026-08-17 in `09ca9a8`.** The row above this note used to read
+> *"Underline / StrikeOut / Squiggly colour — `(0.85, 0.16, 0.16)` —
+> `canvas/markup/text.rs:353` — surface: **none**"*, filed alongside the others
+> as a control nobody had built yet. **It was not that.** It was a *stale
+> duplicate of a control that already existed*, and the difference is the whole
+> finding: the operator could set the pen to blue, draw a rectangle and get
+> blue, then underline a word and get red — in the build shipped by the commit
+> that answered *"I can't change a markup's colour"*.
+>
+> `text.rs` had named its seam too, in the same style and just as clearly:
+> *"there is no pen control in this shell yet … a real pen replaces exactly
+> this function."* The real pen arrived in `4035b64` and **did not replace
+> it**, because the person filling the seam was working in a different file and
+> nothing pointed from one to the other.
+>
+> So the praise above needs its other half, and this is it: **a doc comment
+> naming its own seam is an asset only if something checks the seam when it is
+> filled.** Prose is a note to a human, and the human who fills a seam is
+> usually not the one who named it. What closes the gap is a *test that asserts
+> the two paths agree* — and the test that was there could not, because
+> `the_pen_is_the_visible_one` asserted the literal triple against a function
+> returning the literal triple. Two copies of one constant cannot disagree.
+>
+> The replacement, `the_ink_reaches_every_text_kind`, asserts a **relation and
+> not a magnitude** — whatever the pen holds is what is authored — and was
+> proved by planting the old constant and watching it fail. The rule worth
+> carrying out of this file: **when you leave a constant in place of a control,
+> write the test that will fail when the control arrives, not the comment that
+> asks someone to notice.**
 
 ---
 
