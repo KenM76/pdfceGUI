@@ -33,7 +33,10 @@ the useful bit:
 | Arrowheads, ink tolerance, note text | ⬜ still open — the rows below stand |
 
 Everything in sections 2 to 5 was verified after those commits and stands as
-written.
+written — **except one sentence in §4's widget census, which did not survive
+its own re-read** and is struck through and explained there rather than
+deleted. The correction is more useful than the row was: it says what a
+*measurement* in a document owes the reader that a *finding* does not.
 
 ---
 
@@ -161,11 +164,61 @@ constant is left in place of a control.
 Panels surface almost nothing: only the Pages panel's **previews** checkbox
 (`panels/pages/mod.rs:238`) and the Forms rows' field editors.
 
-**★ Crate-wide widget census.** The only value-editing widgets that exist
-anywhere are in the print dialog, the redact dialog, the find bar, the forms
-rows, the Pages previews checkbox, and (as of 2026-08-17) the settings window.
-**`color_edit_button` has zero hits in the entire crate.** There is no colour
-picker in pdfce at all.
+**★ Crate-wide widget census, re-run 2026-08-17 at `2275ee0`.** Every file in
+`crates/pdfce-gui/src/` containing a value-editing widget, by count of
+occurrences:
+
+| file | what it edits |
+|---|---|
+| `panels/forms/rows.rs` (7) | form field values, in the panel |
+| `dialogs/print/tabs.rs` (6) · `dialogs/print/mod.rs` (1) | the print job |
+| `text/redact.rs` (4) | the redact panel's search field and its two confirm checkboxes |
+| `find/bar.rs` (4) | the find query and its match options |
+| `dialogs/scale.rs` (4) | the measure scale |
+| `canvas/forms.rs` (4) · `canvas/tool.rs` (2) · `canvas/keys.rs` (2) · `canvas/textsel/clipboard.rs` (2) | form fields and text **on the canvas** |
+| `dialogs/redact.rs` (3) | the two apply-gate checkboxes |
+| `dialogs/settings/{text,measuring,display}.rs` (1 each) | the settings window |
+| `panels/pages/mod.rs` (1) | the previews checkbox |
+| `canvas/markup/swatch.rs` (1) | **the pen width** — the two colour swatches beside it are `color_edit_button_srgba` and are not counted by the pattern above |
+| `app/status/page_box.rs` (1) | the page-number box in the status bar |
+
+> **★ Corrected 2026-08-17, after this file was committed.** The sentence that
+> stood here — *"`color_edit_button` has zero hits in the entire crate. There
+> is no colour picker in pdfce at all"* — was **true when the sweep began at
+> `f794e27` and false by the time the sweep was filed.** `4035b64` landed two
+> `Ui::color_edit_button_srgba` calls in `canvas/markup/swatch.rs:96,106`, and
+> this file's own *Status* section above says that commit was accounted for.
+> It was accounted for in §1, where the finding was; it was not carried into
+> the §4 census, which is a different claim about the same commit.
+>
+> **This is the fifth time in this project a number in prose has drifted from
+> the code it describes**, and it is the shape `HANDOFF.md` §1 already warns
+> about in its own superseded table. The generalisable part is narrow and
+> worth stating: **a census is a measurement with a timestamp, and a
+> measurement taken across a moving tree must be re-run at filing time, not
+> reconciled section by section.** Reconciling §1 and forgetting §4 is not
+> carelessness — it is what happens when a correction is applied where the
+> *finding* was rather than everywhere the *measurement* was used.
+>
+> The census is now a one-line command, so the next reader re-runs it rather
+> than trusting this paragraph:
+>
+> ```bash
+> grep -rn "color_edit_button\|DragValue\|Slider\|TextEdit\|checkbox\|ComboBox" \
+>   crates/pdfce-gui/src/ --include=*.rs | grep -v "mod tests"
+> ```
+
+So pdfce **does** have a colour picker, in exactly one place: the two markup
+swatches. It has no colour picker for redaction fill (§3), for text-markup
+colour (§1), or for anything in the settings window. The idiom for the next one
+is set — `color_edit_button_srgba` against an `egui::Color32`, converted at the
+seam — and `tools/ui-verify/src/checks/markup_style.rs`'s header records the
+one thing that idiom costs a harness: **the picker's popup publishes no
+regions, so a check can assert the swatch was drawn and driven but cannot aim
+at a hue inside it.** Any new colour control inherits that limit, and should be
+paired with a driveable non-popup control (as the Style group pairs its
+swatches with a width) so the group's check has something it can actually
+move.
 
 ---
 
