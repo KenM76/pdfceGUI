@@ -170,9 +170,9 @@ feature that has quietly been made their job.
 | Thumbnail slow / ceiling | 400 ms / 2 s | `panels/pages/thumbnails.rs:202,227` | none |
 | Thumbnail quality | pinned `Normal` | `panels/pages/thumbnails.rs` | none — **deliberate**, argued in the module header; do not "fix" |
 | Overlay alphas: ghost / find hit / current hit / text selection | 150 / 40 / 96 / 40 | `canvas/overlay.rs:140,281,315,392` | none — **find highlight colours are unreachable** |
-| Redaction fill | `None` | `panels/redact.rs:418` | none |
-| Redaction overlay text | `None` | `panels/redact.rs:419` | none |
-| Redaction quadding | `Left` | `panels/redact.rs:420` | none |
+| Redaction fill | `None` | `panels/redact.rs` | ⛔ **blocked** — see below |
+| Redaction overlay text | `None` | `panels/redact.rs` | ⛔ **blocked** — see below |
+| Redaction quadding | `Left` | `panels/redact.rs` | ⛔ **blocked**, on the row above |
 | Redaction min verifiable length | 4 | `redact/proof.rs:80` | none |
 | OCR target pixels | 8,400,000 | `ocr/mod.rs:168` | none |
 | OCR DPI ceiling / floor | 300 / 50 | `ocr/mod.rs:177,185` | none |
@@ -181,6 +181,36 @@ feature that has quietly been made their job.
 | Print preview DPI / max side | 150 / 2200 px | `dialogs/print/preview.rs:133,151` | none |
 | Default paper | US Letter portrait 612×792 | `dialogs/print/mod.rs:794` | none |
 | **New blank page size** | A4, 595.276 × 841.89, baked-in template | `app/blank.rs:172-175` (`TEMPLATE` is `include_bytes!`) | **none** — `file.new_from_template` PLANNED at `manifest/mod.rs:468` |
+
+### ★ The three redaction rows, resolved 2026-08-18 — and the answer was *do not build it*
+
+The sweep listed them as ordinary gaps: three `None`s against an engine whose
+`RedactSpec` has all three fields, documents all three, and **writes two of
+them into the PDF**. Following each value to the code that consumes it gave a
+different answer.
+
+| field | what actually happens |
+|---|---|
+| `fill` | Honoured — `/IC` is written (`annot_author.rs:942`), read (`annot_fill`, `redact.rs:1373`) and painted (`build_overlay`, `redact.rs:1026`). **But `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`**, so no caller can set it on a mark made by *Find and mark*. A swatch would work on whole-page marks and be silently dropped on searched ones |
+| `overlay_text` | **Written and never read.** `gather_page` (`redact.rs:1259`) does not look at `/OverlayText`, `build_overlay` draws filled boxes only, and the annotation carrying the string is **deleted** at `redact.rs:1167`. Type *REDACTED*, apply, get plain black boxes, no report row |
+| `quadding` | `/Q` justifies the overlay text. Nothing to justify until it burns in |
+
+Both are filed as separate requests (`request_redaction_fill_is_unreachable_from_the_search_path.md`,
+`request_overlay_text_is_recorded_and_then_dropped.md`) and the reasoning is
+duplicated into `panels/redact.rs`'s `whole_page_spec`, because the request
+folder is explicitly **not** a durable record.
+
+**The lesson generalises past redaction and is the one to carry:** an engine
+field that exists, is documented, and is *written into the file* is not
+evidence that anything **reads** it. Two of these three reach the PDF today.
+Distinguishing *supported* from *accepted and discarded* takes following the
+value to its consumer — the same shape as `HANDOFF.md` §10's *"registration is
+not implementation"*, one layer down, and it is why a "no surface" row is not
+automatically a "build the surface" task.
+
+**A surface on an irreversible operation raises the bar further.** A partly
+honoured setting is normally a papercut; on redaction it is an operator
+believing the wrong thing about content that no longer exists.
 
 ---
 

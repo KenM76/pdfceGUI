@@ -407,10 +407,32 @@ fn mark_rows(
 /// apart: *"strip metadata, scripts and hidden content. Distinct from
 /// redaction."*
 ///
-/// `fill`, `overlay_text` and `quadding` are left at their neutral values
-/// because this build has no surface to choose them from, and inventing a
-/// default overlay caption would put words on the operator's page that they did
-/// not write.
+/// # ★ The three `None`s are BLOCKED, not merely unbuilt — checked 2026-08-18
+///
+/// This comment used to say they were neutral *"because this build has no
+/// surface to choose them from"*, which invited the obvious next session to
+/// build the surface. It was checked against the engine and the surface is the
+/// wrong thing to build. Both blockers are filed
+/// (`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\`) and both are silent
+/// failures on the one operation pdfce cannot undo:
+///
+/// | field | verdict |
+/// |---|---|
+/// | `fill` | ⛔ **honoured here and unreachable from the other marking path.** `/IC` is written (`annot_author.rs:942`), read at apply (`annot_fill`, `redact.rs:1373`) and painted (`build_overlay`, `redact.rs:1026`) — but `EditSession::author_text_matches` hard-codes `fill: None` at `edit.rs:11719`, so every mark made by *Find and mark* ignores it. A swatch would be honoured on whole-page marks and silently dropped on searched ones |
+/// | `overlay_text` | ⛔ **written into the file and never read.** `gather_page` (`redact.rs:1259`) does not look at `/OverlayText`, `build_overlay` draws filled boxes only, and the annotation carrying the string is deleted at `redact.rs:1167`. An operator would type *REDACTED*, apply, and get plain black boxes with nothing said |
+/// | `quadding` | ⛔ **a consequence of the row above.** `/Q` justifies the overlay text; it has nothing to justify until the text burns in |
+///
+/// The generalisation is the useful part and it is not about redaction: **an
+/// engine field that exists, is documented and is written is not evidence that
+/// anything reads it.** Two of these three are written into the PDF today. The
+/// only check that distinguishes "supported" from "accepted and discarded" is
+/// following the value to the code that consumes it — which is what
+/// `HANDOFF.md` §10's *"registration is not implementation"* says about
+/// commands, one layer down.
+///
+/// Inventing a default overlay caption would also put words on the operator's
+/// page that they did not write, which was the original reason and still
+/// stands independently.
 #[must_use]
 pub fn whole_page_spec(page: &pdfce_core::page_tree::Page) -> pdfce_core::annot_author::RedactSpec {
     pdfce_core::annot_author::RedactSpec {
