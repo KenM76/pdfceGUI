@@ -35,6 +35,44 @@
 //! alignment — is therefore **N**, and under P3 absent. Twenty-four
 //! entries in [`super::PLANNED`] come from this one section.
 //!
+//! # ★ MEASURED 2026-08-17: they are not *unbuilt*, they are *unbuildable*
+//!
+//! This header used to say the property editors were not built yet, which
+//! reads as a scheduling fact. It is not one. The tab was taken up as work
+//! and stopped against **two independent blockers**, neither of which is in
+//! this file:
+//!
+//! **1. `EditSession` has no verb that modifies an annotation.** Grepping
+//! every public `pub fn` for annotation work returns `add_markup`,
+//! `add_text_annotation`, `delete_annotation`, `delete_redaction_mark` and
+//! two deletion predicates. **Add and delete, nothing between them.** So a
+//! markup's colour, width, fill, opacity, arrowheads and note text cannot be
+//! changed after it is placed — which is §5.8's entire markup row.
+//!
+//! Delete-and-re-add is not a workaround for this and is deliberately not
+//! built. Re-adding loses the annotation's object identity, and with it its
+//! `/NM`, its place in the page's `/Annots` order (so its z-order), and any
+//! reply thread hung off it as an `/IRT` target. A "change the colour" button
+//! that silently detaches a reviewer's replies is worse than no button.
+//!
+//! The **one** exception is the ce dimension row: `set_group_style`,
+//! `set_dimension_style`, `set_group_scale` and `set_group_standard` all
+//! exist. Dimensions have a style model and nothing else does.
+//!
+//! **2. The canvas selection cannot address an annotation.**
+//! `canvas::selection::identity::Selection` is `page + object + subpath +
+//! node` — four integers naming a **paint-order index into page content**.
+//! That shape is what makes a selection immune to zoom and is not lightly
+//! changed; it also means a markup or a dimension is not selectable at all,
+//! so even a perfect `set_markup_style` would have nothing to name.
+//!
+//! The second is ours and the first is filed as
+//! `request_no_verb_modifies_an_existing_annotation.md`. Until both land, the
+//! honest content of this tab is exactly what is below — and the argument for
+//! shipping it with one command rather than deferring the tab is unchanged and
+//! is now *stronger*, because the appear-on-selection behaviour is the only
+//! part of §5.8 that can be exercised at all.
+//!
 //! What is left is the row that appears in *every* selection type's list
 //! in §5.8's table, and that works today: **Delete**. An unarmed canvas
 //! already does modeless select-and-delete — that is what the removal of
