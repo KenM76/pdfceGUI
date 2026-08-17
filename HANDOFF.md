@@ -111,6 +111,19 @@ one operator question about print:
 | `no_paper_size_selection_in_the_print_path` | no paper list, no way to request one, no route to the driver's properties dialog. The dialog now **discloses** which paper the job is planned against and that pdfce cannot change it |
 | `no_verb_modifies_an_existing_annotation` | the Format-tab blocker above |
 
+### `NO_SURFACE.md` — the inventory, kept
+
+Everything below is condensed from it. The full list, with `file:line` for every
+row, is in **`NO_SURFACE.md`** at the repo root: every tunable in the crate an
+operator would plausibly want to change and cannot, plus the 22 registered
+commands with no dispatch arm and the recorded reason for each.
+
+It exists because an inventory that lives only in a session is one somebody
+re-derives, and this one took a long sweep to produce. It also carries its own
+correction: its headline finding — *"Markup ▸ Style renders an empty captioned
+band"* — was fixed while the sweep was running, and the row is kept struck
+through rather than deleted, because the **shape** of that failure recurs.
+
 ### What is still missing, from the inventory sweep
 
 Not asked for, and worth having on the record — every one is a shipped feature

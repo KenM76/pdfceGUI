@@ -1,0 +1,214 @@
+# NO_SURFACE.md — shipped behaviour with a hard-coded value and no control
+
+**What this is.** Every tunable in `crates/pdfce-gui/src/` that an operator
+would plausibly want to change and cannot: a compiled-in constant, a `Default`
+impl, or a field only settable from code. One row each, with `file:line`.
+
+**Why it exists.** The operator's report of 2026-08-17 was *"I tried a lot of
+the features that have been added only to find there is no surface for changing
+or editing the settings for them."* Answering that needed an inventory, and an
+inventory that lives only in a session is one somebody re-derives. This is the
+inventory, kept.
+
+**How to read a row.** *Belongs* is the destination `RIBBON_IA.md` names, or —
+where it names none — the honest place for a value of that kind. A row is not a
+commitment to build it; several of these should stay compiled-in forever, and
+saying which is part of the value.
+
+---
+
+## Status, 2026-08-17
+
+This file was compiled from a sweep that began at `f794e27` and finished after
+four commits had landed under it. **The markup section below is the part that
+moved**, and it is corrected here rather than deleted, because the correction is
+the useful bit:
+
+| the sweep found | now |
+|---|---|
+| *"Markup ▸ Style renders an empty captioned band"* — `colour_swatch` declared and never drawn, so colour, width, fill and opacity all had **zero** surface | ✅ **Fixed in `4035b64`.** Two colour swatches and a width. `RIBBON_IA.md` §5.5's *"partial G — colour only"* is now true of this build, having described the **old** shell |
+| Pen colour, highlight colour, stroke width | ✅ Settings are live — `canvas::markup::pen`, edited from the ribbon's Style group |
+| Fill | ⛔ **design decision, not a gap.** `spec` passes `interior: None` with a note: *"a filled comment shape hides the drawing it is a comment about, which on a CAD sheet is the whole content under it."* Reversing that is the operator's call |
+| Opacity | ⛔ **blocked on the engine.** Annotation transparency is `/CA` and `pdfce-core` does not write it |
+| Arrowheads, ink tolerance, note text | ⬜ still open — the rows below stand |
+
+Everything in sections 2 to 5 was verified after those commits and stands as
+written.
+
+---
+
+## 1. Markup — what is left after the Style group landed
+
+**★ The headline finding of the sweep was fixed while the sweep ran**, and it is
+kept here because the *shape* of it recurs: the manifest declared
+`Item::custom("colour_swatch")` at `shell/manifest/markup.rs:175` and **no
+renderer ever matched the kind**, so the shell reserved the item's space, the
+application declined to draw it, and the group rendered a caption over nothing.
+Nothing could see it — the manifest test asserts the item is *declared* and
+passed correctly, and a `Custom` item carries no command id so the reachability
+check is blind to it.
+
+Colour and width are live as of `4035b64`. The rows below are what is left.
+
+| Tunable | Value | Defined | Surface | Belongs (per RIBBON_IA) |
+|---|---|---|---|---|
+| ~~Pen colour, geometric kinds~~ | `(0.85, 0.16, 0.16)` red | now `canvas/markup/pen.rs` | ✅ **Markup ▸ Style** | — |
+| ~~Highlight colour~~ | `(1.0, 1.0, 0.0)` | now `canvas/markup/pen.rs` | ✅ **Markup ▸ Style**, a second swatch | — |
+| Underline / StrikeOut / Squiggly colour | `(0.85, 0.16, 0.16)` | `canvas/markup/text.rs:353` | **none** | same |
+| ~~Stroke width~~ | `2.0` pt | now `Pen::width_pts`, range 0.25–12 | ✅ **Markup ▸ Style** | — |
+| Fill | never authored — `border` only | `canvas/markup.rs` | ⛔ **design decision** — a filled comment hides the drawing it comments on | operator call |
+| Opacity | never authored at all | — | ⛔ **blocked on the engine** — `/CA` is not written | Markup ▸ Style, when it lands |
+| Arrow head length | `HEAD_LEN_PX = 14.0` | `canvas/markup/band.rs:193` | **none** | Format ▸ Arrowheads |
+| Arrow head angle | `HEAD_ANGLE = 0.42` rad | `canvas/markup/band.rs:195` | **none** | Format ▸ Arrowheads |
+| Ink simplification tolerance | 0.5 pt (`PEN_WIDTH_PTS / 4`) | `canvas/markup/ink.rs:214` | **none** | Settings ▸ (new) Markup |
+| Preview band alpha | 90 | `canvas/markup/band.rs:311` | **none** | — |
+| Ellipse tessellation | 48 segments | `canvas/markup/band.rs:183` | **none** | — |
+| Author / subject / note text | not authored at all | — | **none** | Format ▸ Note text |
+
+`canvas/markup.rs` named its own seam before the build: *"the seam for a real
+pen control is exactly this function: give it a colour and a width from the
+document's markup state and nothing else in the module changes."* That
+prediction was exactly right — `spec` and `action` gained a `Pen` parameter and
+nothing else in the module moved. **A doc comment that names its own seam is the
+cheapest refactoring aid this project has**, and it is worth writing one when a
+constant is left in place of a control.
+
+---
+
+## 2. Zero surface — snap / grid / guides / rulers / zoom
+
+| Tunable | Value | Defined | Surface |
+|---|---|---|---|
+| Snap tolerance | 10.0 px | `canvas/snap.rs:136` | none |
+| Selection tolerance | 6.0 px | `canvas/mapping.rs:93` | none |
+| Object fallback tolerance | 3.0 | `panels/objects/provider.rs:153` | none |
+| Grid pitch | **no spacing variable** — ladder-derived, floor 8.0 pt | `canvas/grid.rs:73` | none |
+| Grid minor / major alpha | 26 / 56 | `canvas/grid.rs:82,92` | none |
+| Guide catch radius | 4.0 pt | `canvas/guides.rs:240` | none |
+| Guide / discard alpha | 170 / 60 | `canvas/guides.rs:249,259` | none |
+| Guides per document | 256 (store cap 200) | `canvas/guides.rs:225,211` | none |
+| Ruler thickness | 22.0 pt | `canvas/rulers.rs:235` | none |
+| Ruler min major pitch | 76.0 pt | `canvas/rulers.rs:250` | none |
+| Ruler major / minor tick | 6.0 / 2.5 pt | `canvas/rulers.rs:263,271` | none |
+| Ruler page-span alpha | 40 | `canvas/rulers.rs:280` | none |
+| Rulers / grid / guides **default visibility** | all `false` | `viewer/mod.rs:297-306` | toggles exist (View ▸ Display); **the default is not settable** |
+| Zoom min / max | 0.10 / 8.0 | `viewer/mod.rs:127,132` | none |
+| Default fit mode | `FitMode::Page` | `viewer/mod.rs:299` | fit commands exist; **default not settable** |
+| Zoom-region min extent | 8.0 px | `canvas/zoom.rs:121` | none |
+| Canvas fit margin | 16.0 | `canvas/mod.rs:237` | none |
+| Grip size / grab slack | 8.0 / 2.0 px | `canvas/handles.rs:65,74` | none |
+| Page row / spread gap | 12.0 / 6.0 | `viewer/strip.rs:98,106` | none |
+| Snap marker size | 6.0 pt | `canvas/measure/mod.rs:791` | none |
+| Arc preview steps | 24 | `canvas/measure/pick.rs:544` | none |
+
+**Two partials worth separating out:**
+
+- Ruler fallback number format is `NumberFormat::decimal(Millimeter, 2)` —
+  **precision 2 is hard-coded** at `canvas/rulers.rs:503`, even though the new
+  scale dialog can set a format.
+- `canvas/rulers.rs:522-525` states *"the GUI has no group picker yet"*, so all
+  measure work lands in the default dimension group. `measure.manage_groups` is
+  still inert (§9).
+- Measure scale-entry seeds are `Default`-only: real-length unit **Meter**, ratio
+  basis **Inch**, ratio 1:100 — `canvas/measure/scale.rs:152-157`. The dialog
+  offers a unit combo, but the starting values are not preference-backed.
+
+---
+
+## 3. Zero surface — render / redact / OCR / print / new document
+
+| Tunable | Value | Defined | Surface |
+|---|---|---|---|
+| Texture cache budget | 48,000,000 texels | `render/strip.rs:136` | none |
+| In-frame render budget | 12 ms | `render/worker.rs:166` | none |
+| Thumbnail cache | 64 | `panels/pages/thumbnails.rs:243` | none |
+| Thumbnail width | 140 pt (tile floor 112 pt, `panels/pages/mod.rs:170`) | `panels/pages/thumbnails.rs:178` | none |
+| Thumbnail slow / ceiling | 400 ms / 2 s | `panels/pages/thumbnails.rs:202,227` | none |
+| Thumbnail quality | pinned `Normal` | `panels/pages/thumbnails.rs` | none — **deliberate**, argued in the module header; do not "fix" |
+| Overlay alphas: ghost / find hit / current hit / text selection | 150 / 40 / 96 / 40 | `canvas/overlay.rs:140,281,315,392` | none — **find highlight colours are unreachable** |
+| Redaction fill | `None` | `panels/redact.rs:418` | none |
+| Redaction overlay text | `None` | `panels/redact.rs:419` | none |
+| Redaction quadding | `Left` | `panels/redact.rs:420` | none |
+| Redaction min verifiable length | 4 | `redact/proof.rs:80` | none |
+| OCR target pixels | 8,400,000 | `ocr/mod.rs:168` | none |
+| OCR DPI ceiling / floor | 300 / 50 | `ocr/mod.rs:177,185` | none |
+| OCR language | none — single `ocrs` model | `ocr/mod.rs:193` | none |
+| Print preview zoom min / max / step | 0.25 / 40 / 1.25 | `dialogs/print/preview.rs:158-163` | none |
+| Print preview DPI / max side | 150 / 2200 px | `dialogs/print/preview.rs:133,151` | none |
+| Default paper | US Letter portrait 612×792 | `dialogs/print/mod.rs:794` | none |
+| **New blank page size** | A4, 595.276 × 841.89, baked-in template | `app/blank.rs:172-175` (`TEMPLATE` is `include_bytes!`) | **none** — `file.new_from_template` PLANNED at `manifest/mod.rs:468` |
+
+---
+
+## 4. Zero surface — persistence / panels / shell chrome
+
+| Tunable | Value | Defined | Surface |
+|---|---|---|---|
+| Recent-file cap | 10 | `app/recent.rs:133` | none |
+| Recent presence TTL | 2 s | `app/recent.rs:140` | none |
+| Layout autosave settle / max defer | 750 ms / 5 s | `app/persistence.rs:155,164` | none |
+| Remembered per-document entries | 200 | `viewer/remembered.rs:134` | none |
+| Navigator / inspector default width | 280 / 320 | `app/modes/defaults.rs:253,260` | none |
+| Window initial / min size | 1100×800 / 640×480 | `lib.rs:107,114` | none |
+| Icon size | 16.0 pt | `icons/mod.rs:171` | none — **no UI-scale or base-font-size control anywhere** |
+| Icon cache | 512 | `icons/cache.rs:92` | none |
+| Status bar height / row | 30.0 / 24.0 pt | `app/status.rs:378,386` | none |
+| Object-tree point rows per part | 200 | `panels/objects/mod.rs:197` | none |
+| Form editor text ratio / range | 0.62 / 9–22 pt | `canvas/forms/boxes.rs:67,74` | none |
+| Max traced form boxes | 64 | `canvas/forms.rs:539` | none |
+| Glyph ascent / descent | 0.85 / 0.22 | `canvas/textsel.rs:370,374` | none |
+
+Panels surface almost nothing: only the Pages panel's **previews** checkbox
+(`panels/pages/mod.rs:238`) and the Forms rows' field editors.
+
+**★ Crate-wide widget census.** The only value-editing widgets that exist
+anywhere are in the print dialog, the redact dialog, the find bar, the forms
+rows, the Pages previews checkbox, and (as of 2026-08-17) the settings window.
+**`color_edit_button` has zero hits in the entire crate.** There is no colour
+picker in pdfce at all.
+
+---
+
+## 5. Registered commands with no dispatch arm
+
+Source of truth: `shell/commands/reach/register.rs` (the `SCAFFOLDED` list).
+Counts pinned by `the_p3_tension_is_counted` at
+`shell/commands/reach.rs:1077-1086`. `UNREACHED_ARMS` was **empty**
+(`reach.rs:1095`) — no dead arms in the dispatcher.
+
+**22 entries, of which 8 carry a ★ P3 mark** — the list was 31/8 when the sweep
+began. The count is not restated here: `shell/commands/reach.rs`'s header quotes
+it, a test pins it, and a third copy in a document nothing checks is how a
+number that has already drifted four times in this project drifts a fifth. Read
+the register.
+
+| # | Command id | ★P3 | Line | Recorded reason (condensed) |
+|---|---|---|---|---|
+| 1 | `file.export_dxf` | ★ | :81 | **No recorded reason anywhere.** Scaffolded by omission, not by decision |
+| 2 | `file.export_form_data` | | :90 | Blocked on an FDF/XFDF/CSV writer that does not exist |
+| 3 | `file.shortcuts` | | :97 | Blocked on salvaging `ui_text.rs`; salvaging it unfixed imports `DEFECTS.md` D5 |
+| 4 | `view.show_points` | ★ | :145 | **There is nothing for it to show** — this build draws no anchor marks at any rung |
+| 5 | `view.sidebar` | ★ | :164 | Only justification on record is provably stale — there is no sidebar rail, there is a dock |
+| 6 | `pages.split` | ★ | :176 | Needs a boundary chooser; *"there is no honest default"* |
+| 7 | `pages.merge_into` | ★ | :185 | `insert` returns a **new** document; wiring it discards the undo command log |
+| 8 | `pages.insert_from_file` | ★ | :193 | Twin of the above, same two blockers |
+| 9 | `edit.objects` | ★ | :203 | **No recorded reason anywhere** |
+| 10 | `edit.insert_image` | ★ | :211 | **No recorded reason** for the missing arm |
+| 11 | `edit.form_create_field` | | :219 | Core's **structural** certification gate, not the fill gate |
+| 12 | `edit.form_manage_fields` | | :226 | Same structural gate; its dialog does not exist |
+| 13 | `edit.form_flatten` | | :232 | Same gate, plus irreversible — needs a disclosure surface |
+| 14 | `markup.text_box` | | :267 | Text-bearing, not geometric: needs place-then-type + `TextAnnotSpec` |
+| 15 | `markup.sticky_note` | | :275 | Same row of `canvas::markup`'s table |
+| 16 | `markup.stamp` | | :281 | Same, plus **needs a gallery** — *"a stamp with no chooser has no operand"* |
+| 17 | `measure.manage_groups` | | :290 | Needs a window, not an arm; must not become a picking tool |
+| 18 | `tools.merge_files` | | :309 | Batch pane unsalvaged (`SALVAGE.md`, ~700 lines) |
+| 19 | `tools.split_files` | | :317 | Same pane, plus inherits the missing boundary chooser |
+| 20 | `tools.font_folders` | | :323 | Same pane; a directory list needs the pane it lives in |
+| 21 | `tools.embed_fonts` | | :329 | **Reason expired** — the mutation funnel and undo log landed 2026-08-14. Now closer to unwritten than blocked |
+| 22 | `tools.unembed_fonts` | | :338 | Sibling, plus a live reason: three of four consequences are invisible on canvas, needs a confirmation surface |
+
+**Closed during this session** (present at `f794e27`, gone by `980971f`):
+`file.settings`, `measure.set_scale`, and all seven
+`view.render_*` / `view.floating_panels` / `view.app_initiative` entries.
+
+---
