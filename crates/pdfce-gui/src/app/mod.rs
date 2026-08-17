@@ -364,6 +364,21 @@ pub struct PdfceApp {
     /// save path cannot diverge even within one frame.
     pub settings_store: pdfce_core::settings::StoreLocation,
 
+    /// ★ **The colour and width the next markup is authored with.**
+    ///
+    /// `RIBBON_IA.md` §5.5's Style group, which this shell shipped without: the
+    /// pen was two hard-coded constants and the manifest's `colour_swatch` item
+    /// was declared and never built, so the group rendered an empty caption.
+    /// §5.5 named the consequence in advance — *"which is why a placed markup
+    /// feels final"* — and it is half of what the operator reported.
+    ///
+    /// **On the application, not on `OpenDoc`.** A pen is a tool setting, and
+    /// an operator who picks green expects the next rectangle to be green in
+    /// whatever file they draw it in, exactly as a pencil does not change
+    /// colour when you turn the page. See `canvas::markup::pen`'s header for
+    /// why it is also not in the settings file.
+    pub pen: crate::canvas::markup::pen::Pen,
+
     /// The draft the Settings window is editing, if it is open.
     ///
     /// `None` is the normal state and the window renders nothing. `Some` is
@@ -570,6 +585,7 @@ impl PdfceApp {
             settings,
             settings_store,
             settings_draft: None,
+            pen: crate::canvas::markup::pen::Pen::default(),
         }
     }
 
@@ -615,7 +631,22 @@ impl PdfceApp {
             .map(|c| c.handler);
         let recent = &mut self.recent;
         let mut chosen: Option<std::path::PathBuf> = None;
+        // ★ The pen, borrowed for the closure. `Pen` is `Copy`, so the
+        // closure takes a `&mut` to the field rather than a copy — a copy would
+        // let the operator move a slider and have the change discarded when the
+        // frame ended, which is the shape of bug that produces "the control
+        // does nothing" reports.
+        let pen = &mut self.pen;
         let mut custom = |ui: &mut egui::Ui, item: &egui_shell::ribbon::CustomItem<'_>| {
+            // ★ The Markup ▸ Style controls. They return `None` — no handler
+            // token — because they invoke no command: they edit the pen the
+            // next gesture will use, which is application state with no undo
+            // log to order against. `None` is what tells the ribbon nothing was
+            // invoked, which is true.
+            if item.kind == crate::shell::manifest::COLOUR_SWATCH {
+                crate::canvas::markup::swatch::show(ui, pen);
+                return None;
+            }
             if item.kind != crate::shell::manifest::RECENT_FILES {
                 return None;
             }
@@ -873,9 +904,10 @@ impl PdfceApp {
         // `self.shell` and `self.ribbon`, both of which are disjoint from the
         // document but not provably so through a single `self`.
         let caps = self.capabilities();
+        let pen = self.pen;
         let find = &self.find;
         if let Status::Open(doc) = &mut self.status {
-            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, caps, actions);
+            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, caps, pen, actions);
             // Dispatched here rather than inside `show`: the canvas reports
             // intent and the application decides, which is the same seam the
             // ribbon and the dock already use.

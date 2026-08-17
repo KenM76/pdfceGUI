@@ -694,7 +694,7 @@ impl PdfceApp {
                         // ui-text-exempt: diagnostic trace, never displayed.
                         format!("command-declined id={id} reason=mode-cannot-author-markup")
                     });
-                } else if !crate::canvas::markup::vertex::finish(ctx, actions) {
+                } else if !crate::canvas::markup::vertex::finish(ctx, actions, self.pen) {
                     crate::diag::trace(|| {
                         // ui-text-exempt: diagnostic trace, never displayed.
                         //

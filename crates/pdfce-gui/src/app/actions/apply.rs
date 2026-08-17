@@ -350,8 +350,9 @@ impl PdfceApp {
                 page,
                 kind,
                 geometry,
+                pen,
             } => {
-                if let Some(spec) = crate::canvas::markup::spec(kind, &geometry) {
+                if let Some(spec) = crate::canvas::markup::spec(kind, &geometry, pen) {
                     vector_edit(doc, "add-markup", page, 1, |session| {
                         session.add_markup(page, &spec).map(|_| Vec::new())
                     });
@@ -1247,7 +1248,7 @@ mod tests {
         assert!(!doc.session.is_modified(), "and must change no bytes");
 
         // --- one real edit, through the funnel every gesture uses -----------
-        let spec = crate::canvas::markup::spec(
+        let spec = crate::canvas::markup::spec_default_pen(
             MarkupKind::Rectangle,
             &Geometry::Band {
                 start: (100.0, 100.0),

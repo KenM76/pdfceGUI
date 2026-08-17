@@ -487,6 +487,7 @@ mod tests {
         // One real edit through the real funnel.
         app.apply_actions(
             vec![Action::CommitMarkup {
+                pen: crate::canvas::markup::pen::Pen::default(),
                 page: 0,
                 kind: MarkupKind::Rectangle,
                 geometry: Geometry::Band {

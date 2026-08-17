@@ -344,6 +344,23 @@ pub const SELECTION_ANY: &str = format::VISIBLE_WHEN;
 /// gap — so the string is a constant rather than a literal in two files.
 pub const RECENT_FILES: &str = "recent_files"; // ui-text-exempt: a custom-item kind, never displayed
 
+/// **The `Item::Custom` kind of the Markup ▸ Style controls.**
+///
+/// Same one-spelling-one-source rule as [`RECENT_FILES`], and this constant
+/// arrived late for a reason worth recording: the manifest wrote the literal
+/// `"colour_swatch"` from S2 and **no renderer ever matched it**, so the Style
+/// group drew a caption over an empty band for the whole of v0.1.0. That is
+/// precisely the invisible failure the constant's existence is meant to
+/// prevent — the shell reserves the item's space, the application declines to
+/// draw it, and nothing anywhere reports a mismatch.
+///
+/// ★ It is deliberately **not** in [`CUSTOM_BACKED`]. That register is for
+/// commands whose only ribbon control is a custom item, and this item backs no
+/// command at all: it edits `PdfceApp::pen`, raises no `Action`, has no undo,
+/// and returns no handler token. Listing it there would claim a command id
+/// that does not exist.
+pub const COLOUR_SWATCH: &str = "colour_swatch"; // ui-text-exempt: a custom-item kind, never displayed
+
 // ===========================================================================
 // CUSTOM_BACKED
 // ===========================================================================
@@ -1258,7 +1275,7 @@ mod tests {
             .expect("the Style group")
             .items()
             .to_vec();
-        assert_eq!(style, vec![Item::custom("colour_swatch")]);
+        assert_eq!(style, vec![Item::custom(COLOUR_SWATCH)]);
     }
 
     /// The keymap binds every chord to a command the manifest knows, and

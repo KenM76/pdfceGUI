@@ -254,9 +254,21 @@ use crate::canvas::mapping::PageMapping;
 pub mod band;
 /// Freehand: press, follow the pointer, release. `/Ink`.
 pub mod ink;
+
+/// ★ The colour and width the next markup is authored with — the **Style**
+/// group `RIBBON_IA.md` §5.5 specifies and this shell shipped without.
+///
+/// §5.5 named the consequence in advance: *"Both must exist; today only the
+/// first does, which is why a placed markup feels final."* This is the first.
+pub mod pen;
 /// Underline, strikeout and squiggly — the kinds whose operand is a text
 /// selection rather than a pointer gesture. See this module's header for why
 /// they are not [`MarkupKind`] variants.
+/// ★ The Markup ▸ Style group's control — the `colour_swatch` custom item the
+/// manifest declared at S2 and nothing ever drew, so the group rendered a
+/// caption over an empty band.
+pub mod swatch;
+
 pub mod text;
 /// The click-shaped kinds: PolyLine and Polygon, and the two endings that
 /// finish them.
@@ -387,60 +399,31 @@ impl MarkupKind {
     pub fn is_freehand(self) -> bool {
         matches!(self, Self::Ink)
     }
-
-    /// The pen colour this kind commits, as PDF `/DeviceRGB` components in
-    /// `0.0..=1.0`.
-    ///
-    /// # Why there is one here at all, and where the operator's own pen goes
-    ///
-    /// The old shell carried `markup_color`/`markup_width` on the application
-    /// and a swatch in its ribbon. This shell has neither, and inventing one
-    /// would mean a new operator-visible control and new operator-visible
-    /// strings — which belong to `text/` and to the ribbon, neither of which is
-    /// this module's to extend. So the pen is a **default**, stated once, in the
-    /// one place that builds a spec, and the seam for a real pen control is
-    /// exactly this function: give it a colour and a width from the document's
-    /// markup state and nothing else in the module changes.
-    ///
-    /// Red for the geometric kinds because that is what every PDF reader draws
-    /// a comment shape in by default and *"make it work the way other programs
-    /// do"* is the operator's stated tie-breaker; yellow for Highlight for the
-    /// same reason.
-    ///
-    /// ★ The three kinds added on 2026-08-14 join the **red** arm rather than
-    /// getting a colour each, and that is the same answer
-    /// [`text::TextMarkKind::rgb`] reached: they are comment *linework*, they
-    /// have to be seen against a drawing that is already black on white, and a
-    /// per-kind palette would be a style decision made in code where the Style
-    /// group is the surface that owns it.
-    #[must_use]
-    pub(crate) fn rgb(self) -> (f64, f64, f64) {
-        match self {
-            // DOCUMENT COLOUR: the default markup pen. This is written INTO the
-            // annotation's `/C` and therefore into the saved file — restyling
-            // the application must never move it, which is exactly the case the
-            // theme gate's escape hatch exists for.
-            Self::Rectangle
-            | Self::Ellipse
-            | Self::Arrow
-            | Self::PolyLine
-            | Self::Polygon
-            | Self::Ink => (0.85, 0.16, 0.16),
-            // DOCUMENT COLOUR: highlighter yellow, likewise `/C` in the file.
-            Self::Highlight => (1.0, 1.0, 0.0),
-        }
-    }
 }
 
 /// The default border/stroke width, in PDF points, every geometric markup is
 /// authored with.
 ///
-/// A constant for the same reason [`MarkupKind::rgb`] is a function: there is
-/// no pen control yet, and when there is one this is the single value it
-/// replaces. 2 points is the width a comment shape reads at on a dense CAD
-/// export without dominating it — a hairline vanishes among the drawing's own
-/// 0.25 pt linework, which is the specific failure a markup on an engineering
-/// drawing has to avoid.
+/// ★ **No longer what a markup is authored at** — 2026-08-17. The pen control
+/// landed and [`pen::Pen::width_pts`] is the value [`spec`] writes; this
+/// constant survives as the **nominal** width, and it has exactly one consumer
+/// left: [`ink::SIMPLIFY_TOLERANCE_PTS`], which derives a simplification
+/// tolerance from a quarter of it.
+///
+/// That consumer is deliberately NOT re-pointed at the live pen, and the reason
+/// is worth stating because the opposite looks obviously right. The tolerance
+/// decides how much of a freehand trail is *thrown away*, so tying it to the
+/// pen would mean the same gesture produced a different number of points
+/// depending on a colour-and-width control the operator set for appearance —
+/// and a 12 pt pen would discard six times as much of what they drew. The
+/// simplification is about the fidelity of the recorded path; the pen is about
+/// how that path is painted. Coupling them would make an appearance choice
+/// silently destructive.
+///
+/// 2 points is the width a comment shape reads at on a dense CAD export
+/// without dominating it — a hairline vanishes among the drawing's own 0.25 pt
+/// linework, which is the specific failure a markup on an engineering drawing
+/// has to avoid. It is [`pen::Pen::default`]'s width for the same reason.
 pub const PEN_WIDTH_PTS: f64 = 2.0;
 
 /// **The geometry one completed markup gesture produced**, in PDF user space.
@@ -620,9 +603,14 @@ pub enum Refusal {
 /// under it. A fill is a Style property (`markup.fill`, still in `PLANNED`) and
 /// belongs to the surface that will set the pen colour too.
 #[must_use]
-pub fn spec(kind: MarkupKind, geometry: &Geometry) -> Option<MarkupSpec> {
-    let (r, g, b) = kind.rgb();
+pub fn spec(kind: MarkupKind, geometry: &Geometry, pen: pen::Pen) -> Option<MarkupSpec> {
+    // ★ The pen is a PARAMETER as of 2026-08-17, and this is the seam
+    // `MarkupKind::rgb`'s own doc comment named in advance: *"give it a colour
+    // and a width from the document's markup state and nothing else in the
+    // module changes."* Nothing else in this module did.
+    let (r, g, b) = pen.colour_for(kind);
     let color = Color::Rgb(r, g, b);
+    let width = pen.width_pts;
     match (kind, geometry) {
         (
             MarkupKind::Rectangle | MarkupKind::Ellipse | MarkupKind::Arrow | MarkupKind::Highlight,
@@ -642,20 +630,20 @@ pub fn spec(kind: MarkupKind, geometry: &Geometry) -> Option<MarkupSpec> {
                     // comment about, which on a CAD sheet is the whole content
                     // under it.
                     interior: None,
-                    border_width: PEN_WIDTH_PTS,
+                    border_width: width,
                 },
                 MarkupKind::Ellipse => MarkupSpec::Circle {
                     rect,
                     border: Some(color),
                     interior: None,
-                    border_width: PEN_WIDTH_PTS,
+                    border_width: width,
                 },
                 // ★ RAW `start` and `end` — see this function's docs.
                 MarkupKind::Arrow => MarkupSpec::Line {
                     start: *start,
                     end: *end,
                     color,
-                    width: PEN_WIDTH_PTS,
+                    width,
                     // Tail then head, in the operator's own words. `None` at the
                     // start is what makes the raw-endpoint rule above
                     // load-bearing rather than decorative.
@@ -673,24 +661,40 @@ pub fn spec(kind: MarkupKind, geometry: &Geometry) -> Option<MarkupSpec> {
         (MarkupKind::PolyLine, Geometry::Vertices(vertices)) => Some(MarkupSpec::PolyLine {
             vertices: vertices.clone(),
             color,
-            width: PEN_WIDTH_PTS,
+            width,
         }),
         (MarkupKind::Polygon, Geometry::Vertices(vertices)) => Some(MarkupSpec::Polygon {
             vertices: vertices.clone(),
             border: Some(color),
             interior: None,
-            width: PEN_WIDTH_PTS,
+            width,
         }),
         (MarkupKind::Ink, Geometry::Strokes(strokes)) => Some(MarkupSpec::Ink {
             strokes: strokes.clone(),
             color,
-            width: PEN_WIDTH_PTS,
+            width,
         }),
         // Every remaining pair is a kind holding another family's geometry. See
         // `Refusal::Mismatched`: unreachable from a gesture, refused rather than
         // guessed.
         _ => None,
     }
+}
+
+/// [`spec`] with the shipped pen — **for tests and for `apply`'s own
+/// falsifier only.**
+///
+/// Not a convenience. It exists so a test that is about *geometry* — a
+/// placement, a normalisation, a refusal — does not have to state a colour it
+/// does not care about, and so the one place that reads it in non-test code
+/// (`apply`'s D9 falsifier, which re-authors a known rectangle to compare
+/// against) is visibly not the operator's pen.
+///
+/// Production paths take the pen from the action they are applying. That is
+/// checked by there being no other caller.
+#[must_use]
+pub fn spec_default_pen(kind: MarkupKind, geometry: &Geometry) -> Option<MarkupSpec> {
+    spec(kind, geometry, pen::Pen::default())
 }
 
 /// The ONE action a completed markup gesture becomes.
@@ -720,7 +724,12 @@ pub fn spec(kind: MarkupKind, geometry: &Geometry) -> Option<MarkupSpec> {
 /// downstream could ask about it, and would re-order a vertex run into a figure
 /// nobody drew. Normalisation happens in [`spec`], per kind, at the moment the
 /// `Rect` is built — the last point at which the raw data is still available.
-pub fn action(kind: MarkupKind, page: usize, geometry: Geometry) -> Result<Action, Refusal> {
+pub fn action(
+    kind: MarkupKind,
+    page: usize,
+    geometry: Geometry,
+    pen: pen::Pen,
+) -> Result<Action, Refusal> {
     if !geometry.coordinates().all(f64::is_finite) {
         return Err(Refusal::NotFinite);
     }
@@ -774,6 +783,7 @@ pub fn action(kind: MarkupKind, page: usize, geometry: Geometry) -> Result<Actio
         page,
         kind,
         geometry,
+        pen,
     })
 }
 
@@ -843,9 +853,9 @@ pub(crate) fn trace_commit(kind: MarkupKind, page: usize, detail: &str) {
 /// Shared by all three gesture modules: the pen is a property of the *markup*,
 /// not of the gesture that draws it, so a second copy here would be a second
 /// place the preview could stop matching the annotation.
-pub(crate) fn pen_px(mapping: &PageMapping) -> f32 {
+pub(crate) fn pen_px(mapping: &PageMapping, pen: pen::Pen) -> f32 {
     #[allow(clippy::cast_possible_truncation)]
-    let width = PEN_WIDTH_PTS as f32;
+    let width = pen.width_pts as f32;
     let scale = mapping.to_screen(Pos2::new(1.0, 0.0)).x - mapping.to_screen(Pos2::ZERO).x;
     if scale.is_finite() && scale > 0.0 {
         (width * scale).max(1.0)
@@ -855,8 +865,8 @@ pub(crate) fn pen_px(mapping: &PageMapping) -> f32 {
 }
 
 /// The pen colour, as egui sees it.
-pub(crate) fn pen_color(kind: MarkupKind) -> Color32 {
-    let (r, g, b) = kind.rgb();
+pub(crate) fn pen_color(kind: MarkupKind, pen: pen::Pen) -> Color32 {
+    let (r, g, b) = pen.colour_for(kind);
     let byte = |v: f64| {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let out = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -933,7 +943,7 @@ mod tests {
             end,
             endings,
             ..
-        }) = spec(MarkupKind::Arrow, &band(tail, head))
+        }) = spec_default_pen(MarkupKind::Arrow, &band(tail, head))
         else {
             panic!("Arrow must author a /Line");
         };
@@ -968,7 +978,7 @@ mod tests {
                 ((corners[0].0, corners[1].1), (corners[1].0, corners[0].1)),
                 ((corners[1].0, corners[0].1), (corners[0].0, corners[1].1)),
             ] {
-                let rect = match spec(kind, &band(a, b)) {
+                let rect = match spec_default_pen(kind, &band(a, b)) {
                     Some(MarkupSpec::Square { rect, .. } | MarkupSpec::Circle { rect, .. }) => rect,
                     Some(MarkupSpec::TextMarkup { quads, .. }) => {
                         assert_eq!(quads.len(), 1, "a highlight authors exactly one quad");
@@ -992,34 +1002,34 @@ mod tests {
         let run = Geometry::Vertices(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]);
         let ink = Geometry::Strokes(vec![vec![(0.0, 0.0), (1.0, 1.0), (2.0, 0.5)]]);
         assert!(matches!(
-            spec(MarkupKind::Rectangle, &band(a, b)),
+            spec_default_pen(MarkupKind::Rectangle, &band(a, b)),
             Some(MarkupSpec::Square { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Ellipse, &band(a, b)),
+            spec_default_pen(MarkupKind::Ellipse, &band(a, b)),
             Some(MarkupSpec::Circle { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Arrow, &band(a, b)),
+            spec_default_pen(MarkupKind::Arrow, &band(a, b)),
             Some(MarkupSpec::Line { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Highlight, &band(a, b)),
+            spec_default_pen(MarkupKind::Highlight, &band(a, b)),
             Some(MarkupSpec::TextMarkup {
                 kind: TextMarkupKind::Highlight,
                 ..
             })
         ));
         assert!(matches!(
-            spec(MarkupKind::PolyLine, &run),
+            spec_default_pen(MarkupKind::PolyLine, &run),
             Some(MarkupSpec::PolyLine { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Polygon, &run),
+            spec_default_pen(MarkupKind::Polygon, &run),
             Some(MarkupSpec::Polygon { .. })
         ));
         assert!(matches!(
-            spec(MarkupKind::Ink, &ink),
+            spec_default_pen(MarkupKind::Ink, &ink),
             Some(MarkupSpec::Ink { .. })
         ));
         assert_eq!(
@@ -1045,14 +1055,14 @@ mod tests {
     fn a_vertex_run_and_an_ink_stroke_are_authored_in_drawing_order() {
         let points = vec![(10.0, 10.0), (40.0, 12.0), (25.0, 60.0), (12.0, 30.0)];
         let Some(MarkupSpec::PolyLine { vertices, .. }) =
-            spec(MarkupKind::PolyLine, &Geometry::Vertices(points.clone()))
+            spec_default_pen(MarkupKind::PolyLine, &Geometry::Vertices(points.clone()))
         else {
             panic!("PolyLine must author a /PolyLine");
         };
         assert_eq!(vertices, points, "the run must arrive as it left");
 
         let Some(MarkupSpec::Polygon { vertices, .. }) =
-            spec(MarkupKind::Polygon, &Geometry::Vertices(points.clone()))
+            spec_default_pen(MarkupKind::Polygon, &Geometry::Vertices(points.clone()))
         else {
             panic!("Polygon must author a /Polygon");
         };
@@ -1065,7 +1075,7 @@ mod tests {
         let strokes = vec![vec![(0.0, 0.0), (5.5, 9.25), (12.0, 3.0)]];
         let Some(MarkupSpec::Ink {
             strokes: authored, ..
-        }) = spec(MarkupKind::Ink, &Geometry::Strokes(strokes.clone()))
+        }) = spec_default_pen(MarkupKind::Ink, &Geometry::Strokes(strokes.clone()))
         else {
             panic!("Ink must author an /Ink");
         };
@@ -1088,7 +1098,7 @@ mod tests {
             ),
         ];
         for (kind, geometry) in cases {
-            match spec(kind, &geometry) {
+            match spec_default_pen(kind, &geometry) {
                 Some(
                     MarkupSpec::Square {
                         interior, border, ..
@@ -1113,12 +1123,12 @@ mod tests {
     #[test]
     fn a_mismatched_kind_and_geometry_authors_nothing() {
         assert_eq!(
-            spec(MarkupKind::Ink, &band((0.0, 0.0), (1.0, 1.0))),
+            spec_default_pen(MarkupKind::Ink, &band((0.0, 0.0), (1.0, 1.0))),
             None,
             "an /Ink cannot be built from two points"
         );
         assert_eq!(
-            spec(
+            spec_default_pen(
                 MarkupKind::Rectangle,
                 &Geometry::Vertices(vec![(0.0, 0.0), (1.0, 1.0)])
             ),
@@ -1128,7 +1138,8 @@ mod tests {
             action(
                 MarkupKind::Polygon,
                 0,
-                Geometry::Strokes(vec![vec![(0.0, 0.0), (1.0, 1.0)]])
+                Geometry::Strokes(vec![vec![(0.0, 0.0), (1.0, 1.0)]]),
+                pen::Pen::default(),
             ),
             Err(Refusal::Mismatched)
         );
@@ -1149,7 +1160,12 @@ mod tests {
             MarkupKind::Highlight,
         ] {
             assert_eq!(
-                action(kind, 0, band((100.0, 200.0), (100.0, 200.0))),
+                action(
+                    kind,
+                    0,
+                    band((100.0, 200.0), (100.0, 200.0)),
+                    pen::Pen::default()
+                ),
                 Err(Refusal::NoExtent),
                 "{kind:?}"
             );
@@ -1163,11 +1179,17 @@ mod tests {
     #[test]
     fn the_smallest_real_extent_on_either_axis_still_commits() {
         for end in [(100.01, 200.0), (100.0, 200.01)] {
-            let raised =
-                action(MarkupKind::Rectangle, 3, band((100.0, 200.0), end)).expect("committed");
+            let raised = action(
+                MarkupKind::Rectangle,
+                3,
+                band((100.0, 200.0), end),
+                pen::Pen::default(),
+            )
+            .expect("committed");
             assert_eq!(
                 raised,
                 Action::CommitMarkup {
+                    pen: pen::Pen::default(),
                     page: 3,
                     kind: MarkupKind::Rectangle,
                     geometry: band((100.0, 200.0), end),
@@ -1189,18 +1211,19 @@ mod tests {
     fn a_polygon_needs_three_vertices_where_a_polyline_needs_two() {
         let two = Geometry::Vertices(vec![(0.0, 0.0), (10.0, 5.0)]);
         let three = Geometry::Vertices(vec![(0.0, 0.0), (10.0, 5.0), (4.0, 9.0)]);
-        assert!(action(MarkupKind::PolyLine, 0, two.clone()).is_ok());
+        assert!(action(MarkupKind::PolyLine, 0, two.clone(), pen::Pen::default()).is_ok());
         assert_eq!(
-            action(MarkupKind::Polygon, 0, two),
+            action(MarkupKind::Polygon, 0, two, pen::Pen::default()),
             Err(Refusal::TooFewVertices),
             "a two-vertex polygon is a line drawn there and back"
         );
-        assert!(action(MarkupKind::Polygon, 0, three).is_ok());
+        assert!(action(MarkupKind::Polygon, 0, three, pen::Pen::default()).is_ok());
         assert_eq!(
             action(
                 MarkupKind::PolyLine,
                 0,
-                Geometry::Vertices(vec![(1.0, 1.0)])
+                Geometry::Vertices(vec![(1.0, 1.0)]),
+                pen::Pen::default(),
             ),
             Err(Refusal::TooFewVertices)
         );
@@ -1213,13 +1236,23 @@ mod tests {
         let same = vec![(50.0, 50.0), (50.0, 50.0), (50.0, 50.0)];
         for kind in [MarkupKind::PolyLine, MarkupKind::Polygon] {
             assert_eq!(
-                action(kind, 0, Geometry::Vertices(same.clone())),
+                action(
+                    kind,
+                    0,
+                    Geometry::Vertices(same.clone()),
+                    pen::Pen::default()
+                ),
                 Err(Refusal::NoExtent),
                 "{kind:?}"
             );
         }
         assert_eq!(
-            action(MarkupKind::Ink, 0, Geometry::Strokes(vec![same.clone()])),
+            action(
+                MarkupKind::Ink,
+                0,
+                Geometry::Strokes(vec![same.clone()]),
+                pen::Pen::default()
+            ),
             Err(Refusal::NoExtent)
         );
         // …and a single-point stroke, which the ENGINE would accept: its guard
@@ -1229,12 +1262,18 @@ mod tests {
             action(
                 MarkupKind::Ink,
                 0,
-                Geometry::Strokes(vec![vec![(1.0, 2.0)]])
+                Geometry::Strokes(vec![vec![(1.0, 2.0)]]),
+                pen::Pen::default(),
             ),
             Err(Refusal::NoExtent)
         );
         assert_eq!(
-            action(MarkupKind::Ink, 0, Geometry::Strokes(Vec::new())),
+            action(
+                MarkupKind::Ink,
+                0,
+                Geometry::Strokes(Vec::new()),
+                pen::Pen::default()
+            ),
             Err(Refusal::NoExtent)
         );
     }
@@ -1245,14 +1284,20 @@ mod tests {
     #[test]
     fn a_non_finite_coordinate_is_refused_in_every_family() {
         assert_eq!(
-            action(MarkupKind::Arrow, 0, band((0.0, 0.0), (f64::NAN, 1.0))),
+            action(
+                MarkupKind::Arrow,
+                0,
+                band((0.0, 0.0), (f64::NAN, 1.0)),
+                pen::Pen::default()
+            ),
             Err(Refusal::NotFinite)
         );
         assert_eq!(
             action(
                 MarkupKind::PolyLine,
                 0,
-                Geometry::Vertices(vec![(0.0, 0.0), (1.0, f64::INFINITY)])
+                Geometry::Vertices(vec![(0.0, 0.0), (1.0, f64::INFINITY)]),
+                pen::Pen::default(),
             ),
             Err(Refusal::NotFinite)
         );
@@ -1260,7 +1305,8 @@ mod tests {
             action(
                 MarkupKind::Ink,
                 0,
-                Geometry::Strokes(vec![vec![(0.0, 0.0), (f64::NEG_INFINITY, 1.0)]])
+                Geometry::Strokes(vec![vec![(0.0, 0.0), (f64::NEG_INFINITY, 1.0)]]),
+                pen::Pen::default(),
             ),
             Err(Refusal::NotFinite)
         );
@@ -1274,8 +1320,8 @@ mod tests {
     #[test]
     fn the_preview_colour_is_the_committed_colour() {
         for &kind in MarkupKind::ALL {
-            let (r, g, b) = kind.rgb();
-            let c = pen_color(kind);
+            let (r, g, b) = pen::Pen::default().colour_for(kind);
+            let c = pen_color(kind, pen::Pen::default());
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let expect = |v: f64| (v * 255.0).round() as u8;
             assert_eq!(
@@ -1288,7 +1334,7 @@ mod tests {
         // under black glyphs marks nothing visible, which is the one failure a
         // comment cannot afford — the same assertion `text::TextMarkKind` makes.
         for &kind in MarkupKind::ALL {
-            let (r, g, b) = kind.rgb();
+            let (r, g, b) = pen::Pen::default().colour_for(kind);
             let yellow = r > 0.5 && g > 0.5 && b < 0.5;
             assert_eq!(
                 yellow,
@@ -1310,7 +1356,7 @@ mod tests {
                     Pos2::ZERO,
                     egui::vec2(extent.0 * zoom, extent.1 * zoom),
                 );
-                pen_px(&PageMapping::new(rect, extent, zoom))
+                pen_px(&PageMapping::new(rect, extent, zoom), pen::Pen::default())
             })
             .collect();
         #[allow(clippy::cast_possible_truncation)]

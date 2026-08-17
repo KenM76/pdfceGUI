@@ -312,7 +312,11 @@ pub(in crate::canvas) struct Stroke<'a> {
 /// at 0.21× zoom**. For a band that offset moved a corner; for a stroke it would
 /// remove the beginning of it. So the origin is seeded as the trail's first point,
 /// which is the same fix the band gets from the same field.
-pub(in crate::canvas) fn drag(stroke: Stroke<'_>, actions: &mut Vec<Action>) -> Option<Vec<Pos2>> {
+pub(in crate::canvas) fn drag(
+    pen: super::pen::Pen,
+    stroke: Stroke<'_>,
+    actions: &mut Vec<Action>,
+) -> Option<Vec<Pos2>> {
     let Stroke {
         ctx,
         kind,
@@ -355,7 +359,7 @@ pub(in crate::canvas) fn drag(stroke: Stroke<'_>, actions: &mut Vec<Action>) -> 
         };
         points.push(point);
     }
-    match super::action(kind, page_index, Geometry::Strokes(vec![points])) {
+    match super::action(kind, page_index, Geometry::Strokes(vec![points]), pen) {
         Ok(raised) => {
             super::trace_commit(
                 kind,
@@ -389,12 +393,20 @@ pub(in crate::canvas) fn drag(stroke: Stroke<'_>, actions: &mut Vec<Action>) -> 
 /// Round joins and caps, matching `pdfce-core`'s `ink()` builder, which sets
 /// `LineCap::Round` and `LineJoin::Round` — so a corner of the preview and a
 /// corner of the annotation are the same corner.
-pub(in crate::canvas) fn draw_preview(painter: &egui::Painter, map: &PageMapping, trail: &[Pos2]) {
+pub(in crate::canvas) fn draw_preview(
+    painter: &egui::Painter,
+    map: &PageMapping,
+    trail: &[Pos2],
+    pen: super::pen::Pen,
+) {
     if trail.len() < 2 {
         return;
     }
     // DOCUMENT COLOUR: the pen, read from the one place `spec` reads it.
-    let stroke = egui::Stroke::new(super::pen_px(map), super::pen_color(MarkupKind::Ink));
+    let stroke = egui::Stroke::new(
+        super::pen_px(map, pen),
+        super::pen_color(MarkupKind::Ink, pen),
+    );
     let screen: Vec<Pos2> = trail.iter().map(|p| map.to_screen(*p)).collect();
     painter.add(egui::Shape::line(screen, stroke));
 }
@@ -678,6 +690,7 @@ mod tests {
         let at = Pos2::new(40.0, 40.0);
         for _ in 0..50 {
             let _ = drag(
+                crate::canvas::markup::pen::Pen::default(),
                 Stroke {
                     ctx: &ctx,
                     kind: MarkupKind::Ink,
@@ -713,6 +726,7 @@ mod tests {
         let mut actions = Vec::new();
         for step in 0..5 {
             let _ = drag(
+                crate::canvas::markup::pen::Pen::default(),
                 Stroke {
                     ctx: &ctx,
                     kind: MarkupKind::Ink,
@@ -738,6 +752,7 @@ mod tests {
         // …and another kind of drag is not this one, so a band started after an
         // interrupted stroke does not inherit its points.
         let _ = drag(
+            crate::canvas::markup::pen::Pen::default(),
             Stroke {
                 ctx: &ctx,
                 kind: MarkupKind::Ink,
@@ -768,6 +783,7 @@ mod tests {
         ] {
             assert_eq!(
                 drag(
+                    crate::canvas::markup::pen::Pen::default(),
                     Stroke {
                         ctx: &ctx,
                         kind,
@@ -803,6 +819,7 @@ mod tests {
         let mut last = None;
         for (i, p) in trail.iter().enumerate() {
             last = drag(
+                crate::canvas::markup::pen::Pen::default(),
                 Stroke {
                     ctx: &ctx,
                     kind: MarkupKind::Ink,

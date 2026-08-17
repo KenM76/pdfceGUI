@@ -120,6 +120,14 @@ pub mod markup_rectangle;
 /// pointer, and the only falsifier in the suite that needs a control to be
 /// **greyed at a specific moment mid-gesture**. Its header carries the argument.
 pub mod markup_shapes;
+
+/// ★ Markup ▸ Style — a ribbon group whose one item the manifest declared at S2
+/// and no renderer ever drew, so it shipped as a caption over an empty band.
+///
+/// A **third** shape of invisible wiring, and the quietest: the manifest test
+/// asserted the item was *declared* and passed correctly, and the reachability
+/// check could not see it at all because a `Custom` item carries no command id.
+pub mod markup_style;
 pub mod measure_linear;
 /// ★ File ▸ New — the first command that makes a document out of **compiled-in
 /// bytes** rather than out of a file the operator named, and the only check in
@@ -346,6 +354,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // would fail for the same reason with three more candidate causes in
         // front of it.
         Box::new(markup_shapes::MarkupFreehandAndVertexKinds),
+        // ★ Directly after the markup checks, and for the same dependency
+        // reason: this one is about the pen those gestures author WITH, so a
+        // run in which the ribbon-click channel is broken should report that as
+        // `markup_rectangle`'s failure first.
+        Box::new(markup_style::MarkupStyleGroupIsDrawn),
         Box::new(measure_linear::MeasureLinearPlacesADimension),
         // ★ Directly after the markup checks, and the order is a **dependency**
         // rather than a preference: this one begins by arming Rectangle and

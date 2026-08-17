@@ -51,6 +51,7 @@
 //! | [`commands`] | the label and tooltip of every ribbon command |
 //! | [`files`] | the open/close/recent surface: the file dialog's title and filters, and everything the Recent control draws |
 //! | [`find`] | the Find bar — the field, the step buttons, the position readout, the four search options, and the status bar's Find toggle |
+//! | [`markup`] | the Markup ▸ Style group's three tooltips and its unit — the only place a swatch and a number can say what they are |
 //! | [`menus`] | the copy a **context menu** owns rather than borrows. Empty by construction — a menu row's words are its command's — and its header is the argument for why |
 //! | [`ocr`] | the Recognise-text dialog and the Find bar's offer. The catalog with the hardest job in the crate: it has to disclose that **every word OCR produces is a guess and this engine scores none of them**, without ever implying a mark on the page |
 //! | [`pages`] | the Pages panel — the page counts, the tile tooltip, the **four sentences an undrawn thumbnail can say**, and the preview control that stops the grid |
@@ -88,6 +89,13 @@ pub mod files;
 pub mod find;
 /// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
 pub mod forms;
+/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
+///
+/// Small, and load-bearing out of proportion to its size: the controls are a
+/// colour swatch and a number, so the tooltip is the only place they can say
+/// what they are, and the only place an operator learns the setting applies to
+/// the **next** mark rather than to one already drawn.
+pub mod markup;
 /// The copy the **context-menu** surface owns, as distinct from the copy
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.

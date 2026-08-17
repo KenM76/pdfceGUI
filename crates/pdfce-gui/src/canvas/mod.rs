@@ -277,11 +277,12 @@ pub fn show(
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
     caps: Capabilities,
+    pen: crate::canvas::markup::pen::Pen,
     actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
     let gutters = rulers::reserve(ui, doc.view.rulers && !doc.pages.is_empty());
     let mut content = gutters.content_ui(ui);
-    let (tokens, geometry) = show_in(&mut content, doc, host, find, caps, actions);
+    let (tokens, geometry) = show_in(&mut content, doc, host, find, caps, pen, actions);
     rulers::draw(ui, doc, gutters, geometry.as_ref());
     // Starting a guide drag needs a ruler to drag out of; *finishing* one does
     // not, because it may have started on the canvas. So the two halves are
@@ -303,6 +304,7 @@ fn show_in(
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
     caps: Capabilities,
+    pen: crate::canvas::markup::pen::Pen,
     actions: &mut Vec<Action>,
 ) -> (Vec<HandlerToken>, Option<CanvasGeometry>) {
     if doc.pages.is_empty() {
@@ -784,6 +786,7 @@ fn show_in(
         doc,
         &image_response,
         &Frame {
+            pen,
             map,
             pages: &page_views,
             clip: scroll_output.inner_rect,

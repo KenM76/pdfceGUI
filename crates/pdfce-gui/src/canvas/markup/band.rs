@@ -125,7 +125,12 @@ pub fn endpoints(from: Pos2, to: Pos2, page: &Page) -> Option<((f64, f64), (f64,
 /// lesson — fifty identical lines in nine seconds from a stationary pointer —
 /// is what a per-frame refusal trace would reproduce. The release is one event,
 /// and it is the one a harness reading the trace is asking about.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a gesture entry point's inputs are eight independent facts about one frame — the               pen, the armed kind, two pointer positions, the page, its geometry, the phase and               the action queue. Grouping any subset into a struct would be grouping by arity               rather than by meaning, and the resulting type would have no name that was true." // ui-text-exempt: lint justification, never displayed
+)]
 pub fn drag(
+    pen: super::pen::Pen,
     kind: MarkupKind,
     from: Pos2,
     to: Pos2,
@@ -154,7 +159,7 @@ pub fn drag(
         return Some(Preview { kind, from, to });
     }
 
-    match super::action(kind, page_index, Geometry::Band { start, end }) {
+    match super::action(kind, page_index, Geometry::Band { start, end }, pen) {
         Ok(raised) => {
             // ★ Traced with its COORDINATES, not a success flag — see
             // `super::trace_commit`. The RAW endpoints, in drag order, so a
@@ -221,10 +226,15 @@ const HEAD_ANGLE: f32 = 0.42;
 /// the way `check-theme-colors.sh`'s own header describes: restyling the
 /// application would change the colour of markup about to be committed, and the
 /// change would only become visible after saving.
-pub fn draw_preview(painter: &Painter, mapping: &PageMapping, preview: Preview) {
+pub fn draw_preview(
+    painter: &Painter,
+    mapping: &PageMapping,
+    preview: Preview,
+    pen: super::pen::Pen,
+) {
     let Preview { kind, from, to } = preview;
     let (a, b) = (mapping.to_screen(from), mapping.to_screen(to));
-    let stroke = Stroke::new(super::pen_px(mapping), super::pen_color(kind));
+    let stroke = Stroke::new(super::pen_px(mapping, pen), super::pen_color(kind, pen));
 
     match kind {
         MarkupKind::Rectangle => {
@@ -266,7 +276,7 @@ pub fn draw_preview(painter: &Painter, mapping: &PageMapping, preview: Preview) 
             painter.rect_filled(
                 egui::Rect::from_two_pos(a, b),
                 CornerRadius::ZERO,
-                highlight_wash(kind),
+                highlight_wash(kind, pen),
             );
         }
         // ★ Not reachable, and spelled rather than wildcarded so an eighth kind
@@ -301,8 +311,8 @@ fn arrowhead(tail: Pos2, head: Pos2) -> [Pos2; 2] {
 
 /// The highlight preview's fill: the pen colour at the alpha a highlight reads
 /// at over content.
-fn highlight_wash(kind: MarkupKind) -> egui::Color32 {
-    let c = super::pen_color(kind);
+fn highlight_wash(kind: MarkupKind, pen: super::pen::Pen) -> egui::Color32 {
+    let c = super::pen_color(kind, pen);
     // DOCUMENT COLOUR: arithmetic on the pen colour above, not a second choice
     // of colour. The alpha is a legibility figure for the *preview* — the
     // committed annotation's translucency is the engine's `/CA`, which pdfce
@@ -364,7 +374,7 @@ mod tests {
         assert!((end.1 - 642.0).abs() < 1e-3, "{end:?}");
 
         let Some(MarkupSpec::Square { rect, .. }) =
-            super::super::spec(MarkupKind::Rectangle, &Geometry::Band { start, end })
+            super::super::spec_default_pen(MarkupKind::Rectangle, &Geometry::Band { start, end })
         else {
             panic!("Rectangle must author a /Square");
         };
@@ -470,6 +480,7 @@ mod tests {
         let mut actions = Vec::new();
         let at = Pos2::new(150.0, 150.0);
         let preview = drag(
+            crate::canvas::markup::pen::Pen::default(),
             MarkupKind::Rectangle,
             at,
             at,
@@ -494,6 +505,7 @@ mod tests {
 
         let mut actions = Vec::new();
         let preview = drag(
+            crate::canvas::markup::pen::Pen::default(),
             MarkupKind::Ellipse,
             from,
             to,
@@ -513,6 +525,7 @@ mod tests {
         assert!(actions.is_empty(), "an in-flight drag must not commit");
 
         let preview = drag(
+            crate::canvas::markup::pen::Pen::default(),
             MarkupKind::Ellipse,
             from,
             to,
@@ -548,6 +561,7 @@ mod tests {
             for phase in [Phase::InFlight, Phase::Complete] {
                 assert_eq!(
                     drag(
+                        crate::canvas::markup::pen::Pen::default(),
                         kind,
                         Pos2::new(10.0, 10.0),
                         Pos2::new(200.0, 160.0),
@@ -573,6 +587,7 @@ mod tests {
         for phase in [Phase::InFlight, Phase::Complete] {
             assert_eq!(
                 drag(
+                    crate::canvas::markup::pen::Pen::default(),
                     MarkupKind::Arrow,
                     Pos2::ZERO,
                     Pos2::new(10.0, 10.0),
@@ -634,8 +649,14 @@ mod tests {
     /// broken.
     #[test]
     fn the_highlight_wash_is_the_pen_colour_with_an_alpha() {
-        let pen = super::super::pen_color(MarkupKind::Highlight);
-        let wash = highlight_wash(MarkupKind::Highlight);
+        let pen = super::super::pen_color(
+            MarkupKind::Highlight,
+            crate::canvas::markup::pen::Pen::default(),
+        );
+        let wash = highlight_wash(
+            MarkupKind::Highlight,
+            crate::canvas::markup::pen::Pen::default(),
+        );
         assert_eq!(
             wash,
             // NOT A THEME COLOUR: a test fixture rebuilding the value under test

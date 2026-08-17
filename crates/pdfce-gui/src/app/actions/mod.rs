@@ -817,6 +817,23 @@ pub enum Action {
         /// is checked by [`crate::canvas::markup::action`] before this is ever
         /// built.
         geometry: crate::canvas::markup::Geometry,
+        /// ★ **The pen the operator had when the gesture completed**, carried
+        /// in the action rather than read at apply time.
+        ///
+        /// The funnel's whole premise is that an `Action` is *plain data
+        /// describing an edit*, and the colour and width are part of what the
+        /// edit is — not context to be looked up later. Reading the live pen in
+        /// the apply arm would author a mark in whatever colour the operator
+        /// happened to have selected by the time the queue drained, which for a
+        /// queue is a real gap and not a theoretical one: the dispatcher raises
+        /// actions during the frame and `apply` runs at the end of it.
+        ///
+        /// It also makes the action **replayable**, which the variant's own
+        /// docs already claim of the rest of its fields: an `Action` a test
+        /// builds, or a future undo/redo surface re-runs, authors the same
+        /// annotation it did the first time rather than the same shape in a
+        /// different colour.
+        pen: crate::canvas::markup::pen::Pen,
     },
     /// ★ **Mark the text the operator has selected** — underline, strikeout or
     /// squiggly.

@@ -172,7 +172,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "style",
                 ribbon::group_markup_style(),
-                [Item::custom("colour_swatch")],
+                [Item::custom(super::COLOUR_SWATCH)],
             ),
             // ---------------------------------------------------------------
             // Comments.

@@ -177,6 +177,20 @@ pub(super) struct Frame<'a> {
     /// a gesture means what it meant when it started, and a mode change
     /// mid-drag is handled by cancelling the drag, not by re-reading it here.
     pub(super) caps: Capabilities,
+    /// ★ The colour and width the next markup will be authored with.
+    ///
+    /// Beside `caps` and `tool` because it belongs to the same triple: `tool`
+    /// is *what* the operator armed, `caps` is *whether* the mode permits it,
+    /// and `pen` is *what it will look like*. All three are sampled once per
+    /// frame and for the same reason — a gesture means what it meant when it
+    /// started, so an operator who changes the pen mid-drag gets the pen they
+    /// had when they pressed, not a stroke whose colour changed under them.
+    ///
+    /// It reaches the **preview** as well as the commit, which is the property
+    /// that makes it worth threading rather than reading at commit time: the
+    /// band drawn while dragging is the pen's real width at this magnification
+    /// and the pen's real colour, so what the operator sees is what lands.
+    pub(super) pen: crate::canvas::markup::pen::Pen,
 }
 
 /// Read the frame's canvas gestures and keys, update the selection, draw it,
@@ -285,8 +299,9 @@ pub(super) fn interact(
         clip,
         tool: active_tool,
         caps,
+        pen,
     } = frame_ctx;
-    let (clip, active_tool, caps) = (*clip, *active_tool, *caps);
+    let (clip, active_tool, caps, pen) = (*clip, *active_tool, *caps, *pen);
     let ctx = ui.ctx().clone();
     let page_index = doc.view.page_index;
 
@@ -631,6 +646,7 @@ pub(super) fn interact(
             // the 129,758-object benchmark sheet decomposes nothing.
             } else if let Some(kind) = active_tool.markup_kind().filter(|k| k.is_vertex()) {
                 markup::vertex::click(
+                    pen,
                     &ctx,
                     kind,
                     page_index,
@@ -811,6 +827,7 @@ pub(super) fn interact(
         } => {
             if kind.is_freehand() {
                 ink_trail = markup::ink::drag(
+                    pen,
                     markup::ink::Stroke {
                         ctx: &ctx,
                         kind,
@@ -824,6 +841,7 @@ pub(super) fn interact(
                 );
             } else {
                 band = markup::band::drag(
+                    pen,
                     kind,
                     from,
                     to,
@@ -1114,14 +1132,14 @@ pub(super) fn interact(
     // exists, and a guide or an outline drawn over the shape being authored
     // would obscure the one thing the operator is aiming.
     if let Some(band) = band {
-        markup::band::draw_preview(&painter, map, band);
+        markup::band::draw_preview(&painter, map, band, pen);
     }
     // …and the freehand trail, on the same argument and in the same layer: while
     // the button is down the stroke IS the cursor, and it is drawn from the
     // simplified point list the release will author rather than from the raw
     // input, so the mark does not visibly change shape at the moment it commits.
     if let Some(trail) = &ink_trail {
-        markup::ink::draw_preview(&painter, map, trail);
+        markup::ink::draw_preview(&painter, map, trail, pen);
     }
     // ★ …and the vertex run, which is drawn on EVERY frame the tool is armed
     // rather than only while a gesture is in flight — because for this family
@@ -1143,6 +1161,7 @@ pub(super) fn interact(
             kind,
             map,
             screen_pos.map(|p| map.to_page(p)),
+            pen,
         );
     }
     // …and the measure preview, on the same argument: while a pick is in

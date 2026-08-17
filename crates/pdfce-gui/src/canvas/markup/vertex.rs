@@ -288,9 +288,9 @@ pub fn page_point(at: Pos2, page: &Page) -> Option<(f64, f64)> {
 /// Finish must not author the same shape again from a run the operator believes
 /// they have spent, and a refused run must survive so they can add the vertex
 /// that was missing.
-pub(crate) fn commit(run: &mut VertexRun, actions: &mut Vec<Action>) -> bool {
+pub(crate) fn commit(run: &mut VertexRun, actions: &mut Vec<Action>, pen: super::pen::Pen) -> bool {
     let geometry = Geometry::Vertices(run.vertices.clone());
-    match super::action(run.kind, run.page_index, geometry) {
+    match super::action(run.kind, run.page_index, geometry, pen) {
         Ok(raised) => {
             let first = run.vertices.first().copied().unwrap_or_default();
             let last = run.vertices.last().copied().unwrap_or_default();
@@ -354,7 +354,12 @@ pub(crate) fn commit(run: &mut VertexRun, actions: &mut Vec<Action>) -> bool {
 /// consulted. That is why `canvas::interact`'s `needs_targets` does not grow a
 /// term for these two — a polygon drawn over the 129,758-object benchmark sheet
 /// decomposes nothing.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a gesture entry point's inputs are eight independent facts about one frame — the               pen, the armed kind, two pointer positions, the page, its geometry, the phase and               the action queue. Grouping any subset into a struct would be grouping by arity               rather than by meaning, and the resulting type would have no name that was true." // ui-text-exempt: lint justification, never displayed
+)]
 pub(crate) fn click(
+    pen: super::pen::Pen,
     ctx: &egui::Context,
     kind: MarkupKind,
     page_index: usize,
@@ -365,7 +370,7 @@ pub(crate) fn click(
 ) {
     let mut run = load(ctx, page_index, kind);
     if double {
-        commit(&mut run, actions);
+        commit(&mut run, actions, pen);
         // ★ Traced with *which* ending asked, which neither the engine's
         // `add-markup` line nor a screenshot can distinguish.
         crate::diag::trace(|| {
@@ -444,6 +449,14 @@ fn pending(ctx: &egui::Context) -> Option<VertexRun> {
         run.kind,
         run.page_index,
         Geometry::Vertices(run.vertices.clone()),
+        // ★ The DEFAULT pen, and only here. This call is a *predicate* — it
+        // asks whether the run would commit at all, to decide whether to offer
+        // Finish — and it throws the resulting action away. The pen changes no
+        // refusal: every one of `action`'s guards is about geometry (finite
+        // coordinates, enough vertices, some extent), and none of them reads a
+        // colour or a width. Threading the live pen here would suggest the
+        // answer depends on it.
+        super::pen::Pen::default(),
     )
     .ok()
     .map(|_| run)
@@ -461,12 +474,12 @@ fn pending(ctx: &egui::Context) -> Option<VertexRun> {
 ///
 /// Returns `false` when there is nothing to finish, so the dispatcher can say
 /// which kind of nothing happened rather than tracing a success it did not have.
-pub fn finish(ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+pub fn finish(ctx: &egui::Context, actions: &mut Vec<Action>, pen: super::pen::Pen) -> bool {
     let Some(mut run) = pending(ctx) else {
         return false;
     };
     let (kind, page_index) = (run.kind, run.page_index);
-    if !commit(&mut run, actions) {
+    if !commit(&mut run, actions, pen) {
         return false;
     }
     store(ctx, run);
@@ -538,6 +551,7 @@ pub(in crate::canvas) fn preview(
     kind: MarkupKind,
     map: &PageMapping,
     pointer: Option<Pos2>,
+    pen: super::pen::Pen,
 ) {
     if !kind.is_vertex() {
         return;
@@ -549,7 +563,7 @@ pub(in crate::canvas) fn preview(
         return;
     }
     let painter = ui.painter();
-    let stroke = egui::Stroke::new(super::pen_px(map), super::pen_color(kind));
+    let stroke = egui::Stroke::new(super::pen_px(map, pen), super::pen_color(kind, pen));
     let screen: Vec<Pos2> = run
         .vertices
         .iter()
@@ -665,6 +679,7 @@ mod tests {
         let mut actions = Vec::new();
         for &(x, y) in points {
             click(
+                crate::canvas::markup::pen::Pen::default(),
                 ctx,
                 kind,
                 0,
@@ -722,6 +737,7 @@ mod tests {
             &[(10.0, 10.0), (40.0, 20.0), (60.0, 50.0)],
         );
         click(
+            crate::canvas::markup::pen::Pen::default(),
             &ctx,
             MarkupKind::PolyLine,
             0,
@@ -764,6 +780,7 @@ mod tests {
             &[(10.0, 10.0), (90.0, 20.0), (50.0, 80.0)],
         );
         click(
+            crate::canvas::markup::pen::Pen::default(),
             &by_click,
             MarkupKind::Polygon,
             0,
@@ -783,7 +800,11 @@ mod tests {
         );
         let mut command_actions = Vec::new();
         assert!(
-            finish(&by_command, &mut command_actions),
+            finish(
+                &by_command,
+                &mut command_actions,
+                crate::canvas::markup::pen::Pen::default()
+            ),
             "the command finishes"
         );
 
@@ -850,7 +871,11 @@ mod tests {
         );
         let mut actions = Vec::new();
         assert!(
-            !finish(&ctx, &mut actions),
+            !finish(
+                &ctx,
+                &mut actions,
+                crate::canvas::markup::pen::Pen::default()
+            ),
             "…and the command refuses it too, by the same predicate"
         );
         assert!(actions.is_empty());
@@ -911,6 +936,7 @@ mod tests {
         let page = test_page();
         let mut actions = run_clicks(&ctx, MarkupKind::Polygon, &[(10.0, 10.0), (40.0, 20.0)]);
         click(
+            crate::canvas::markup::pen::Pen::default(),
             &ctx,
             MarkupKind::Polygon,
             0,
@@ -934,6 +960,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut actions = Vec::new();
         click(
+            crate::canvas::markup::pen::Pen::default(),
             &ctx,
             MarkupKind::PolyLine,
             0,
