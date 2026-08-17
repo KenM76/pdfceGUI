@@ -304,6 +304,36 @@ pub fn is_foreground(w: WindowHandle) -> bool {
 /// press and the release. Reverse order because that is what a human hand
 /// does, and because a shell watching for a chord may key on the release
 /// sequence.
+/// # ★ The pauses are load-bearing, and their absence is why chords silently
+/// did nothing
+///
+/// Added 2026-08-17. Without them this function posted four or more
+/// `keybd_event` calls in the same microsecond, and the result was that **no
+/// chord this harness sent ever reached the application** — while a plain
+/// [`key_stroke`] of the very same key worked. `HANDOFF.md` §8 recorded that
+/// asymmetry as *"synthetic keyboard input does not reach the target window"*
+/// and blocked several checks on it; the truth is narrower and is about
+/// ordering, not delivery.
+///
+/// `keybd_event` posts into the system input queue **asynchronously**. The
+/// target reads that queue on its own schedule — for an `egui`/`winit`
+/// application, once per frame. A modifier-down and a key-down that arrive in
+/// the same batch give the application no frame in which the modifier is held
+/// and the key is not yet pressed, so its notion of "current modifiers" at the
+/// moment it processes the key can still be empty. The key is then delivered
+/// **unmodified**: `Ctrl+2` arrives as a bare `2`, which this shell's keymap
+/// binds to nothing, so nothing is traced and the check reports silence.
+///
+/// That is also exactly why a plain keystroke was unaffected and why the
+/// earlier investigation (which confirmed foreground rights, then tried a
+/// prior click) found nothing: neither had anything to do with it.
+///
+/// 12 ms is one frame at 60 Hz plus margin — enough that the application sees
+/// at least one frame with the modifier down and the key not yet pressed, and
+/// small enough that a chord still completes in well under a tenth of a
+/// second.
+const CHORD_GAP: std::time::Duration = std::time::Duration::from_millis(12);
+
 pub fn key_stroke_with(modifiers: &[u16], vk: u16) {
     // SAFETY: no pointers; the scan-code argument is 0, which tells Windows to
     // derive it from the virtual key. Same contract as `key_stroke`.
@@ -311,8 +341,17 @@ pub fn key_stroke_with(modifiers: &[u16], vk: u16) {
         for m in modifiers {
             keybd_event(*m as u8, 0, 0, 0);
         }
+        // Let the target see a frame with the modifiers held and the key not
+        // yet pressed. See CHORD_GAP.
+        std::thread::sleep(CHORD_GAP);
         keybd_event(vk as u8, 0, 0, 0);
+        std::thread::sleep(CHORD_GAP);
         keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
+        std::thread::sleep(CHORD_GAP);
+        // ★ The releases stay unconditional and un-gated by any early return,
+        // for the reason above: a leaked modifier is a stuck key on the
+        // operator's real keyboard. The sleeps are between the posts, never
+        // around the loop, so no path can skip a release.
         for m in modifiers.iter().rev() {
             keybd_event(*m as u8, 0, KEYEVENTF_KEYUP, 0);
         }
