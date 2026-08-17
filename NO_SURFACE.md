@@ -112,6 +112,15 @@ constant is left in place of a control.
 
 ## 2. Zero surface — snap / grid / guides / rulers / zoom
 
+**★ Two rows here were closed on 2026-08-18** and are struck through rather than
+deleted, for the reason the markup correction above is kept: the *shape* is what
+recurs. Both were **defaults**, not capabilities — the toggle and the fit command
+both existed and worked — and both cost the operator something on **every
+document they ever open** rather than once. That is the property worth scanning
+this list for. A hard-coded value an operator meets once is a preference nobody
+misses; a hard-coded value they have to correct by hand at every open is a
+feature that has quietly been made their job.
+
 | Tunable | Value | Defined | Surface |
 |---|---|---|---|
 | Snap tolerance | 10.0 px | `canvas/snap.rs:136` | none |
@@ -126,9 +135,9 @@ constant is left in place of a control.
 | Ruler min major pitch | 76.0 pt | `canvas/rulers.rs:250` | none |
 | Ruler major / minor tick | 6.0 / 2.5 pt | `canvas/rulers.rs:263,271` | none |
 | Ruler page-span alpha | 40 | `canvas/rulers.rs:280` | none |
-| Rulers / grid / guides **default visibility** | all `false` | `viewer/mod.rs:297-306` | toggles exist (View ▸ Display); **the default is not settable** |
+| ~~Rulers / grid / guides **default visibility**~~ | ~~all `false`~~ | now `app::prefs::PageChrome` | ✅ **Settings ▸ Drawing the page** — 2026-08-18, one setting with three switches |
 | Zoom min / max | 0.10 / 8.0 | `viewer/mod.rs:127,132` | none |
-| Default fit mode | `FitMode::Page` | `viewer/mod.rs:299` | fit commands exist; **default not settable** |
+| ~~Default fit mode~~ | ~~`FitMode::Page`~~ | now `app::prefs::OpeningFit` | ✅ **Settings ▸ Drawing the page** — and it gained a third value, *actual size*, which `FitMode` alone could not express |
 | Zoom-region min extent | 8.0 px | `canvas/zoom.rs:121` | none |
 | Canvas fit margin | 16.0 | `canvas/mod.rs:237` | none |
 | Grip size / grab slack | 8.0 / 2.0 px | `canvas/handles.rs:65,74` | none |

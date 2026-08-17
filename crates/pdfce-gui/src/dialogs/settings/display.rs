@@ -48,7 +48,7 @@
 use egui::Ui;
 
 use super::widgets;
-use crate::app::prefs::{MAX_SETTLE_MS, MIN_SETTLE_MS, Prefs, RenderQuality};
+use crate::app::prefs::{MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, Prefs, RenderQuality};
 use crate::text::settings as t;
 
 /// How sharply a page is rasterised.
@@ -110,6 +110,89 @@ pub fn zoom_settle(ui: &mut Ui, prefs: &mut Prefs) {
             .text(t::settle_slider_label()),
     );
     ui.label(egui::RichText::new(t::settle_note()).small().weak());
+}
+
+/// How the first page of a newly opened document is sized to the window.
+///
+/// # Why this is offered at all, when a fit command already exists
+///
+/// View ▸ Zoom has *Fit page* and *Fit width*, so an operator can already get
+/// any of these three in one click. What they cannot do is get it **without**
+/// the click, on every document, forever — and `viewer::remembered` persists
+/// the page-display arrangement and nothing else, deliberately. This is the
+/// difference between a command and a preference, and it is the whole content
+/// of the operator's 2026-08-17 report: the capability was there and the
+/// *default* was not settable.
+///
+/// # A radio group, not a dropdown
+///
+/// Three values, each needing a sentence about what it costs on a large sheet.
+/// A dropdown shows one at a time and hides the comparison, which is the only
+/// thing that makes the choice decidable.
+pub fn opening_fit(ui: &mut Ui, prefs: &mut Prefs) {
+    widgets::header(
+        ui,
+        t::opening_fit_title(),
+        t::opening_fit_silence(),
+        t::opening_fit_radius(),
+    );
+    for option in OpeningFit::ALL {
+        widgets::option(
+            ui,
+            &mut prefs.opening_fit,
+            *option,
+            t::opening_fit_label(*option),
+            Some(t::opening_fit_note(*option)),
+        );
+    }
+}
+
+/// Which of the three View ▸ Display overlays are already on when a document
+/// opens.
+///
+/// # ★ One setting with three switches, not three settings
+///
+/// [`widgets::toggle`]'s own documentation carries the control-shape argument.
+/// The reason they are **one setting** is different and is about the operator
+/// rather than the widget: the three interlock. A guide is dragged out of a
+/// ruler gutter, so `guides` without `rulers` is a switch that appears to do
+/// nothing. That relationship needs saying once, in a place all three readers
+/// will be looking — which is what a single header and a shared disclosure buy.
+///
+/// # The disclosure is not a note under the guides switch
+///
+/// It is true whichever way that switch is set — a document with remembered
+/// guides opens with them showing either way — so it belongs to the setting
+/// rather than to one of its parts. Putting it under the switch would make it
+/// read as an argument for turning guides on, which it is not; it is a fact
+/// about what pdfce will do regardless. Same distinction the replacement-text
+/// bound makes, and `widgets::disclosure` exists for exactly this.
+pub fn page_chrome(ui: &mut Ui, prefs: &mut Prefs) {
+    widgets::header(
+        ui,
+        t::chrome_title(),
+        t::chrome_silence(),
+        t::chrome_radius(),
+    );
+    widgets::toggle(
+        ui,
+        &mut prefs.chrome.rulers,
+        t::chrome_rulers_label(),
+        Some(t::chrome_rulers_note()),
+    );
+    widgets::toggle(
+        ui,
+        &mut prefs.chrome.grid,
+        t::chrome_grid_label(),
+        Some(t::chrome_grid_note()),
+    );
+    widgets::toggle(
+        ui,
+        &mut prefs.chrome.guides,
+        t::chrome_guides_label(),
+        Some(t::chrome_guides_note()),
+    );
+    widgets::disclosure(ui, t::chrome_guides_bound());
 }
 
 #[cfg(test)]

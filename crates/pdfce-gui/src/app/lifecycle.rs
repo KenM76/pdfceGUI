@@ -200,6 +200,49 @@ impl PdfceApp {
         // effect is to make the next reader check what it guards.
         self.adopt_settings();
 
+        // ★ Apply the OPENING preferences — how this page is fitted, and which
+        // overlays are already on.
+        //
+        // Here rather than inside `adopt_settings`, and the distinction is the
+        // whole reason this is a second statement. `adopt_settings` runs on
+        // **every settings Save** as well as on every open, because it is what
+        // hands the new configuration to the document and drops the caches
+        // derived under the old one. Seeding the view from inside it would mean
+        // that pressing Save in the Settings window snapped the operator's page
+        // back to fit-page and switched their rulers off — an edit to the view
+        // they are looking at, caused by a preference about the *next* document
+        // they open. `Prefs::opening_fit`'s own docs state the rule: read once,
+        // never consulted again.
+        //
+        // After `adopt_settings` rather than before, because that is the call
+        // that puts the operator's preferences on the document at all;
+        // `OpenDoc::assemble` starts every document on the shipped defaults.
+        // Seeding first would seed from those.
+        //
+        // Unconditional in the same sense as the call above: a failed open has
+        // no document and the `let else` falls through.
+        if let crate::app::state::Status::Open(doc) = &mut self.status {
+            // Cloned rather than borrowed: `seed_view` takes `&self` on the
+            // preferences and `&mut` on the view, and both live on `doc` once
+            // `adopt_settings` has copied them across. A four-field `Copy`-able
+            // struct is cheaper to clone than the borrow split is to argue.
+            let prefs = doc.prefs.clone();
+            prefs.seed_view(&mut doc.view);
+            // Kept in step with the seeded zoom for the reason `assemble` sets
+            // it from `view.zoom` in the first place: a document whose
+            // `observed_zoom` disagreed with its `zoom` before the first frame
+            // reads as one whose zoom was changed by something, and the settle
+            // machinery would commit a rasterisation nobody asked for.
+            doc.observed_zoom = doc.view.zoom;
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "opening-view fit={:?} zoom={:.3} rulers={} grid={} guides={}",
+                    doc.view.fit, doc.view.zoom, doc.view.rulers, doc.view.grid, doc.view.guides,
+                )
+            });
+        }
+
         // ★ Forget the panels' own view state, because a NEW DOCUMENT is
         // open and none of it describes anything any more.
         //

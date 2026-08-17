@@ -376,6 +376,19 @@ pub fn show(
                         display::render_quality(ui, &mut draft.working_prefs);
                         ui.add_space(10.0);
                         display::zoom_settle(ui, &mut draft.working_prefs);
+                        // ★ The two "when a document opens" settings come after
+                        // the two "how a frame is drawn" ones, and the order is
+                        // the group's argument rather than the order they were
+                        // built in. A reader scanning the group meets the
+                        // settings that affect what they are looking at now,
+                        // then the ones that affect the next thing they open —
+                        // and the second pair's radius lines both say so, so a
+                        // reader who stops after the first two has not been
+                        // misled about what the ones below do.
+                        ui.add_space(10.0);
+                        display::opening_fit(ui, &mut draft.working_prefs);
+                        ui.add_space(10.0);
+                        display::page_chrome(ui, &mut draft.working_prefs);
                     });
                     widgets::group(ui, "saving", t::group_saving(), false, |ui| {
                         saving::xref_entry_eol(ui, draft);

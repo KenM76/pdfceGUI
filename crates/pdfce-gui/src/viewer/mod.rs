@@ -184,7 +184,23 @@ pub struct ZoomAnchor {
 
 /// Which page is shown, at what scale, how that scale is chosen, and in what
 /// arrangement.
-#[derive(Debug, Clone, Copy)]
+///
+/// ## ★ `PartialEq` is here for one test, and it is the right one
+///
+/// Added 2026-08-18 with [`crate::app::prefs::Prefs::seed_view`], whose
+/// contract is *"seeding from the shipped preferences leaves a freshly opened
+/// view untouched"*. That property is only assertable as **whole-struct
+/// equality**: checking the fields the seeder writes would pass while a fifth
+/// field was silently clobbered, and checking the fields it does not write
+/// requires listing them, which is the same restatement drifting in a second
+/// place.
+///
+/// Deriving it over an `f32` is deliberate rather than overlooked. This struct
+/// is a *record of choices* — a zoom that was set, not a zoom that was computed
+/// — so two states that arrived at 1.0 by different routes genuinely are the
+/// same state. The float-comparison caution applies to accumulated arithmetic,
+/// and there is none here.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ViewState {
     /// **The page the operator is looking at**, 0-based into the flattened
     /// page vector.

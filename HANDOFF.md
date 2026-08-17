@@ -507,12 +507,59 @@ python tools/package-portable.py --verify --note "what this milestone added"
 nothing and leaves no folder. When it is not run, `BUILD-INFO.txt` says so
 in those words.
 
-**"Integrated with pdfce as a single exe" needs no fold-in.** `pdfce-gui`
-depends on `pdfce-core` and `pdfce-render` **by path**, and Rust links them
-statically — the release binary already carries the engine. Folding this
+**"Integrated with pdfce as a single exe" needs no fold-in.** Rust links the
+engine statically, so the release binary already carries it. Folding this
 shell into `D:\Dev\pdfce` today would ship a *regression*, because measure,
 redaction, the settings dialog and text editing still live only in the old
 shell.
+
+### ★★ The engine is PINNED, and it goes stale silently — checked 2026-08-18
+
+The sentence above used to say *"depends on `pdfce-core` and `pdfce-render`
+**by path**"*. **That has been false since 2026-08-14** and the consequence
+is not cosmetic:
+
+```toml
+pdfce-core   = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", … }
+pdfce-render = { git = "https://github.com/KenM76/pdfce", rev = "718d1e9d4", … }
+```
+
+It fetches from **GitHub**, not from `D:\Dev\pdfce`. So the local engine tree
+can move arbitrarily far ahead and nothing here notices — no compile error, no
+warning, no test. It measured **seven commits behind** on 2026-08-18, and one
+of the seven was `1e7a0be`: images in `Separation`, `DeviceN`, `Lab`, `CalGray`
+and `CalRGB` went from `UnsupportedColorSpace` — *dropped from the raster
+entirely* — to decoding. Eighteen pictures on the operator's own file. It also
+fixed `/Separation /None` painting white, which **erases the backdrop** on a
+real page.
+
+So on that date **the old shell rendered a file correctly and this one did
+not**, purely because the old shell uses `.workspace = true` and builds the
+local engine. That is the reverse of what anyone assumes and it is the exact
+failure mode a pin creates.
+
+**Three things follow, and the third is the one that will be forgotten:**
+
+1. **The direction is engine → shells.** Nothing this project builds flows into
+   `D:\Dev\pdfce`, and compiling the old GUI there inherits nothing from here.
+   The operator asked this directly on 2026-08-18 and the assumption was the
+   other way round.
+2. **`origin/main` is what this shell can see**, not local `main`. On
+   2026-08-18 `origin/main` was `718d1e9` and local `main` was `f08effd`, so
+   the seven commits were **unpushed** — bumping the pin was impossible until
+   they were pushed, which is the operator's act and not this project's.
+3. **Bumping is scheduled work, not remembered work.** It has no failing test
+   behind it — the same structural weakness as the RON regeneration in §10,
+   and worse, because the RON at least fails for whoever next touches the
+   manifest. Check it whenever a rendering complaint arrives:
+
+   ```bash
+   cd /d/Dev/pdfce && git rev-list --count 718d1e9d4..origin/main
+   ```
+
+   Non-zero means this shell is rendering with an older engine than the
+   repository has, and **a rendering complaint should be checked against that
+   before it is investigated as a shell defect.**
 
 **Known environment quirk:** `--verify` may report the gates as skipped
 because a spawned bash does not inherit `~/.cargo/bin`. If that happens,

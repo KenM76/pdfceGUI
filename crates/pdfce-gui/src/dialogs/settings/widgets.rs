@@ -152,6 +152,46 @@ pub fn option<T: PartialEq>(
     }
 }
 
+/// One switch, with an optional gloss under it.
+///
+/// # ★ The fourth shape, and why a two-option radio group was refused
+///
+/// This module's header opens *"the three shapes every setting is made of"*,
+/// and a fourth arriving needs a better reason than convenience. It has one: a
+/// **switch is not a choice between named alternatives**.
+///
+/// [`option`] draws a radio, which is the right control when the operator is
+/// picking one of several *named things* — `Nearest sample`, `Average the
+/// area` — and the names carry the content of the choice. A visibility toggle
+/// has no such names. Rendering it as a radio group would mean inventing the
+/// pair *"Shown" / "Hidden"*, which says nothing the checkbox's own label does
+/// not, and it would draw **six** controls for the three overlays where three
+/// belong. Worse, three adjacent two-radio groups read as though the six were
+/// somehow related — a reader scanning them has to work out that they are three
+/// independent switches and not one six-way choice.
+///
+/// # Why the label is on the checkbox rather than in a [`header`]
+///
+/// Because these are the sub-parts of **one** setting rather than settings in
+/// their own right. The Drawing-the-page group's overlay control has a single
+/// header — one title, one silence line, one radius line — and three switches
+/// under it, because the three interlock: a guide is dragged out of a ruler, so
+/// switching guides on without rulers places nothing. Giving each its own
+/// header would print that explanation three times, or once, in a place two of
+/// the three readers would not look.
+///
+/// `note` is `Option` for the same reason it is on [`option`]: a label that
+/// needs no gloss should not get a padded one, because text that says nothing
+/// trains the reader to stop reading the text that does.
+pub fn toggle(ui: &mut Ui, value: &mut bool, label: &str, note: Option<&str>) {
+    ui.checkbox(value, label);
+    if let Some(note) = note
+        && !note.is_empty()
+    {
+        ui.label(RichText::new(note).small().weak());
+    }
+}
+
 /// A sentence the operator must see but that belongs to the **setting**, not to
 /// any one of its options.
 ///

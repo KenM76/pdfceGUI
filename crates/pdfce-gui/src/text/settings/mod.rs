@@ -308,16 +308,37 @@ pub const fn group_display() -> &'static str {
 mod tests {
     use super::*;
 
-    /// ★ Every setting answers all three obligations, and none of the answers
-    /// is empty.
+    /// **How many settings the window offers.**
     ///
-    /// The mechanical half of the window's stated contract. A setting added
-    /// with a title and no silence line would compile — the helper takes
-    /// `&str` — and would ship a control that says what it is and never says
-    /// why the operator is being asked.
-    #[test]
-    fn every_setting_states_its_silence_and_its_radius() {
-        let triples: &[(&str, &str, &str)] = &[
+    /// Quoted by two tests that approach it from opposite ends — the copy
+    /// catalog below, and [`the_window_draws_exactly_the_settings_this_catalog_describes`],
+    /// which counts the controls the dialog actually builds. Neither is
+    /// meaningful without the other: a catalog can describe a setting nobody
+    /// draws, and a dialog can draw one nobody described.
+    ///
+    /// 13 answers to a silent standard, plus 4 preferences of the shell's own.
+    const SETTINGS_COUNT: usize = 17;
+
+    /// The `(title, silence, radius)` triple for every setting in the window.
+    ///
+    /// ★ **Hoisted out of the test it used to live inside, on 2026-08-18, when
+    /// it turned out to be four short.**
+    ///
+    /// The list held exactly the thirteen `pdfce_core::settings` entries and
+    /// had never grown: the *Drawing the page* group's two preferences were
+    /// added on 2026-08-17 and neither reached it, so the window's own stated
+    /// contract — *"a setting cannot be added without answering all three,
+    /// because the code does not compile otherwise"* — was being checked over a
+    /// subset of the window while reading as though it covered all of it.
+    ///
+    /// The `header` helper's required arguments did their job: both settings
+    /// **do** answer all three. What was missing was any check that they were
+    /// non-empty, and nothing would have caught a `""` passed to satisfy the
+    /// signature. That is the whole failure mode the test exists for, and it
+    /// had quietly stopped applying to the newest group — which is this
+    /// project's most common defect shape wearing a fifth set of clothes.
+    fn triples() -> Vec<(&'static str, &'static str, &'static str)> {
+        vec![
             (theme_title(), theme_silence(), theme_radius()),
             (
                 cmyk_intent_title(),
@@ -355,13 +376,147 @@ mod tests {
                 trailing_eol_silence(),
                 trailing_eol_radius(),
             ),
-        ];
-        assert_eq!(triples.len(), 13, "thirteen settings, one triple each");
+            // ★ The four in the *Drawing the page* group — the shell's own
+            // preferences rather than answers to a silent standard. They are
+            // in this list for exactly the same reason the thirteen above are:
+            // the obligation is a property of a **control in this window**, not
+            // of which file its value happens to be stored in.
+            (quality_title(), quality_silence(), quality_radius()),
+            (settle_title(), settle_silence(), settle_radius()),
+            (
+                opening_fit_title(),
+                opening_fit_silence(),
+                opening_fit_radius(),
+            ),
+            (chrome_title(), chrome_silence(), chrome_radius()),
+        ]
+    }
+
+    /// ★ Every setting answers all three obligations, and none of the answers
+    /// is empty.
+    ///
+    /// The mechanical half of the window's stated contract. A setting added
+    /// with a title and no silence line would compile — the helper takes
+    /// `&str` — and would ship a control that says what it is and never says
+    /// why the operator is being asked.
+    #[test]
+    fn every_setting_states_its_silence_and_its_radius() {
+        let triples = triples();
+        assert_eq!(
+            triples.len(),
+            SETTINGS_COUNT,
+            "one triple per setting in the window"
+        );
         for (title, silence, radius) in triples {
             assert!(!title.is_empty(), "a setting with no title");
             assert!(!silence.is_empty(), "{title:?} does not say what is open");
             assert!(!radius.is_empty(), "{title:?} does not say what it costs");
         }
+    }
+
+    /// ★ **The window draws exactly the settings this catalog describes.**
+    ///
+    /// Written 2026-08-18, and it is the guard that would have caught the
+    /// omission [`triples`] documents. Everything else about the window's
+    /// contract is enforced from the copy side: `header`'s signature forces
+    /// three arguments, and the test above forces three non-empty answers. Both
+    /// are blind to the failure that actually happened, which is a control
+    /// drawn in the dialog and never entered in the catalog — because a catalog
+    /// cannot notice something that is not in it.
+    ///
+    /// So this counts from the **other** end: it parses the dialog's own source
+    /// and counts the [`crate::dialogs::settings::widgets::header`] calls the
+    /// application actually makes.
+    ///
+    /// # Why `syn` and not a grep
+    ///
+    /// The same reason `shell::commands::reach` uses it: a substring search
+    /// would count the word in a doc comment, in a string, or in
+    /// `widgets.rs`'s own `header(ui, title, silence, radius)` sketch — which
+    /// is inside a fenced block and is not code. The syntax tree contains no
+    /// comments, so a header discussed is not a header called.
+    ///
+    /// # Why the file list is written out
+    ///
+    /// `include_str!` needs a literal path, and that is the useful half rather
+    /// than the awkward half: a **moved or deleted module is a compile error**,
+    /// so "scanned nothing" cannot pass as "found nothing" — the trap
+    /// `reach.rs` names in its own header. A *new* group module is the one case
+    /// this cannot see by construction, and it fails in the right direction:
+    /// its settings will be in neither list, the counts still agree, and the
+    /// catalog test then fails on the missing triples. The cost is that the
+    /// author has to add one line here; the alternative is a directory walk at
+    /// test time, which is the runtime file read `reach.rs` refused.
+    #[test]
+    fn the_window_draws_exactly_the_settings_this_catalog_describes() {
+        // Every module under `dialogs/settings/` that draws a setting. `mod.rs`
+        // draws none (it composes groups) and `widgets.rs` defines the helper
+        // rather than calling it.
+        const GROUP_SOURCES: &[(&str, &str)] = &[
+            (
+                "appearance",
+                include_str!("../../dialogs/settings/appearance.rs"),
+            ),
+            ("colour", include_str!("../../dialogs/settings/colour.rs")),
+            ("display", include_str!("../../dialogs/settings/display.rs")),
+            ("images", include_str!("../../dialogs/settings/images.rs")),
+            (
+                "measuring",
+                include_str!("../../dialogs/settings/measuring.rs"),
+            ),
+            ("pages", include_str!("../../dialogs/settings/pages.rs")),
+            ("saving", include_str!("../../dialogs/settings/saving.rs")),
+            ("text", include_str!("../../dialogs/settings/text.rs")),
+        ];
+
+        /// Counts calls whose callee path ends in `header`.
+        ///
+        /// Matching on the **last segment** rather than the full path, because
+        /// the call is written `widgets::header` today and `super::widgets::header`
+        /// or a plain `header` after an import would be the same call. Nothing
+        /// else in these modules is named `header`, so the loose match costs
+        /// nothing and survives an import style change.
+        struct Counter(usize);
+        impl<'ast> syn::visit::Visit<'ast> for Counter {
+            fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+                if let syn::Expr::Path(path) = &*call.func
+                    && path
+                        .path
+                        .segments
+                        .last()
+                        .is_some_and(|s| s.ident == "header")
+                {
+                    self.0 += 1;
+                }
+                // Recurse: a header called inside a closure or a nested block
+                // is still a header drawn.
+                syn::visit::visit_expr_call(self, call);
+            }
+        }
+
+        let mut drawn = 0;
+        for (name, src) in GROUP_SOURCES {
+            let file = syn::parse_file(src)
+                .unwrap_or_else(|e| panic!("dialogs/settings/{name}.rs did not parse: {e}"));
+            let mut counter = Counter(0);
+            syn::visit::visit_file(&mut counter, &file);
+            assert!(
+                counter.0 > 0,
+                "dialogs/settings/{name}.rs draws no setting at all — either it \
+                 stopped being a group module, or the header call is written in \
+                 a shape this counter does not recognise. The second is the \
+                 dangerous one: it would silently under-count."
+            );
+            drawn += counter.0;
+        }
+
+        assert_eq!(
+            drawn, SETTINGS_COUNT,
+            "the dialog draws {drawn} settings and this catalog describes \
+             {SETTINGS_COUNT}. A setting drawn but not catalogued ships with \
+             copy nothing checks; a setting catalogued but not drawn is copy \
+             nobody can read."
+        );
     }
 
     /// ★ Every setting that changes SAVED BYTES says so, and no other does.
@@ -422,6 +577,16 @@ mod tests {
             unmappable_radius(),
             actual_text_radius(),
             missing_as_radius(),
+            // ★ All four of the shell's own preferences are preview-only, and
+            // they are listed here rather than exempted. A preference file is
+            // still a file, so "does not change the file" is a claim worth
+            // pinning: it means *your PDF*, and an operator reading it needs it
+            // to keep meaning that if a preference ever gains a document-facing
+            // consequence.
+            quality_radius(),
+            settle_radius(),
+            opening_fit_radius(),
+            chrome_radius(),
         ] {
             assert!(
                 !touches_bytes(radius),

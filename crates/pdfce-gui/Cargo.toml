@@ -140,18 +140,41 @@ eframe.workspace = true
 egui.workspace = true
 
 # ---------------------------------------------------------------------------
-# PATH DEPENDENCIES INTO THE READ-ONLY ENGINE (PROJECT_PLAN.md §2)
+# DEPENDENCIES ON THE READ-ONLY ENGINE (PROJECT_PLAN.md §2)
 # ---------------------------------------------------------------------------
 #
-# `../../../pdfce/…` resolves from `D:\Dev\pdfceGUI\crates\pdfce-gui\`:
-#   crates/pdfce-gui -> crates -> pdfceGUI -> Dev, then down into
-#   `pdfce/crates/…`. Verified to resolve, not assumed.
+# ★ CORRECTED 2026-08-18. This block was headed "PATH DEPENDENCIES" and
+# argued at length for relative paths into `D:\Dev\pdfce`, above lines that
+# have been **git revision pins** since 2026-08-14. The argument it made —
+# "this crate always builds against the live engine" — stopped being true
+# on that day and the prose did not move with the code. It is corrected
+# rather than deleted, because the trade it describes is real and a future
+# reader deciding whether to go back to paths needs both halves of it.
 #
-# These are paths rather than a vendored copy ON PURPOSE, and the
-# consequence is the point: **this crate always builds against the live
-# engine.** If `pdfce-core` changes under us we find out at compile time
-# rather than at fold-in, months later, all at once. A vendored copy would
-# hide divergence until the worst possible moment.
+# What paths bought, and what the pin costs:
+#
+#   * A path build ALWAYS compiled against `D:\Dev\pdfce`'s working tree,
+#     so an engine change that broke this shell was a compile error the
+#     same afternoon rather than a surprise at fold-in.
+#   * A pinned build does not follow that tree AT ALL. It fetches the
+#     named commit from GitHub. So the engine can move — locally, or on
+#     `main` — and this shell keeps building happily against whatever it
+#     was pinned to, INCLUDING PAST A RENDERING FIX IT NEEDS.
+#
+# That is not hypothetical: on 2026-08-18 `D:\Dev\pdfce` was seven commits
+# ahead of this pin and one of them was `1e7a0be`, which made images in
+# `Separation`, `DeviceN`, `Lab`, `CalGray` and `CalRGB` decode at all
+# instead of being dropped from the raster. Eighteen pictures on the
+# operator's own file. The old shell — which still uses `.workspace = true`
+# and therefore builds the LOCAL engine — rendered that file correctly
+# while this one did not, which is the reverse of what anybody expects.
+#
+# The pin stays, because the reason for it also stands: source cloned from
+# GitHub must build for someone who does not happen to have `pdfce`
+# checked out as a sibling directory, and `main` moves, so a shell built
+# against whatever the engine was that morning is a build nobody can
+# reproduce. **The obligation the pin creates is that bumping it is a
+# scheduled act, not something to be remembered** — see `HANDOFF.md` §7.
 #
 # `D:\Dev\pdfce` is READ-ONLY for this project (PROJECT_PLAN.md §6.1).
 # Anything the engine needs to grow is a written hand-off to

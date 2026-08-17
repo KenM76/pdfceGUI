@@ -549,3 +549,183 @@ pub const fn settle_note() -> &'static str {
      picture on screen for a moment after you stop, which reads as blurry. \
      pdfce ships 150."
 }
+
+// ===========================================================================
+// Display — what you see when a document FIRST OPENS
+// ===========================================================================
+//
+// ★ Two settings, both `look` radius, and both saying the same thing in their
+// radius line: **they apply to the next document, not to this one.**
+//
+// That sentence is not padding and it is not a limitation being apologised
+// for. It is the answer to the question an operator asks the moment they
+// change either of these with a document already on screen — *why did nothing
+// happen?* — and it is a deliberate design decision rather than a shortcoming:
+// applying them live would resize the page the operator is looking at and
+// switch off overlays they turned on by hand, because of a preference about
+// documents in general. `app::prefs::Prefs::opening_fit` carries the argument.
+
+/// Opening fit: what it is.
+#[must_use]
+pub const fn opening_fit_title() -> &'static str {
+    "How a page is sized when a document opens"
+}
+
+/// Opening fit: what is open.
+///
+/// As the two settings above it — nothing. The PDF standard has an opinion
+/// about page *size*; it has none about how a viewer chooses to fit that size
+/// to a window, which is why this is a preference rather than an ambiguity.
+#[must_use]
+pub const fn opening_fit_silence() -> &'static str {
+    "Not a question about the PDF standard — the page has a size, and this is \
+     how much of it pdfce shows you first."
+}
+
+/// Opening fit: what changing it costs.
+#[must_use]
+pub const fn opening_fit_radius() -> &'static str {
+    "Applies to the next document you open, not to the one on screen. Does not \
+     change the file."
+}
+
+/// One opening fit's name.
+#[must_use]
+pub const fn opening_fit_label(fit: crate::app::prefs::OpeningFit) -> &'static str {
+    use crate::app::prefs::OpeningFit as F;
+    match fit {
+        F::Page => "The whole page (pdfce's default)",
+        F::Width => "The full width",
+        F::ActualSize => "Actual size",
+    }
+}
+
+/// One opening fit's description.
+///
+/// Each names what it costs on a **large sheet**, because that is the case
+/// where they differ and it is the case this shell exists for. On a letter page
+/// at a normal window size all three look much the same, and copy written
+/// against that case would tell the operator nothing about the choice they are
+/// actually making.
+#[must_use]
+pub const fn opening_fit_note(fit: crate::app::prefs::OpeningFit) -> &'static str {
+    use crate::app::prefs::OpeningFit as F;
+    match fit {
+        F::Page => {
+            "Always shows you the thing you just opened, whatever size it is. \
+             On a large drawing that means the detail starts small."
+        }
+        F::Width => {
+            "Fills the window edge to edge and lets the bottom run off screen. \
+             Good for reading down a long sheet; on a wide drawing it is barely \
+             different from the whole page."
+        }
+        F::ActualSize => {
+            "One dot on screen for one point on the page — the size it would \
+             print at, near enough. On an A1 sheet you will be looking at a \
+             corner of it."
+        }
+    }
+}
+
+/// Page overlays: what they are.
+#[must_use]
+pub const fn chrome_title() -> &'static str {
+    "What is switched on when a document opens"
+}
+
+/// Page overlays: what is open.
+///
+/// Names the thing an operator is most likely to have come here about — that
+/// these are switches they have to flick on every single document — because the
+/// group headings are how a symptom finds its setting and this is the symptom.
+///
+/// ★ **It says "the View tab" rather than "View ▸ Display", and that is not a
+/// style choice.** `icons::glyphs`' coverage gate refused the first draft: the
+/// font stack this shell ships cannot draw `U+25B8 ▸`, so the separator this
+/// project's *documentation* uses everywhere would have rendered as a
+/// substitution box in front of the operator. The gate found it on the first
+/// run of the new copy, which is the second real tofu it has caught. Internal
+/// notation is not operator copy.
+#[must_use]
+pub const fn chrome_silence() -> &'static str {
+    "Also not a standards question. These are the three switches in the View \
+     tab's Display group. pdfce does not remember them per document, so \
+     without this they start off every time."
+}
+
+/// Page overlays: what changing them costs.
+#[must_use]
+pub const fn chrome_radius() -> &'static str {
+    "Applies to the next document you open, not to the one on screen. Does not \
+     change the file."
+}
+
+/// The rulers switch.
+#[must_use]
+pub const fn chrome_rulers_label() -> &'static str {
+    "Rulers"
+}
+
+/// What turning the rulers on costs.
+///
+/// ★ It states the cost, and the cost is real rather than rhetorical: the
+/// gutters come off the drawing area, on every document, for as long as the
+/// preference is set. `ViewState::default`'s own comment calls this *"the one
+/// default that has a measurable cost"*, which is why it ships off — and an
+/// operator turning it on permanently deserves to be told what they are
+/// spending.
+#[must_use]
+pub const fn chrome_rulers_note() -> &'static str {
+    "A measuring strip down the top and left edges. It takes that strip out of \
+     the space the drawing gets, on every page."
+}
+
+/// The grid switch.
+#[must_use]
+pub const fn chrome_grid_label() -> &'static str {
+    "Grid"
+}
+
+/// What the grid is.
+#[must_use]
+pub const fn chrome_grid_note() -> &'static str {
+    "A drafting grid drawn over the page. It is never part of the document and \
+     never prints."
+}
+
+/// The guides switch.
+#[must_use]
+pub const fn chrome_guides_label() -> &'static str {
+    "Guides"
+}
+
+/// What the guides switch does, and what it does not.
+///
+/// ★ **The second sentence is the whole reason this control has notes at all.**
+/// `canvas::guides::ruler_drag` registers nothing when the rulers are hidden,
+/// so an operator who switches guides on and cannot place one has met a
+/// coupling the program never told them about. Saying it here costs one line
+/// and saves the conclusion that the feature is broken.
+#[must_use]
+pub const fn chrome_guides_note() -> &'static str {
+    "Guide lines you drag onto the page to line things up. You drag them out \
+     of a ruler, so switch the rulers on too or there is nothing to drag from."
+}
+
+/// What pdfce does about guides a document already has.
+///
+/// A [`crate::dialogs::settings::widgets::disclosure`] rather than a note under
+/// the guides switch, because it is true **whichever way that switch is set** —
+/// which is exactly the distinction that widget documents, and the same reason
+/// the replacement-text bound is one.
+///
+/// It exists because the alternative is silent surprise in the honest
+/// direction: an operator who sets this off will still see guides appear on the
+/// documents they placed guides on, and with nothing said that reads as the
+/// preference not working.
+#[must_use]
+pub const fn chrome_guides_bound() -> &'static str {
+    "Whichever you choose, a document you have already placed guides on opens \
+     with them showing. Work you did outranks a default."
+}

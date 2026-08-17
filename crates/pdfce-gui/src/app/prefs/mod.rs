@@ -34,7 +34,7 @@
 //! The file is meant to be hand-editable, and a parser that fails a whole
 //! document over one typo punishes the operator for using it.
 //!
-//! ## ★ Why this is TWO settings and not seven
+//! ## ★ Why the RENDER settings were two and not seven
 //!
 //! `RIBBON_IA.md` §5.2 commissioned a View ▸ Render group of five, plus two
 //! behaviour settings, and `shell::manifest`'s `DIRECTED` list carried all
@@ -47,7 +47,7 @@
 //! | commissioned | verdict |
 //! |---|---|
 //! | **Render quality** | ✅ [`RenderQuality`] — a raster-scale multiplier. `viewer::raster_scale` was `zoom × pixels_per_point` exactly, with no multiplier at all, so this is new capability rather than an exposed constant |
-//! | **Zoom settle delay** | ✅ [`Prefs::zoom_settle`] — `render::settle::ZOOM_SETTLE` was a compiled-in 150 ms |
+//! | **Zoom settle delay** | ✅ [`Prefs::zoom_settle_ms`] — `render::settle::ZOOM_SETTLE` was a compiled-in 150 ms |
 //! | Render strategy (whole page · tiled progressive) | ❌ there is no tiled-progressive path in this shell. `pdfce_render::render_page_region` exists, so it is buildable — but it is a rendering **architecture**, not a setting, and a radio offering it would be an affordance for a code path that does not exist |
 //! | Thin lines | ❌ `RenderOptions` has no such field. Verified by reading its eleven public fields |
 //! | Antialiasing | ❌ `interpret.rs` sets `anti_alias: true` as a literal at two call sites and `RenderOptions` exposes no knob. (`shading.rs`'s `anti_alias` is the *document's* `/AntiAlias` key — a property of the shading pattern, not a viewer preference, and honouring it is correct.) |
@@ -63,119 +63,41 @@
 //! turns out to be wrong, the fix is deleting eight rows from one list rather
 //! than re-deriving which entries were deliberate"* — and that is what
 //! happened.
+//!
+//! ## ★ …and then two more arrived, from the opposite direction
+//!
+//! [`opening`]'s two preferences — how the first page is fitted, and which
+//! overlays are already on — were **not** commissioned by `RIBBON_IA.md`. They
+//! came out of the `NO_SURFACE.md` sweep, which is the inventory of *every
+//! tunable an operator would plausibly want to change and cannot*, and they are
+//! the two rows in it that cost an operator something on **every document they
+//! ever open** rather than once.
+//!
+//! That contrast is worth carrying, because it says where the next preference
+//! will come from. The commissioned list was written from the outside, before
+//! the shell existed, and five of its seven turned out to name nothing. The
+//! sweep was written from the inside, by reading the constants the code
+//! actually holds, and both of its candidates were real. **An inventory of what
+//! the program does beats a wishlist of what it might.**
+//!
+//! ## The two stores are two files, and the operator never finds out
+//!
+//! `dialogs::settings::Draft` edits both and the window has one Save and one
+//! Cancel. See its `working_prefs` field, which states the rule: *"one Cancel
+//! discards both, one Save writes both, and `is_dirty` is true if either
+//! moved."*
+
+/// What an operator is shown when a page **first appears** — read once per
+/// document open, never on the hot path.
+pub mod opening;
+/// How sharply a page is drawn, and how long zoom waits before drawing it.
+/// The two preferences that change what a **frame costs**.
+pub mod quality;
 
 use std::path::PathBuf;
 
-/// How sharply a page is rasterised, as a multiplier on the natural scale.
-///
-/// # What "natural" is, and why this multiplies rather than replaces
-///
-/// `viewer::raster_scale` is `zoom × pixels_per_point`: one raster pixel per
-/// *device* pixel, which is the scale at which a page is exactly as sharp as
-/// the display can show and no sharper. That is the right default and it is
-/// what [`RenderQuality::Normal`] means.
-///
-/// The two other values trade against it in opposite directions, and both are
-/// real needs on the drawings this shell is for:
-///
-/// - **Faster** renders at 0.75× and lets the GPU upscale. On the benchmark
-///   CAD sheet — 5.6 MB of dense vector site plan — that is roughly half the
-///   pixels and therefore roughly half the rasterisation time, at the cost of
-///   softness that is most visible on the thin linework such a drawing is
-///   made of. An operator panning around a big sheet looking for something may
-///   well want it; an operator checking a dimension will not.
-/// - **Sharper** renders at 1.5×. Pointless on most content and genuinely
-///   better on small text over a hairline grid, where a device pixel straddles
-///   two strokes and neither survives.
-///
-/// # Why three values and not a slider
-///
-/// Because the useful range is narrow and the middle of it is almost always
-/// right. A slider invites an operator to spend attention tuning a number that
-/// will not repay it, and — more practically — every intermediate value costs a
-/// full re-raster of every visible page to evaluate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum RenderQuality {
-    /// 0.75× — fewer pixels, softer lines, quicker.
-    Faster,
-    /// 1× — one raster pixel per device pixel. The shipped answer.
-    #[default]
-    Normal,
-    /// 1.5× — more pixels than the display can show, for small text.
-    Sharper,
-}
-
-impl RenderQuality {
-    /// Every value, in the order the settings window lists them.
-    ///
-    /// Worst-to-best rather than best-to-worst, so the control reads left to
-    /// right as *less … more* — which is the direction a reader expects of a
-    /// quality scale and the opposite of the order the enum's own reasoning
-    /// arrived in.
-    pub const ALL: &'static [Self] = &[Self::Faster, Self::Normal, Self::Sharper];
-
-    /// The multiplier applied to the natural raster scale.
-    #[must_use]
-    pub const fn multiplier(self) -> f32 {
-        match self {
-            Self::Faster => 0.75,
-            Self::Normal => 1.0,
-            Self::Sharper => 1.5,
-        }
-    }
-
-    /// The token written to the preferences file.
-    ///
-    /// Stable across releases and deliberately not the display name: a display
-    /// name is operator copy and may be reworded or translated, and a file
-    /// whose keys moved when the wording did would silently reset everybody's
-    /// preference. Same rule `egui_shell::theme::Preset::key` follows.
-    #[must_use]
-    pub const fn key(self) -> &'static str {
-        match self {
-            // ui-text-exempt: a file token, never displayed.
-            Self::Faster => "faster",
-            // ui-text-exempt: a file token, never displayed.
-            Self::Normal => "normal",
-            // ui-text-exempt: a file token, never displayed.
-            Self::Sharper => "sharper",
-        }
-    }
-
-    /// Read a token back, or `None` if it names nothing.
-    ///
-    /// `None` rather than a default, so the loader can *report* an unreadable
-    /// value rather than silently substituting one — the per-key recovery
-    /// contract in the module header.
-    #[must_use]
-    pub fn from_key(key: &str) -> Option<Self> {
-        Self::ALL.iter().copied().find(|q| q.key() == key)
-    }
-}
-
-/// The shortest zoom-settle delay offered, in milliseconds.
-///
-/// Zero is excluded and that is a decision. A settle of zero means *rasterise
-/// every intermediate value of a wheel gesture*, which on a dense CAD sheet is
-/// dozens of full-page renders producing images nobody sees — the exact cost
-/// the debounce exists to avoid. 20 ms is short enough to feel immediate and
-/// long enough to swallow the burst of events one wheel notch produces.
-pub const MIN_SETTLE_MS: u64 = 20;
-
-/// The longest offered.
-///
-/// Beyond about a second the interim scaled texture stops reading as "still
-/// settling" and starts reading as "stuck", which is a worse impression than
-/// the CPU cost it saves.
-pub const MAX_SETTLE_MS: u64 = 1000;
-
-/// The shipped settle, in milliseconds.
-///
-/// 150 ms is the value the old shell settled on against real CAD sheets, and it
-/// was `render::settle::ZOOM_SETTLE`'s compiled-in constant before this module
-/// existed. It stays the default for the standing reason: a build that omits
-/// nothing must behave as it did before the choice existed.
-pub const DEFAULT_SETTLE_MS: u64 = 150;
+pub use opening::{OpeningFit, PageChrome};
+pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
 
 /// The file this store is written to, beside `settings.txt`.
 // ui-text-exempt: a file name, never displayed.
@@ -193,6 +115,18 @@ pub struct Prefs {
     /// file holds and what the control edits; `render::settle` converts once,
     /// at the one place it is read.
     pub zoom_settle_ms: u64,
+    /// How the first page of a newly opened document is sized to the window.
+    ///
+    /// ★ Read **once**, by [`Self::seed_view`], in the one place a document is
+    /// adopted. Unlike the two above it is not consulted again — changing it
+    /// while a document is open must not resize the page the operator is
+    /// looking at, because they may have zoomed it deliberately since.
+    pub opening_fit: OpeningFit,
+    /// Which of the three View ▸ Display overlays are already on when a
+    /// document opens.
+    ///
+    /// Read once, with [`Self::opening_fit`], and for the same reason.
+    pub chrome: PageChrome,
 }
 
 impl Default for Prefs {
@@ -200,6 +134,8 @@ impl Default for Prefs {
         Self {
             render_quality: RenderQuality::default(),
             zoom_settle_ms: DEFAULT_SETTLE_MS,
+            opening_fit: OpeningFit::default(),
+            chrome: PageChrome::default(),
         }
     }
 }
@@ -277,15 +213,31 @@ impl Prefs {
             // Unreadable and absent are collapsed here, unlike in the engine's
             // store, and the reason is proportion: that store holds thirteen
             // choices whose blast radius includes saved bytes, so it owes the
-            // operator a distinct sentence. This holds two display preferences,
-            // and the honest cost of an unreadable file is that the page is
-            // rendered at the shipped sharpness.
+            // operator a distinct sentence. This holds four display
+            // preferences, and the honest cost of an unreadable file is that
+            // the page is drawn at the shipped sharpness.
             return (Self::default(), Vec::new());
         };
         Self::parse(&text)
     }
 
     /// Parse, with per-key recovery.
+    ///
+    /// # The `match` is the file format
+    ///
+    /// There is no key table, no `HashMap` and no derive: every key this build
+    /// understands is an arm below, and the `_` arm reports everything else as
+    /// [`PrefNote::UnknownKey`] and **keeps it in the file**. That last part is
+    /// what makes it safe for an operator to run two versions of pdfce out of
+    /// one `userdata` folder — the older one does not delete the newer one's
+    /// settings on its next Save, because [`Self::write_to_string`] writes what
+    /// this build knows and the loader never rewrites on load.
+    ///
+    /// The honest limit of that: an unknown key survives until the operator
+    /// presses Save in the older build, which writes a fresh file from the
+    /// fields it has. Preserving unknown lines across a *write* would mean
+    /// carrying them on `Prefs`, and a struct holding values it cannot use is
+    /// worse than the narrow case it protects.
     #[must_use]
     pub fn parse(text: &str) -> (Self, Vec<PrefNote>) {
         let mut prefs = Self::default();
@@ -332,6 +284,37 @@ impl Prefs {
                         line,
                     }),
                 },
+                "opening_fit" => match OpeningFit::from_key(value) {
+                    Some(f) => prefs.opening_fit = f,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
+                // The three overlays share one parse shape and differ only in
+                // which field they land in, so the destination is picked first
+                // and the reading is written once. Three near-identical arms is
+                // how the fourth overlay gets a subtly different parser.
+                "show_rulers" | "show_grid" | "show_guides" => {
+                    let target = match key {
+                        "show_rulers" => &mut prefs.chrome.rulers,
+                        "show_grid" => &mut prefs.chrome.grid,
+                        // Exhaustive by the arm's own pattern; the compiler
+                        // cannot see that, and a `_` here would silently absorb
+                        // a fourth overlay added to the pattern above and never
+                        // given a field.
+                        _ => &mut prefs.chrome.guides,
+                    };
+                    match opening::bool_from_key(value) {
+                        Some(on) => *target = on,
+                        None => notes.push(PrefNote::BadValue {
+                            key: key.to_owned(),
+                            value: value.to_owned(),
+                            line,
+                        }),
+                    }
+                }
                 _ => notes.push(PrefNote::UnknownKey {
                     key: key.to_owned(),
                     line,
@@ -382,6 +365,45 @@ impl Prefs {
         out.push_str("zoom_settle_ms = ");
         out.push_str(&self.zoom_settle_ms.to_string());
         out.push('\n');
+        out.push_str(
+            "\n\
+             # ---------------------------------------------------------------\n\
+             # What you see when a document first opens. Both of these apply to\n\
+             # the NEXT document opened, not to the one already on screen.\n\
+             # ---------------------------------------------------------------\n\
+             \n\
+             # How the first page is sized: page | width | actual\n\
+             # page   = the whole page fits the window. The shipped answer.\n\
+             # width  = the full width fits; the bottom may run off screen.\n\
+             # actual = one page point per screen point, whatever that shows.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("opening_fit = ");
+        out.push_str(self.opening_fit.key());
+        out.push('\n');
+        out.push_str(
+            "\n\
+             # Which overlays are already switched on: true | false.\n\
+             # Rulers take a strip off the top and left of the drawing area.\n\
+             # Guides are dragged OUT OF a ruler, so placing one needs both\n\
+             # show_guides and show_rulers on.\n",
+        );
+        // ui-text-exempt: a file KEY, as above. Three keys, written together
+        // under one comment block because they are one setting in the window
+        // and a reader meeting them apart would not know they interlock.
+        for (key, value) in [
+            ("show_rulers", self.chrome.rulers),
+            ("show_grid", self.chrome.grid),
+            ("show_guides", self.chrome.guides),
+        ] {
+            out.push_str(key);
+            // ui-text-exempt: the file format's own `key = value` separator,
+            // never displayed. The three single-key writes above spell it into
+            // their key literal; a loop cannot, so it is its own push.
+            out.push_str(" = ");
+            out.push_str(opening::bool_key(value));
+            out.push('\n');
+        }
         out
     }
 
@@ -407,37 +429,151 @@ impl Prefs {
         }
         std::fs::write(&path, self.write_to_string()).map_err(|e| e.to_string())
     }
+
+    /// **Apply the opening preferences to a freshly assembled view.**
+    ///
+    /// Called once per document, from `PdfceApp::adopt`, and from nowhere else.
+    ///
+    /// # ★ Why this is a method here rather than a field read in `ViewState::default`
+    ///
+    /// Because `ViewState::default()` cannot see the application. `OpenDoc::assemble`
+    /// builds a document without a `PdfceApp` in reach — its own comment says
+    /// so — which is the same constraint that put `adopt_settings` in the open
+    /// path rather than in the constructor. Seeding here keeps `ViewState`'s
+    /// `Default` the **conservative** answer, which is what every test that
+    /// builds one without a configuration relies on.
+    ///
+    /// # ★ The remembered-guides override still wins, and that is not a
+    /// coincidence of ordering
+    ///
+    /// `OpenDoc::assemble` may already have set `view.guides = true`, because
+    /// `canvas::guides::opening` turns the layer on for a document that has
+    /// guides saved against it — *"the presence of the work is the
+    /// preference"*. This function therefore **ORs** rather than assigns for
+    /// that one field:
+    ///
+    /// | remembered guides | preference | result |
+    /// |---|---|---|
+    /// | yes | on | shown |
+    /// | yes | off | **shown** — the work outranks the default |
+    /// | no | on | shown, and empty until the first is placed |
+    /// | no | off | hidden |
+    ///
+    /// Row two is the one that matters and it is the reason this is not three
+    /// plain assignments. A preference is a statement about documents in
+    /// general; a document that carries guides is a statement about *that*
+    /// document, and the specific beats the general. Assigning would hide work
+    /// the operator did, on the document they did it on, because of a switch
+    /// they set weeks earlier about something else.
+    ///
+    /// Rulers and grid have no per-document memory at all, so they assign.
+    ///
+    /// # What it deliberately does not touch
+    ///
+    /// [`crate::viewer::ViewState::display`] — the single/continuous/facing
+    /// arrangement. That has its own per-document store and its own operator
+    /// requirement; see [`opening`]'s header for why a global default for it
+    /// would be a second axis colliding with the one that was asked for.
+    pub fn seed_view(&self, view: &mut crate::viewer::ViewState) {
+        let (fit, zoom) = self.opening_fit.to_view();
+        view.fit = fit;
+        view.zoom = zoom;
+        view.rulers = self.chrome.rulers;
+        view.grid = self.chrome.grid;
+        // OR, not assign — see the table in this function's docs.
+        view.guides = view.guides || self.chrome.guides;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::viewer::{FitMode, ViewState};
 
     /// ★ Every value round-trips through the file.
     ///
     /// The property a preferences store exists for, and the one a hand-written
     /// writer and a hand-written parser get wrong first: they are two spellings
     /// of the same vocabulary, and this is what stops them drifting.
+    ///
+    /// Every field is varied, and the two enums are varied over **all** their
+    /// values rather than one apiece — a writer that emitted a constant token
+    /// would pass a single-value check.
     #[test]
     fn every_preference_round_trips_through_the_file() {
         for quality in RenderQuality::ALL {
+            for fit in OpeningFit::ALL {
+                let original = Prefs {
+                    render_quality: *quality,
+                    zoom_settle_ms: 275,
+                    opening_fit: *fit,
+                    // Deliberately not all-true and not all-false: an assignment
+                    // that crossed two of the three fields would survive either.
+                    chrome: PageChrome {
+                        rulers: true,
+                        grid: false,
+                        guides: true,
+                    },
+                };
+                let (read_back, notes) = Prefs::parse(&original.write_to_string());
+                assert!(
+                    notes.is_empty(),
+                    "a written file did not read cleanly: {notes:?}"
+                );
+                assert_eq!(
+                    read_back, original,
+                    "{quality:?}/{fit:?} did not survive the trip"
+                );
+            }
+        }
+    }
+
+    /// ★ The three overlays are three independent keys.
+    ///
+    /// The failure this catches is a copy-paste in either the writer or the
+    /// parser sending two overlays to one field — which the round-trip above
+    /// would only catch for the specific combination it happens to use. Here
+    /// each is set alone and the other two are asserted to have stayed off.
+    #[test]
+    fn each_overlay_is_written_and_read_on_its_own_key() {
+        for (name, build) in [
+            (
+                "rulers",
+                PageChrome {
+                    rulers: true,
+                    ..PageChrome::default()
+                },
+            ),
+            (
+                "grid",
+                PageChrome {
+                    grid: true,
+                    ..PageChrome::default()
+                },
+            ),
+            (
+                "guides",
+                PageChrome {
+                    guides: true,
+                    ..PageChrome::default()
+                },
+            ),
+        ] {
             let original = Prefs {
-                render_quality: *quality,
-                zoom_settle_ms: 275,
+                chrome: build,
+                ..Prefs::default()
             };
             let (read_back, notes) = Prefs::parse(&original.write_to_string());
-            assert!(
-                notes.is_empty(),
-                "a written file did not read cleanly: {notes:?}"
-            );
-            assert_eq!(read_back, original, "{quality:?} did not survive the trip");
+            assert!(notes.is_empty(), "{name}: {notes:?}");
+            assert_eq!(read_back.chrome, build, "{name} landed in the wrong field");
         }
     }
 
     /// The shipped defaults are what the constants they replaced held.
     ///
-    /// `ZOOM_SETTLE` was a compiled-in 150 ms and `raster_scale` had no
-    /// multiplier at all. A build that never opens the Settings window has to
+    /// `ZOOM_SETTLE` was a compiled-in 150 ms, `raster_scale` had no
+    /// multiplier at all, and `ViewState::default` was fit-page with all three
+    /// overlays off. A build that never opens the Settings window has to
     /// behave exactly as the build before this module did — the standing rule
     /// for a capability becoming choosable.
     #[test]
@@ -445,6 +581,98 @@ mod tests {
         let prefs = Prefs::default();
         assert_eq!(prefs.zoom_settle_ms, 150);
         assert!((prefs.render_quality.multiplier() - 1.0).abs() < f32::EPSILON);
+        assert_eq!(prefs.opening_fit, OpeningFit::Page);
+        assert!(prefs.chrome.all_hidden());
+    }
+
+    /// ★ **The shipped preferences change nothing about a freshly opened view.**
+    ///
+    /// The strongest form of the rule above, and the one a reordering or a
+    /// typo in [`Prefs::seed_view`] would break: seeding a default `ViewState`
+    /// from default preferences must leave it **byte-identical**. Asserting
+    /// the fields one at a time would pass while a fourth field was silently
+    /// clobbered; asserting the whole struct will not.
+    #[test]
+    fn seeding_from_the_shipped_preferences_changes_nothing() {
+        let mut view = ViewState::default();
+        Prefs::default().seed_view(&mut view);
+        assert_eq!(
+            view,
+            ViewState::default(),
+            "the shipped preferences moved a freshly opened view"
+        );
+    }
+
+    /// Each opening fit reaches the view it names.
+    #[test]
+    fn the_opening_fit_reaches_the_view() {
+        for (fit, expected) in [
+            (OpeningFit::Page, FitMode::Page),
+            (OpeningFit::Width, FitMode::Width),
+            (OpeningFit::ActualSize, FitMode::None),
+        ] {
+            let mut view = ViewState::default();
+            Prefs {
+                opening_fit: fit,
+                ..Prefs::default()
+            }
+            .seed_view(&mut view);
+            assert_eq!(view.fit, expected, "{fit:?}");
+            assert!(view.zoom > 0.0, "{fit:?} seeded a zoom of {}", view.zoom);
+        }
+    }
+
+    /// ★ **A document's remembered guides survive a preference that hides them.**
+    ///
+    /// Row two of [`Prefs::seed_view`]'s table, and the whole reason that one
+    /// field ORs. `canvas::guides::opening` turns the layer on for a document
+    /// that has guides saved against it, because *"the presence of the work is
+    /// the preference"* — and an assignment here would hide work the operator
+    /// did, on the document they did it on, because of a switch they set weeks
+    /// earlier about documents in general.
+    ///
+    /// This is the failing direction: preference **off**, view already **on**.
+    #[test]
+    fn a_preference_that_hides_guides_does_not_hide_remembered_ones() {
+        // What `OpenDoc::assemble` hands over for a document with saved guides.
+        let mut view = ViewState {
+            guides: true,
+            ..ViewState::default()
+        };
+        Prefs {
+            chrome: PageChrome {
+                guides: false,
+                ..PageChrome::default()
+            },
+            ..Prefs::default()
+        }
+        .seed_view(&mut view);
+        assert!(
+            view.guides,
+            "a document's own remembered guides were hidden by a global default"
+        );
+    }
+
+    /// …and rulers and grid do NOT get that treatment.
+    ///
+    /// The counterpart, and it is what stops the OR being copied to all three
+    /// out of symmetry. Neither has any per-document memory, so a `true`
+    /// arriving in the view is not evidence of anything the operator did — it
+    /// would just be a stale value that the preference could then never turn
+    /// off.
+    #[test]
+    fn rulers_and_grid_follow_the_preference_in_both_directions() {
+        let mut view = ViewState {
+            rulers: true,
+            grid: true,
+            ..ViewState::default()
+        };
+        Prefs::default().seed_view(&mut view);
+        assert!(
+            !view.rulers,
+            "the rulers preference could not turn them off"
+        );
+        assert!(!view.grid, "the grid preference could not turn it off");
     }
 
     /// ★ One bad line never discards the rest of the file.
@@ -459,6 +687,8 @@ mod tests {
             "render_quality = sharper\n\
              this line is not a setting\n\
              zoom_settle_ms = purple\n\
+             show_rulers = ture\n\
+             opening_fit = width\n\
              unknown_key = 3\n",
         );
         assert_eq!(
@@ -471,11 +701,28 @@ mod tests {
             "an unreadable value must fall back for its own key"
         );
         assert!(
+            !prefs.chrome.rulers,
+            "a misspelt bool must fall back, not be read as true"
+        );
+        assert_eq!(
+            prefs.opening_fit,
+            OpeningFit::Width,
+            "a good key AFTER a bad one was discarded"
+        );
+        assert!(
             notes
                 .iter()
                 .any(|n| matches!(n, PrefNote::Malformed { .. }))
         );
-        assert!(notes.iter().any(|n| matches!(n, PrefNote::BadValue { .. })));
+        // Two bad values, not one: the settle and the misspelt bool.
+        assert_eq!(
+            notes
+                .iter()
+                .filter(|n| matches!(n, PrefNote::BadValue { .. }))
+                .count(),
+            2,
+            "{notes:?}"
+        );
         assert!(
             notes
                 .iter()
@@ -511,24 +758,37 @@ mod tests {
         assert!(notes.is_empty());
     }
 
-    /// The tokens are stable and distinct.
+    /// ★ Every key the writer emits is a key the parser knows.
     ///
-    /// They are what the file holds, so two quality values sharing a token
-    /// would make one of them unreachable from a hand-edited file, and a token
-    /// that changed with a display name would reset everybody's preference on
-    /// upgrade.
+    /// The drift this catches is the one that would be silent in both
+    /// directions: a key added to [`Prefs::write_to_string`] and not to
+    /// [`Prefs::parse`] makes pdfce report its **own** file as containing an
+    /// unknown key, on every start, forever — and the operator would have no
+    /// way to tell that the file they never edited was written by the program
+    /// complaining about it.
+    ///
+    /// The round-trip test above cannot see this: it compares the parsed struct
+    /// and would pass on a key that was written, unread and defaulted back to
+    /// the same value.
     #[test]
-    fn every_quality_has_a_distinct_stable_token() {
-        for q in RenderQuality::ALL {
-            assert_eq!(RenderQuality::from_key(q.key()), Some(*q));
-        }
-        let keys: Vec<&str> = RenderQuality::ALL.iter().map(|q| q.key()).collect();
-        for i in 0..keys.len() {
-            for j in (i + 1)..keys.len() {
-                assert_ne!(keys[i], keys[j]);
-            }
-        }
-        assert!(RenderQuality::from_key("nonesuch").is_none());
+    fn the_writer_emits_no_key_the_parser_rejects() {
+        // A non-default in every field, so no emitted value can coincide with
+        // what a failed parse would have left behind.
+        let prefs = Prefs {
+            render_quality: RenderQuality::Sharper,
+            zoom_settle_ms: 400,
+            opening_fit: OpeningFit::ActualSize,
+            chrome: PageChrome {
+                rulers: true,
+                grid: true,
+                guides: true,
+            },
+        };
+        let (_, notes) = Prefs::parse(&prefs.write_to_string());
+        assert!(
+            notes.is_empty(),
+            "pdfce's own preferences file does not read cleanly: {notes:?}"
+        );
     }
 
     /// The preferences file sits beside the settings file.
