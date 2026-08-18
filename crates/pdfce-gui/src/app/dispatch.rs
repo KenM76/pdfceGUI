@@ -900,10 +900,34 @@ impl PdfceApp {
             // at a rung whose delete verb does not exist yet.
             "format.delete" => {
                 if let Status::Open(doc) = &self.status {
-                    let page = doc.view.page_index;
-                    let objects = doc.selection.deletable_objects_on(page);
-                    if !objects.is_empty() {
-                        actions.push(Action::DeleteSelection { page, objects });
+                    // ★ An ANNOTATION first, and the order is the mutual
+                    // exclusion restated where it is acted on.
+                    //
+                    // `SelectionState` cannot hold both — selecting one clears
+                    // the other — so this is not a tie-break, it is the two
+                    // cases of one question written in the order that reads
+                    // best. Asking about content first would work identically
+                    // and would leave a reader wondering which wins.
+                    if let Some(annot) = doc.selection.annot() {
+                        // Locked (§12.5.3 bit 8): the file says the user
+                        // interface may not change this annotation, so the
+                        // command does nothing rather than raising an action
+                        // the engine would refuse. R83 at the dispatch rather
+                        // than at the verb — and the control itself is what
+                        // should be absent, which is the Format tab's work
+                        // when it grows past one button.
+                        if !annot.target.locked {
+                            actions.push(Action::DeleteAnnotation {
+                                page: annot.target.page,
+                                id: annot.target.id,
+                            });
+                        }
+                    } else {
+                        let page = doc.view.page_index;
+                        let objects = doc.selection.deletable_objects_on(page);
+                        if !objects.is_empty() {
+                            actions.push(Action::DeleteSelection { page, objects });
+                        }
                     }
                 }
             }

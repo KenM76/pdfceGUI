@@ -167,6 +167,27 @@ pub fn draw_selection(
     }
     let stroke = Stroke::new(1.5, visuals.selection.stroke.color);
 
+    // ★ The selected ANNOTATION, if the selection is one.
+    //
+    // The **same stroke** as a content outline, deliberately. An operator does
+    // not need to be taught that pdfce distinguishes a `/Annots` entry from a
+    // content object — they clicked a stamp and the stamp is now selected, and
+    // a second visual language for that would be a distinction the *implementer*
+    // finds interesting. What is selected is said in words, off-canvas, where
+    // rule 4 puts every other disclosure.
+    //
+    // No grips. Grips promise a resize, and `set_markup_style` deliberately
+    // does **not** include move or resize — the engine left them out of the
+    // first slice by name. Drawing eight handles around a stamp that cannot be
+    // resized is the "visible control, silently inert" failure this project
+    // keeps finding, in its most literal form.
+    if let Some(annot) = selection.annot() {
+        let screen =
+            visible_outline_rect(mapping.rect_to_screen(annot.outline), MIN_OUTLINE_EXTENT_PX);
+        painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
+        return;
+    }
+
     for (_, page_rect) in selection.outlines() {
         let screen =
             visible_outline_rect(mapping.rect_to_screen(*page_rect), MIN_OUTLINE_EXTENT_PX);

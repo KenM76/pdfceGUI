@@ -495,7 +495,57 @@ pub(super) fn canvas_keys(
         return;
     }
 
-    // ★ A mode that cannot edit content has no Delete.
+    // ★★ An ANNOTATION takes the key, on its OWN capability, above the
+    // content gate.
+    //
+    // # Why it is above, and what being below it cost
+    //
+    // The gate below is `!caps.edit_content`, and it used to be the only one.
+    // With the annotation branch beneath it, **Review** — `edit_content:
+    // false`, `author_markup: true` — returned before ever reaching it. Review
+    // is the markup stance: it is the mode an operator is in *because* they
+    // are working on stamps and dimensions, and it was the one mode where
+    // Delete could not remove one.
+    //
+    // That is the second predicate in this feature that was answering a
+    // question wider than the one it was written for, and both were invisible
+    // in the same way: the mechanism below worked perfectly and never ran.
+    // **One predicate per capability** — `author_markup` guards the annotation
+    // verb, `edit_content` guards the content verb, and neither stands in for
+    // the other.
+    //
+    // The `caps` check is belt and braces here for the reason the old comment
+    // below gives about its own: entering a mode without `author_markup`
+    // already clears the annotation selection (`app::gating`), so this is
+    // unreachable in practice. It is written anyway, because *"Delete is safe
+    // because nothing can be selected"* holds only for as long as its other
+    // half does, and the other half is in a different file.
+    //
+    // Locked (§12.5.3 bit 8) declines and **says which silence it is**: a
+    // reader of the trace is entitled to tell "the file forbids it" from
+    // "nothing was selected", because only one of those is something the
+    // operator can act on.
+    if caps.author_markup
+        && let Some(annot) = selection.annot()
+    {
+        if annot.target.locked {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "canvas-delete-declined id={:?} reason=annotation-locked",
+                    annot.target.id
+                )
+            });
+            return;
+        }
+        actions.push(Action::DeleteAnnotation {
+            page: annot.target.page,
+            id: annot.target.id,
+        });
+        return;
+    }
+
+    // ★ A mode that cannot edit CONTENT has no Delete for content.
     //
     // Escape is deliberately **above** this line and ungated: every one of its
     // claimants — a form draft, a guide drag, an armed region zoom — is

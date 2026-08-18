@@ -67,6 +67,76 @@ pub const fn width_suffix() -> &'static str {
     " pt"
 }
 
+// ---------------------------------------------------------------------------
+// Deleting a selected annotation
+// ---------------------------------------------------------------------------
+
+/// ★ **What went with it** — the collateral of deleting one annotation.
+///
+/// # Why a deletion needs to say anything at all
+///
+/// Because the operator named **one** annotation and the engine may legitimately
+/// remove or alter more. `AnnotationDeletion` reports three such cases and each
+/// is a fact about the file rather than about pdfce:
+///
+/// * a `/Popup` companion goes with its parent — §12.5.6.14 is a `shall`, a
+///   pop-up *"shall not appear alone but is associated with a markup
+///   annotation"*, so leaving it would be a clause violation. The spec
+///   requiring it is a reason, **not a licence to stay quiet**;
+/// * replies hanging off it as `/IRT` targets are **orphaned**, not deleted —
+///   the thread survives and its root does not;
+/// * group members are **promoted** when the group's primary goes.
+///
+/// Rule 4, in its second clause: pdfce did something the operator did not ask
+/// for, so pdfce says so, off-canvas, in words.
+///
+/// # ★ What this deliberately does NOT say
+///
+/// **That the content is gone from the file.** It is not: deleting an
+/// annotation removes an entry from `/Annots` and does not touch page content,
+/// and the previous revision is still in the file after an incremental save.
+/// `docs/core-api/03-capabilities.md` §3.4 states the rule this observes —
+/// *"delete is not redaction"* — and the redaction surface is where that
+/// distinction is made loudly. Saying "removed" here would be the exact wording
+/// `crate::text::redact`'s header forbids.
+///
+/// Returns `None` when nothing but the named annotation was affected, which is
+/// the ordinary case: a disclosure that fires on every delete is one nobody
+/// reads by the third time.
+#[must_use]
+pub fn deleted_collateral(
+    popup_removed: bool,
+    parent_popup_cleared: bool,
+    replies_orphaned: usize,
+    group_members_promoted: usize,
+) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if popup_removed {
+        parts.push("its pop-up note went with it, which the PDF specification requires".to_owned());
+    }
+    if parent_popup_cleared {
+        parts.push("the annotation it belonged to no longer refers to it".to_owned());
+    }
+    if replies_orphaned == 1 {
+        parts.push("1 reply is left without the comment it replied to".to_owned());
+    } else if replies_orphaned > 1 {
+        parts.push(format!(
+            "{replies_orphaned} replies are left without the comment they replied to"
+        ));
+    }
+    if group_members_promoted == 1 {
+        parts.push("1 grouped annotation is now on its own".to_owned());
+    } else if group_members_promoted > 1 {
+        parts.push(format!(
+            "{group_members_promoted} grouped annotations are now on their own"
+        ));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("Deleted — {}.", parts.join("; ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

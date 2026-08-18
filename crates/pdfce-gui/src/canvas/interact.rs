@@ -551,6 +551,54 @@ pub(super) fn interact(
             double,
             triple,
         } => {
+            // ★★ The annotation under the pointer, resolved BEFORE the ladder.
+            //
+            // Ahead of it rather than inside it because the arm that consumes
+            // this has to be an `if let` — a click that hits nothing must fall
+            // through and mean exactly what it meant before this feature
+            // existed. See that arm for the full reasoning.
+            //
+            // # The guard, and why each half of it
+            //
+            // **`CanvasTool::Select`** — nothing armed. With a pen, a caret or
+            // a measure tool armed the press belongs to that tool, which is
+            // this codebase's rule everywhere else, so an annotation
+            // underneath must not steal it.
+            //
+            // **`caps.author_markup`** — Review and Edit, not Read. Read is a
+            // reader: it may fill a form and sweep text and may not change the
+            // document, and selecting a stamp exists in order to act on it.
+            //
+            // # Cost
+            //
+            // One `/Annots` walk and one `/PieceInfo` read, **per click** —
+            // not per frame. Both are bounded by the number of annotations
+            // rather than by document size, and neither decomposes anything:
+            // an annotation's geometry is its `/Rect`, four numbers in a
+            // dictionary. A click on the 129,758-object benchmark sheet costs
+            // the same as a click on a blank page.
+            let annot_hit = if matches!(active_tool, crate::canvas::tool::CanvasTool::Select)
+                && caps.author_markup
+            {
+                doc.pages.get(page_index).and_then(|page| {
+                    let ce = crate::panels::comments::model::ce_dimension_annots(&doc.session);
+                    let view = doc.session.view();
+                    let candidates = crate::canvas::selection::annot::selectable_on(
+                        &view, page, page_index, &ce,
+                    );
+                    crate::canvas::selection::annot::hit(&candidates, point)
+                })
+            } else {
+                None
+            };
+            // A click that missed every annotation, in a mode that could have
+            // hit one, **deselects**. Clicking away is the gesture every
+            // operator tries first, and without this the outline would survive
+            // a click on blank paper — which reads as the selection being
+            // stuck rather than as the click having missed.
+            if annot_hit.is_none() && caps.author_markup {
+                selection.clear_annot();
+            }
             // ★ A click is a measure pick, a **text** gesture, or a content
             // selection — never two of them.
             //
@@ -597,6 +645,59 @@ pub(super) fn interact(
                         });
                     }
                 }
+            // ★★ **AN ANNOTATION UNDER THE POINTER TAKES THE CLICK.**
+            //
+            // The arm that closes `FEATURES.md`'s *"the canvas selection cannot
+            // address an annotation"*, reported by the operator four ways:
+            // *"How do I edit a stamp I've applied?"*, *"I still can't get to
+            // edit dimension groups when I click on it."*
+            //
+            // # Why it sits HERE and not one arm earlier or later
+            //
+            // **Below every armed tool**, because this codebase's stated rule is
+            // *"the press belongs to whichever tool is armed"* — an operator who
+            // armed the caret, a pen or a measure tool asked for that gesture,
+            // and a stamp underneath must not steal it.
+            //
+            // **Above the text-selection fall-through**, which is the arm that
+            // was silently swallowing these clicks. `textsel::takes_the_press`
+            // is true for the plain Select tool whenever `edit_content` is
+            // false — i.e. in **Read and Review** — so in Review, the mode an
+            // operator is in *because* they are working on markup, every click
+            // on a stamp was being consumed as a text-selection click. Nothing
+            // was broken downstream; the click never got there.
+            //
+            // ★ **My first diagnosis of this was wrong and a test caught it.**
+            // I read `press_kind`'s `click: caps.edit_content || text` and
+            // concluded Review produced no click event at all. It produces one
+            // — `text` is true there for exactly the reason above — and
+            // `review_mode_places_markup_but_refuses_content` failed against
+            // the "fix", which is the second time this week a test has been the
+            // thing that noticed. The predicate was not too coarse; the
+            // ROUTING had no arm for annotations.
+            //
+            // # Why a miss falls through rather than swallowing the click
+            //
+            // Because this arm must be **additive**. A click that hits no
+            // annotation has to mean exactly what it meant before — text in
+            // Review, content in Edit — or adding annotation selection would
+            // have taken away text selection in the same stroke. `annot_hit`
+            // is therefore computed ahead of the ladder and this arm is an
+            // `if let`, so a miss is not a branch at all.
+            } else if let Some(hit) = annot_hit {
+                selection.select_annot(hit.clone());
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "annot-select page={} id={:?} kind={:?} subtype={} locked={} rect={:?}",
+                        hit.target.page,
+                        hit.target.id,
+                        hit.target.kind,
+                        hit.target.subtype,
+                        hit.target.locked,
+                        hit.outline,
+                    )
+                });
             } else if textsel::takes_the_press(active_tool, caps) {
                 if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
                 {

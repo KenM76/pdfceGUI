@@ -175,6 +175,28 @@ scan_tree() {
             # exclusion 2: stop at the test module — everything after is test-only.
             /^#\[cfg\(test\)\]/ { exit }
 
+            # exclusion 2b: a WHOLE FILE gated out of release builds, marked by
+            # the INNER attribute `#![cfg(test)]`. Everything in it is test-only
+            # for exactly the reason exclusion 2 gives, and the reason has to be
+            # recognised from the file rather than from its name.
+            #
+            # ★ Added 2026-08-18, when `canvas/selection/tests.rs` was split out
+            # under R2 and this gate reported 28 assertion messages as
+            # operator-facing copy. The gate was right that they were string
+            # literals and wrong that anybody would ever read them on screen —
+            # and the noise is the actual hazard: 125 of pdfce'"'"'s old 140-hit
+            # floor were test assertions, which is what exclusion 2 was written
+            # to remove. A split that reintroduced them would have trained
+            # people to ignore the report.
+            #
+            # `check-theme-colors.sh` already recognises this exact marker, from
+            # the AST, and states why it is the marker rather than a filename:
+            # the property that earns the exemption is "not in the shipped
+            # binary", and a filename is a restatement of that which goes stale
+            # the moment a third such module is written. Same rule here, matched
+            # on the line because this scanner is awk rather than syn.
+            /^#!\[cfg\(test\)\]/ { exit }
+
             {
                 line = $0
 

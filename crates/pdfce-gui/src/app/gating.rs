@@ -133,11 +133,33 @@ impl PdfceApp {
                 cleared = doc.selection.clear();
             }
         }
-        if retired || cleared || abandoned || cleared_text {
+        // ★ The ANNOTATION selection retires on its own capability, and the
+        // separation is the point rather than an accident of ordering.
+        //
+        // A selected stamp is governed by `author_markup`, which **Review
+        // grants and Read does not**; a selected path is governed by
+        // `edit_content`, which only Edit grants. Entering Review from Edit
+        // must therefore drop the path and keep the stamp — and a single
+        // "clear the selection" on `!edit_content` would have dropped both,
+        // silently, in the mode the operator entered *in order to* work on
+        // markup.
+        //
+        // That is the same shape as the duplex/tray split in the print dialog
+        // and the same shape as this gate's own three capabilities: one
+        // predicate per capability, never one predicate standing in for
+        // several. `SelectionState::clear`'s own docs refuse to fold these
+        // together for the same reason.
+        let mut cleared_annot = false;
+        if !caps.author_markup
+            && let Status::Open(doc) = &mut self.status
+        {
+            cleared_annot = doc.selection.clear_annot();
+        }
+        if retired || cleared || abandoned || cleared_text || cleared_annot {
             crate::diag::trace(|| {
                 format!(
                     // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    "mode-capabilities content={} markup={} measure={} retired_tool={retired} cleared_selection={cleared} abandoned_drag={abandoned} cleared_text={cleared_text}",
+                    "mode-capabilities content={} markup={} measure={} retired_tool={retired} cleared_selection={cleared} abandoned_drag={abandoned} cleared_text={cleared_text} cleared_annot={cleared_annot}",
                     caps.edit_content, caps.author_markup, caps.author_measure,
                 )
             });

@@ -65,8 +65,15 @@
 /// What a selection **is** — the four `Copy` types the state below accumulates,
 /// none of which can hold a coordinate. The pure half; see its header for why
 /// "identity, not position" is a claim about a type rather than about a method.
+// Clicking the things pdfce itself put on the page — stamps, notes, shapes and
+// ce dimensions. A sibling of `identity`, not a variant of it: an annotation is
+// addressed by a STABLE `ObjId` where page content is addressed by a
+// paint-order index, and the four ways the two differ are tabulated in its
+// header.
+pub mod annot;
 pub mod identity;
 
+pub use annot::{AnnotKind, AnnotSelection, AnnotTarget};
 pub use identity::{ClickHit, EscapeOutcome, Selection, SelectionLevel};
 
 use std::collections::BTreeSet;
@@ -130,6 +137,29 @@ pub struct SelectionState {
     /// The `(page, edit epoch)` [`Self::outlines`] describes, or `None`
     /// before the first resolve.
     resolved_for: Option<(usize, u64)>,
+    /// The selected **annotation**, if one is selected instead of content.
+    ///
+    /// # ★ Why it is a field here rather than a second selection elsewhere
+    ///
+    /// Because the two are **mutually exclusive**, and that has to be enforced
+    /// somewhere rather than remembered everywhere. Putting it on
+    /// `OpenDoc` beside this state would make "what is selected?" a question
+    /// with two answers that could both be yes — which is exactly the *"second
+    /// selection"* `panels::ObjectTreeUi::focus`' docs refuse, arriving through
+    /// a field instead of through a type.
+    ///
+    /// Here, [`Self::select_annot`] and the content paths are the only writers
+    /// and each clears the other. One canvas, one selection.
+    ///
+    /// # Why it needs no `resolved_for` twin
+    ///
+    /// [`Self::outlines`] is cached against `(page, epoch)` because content
+    /// bounds cost a `decompose_page` — a full content-stream walk with no
+    /// cache anywhere in `pdfce-core`. An annotation's outline is its `/Rect`,
+    /// four numbers in a dictionary, so it is re-read on the frame the
+    /// selection is made and carried on the selection itself. See
+    /// [`annot`]'s header table for the four ways the two differ.
+    annot: Option<AnnotSelection>,
 }
 
 impl SelectionState {
@@ -139,10 +169,49 @@ impl SelectionState {
         &self.entries
     }
 
-    /// Whether anything is selected.
+    /// Whether anything is selected — **content or annotation**.
+    ///
+    /// Both, deliberately: every caller of this is asking *"is there something
+    /// for a verb to act on?"*, and answering only about content would leave a
+    /// selected stamp reading as no selection at all. That is what would make
+    /// the contextual Format tab hide itself over a selected annotation.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.annot.is_none()
+    }
+
+    /// The selected annotation, if the selection is one.
+    #[must_use]
+    pub const fn annot(&self) -> Option<&AnnotSelection> {
+        self.annot.as_ref()
+    }
+
+    /// Select an annotation, **replacing** whatever was selected.
+    ///
+    /// Clearing the content selection is not a courtesy: it is the mutual
+    /// exclusion this type owns. A build that left both set would draw two
+    /// kinds of outline at once and leave `format.delete` with two plausible
+    /// meanings, one of which removes page content the operator did not point
+    /// at.
+    ///
+    /// The rung resets too, for [`Self::clear`]'s reason — a `Node`-rung state
+    /// left behind an annotation selection would put the next content click
+    /// straight into a rung the operator never entered.
+    pub fn select_annot(&mut self, selection: AnnotSelection) {
+        self.entries.clear();
+        self.outlines.clear();
+        self.resolved_for = None;
+        self.level = SelectionLevel::Object;
+        self.annot = Some(selection);
+    }
+
+    /// Drop an annotation selection, reporting whether there was one.
+    ///
+    /// Separate from [`Self::clear`] so a caller that is only retiring the
+    /// annotation half — entering a mode that may not author markup, say —
+    /// does not also destroy a content selection that mode still permits.
+    pub fn clear_annot(&mut self) -> bool {
+        self.annot.take().is_some()
     }
 
     /// **Drop the selection entirely**, reporting whether there was one.
@@ -165,6 +234,20 @@ impl SelectionState {
     /// [`Self::click`]'s own rules, and a mis-aimed right-click is documented
     /// in [`crate::canvas::menus::select_under_right_click`] as something that
     /// must *not* destroy a set the operator spent five clicks building.
+    ///
+    /// # ★ It clears CONTENT only, and that is deliberate
+    ///
+    /// An annotation selection is governed by a different capability —
+    /// `author_markup`, which **Review grants and Read does not**, where
+    /// content selection needs `edit_content`, which only Edit grants. A mode
+    /// change that lost one may keep the other, and Review is exactly that
+    /// case: entering it from Edit must drop a selected path and keep a
+    /// selected stamp.
+    ///
+    /// So the caller clears each half against its own predicate, and this one
+    /// does not reach for [`Self::clear_annot`]. Folding them together here
+    /// would be the "one on/off" the per-capability gate was built to avoid,
+    /// reintroduced at the one place it is least visible.
     pub fn clear(&mut self) -> bool {
         if self.entries.is_empty() {
             return false;
@@ -321,6 +404,19 @@ impl SelectionState {
     ///   strands an operator who has forgotten they descended, which is the
     ///   failure a depth model must avoid above all.
     pub fn click(&mut self, page: usize, hit: ClickHit, shift: bool, double: bool) {
+        // ★ A content click drops an annotation selection — HERE, in the type
+        // that owns the exclusion, not at the call site.
+        //
+        // `canvas::interact` also clears it when a click misses every
+        // annotation, and that is a different case: there, the click may go on
+        // to mean *text* and never reach this function at all. Relying on that
+        // one alone would leave the invariant owned by a caller — and an
+        // invariant a caller maintains is one the next caller will not.
+        //
+        // Unconditional, including for a shift-extend: extending a content
+        // selection while a stamp is selected still means the stamp is no
+        // longer what is selected.
+        self.annot = None;
         if double {
             self.descend(page, hit);
             return;
@@ -660,717 +756,7 @@ impl SelectionState {
     }
 }
 
+// The selection algebra's assertions. Split out under R2; see its header for
+// why the tests were the seam and the code was not.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::canvas::target::StubTargets;
-    use egui::{Pos2, Rect};
-
-    fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
-        Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h))
-    }
-
-    /// A page with two objects, the first of which has two parts.
-    fn stub(page: usize) -> StubTargets {
-        StubTargets::new(
-            page,
-            [rect(0.0, 0.0, 100.0, 100.0), rect(200.0, 200.0, 50.0, 50.0)],
-        )
-        .with_parts(
-            0,
-            [rect(0.0, 0.0, 40.0, 40.0), rect(60.0, 60.0, 40.0, 40.0)],
-        )
-    }
-
-    fn hit_object(index: u64) -> ClickHit {
-        ClickHit {
-            object: Some(TargetId(index)),
-            ..ClickHit::default()
-        }
-    }
-
-    // -----------------------------------------------------------------
-    // ★ Invariant 1 — selection is identity, never position
-    // -----------------------------------------------------------------
-
-    /// ★ **Navigation never alters the selection.**
-    ///
-    /// The acceptance criterion, as close to literally as a headless test can
-    /// state it: select a node, then perform every navigation the roadmap
-    /// names — zoom out three rungs, pan, change fit mode, rotate the view,
-    /// change page-display mode, switch ribbon tab — and assert the selection
-    /// is byte-identical afterwards.
-    ///
-    /// # ★ Phase 3's gestures were added to THIS sweep, not to a parallel test
-    ///
-    /// The hand-tool pan, the anchored discrete zoom, the marquee zoom and
-    /// zoom-to-selection are navigation, so they belong to the invariant that
-    /// already governs navigation. A second test asserting the same property
-    /// about four more operations would be a second place for the property to
-    /// be stated — and the first one to be forgotten when a fifth arrives.
-    ///
-    /// **Zoom-to-selection is the interesting addition**, because it is the
-    /// only navigation that *reads* the selection: it resolves the selection's
-    /// bounds and frames them. Reading is exactly where a "helpful" edit —
-    /// normalise the entries, collapse to the outlined ones, drop what has no
-    /// bounds — would creep in, and it would be invisible until the operator
-    /// zoomed to a node and found they had selected the object instead.
-    ///
-    /// What this cannot reach is the *wiring*: that a released
-    /// `MarqueeIntent::Zoom` never calls [`SelectionState::marquee`] at all.
-    /// That is structural in `canvas::interact` — the two intents are separate
-    /// match arms over an exhaustive enum, and only one of them names the
-    /// selection — and it is asserted from the gesture side by
-    /// `canvas::gesture`'s `a_zoom_marquee_is_the_same_band_with_the_other_intent`.
-    ///
-    /// It is expressed as *"drive the view state and then compare"* because
-    /// that is the honest model of what navigation is: those operations act
-    /// on [`crate::viewer::ViewState`], and the property being asserted is
-    /// that no route exists from there to here. The test would fail the
-    /// moment somebody gave `SelectionState` a screen coordinate to keep in
-    /// step, which is the defect it guards.
-    #[test]
-    fn navigating_the_view_never_alters_the_selection() {
-        use crate::viewer::{FitMode, MAX_ZOOM, ViewState};
-
-        let targets = stub(0);
-        let mut sel = SelectionState::default();
-        // Select a node: click, double-click into the part, double-click
-        // again to reach the anchor.
-        sel.click(0, hit_object(0), false, false);
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: None,
-            },
-            false,
-            true,
-        );
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: Some(4),
-            },
-            false,
-            true,
-        );
-        sel.resolve(Some(&targets), 0, 0);
-        assert_eq!(sel.level(), SelectionLevel::Node);
-        assert_eq!(sel.entries()[0].node, Some(4));
-        let before = sel.clone();
-
-        // Every navigation the invariant names, in one sweep.
-        let mut view = ViewState::default();
-        for _ in 0..3 {
-            view.zoom_out(MAX_ZOOM);
-        }
-        view.set_fit(FitMode::Width);
-        view.apply_fit((612.0, 792.0), (300.0, 900.0), MAX_ZOOM);
-        view.set_fit(FitMode::Page);
-        view.apply_fit((612.0, 792.0), (1_600.0, 400.0), MAX_ZOOM);
-        view.zoom_by(1.37, MAX_ZOOM);
-        view.next_page(4);
-        view.prev_page(4);
-
-        // ---- Phase 3's navigation gestures, in the same sweep -------------
-        use crate::canvas::geometry;
-        use crate::canvas::mapping::PageMapping;
-        use crate::canvas::zoom::{self, ZoomOutcome};
-
-        let extent = (200.0_f32, 300.0_f32);
-        let frame = zoom::CanvasFrame {
-            map: PageMapping::new(
-                Rect::from_min_size(Pos2::new(12.0, 7.0), egui::vec2(extent.0, extent.1)),
-                extent,
-                1.0,
-            ),
-            extent,
-            display: (extent.0, extent.1),
-            viewport: (400.0, 400.0),
-            viewport_rect: Rect::from_min_size(Pos2::new(10.0, 5.0), egui::vec2(400.0, 400.0)),
-            offset: (0.0, 0.0),
-        };
-
-        // A hand-tool / space-bar pan. The same arithmetic the middle drag
-        // uses, and it must move the view — a pan that clamped to a no-op
-        // would make the assertion below vacuous.
-        let panned = geometry::pan_offset(
-            (120.0, 80.0),
-            (30.0, -20.0),
-            (1_600.0, 1_600.0),
-            (800.0, 800.0),
-        );
-        assert_ne!(panned, (120.0, 80.0), "the pan must actually move the view");
-
-        // An anchored discrete zoom: arm on a page point, step the ladder,
-        // solve. This is Ctrl+Plus, end to end, minus the `egui::Context`.
-        let anchor = zoom::hold(zoom::frac_of(Pos2::new(50.0, 50.0), extent), &frame);
-        view.zoom_in(MAX_ZOOM);
-        let _ = geometry::zoom_anchor_offset(
-            anchor.offset_before,
-            anchor.display_before,
-            (extent.0 * view.zoom, extent.1 * view.zoom),
-            anchor.viewport,
-            anchor.frac,
-        );
-
-        // A marquee zoom to a region of the page.
-        let region = Rect::from_min_max(Pos2::new(10.0, 10.0), Pos2::new(90.0, 120.0));
-        if let ZoomOutcome::Zoomed { applied, .. } =
-            zoom::plan_framing(&frame, region, 16.0, 1.0).outcome
-        {
-            view.set_zoom(applied, MAX_ZOOM);
-        }
-
-        // ★ Zoom to the selection — the one navigation that reads it.
-        let bounds = sel
-            .outline_union()
-            .expect("a resolved selection has bounds to frame");
-        if let ZoomOutcome::Zoomed { applied, .. } =
-            zoom::plan_framing(&frame, bounds, 16.0, 1.0).outcome
-        {
-            view.set_zoom(applied, MAX_ZOOM);
-        }
-
-        // ---- Phase 4's page-display modes, in the same sweep ---------------
-        //
-        // ★ Added HERE rather than in a parallel test, for the reason this
-        // test's header already gives about Phase 3's gestures: a page-display
-        // change is navigation, and navigation is governed by this invariant.
-        // A second test asserting the same property about a fifth operation
-        // would be a second place for the property to live and the first one
-        // to be forgotten.
-        //
-        // `FEATURES.md` names "page-display mode" in the list of things the
-        // selection is asserted byte-identical across, and until Phase 4 there
-        // was only one mode — so the clause was true and untested. It is now
-        // exercised: every arrangement, including the two that put several
-        // pages on screen at once, and a full strip laid out for each so the
-        // geometry the mode produces is real rather than nominal.
-        use crate::viewer::{PageDisplay, strip::Strip};
-        use pdfce_core::object::{Dict, ObjId};
-        use pdfce_core::page_tree::{Page, Rect as PageRect};
-
-        let pages: Vec<Page> = (0..4)
-            .map(|_| Page {
-                id: ObjId::new(1, 0),
-                resources: Dict::new(),
-                media_box: PageRect::from_corners(0.0, 0.0, 612.0, 792.0),
-                crop_box: PageRect::from_corners(0.0, 0.0, 612.0, 792.0),
-                rotate: 0,
-                contents: Vec::new(),
-                contents_unresolved: 0,
-            })
-            .collect();
-        for &display in PageDisplay::ALL {
-            view.display = display;
-            let strip = Strip::new(&pages, display, view.page_index, view.zoom);
-            // The mode really does change the layout, or the loop asserts
-            // nothing about the modes it iterates.
-            assert!(!strip.is_empty());
-            let metrics = crate::viewer::strip::row_metrics(&pages, display, view.page_index, 1.0);
-            view.apply_fit(metrics.extent, (900.0, 700.0), metrics.max_zoom);
-        }
-        assert!(
-            Strip::new(&pages, PageDisplay::Continuous, 0, 1.0).size().y
-                > Strip::new(&pages, PageDisplay::Single, 0, 1.0).size().y,
-            "the continuous strip must be taller than one page, or the sweep \
-             above passed through four modes that all laid out the same thing"
-        );
-
-        // The provider is rebuilt on the way — that is what a page step, a
-        // page-display change and a ribbon-tab change do — and the selection
-        // must come through it.
-        sel.resolve(Some(&stub(0)), 0, 0);
-
-        assert_eq!(
-            sel, before,
-            "a view change reached the selection; it must not be able to"
-        );
-    }
-
-    /// ★ **A selection on another page survives a provider for a different
-    /// page** — the half of invariant 3 the acceptance criterion turns on.
-    ///
-    /// Paging away rebuilds the provider for the new page. A `resolve` that
-    /// pruned everything it could not find would wipe the selection on the
-    /// way past, and coming back would find nothing.
-    #[test]
-    fn paging_away_and_back_keeps_the_selection() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(1), false, false);
-        sel.resolve(Some(&stub(0)), 0, 0);
-        assert_eq!(sel.len(), 1);
-        assert_eq!(sel.outlines().len(), 1);
-
-        // Page 1: a provider that knows nothing about page 0's objects.
-        sel.resolve(Some(&stub(1)), 1, 0);
-        assert_eq!(sel.len(), 1, "the entry for page 0 must survive");
-        assert!(
-            sel.outlines().is_empty(),
-            "nothing on page 1 is selected, so nothing on page 1 is outlined"
-        );
-
-        // …and back.
-        sel.resolve(Some(&stub(0)), 0, 0);
-        assert_eq!(sel.entries(), [Selection::object(0, TargetId(1))]);
-        assert_eq!(sel.outlines().len(), 1, "the outline comes back with it");
-    }
-
-    /// A rebuild at the same revision is a no-op that costs one comparison —
-    /// which is what makes "resolve every frame" affordable and therefore
-    /// what makes the invariant cheap enough to actually hold.
-    #[test]
-    fn re_resolving_at_the_same_revision_changes_nothing() {
-        let targets = stub(0);
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.resolve(Some(&targets), 0, 0);
-        let after_first = sel.clone();
-        for _ in 0..50 {
-            sel.resolve(Some(&targets), 0, 0);
-        }
-        assert_eq!(sel, after_first);
-    }
-
-    /// An edit that removed a selected object drops **that** entry and keeps
-    /// the rest, rather than clearing the selection or leaving a hole a
-    /// batched delete would refuse.
-    #[test]
-    fn an_edit_that_removed_an_object_drops_only_that_entry() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(0, hit_object(1), true, false);
-        sel.resolve(Some(&stub(0)), 0, 0);
-        assert_eq!(sel.len(), 2);
-
-        // The page now holds one object: index 1 is gone.
-        let after_edit = StubTargets::new(0, [rect(0.0, 0.0, 100.0, 100.0)]);
-        sel.resolve(Some(&after_edit), 0, 1);
-        assert_eq!(sel.entries(), [Selection::object(0, TargetId(0))]);
-    }
-
-    /// An undecodable page loses its outlines and keeps its selection. The
-    /// two states are different and must not be conflated — and the failure
-    /// is recorded, so the decomposition that would not decode is not retried
-    /// on every frame.
-    #[test]
-    fn losing_the_provider_does_not_lose_the_selection() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.resolve(Some(&stub(0)), 0, 0);
-        assert_eq!(sel.outlines().len(), 1);
-
-        // The operator pages to a sheet whose content will not decode.
-        assert!(sel.needs_resolve(1, 0));
-        sel.resolve(None, 1, 0);
-        assert!(sel.outlines().is_empty());
-        assert_eq!(sel.len(), 1, "the selection is not the outline");
-        assert!(
-            !sel.needs_resolve(1, 0),
-            "a failed decomposition must not be retried every frame"
-        );
-    }
-
-    /// ★ **Delete's operand list is empty at every rung below Object** — the
-    /// one statement of that rule, asserted where it lives.
-    ///
-    /// The canvas keys and the ribbon's `format.delete` both read
-    /// [`SelectionState::deletable_objects_on`], so this test covers both. It
-    /// is the destructive case: the only wired verb removes whole objects, and
-    /// one measured CAD export holds an entire drawing view as a single path
-    /// object with 1,194 subpaths.
-    ///
-    /// The page filter is asserted too, because a paint-order index is a
-    /// position on **one** page and handing `delete_objects` an index from
-    /// another one would remove whatever happens to sit at that slot.
-    #[test]
-    fn only_the_object_rung_offers_anything_to_delete() {
-        let mut sel = SelectionState::default();
-        assert!(sel.deletable_objects_on(0).is_empty(), "nothing selected");
-
-        sel.click(0, hit_object(1), false, false);
-        sel.click(0, hit_object(0), true, false);
-        assert_eq!(
-            sel.deletable_objects_on(0),
-            vec![0, 1],
-            "ascending and de-duplicated, or `delete_objects` refuses the batch"
-        );
-        assert!(
-            sel.deletable_objects_on(1).is_empty(),
-            "an index is a position on ONE page"
-        );
-
-        // Descend into the object: the rung has no delete verb.
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: None,
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Part);
-        assert!(
-            sel.deletable_objects_on(0).is_empty(),
-            "deleting the enclosing object because one subpath was selected is \
-             a destructive wrong action, not a convenience"
-        );
-        assert_eq!(sel.len(), 1, "and asking does not change the selection");
-
-        // …and back out again, which restores the operand list.
-        assert_eq!(
-            sel.escape(),
-            EscapeOutcome::LeftLevel(SelectionLevel::Object)
-        );
-        assert_eq!(sel.deletable_objects_on(0), vec![0]);
-    }
-
-    // -----------------------------------------------------------------
-    // Click semantics
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn a_plain_click_replaces_and_a_shift_click_toggles() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        assert_eq!(sel.entries(), [Selection::object(0, TargetId(0))]);
-
-        sel.click(0, hit_object(1), true, false);
-        assert_eq!(sel.len(), 2, "shift adds");
-
-        sel.click(0, hit_object(1), true, false);
-        assert_eq!(sel.len(), 1, "shift on a selected entry removes it");
-
-        sel.click(0, hit_object(1), false, false);
-        assert_eq!(
-            sel.entries(),
-            [Selection::object(0, TargetId(1))],
-            "a plain click replaces rather than adding"
-        );
-    }
-
-    /// A plain click on empty paper clears; a shift click on empty paper does
-    /// not. The asymmetry is deliberate — an over-shot shift-click must not
-    /// destroy a set that took five clicks to build.
-    #[test]
-    fn a_miss_clears_only_without_shift() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(0, ClickHit::default(), true, false);
-        assert_eq!(sel.len(), 1, "shift+miss leaves the selection alone");
-        sel.click(0, ClickHit::default(), false, false);
-        assert!(sel.is_empty(), "a plain click on empty paper clears");
-    }
-
-    /// Entries are held in document order however they were clicked, so the
-    /// outlines paint in a stable sequence.
-    #[test]
-    fn entries_are_ordered_and_unique_however_they_were_clicked() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(1), false, false);
-        sel.click(0, hit_object(0), true, false);
-        assert_eq!(
-            sel.entries(),
-            [
-                Selection::object(0, TargetId(0)),
-                Selection::object(0, TargetId(1))
-            ]
-        );
-        assert_eq!(sel.object_indices_on(0), vec![0, 1]);
-        assert!(sel.object_indices_on(1).is_empty());
-    }
-
-    // -----------------------------------------------------------------
-    // The ladder
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn a_double_click_descends_one_rung_at_a_time() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        assert_eq!(sel.level(), SelectionLevel::Object);
-
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: None,
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Part);
-        assert_eq!(sel.entries()[0].subpath, Some(1));
-
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: Some(6),
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Node);
-        assert_eq!(sel.entries()[0].node, Some(6));
-
-        // Nothing is below a point.
-        let at_the_bottom = sel.clone();
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: Some(6),
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel, at_the_bottom);
-    }
-
-    /// ★ **Escape ascends exactly one rung per press.**
-    ///
-    /// The old shell shipped Escape as "clear everything", so an operator two
-    /// rungs inside a drawing found one press putting them back at the page.
-    /// Asserted as a sequence of outcomes rather than a boolean, so a
-    /// regression that collapsed the ladder cannot pass by clearing on the
-    /// first press and reporting `true` three times.
-    #[test]
-    fn escape_ascends_one_rung_per_press() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: None,
-            },
-            false,
-            true,
-        );
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: Some(2),
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Node);
-
-        assert_eq!(
-            sel.escape(),
-            EscapeOutcome::LeftLevel(SelectionLevel::Part),
-            "the first press leaves the Node rung and nothing else"
-        );
-        assert_eq!(sel.len(), 1, "leaving a rung does not clear the selection");
-        assert_eq!(sel.entries()[0].node, None);
-        assert_eq!(sel.entries()[0].subpath, Some(0));
-
-        assert_eq!(
-            sel.escape(),
-            EscapeOutcome::LeftLevel(SelectionLevel::Object)
-        );
-        assert_eq!(sel.entries()[0].subpath, None);
-        assert_eq!(sel.len(), 1);
-
-        assert_eq!(sel.escape(), EscapeOutcome::ClearedSelection);
-        assert!(sel.is_empty());
-
-        assert_eq!(
-            sel.escape(),
-            EscapeOutcome::Nothing,
-            "with nothing selected the canvas must not consume Escape"
-        );
-    }
-
-    /// A click that misses everything inside the entered object leaves the
-    /// object rather than stranding the operator at a rung.
-    #[test]
-    fn clicking_away_leaves_the_entered_object() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: None,
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Part);
-
-        sel.click(0, ClickHit::default(), false, false);
-        assert_eq!(sel.level(), SelectionLevel::Object);
-        assert!(sel.is_empty());
-    }
-
-    /// A click on a *different* object while inside one leaves and selects
-    /// that object — PDF path objects do not nest, so there is nothing to
-    /// nest into.
-    #[test]
-    fn clicking_a_different_object_leaves_rather_than_nesting() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: None,
-            },
-            false,
-            true,
-        );
-        sel.click(0, hit_object(1), false, false);
-        assert_eq!(sel.level(), SelectionLevel::Object);
-        assert_eq!(sel.entries(), [Selection::object(0, TargetId(1))]);
-    }
-
-    /// At the Node rung, a click that misses every anchor but lands on a part
-    /// ascends one rung and re-picks — rather than doing nothing, which is
-    /// how an operator gets stuck at a rung whose targets they keep missing.
-    #[test]
-    fn missing_every_anchor_falls_back_to_the_part_rung() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: None,
-            },
-            false,
-            true,
-        );
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: Some(1),
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Node);
-
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: None,
-            },
-            false,
-            false,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Part);
-        assert_eq!(sel.entries()[0].subpath, Some(1));
-        assert_eq!(sel.entries()[0].node, None);
-    }
-
-    // -----------------------------------------------------------------
-    // Marquee
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn a_marquee_replaces_and_a_shift_marquee_extends() {
-        let mut sel = SelectionState::default();
-        sel.marquee(0, &[TargetId(0)], false);
-        assert_eq!(sel.entries(), [Selection::object(0, TargetId(0))]);
-
-        sel.marquee(0, &[TargetId(1)], true);
-        assert_eq!(sel.len(), 2);
-
-        sel.marquee(0, &[TargetId(1)], false);
-        assert_eq!(sel.entries(), [Selection::object(0, TargetId(1))]);
-    }
-
-    /// A marquee always lands at the Object rung and takes the operator out
-    /// of any object they were inside.
-    #[test]
-    fn a_marquee_ascends_to_the_object_rung() {
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(0),
-                node: None,
-            },
-            false,
-            true,
-        );
-        assert_eq!(sel.level(), SelectionLevel::Part);
-        sel.marquee(0, &[TargetId(0), TargetId(1)], false);
-        assert_eq!(sel.level(), SelectionLevel::Object);
-        assert_eq!(sel.entries()[0].subpath, None);
-    }
-
-    // -----------------------------------------------------------------
-    // Outlines
-    // -----------------------------------------------------------------
-
-    /// The outline of an entered part is the **part's** box, not the
-    /// object's. An object-sized rectangle around a part tells the operator
-    /// they selected the whole thing again, which is the misunderstanding
-    /// entering the object exists to resolve.
-    #[test]
-    fn an_entered_parts_outline_is_the_parts_own_box() {
-        let targets = stub(0);
-        let mut sel = SelectionState::default();
-        sel.click(0, hit_object(0), false, false);
-        sel.resolve(Some(&targets), 0, 0);
-        let whole = sel.outlines()[0].1;
-
-        sel.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(0)),
-                part: Some(1),
-                node: None,
-            },
-            false,
-            true,
-        );
-        sel.resolve(Some(&targets), 0, 0);
-        let part = sel.outlines()[0].1;
-        assert!(part.width() < whole.width());
-        assert!(whole.contains_rect(part));
-    }
-
-    /// The grips sit around the union of the selection, not around one
-    /// member of it.
-    #[test]
-    fn the_grip_box_is_the_union_of_the_selection() {
-        let targets = stub(0);
-        let mut sel = SelectionState::default();
-        assert_eq!(sel.outline_union(), None);
-        sel.click(0, hit_object(0), false, false);
-        sel.click(0, hit_object(1), true, false);
-        sel.resolve(Some(&targets), 0, 0);
-        let union = sel
-            .outline_union()
-            .expect("two selected objects have a union");
-        assert!(union.contains_rect(rect(0.0, 0.0, 100.0, 100.0)));
-        assert!(union.contains_rect(rect(200.0, 200.0, 50.0, 50.0)));
-    }
-}
+mod tests;
