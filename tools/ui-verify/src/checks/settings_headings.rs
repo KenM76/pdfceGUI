@@ -166,18 +166,18 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     // harness — headings rendering at about 1.1:1 against a 3:1 floor.
     let exe = ctx.resolve_exe().ok_or_else(|| {
         crate::error::Error::new(format!(
-            "no binary to drive and no --image to assert against. Pass --exe, or build the              profile's default at {}, or point the check at a captured screenshot.",
+            "no binary to drive and no --image to assert against. Pass --exe, or build the profile's default at {}, or point the check at a captured screenshot.",
             ctx.profile.default_exe
         ))
     })?;
     if !ctx.allow_input {
         return Err(crate::error::Error::new(
-            "input is disabled (--no-input). This check has to click the Settings control              open before there is a heading to measure. Reported as SKIPPED rather than              passed: a check that did not run has learned nothing.",
+            "input is disabled (--no-input). This check has to click the Settings control open before there is a heading to measure. Reported as SKIPPED rather than passed: a check that did not run has learned nothing.",
         ));
     }
     let ui_rect = ctx.profile.vocab.ui_rect_event.ok_or_else(|| {
         crate::error::Error::new(format!(
-            "the `{}` profile declares no ui-rect trace event, so the application cannot say              where its headings are.",
+            "the `{}` profile declares no ui-rect trace event, so the application cannot say where its headings are.",
             ctx.profile.name
         ))
     })?;
@@ -251,7 +251,7 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     // palette never assigned — so it would show on every heading at once, not
     // on the seventh.
     report.note(format!(
-        "measures the {} heading(s) currently IN VIEW; the dialog scrolls and this check          does not drive the scroll, so headings below the fold are not measured. D2 was a          theme-wide foreground/background pairing and would show on the first heading as          readily as the last",
+        "measures the {} heading(s) currently IN VIEW; the dialog scrolls and this check does not drive the scroll, so headings below the fold are not measured. D2 was a theme-wide foreground/background pairing and would show on the first heading as readily as the last",
         trace_regions.matched.len()
     ));
 
@@ -299,12 +299,12 @@ fn open_settings(
     if declared(&trace, ui_rect, ITEM).is_none() {
         let overflow = declared(&trace, ui_rect, OVERFLOW).ok_or_else(|| {
             crate::error::Error::new(format!(
-                "neither `{ITEM}` nor `{OVERFLOW}` was declared, so there is no route to the                  Settings dialog on this window. Ribbon regions declared: {}.",
+                "neither `{ITEM}` nor `{OVERFLOW}` was declared, so there is no route to the Settings dialog on this window. Ribbon regions declared: {}.",
                 list(&declared_names(&trace, ui_rect, "ribbon."))
             ))
         })?;
         report.note(
-            "the Settings control is not on the ribbon band at this window width — it is the              first item of the LAST group on the File tab, which the ribbon correctly folds              into the overflow. Opening the overflow to reach it.",
+            "the Settings control is not on the ribbon band at this window width — it is the first item of the LAST group on the File tab, which the ribbon correctly folds into the overflow. Opening the overflow to reach it.",
         );
         driver.click_at(session.frame()?.declared_center(overflow))?;
         session.settle(16);
@@ -313,7 +313,7 @@ fn open_settings(
     let trace = session.trace()?;
     let item = declared(&trace, ui_rect, ITEM).ok_or_else(|| {
         crate::error::Error::new(format!(
-            "`{ITEM}` was still not declared after opening the overflow, so this check cannot              put the dialog on screen. Regions declared under `ribbon.item.file.`: {}.",
+            "`{ITEM}` was still not declared after opening the overflow, so this check cannot put the dialog on screen. Regions declared under `ribbon.item.file.`: {}.",
             list(&declared_names(&trace, ui_rect, "ribbon.item.file."))
         ))
     })?;
@@ -330,7 +330,7 @@ fn open_settings(
     let trace = session.trace()?;
     if declared(&trace, ui_rect, "dialog:settings").is_none() {
         return Err(crate::error::Error::new(format!(
-            "the Settings control was clicked and no `dialog:settings` region appeared, so              the dialog did not open and there is nothing to measure. Regions declared              beginning `dialog`: {}.",
+            "the Settings control was clicked and no `dialog:settings` region appeared, so the dialog did not open and there is nothing to measure. Regions declared beginning `dialog`: {}.",
             list(&declared_names(&trace, ui_rect, "dialog"))
         )));
     }

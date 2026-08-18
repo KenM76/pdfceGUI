@@ -300,7 +300,7 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     let trace = session.trace()?;
     let Some(heading) = declared(&trace, ui_rect, APPEARANCE_HEADING) else {
         return Ok(Some(format!(
-            "the Settings window is open but declared no `{APPEARANCE_HEADING}`. Headings              declared: {}.",
+            "the Settings window is open but declared no `{APPEARANCE_HEADING}`. Headings declared: {}.",
             list(&declared_names(&trace, ui_rect, "settings.heading."))
         )));
     };

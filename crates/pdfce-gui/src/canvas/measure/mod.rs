@@ -1218,7 +1218,7 @@ mod kind_tests {
             );
             assert!(
                 !where_armed.is_empty(),
-                "{k:?} is excluded with no surface named — 'excluded' with no                  destination is indistinguishable from 'forgotten'"
+                "{k:?} is excluded with no surface named — 'excluded' with no destination is indistinguishable from 'forgotten'"
             );
         }
         assert_eq!(

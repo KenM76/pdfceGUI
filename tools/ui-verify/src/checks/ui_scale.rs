@@ -401,7 +401,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
                 && let Err(e) = write_preference(exe, 1.0)
             {
                 eprintln!(
-                    "ui-verify: WARNING — could not restore ui_scale to 1.0 ({e}).                      Every later check will measure a scaled window. Fix by deleting                      userdata/preferences.txt beside the binary."
+                    "ui-verify: WARNING — could not restore ui_scale to 1.0 ({e}). Every later check will measure a scaled window. Fix by deleting userdata/preferences.txt beside the binary."
                 );
             }
         }

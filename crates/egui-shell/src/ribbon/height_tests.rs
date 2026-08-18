@@ -116,11 +116,11 @@ fn the_fixture_is_themed_like_the_running_application() {
         seen = Some((ui.spacing().interact_size.y, ui.spacing().item_spacing.y));
     });
     let (interact, spacing) = seen.expect(
-        "the closure never ran, so nothing was measured and the assertions below          would be about a context nobody looked at",
+        "the closure never ran, so nothing was measured and the assertions below would be about a context nobody looked at",
     );
     assert!(
         (interact - theme.metrics.control_height).abs() <= f32::EPSILON,
-        "a band control lays out {interact} pt tall against a {} pt metric — this          context has slack the running application does not, and a height test          under it can pass against a ragged band",
+        "a band control lays out {interact} pt tall against a {} pt metric — this context has slack the running application does not, and a height test under it can pass against a ragged band",
         theme.metrics.control_height
     );
     assert!(

@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn ui_rect_lines_are_read_as_named_regions() {
         let trace = Trace::parse(
-            "pdfce-diag ui-rect name=central-panel   rect=[[8.0 8.0] - [1092.0 792.0]]\n\
+            "pdfce-diag ui-rect name=central-panel rect=[[8.0 8.0] - [1092.0 792.0]]\n\
              pdfce-diag ui-rect name=page            rect=[[16.0 22.8] - [1084.0 777.2]]\n\
              pdfce-diag ui-rect name=canvas-viewport rect=[[8.0 8.0] - [1092.0 792.0]]",
             "pdfce-diag",

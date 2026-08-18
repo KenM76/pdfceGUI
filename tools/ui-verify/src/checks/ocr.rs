@@ -353,7 +353,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let fixture = ctx.pdf.clone().unwrap_or_else(default_fixture);
     if !fixture.is_file() {
         return Err(Error::new(format!(
-            "the image-only fixture is not at {}. Generate it:\n    cargo test -p pdfce-gui \
+            "the image-only fixture is not at {}. Generate it:\n cargo test -p pdfce-gui \
              --lib write_synthetic_image_only -- --ignored",
             fixture.display()
         )));

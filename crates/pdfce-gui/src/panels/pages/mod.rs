@@ -761,12 +761,12 @@ mod tests {
         assert_eq!(
             PAGES_ROW,
             crate::shell::menus::PAGES_ROW,
-            "the two spellings of this context id have drifted apart, which              detaches every tile's menu with no error anywhere"
+            "the two spellings of this context id have drifted apart, which detaches every tile's menu with no error anywhere"
         );
         let menus = crate::shell::menus::built_in();
         assert!(
             menus.get(PAGES_ROW).is_some(),
-            "`{PAGES_ROW}` is attached by every tile and defined by nothing,              so the right-click opens nothing"
+            "`{PAGES_ROW}` is attached by every tile and defined by nothing, so the right-click opens nothing"
         );
         assert!(
             crate::shell::menus::CONTEXTS.contains(&PAGES_ROW),

@@ -908,7 +908,7 @@ pub const fn edit_form_flatten() -> CommandText {
 pub const fn edit_find() -> CommandText {
     CommandText::new(
         "Find",
-        "Search the text drawn on this document's pages, and highlight every hit (Ctrl+F).          Form fields, comments, bookmarks and attachments are not searched, and a word the          producer split across two text runs is not found.",
+        "Search the text drawn on this document's pages, and highlight every hit (Ctrl+F). Form fields, comments, bookmarks and attachments are not searched, and a word the producer split across two text runs is not found.",
     )
 }
 

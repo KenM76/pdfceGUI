@@ -283,7 +283,7 @@ fn a_rotated_line_reaches_the_rotation_guard() {
     assert_eq!(
         disposition::choose(tm, ctm, finding),
         Reason::Rotated,
-        "a [0 1 -1 0 e f] text matrix must reach the rotation guard, and it must          win over whatever the alignment detector said (it said {finding:?})"
+        "a [0 1 -1 0 e f] text matrix must reach the rotation guard, and it must win over whatever the alignment detector said (it said {finding:?})"
     );
 }
 

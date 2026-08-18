@@ -596,7 +596,7 @@ mod tests {
         for (chord, id) in keymap.iter() {
             assert!(
                 offers_command(Some(&shell), Some("edit"), id),
-                "`{chord}` -> `{id}` is bound and Edit does not offer it, so it is bound to                  something no mode can reach"
+                "`{chord}` -> `{id}` is bound and Edit does not offer it, so it is bound to something no mode can reach"
             );
         }
     }

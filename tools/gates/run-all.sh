@@ -44,19 +44,34 @@
 # its own planted violation, its verdict on the real crate is worth nothing,
 # and finding that out after a green run is finding it out too late.
 #
-# Three gates carry one: `check-ui-strings.sh`, `check-theme-colors.sh` and
-# `check-shipped-assets.sh`. The first two are greps over source, which is the
-# category that fails SILENTLY — a pattern that stops matching, a path that
-# stops resolving, and a find that walks an empty tree all print exactly what a
-# clean run prints.
+# EVERY GATE THAT IS A GREP OVER SOURCE CARRIES ONE. That is the rule; the
+# list is whatever is dispatched below, and this paragraph deliberately no
+# longer names a count.
 #
-# The third fails silently for a different and worse reason. It checks that
-# every redistributed third-party asset's licence reaches the operator, and a
-# repository with no asset directories, or a scan that finds none, prints
-# "clean" just as loudly as one where every obligation is discharged. That gate
-# ALSO has no natural failure in daily use: assets are added rarely, so it
-# could sit green for months while quietly checking nothing. Its self-test
-# plants four separate violations, exempts a fifth, and passes a sixth.
+# It used to say "Three gates carry one" and it was wrong by the time anyone
+# read it — `check-strong-text.sh` was added with a self-test and the sentence
+# was not, so a header describing the file it sits in was off by one, then by
+# two. **A number written in prose beside the thing it counts is a claim that
+# decays**, and this project has now spent six corrections on that exact shape.
+# The dispatch block is the list. Read it instead.
+#
+# The reason the rule is "every grep": a grep over source is the category that
+# fails SILENTLY. A pattern that stops matching, a path that stops resolving,
+# and a find that walks an empty tree all print exactly what a clean run
+# prints.
+#
+# `check-shipped-assets.sh` fails silently for a different and worse reason. It
+# checks that every redistributed third-party asset's licence reaches the
+# operator, and a repository with no asset directories, or a scan that finds
+# none, prints "clean" just as loudly as one where every obligation is
+# discharged. That gate ALSO has no natural failure in daily use: assets are
+# added rarely, so it could sit green for months while quietly checking
+# nothing. Its self-test plants four separate violations, exempts a fifth, and
+# passes a sixth.
+#
+# `check-string-gaps.sh` is the newest and the same argument applies twice
+# over: the defect it hunts is invisible in a diff, so nobody would notice the
+# gate had gone blind either.
 #
 # fmt and clippy run LAST, because they are the slow ones and because a
 # formatting complaint is the least interesting thing this script can tell you.
@@ -110,6 +125,7 @@ run "check-ui-strings --self-test"  bash "$HERE/check-ui-strings.sh" --self-test
 run "check-theme-colors --self-test" bash "$HERE/check-theme-colors.sh" --self-test
 run "check-strong-text --self-test" bash "$HERE/check-strong-text.sh" --self-test
 run "check-shipped-assets --self-test" bash "$HERE/check-shipped-assets.sh" --self-test
+run "check-string-gaps --self-test" bash "$HERE/check-string-gaps.sh" --self-test
 
 # --- 1. the gates themselves ------------------------------------------------
 run "check-ui-strings"   bash "$HERE/check-ui-strings.sh"
@@ -121,6 +137,7 @@ run "check-strong-text" bash "$HERE/check-strong-text.sh"
 run "check-file-size"    bash "$HERE/check-file-size.sh"
 run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
 run "check-shipped-assets" bash "$HERE/check-shipped-assets.sh"
+run "check-string-gaps"  bash "$HERE/check-string-gaps.sh"
 
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #

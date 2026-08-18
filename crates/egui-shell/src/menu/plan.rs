@@ -480,7 +480,7 @@ mod tests {
         assert_eq!(
             nothing_true.len(),
             4,
-            "all three commands still resolve, and the rule between them survives              because it still separates two real rows"
+            "all three commands still resolve, and the rule between them survives because it still separates two real rows"
         );
         assert!(
             !offers_anything(&nothing_true),

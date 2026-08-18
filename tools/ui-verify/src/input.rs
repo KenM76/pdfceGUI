@@ -301,14 +301,14 @@ impl Driver {
     fn raise_and_confirm(&self) -> Result<()> {
         let Some(w) = self.target else {
             return Err(Error::new(
-                "refusing to send input with no target window: it would go to whatever window                  is in front, which may be the operator's own",
+                "refusing to send input with no target window: it would go to whatever window is in front, which may be the operator's own",
             ));
         };
         self.raise();
         std::thread::sleep(MOVE_SETTLE);
         if !sys::is_foreground(w) {
             return Err(Error::new(
-                "the target window could not be brought to the front, so anything typed now                  would go to the operator's own window. Windows refuses SetForegroundWindow to                  a process without foreground rights, and this harness is a background process.                  Reported rather than typed: sending the keystroke anyway would both corrupt                  whatever IS in front and make this check report the feature as broken when                  nothing was ever typed at it.",
+                "the target window could not be brought to the front, so anything typed now would go to the operator's own window. Windows refuses SetForegroundWindow to a process without foreground rights, and this harness is a background process. Reported rather than typed: sending the keystroke anyway would both corrupt whatever IS in front and make this check report the feature as broken when nothing was ever typed at it.",
             ));
         }
         Ok(())

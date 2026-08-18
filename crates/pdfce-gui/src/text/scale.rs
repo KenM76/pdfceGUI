@@ -62,7 +62,7 @@ pub const fn intro() -> &'static str {
 /// absence.
 #[must_use]
 pub const fn ratio_only_note() -> &'static str {
-    "With no line drawn yet, the scale is given as a ratio. To set it by      pointing at a dimension the drawing already states, measure it first."
+    "With no line drawn yet, the scale is given as a ratio. To set it by pointing at a dimension the drawing already states, measure it first."
 }
 
 /// The ratio row's label.
@@ -266,7 +266,7 @@ pub const fn calibrate_button() -> &'static str {
 /// What the button will do, on hover.
 #[must_use]
 pub const fn calibrate_tooltip() -> &'static str {
-    "Close this window and click two points on the page. pdfce measures the      distance between them, then asks what that distance is on the real thing."
+    "Close this window and click two points on the page. pdfce measures the distance between them, then asks what that distance is on the real thing."
 }
 
 /// Why the button is worth pressing, under it.
@@ -276,7 +276,7 @@ pub const fn calibrate_tooltip() -> &'static str {
 /// same place.
 #[must_use]
 pub const fn calibrate_note() -> &'static str {
-    "Easier than a ratio if the drawing already states a dimension: point at      it, type what it says, and pdfce works the scale out."
+    "Easier than a ratio if the drawing already states a dimension: point at it, type what it says, and pdfce works the scale out."
 }
 
 /// What pdfce measured, once the two points are picked.
@@ -293,7 +293,7 @@ pub const fn calibrate_note() -> &'static str {
 #[must_use]
 pub fn calibrated_note(measured_pt: f64) -> String {
     format!(
-        "You picked a line {measured_pt:.2} points long on the page. What is that          distance on the real thing?"
+        "You picked a line {measured_pt:.2} points long on the page. What is that distance on the real thing?"
     )
 }
 
@@ -320,7 +320,7 @@ pub const fn real_length_hint() -> &'static str {
 /// about what `55 5/8"` means.
 #[must_use]
 pub const fn real_length_hint_long() -> &'static str {
-    "Feet and inches, fractions, or a plain number with a unit. Leave the unit      off and pdfce uses the one selected below."
+    "Feet and inches, fractions, or a plain number with a unit. Leave the unit off and pdfce uses the one selected below."
 }
 
 /// A length pdfce could not read.

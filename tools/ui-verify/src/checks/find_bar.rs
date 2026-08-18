@@ -169,7 +169,7 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
         .any(|l| l.get("id") == Some("mode.review"))
     {
         return Err(Error::new(format!(
-            "the control chord Ctrl+2 (`mode.review`) produced no `chord-command` line, so no              keystroke reached the application and nothing below would mean anything. The              window reported itself foreground, so this is not the focus guard — the likely              causes are that synthetic `keybd_event` input is not reaching this window at all,              or that the process needs longer than {} frames before it reads the keyboard.              Reported as SKIPPED rather than as a Find failure: a check that types into nothing              must never name a feature as the culprit.",
+            "the control chord Ctrl+2 (`mode.review`) produced no `chord-command` line, so no keystroke reached the application and nothing below would mean anything. The window reported itself foreground, so this is not the focus guard — the likely causes are that synthetic `keybd_event` input is not reaching this window at all, or that the process needs longer than {} frames before it reads the keyboard. Reported as SKIPPED rather than as a Find failure: a check that types into nothing must never name a feature as the culprit.",
             48
         )));
     }

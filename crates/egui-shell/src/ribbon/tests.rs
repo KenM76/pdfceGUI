@@ -962,7 +962,7 @@ fn groups_in_the_overflow_menu_are_captioned_too() {
     assert_eq!(
         state.last_frame().groups_rendered,
         3 - hidden,
-        "with the menu CLOSED only the band's groups are drawn — checked so              the assertion below is not satisfied by a menu that never opened"
+        "with the menu CLOSED only the band's groups are drawn — checked so the assertion below is not satisfied by a menu that never opened"
     );
 
     // Click it, then let the popup render.

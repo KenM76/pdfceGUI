@@ -356,7 +356,7 @@ pub(crate) fn commit(run: &mut VertexRun, actions: &mut Vec<Action>, pen: super:
 /// decomposes nothing.
 #[allow(
     clippy::too_many_arguments,
-    reason = "a gesture entry point's inputs are eight independent facts about one frame — the               pen, the armed kind, two pointer positions, the page, its geometry, the phase and               the action queue. Grouping any subset into a struct would be grouping by arity               rather than by meaning, and the resulting type would have no name that was true." // ui-text-exempt: lint justification, never displayed
+    reason = "a gesture entry point's inputs are eight independent facts about one frame — the pen, the armed kind, two pointer positions, the page, its geometry, the phase and the action queue. Grouping any subset into a struct would be grouping by arity rather than by meaning, and the resulting type would have no name that was true." // ui-text-exempt: lint justification, never displayed
 )]
 pub(crate) fn click(
     pen: super::pen::Pen,

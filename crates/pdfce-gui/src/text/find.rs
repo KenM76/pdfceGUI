@@ -272,7 +272,7 @@ pub fn options() -> &'static str {
 /// out whether it is worth opening.
 #[must_use]
 pub fn options_tooltip() -> &'static str {
-    "Case sensitivity, whole-word matching and wildcards. They are in a menu so this bar      stays narrow enough to sit over the page without hiding it."
+    "Case sensitivity, whole-word matching and wildcards. They are in a menu so this bar stays narrow enough to sit over the page without hiding it."
 }
 
 /// The case-sensitivity control's label.

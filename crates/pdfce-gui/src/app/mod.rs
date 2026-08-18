@@ -420,7 +420,7 @@ impl PdfceApp {
     #[must_use]
     #[allow(
         clippy::new_without_default,
-        reason = "a defaulted PdfceApp would have no shell manifest, no command registry, no                   panel registry and no settings store — a state this constructor can never                   produce and every method assumes away. See the type's own docs." // ui-text-exempt: lint justification, never displayed
+        reason = "a defaulted PdfceApp would have no shell manifest, no command registry, no panel registry and no settings store — a state this constructor can never produce and every method assumes away. See the type's own docs." // ui-text-exempt: lint justification, never displayed
     )]
     pub fn new() -> Self {
         let mut commands = egui_shell::commands::CommandRegistry::new();

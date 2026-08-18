@@ -845,6 +845,10 @@ pub fn after() -> &'static str { "after —" }
     /// message is worse than none: it sends the reader somewhere plausible.
     #[test]
     fn a_line_continuation_still_counts_its_newline() {
+        // string-gap-exempt: this literal IS escaped Rust source, and the runs
+        // of spaces are the indentation of the continuation lines being
+        // scanned — the exact thing under test. Rejoining them would delete
+        // the fixture.
         let src = "fn a() {\n    let _ = \"one \\\n         two \\\n         three\";\n}\nfn b() { let _ = \"LAST\"; }\n";
         let got = string_literals(src).expect("scan");
         let last = got.iter().find(|l| l.text == "LAST").expect("found LAST");

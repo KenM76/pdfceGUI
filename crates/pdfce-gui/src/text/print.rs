@@ -474,7 +474,7 @@ pub fn sheet_from_driver(sheet: Option<(f64, f64)>) -> String {
     // unfamiliar.
     let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
     format!(
-        "Paper: {} × {} pt ({} × {} mm), from this printer's own settings in          Windows. pdfce cannot change it — set it in the printer's preferences          and reopen this dialog.",
+        "Paper: {} × {} pt ({} × {} mm), from this printer's own settings in Windows. pdfce cannot change it — set it in the printer's preferences and reopen this dialog.",
         w_pt.round() as i64,
         h_pt.round() as i64,
         mm(w_pt),

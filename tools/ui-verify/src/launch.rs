@@ -353,7 +353,7 @@ fn staleness_complaint(exe: &Path, source_root: &Path) -> Option<String> {
         return None;
     }
     Some(format!(
-        "STALE BINARY — refusing to run.\n  binary : {}\n           built {:?}\n  newest : {}\n \
+        "STALE BINARY — refusing to run.\n  binary : {}\n built {:?}\n  newest : {}\n \
           edited {:?}\n\nThe traces you are about to collect would describe code that is NOT \
          the code you just wrote, and a missing trace looks exactly like a broken feature.\n\n \
           cargo build --release\n\nPass --allow-stale only if you intend to drive the older \
