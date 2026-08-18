@@ -10,22 +10,31 @@ at a section of it.
 
 ---
 
-## ★★★ State, measured
+## ★★★ State, as measured at `6dc6749`
+
+**This table is a reading, not a status.** Every row is what a command
+printed at that commit; the tree has moved since, and the numbers move with
+it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Shell HEAD** | `6dc6749` — **clean tree** |
+| **Measured at** | `6dc6749`, clean tree. Doc-only commits follow it |
 | **Engine** | `D:\Dev\pdfce` local `main`, locked at `ac15158`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | **1,839 passing, 0 failing** |
-| **Gates** | **14 of 14, 0 skipped** |
-| **`ui-verify`** | **25 passed, 0 failed, 2 skipped** |
+| **Tests** | 1,839 passing, 0 failing |
+| **Gates** | 14 of 14, 0 skipped |
+| **`ui-verify`** | 25 passed, 0 failed, 2 skipped |
 | **Latest build** | `D:\builds\pdfcegui-20260818-0536-ac15158-82605b5\`, mirrored to `OneDrive\pdfceGUI2` |
 | **Requests owed by pdfce** | **NONE — `open/` is empty.** Seven filed, all seven answered inside a day |
 
-**Re-measure rather than quoting this table.** Prose drifting from a number is
-a defect this project has had six times.
+**Re-measure before you rely on any of it.** Prose drifting from a number is a
+defect this project has spent six corrections on — the gate runner's own
+header spent months saying "Three gates carry one" while four ran, and the
+README claimed 1,530 tests against an actual 1,839. Both were fixed by
+deleting the count, not by updating it. Do the same here if you find yourself
+tempted to edit a number rather than re-run the command.
 
 ```bash
+git log --oneline -1
 cargo test --workspace
 bash tools/gates/run-all.sh
 cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
