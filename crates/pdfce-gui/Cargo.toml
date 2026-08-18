@@ -139,6 +139,20 @@ eframe.workspace = true
 # is the failure mode we want: a type error, not a silent second copy.
 egui.workspace = true
 
+# raw-window-handle — ONE use: the `HWND` of our own window.
+#
+# `pdfce-print`'s printer-properties call takes the parent window as an
+# `isize`, deliberately, so that a crate with no windowing dependency can
+# still open a driver-owned modal. Somebody has to produce that integer, and
+# eframe carries the handle but does NOT re-export the trait needed to read
+# it.
+#
+# Pinned to the version eframe itself depends on. If the two ever diverge,
+# `HasWindowHandle` becomes two different traits and `cc` stops satisfying
+# ours — a loud compile error at `app::window_handle`, which is the right
+# failure mode for a version skew that would otherwise be invisible.
+raw-window-handle = "0.6.2"
+
 # ---------------------------------------------------------------------------
 # DEPENDENCIES ON THE READ-ONLY ENGINE (PROJECT_PLAN.md §2)
 # ---------------------------------------------------------------------------

@@ -79,11 +79,38 @@ use egui::Ui;
 
 use crate::app::state::OpenDoc;
 use crate::dialogs::print::spooler::{
-    Collate, DeviceFeatures, DeviceSettings, Job, JobSpec, PageBitmap, PageSubset, Printer,
-    ScaleMode, SpoolReport, Unavailable,
+    Collate, DeviceFeatures, DeviceSettings, DriverConfig, Job, JobSpec, PageBitmap, PageSubset,
+    PaperChoice, PaperForm, Printer, ScaleMode, SettingsSource, SpoolReport, Unavailable,
 };
 use crate::dialogs::print::tabs::{PrintRange, PrintTab};
 use crate::text::print as t;
+
+/// The **Properties…** button's published region.
+///
+/// ★ Published for `ui-verify`, which is the only oracle this project trusts
+/// for a layout claim. See `tools/ui-verify/src/checks/print_paper.rs` for
+/// what it asserts, and for why a driven check reads this rect without ever
+/// clicking it.
+const REGION_PROPERTIES: &str = "print.properties";
+
+/// The paper selector's published region — the combo itself, closed.
+pub(super) const REGION_PAPER: &str = "print.paper";
+
+/// One published region per entry in the OPEN paper list, indexed from zero
+/// with the "from the printer's own settings" entry as index 0.
+///
+/// # Why the ENTRIES are published and not only the combo
+///
+/// Because a check that can open a list but not choose from it can only
+/// assert that a control exists — and "the control exists" is exactly the
+/// claim that was true of the tray checkbox for four months while it did
+/// nothing. The property worth asserting is that **choosing a sheet changes
+/// the plan**, and that needs a click on a specific entry.
+///
+/// An egui combo popup is an `Area` laid out at paint time; its entries have
+/// no position anything outside the process could compute. Publishing them is
+/// the only route, and it costs nothing when `PDFCE_DIAG` is unset.
+pub(super) const REGION_PAPER_ITEM_PREFIX: &str = "print.paper.item.";
 
 /// Width of the options column, in egui points.
 ///
@@ -137,7 +164,60 @@ pub struct PrintDialog {
     selected: usize,
     /// What the selected device says it can do.
     features: DeviceFeatures,
-    /// Which selection [`Self::features`] was read for.
+    /// Every sheet size the selected device offers.
+    ///
+    /// Read on a change of selection, alongside [`Self::features`], and empty
+    /// when the driver would not enumerate any — which is a legal answer and
+    /// not a failure. An empty list means the paper control renders
+    /// [`crate::text::print::paper_not_listed`] instead of a combo, rather
+    /// than an empty combo: R9.
+    forms: Vec<PaperForm>,
+    /// The driver's own settings, once the operator has been through
+    /// **Properties…** and accepted.
+    ///
+    /// # ★ Why `None` is not "the defaults" but "send no `DEVMODE` at all"
+    ///
+    /// They are genuinely different jobs. With `None`, `pdfce-print` sends
+    /// nothing and the device's own configuration applies in full — the
+    /// cheapest and most conservative case, and the one this build did
+    /// exclusively for its whole life. With `Some`, a real `DEVMODE` goes out
+    /// carrying media type, quality, finishing and the driver's private tail,
+    /// amended with the members this dialog names.
+    ///
+    /// # Why it is cleared on a change of printer
+    ///
+    /// Because a `DEVMODE`'s private tail is **one driver's** private format.
+    /// Handing an EPSON's configuration to the XPS writer is not a degraded
+    /// result, it is an undefined one, and the engine refuses it by name. See
+    /// [`Self::refresh_device`], which drops this and the paper choice
+    /// together for two different reasons.
+    config: Option<DriverConfig>,
+    /// Why the driver's properties dialog could not be opened, if it could
+    /// not.
+    ///
+    /// Kept apart from [`Self::outcome`] deliberately: that field is *what
+    /// happened to a print job*, and a properties failure is not one. Folding
+    /// them together would let "your settings dialog would not open" appear
+    /// where the operator reads "nothing was sent to the printer", which
+    /// states something worse than what happened.
+    ///
+    /// **Cancel does not set this.** `Ok(None)` is the operator declining.
+    properties_error: Option<String>,
+    /// Set by the Properties… button, consumed after the window closure
+    /// returns.
+    ///
+    /// # Why this is deferred, and it is a stronger reason than the commit's
+    ///
+    /// The driver's properties dialog is a **nested modal message loop** that
+    /// Windows runs on this thread. Calling it from inside `Window::show`'s
+    /// closure would run a foreign event loop while egui is part-way through
+    /// laying this dialog out, with our own `Ui` borrowed for however long the
+    /// operator spends in it. Deferring by one statement — the same shape as
+    /// [`Self::commit_requested`] — means the frame has finished and nothing
+    /// of egui's is borrowed when the loop starts.
+    properties_requested: bool,
+    /// Which selection the per-device cache — [`Self::features`],
+    /// [`Self::forms`], [`Self::config`] — was filled for.
     ///
     /// ★ **This field is a fix, not salvage.** The old shell read the device
     /// features once when the dialog opened and never again — while letting
@@ -279,6 +359,10 @@ impl PrintDialog {
             printers,
             selected,
             features: DeviceFeatures::default(),
+            forms: Vec::new(),
+            config: None,
+            properties_error: None,
+            properties_requested: false,
             features_for: None,
             range: PrintRange::All,
             range_text: String::new(),
@@ -314,8 +398,13 @@ impl PrintDialog {
     /// affordable because planning is arithmetic over a page-size list; the
     /// two things that are *not* affordable per frame (enumerating printers,
     /// asking a driver about duplex) are the two that are not done here.
-    pub(super) fn show(&mut self, ctx: &egui::Context, doc: &OpenDoc) -> bool {
-        self.refresh_features();
+    pub(super) fn show(
+        &mut self,
+        ctx: &egui::Context,
+        doc: &OpenDoc,
+        window: Option<isize>,
+    ) -> bool {
+        self.refresh_device();
 
         // ★ Page sizes come from the ROTATED device extent, not from the raw
         // `/MediaBox`.
@@ -343,7 +432,7 @@ impl PrintDialog {
         let printer_name = self.printers.get(self.selected).map(|p| p.name.clone());
         let job = printer_name
             .as_deref()
-            .map(|name| spooler::plan(name, self.device, &page_sizes, &spec))
+            .map(|name| spooler::plan(name, self.device, self.config.as_ref(), &page_sizes, &spec))
             .and_then(Result::ok);
 
         // Keep the stepper inside the job. A range narrowed while the dialog
@@ -405,6 +494,18 @@ impl PrintDialog {
 
         self.trace_plan(printer_name.as_deref(), job.as_ref());
 
+        // ★ The driver's properties dialog, opened here for a stronger version
+        // of the reason the commit is deferred: it is a nested modal message
+        // loop, and it must not run with an egui `Ui` borrowed. See
+        // [`Self::properties_requested`].
+        //
+        // Before the commit below, deliberately: a frame in which the operator
+        // somehow triggered both should configure the device and then print
+        // with what they configured, not print and then configure.
+        if std::mem::take(&mut self.properties_requested) {
+            self.open_properties(window);
+        }
+
         // ★ The commit, performed here: after the window's closure has
         // returned and before the next frame begins. See
         // [`Self::commit_requested`] for why it is not done at the click site.
@@ -416,30 +517,140 @@ impl PrintDialog {
         open && !std::mem::take(&mut self.close_requested)
     }
 
-    /// Re-read the selected device's capabilities when the selection changed.
+    /// Re-read everything that belongs to the selected device.
     ///
-    /// See [`Self::features_for`] for the defect this closes. A failed read
-    /// falls back to [`DeviceFeatures::default`] — `supports_duplex: false` —
-    /// which is the safe direction: a device that cannot describe itself gets
-    /// no duplex control, rather than a control that may silently do nothing.
-    fn refresh_features(&mut self) {
+    /// See [`Self::features_for`] for the defect this closes: the old shell
+    /// read capabilities only for the *initially* selected device and never
+    /// again, while letting the operator change printer, so a duplex control
+    /// could survive onto a simplex device and produce a job that came out
+    /// single-sided with nothing to say why.
+    ///
+    /// Called once per **change of selection**, never per frame: three of the
+    /// four things it does open a device context, and doing that sixty times
+    /// a second while a dialog sits open would be rude to a service other
+    /// applications share.
+    ///
+    /// # ★ Two things are DROPPED here, for two different reasons
+    ///
+    /// **The configuration**, because a `DEVMODE`'s private tail is one
+    /// driver's private format and handing it to another device is undefined
+    /// rather than degraded. The engine refuses it by name; dropping it here
+    /// means the refusal is never reached.
+    ///
+    /// **The paper choice**, and this one is subtler and worth stating in
+    /// full. [`PaperChoice::Form`] holds a `dmPaperSize` integer, and those
+    /// are only standard up to a point: the low ids are Win32 constants
+    /// (`DMPAPER_LETTER` is 1, `DMPAPER_A3` is 8), but everything a vendor
+    /// defines lives above `DMPAPER_USER` and means whatever that one driver
+    /// says. Carrying `Form(257)` from an EPSON to a plotter would silently
+    /// request a different sheet under the same number — no error, no
+    /// mismatch, just the wrong paper. It resets to
+    /// [`PaperChoice::DeviceDefault`], which is the only value that means the
+    /// same thing on every device.
+    ///
+    /// A failed read of either falls back to the safe direction: no features
+    /// (so no duplex control) and no forms (so no paper list).
+    fn refresh_device(&mut self) {
         if self.features_for == Some(self.selected) {
             return;
         }
-        let features = self
-            .printers
-            .get(self.selected)
-            .and_then(|p| spooler::device_features(&p.name).ok())
+        let name = self.printers.get(self.selected).map(|p| p.name.clone());
+        let features = name
+            .as_deref()
+            .and_then(|name| spooler::device_features(name).ok())
             .unwrap_or_default();
+        let forms = name
+            .as_deref()
+            .and_then(|name| spooler::printer_forms(name).ok())
+            .unwrap_or_default();
+
         crate::diag::trace(|| {
             format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "print-features selected={} duplex={} max_copies={}",
-                self.selected, features.supports_duplex, features.max_copies,
+                "print-features selected={} duplex={} max_copies={} form_source={:?} forms={}",
+                self.selected,
+                features.supports_duplex,
+                features.max_copies,
+                features.form_source,
+                forms.len(),
             )
         });
+
         self.features = features;
+        self.forms = forms;
+        self.config = None;
+        self.device.paper = PaperChoice::DeviceDefault;
+        self.properties_error = None;
         self.features_for = Some(self.selected);
+    }
+
+    /// Open the driver's own properties dialog and keep what it produces.
+    ///
+    /// Runs **after** the window's closure has returned — see
+    /// [`Self::properties_requested`] for why a nested modal message loop
+    /// cannot be started from inside an egui layout pass.
+    ///
+    /// # What happens to the three outcomes
+    ///
+    /// | outcome | effect |
+    /// |---|---|
+    /// | accepted | the configuration is stored, and the paper combo adopts whatever sheet it names |
+    /// | cancelled | **nothing at all** — no message, no state change. The operator declined |
+    /// | refused | [`Self::properties_error`] is set and shown; whatever configuration was already held survives |
+    ///
+    /// # ★ Why the paper combo follows the driver's dialog
+    ///
+    /// Because otherwise two surfaces describe the same job differently. An
+    /// operator who picks A3 in the driver's dialog and returns to a combo
+    /// still reading *"From the printer's own settings"* has been told
+    /// something false by a control they can see, about a setting they just
+    /// changed. Adopting the id makes the combo a report of the truth rather
+    /// than a competing claim — and because the engine amends rather than
+    /// replaces, asserting the same value changes nothing about the job.
+    ///
+    /// A configuration naming a **custom** sheet has no id to adopt, so the
+    /// combo stays on `DeviceDefault` — which is correct: `DeviceDefault`
+    /// asserts no paper, so the configuration's own custom sheet stands. The
+    /// disclosure line reports it rather than the combo.
+    fn open_properties(&mut self, parent: Option<isize>) {
+        let Some(printer) = self.printers.get(self.selected).map(|p| p.name.clone()) else {
+            return;
+        };
+        match spooler::edit_printer_configuration(&printer, parent, self.config.as_ref()) {
+            Ok(Some(config)) => {
+                let summary = config.summary();
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "print-properties-accepted printer={printer} form={:?} custom_pt={:?} \
+                         driver_extra={}",
+                        summary.paper_form_id, summary.custom_paper_pt, summary.driver_extra,
+                    )
+                });
+                if let Some(id) = summary.paper_form_id {
+                    self.device.paper = PaperChoice::Form(id);
+                }
+                self.config = Some(config);
+                self.properties_error = None;
+            }
+            Ok(None) => {
+                // Cancel. Deliberately silent — see the table above.
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!("print-properties-cancelled printer={printer}")
+                });
+            }
+            Err(error) => {
+                let detail = error.to_string();
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "print-properties-refused printer={printer} reason={detail}"
+                    )
+                });
+                self.properties_error = Some(detail);
+            }
+        }
     }
 
     /// Turn the operator's answers into a [`JobSpec`].
@@ -609,7 +820,41 @@ impl PrintDialog {
                         ui.selectable_value(&mut self.selected, index, &printer.name);
                     }
                 });
+            // ★ BESIDE the printer combo, which is where the operator asked
+            // for it: *"pretty much every program I have ever seen lets you
+            // press a properties button beside the selected printer in the
+            // drop-down menu to open the printer options."*
+            //
+            // Outside the tabs for the same reason the selector is: it acts
+            // on the DEVICE rather than on the job, and every tab's settings
+            // are settings of the job. Putting it inside one would imply it
+            // belonged to that tab's group.
+            //
+            // Not gated on anything. Every Windows printer has a properties
+            // dialog — it is the driver's, not ours — and a device that
+            // refused to open it says so through `properties_error` below,
+            // which is a fact about this attempt rather than a capability
+            // that could have been read in advance.
+            let properties = ui.button(t::properties());
+            crate::diag::ui_rect(REGION_PROPERTIES, properties.rect);
+            if properties.on_hover_text(t::properties_tooltip()).clicked() {
+                self.properties_requested = true;
+            }
         });
+
+        // What the properties dialog left behind, if anything. Both lines are
+        // `.small().weak()`: they are facts the operator may need and are not
+        // the thing they are being told, which is the same weighting the
+        // spooler-detail line uses.
+        if let Some(detail) = &self.properties_error {
+            ui.label(
+                egui::RichText::new(t::properties_failed(detail))
+                    .small()
+                    .color(ui.visuals().error_fg_color),
+            );
+        } else if self.config.is_some() {
+            ui.label(egui::RichText::new(t::properties_held()).small().weak());
+        }
         ui.add_space(6.0);
 
         ui.horizontal_wrapped(|ui| {
@@ -697,6 +942,18 @@ impl PrintDialog {
             match &self.outcome {
                 Some(Ok(report)) => {
                     ui.label(t::sent(report.pages));
+                    // ★ The only one of the four `SettingsSource` values that
+                    // is disclosed, and the operator could not learn it any
+                    // other way: the job printed, and everything the driver
+                    // held that pdfce does not model was silently absent from
+                    // it. See `SettingsSource::Synthesised`.
+                    if report.settings_source == SettingsSource::Synthesised {
+                        ui.label(
+                            egui::RichText::new(t::settings_synthesised())
+                                .small()
+                                .weak(),
+                        );
+                    }
                 }
                 Some(Err(detail)) => {
                     ui.label(
@@ -779,8 +1036,14 @@ impl PrintDialog {
         let first_page_pt = bitmaps
             .first()
             .map_or(US_LETTER_PORTRAIT_PT, |bitmap| bitmap.page_pt);
-        spooler::spool(printer, &bitmaps, self.device, first_page_pt)
-            .map_err(|error| error.to_string())
+        spooler::spool(
+            printer,
+            &bitmaps,
+            self.device,
+            self.config.as_ref(),
+            first_page_pt,
+        )
+        .map_err(|error| error.to_string())
     }
 
     /// One trace line describing the job the dialog is currently showing.
@@ -795,6 +1058,7 @@ impl PrintDialog {
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
                 "print-plan printer={printer:?} driver={:?} port={:?} sheets={:?} clipped={:?} \
                  dpi={:?} capped={:?} uncapped_mb={:?} orientation={:?} duplex={:?} \
+                 paper={:?} sheet={:?} config={} \
                  scale={:?} tab={:?}",
                 self.printers.get(self.selected).map(|p| &p.driver),
                 self.printers.get(self.selected).map(|p| &p.port),
@@ -805,6 +1069,16 @@ impl PrintDialog {
                 job.map(|j| j.resolution.uncapped_page_mb),
                 self.device.orientation,
                 self.device.duplex,
+                // ★ `paper=` and `sheet=` are on this line TOGETHER, and the
+                // pairing is the assertion. `paper=` is what was asked for;
+                // `sheet=` is the physical sheet the geometry came back with.
+                // A build that took the request and planned against the
+                // device's default anyway would show `paper=Form(8)` beside an
+                // unchanged `sheet=` — the 77 %-scale defect in a second
+                // dimension, and invisible in any other evidence.
+                self.device.paper,
+                job.map(|j| j.device.physical_pt),
+                self.config.is_some(),
                 job.and_then(|j| j.plans.first()).map(|p| p.placement.scale),
                 self.active_tab,
             )

@@ -72,6 +72,77 @@ pub const fn printer_label() -> &'static str {
     "Printer"
 }
 
+/// Label for the button that opens the **driver's own** properties dialog.
+///
+/// # Why an ellipsis, and why this exact word
+///
+/// The ellipsis is the platform convention for "this opens something", and it
+/// is doing real work here: the button is beside a combo box, and without it
+/// a reader scanning the row has no way to tell that one of the two controls
+/// hands them off to another window.
+///
+/// *Properties* rather than *Setup*, *Preferences* or *Options* because it is
+/// the word Windows itself uses on that dialog's own title bar, and because
+/// it is what the operator asked for: *"pretty much every program I have ever
+/// seen lets you press a properties button beside the selected printer in the
+/// drop-down menu to open the printer options."*
+#[must_use]
+pub const fn properties() -> &'static str {
+    "Properties…"
+}
+
+/// Hover text for [`properties`].
+///
+/// # ★ It states the override, and that is the non-obvious half
+///
+/// The driver's dialog offers orientation and paper alongside media type,
+/// quality and finishing. pdfce **asserts its own** orientation over whatever
+/// that dialog set — always, because a `DEVMODE` handed to `CreateDC` carries
+/// one and this dialog's radios are what the preview was drawn from. An
+/// operator who sets landscape there and gets portrait paper would have no
+/// way to find out why, and would reasonably conclude the driver dialog was
+/// ignored wholesale. It is not: everything pdfce does not name survives.
+///
+/// Paper is the other way round and is stated as such — a sheet chosen in the
+/// driver's dialog is adopted by the combo beside it, so the two surfaces
+/// cannot end up describing the same job differently.
+#[must_use]
+pub const fn properties_tooltip() -> &'static str {
+    "Opens this printer's own settings — media type, quality, finishing and anything else the driver offers. pdfce keeps the orientation chosen here in the Print dialog; a paper size chosen there is picked up by the Paper list."
+}
+
+/// Disclosure that the driver's settings are being carried with the job.
+///
+/// Shown only once the operator has been through [`properties`] and accepted
+/// it, because before then there is nothing to say: pdfce sends no `DEVMODE`
+/// at all and the device's own defaults apply in full.
+///
+/// # Why it is worth a line of the operator's attention
+///
+/// Because the settings it refers to are invisible from this dialog. A print
+/// configured for glossy photo paper at best quality looks, from inside
+/// pdfce, exactly like one configured for plain draft. The line is the only
+/// evidence in the application that a job is carrying anything beyond what
+/// the three tabs show.
+#[must_use]
+pub const fn properties_held() -> &'static str {
+    "This printer's own settings are being sent with the job."
+}
+
+/// The driver's properties dialog could not be opened, and why.
+///
+/// `detail` is `pdfce-print`'s own error `Display`, passed through for the
+/// same reason [`failed`] passes one through.
+///
+/// **Cancel is not this.** An operator who pressed Cancel gets nothing at
+/// all: the engine reports that as `Ok(None)` and it is them declining, not a
+/// failure. Showing a message there would be scolding them for using the
+/// dialog correctly.
+#[must_use]
+pub fn properties_failed(detail: &str) -> String {
+    format!("This printer's own settings could not be opened. {detail}")
+}
+
 /// **pdfce could not ask this system about its printers at all.**
 ///
 /// The first of the three no-printer sentences (module docs). It is what this
@@ -429,33 +500,198 @@ pub const fn duplex_short() -> &'static str {
     "Two-sided, short-edge binding"
 }
 
-/// ★ **Which paper this job is being laid out on, and that it cannot be
-/// chosen here.**
+/// Label for the tray-by-sheet-size checkbox.
 ///
-/// # Why this sentence exists at all
+/// # ★ This control was deleted on 2026-08-17 and is back on 2026-08-18
 ///
-/// `pdfce-print` exposes no paper-size list and no way to request one:
-/// `build_devmode` sets `DM_ORIENTATION` and `DM_DUPLEX` and never
-/// `DM_PAPERSIZE`, and `printer_caps` reads the device's **default** DEVMODE.
-/// So the job is planned against whatever paper this printer's Windows
-/// preferences are set to.
+/// It was removed because it did nothing: `DeviceSettings::pick_tray_by_page_size`
+/// was a field `pdfce-print` declared and read nowhere, so the job spooled,
+/// the paper came out of the default tray, and nothing reported that the
+/// request had been dropped — indistinguishable, from the operator's side,
+/// from a driver that had declined it.
 ///
-/// That is a fact pdfce inferred and the operator did not choose, which under
-/// rule 4 is exactly the kind of thing that must be disclosed — *fuzzy, never
-/// sneaky*. And it is disclosed **off-canvas, in words, where the decision it
-/// affects is being made**, rather than by a badge on the preview.
+/// The engine now honours it (`DMBIN_FORMSOURCE`, asserted only when this box
+/// is ticked). The control is therefore backed, and the reason it was removed
+/// no longer holds.
 ///
-/// The alternative — a combo box of paper sizes — would be a lie: it would list
-/// sizes pdfce cannot request, and choosing one would change nothing while
-/// looking exactly like it had.
+/// **What is worth carrying forward is the removal, not the restoration.**
+/// Deleting a control that succeeds while doing nothing is the correct move
+/// and it is a harder call than deleting one that visibly fails, because
+/// there is no symptom to point at.
+#[must_use]
+pub const fn tray_by_size() -> &'static str {
+    "Let the printer choose the tray from each page's size"
+}
+
+/// Hover text for [`tray_by_size`].
+#[must_use]
+pub const fn tray_tooltip() -> &'static str {
+    "Useful when a document mixes sheet sizes and the printer has a tray loaded for each. Off, every sheet is fed from the printer's usual tray."
+}
+
+/// ★ Disclosure for a driver that did not advertise tray-by-size.
 ///
-/// # Why it names the size in millimetres as well as points
+/// # Why the control is still offered, which inverts this project's usual rule
+///
+/// R83 says never offer an affordance the hardware cannot honour — which is
+/// why there is no duplex control on a simplex device. It does **not** apply
+/// here, and `pdfce-print` declined this project's proposal to gate the
+/// control the same way, with a measurement:
+///
+/// > *"`DC_BINS` on Microsoft Print to PDF returns nothing at all, while that
+/// > same device's `dmDefaultSource` is already `DMBIN_FORMSOURCE` — it picks
+/// > by form by default. A bool would have collapsed 'the driver said
+/// > nothing' into 'no', and told the operator a device cannot do the thing
+/// > it was already doing."*
+///
+/// So a query that answered *"I do not know"* is not a query that answered
+/// *"no"*, and hiding the control on that basis would remove a working
+/// capability on the commonest Windows printer there is. It stays, with this
+/// line under it, and the request is still sent.
+#[must_use]
+pub const fn tray_not_advertised() -> &'static str {
+    "This printer does not advertise tray selection by sheet size. The request is still sent; the driver may ignore it."
+}
+
+// ---------------------------------------------------------------------------
+// Paper — the sheet, and the fact that asking for one is only asking
+// ---------------------------------------------------------------------------
+
+/// Heading over the paper selector.
+#[must_use]
+pub const fn paper_heading() -> &'static str {
+    "Paper"
+}
+
+/// The paper entry meaning "say nothing; use whatever this printer is set to".
+///
+/// # Why it is not called "Default"
+///
+/// Because *default* invites the reading "the default for this document" or
+/// "pdfce's default", and it is neither: it is the sheet named in this
+/// printer's own Windows settings, which the operator may have changed
+/// yesterday for a different job in a different program. Naming the source
+/// rather than the status is what makes the entry checkable.
+///
+/// It is also genuinely different from picking the same size explicitly. This
+/// entry sends **no paper request at all**, so a driver that would have
+/// ignored one is not being asked to; the explicit entries are requests, with
+/// everything [`paper_is_a_request`] says about them.
+#[must_use]
+pub const fn paper_device_default() -> &'static str {
+    "From the printer's own settings"
+}
+
+/// One entry in the paper list: the driver's name for it, and its size.
+///
+/// # Why the size is repeated when the name usually contains it
+///
+/// Because *usually* is not *always*, and the exceptions are the ones that
+/// matter. `"A4"` and `"Letter"` are self-describing; `"Roll Paper 24in"`,
+/// `"User Defined"`, `"Custom"`, `"Photo Paper (Borderless)"` and
+/// `"Oversize"` are not, and a plotter operator choosing between three roll
+/// entries has nothing else to go on. Repeating it costs a familiar entry
+/// nothing and rescues the unfamiliar ones.
+///
+/// Millimetres, not points, and for the same reason [`sheet_from_driver`]
+/// gives: the operator is matching this against a ream label or a roll box.
+#[must_use]
+pub fn paper_form(name: &str, size_pt: (f64, f64)) -> String {
+    let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
+    format!("{name} — {} × {} mm", mm(size_pt.0), mm(size_pt.1))
+}
+
+/// Shown in place of the paper list when the driver enumerated none.
+///
+/// # Not an error, and not the same as an empty list being a bug
+///
+/// A driver is entitled to answer nothing. `DC_PAPERS` is a query, not an
+/// obligation, and a device with one fixed sheet has a defensible reason to
+/// list none. The honest response is to say the list is missing and carry on
+/// printing on whatever the printer is set to — which is exactly what this
+/// build did for its whole life before the list existed.
+///
+/// Absent rather than an empty greyed combo: R9. A combo with nothing in it
+/// is a control that cannot ever act.
+#[must_use]
+pub const fn paper_not_listed() -> &'static str {
+    "This printer did not list any paper sizes. The job will use whatever the printer's own settings name."
+}
+
+/// ★ **The sheet a chosen paper actually means: a request, not a setting.**
+///
+/// # Why this sentence exists, in the engine's own measurement
+///
+/// `pdfce-print` reported, while building the paper path: **two drivers were
+/// found silently ignoring a paper request.** The `DEVMODE` goes out with
+/// `DM_PAPERSIZE` asserted, the driver does as it pleases, and Win32 offers
+/// no acknowledgement to read. There is nothing pdfce can check and nothing
+/// it can retry.
+///
+/// So this is an inference pdfce cannot verify and the operator cannot see
+/// until the paper is already out of the machine — rule 4's *fuzzy, never
+/// sneaky*, and the half of that rule people forget: **an inference the
+/// operator cannot see still owes a report.**
+///
+/// # Why the disclosure is here and not on the preview
+///
+/// Rule 4 again, the clause that is most often got backwards. The preview
+/// draws the requested sheet exactly as it draws any other — no dashed
+/// outline, no amber tint, no "provisional" styling. Marking it would be a
+/// second rendering path for the same picture, and the operator's own
+/// objection to the old shell was that *"the nagging and red flagging made
+/// for a lot of extra bugs in the visibility when editing."*
+///
+/// # Why it names a first-sheet check
+///
+/// Because that is the only verification available to anybody. Telling an
+/// operator that something might silently fail, without telling them how they
+/// would know, is a sentence that raises anxiety and resolves nothing.
+#[must_use]
+pub fn paper_is_a_request(sheet: Option<(f64, f64)>) -> String {
+    let Some((w_pt, h_pt)) = sheet else {
+        return "pdfce asks the printer for this sheet. A driver may ignore the request without reporting it, so check the first sheet that comes out.".to_owned();
+    };
+    let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
+    format!(
+        "Planned for {} × {} mm. pdfce asks the printer for this sheet; a driver may ignore the request without reporting it, so check the first sheet that comes out.",
+        mm(w_pt),
+        mm(h_pt),
+    )
+}
+
+/// The sheet the job was laid out on, when the operator asked for no
+/// particular one.
+///
+/// # ★ This sentence used to end "pdfce cannot change it", and that is no
+/// # longer true
+///
+/// It read, for as long as there was no paper control:
+///
+/// > *"Paper: 595 × 842 pt (210 × 297 mm), from this printer's own settings
+/// > in Windows. pdfce cannot change it — set it in the printer's preferences
+/// > and reopen this dialog."*
+///
+/// Which was correct, disclosed the right thing, and named the only remedy
+/// there was. It became false on 2026-08-18, when `pdfce-print` shipped
+/// `PaperSelection` and this dialog grew a list — and a sentence like that
+/// does not announce its own expiry. It was found because the work that
+/// falsified it was the work that changed this file; had the paper control
+/// been added anywhere else, the dialog would have offered a paper list with
+/// a line under it saying paper could not be chosen.
+///
+/// **The general lesson, which this project has now paid for three times:**
+/// a disclosure that names a limitation is a claim with a shelf life, and it
+/// expires silently. `check-string-gaps.sh` can find a malformed literal; no
+/// gate can find a true sentence that stopped being true.
+///
+/// # Why it names millimetres as well as points
 ///
 /// Points are the document's unit and the one the rest of this dialog speaks,
-/// so they come first. Millimetres are the unit the operator's paper is sold in
-/// and the one they will compare against — *"210 × 297"* is recognisable as A4
-/// in a way that *"595 × 842 pt"* is not, and recognising it is the whole
-/// purpose of the line.
+/// so they come first. Millimetres are the unit the operator's paper is sold
+/// in and the one they will compare against — *"210 × 297"* is recognisable
+/// as A4 in a way that *"595 × 842 pt"* is not, and recognising it is the
+/// whole purpose of the line.
 ///
 /// # The `None` case is not an error
 ///
@@ -474,7 +710,7 @@ pub fn sheet_from_driver(sheet: Option<(f64, f64)>) -> String {
     // unfamiliar.
     let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
     format!(
-        "Paper: {} × {} pt ({} × {} mm), from this printer's own settings in Windows. pdfce cannot change it — set it in the printer's preferences and reopen this dialog.",
+        "Planned for {} × {} pt ({} × {} mm), from this printer's own settings in Windows.",
         w_pt.round() as i64,
         h_pt.round() as i64,
         mm(w_pt),
@@ -729,6 +965,39 @@ pub fn sent(pages: usize) -> String {
 #[must_use]
 pub fn failed(detail: &str) -> String {
     format!("Nothing was sent to the printer. {detail}")
+}
+
+/// ★ **The driver would not report its settings, so the job carried only what
+/// pdfce sets itself.**
+///
+/// Shown beside [`sent`] after a job whose `SettingsSource` came back
+/// `Synthesised`, and after no other.
+///
+/// # Why this is a disclosure and not an error
+///
+/// The job printed. Paper came out. Nothing failed, and if the operator was
+/// changing nothing but orientation they may not be able to tell the
+/// difference.
+///
+/// What was lost is everything the driver holds that pdfce does not model:
+/// media type, print quality, colour handling, output bin, stapling, and the
+/// whole vendor-private half of a `DEVMODE` — which on the printers measured
+/// while this was built was between 920 and 7,972 bytes, up to 97 % of the
+/// structure. A synthesised `DEVMODE` has no private tail to carry any of it.
+///
+/// So the failure mode is a print that is *subtly* wrong — plain where glossy
+/// was configured, draft where best was — and it looks like a printer problem
+/// rather than a pdfce one. That is precisely the class of thing rule 4
+/// exists for: pdfce chose something the operator did not ask for, and it
+/// says so.
+///
+/// # Why it names the remedy
+///
+/// Because there is one, and it is one button away: opening the driver's own
+/// properties dialog produces a real `DEVMODE`, which the next job carries.
+#[must_use]
+pub const fn settings_synthesised() -> &'static str {
+    "This printer would not report its current settings, so the job was sent with only the settings shown here — media type, quality and finishing fell back to the driver's own. Open Properties… before printing again to send them."
 }
 
 #[cfg(test)]

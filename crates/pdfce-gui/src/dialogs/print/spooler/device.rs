@@ -88,6 +88,13 @@ pub(crate) struct DeviceFeatures {
     /// carried to the trace so a later decision about hardware collation can
     /// be made on evidence rather than on assumption.
     pub(crate) max_copies: u16,
+    /// Whether the driver advertises tray-selection-by-sheet-size.
+    ///
+    /// ★ Read the three states before writing a gate against this. Unlike
+    /// [`Self::supports_duplex`] it is **not** a capability answer, and the
+    /// control it governs is drawn in all three states. See
+    /// [`FormSourceSupport`] and this module's header.
+    pub(crate) form_source: FormSourceSupport,
 }
 // ---------------------------------------------------------------------------
 // The queries into the engine
@@ -132,7 +139,7 @@ pub(crate) fn list_printers() -> Result<Vec<Printer>, Unavailable> {
 /// Read one device's non-geometric capabilities.
 ///
 /// Consulted **before** offering the duplex control at all (R83), never
-/// after. [`super::PrintDialog::refresh_features`] calls it once per change
+/// after. [`crate::dialogs::print::PrintDialog::refresh_device`] calls it once per change
 /// of the selected printer — which is the fix for a defect the old shell
 /// still carries: it read features only for the *initially* selected device
 /// and never again, so switching printers left the duplex control gated on
@@ -149,7 +156,236 @@ pub(crate) fn device_features(printer: &str) -> Result<DeviceFeatures, Unavailab
         Ok(features) => Ok(DeviceFeatures {
             supports_duplex: features.supports_duplex,
             max_copies: features.max_copies,
+            form_source: match features.form_source_bin {
+                pdfce_print::FormSourceSupport::Listed => FormSourceSupport::Listed,
+                pdfce_print::FormSourceSupport::NotListed => FormSourceSupport::NotListed,
+                pdfce_print::FormSourceSupport::Unknown => FormSourceSupport::Unknown,
+            },
         }),
         Err(error) => Err(Unavailable::Spooler(error.to_string())),
+    }
+}
+
+/// One sheet size the driver offers. Maps to `pdfce_print::PaperForm`.
+///
+/// # Why the id and the name are both carried
+///
+/// [`Self::id`] is what a job is addressed with — `dmPaperSize`, an integer
+/// the driver defined — and [`Self::name`] is what the operator recognises.
+/// Neither substitutes for the other: two drivers can use different names for
+/// the same standard id (`"A4"` and `"A4 210 x 297 mm"`), and a *vendor*
+/// driver can use the same name for different ids across models. The combo
+/// shows the name and sends the id, which is the only pairing that survives
+/// both.
+///
+/// # Why the size is carried as well as the name
+///
+/// Because a driver's name for a roll or a custom form is frequently not a
+/// size at all — `"Roll Paper 24in"`, `"User Defined"`, `"Custom"` — and the
+/// operator choosing between two of those needs the dimensions.
+///
+/// **This is the PHYSICAL sheet, not the printable area.** The engine makes
+/// the same distinction on `PrinterCaps` and for the same reason: fitting a
+/// page to the physical size produces a page whose edges the hardware crops.
+/// Nothing in this shell plans against this value — planning reads the
+/// geometry [`super::plan`] gets back from `printer_caps_for`, which is the
+/// printable area for *this* sheet. This one is for the label only.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PaperForm {
+    /// The `dmPaperSize` value that selects this form.
+    pub(crate) id: u16,
+    /// The driver's own name for it. Operator-facing; not stable across
+    /// drivers, which is why it is never used as an identity.
+    pub(crate) name: String,
+    /// The physical sheet in points.
+    pub(crate) size_pt: (f64, f64),
+}
+
+/// Whether the driver advertises "choose the tray from the sheet size".
+///
+/// Maps to `pdfce_print::FormSourceSupport`. **Three states, and the third is
+/// the whole point** — see this module's header for the measurement that
+/// killed the `bool` version of this field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum FormSourceSupport {
+    /// `DC_BINS` includes `DMBIN_FORMSOURCE`. Offer the control plainly.
+    Listed,
+    /// `DC_BINS` answered and did not include it. **Not a refusal.** Offer
+    /// the control with the disclosure.
+    NotListed,
+    /// `DC_BINS` did not answer — nothing was learned either way. Same
+    /// treatment as [`Self::NotListed`], different sentence.
+    #[default]
+    Unknown,
+}
+
+/// A driver's own settings, carried opaquely.
+///
+/// # ★ What this actually is, and why the shell must not look inside
+///
+/// A Windows `DEVMODE`: a public header pdfce understands, followed by a
+/// **driver-private tail** in a format only that one driver knows. The
+/// engine measured the tail on this machine — 5,208 bytes for Microsoft
+/// Print to PDF, 7,972 for both EPSONs, 920 for the XPS writer. On the
+/// EPSONs *97 % of a real `DEVMODE` is data pdfce cannot interpret*, and it
+/// carries media type, print quality, colour handling, stapling, output bin
+/// and everything else the vendor's own dialog offers.
+///
+/// So this type has no fields the shell reads and no way to construct one:
+/// it comes from the driver, it goes back to the driver, and the only thing
+/// the shell may know about it is [`Self::summary`]. A shell that unpacked it
+/// would be re-implementing a format it does not have.
+///
+/// # Why it exists at all rather than the dialog just holding the bytes
+///
+/// Because a `DEVMODE` belongs to **one device**. Handing one driver's
+/// configuration to another is not a degraded result, it is an undefined one,
+/// and the engine refuses it by name (`PrintError::Configuration`). Wrapping
+/// it keeps that fact visible at the seam, and the dialog clears the field
+/// with the rest of its per-device cache whenever the selection changes.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DriverConfig {
+    /// The engine's own value. Private: see the type's docs.
+    inner: pdfce_print::PrinterConfiguration,
+}
+
+impl DriverConfig {
+    /// What this configuration asks for, as far as the dialog needs to know.
+    pub(crate) fn summary(&self) -> ConfigSummary {
+        let summary = self.inner.summary();
+        ConfigSummary {
+            paper_form_id: summary.paper_form_id,
+            custom_paper_pt: summary.custom_paper_pt,
+            driver_extra: summary.driver_extra,
+        }
+    }
+
+    /// The engine's value, for the two calls that take one.
+    ///
+    /// `pub(super)` and not `pub(crate)`: [`super::plan`] and [`super::spool`]
+    /// are the only callers, and widening this would let a `pdfce_print` type
+    /// escape into a third file — which is the property this module exists to
+    /// hold.
+    pub(super) const fn engine(&self) -> &pdfce_print::PrinterConfiguration {
+        &self.inner
+    }
+}
+
+/// The readable part of a [`DriverConfig`].
+///
+/// Maps to the three fields of `pdfce_print::ConfigurationSummary` this shell
+/// has a use for. The engine's version carries five more — orientation,
+/// duplex, tray, form name, device name — and they are deliberately **not**
+/// mirrored: a field nothing reads is a field that can quietly acquire the
+/// wrong units or stop being filled, and the dialog's own controls are
+/// authoritative for every one of them (see [`super::to_engine_settings`] on
+/// which members pdfce asserts over whatever the configuration held).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ConfigSummary {
+    /// `dmPaperSize`, when the configuration asserts one.
+    ///
+    /// Read after the driver's own properties dialog closes, so the paper
+    /// combo can follow a sheet the operator chose *in that dialog* rather
+    /// than sitting on "from the printer's own settings" while the driver
+    /// holds A3. The two would otherwise describe the same job differently.
+    pub(crate) paper_form_id: Option<u16>,
+    /// `dmPaperWidth`/`dmPaperLength` in points, when the configuration names
+    /// a sheet by size rather than by form.
+    ///
+    /// Not selectable from this shell — there is no size-entry surface — but
+    /// reachable *through* the driver's dialog, which is why it is read: an
+    /// operator who typed a custom size there gets it disclosed rather than
+    /// silently reported as "from the printer's own settings".
+    pub(crate) custom_paper_pt: Option<(f64, f64)>,
+    /// Bytes of driver-private data being carried through untouched.
+    ///
+    /// **Traced, not shown.** It is the evidence that a configuration is
+    /// doing something — a properties dialog that returned 7,972 bytes of
+    /// tail carried settings pdfce cannot name — and it is meaningless as
+    /// operator copy.
+    pub(crate) driver_extra: usize,
+}
+
+/// Every sheet size this device offers.
+///
+/// Called on a change of the selected printer, alongside [`device_features`],
+/// and stored. The list is what the paper combo is drawn from; an empty list
+/// or a refusal leaves the combo showing only "from the printer's own
+/// settings", which is honest — pdfce cannot name a sheet the driver would
+/// not enumerate.
+///
+/// # Errors
+///
+/// [`Unavailable::Spooler`] when the driver would not answer. The caller
+/// falls back to an empty list.
+pub(crate) fn printer_forms(printer: &str) -> Result<Vec<PaperForm>, Unavailable> {
+    match pdfce_print::printer_forms(printer) {
+        Ok(forms) => Ok(forms
+            .into_iter()
+            .map(|form| PaperForm {
+                id: form.id,
+                name: form.name,
+                size_pt: form.size_pt,
+            })
+            .collect()),
+        Err(error) => Err(Unavailable::Spooler(error.to_string())),
+    }
+}
+
+/// Open the driver's **own** properties dialog.
+///
+/// # Why there is no silent "read the current settings" call beside this
+///
+/// There was one, briefly, on the theory that the FIRST press of this button
+/// should resume from the device's current configuration. It should not, and
+/// it already does: `DocumentProperties` with `DM_IN_PROMPT` and no input
+/// buffer starts the dialog from the printer's own settings, which is
+/// precisely what an operator expects the first time they open it. Passing a
+/// separately-fetched copy would have been the same value by a longer route.
+///
+/// `start_from` earns its place on the SECOND press: it resumes from what the
+/// first press produced, so an operator reopening the dialog to change one
+/// thing does not silently lose the rest.
+///
+/// # ★ `Ok(None)` is Cancel, and it is not a failure
+///
+/// The engine is explicit: *"that is the operator declining, and a shell that
+/// showed an error for it would be scolding them for using the dialog
+/// correctly."* The caller keeps whatever configuration it already had and
+/// says nothing.
+///
+/// # The parent handle
+///
+/// `parent` is this application's own top-level window, as a raw `HWND` cast
+/// to `isize`. Passing `None` is legal and produces an **unowned** modal
+/// dialog, which can fall behind the main window — a modal the operator
+/// cannot see and cannot dismiss, with the application apparently frozen
+/// behind it. So the shell passes its handle.
+///
+/// # ★ This call BLOCKS the frame, for as long as the operator takes
+///
+/// It is a nested modal message loop belonging to the driver, run from inside
+/// our own event loop. egui stops painting until it returns. That is
+/// acceptable here and would not be for anything on the canvas: it is one
+/// button, pressed deliberately, whose entire purpose is a window the
+/// operator is about to interact with, and the alternative — running it on
+/// another thread — hands a foreign modal a parent it does not own.
+///
+/// # Errors
+///
+/// [`Unavailable::Device`], for the same reason as
+/// [`printer_configuration`].
+pub(crate) fn edit_printer_configuration(
+    printer: &str,
+    parent: Option<isize>,
+    start_from: Option<&DriverConfig>,
+) -> Result<Option<DriverConfig>, Unavailable> {
+    match pdfce_print::edit_printer_configuration(
+        printer,
+        parent,
+        start_from.map(DriverConfig::engine),
+    ) {
+        Ok(edited) => Ok(edited.map(|inner| DriverConfig { inner })),
+        Err(error) => Err(Unavailable::Device(error.to_string())),
     }
 }

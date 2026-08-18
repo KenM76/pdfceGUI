@@ -437,6 +437,7 @@ impl DialogsState {
         ctx: &egui::Context,
         status: &Status,
         actions: &mut Vec<crate::app::actions::Action>,
+        window: Option<isize>,
     ) {
         // Application-scoped first, so that an empty canvas cannot skip it.
         // Ordering is the whole guard here: putting this after the early
@@ -451,7 +452,7 @@ impl DialogsState {
             return;
         };
         let doc: &OpenDoc = doc;
-        if self.print.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
+        if self.print.as_mut().map(|d| d.show(ctx, doc, window)) == Some(false) {
             self.print = None;
         }
         if self.ocr.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {

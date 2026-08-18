@@ -2347,6 +2347,7 @@ dependencies = [
  "pdfce-core",
  "pdfce-print",
  "pdfce-render",
+ "raw-window-handle",
  "rfd",
  "syn 2.0.119",
 ]

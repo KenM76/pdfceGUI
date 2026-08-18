@@ -27,7 +27,8 @@
 //! | odd/even subset | **Pages & Layout** | It is a *selection* question — it narrows the same set the range radios narrow, and the two compose (`1-10` + Odd prints five sheets). Put under Copies it sits beside Reverse and reads as a delivery option, which is what an operator hand-feeding a duplex job would reasonably but wrongly assume. |
 //! | orientation | **Pages & Layout** | It is a statement about how the page meets the sheet — the same question the sizing radios answer. |
 //! | reverse | **Copies & Finishing** | It is a *delivery* question: it changes nothing about which pages print, only the order they land in the tray, and the reason to want it is a printer that stacks face-up. Same class as collation, so an operator fixing "my stack comes out backwards" looks in one place. |
-//! | tray | **Copies & Finishing** | A request to the *driver* about hardware, like duplex — not arithmetic pdfce performs. |
+//! | tray | **Copies & Finishing** | A request to the *driver* about hardware, like duplex — not arithmetic pdfce performs. It is about which *stack* a sheet is pulled from, which is a feed question, where paper is a *shape* question. |
+//! | paper | **Pages & Layout** | Same reasoning as orientation, and it arrived on 2026-08-18 for the same reason: it is a statement about the sheet the page meets. An operator whose A1 drawing came out on A4 and one whose landscape drawing came out portrait are looking for the same thing. |
 //! | DPI | **Comments & Resolution** | Both halves of that tab are about the **pixels** rather than the paper: the scope decides what is in the bitmap and the resolution decides how much of it survives. |
 //!
 //! The **printer selector stays outside the tabs** — see
@@ -37,7 +38,9 @@
 use egui::Ui;
 
 use crate::dialogs::print::PrintDialog;
-use crate::dialogs::print::spooler::{Duplex, JobResolution, Orientation, PageSubset, ScaleMode};
+use crate::dialogs::print::spooler::{
+    Duplex, FormSourceSupport, JobResolution, Orientation, PageSubset, PaperChoice, ScaleMode,
+};
 use crate::text::print as t;
 
 /// Which group of settings the dialog is showing.
@@ -280,31 +283,95 @@ pub(super) fn pages_layout(
         }
     }
 
-    // ★ WHICH PAPER, disclosed — because it cannot be chosen.
+    // ★ WHICH PAPER — a control now, where a sentence used to be.
     //
-    // `pdfce-print` exposes no paper-size list and no way to request one:
-    // `build_devmode` sets `DM_ORIENTATION` and `DM_DUPLEX` and never
-    // `DM_PAPERSIZE`, and `printer_caps` reads the device's **default**
-    // DEVMODE. So the job is planned against whatever paper this printer's
-    // Windows preferences happen to be set to, and the operator's only route
-    // to changing it is outside pdfce.
+    // The sentence it replaces said, correctly at the time, that paper came
+    // from the printer's own Windows settings and *"pdfce cannot change it"*.
+    // `pdfce-print` shipped `PaperSelection` on 2026-08-18 and that stopped
+    // being true. See `crate::text::print::sheet_from_driver` for why an
+    // expiring disclosure is a class of defect worth naming.
     //
-    // A combo box would be the obvious thing to add and would be a lie — it
-    // would list sizes pdfce cannot request. Rule 4's *fuzzy, never sneaky*
-    // says what to do instead: the inference is disclosed off-canvas, in
-    // words, at the place the operator is making the decision it affects.
-    // Someone whose A3 drawing came out on A4 gets the answer from this
-    // dialog rather than from a support thread.
-    //
-    // Filed as `request_no_paper_size_selection_in_the_print_path.md`; when a
-    // `paper_sizes` query lands this sentence becomes a combo box and the
-    // preview draws the chosen sheet.
+    // It sits beside orientation because they are one decision: both are
+    // statements about the sheet the page is going to meet, and an operator
+    // whose A1 drawing came out on A4 looks in the same place as one whose
+    // landscape drawing came out portrait.
     ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new(t::sheet_from_driver(sheet))
-            .small()
-            .weak(),
-    );
+    ui.label(t::paper_heading());
+    if dialog.forms.is_empty() {
+        // R9: no combo with nothing in it. The driver enumerated no sheets,
+        // which is a legal answer, and the honest response is a sentence.
+        ui.label(egui::RichText::new(t::paper_not_listed()).small().weak());
+    } else {
+        let selected_text = match dialog.device.paper {
+            PaperChoice::DeviceDefault => t::paper_device_default().to_owned(),
+            // A form id with no matching entry falls back to the default
+            // label rather than showing a bare number. It is reachable in
+            // one way: the driver's own properties dialog can name a form
+            // this device did not enumerate through `DC_PAPERS`.
+            PaperChoice::Form(id) => dialog.forms.iter().find(|form| form.id == id).map_or_else(
+                || t::paper_device_default().to_owned(),
+                |form| t::paper_form(&form.name, form.size_pt),
+            ),
+        };
+        let combo = egui::ComboBox::from_id_salt("print-paper")
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                // ★ Every entry publishes its rect while the list is open.
+                //
+                // Not instrumentation for its own sake. An egui combo popup is
+                // an `Area` laid out at paint time, so an out-of-process check
+                // has no way to compute where an entry is — and without that
+                // it can assert only that the control exists, which is exactly
+                // the claim that was true of the tray checkbox while it did
+                // nothing. See `REGION_PAPER_ITEM_PREFIX`.
+                //
+                // These regions vanish when the popup closes, and
+                // `diag::end_ui_frame` emits `ui-rect-gone` for each — so the
+                // trace says the list closed rather than leaving fossil rects
+                // a reader would take for live layout.
+                let default = ui.selectable_value(
+                    &mut dialog.device.paper,
+                    PaperChoice::DeviceDefault,
+                    t::paper_device_default(),
+                );
+                crate::diag::ui_rect(
+                    &format!("{}0", super::REGION_PAPER_ITEM_PREFIX),
+                    default.rect,
+                );
+                for (index, form) in dialog.forms.iter().enumerate() {
+                    let entry = ui.selectable_value(
+                        &mut dialog.device.paper,
+                        PaperChoice::Form(form.id),
+                        t::paper_form(&form.name, form.size_pt),
+                    );
+                    crate::diag::ui_rect(
+                        &format!("{}{}", super::REGION_PAPER_ITEM_PREFIX, index + 1),
+                        entry.rect,
+                    );
+                }
+            });
+        crate::diag::ui_rect(super::REGION_PAPER, combo.response.rect);
+    }
+
+    // The disclosure under it, and WHICH disclosure depends on what was
+    // chosen — because the two cases are genuinely different claims.
+    //
+    // `DeviceDefault` sends no paper request at all, so there is nothing a
+    // driver could ignore; the line simply reports the sheet the job was
+    // planned against. An explicit form IS a request, and `pdfce-print`
+    // measured two drivers silently ignoring one — so that line says so, and
+    // names the only check available to anybody. See
+    // `crate::text::print::paper_is_a_request`.
+    //
+    // Both name the sheet the PLAN used, taken from the turned geometry, so
+    // the sentence describes the rectangle the preview above it is drawing
+    // rather than a size read from somewhere else.
+    ui.add_space(4.0);
+    let line = match dialog.device.paper {
+        PaperChoice::DeviceDefault => t::sheet_from_driver(sheet),
+        PaperChoice::Form(_) => t::paper_is_a_request(sheet),
+    };
+    ui.label(egui::RichText::new(line).small().weak());
 }
 
 // ---------------------------------------------------------------------------
@@ -350,30 +417,36 @@ pub(super) fn copies_finishing(ui: &mut Ui, dialog: &mut PrintDialog) {
         ui.add_space(8.0);
     }
 
-    // ★ THE TRAY CHECKBOX WAS REMOVED, 2026-08-17. It did nothing.
+    // ★ THE TRAY CHECKBOX, removed 2026-08-17 and restored 2026-08-18.
     //
-    // `DeviceSettings::pick_tray_by_page_size` is a field with a doc comment
-    // and no implementation: `pdfce-print` declares it at `lib.rs:1579` and
-    // **reads it nowhere** — `build_devmode` sets `DM_ORIENTATION` and
-    // `DM_DUPLEX` and never touches `dmDefaultSource`. Verified by grep over
-    // the whole crate: one hit, the declaration.
+    // It was removed because it did nothing:
+    // `DeviceSettings::pick_tray_by_page_size` was a field `pdfce-print`
+    // declared and read nowhere, so the job spooled, the paper came out of
+    // the default tray, and nothing reported that the request had been
+    // dropped. That is the worst variety of inert control — it **succeeds** —
+    // and it is indistinguishable from a driver that declined.
     //
-    // This is the worst variety of inert control, and it is worth naming
-    // because it is not the same as the ones this project has already found.
-    // A command with no dispatch arm traces `command-unimplemented`. A print
-    // adapter that refuses says so in the dialog. This one **succeeds**: the
-    // job spools, the paper comes out of the default tray, and nothing
-    // anywhere reports that the request was dropped — which is also exactly
-    // what a driver that *declined* the request would look like, so even a
-    // suspicious operator cannot tell.
+    // The engine now honours it (`DMBIN_FORMSOURCE`, asserted only when this
+    // box is ticked, so an unticked box cancels nothing the driver was doing
+    // by itself). The reason for the removal no longer holds.
     //
-    // Absent rather than greyed, on the same rule the duplex block above
-    // follows: greying is for *temporarily* unavailable, and no setting in
-    // this dialog will ever make this field mean anything.
-    //
-    // The field survives on this crate's own mirrored `DeviceSettings`, so
-    // restoring the control is one line the day the engine honours it. Filed
-    // as `request_devicesettings_pick_tray_is_never_read.md`.
+    // ★ AND IT IS DRAWN IN ALL THREE CAPABILITY STATES, which inverts the
+    // rule the duplex block above follows. `pdfce-print` declined this
+    // project's proposal to gate it like duplex, with a measurement: DC_BINS
+    // on Microsoft Print to PDF returns nothing at all, while that same
+    // device's `dmDefaultSource` is ALREADY `DMBIN_FORMSOURCE`. A bool would
+    // have hidden the control on a device that was doing the thing by
+    // default. R83 forbids offering what the hardware cannot honour; it does
+    // not forbid offering what the driver merely declined to advertise.
+    ui.add_space(8.0);
+    ui.checkbox(&mut dialog.device.pick_tray_by_page_size, t::tray_by_size())
+        .on_hover_text(t::tray_tooltip());
+    if matches!(
+        dialog.features.form_source,
+        FormSourceSupport::NotListed | FormSourceSupport::Unknown
+    ) {
+        ui.label(egui::RichText::new(t::tray_not_advertised()).small().weak());
+    }
 }
 
 // ---------------------------------------------------------------------------

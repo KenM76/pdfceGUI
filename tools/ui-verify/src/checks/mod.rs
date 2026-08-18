@@ -163,6 +163,7 @@ pub mod page_ops;
 /// holding the defect in place the moment the manifest line landed. A green
 /// suite defended the absence of the feature. See the module header.
 pub mod print_dialog;
+pub mod print_paper;
 pub mod qat_icons;
 pub mod read_mode;
 
@@ -414,6 +415,23 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // print job will eventually start one by accident. The module header
         // states what that costs and why the cost is worth paying.
         Box::new(print_dialog::PrintDialogReachesTheSpooler),
+        // ★ Immediately after it, and the ORDER is load-bearing rather than
+        // tidy. This check's every skip message defers to `print_dialog` for
+        // the diagnosis — "the dialog never opened", "the spooler refused",
+        // "the ribbon control is missing" are all its subject, not this one's.
+        // Running it first means the reader of a failing run meets the
+        // specific cause before the vaguer one, instead of reading a paper
+        // check skip and having to go looking for why.
+        //
+        // ★ It never presses Properties…, and no future edit may make it do
+        // so. That button opens a VENDOR DRIVER's own modal dialog: a nested
+        // Win32 message loop whose layout pdfce does not know, cannot publish
+        // rects for, and cannot reliably dismiss — and one left standing
+        // blocks the application's event loop, so a failed dismissal does not
+        // fail this check, it hangs every check after it.
+        //
+        // ★ And it never presses commit, for the reason stated above.
+        Box::new(print_paper::PrintPaperChangesThePlan),
         // ★ Beside it because it is the same shape — two ribbon clicks into a
         // dialog — and because both are checks whose subject is a control that
         // was drawn and did nothing.

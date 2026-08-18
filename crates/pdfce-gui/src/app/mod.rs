@@ -402,6 +402,55 @@ pub struct PdfceApp {
     /// because two would admit the state where a window is open with no draft
     /// behind it.
     pub settings_draft: Option<crate::dialogs::settings::Draft>,
+
+    /// This application's own top-level window, as a raw `HWND` cast to
+    /// `isize`. `None` when the platform did not report one.
+    ///
+    /// # ★ Why the shell holds a platform handle at all
+    ///
+    /// For exactly one purpose: to **own** the driver's printer-properties
+    /// dialog, which is a modal window Windows creates on our behalf when
+    /// `pdfce-print` calls `DocumentProperties` with `DM_IN_PROMPT`.
+    ///
+    /// An unowned modal is not a cosmetic problem. It can fall behind the
+    /// application's own window, at which point the operator sees a frozen
+    /// pdfce with no visible dialog and no way to dismiss the thing blocking
+    /// it. The handle is what tells Windows to keep it in front.
+    ///
+    /// # Why it is captured once, at start-up
+    ///
+    /// `eframe::Frame` also carries it and is available every frame, which
+    /// would mean threading a `&Frame` down through the dialog stack to the
+    /// one button that needs it. Captured here it is a plain `isize` — `Copy`,
+    /// `'static`, nothing borrowed — and the window it names is created before
+    /// the first frame and lives as long as the process.
+    ///
+    /// # Why `isize` and not a handle type
+    ///
+    /// Because `pdfce-print` takes an `isize`, deliberately: *"no windowing
+    /// dependency is added — `parent` is a raw window handle the caller
+    /// already owns, passed as an integer, and this crate never creates a
+    /// window."* A crate that must stay free of a windowing dependency cannot
+    /// name a windowing type in its signature, and this is the shell holding
+    /// up its end of that.
+    pub window: Option<isize>,
+}
+
+/// The raw `HWND` behind an eframe window, as an `isize`.
+///
+/// Called once, from `crate::run`, with the `eframe::CreationContext`. See
+/// [`PdfceApp::window`] for what it is for and why it is captured there.
+///
+/// `None` for every non-Win32 handle and for a platform that reports none.
+/// That is not an error and is not disclosed: the only caller passes it
+/// straight to `pdfce-print`, whose contract already says a null owner is
+/// legal.
+#[must_use]
+pub fn window_handle(source: &impl raw_window_handle::HasWindowHandle) -> Option<isize> {
+    match source.window_handle().ok()?.as_raw() {
+        raw_window_handle::RawWindowHandle::Win32(win32) => Some(win32.hwnd.get()),
+        _ => None,
+    }
 }
 
 impl PdfceApp {
@@ -601,6 +650,10 @@ impl PdfceApp {
             settings,
             settings_store,
             settings_draft: None,
+            // Filled by `crate::run` the moment the window exists — the
+            // constructor runs before it does. `None` here is the honest
+            // starting value and is what a test-built app keeps.
+            window: None,
             pen: crate::canvas::markup::pen::Pen::default(),
             // ★ Loaded for real EXCEPT under `cfg(test)`, for exactly the
             // reason the settings and the recent list above are: a suite that

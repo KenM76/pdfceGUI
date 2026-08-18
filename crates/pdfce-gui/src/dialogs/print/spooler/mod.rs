@@ -114,7 +114,10 @@ mod device;
 // implementation detail — where a type happens to live — into every file
 // that names one. The seam is real and worth having; it is not worth
 // spending the caller's attention on.
-pub(crate) use device::{DeviceFeatures, Printer, device_features, list_printers};
+pub(crate) use device::{
+    DeviceFeatures, DriverConfig, FormSourceSupport, PaperForm, Printer, device_features,
+    edit_printer_configuration, list_printers, printer_forms,
+};
 
 // ---------------------------------------------------------------------------
 // Failure
@@ -291,6 +294,52 @@ pub(crate) struct JobSpec {
     pub(crate) collate: Collate,
 }
 
+/// Which sheet the driver is asked to feed. Maps to
+/// `pdfce_print::PaperSelection`.
+///
+/// # ★ Why choosing paper is a REQUEST and not a setting
+///
+/// `pdfce-print` reported, while building this: **two drivers were found
+/// silently ignoring a paper request.** The `DEVMODE` is handed over with
+/// `DM_PAPERSIZE` asserted, the driver is free to do as it likes with it, and
+/// nothing comes back to say it declined. There is no acknowledgement in the
+/// Win32 API to read and none to invent.
+///
+/// That is a fact pdfce cannot verify and the operator cannot see, which puts
+/// it squarely under rule 4 — *fuzzy, never sneaky*. The disclosure is
+/// [`crate::text::print::paper_is_a_request`], off-canvas, in words, beside
+/// the control that makes the choice. It is **not** a warning icon on the
+/// preview and **not** a differently-styled sheet outline: the preview draws
+/// the sheet the job was planned for, exactly as it would draw any other, and
+/// pdfce's uncertainty about the driver is reported in text next to it.
+///
+/// # Why there is no `Custom` variant here when the engine has one
+///
+/// Because there is no surface to type a size into. The engine's
+/// `PaperSelection::Custom` takes a sheet in tenths of a millimetre and is
+/// reachable through the driver's own properties dialog — an operator who
+/// needs a 900 mm roll length sets it there, and
+/// [`super::device::ConfigSummary::custom_paper_pt`] is read back so the
+/// dialog can say what it holds. Mirroring a variant this shell cannot
+/// construct would be a value with no producer; recorded in `NO_SURFACE.md`
+/// rather than half-built here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum PaperChoice {
+    /// Say nothing about paper.
+    ///
+    /// **Not "Letter" and not "whatever page 1 is"** — genuinely silent. The
+    /// device prints on whatever its own Windows settings name, which is what
+    /// this build did exclusively until 2026-08-18 and is still the default.
+    ///
+    /// When a [`super::device::DriverConfig`] is also held, this means "the
+    /// sheet that configuration holds", since the configuration is amended
+    /// rather than replaced and pdfce asserts nothing over it.
+    #[default]
+    DeviceDefault,
+    /// A form the driver enumerates — a [`super::device::PaperForm::id`].
+    Form(u16),
+}
+
 /// The driver half of a job: what pdfce asks the device to do.
 ///
 /// Maps to `pdfce_print::DeviceSettings`.
@@ -302,6 +351,9 @@ pub(crate) struct DeviceSettings {
     pub(crate) duplex: Duplex,
     /// Ask the driver to pick the input tray from each page's size.
     pub(crate) pick_tray_by_page_size: bool,
+    /// Which sheet to feed. **A request the driver may decline** — see
+    /// [`PaperChoice`].
+    pub(crate) paper: PaperChoice,
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +546,51 @@ pub(crate) struct SpoolReport {
     pub(crate) clipped_pages: usize,
     /// The spooler's job ID, when one was started.
     pub(crate) job_id: Option<u32>,
+    /// Where the `DEVMODE` this job was sent with came from.
+    ///
+    /// ★ One of its four values is a disclosure the operator would otherwise
+    /// never learn — see [`SettingsSource`].
+    pub(crate) settings_source: SettingsSource,
+}
+
+/// Where the `DEVMODE` a job was sent with came from. Maps to
+/// `pdfce_print::SettingsSource`.
+///
+/// # ★ Why a shell must report this, and why it cannot be inferred
+///
+/// pdfce writes at most four members of a `DEVMODE`. Everything else a device
+/// does — media type, print quality, colour handling, stapling, output bin,
+/// the entire vendor-private half — lives in the driver's own configuration,
+/// which pdfce carries through untouched **when it has one**.
+///
+/// [`Self::Synthesised`] is the case where it did not. The driver refused to
+/// report its settings, so the job went out carrying only what pdfce sets
+/// itself and everything the driver held was lost. **The job still prints**,
+/// which is exactly what makes this dangerous: the operator gets paper, and
+/// the paper is wrong in ways — plain instead of glossy, draft instead of
+/// best — that look like a printer problem rather than a pdfce one.
+///
+/// It is not visible from the printed page, not visible from the dialog, and
+/// not derivable from anything the shell knows before the call. The engine
+/// reports it because it is the only party that can, and the shell says it
+/// out loud for the same reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SettingsSource {
+    /// No `DEVMODE` was sent at all — nothing pdfce controls differs from
+    /// what the device is already set to. The cheapest, most conservative
+    /// case, and the common one. Nothing to disclose.
+    #[default]
+    DeviceDefault,
+    /// The driver's own current settings were fetched and amended. The normal
+    /// case for a job that changes anything. Nothing to disclose.
+    DriverSupplied,
+    /// A configuration the operator produced — from the driver's own
+    /// properties dialog — was amended. Nothing to disclose; it is what they
+    /// asked for.
+    CallerSupplied,
+    /// ★ The driver would not report its settings and pdfce synthesised one.
+    /// **Disclosed** — see the type's own docs.
+    Synthesised,
 }
 
 // ---------------------------------------------------------------------------
@@ -564,23 +661,31 @@ const fn to_engine_settings(settings: DeviceSettings) -> pdfce_print::DeviceSett
         orientation: to_engine_orientation(settings.orientation),
         duplex: to_engine_duplex(settings.duplex),
         pick_tray_by_page_size: settings.pick_tray_by_page_size,
-        // ★ `DeviceDefault` — say nothing about paper, which is what this
-        // build has always done and is what the engine did implicitly before
-        // the field existed.
-        //
-        // The field arrived on 2026-08-18 when `pdfce-print` answered this
-        // project's filing: `build_devmode` had been SYNTHESISING a DEVMODE
-        // from zero and now starts from the driver's, so paper is expressible
-        // for the first time. The shell has no control for it yet — that is
-        // the next piece of work, and `printer_forms()` is the enumeration it
-        // will populate from.
-        //
-        // Explicit rather than `..Default::default()`, deliberately: a struct
-        // update would have absorbed this field silently and would absorb the
-        // NEXT one too, which is how a shell comes to ignore a capability the
-        // engine grew for it. The compile error this replaced is the whole
-        // value of naming every field.
-        paper: pdfce_print::PaperSelection::DeviceDefault,
+        paper: to_engine_paper(settings.paper),
+    }
+}
+
+/// The paper request, into the engine's.
+///
+/// # ★ What pdfce asserts over a driver configuration, and what it leaves
+///
+/// The engine amends a `DEVMODE` rather than replacing it, and the members
+/// named in [`DeviceSettings`] win over whatever the configuration held. So
+/// it matters which members those are, and the list is not symmetrical:
+///
+/// | member | asserted | consequence |
+/// |---|---|---|
+/// | orientation | **always** | an orientation the operator set in the driver's own dialog is overridden by this dialog's radios. `Auto` resolves per page, which is nearly always what a mixed CAD set wants — but it *is* an override, and the properties disclosure says so |
+/// | paper | only when [`PaperChoice::Form`] | `DeviceDefault` leaves the configuration's own sheet standing |
+/// | duplex | only when non-default | asserting `DMDUP_SIMPLEX` unconditionally would silently cancel a driver's own duplex default — a defect the engine names in `apply`'s notes |
+/// | tray | only when the checkbox is on | same reasoning |
+///
+/// Everything else — media type, quality, colour handling, stapling, output
+/// bin, the whole driver-private tail — is carried through untouched.
+const fn to_engine_paper(paper: PaperChoice) -> pdfce_print::PaperSelection {
+    match paper {
+        PaperChoice::DeviceDefault => pdfce_print::PaperSelection::DeviceDefault,
+        PaperChoice::Form(id) => pdfce_print::PaperSelection::Form(id),
     }
 }
 
@@ -679,14 +784,35 @@ fn to_engine_bitmap(bitmap: &PageBitmap) -> pdfce_print::PageBitmap {
 pub(crate) fn plan(
     printer: &str,
     settings: DeviceSettings,
+    config: Option<&DriverConfig>,
     page_sizes: &[(f64, f64)],
     spec: &JobSpec,
 ) -> Result<Job, Unavailable> {
     let engine_spec = to_engine_spec(spec);
 
-    // 1. CAPABILITIES. The only fallible step: everything after it is
-    //    arithmetic over values already in hand.
-    let caps = match pdfce_print::printer_caps(printer) {
+    // 1. CAPABILITIES, ★ FOR THE SHEET THIS JOB WILL ACTUALLY USE.
+    //
+    //    `printer_caps` — the function this used to call — opens an
+    //    information DC with the device's DEFAULT `DEVMODE` and reports the
+    //    geometry of whatever sheet THAT names. Every placement below is
+    //    computed against it. So the moment paper became choosable, a job
+    //    asking for A3 on a Letter-default device would have been PLANNED for
+    //    Letter and PRINTED on A3 — the preview and the paper describing
+    //    different sheets, with no clip reported and nothing to explain it.
+    //
+    //    That is the same failure as the un-turned geometry described on
+    //    [`DeviceGeometry`], arriving through a second dimension. The engine
+    //    closed it by giving the query the sheet: `printer_caps_for` takes the
+    //    configuration and the paper request and reports the geometry of the
+    //    result. Passing them here is not optional and is not a refinement.
+    //
+    //    It is also the only fallible step: everything after it is arithmetic
+    //    over values already in hand.
+    let caps = match pdfce_print::printer_caps_for(
+        printer,
+        config.map(DriverConfig::engine),
+        to_engine_paper(settings.paper),
+    ) {
         Ok(caps) => caps,
         Err(error) => {
             // Traced rather than discarded. A refusal is exactly the event a
@@ -795,6 +921,7 @@ pub(crate) fn spool(
     printer: &str,
     bitmaps: &[PageBitmap],
     settings: DeviceSettings,
+    config: Option<&DriverConfig>,
     first_page_pt: (f64, f64),
 ) -> Result<SpoolReport, Unavailable> {
     // Traced BEFORE the call, not after, and that ordering is the point: this
@@ -831,13 +958,20 @@ pub(crate) fn spool(
     // operator chose a printer, read a clip count in the button's own label,
     // and pressed it. A dry-run toggle on this surface would be a second gate
     // whose only effect is to make the first one mean less.
-    let outcome = pdfce_print::spool(
+    // ★ `spool_with_config` rather than `spool`, always — including when
+    // there is no configuration, where `None` makes it the same call.
+    //
+    // One call site rather than two branches: a shell that chose between two
+    // spool functions would have two paths to the one irreversible operation
+    // in the application, and the rarer one would be the one nobody drove.
+    let outcome = pdfce_print::spool_with_config(
         printer,
         &pages,
         pdfce_print::DryRun::No,
         None,
         to_engine_settings(settings),
         first_page_pt,
+        config.map(DriverConfig::engine),
     );
 
     match outcome {
@@ -856,6 +990,12 @@ pub(crate) fn spool(
                 dpi: report.dpi,
                 clipped_pages: report.clipped_pages,
                 job_id: report.job_id,
+                settings_source: match report.settings_source {
+                    pdfce_print::SettingsSource::DeviceDefault => SettingsSource::DeviceDefault,
+                    pdfce_print::SettingsSource::DriverSupplied => SettingsSource::DriverSupplied,
+                    pdfce_print::SettingsSource::CallerSupplied => SettingsSource::CallerSupplied,
+                    pdfce_print::SettingsSource::Synthesised => SettingsSource::Synthesised,
+                },
             })
         }
         Err(error) => {
@@ -947,6 +1087,7 @@ mod tests {
         let planned = plan(
             ABSENT,
             DeviceSettings::default(),
+            None,
             &[(612.0, 792.0)],
             &one_page_spec(),
         );
@@ -962,7 +1103,7 @@ mod tests {
         // without any risk of consuming paper. The refusal still comes from
         // the engine, because the printer name is resolved before the page
         // count is looked at.
-        let spooled = spool(ABSENT, &[], DeviceSettings::default(), (612.0, 792.0));
+        let spooled = spool(ABSENT, &[], DeviceSettings::default(), None, (612.0, 792.0));
         assert!(
             matches!(spooled, Err(Unavailable::Spooler(_))),
             "spooling to an absent printer must refuse with the spooler's own words: {spooled:?}"
@@ -985,6 +1126,7 @@ mod tests {
             plan(
                 "pdfce-ui-verify-no-such-printer",
                 DeviceSettings::default(),
+                None,
                 &[(612.0, 792.0)],
                 &one_page_spec(),
             )
@@ -1068,6 +1210,7 @@ mod tests {
             orientation: Orientation::Portrait,
             duplex: Duplex::LongEdge,
             pick_tray_by_page_size: true,
+            paper: PaperChoice::Form(8),
         };
         let engine = to_engine_settings(settings);
         assert!(matches!(
@@ -1076,6 +1219,15 @@ mod tests {
         ));
         assert!(matches!(engine.duplex, pdfce_print::Duplex::LongEdge));
         assert!(engine.pick_tray_by_page_size);
+        // ★ The paper id must survive the mapping UNCHANGED. It is a
+        // `dmPaperSize` the driver defined, and a conversion that shifted it
+        // by one would request a different sheet from the same list — the
+        // failure would be paper, not an error.
+        assert!(matches!(engine.paper, pdfce_print::PaperSelection::Form(8)));
+        assert!(matches!(
+            to_engine_paper(PaperChoice::DeviceDefault),
+            pdfce_print::PaperSelection::DeviceDefault
+        ));
     }
 
     /// The clip count is over the whole job, and counts sheets not pages.

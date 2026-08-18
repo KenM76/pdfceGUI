@@ -380,7 +380,8 @@ impl eframe::App for PdfceApp {
         // content it is modal over. It takes `&self.status` so it can close
         // itself when the document does — a print dialog outliving its
         // document would offer to print pages that are gone.
-        self.dialogs.show(&ctx, &self.status, &mut actions);
+        self.dialogs
+            .show(&ctx, &self.status, &mut actions, self.window);
 
         // ★ The calibration round trip: dialog -> canvas gesture -> dialog.
         //

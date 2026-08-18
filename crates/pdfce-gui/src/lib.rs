@@ -178,6 +178,14 @@ pub fn run(initial: Option<PathBuf>) -> eframe::Result {
         Box::new(move |cc| {
             app::configure_context(&cc.egui_ctx);
             let mut app = app::PdfceApp::new();
+            // ★ The window handle, captured once. See `PdfceApp::window` for
+            // what owns what, and why an unowned driver dialog is a state the
+            // operator cannot get out of.
+            app.window = app::window_handle(cc);
+            diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("window-handle present={}", app.window.is_some())
+            });
             // ★ Apply the operator's UI scale BEFORE the first frame is laid
             // out — 2026-08-17.
             //
