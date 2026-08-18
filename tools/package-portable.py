@@ -169,6 +169,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime
@@ -800,9 +801,62 @@ def mirror(out: Path) -> None:
     target = MIRROR_ROOT / target_name
     keeps = [s for s in MIRROR_SLOTS if s != target_name]
 
+    # ★ KEEP `userdata/` ACROSS A ROTATION.
+    #
+    # These slots are not archives — the operator can run the exe straight out
+    # of one, and the moment they do, pdfce creates `userdata/` beside it and
+    # writes their settings, their dock layout, their recent files and their
+    # per-document page-display choices into it.
+    #
+    # A rotation is `rmtree` then `copytree`, so without this the next release
+    # into that slot would DELETE all of it — and then sync the deletion to
+    # every other machine, which is worse than losing it locally.
+    #
+    # This is the project's own published update procedure, applied to itself:
+    # *"replace the program files, keep your `userdata` folder."* `BUILD-INFO`
+    # tells the operator exactly that, and a mirror that did the opposite would
+    # be contradicting its own instructions inside the same directory.
+    #
+    # Held in a temporary sibling rather than copied twice: the slot may hold
+    # tens of megabytes and the state is small, but a move is atomic-ish on the
+    # same volume and cannot half-copy.
+    keep = target / "userdata"
+    stash = None
+    if keep.is_dir():
+        stash = MIRROR_ROOT / f".{target_name}-userdata-in-flight"
+        if stash.exists():
+            shutil.rmtree(stash, ignore_errors=True)
+        try:
+            shutil.move(str(keep), str(stash))
+        except OSError as e:
+            print()
+            print(f"package-portable: mirror SKIPPED - could not protect {keep}: {e}")
+            print("  Refusing to replace a slot whose settings could not be set aside.")
+            return
+
+    def _force(func, path, _exc):
+        """Clear the read-only bit and retry — `rmtree`'s error handler.
+
+        ★ OneDrive needs this and a local directory does not. A synced folder
+        can carry the read-only attribute (it is how the client marks
+        cloud-backed items), and `os.unlink`/`os.rmdir` then fail with
+        `WinError 5 Access is denied` on a file the operator plainly owns. The
+        first real rotation failed exactly there, on `models\ocrs`.
+
+        `onerror` rather than `onexc` because this machine runs Python 3.11;
+        `onexc` arrived in 3.12 and using it here would raise `TypeError` on
+        the version that is actually installed.
+
+        If the retry also fails the exception propagates to the caller's
+        `except OSError`, which restores `userdata/` and reports — so a locked
+        slot costs a mirror, never the operator's settings.
+        """
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+
     try:
         if target.exists():
-            shutil.rmtree(target)
+            shutil.rmtree(target, onerror=_force)
         # `copytree` of the package directory's CONTENTS, not the timestamped
         # folder itself: the slot name is the identity the operator navigates
         # by, and nesting `pdfceGUI1/pdfcegui-2026…/pdfce-gui.exe` would make
@@ -813,7 +867,15 @@ def mirror(out: Path) -> None:
         print()
         print(f"package-portable: mirror FAILED - {e}")
         print(f"  The build in {out} is fine; only the OneDrive copy did not happen.")
+        if stash is not None:
+            # Put the operator's state back even though the payload did not
+            # land. A slot with settings and no program is recoverable; a slot
+            # with neither is not.
+            shutil.move(str(stash), str(target / "userdata"))
         return
+    if stash is not None:
+        shutil.move(str(stash), str(keep))
+        print(f"  kept the existing userdata/ in {target_name}")
 
     print()
     print(f"package-portable: mirrored to {target}")
