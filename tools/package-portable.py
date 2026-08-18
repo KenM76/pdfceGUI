@@ -182,6 +182,18 @@ if hasattr(sys.stdout, "reconfigure"):
 
 REPO = Path(__file__).resolve().parent.parent
 ENGINE = Path("D:/Dev/pdfce")
+
+#: The engine crates this workspace takes from :data:`ENGINE`, refreshed
+#: before every build.
+#:
+#: All three are named explicitly rather than running a bare `cargo update`,
+#: which would also move every crates.io dependency in the lockfile. Those are
+#: pinned to match `D:\Dev\pdfce`'s own lockfile — the workspace root's rule
+#: is that a crate this project adds which is NOT already in pdfce's lockfile
+#: is an operator decision — so bumping them as a side effect of a build would
+#: quietly break that property and would do it in the one command nobody reads
+#: the output of.
+ENGINE_CRATES = ["pdfce-core", "pdfce-render", "pdfce-print"]
 DEFAULT_DEST = Path("D:/builds")
 
 #: Payload files copied verbatim from the repo root, in the order they are
@@ -687,6 +699,14 @@ def main() -> int:
         help="package the existing target/release binary without rebuilding",
     )
     ap.add_argument(
+        "--no-update",
+        action="store_true",
+        help=(
+            "do NOT refresh the engine to D:/Dev/pdfce's latest commit first. "
+            "Only for reproducing an exact earlier revision — see ENGINE_CRATES"
+        ),
+    )
+    ap.add_argument(
         "--verify",
         action="store_true",
         help="run the workspace tests and the CI gates, and record the result",
@@ -716,6 +736,62 @@ def main() -> int:
         print(f"package-portable: the engine tree {ENGINE} is missing.")
         print("  crates/pdfce-gui depends on pdfce-core and pdfce-render by path.")
         return 1
+
+    # --- refresh the engine, BEFORE the identity is read --------------------
+    #
+    # ★★ OPERATOR INSTRUCTION, 2026-08-17: *"always update core render and
+    # print before building the latest."*
+    #
+    # Automated rather than written down as a step, because a step that has to
+    # be remembered is one that gets skipped exactly when it matters. The
+    # engine dependency is `git = "file:///D:/Dev/pdfce", branch = "main"`, so
+    # `Cargo.lock` pins a revision and ONLY `cargo update` moves it — a build
+    # taken without this silently ships an engine older than the repository
+    # has, with nothing anywhere to say so.
+    #
+    # That is not a hypothetical cost. A stale pin left this shell eight
+    # commits behind `1e7a0be`, the fix that made `Separation`, `DeviceN`,
+    # `Lab`, `CalGray` and `CalRGB` IMAGES decode instead of being dropped from
+    # the raster — eighteen pictures missing from the operator's own file, with
+    # the OLD shell rendering it correctly while the rebuild did not. The
+    # engine repository moved 8, then 12, then 4, then 6 commits ahead of the
+    # lock inside a single afternoon.
+    #
+    # ★ BEFORE the identity block below, and that ordering is the whole point:
+    # `locked_engine_rev` reads `Cargo.lock`, so updating afterwards would name
+    # one revision in the folder and link another. It is also before `--verify`,
+    # because tests must run against the engine that is going to ship.
+    #
+    # A failure here is REPORTED and does not stop the build. The engine is
+    # another session's working repository and `cargo update` can legitimately
+    # fail — the branch mid-rebase, the git cache locked. Refusing to package
+    # would make this script's convenience into a veto over the operator's
+    # build, and the honest fallback is the previous revision plus a loud line
+    # saying so. `BUILD-INFO.txt` names what was actually linked either way.
+    if not args.no_update:
+        before = locked_engine_rev(REPO)
+        print(f"package-portable: cargo update {' '.join(ENGINE_CRATES)} ...")
+        rc = subprocess.run(
+            ["cargo", "update", *[a for c in ENGINE_CRATES for a in ("-p", c)]],
+            cwd=REPO,
+            check=False,
+        ).returncode
+        after = locked_engine_rev(REPO)
+        if rc != 0:
+            print("  WARNING: the engine update FAILED.")
+            print(
+                f"           Packaging against the revision already in Cargo.lock "
+                f"({(before or 'unknown')[:7]})."
+            )
+            print(
+                "           If D:/Dev/pdfce is mid-rebase or its git cache is locked, "
+                "retry;"
+            )
+            print("           otherwise this build is older than the engine repository.")
+        elif before and after and before != after:
+            print(f"  engine {before[:7]} -> {after[:7]}")
+        else:
+            print("  engine already at the latest commit")
 
     # --- identity, before anything is built --------------------------------
     #

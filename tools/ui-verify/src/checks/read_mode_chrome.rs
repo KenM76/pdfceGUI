@@ -639,12 +639,41 @@ fn fullscreen_round_trip(
     session.settle(120);
     let restored = session.frame()?.client_pixels();
 
-    if filled.w <= before.w || filled.h <= before.h {
+    // ★ AREA, not both axes — corrected 2026-08-17 after this fired on a
+    // window that had gone full screen perfectly well.
+    //
+    // The predicate was `filled.w <= before.w || filled.h <= before.h`: BOTH
+    // dimensions had to grow. That holds on a wide desktop where the window is
+    // a fraction of the screen, which is where it was written — the run that
+    // wrote it measured 2560x1000 becoming 3440x1440.
+    //
+    // It is wrong whenever the window is already as wide as the monitor. On a
+    // 1920x1080 display the client area went **1920x1000 -> 1920x1080**: full
+    // screen worked, and all it could add was the strip the title bar and
+    // taskbar had been taking. Width was unchanged, so the check reported *"the
+    // windowing system did not act on it"* about a windowing system that had.
+    //
+    // Area is the honest question — *did the window get bigger?* — and the
+    // `no axis shrank` clause keeps it from being satisfied by a window that
+    // grew tall while getting narrower, which is not a full-screen transition
+    // and would be worth failing on.
+    //
+    // The general form is the one this suite keeps meeting: **a predicate
+    // written from one machine's geometry encodes that machine.** It is the
+    // same class as the `ui_scale` check asserting a point size that only holds
+    // at one zoom factor, and as `delete_key` assuming a mode.
+    let grew = u64::from(filled.w) * u64::from(filled.h)
+        > u64::from(before.w) * u64::from(before.h)
+        && filled.w >= before.w
+        && filled.h >= before.h;
+    if !grew {
         return Ok(Some(format!(
             "`{FULLSCREEN_EVENT} asked=true` was traced and the window did not grow: the client \
              area was {} x {} px and became {} x {} px. The arm sent the viewport command and \
              the windowing system did not act on it — which is the one failure the trace alone \
-             could never report, because the application can only ask.",
+             could never report, because the application can only ask. (The test is AREA plus \
+             no axis shrinking, not both axes growing: a window already as wide as its monitor \
+             legitimately gains only height.)",
             before.w, before.h, filled.w, filled.h
         )));
     }
@@ -653,7 +682,11 @@ fn fullscreen_round_trip(
         before.w, before.h, filled.w, filled.h
     ));
 
-    if restored.w >= filled.w && restored.h >= filled.h {
+    // The mirror of the growth test above and it needs the same correction for
+    // the same reason: on a monitor the window already spans, restoring gives
+    // back only the height, so `restored.w` stays equal to `filled.w` and an
+    // `&&` of two `>=` would call a correct restore a failure. Area again.
+    if u64::from(restored.w) * u64::from(restored.h) >= u64::from(filled.w) * u64::from(filled.h) {
         return Ok(Some(format!(
             "the second press of `{FULLSCREEN_ID}` did not restore the window: it is still {} x \
              {} px. Full screen is a toggle — `app::window::next_fullscreen` reads the \
