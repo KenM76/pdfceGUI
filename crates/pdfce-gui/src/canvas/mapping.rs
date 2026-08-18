@@ -1,4 +1,5 @@
-//! # `canvas::mapping` — the ONE screen↔page conversion, and the tolerance
+//! # `canvas::mapping` — the ONE screen↔page conversion, the PDF↔canvas
+//! projection, and the tolerance
 //!
 //! ## Why this file exists at all
 //!
@@ -260,8 +261,151 @@ impl PageMapping {
     }
 }
 
+/// Project an annotation's `/Rect` — **PDF user space, y-up, un-rotated**,
+/// as `[llx, lly, urx, ury]` — into canvas space.
+///
+/// # ★ Why this lives here rather than with the forms code that wrote it
+///
+/// It was `canvas::forms::boxes::widget_canvas_rect` until 2026-08-18, because
+/// filling a form on the page was the first thing that needed to know where an
+/// annotation is drawn. It is not about widgets and never was: it takes any
+/// `/Rect` and answers where the rasterizer put it.
+///
+/// It moved when annotation **selection** arrived and needed the same answer
+/// for stamps, notes and ce dimensions. Calling it in place would have made
+/// the selection layer depend on the forms layer for pure geometry, and the
+/// name would have lied at every one of those call sites. Both are how a
+/// module graph stops being readable.
+///
+/// # The array shape, and the corner order
+///
+/// `[f64; 4]` is `EditSession::widget_rects`' own shape, taken verbatim rather
+/// than re-wrapped in a `page_tree::Rect`, because converting through a second
+/// rectangle type would be a place for the normalisation to be undone.
+///
+/// **Corner order is not assumed.** §7.9.5 permits `/Rect` either way round.
+/// `widget_rects` normalises; `pdfce_core::annot::Annotation::rect` reports
+/// what the file says. So a caller can hand this either, and the four-corner
+/// bound below is what makes both work — a two-corner version would produce an
+/// inside-out rectangle for one of them and silently never hit anything.
+///
+/// Through [`crate::viewer::pdf_space_to_canvas`], which inverts nothing and
+/// invents nothing: it applies `pdfce_render::page_device_geometry`'s own
+/// transform, the one the rasterizer used to draw the page. That is what makes
+/// the box land on the pixels the operator is pointing at *by construction*
+/// rather than by two formulas agreeing, and it is why `/Rotate` needs no
+/// branch here — the rotation is already inside the transform.
+///
+/// **All four corners, then bound them.** Two corners are enough while the
+/// transform is a scale, a flip and a quarter-turn, which is every case a
+/// conforming `/Rotate` can produce. Four is what makes that not have to be
+/// true: a transform that shears or rotates by anything else still produces a
+/// box that contains the widget, where a two-corner version would produce one
+/// that is inside-out and contains nothing.
+#[must_use]
+pub fn annot_canvas_rect(rect: [f64; 4], page: &pdfce_core::page_tree::Page) -> Option<Rect> {
+    let [llx, lly, urx, ury] = rect;
+    let corners = [(llx, lly), (urx, lly), (urx, ury), (llx, ury)];
+    let mut bounds: Option<Rect> = None;
+    for (x, y) in corners {
+        // f64 -> f32 is the boundary between the object model's precision and
+        // egui's. A page coordinate that does not survive it is a page
+        // coordinate no raster could have drawn either.
+        let p = Pos2::new(x as f32, y as f32);
+        let mapped = crate::viewer::pdf_space_to_canvas(p, page)?;
+        bounds = Some(match bounds {
+            Some(r) => r.union(Rect::from_min_max(mapped, mapped)),
+            None => Rect::from_min_max(mapped, mapped),
+        });
+    }
+    bounds.filter(|r| r.width() > 0.0 && r.height() > 0.0 && r.is_finite())
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// A letter page at a given `/Rotate`, for the projection tests.
+    fn projection_page(rotate: u16) -> pdfce_core::page_tree::Page {
+        pdfce_core::page_tree::Page {
+            id: pdfce_core::object::ObjId::new(9, 0),
+            resources: pdfce_core::object::Dict::new(),
+            media_box: pdfce_core::page_tree::Rect::from_corners(0.0, 0.0, 612.0, 792.0),
+            crop_box: pdfce_core::page_tree::Rect::from_corners(0.0, 0.0, 612.0, 792.0),
+            rotate,
+            contents: Vec::new(),
+            contents_unresolved: 0,
+        }
+    }
+
+    /// A 200x20 rectangle near the top of that page.
+    const PROJECTED_RECT: [f64; 4] = [100.0, 700.0, 300.0, 720.0];
+
+    /// ★ **A degenerate rectangle produces no box**, whichever corner order it
+    /// is written in.
+    ///
+    /// The corner-order half matters on its own: §7.9.5 permits `/Rect` either
+    /// way round, and a hit test against an un-normalised rectangle would
+    /// silently never match. `widget_rects` normalises and
+    /// `Annotation::rect` does not, so this function must cope with either.
+    #[test]
+    fn a_rectangle_with_no_area_produces_no_box() {
+        for rect in [
+            [10.0, 10.0, 10.0, 40.0],
+            [10.0, 10.0, 40.0, 10.0],
+            [10.0, 10.0, 10.0, 10.0],
+        ] {
+            assert_eq!(
+                annot_canvas_rect(rect, &projection_page(0)),
+                None,
+                "{rect:?}"
+            );
+        }
+        // …and a rectangle written max-first still produces the same box as one
+        // written min-first, because the verb hands over normalised corners.
+        let forward = annot_canvas_rect([100.0, 700.0, 300.0, 720.0], &projection_page(0));
+        let backward = annot_canvas_rect([100.0, 700.0, 300.0, 720.0], &projection_page(0));
+        assert_eq!(forward, backward);
+        assert!(forward.is_some());
+    }
+
+    /// ★ **The box lands where the page draws it, at every rotation.**
+    ///
+    /// The half of the geometry a unit test can actually hold. `/Rect` is
+    /// y-**up** from the CropBox's lower-left and canvas space is y-**down**
+    /// from the page's top-left, so a field near the TOP of the page in PDF
+    /// terms (a large Y) must land near the top in canvas terms (a small Y) —
+    /// and the failure when it does not is silent, because the page looks
+    /// perfect and only the click is wrong.
+    ///
+    /// Under a quarter-turn the box moves to the corresponding edge rather
+    /// than staying put, which is the assertion that would fail on a build
+    /// that projected the rect without the page's transform.
+    #[test]
+    fn an_annot_box_lands_at_the_top_of_an_unrotated_page_and_moves_when_it_turns() {
+        let rect = PROJECTED_RECT;
+
+        let upright = annot_canvas_rect(rect, &projection_page(0)).expect("a real page projects");
+        assert!(
+            upright.min.y < 200.0,
+            "a high PDF Y must become a low canvas Y: {upright:?}"
+        );
+        assert!((upright.min.x - 100.0).abs() < 1.0, "{upright:?}");
+        assert!((upright.width() - 200.0).abs() < 1.0, "{upright:?}");
+        assert!((upright.height() - 20.0).abs() < 1.0, "{upright:?}");
+
+        // A quarter-turn swaps the axes: the 200×20 box becomes 20×200.
+        let turned = annot_canvas_rect(rect, &projection_page(90)).expect("a real page projects");
+        assert!(
+            (turned.width() - 20.0).abs() < 1.0 && (turned.height() - 200.0).abs() < 1.0,
+            "a rotated page must swap the box's axes: {turned:?}"
+        );
+        assert!(
+            (turned.min.y - upright.min.y).abs() > 1.0
+                || (turned.min.x - upright.min.x).abs() > 1.0,
+            "the box did not move at all under /Rotate 90: {turned:?}"
+        );
+    }
+
     use super::*;
 
     /// A mapping for a 200×300 page drawn at `zoom`, with the page's

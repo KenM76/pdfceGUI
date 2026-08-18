@@ -32,7 +32,9 @@
 //! editor cannot promise, how input layers, why the hit test takes no
 //! tolerance, and the five reasons a field is routed to the panel instead.
 //! This file is where those five reasons are actually decided
-//! ([`classify`]), where the geometry is done ([`widget_canvas_rect`]) and
+//! ([`classify`]), where the geometry is done
+//! ([`crate::canvas::mapping::annot_canvas_rect`], which serves annotation
+//! selection too) and
 //! where the hit test lives ([`hit`]).
 
 use egui::{Pos2, Rect, Vec2};
@@ -42,7 +44,6 @@ use pdfce_core::page_tree::Page;
 
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::tool::CanvasTool;
-use crate::viewer;
 
 /// The smallest an editor may be drawn, in **screen** points.
 ///
@@ -308,48 +309,6 @@ pub fn classify(field: &Field, widget: &Widget, rotate: u16) -> Result<BoxKind, 
     }
 }
 
-/// Project a widget's `/Rect` — **PDF user space, y-up, un-rotated**, as
-/// `[llx, lly, urx, ury]` — into canvas space.
-///
-/// The array shape is `EditSession::widget_rects`', taken verbatim rather than
-/// re-wrapped in a `page_tree::Rect`: the verb has **already normalised the
-/// corners** (§7.9.5 permits either order, and a shell that assumed
-/// `[min, min, max, max]` would silently never hit a widget written the other
-/// way round), and converting through a second rectangle type would be a place
-/// for that normalisation to be undone.
-///
-/// Through [`crate::viewer::pdf_space_to_canvas`], which inverts nothing and
-/// invents nothing: it applies `pdfce_render::page_device_geometry`'s own
-/// transform, the one the rasterizer used to draw the page. That is what makes
-/// the box land on the pixels the operator is pointing at *by construction*
-/// rather than by two formulas agreeing, and it is why `/Rotate` needs no
-/// branch here — the rotation is already inside the transform.
-///
-/// **All four corners, then bound them.** Two corners are enough while the
-/// transform is a scale, a flip and a quarter-turn, which is every case a
-/// conforming `/Rotate` can produce. Four is what makes that not have to be
-/// true: a transform that shears or rotates by anything else still produces a
-/// box that contains the widget, where a two-corner version would produce one
-/// that is inside-out and contains nothing.
-#[must_use]
-pub fn widget_canvas_rect(rect: [f64; 4], page: &Page) -> Option<Rect> {
-    let [llx, lly, urx, ury] = rect;
-    let corners = [(llx, lly), (urx, lly), (urx, ury), (llx, ury)];
-    let mut bounds: Option<Rect> = None;
-    for (x, y) in corners {
-        // f64 -> f32 is the boundary between the object model's precision and
-        // egui's. A page coordinate that does not survive it is a page
-        // coordinate no raster could have drawn either.
-        let p = Pos2::new(x as f32, y as f32);
-        let mapped = viewer::pdf_space_to_canvas(p, page)?;
-        bounds = Some(match bounds {
-            Some(r) => r.union(Rect::from_min_max(mapped, mapped)),
-            None => Rect::from_min_max(mapped, mapped),
-        });
-    }
-    bounds.filter(|r| r.width() > 0.0 && r.height() > 0.0 && r.is_finite())
-}
-
 /// Every fillable box in a document, in canvas space, plus the counts for the
 /// fields that got none.
 ///
@@ -446,7 +405,7 @@ pub fn place(form: &AcroForm, pages: &[Page], annots: &[Vec<(ObjId, [f64; 4])>])
             // A projection failure here is a non-invertible page transform or a
             // degenerate rectangle — the one case both coordinate bridges
             // decline together, and a widget with no area on screen.
-            let Some(canvas) = widget_canvas_rect(rect, page) else {
+            let Some(canvas) = crate::canvas::mapping::annot_canvas_rect(rect, page) else {
                 reasons.push(NotOnCanvas::NotPlaced);
                 continue;
             };
@@ -869,68 +828,6 @@ mod tests {
         );
     }
 
-    /// ★ **A degenerate rectangle produces no box**, whichever corner order it
-    /// is written in.
-    ///
-    /// The corner-order half matters on its own: §7.9.5 permits `/Rect` either
-    /// way round, and a hit test against an un-normalised rectangle would
-    /// silently never match. `EditSession::widget_rects` normalises, and this
-    /// asserts the shell does not un-normalise it on the way through.
-    #[test]
-    fn a_rectangle_with_no_area_produces_no_box() {
-        for rect in [
-            [10.0, 10.0, 10.0, 40.0],
-            [10.0, 10.0, 40.0, 10.0],
-            [10.0, 10.0, 10.0, 10.0],
-        ] {
-            assert_eq!(widget_canvas_rect(rect, &page(0)), None, "{rect:?}");
-        }
-        // …and a rectangle written max-first still produces the same box as one
-        // written min-first, because the verb hands over normalised corners.
-        let forward = widget_canvas_rect([100.0, 700.0, 300.0, 720.0], &page(0));
-        let backward = widget_canvas_rect([100.0, 700.0, 300.0, 720.0], &page(0));
-        assert_eq!(forward, backward);
-        assert!(forward.is_some());
-    }
-
-    /// ★ **The box lands where the page draws it, at every rotation.**
-    ///
-    /// The half of the geometry a unit test can actually hold. `/Rect` is
-    /// y-**up** from the CropBox's lower-left and canvas space is y-**down**
-    /// from the page's top-left, so a field near the TOP of the page in PDF
-    /// terms (a large Y) must land near the top in canvas terms (a small Y) —
-    /// and the failure when it does not is silent, because the page looks
-    /// perfect and only the click is wrong.
-    ///
-    /// Under a quarter-turn the box moves to the corresponding edge rather
-    /// than staying put, which is the assertion that would fail on a build
-    /// that projected the rect without the page's transform.
-    #[test]
-    fn a_widget_box_lands_at_the_top_of_an_unrotated_page_and_moves_when_it_turns() {
-        let rect = WIDGET_RECT;
-
-        let upright = widget_canvas_rect(rect, &page(0)).expect("a real page projects");
-        assert!(
-            upright.min.y < 200.0,
-            "a high PDF Y must become a low canvas Y: {upright:?}"
-        );
-        assert!((upright.min.x - 100.0).abs() < 1.0, "{upright:?}");
-        assert!((upright.width() - 200.0).abs() < 1.0, "{upright:?}");
-        assert!((upright.height() - 20.0).abs() < 1.0, "{upright:?}");
-
-        // A quarter-turn swaps the axes: the 200×20 box becomes 20×200.
-        let turned = widget_canvas_rect(rect, &page(90)).expect("a real page projects");
-        assert!(
-            (turned.width() - 20.0).abs() < 1.0 && (turned.height() - 200.0).abs() < 1.0,
-            "a rotated page must swap the box's axes: {turned:?}"
-        );
-        assert!(
-            (turned.min.y - upright.min.y).abs() > 1.0
-                || (turned.min.x - upright.min.x).abs() > 1.0,
-            "the box did not move at all under /Rotate 90: {turned:?}"
-        );
-    }
-
     /// ★ **The hit test is containment, and it is exclusive between
     /// neighbours.**
     ///
@@ -1119,7 +1016,7 @@ mod tests {
                 b.field
             );
             assert!(b.page < pages.len(), "{} is on page {}", b.field, b.page);
-            let (w, h) = viewer::page_extent_pts(&pages[b.page]);
+            let (w, h) = crate::viewer::page_extent_pts(&pages[b.page]);
             let page_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(w, h));
             assert!(
                 page_rect.expand(1.0).contains_rect(b.rect),
