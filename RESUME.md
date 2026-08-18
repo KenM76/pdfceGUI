@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `3b40492`.** For a session starting cold
+**Written 2026-08-18, last revised at `02b955a`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `3b40492`
+## ★★★ State, as measured at `02b955a`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,12 +18,12 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `3b40492`, clean tree |
-| **Engine** | `D:\Dev\pdfce` local `main`, locked at `d51e0d9`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | 1,856 passing, 0 failing |
+| **Measured at** | `02b955a`, clean tree |
+| **Engine** | `D:\Dev\pdfce` local `main`, locked at `e13f8ed`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
+| **Tests** | 1,862 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | **25 passed · 1 failed · 3 skipped**, run 2026-08-18 in the operator's lunch window. The one failure is a HARNESS gap — see below |
-| **Latest build** | `D:\builds\pdfcegui-20260818-1125-4993559-077a6c2\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
+| **Latest build** | `D:\builds\pdfcegui-20260818-1635-e13f8ed-02b955a\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
 | **Requests owed by pdfce** | **one open** — `request_insert_pages_leaves_orphaned_widgets…`, filed 2026-08-18. A correctness report, not a feature |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
@@ -161,15 +161,28 @@ Selection now covers *clicking* one. **Dragging it is still gone**, and R6 says
 nothing regresses. The old code exists and is salvageable; 18 references to
 `selected_dimension` in that file are the whole feature.
 
-### 3. Two open operator reports, both from 2026-08-18 and neither diagnosed
+### 3. One open operator report — the other was found and fixed
 
-**Add text types nothing.** *"adding text does bring up a window and a prompt,
-but it doesn't type anything in the box when I type and nothing gets added."*
-A `text-edit-typing` trace was added and reports draft / owns_keyboard /
-text_events / len — four facts that kill four hypotheses. **★ The existing
-driven check cannot see this**: it seeds the draft through `PDFCE_DIAG_TYPE`,
-the one path that bypasses the event loop, so it passes on a build where real
-typing is dead. A check that types for real is the first thing to write.
+**★ FIXED, but NOT DRIVEN: "add text types nothing."** The dialog latched on
+having **asked** for focus rather than on holding it, so a request that lost
+its opening frame was never retried and the field swallowed every keystroke
+while looking exactly like a focused one. Losing that frame is the normal
+case, not an edge case: the dialog's first draw is the frame *after* the
+gesture that opened it, so the pointer release is still being resolved around
+the request, and egui keeps the earlier of two requests in one pass. Fixed at
+`1b4949f` with a bounded retry and a regression test that was run **both**
+ways — it fails on the old implementation and passes on the new.
+
+It has not been confirmed against the operator's own report. **That is the
+one thing outstanding on this item**, and it needs the machine.
+
+Two things this cost, both worth knowing before writing the next test of a
+window: `RawInput::default()` has no `screen_rect`, so a dialog that sizes
+itself from the screen lays out unlike the application; and it has no `time`,
+which egui then fills from the **wall clock**, so a multi-frame test flakes
+under load. That flake read as "test interference" and sent me looking for a
+polluting sibling test that does not exist. Both are in
+`D:/dev/rag/egui/rawinput_default_has_no_screen_rect_and_no_time_...md`.
 
 **No context-sensitive panel, and no tool indicator.** *"When I click to use a
 tool I have no indicator to tell me what to do next or what tool I am even
@@ -268,7 +281,56 @@ up.
 
 ## ★★ What the last two sessions found — the part worth carrying
 
-### From 2026-08-18 (this one): two features, and three drifted claims
+### ★★★ From 2026-08-18 (latest): fourteen shortcuts had never worked
+
+Found while investigating "add text types nothing", which it does **not**
+explain. `app::keyboard::commands` matched the frame's keypress against
+`DERIVED`, a hand-written table of eight chord spellings, and refused outright
+any chord holding Shift or Alt. The manifest binds twenty-one. So fourteen
+bindings were declared in `built_in.ron`, printed in menus and tooltips as
+shortcuts, and delivered nothing:
+
+```
+Ctrl+Z  undo          Ctrl+S        save a copy      F11   fullscreen
+Ctrl+Y  redo          Ctrl+E        edit text        [ ]   rotate
+Ctrl+Shift+Z redo     Ctrl+Shift+E  add text         Alt+Up/Down  move page
+Ctrl+H  read mode     Ctrl+Shift+C  copy page text   Ctrl+Alt+N   from template
+```
+
+**Undo had a keyboard shortcut everywhere except the keyboard.** This is very
+likely a large part of *"I click and can't figure out how to enable some of the
+basic stuff"* — and it is why the operator has been reaching for the ribbon for
+everything.
+
+Three things to carry:
+
+1. **A table kept in step with a manifest by hand falls out of step with it**,
+   and the failure is silent from both ends: the entry looks bound, the hint
+   looks true, the key does nothing. The table is gone; `parse_chord` reads the
+   manifest through `egui::Key::from_name`.
+2. **`Modifiers::matches_logically` is permissive** — it asks whether the
+   pattern's modifiers are *present*, not whether the extras are *absent*, so
+   `Ctrl+Shift+Z` satisfies `Ctrl+Z`. Bound to redo and undo, that makes one
+   keypress mean two opposite things with iteration order deciding. Compare the
+   three flags exactly. Refusing the extra modifiers outright was the old
+   code's answer to the same hazard, and it is what killed `Ctrl+Shift+E`.
+3. **★ The meta-lesson, and the one to re-read before writing any gate.** A
+   gate *did* exist. Its doc comment stated the general rule — *"a chord this
+   module cannot see would then be a keymap entry, a menu hint and a tooltip
+   promising something no keypress delivers"* — and its body then said
+   `if !is_digit_chord { continue; }`, sweeping seven of twenty-one. `Ctrl+O`
+   had already been found dead once and was fixed by adding one row: the
+   instance closed, the class left open. **When a gate's prose is general and
+   its body has a `continue`, the `continue` is the bug.**
+
+Its replacement presses every chord and asserts the command comes back, which
+is a stronger claim than spellability — a spelling test passes on a dispatcher
+that spells a chord correctly and then filters it out for holding Shift.
+
+**Not driven.** All four new tests are headless. Pressing Ctrl+Z on a real
+document is a thirty-second confirmation and has not been done.
+
+### From 2026-08-18 (earlier the same day): two features, and three drifted claims
 
 **What shipped.** The print dialog grew a **paper list**, the driver's own
 **Properties…** button and a restored **tray** checkbox; `file.new_from_template`
