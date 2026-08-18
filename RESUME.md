@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `b6e0e9a`.** For a session starting cold
+**Written 2026-08-18, last revised at `2955ab3`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `b6e0e9a`
+## ★★★ State, as measured at `2955ab3`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,8 +18,8 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `b6e0e9a`, clean tree |
-| **Engine** | `D:\Dev\pdfce` local `main`, locked at `e618d67`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
+| **Measured at** | `2955ab3`, clean tree |
+| **Engine** | `D:\Dev\pdfce` local `main`, locked at `bd861a0`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
 | **Tests** | 1,851 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | ★ **NOT RUN since `6dc6749`.** Two new checks are written and unrun — see the queue below |
@@ -185,6 +185,28 @@ before it is a coding one.
    rotation, because the operator can run the exe straight out of a slot.
 3. **Put engine work through the channel**, and the other session picks it up in
    parallel.
+
+### ★ When the engine repo is busy, the packager races itself
+
+`package-portable.py` updates the engine as its **first** step, so on a day the
+other session is committing live, every packaging run moves the pin, dirties
+the tree, and stamps the artefact `-dirty`. Two consecutive runs on 2026-08-18
+produced two dirty builds for a reason that had nothing to do with either of
+them — the engine moved 11 commits, then 1, then 1 again, inside twenty
+minutes.
+
+The sequence that works, and what `--no-update` is actually for:
+
+```bash
+cargo update -p pdfce-core -p pdfce-render -p pdfce-print
+git commit Cargo.lock -m "Take the engine to <rev>"
+python tools/package-portable.py --no-update --verify --note "…"
+```
+
+Standing instruction 1 is still honoured — the engine IS updated immediately
+before the build. What is skipped is a **second** update racing the build it is
+meant to precede. On a quiet day the default path is fine and this never comes
+up.
 
 ---
 
