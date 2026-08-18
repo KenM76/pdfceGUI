@@ -318,6 +318,16 @@ pub fn measure_command(kind: crate::canvas::measure::MeasureKind) -> &'static st
         K::Circular => "measure.radius_diameter",
         // ui-text-exempt: command ids, never displayed
         K::TwoLine => "measure.two_line",
+        // ★ Armed from the Set-scale DIALOG, not from the ribbon, so it maps
+        // to no command id at all.
+        //
+        // The empty string is deliberate and is safe by construction:
+        // `measure_for_command` finds the kind whose command equals the id it
+        // was given, and no registered command has an empty id — `egui-shell`'s
+        // registry rejects one. So this cannot be armed by any ribbon press,
+        // which is exactly the property wanted. See `MeasureKind::ALL` for why
+        // this kind lives off the ribbon.
+        K::Scale => "",
     }
 }
 

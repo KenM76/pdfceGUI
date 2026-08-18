@@ -128,6 +128,7 @@ pub mod markup_shapes;
 /// asserted the item was *declared* and passed correctly, and the reachability
 /// check could not see it at all because a `Custom` item carries no command id.
 pub mod markup_style;
+pub mod measure_calibrate;
 pub mod measure_linear;
 /// ★ File ▸ New — the first command that makes a document out of **compiled-in
 /// bytes** rather than out of a file the operator named, and the only check in
@@ -361,6 +362,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `markup_rectangle`'s failure first.
         Box::new(markup_style::MarkupStyleGroupIsDrawn),
         Box::new(measure_linear::MeasureLinearPlacesADimension),
+        // Straight after the linear tool, because it is the same gesture with a
+        // different ending and a reader scanning the suite should meet them
+        // together — and because a calibration is worthless if the linear pick
+        // it reuses is broken, so failing in that order reads as a diagnosis.
+        Box::new(measure_calibrate::MeasureCalibratesByPickingTwoPoints),
         // ★ Directly after the markup checks, and the order is a **dependency**
         // rather than a preference: this one begins by arming Rectangle and
         // dragging, which is `markup_rectangle`'s and `markup_shapes`' whole

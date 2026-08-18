@@ -47,17 +47,22 @@ pub const fn intro() -> &'static str {
      already placed."
 }
 
-/// Why only the ratio path is offered.
+/// Why the ratio path is what a cold-opened dialog offers.
 ///
-/// Absent rather than greyed, and named rather than silent: greying a
-/// real-length radio would imply the operator could turn it on, and an
-/// unexplained absence sends someone who has read about the feature hunting
-/// for a control that is not there.
+/// ★ **This string used to say the other path could not be armed at all**, and
+/// it was accurate until 2026-08-17: *"needs a reference line drawn on the
+/// page, which this build cannot arm yet."* That was exactly the gap the
+/// operator reported — *"still missing the feature where we set the scale by
+/// selecting two lines or points and defining what that distance
+/// represents"* — and the gesture exists now.
+///
+/// Kept as a sentence rather than deleted, because a cold dialog really does
+/// have only one path that can produce a scale: no line is drawn yet. What
+/// changed is that it points at the button instead of apologising for an
+/// absence.
 #[must_use]
 pub const fn ratio_only_note() -> &'static str {
-    "Setting the scale by pointing at a known dimension needs a reference line \
-     drawn on the page, which this build cannot arm yet — so the scale is given \
-     as a ratio."
+    "With no line drawn yet, the scale is given as a ratio. To set it by      pointing at a dimension the drawing already states, measure it first."
 }
 
 /// The ratio row's label.
@@ -235,6 +240,96 @@ pub const fn cancel() -> &'static str {
 pub const fn cancel_tooltip() -> &'static str {
     "Close without changing the scale. Nothing you have typed here has taken \
      effect yet."
+}
+
+// ===========================================================================
+// Calibrating by picking two points on the drawing
+// ===========================================================================
+//
+// ★ The operator asked for this by name on 2026-08-17: "set the scale by
+// selecting two lines or points and defining what that distance represents."
+// It is the workflow every drafting tool calls calibration, and it is the one
+// a drafter reaches for, because it needs no arithmetic from them: point at
+// something the drawing already dimensions, type what it says, done.
+
+/// The button that starts the two-point pick.
+///
+/// ★ Not "Calibrate". That is a word from our side of the fence — it names
+/// the operation rather than the action — and an operator scanning this
+/// window is looking for a way to avoid computing a ratio. This says what the
+/// click does.
+#[must_use]
+pub const fn calibrate_button() -> &'static str {
+    "Measure it on the drawing..."
+}
+
+/// What the button will do, on hover.
+#[must_use]
+pub const fn calibrate_tooltip() -> &'static str {
+    "Close this window and click two points on the page. pdfce measures the      distance between them, then asks what that distance is on the real thing."
+}
+
+/// Why the button is worth pressing, under it.
+///
+/// Names the case it saves the operator from — working the ratio out by hand —
+/// because a button whose advantage is unstated reads as a longer route to the
+/// same place.
+#[must_use]
+pub const fn calibrate_note() -> &'static str {
+    "Easier than a ratio if the drawing already states a dimension: point at      it, type what it says, and pdfce works the scale out."
+}
+
+/// What pdfce measured, once the two points are picked.
+///
+/// ★ The number is shown, and that is a disclosure rather than decoration.
+/// It is the half of the equation pdfce contributed, and an operator checking
+/// their work needs to see that pdfce measured the line they meant to pick —
+/// a snap that landed on the wrong endpoint is visible here and nowhere else
+/// once the dialog is up.
+///
+/// Points, because that is the unit the measurement is in and inventing a
+/// friendlier one would mean picking a scale, which is the thing not yet
+/// known.
+#[must_use]
+pub fn calibrated_note(measured_pt: f64) -> String {
+    format!(
+        "You picked a line {measured_pt:.2} points long on the page. What is that          distance on the real thing?"
+    )
+}
+
+/// The real-length field's label.
+#[must_use]
+pub const fn real_length_label() -> &'static str {
+    "That distance is"
+}
+
+/// The real-length field's placeholder.
+///
+/// An example rather than a unit name, because the grammar accepts several
+/// shapes and the fastest way to say so is to show one that is not obvious.
+#[must_use]
+pub const fn real_length_hint() -> &'static str {
+    "e.g. 4'-7 1/2\" or 2500mm"
+}
+
+/// What the field accepts, under it.
+///
+/// The grammar lives in `pdfce_core::dimension::parse_length` and is shared
+/// with the CLI, so this describes it rather than defining it — two
+/// descriptions of one grammar is how the GUI and the CLI come to disagree
+/// about what `55 5/8"` means.
+#[must_use]
+pub const fn real_length_hint_long() -> &'static str {
+    "Feet and inches, fractions, or a plain number with a unit. Leave the unit      off and pdfce uses the one selected below."
+}
+
+/// A length pdfce could not read.
+///
+/// Quotes the engine's own message rather than replacing it: the parser knows
+/// which character it stopped at and this module does not.
+#[must_use]
+pub fn length_parse_error(engine_message: &str) -> String {
+    format!("pdfce could not read that length: {engine_message}")
 }
 
 #[cfg(test)]

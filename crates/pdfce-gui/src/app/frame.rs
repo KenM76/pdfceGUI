@@ -382,6 +382,56 @@ impl eframe::App for PdfceApp {
         // document would offer to print pages that are gone.
         self.dialogs.show(&ctx, &self.status, &mut actions);
 
+        // ★ The calibration round trip: dialog -> canvas gesture -> dialog.
+        //
+        // Two edges, read once per frame, in this order.
+        //
+        // FIRST, "the operator pressed *Measure it on the drawing*": close the
+        // window so it is not over the page they are about to click, and arm
+        // the two-point pick. Read-and-clear, so a request cannot re-arm on
+        // every subsequent frame.
+        //
+        // SECOND, "the pick just completed": put the window back with the
+        // measured length in it, and disarm, so the next click is an ordinary
+        // one rather than the start of another reference line.
+        //
+        // Here rather than in `dispatch` because neither edge is a command —
+        // one is a button inside a dialog and the other is the canvas noticing
+        // its own state machine finished. Both are frame-level observations,
+        // which is what this function is for.
+        if self.dialogs.take_scale_calibrate_request() {
+            self.dialogs.close_scale();
+            crate::canvas::tool::select(
+                &ctx,
+                crate::canvas::tool::CanvasTool::Measure(
+                    crate::canvas::measure::MeasureKind::Scale,
+                ),
+            );
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "scale-calibrate armed=true".to_owned()
+            });
+        }
+        // ★ Both halves must be present, and the group is the one that can be
+        // absent. `active_group` answers `None` when no measure state exists —
+        // which cannot happen on the frame a pick completes, since completing
+        // one requires the state. Handled rather than unwrapped anyway: an
+        // `expect` here would turn an impossible ordering into a crash in the
+        // one gesture whose whole output is a number the operator is trusting.
+        if let Some(measured) = crate::canvas::measure::take_completed_scale_line(&ctx)
+            && let Some(group) = crate::canvas::measure::active_group(&ctx)
+        {
+            self.dialogs
+                .open_scale_calibrated(&self.status, group, measured);
+            crate::canvas::tool::select(&ctx, crate::canvas::tool::CanvasTool::Select);
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "scale-calibrate measured_pt={measured:.3}"
+                )
+            });
+        }
+
         // Step 2b(ii) — the Settings window.
         //
         // Drawn beside the other dialogs but held separately, because its draft

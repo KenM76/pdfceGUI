@@ -112,7 +112,31 @@ pub struct ScaleDialog {
     accept_requested: bool,
     /// Set by Close, consumed by [`Self::show`].
     close_requested: bool,
+    /// The reference line's measured length in PDF points, when the operator
+    /// calibrated by picking two points on the drawing.
+    ///
+    /// ★ `None` is the *typed* path — the dialog opened cold from the ribbon,
+    /// there is no drawn line, and only the ratio entry can produce a scale.
+    /// `Some` is the **calibration** path the operator asked for by name on
+    /// 2026-08-17: two picks measured this many points on the page, and the
+    /// question the dialog now asks is what that distance *is* on the real
+    /// thing.
+    ///
+    /// It is threaded straight through to `ScaleEntryFields`, whose `entry`,
+    /// `preview` and `commit` all take `drawn_pdf_length: Option<f64>` and have
+    /// since the Phase 7 salvage. **No arithmetic was added anywhere for this**
+    /// — the model always supported both paths and had no caller for the
+    /// second.
+    drawn_pdf_length: Option<f64>,
+    /// Set by the calibrate button, consumed after the window's closure.
+    calibrate_requested: bool,
 }
+
+/// The region the real-length field publishes, so a driven check can type into
+/// it. Matched literally by `tools/ui-verify`.
+pub const REGION_REAL_LENGTH: &str = "scale.real_length"; // ui-text-exempt: trace region name, never displayed
+/// The region the calibrate button publishes.
+pub const REGION_CALIBRATE: &str = "scale.calibrate"; // ui-text-exempt: trace region name, never displayed
 
 impl ScaleDialog {
     /// Open on `group`.
@@ -130,7 +154,55 @@ impl ScaleDialog {
             parse_error: None,
             accept_requested: false,
             close_requested: false,
+            drawn_pdf_length: None,
+            calibrate_requested: false,
         }
+    }
+
+    /// **Open on `group` with a reference line already measured.**
+    ///
+    /// The calibration path's constructor. Raised by the application when
+    /// `ScalePick::dialog_open()` turns true — i.e. on the click that completes
+    /// the two-point pick.
+    ///
+    /// # ★ It seeds the REAL-LENGTH path, not the ratio one
+    ///
+    /// `ScaleEntryFields::default()` rather than `for_group_panel()`, and that
+    /// is the whole difference between the two constructors. `for_group_panel`
+    /// exists to pre-select **ratio** because its situation is "no reference
+    /// line was drawn"; here one was, so the path the operator just did the
+    /// work for is the one that should be waiting for them.
+    ///
+    /// The ratio path stays available in the same window. An operator who
+    /// picks two points and then decides they would rather type `1:100` can,
+    /// and nothing is lost — `ScaleEntryFields::entry` chooses on the radio,
+    /// not on whether a length exists.
+    #[must_use]
+    pub fn calibrated(group: GroupId, drawn_pdf_length: f64) -> Self {
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "scale-open group={group:?} calibrated_pdf_length={drawn_pdf_length:.3}"
+            )
+        });
+        Self {
+            group,
+            fields: ScaleEntryFields::default(),
+            parse_error: None,
+            accept_requested: false,
+            close_requested: false,
+            drawn_pdf_length: Some(drawn_pdf_length),
+            calibrate_requested: false,
+        }
+    }
+
+    /// Whether the operator asked to measure the reference line on the drawing.
+    ///
+    /// Consumed by the application, which arms `MeasureKind::Scale` and closes
+    /// this window. Read-and-clear rather than a returned flag, so the caller
+    /// cannot forget to reset it and re-arm on every subsequent frame.
+    pub fn take_calibrate_request(&mut self) -> bool {
+        std::mem::take(&mut self.calibrate_requested)
     }
 
     /// Draw one frame. Returns `false` when it should close.
@@ -175,13 +247,80 @@ impl ScaleDialog {
         ui.label(t::intro());
         ui.add_space(6.0);
 
-        // ★ The ratio path only, and the window says so.
+        // ★★ BOTH PATHS NOW, and which one the window leads with depends on
+        // whether the operator measured something first.
         //
-        // The real-length path needs a drawn reference line, and drawing one is
-        // a canvas gesture no command arms yet. A greyed radio would imply the
-        // operator could turn it on; an unexplained absence would leave someone
-        // who has read the manual hunting for it. So: absent, and named.
-        ui.label(egui::RichText::new(t::ratio_only_note()).small().weak());
+        // This block used to say the ratio path was the only one, because
+        // "the real-length path needs a drawn reference line, and drawing one
+        // is a canvas gesture no command arms yet". That sentence was accurate
+        // and it was also the whole gap the operator reported on 2026-08-17:
+        // *"still missing the feature where we set the scale by selecting two
+        // lines or points and defining what that distance represents."*
+        //
+        // The gesture now exists (`MeasureKind::Scale`), and the two states
+        // this dialog can be in are genuinely different questions:
+        match self.drawn_pdf_length {
+            // Calibrated: a line was picked, so the useful question is what it
+            // represents. The measured length is shown because it is the half
+            // of the equation pdfce contributed, and an operator checking their
+            // work needs to see that pdfce measured what they meant to pick.
+            Some(measured) => {
+                ui.label(t::calibrated_note(measured));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(t::real_length_label());
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.fields.real_length_text)
+                            .hint_text(t::real_length_hint())
+                            .desired_width(140.0),
+                    );
+                    crate::diag::ui_rect(REGION_REAL_LENGTH, response.rect);
+                    if response.changed() {
+                        // Parsed on every keystroke, and the error HELD rather
+                        // than recomputed at draw time — `sync_real_length`
+                        // deliberately leaves the last good value alone on a
+                        // failed parse, so the message and the preview have to
+                        // be captured together or they disagree.
+                        self.parse_error = self
+                            .fields
+                            .sync_real_length()
+                            .map(|e| t::length_parse_error(&e.to_string()));
+                    }
+                });
+                if let Some(err) = &self.parse_error {
+                    ui.label(
+                        egui::RichText::new(err)
+                            .small()
+                            .color(egui_shell::theme::Theme::of(ui.ctx()).palette.danger),
+                    );
+                }
+                ui.label(
+                    egui::RichText::new(t::real_length_hint_long())
+                        .small()
+                        .weak(),
+                );
+            }
+            // Cold: no line, so the ratio path is the only one that can produce
+            // a scale — and the button is how the operator reaches the other.
+            //
+            // A BUTTON rather than a greyed radio. Greying is for temporarily
+            // unavailable, and this is not unavailable: it is one click away.
+            // The button says what that click does, because "Calibrate" is a
+            // word from our side of the fence and "measure it on the drawing"
+            // is what the operator is about to do.
+            None => {
+                ui.label(egui::RichText::new(t::ratio_only_note()).small().weak());
+                ui.add_space(4.0);
+                let calibrate = ui
+                    .button(t::calibrate_button())
+                    .on_hover_text(t::calibrate_tooltip());
+                crate::diag::ui_rect(REGION_CALIBRATE, calibrate.rect);
+                if calibrate.clicked() {
+                    self.calibrate_requested = true;
+                }
+                ui.label(egui::RichText::new(t::calibrate_note()).small().weak());
+            }
+        }
         ui.add_space(6.0);
 
         ui.horizontal(|ui| {
@@ -231,7 +370,7 @@ impl ScaleDialog {
         // `None` means a degenerate entry (a zero somewhere), and Accept then
         // has nothing to commit. Shown as a refusal rather than as a blank, so
         // a greyed Accept has a reason beside it.
-        let preview = self.fields.preview(None);
+        let preview = self.fields.preview(self.drawn_pdf_length);
         match &preview {
             Some(p) => {
                 // `ratio_label` is the engine's own `/R`-style display string —
@@ -287,7 +426,7 @@ impl ScaleDialog {
     fn commit(&self, actions: &mut Vec<Action>) {
         // `None` for the drawn length: this dialog offers the ratio path, which
         // needs no line. `ScaleEntryFields::entry` routes on exactly that.
-        let Some((scale, format)) = self.fields.commit(None) else {
+        let Some((scale, format)) = self.fields.commit(self.drawn_pdf_length) else {
             // Unreachable from the UI — Accept is disabled without a preview,
             // and a preview exists exactly when `commit` will. Handled rather
             // than unwrapped because an `Action` is plain data a test can

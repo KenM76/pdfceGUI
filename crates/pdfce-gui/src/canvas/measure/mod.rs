@@ -120,15 +120,76 @@ pub enum MeasureKind {
     /// them. The gesture pdfce's own ledger marks as shipped, whose caller was
     /// missing on this side — see `SALVAGE.md`'s correction of 2026-08-14.
     TwoLine,
+    /// **Pick two points on the drawing to say what its scale is.**
+    ///
+    /// The calibration gesture, and the one the operator asked for by name on
+    /// 2026-08-17: *"set the scale by selecting two lines or points and
+    /// defining what that distance represents."*
+    ///
+    /// # ★ It authors no dimension, which is why it is a kind and not a verb
+    ///
+    /// Every other variant ends in `Action::CommitDimension`. This one ends in
+    /// a **dialog**: two picks measure a reference length in PDF points, and
+    /// the operator then says what that length *is* on the real thing. The
+    /// scale falls out of the two, and `EditSession::set_group_scale` records
+    /// it against the group.
+    ///
+    /// It is nevertheless a `MeasureKind` rather than a separate tool, because
+    /// everything about the *gesture* is a measure pick: it snaps to content,
+    /// it honours the H/V/aligned constraint, it Tab-cycles candidates, and it
+    /// clears on page navigation. [`crate::canvas::measure::scale::ScalePick`]
+    /// reuses `LinearPick` **verbatim** for exactly that reason — the reference
+    /// line is a linear pick that happens not to be authored.
+    ///
+    /// # ★ Deliberately absent from [`Self::ALL`]
+    ///
+    /// `ALL` is the list of kinds the **Measure tab arms with a command**, and
+    /// this one is armed from inside the Set-scale dialog instead. See `ALL`'s
+    /// own docs for why that distinction is worth the exception, and
+    /// `tests::every_variant_is_either_offered_or_deliberately_excluded` for
+    /// what stops the exception becoming a hole.
+    Scale,
 }
 
 impl MeasureKind {
-    /// Every variant, in the order the Measure tab offers them.
+    /// Every variant the **Measure tab offers as a ribbon control**, in the
+    /// order it offers them.
     ///
-    /// Exhaustive by construction, so a kind added here and not given a command
-    /// fails a test rather than shipping as a tool nothing can arm — the same
-    /// contract [`crate::canvas::markup::MarkupKind::ALL`] carries.
+    /// A kind listed here and not given a command fails a test rather than
+    /// shipping as a tool nothing can arm — the same contract
+    /// [`crate::canvas::markup::MarkupKind::ALL`] carries.
+    ///
+    /// # ★ It is no longer exhaustive over the enum, and that is deliberate
+    ///
+    /// [`Self::Scale`] is absent. It is armed from a button inside the
+    /// Set-scale dialog rather than from the ribbon, because the dialog is
+    /// where an operator is already standing when they discover they need it —
+    /// they opened it to set a scale, and the button says *there is a better
+    /// way to do this than typing a ratio*. A second ribbon control would put
+    /// the two halves of one decision on two different surfaces.
+    ///
+    /// The cost of the exception is that `ALL` stops being a complete
+    /// inventory, and an inventory with a silent exception is how a future
+    /// kind ships armed by nothing.
+    /// `tests::every_variant_is_either_offered_or_deliberately_excluded` pays
+    /// that cost: it matches **exhaustively** over the enum, so a new variant
+    /// does not compile until it is either put in `ALL` or added to the
+    /// excluded list with a reason.
     pub const ALL: &'static [Self] = &[Self::Linear, Self::Circular, Self::TwoLine];
+
+    /// The kinds that are deliberately **not** on the ribbon, with the surface
+    /// that arms each one instead.
+    ///
+    /// Read only by the exhaustiveness test. Its value is the second column:
+    /// "excluded" with no destination is indistinguishable from "forgotten".
+    #[cfg(test)]
+    const ARMED_ELSEWHERE: &'static [(Self, &'static str)] = &[(
+        Self::Scale,
+        // ui-text-exempt: a test-only note naming the surface that arms this
+        // kind. Never displayed — it exists so an excluded variant carries its
+        // destination, and the test asserts it is non-empty.
+        "the Set-scale dialog's calibrate button",
+    )];
 }
 
 // ===========================================================================
@@ -271,6 +332,42 @@ pub use circular::{finish, finishable};
 /// Escape's claimant. It sits *below* the drag-in-flight rung and *above*
 /// retiring the tool — see [`crate::canvas::tool::disarm_measure`], which
 /// carries the argument for why those are two separate presses.
+/// **Take the completed calibration line's measured length, once.**
+///
+/// Returns `Some(points)` on the single frame after the two-point pick
+/// completes, and `None` on every other frame — the length is cleared from the
+/// state as it is read.
+///
+/// # ★ Read-and-clear, because the alternative re-opens the dialog forever
+///
+/// `ScalePick::drawn_pdf_length` stays `Some` for as long as the pick holds a
+/// completed line; that is what keeps the reference line drawn on the page
+/// while the operator types. A caller that merely *observed* it would therefore
+/// see it `Some` on every subsequent frame and re-open the Set-scale dialog
+/// sixty times a second, discarding whatever had been typed into it each time.
+///
+/// Clearing here rather than asking the caller to remember is the same choice
+/// `ScaleDialog::take_calibrate_request` makes: an edge that has to be reset by
+/// discipline is one that eventually is not.
+///
+/// The whole pick is cleared, not just the length, so the tool is left ready
+/// for another calibration rather than holding a line the dialog has already
+/// consumed.
+pub fn take_completed_scale_line(ctx: &egui::Context) -> Option<f64> {
+    // Read the stored state DIRECTLY rather than through `load`, deliberately.
+    // `load` synchronises the kind and the page and will happily build a fresh
+    // state when there is none — which is exactly wrong for a question that
+    // must answer "no" when nothing has happened. Building state here would
+    // also make merely *asking* create a gesture, which is the hazard
+    // `MeasureState::set_kind`'s docs name.
+    let id = egui::Id::new(MEASURE_MEMORY_KEY);
+    let mut st = ctx.data_mut(|d| d.get_temp::<MeasureState>(id))?;
+    let measured = st.scale.drawn_pdf_length?;
+    st.scale.clear();
+    store(ctx, st);
+    Some(measured)
+}
+
 pub fn abandon(ctx: &egui::Context) -> bool {
     let id = egui::Id::new(MEASURE_MEMORY_KEY);
     let Some(mut st) = ctx.data_mut(|d| d.get_temp::<MeasureState>(id)) else {
@@ -583,6 +680,28 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
         // the enum fails to compile here instead of quietly falling into a
         // branch written for something else.
         MeasureKind::Circular => {}
+        // ★ The calibration pick. Two points measure a reference length; the
+        // dialog then asks what that length IS on the real thing.
+        //
+        // It raises NO action on the picks themselves, which is the difference
+        // from every arm above. `ScalePick::commit_point` returns `true` on the
+        // click that completes the line, and the application notices
+        // `dialog_open()` on the next frame and puts the Set-scale dialog up
+        // with the measured length in it. Nothing is authored until the
+        // operator says what the distance represents and accepts — the
+        // fuzzy-never-sneaky rule, applied to the one gesture whose output is
+        // a number every later dimension is multiplied by.
+        MeasureKind::Scale => {
+            if st.scale.commit_point(p) {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!(
+                        "measure-scale-line pdf_length={:.3}",
+                        st.scale.drawn_pdf_length.unwrap_or(0.0)
+                    )
+                });
+            }
+        }
         MeasureKind::TwoLine => {
             // The pick is against the page's own geometry, so it needs the
             // decomposition — which is why `needs_targets` asks for one when a
@@ -755,6 +874,33 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
     }
 
     let segments: Vec<(Point, Point)> = match kind {
+        // ★ The reference line, drawn exactly as the linear tool draws its
+        // measuring segment — because it IS one. `ScalePick::line` is a
+        // `LinearPick`, so an operator calibrating sees the same constrained
+        // A-to-pointer rubber band, the same snap markers and the same
+        // H/V/aligned behaviour they already know from placing a dimension.
+        //
+        // Once both points are picked the segment stops following the pointer
+        // and the dialog is up, so the line stays drawn while the operator
+        // types what it represents — which is the picture that makes the
+        // question answerable: *this* line is how long?
+        MeasureKind::Scale => {
+            if st.scale.drawn_pdf_length.is_some() {
+                // Complete: hold the committed line still while the operator
+                // types. `placing_preview` is fed the pointer only so it can
+                // answer at all; with both points picked the segment it
+                // returns is the picked line and does not follow the pointer.
+                hover
+                    .and_then(|h| st.scale.line.placing_preview(h.at))
+                    .as_ref()
+                    .map_or_else(Vec::new, pick::dimension_preview_segments)
+            } else {
+                let Some(at) = hover.map(|h| h.at) else {
+                    return;
+                };
+                st.scale.line.preview_segment(at).into_iter().collect()
+            }
+        }
         MeasureKind::Linear => {
             // ★ The placing preview needs the pointer; the measuring one does
             // too. With the pointer off the widget there is nothing honest to
@@ -1019,6 +1165,66 @@ mod tests {
         assert!(
             (canvas.x - screen.x).abs() > 1.0,
             "a canvas coordinate handed straight to the painter is the defect"
+        );
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::MeasureKind;
+
+    /// ★ **Every variant is either on the ribbon or deliberately excluded.**
+    ///
+    /// `MeasureKind::ALL` stopped being exhaustive over the enum when
+    /// [`MeasureKind::Scale`] arrived — it is armed from the Set-scale dialog,
+    /// not from a ribbon control, so listing it there would fail
+    /// `every_measure_kind_has_a_registered_command` for a kind that correctly
+    /// has no command.
+    ///
+    /// An inventory with a silent exception is how a future kind ships armed by
+    /// nothing, which is the exact failure `ALL` was written to prevent. So the
+    /// exhaustiveness is moved here and made a **compile-time** obligation: the
+    /// `match` below has no wildcard, so a new variant does not build until
+    /// somebody decides which list it belongs in.
+    ///
+    /// The run-time half then checks the two lists are disjoint and complete,
+    /// so a kind cannot be quietly in both or in neither.
+    #[test]
+    fn every_variant_is_either_offered_or_deliberately_excluded() {
+        // No wildcard. This is the assertion; the body is bookkeeping.
+        fn classify(k: MeasureKind) -> &'static str {
+            match k {
+                MeasureKind::Linear | MeasureKind::Circular | MeasureKind::TwoLine => "ribbon",
+                MeasureKind::Scale => "elsewhere",
+            }
+        }
+
+        for k in MeasureKind::ALL {
+            assert_eq!(
+                classify(*k),
+                "ribbon",
+                "{k:?} is in ALL, so it must be a ribbon kind"
+            );
+            assert!(
+                !MeasureKind::ARMED_ELSEWHERE.iter().any(|(e, _)| e == k),
+                "{k:?} is in BOTH lists — it cannot be armed from the ribbon and not"
+            );
+        }
+        for (k, where_armed) in MeasureKind::ARMED_ELSEWHERE {
+            assert_eq!(
+                classify(*k),
+                "elsewhere",
+                "{k:?} is excluded from the ribbon and the classifier disagrees"
+            );
+            assert!(
+                !where_armed.is_empty(),
+                "{k:?} is excluded with no surface named — 'excluded' with no                  destination is indistinguishable from 'forgotten'"
+            );
+        }
+        assert_eq!(
+            MeasureKind::ALL.len() + MeasureKind::ARMED_ELSEWHERE.len(),
+            4,
+            "a variant was added to the enum and to neither list, or counted twice"
         );
     }
 }

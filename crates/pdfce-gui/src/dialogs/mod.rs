@@ -300,6 +300,49 @@ impl DialogsState {
         self.scale = Some(scale::ScaleDialog::open(group));
     }
 
+    /// **Open the Set-scale dialog with a reference line already measured.**
+    ///
+    /// The calibration path's entry point, raised by the application on the
+    /// click that completes the two-point pick.
+    ///
+    /// # ★ It REPLACES an open dialog, where [`Self::open_scale`] refuses to
+    ///
+    /// That guard exists so a second press of the ribbon control does not
+    /// discard what the operator has half typed. The situations are opposite
+    /// here: the operator asked to measure on the drawing, the dialog closed
+    /// so they could, and they have now finished. A guard that refused would
+    /// leave them looking at a stale window with no measurement in it —
+    /// the one outcome the whole gesture exists to avoid.
+    pub fn open_scale_calibrated(
+        &mut self,
+        status: &Status,
+        group: pdfce_core::dimension::GroupId,
+        drawn_pdf_length: f64,
+    ) {
+        if !matches!(status, Status::Open(_)) {
+            return;
+        }
+        self.scale = Some(scale::ScaleDialog::calibrated(group, drawn_pdf_length));
+    }
+
+    /// Whether the open Set-scale dialog is asking to start the two-point pick.
+    ///
+    /// Read-and-clear, so the caller cannot re-arm on every frame by forgetting
+    /// to reset it.
+    pub fn take_scale_calibrate_request(&mut self) -> bool {
+        self.scale
+            .as_mut()
+            .is_some_and(scale::ScaleDialog::take_calibrate_request)
+    }
+
+    /// Close the Set-scale dialog, whatever state it is in.
+    ///
+    /// Used when the operator asks to measure on the drawing: the window has to
+    /// get out of the way of the page they are about to click on.
+    pub fn close_scale(&mut self) {
+        self.scale = None;
+    }
+
     pub fn open_diagnostics(&mut self, status: &Status) {
         if !matches!(status, Status::Open(_)) {
             return;
