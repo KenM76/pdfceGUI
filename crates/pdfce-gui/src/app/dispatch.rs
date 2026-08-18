@@ -623,6 +623,41 @@ impl PdfceApp {
                 });
                 self.dialogs.open_scale(&self.status, group);
             }
+            // ★ **Manage dimension groups.** Registered, drawn on Measure ▸ Scale
+            // and inert for the whole life of this build until 2026-08-18 —
+            // the operator's *"I still can't get to edit dimension groups when
+            // I click on it."*
+            //
+            // Gated on `author_measure` for exactly the reason `measure.
+            // set_scale` above is, and the two must stay the same sentence: a
+            // mode that cannot author a ce dimension has no business creating
+            // the groups they live in, or recalibrating one, and two different
+            // refusals for one capability read as arbitrary.
+            //
+            // The group is resolved the same way too — the measure tool's
+            // active authoring group, with the same traced fallback — so the
+            // window opens on the group the operator is drawing into rather
+            // than on whichever is first in the model. Duplicating the
+            // resolution rather than factoring it out is deliberate at two
+            // call sites: the fallback's trace line names its own command, and
+            // a shared helper would have to be told which.
+            "measure.manage_groups" => {
+                if !self.capabilities().author_measure {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-author-measure")
+                    });
+                    return;
+                }
+                let group = crate::canvas::measure::active_group(ctx).unwrap_or_else(|| {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        "dimension-groups-fallback reason=no-measure-state".to_owned()
+                    });
+                    pdfce_core::dimension::DEFAULT_GROUP_ID
+                });
+                self.dialogs.open_dimension_groups(&self.status, group);
+            }
             "measure.finish" => {
                 if !self.capabilities().author_measure {
                     crate::diag::trace(|| {

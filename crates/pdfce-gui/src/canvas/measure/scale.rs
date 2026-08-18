@@ -30,10 +30,12 @@
 //! - [`ScaleState`] / [`NumberFormat`] / [`Unit`] / [`FractionMode`] — the
 //!   stored tri-state and display model handed to
 //!   `EditSession::set_group_scale`. Constructed here, defined there.
-//! - [`GroupId`] / [`DimStandard`] — the identities [`GroupAction`] names. Each
-//!   variant is a **mapping onto exactly one shipped `EditSession` command**,
-//!   which is what keeps "I made a group" and "I hid a layer" one `Ctrl+Z`
-//!   each (ui-spec §5.4).
+//! - [`GroupId`] / [`DimStandard`] — the identities the group verbs name. Each
+//!   is a **mapping onto exactly one shipped `EditSession` command**, which is
+//!   what keeps "I made a group" and "I hid a layer" one `Ctrl+Z` each
+//!   (ui-spec §5.4). They travel as
+//!   `crate::app::actions::dimensions::DimensionAction` — this module builds
+//!   the *values* they carry and never raises one itself.
 //!
 //! The pick half of that list — `constrained_second_point`, `measured_length`,
 //! `fit_circle_taubin`, `author_from_two_lines` and the `DimensionKind`
@@ -55,8 +57,6 @@
 //! - [`ScalePick`] + [`ScaleEntryFields`] — draw a reference line, then the
 //!   two co-equal scale-entry paths (real-length recommended, ratio) that
 //!   back-calc through [`preview_group_scale`] (§4).
-//! - [`GroupAction`] — the group-panel actions, each a mapping onto exactly
-//!   one shipped `EditSession` command (§5.4: one undo step each).
 //! - [`super::state::MeasureState`] — the container built on tool entry that
 //!   holds all of the above.
 //!
@@ -73,8 +73,8 @@
 //! nothing here is an adaptation to a moved API.
 
 use pdfce_core::dimension::{
-    DimStandard, FractionMode, GroupId, LengthParseError, NumberFormat, ScaleEntry, ScalePreview,
-    ScaleState, Unit, parse_length, preview_group_scale,
+    FractionMode, LengthParseError, NumberFormat, ScaleEntry, ScalePreview, ScaleState, Unit,
+    parse_length, preview_group_scale,
 };
 use pdfce_core::vector::Point;
 
@@ -367,58 +367,25 @@ impl ScalePick {
 // Group-panel actions — each maps to exactly one shipped EditSession command
 // ---------------------------------------------------------------------------
 
-/// A group-panel action (ui-spec §5), each mapping onto **exactly one** shipped
-/// `EditSession` command so the operator's mental model ("I made a group," "I
-/// hid a layer") is one `Ctrl+Z` (ui-spec §5.4). Only the operations the
-/// shipped 12.M2 engine exposes on `EditSession` are represented — create
-/// (`add_dimension_group`), set-scale/units/format (`set_group_scale`), and
-/// toggle-layer (`toggle_dimension_layer`). (Selecting the active authoring
-/// group is pure view state — the property bar mutates
-/// [`super::state::MeasureState::group`] directly, no engine call, so it is not
-/// an action here.) (Rename/delete are not in the shipped `EditSession` surface
-/// and are deliberately NOT reimplemented in the GUI — that would push sidecar-
-/// rewriting logic out of core; they are a named follow-up, not this slice.)
-#[derive(Debug, Clone, PartialEq)]
-pub enum GroupAction {
-    /// Create a new named group with `unit`'s default format →
-    /// `EditSession::add_dimension_group(name, unit)`.
-    Create {
-        /// The operator-typed group name.
-        name: String,
-        /// The group's initial display unit.
-        unit: Unit,
-    },
-    /// Set a group's scale + number format →
-    /// `EditSession::set_group_scale(group, scale, format)` (re-propagates
-    /// every member's baked `/AP`, ui-spec §4.4).
-    SetScale {
-        /// The group to recalibrate.
-        group: GroupId,
-        /// The tri-state scale to store.
-        scale: ScaleState,
-        /// The number format (carries the display unit + precision).
-        format: NumberFormat,
-    },
-    /// Set a group's drafting standard →
-    /// `EditSession::set_group_standard(group, standard)` (Pass 27.2;
-    /// regenerates every member's baked `/AP`, exactly as a scale change
-    /// does — a group exists so its members agree).
-    SetStandard {
-        /// The group to restyle.
-        group: GroupId,
-        /// ANSI or ISO.
-        standard: DimStandard,
-    },
-    /// Toggle a group's optional-content layer visibility →
-    /// `EditSession::toggle_dimension_layer(group, visible)` (the default
-    /// group is un-hideable — the engine enforces it, ui-spec §5.3).
-    ToggleLayer {
-        /// The group whose layer to show/hide.
-        group: GroupId,
-        /// The requested visibility.
-        visible: bool,
-    },
-}
+// ★ **`GroupAction` was DELETED on 2026-08-18, and this note is what stands in
+// its place.**
+//
+// It was a salvaged, fully-tested, **zero-caller** enum: four variants naming
+// four `EditSession` group verbs, carried across whole in the Phase 7 salvage
+// and never wired to anything. Its own doc comment recorded, correctly, that
+// rename and delete were absent from the engine and deliberately not
+// reimplemented here.
+//
+// What replaced it is `crate::app::actions::dimensions::DimensionAction`,
+// which names the same four verbs and four more, and — the part `GroupAction`
+// never had — **reaches the document**, through the action funnel, as one undo
+// entry per operator gesture. Keeping both would have been two vocabularies for
+// one set of verbs, which is the drift this crate has corrected five times.
+//
+// The deletion is recorded rather than silent because the enum was *evidence*:
+// it is why `shell::commands::reach`'s scaffold entry for
+// `measure.manage_groups` cited "two of four verbs do not exist" for months.
+// That citation was accurate when written and outlived its own subject.
 
 #[cfg(test)]
 #[allow(
@@ -571,37 +538,5 @@ mod tests {
             fields.entry(Some(42.3)),
             ScaleEntry::RealLength { .. }
         ));
-    }
-
-    // ---- Group-panel action mapping (ui-spec §5.4) ----------------------
-
-    #[test]
-    fn group_actions_construct_the_expected_engine_intents() {
-        // Each panel action names exactly one shipped EditSession command.
-        let create = GroupAction::Create {
-            name: "Floor Plan".to_owned(),
-            unit: Unit::Meter,
-        };
-        assert_eq!(
-            create,
-            GroupAction::Create {
-                name: "Floor Plan".to_owned(),
-                unit: Unit::Meter
-            }
-        );
-        let toggle = GroupAction::ToggleLayer {
-            group: GroupId(2),
-            visible: false,
-        };
-        assert!(matches!(
-            toggle,
-            GroupAction::ToggleLayer { visible: false, .. }
-        ));
-        let set = GroupAction::SetScale {
-            group: GroupId(1),
-            scale: ScaleState::OneToOne,
-            format: Unit::Inch.default_format(),
-        };
-        assert!(matches!(set, GroupAction::SetScale { .. }));
     }
 }

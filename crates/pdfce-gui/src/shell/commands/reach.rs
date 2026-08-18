@@ -1181,9 +1181,10 @@ pub const FX_CONST: &str = "fx.constant";
         // Failing here means the allow-list changed, and the two directions
         // mean opposite things. An entry ADDED is a command drawn and left
         // unwired. An entry REMOVED is work that landed —
-        // `pages.insert_from_file` on 2026-08-18.
+        // `pages.insert_from_file` on 2026-08-18, and `measure.manage_groups`
+        // the same day, when `dialogs::dimension_groups` shipped.
         assert_eq!(
-            total, 18,
+            total, 17,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

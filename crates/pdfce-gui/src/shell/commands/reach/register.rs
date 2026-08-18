@@ -276,22 +276,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // ===================================================================
     // MEASURE
     // ===================================================================
-    (
-        "measure.manage_groups",
-        "★ The dialog it waited on LANDED on 2026-08-17 and this entry stays, which \
-         is the interesting part. `crate::dialogs::scale` is a *calibration* window — \
-         one group, one scale — and Manage groups is a *list* you add to, rename in \
-         and remove from. Two of those four verbs do not exist to call: `EditSession` \
-         has `add_dimension_group`, `set_group_scale`, `set_group_standard` and \
-         `toggle_dimension_layer`, and `canvas::measure::scale::GroupAction`’s own \
-         docs record why the other two are absent — “not in the shipped `EditSession` \
-         surface and deliberately NOT reimplemented in the GUI — that would push \
-         sidecar-rewriting logic out of core”. A management window missing half its \
-         verbs is a worse surface than none. `super::mapping`’s test still records \
-         what this must not become meanwhile: “deliberately NOT a tool: it opens a \
-         dialog. If it ever answered here it would arm a picking state the operator \
-         never asked for.”",
-    ),
     // ===================================================================
     // TOOLS
     // ===================================================================

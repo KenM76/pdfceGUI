@@ -80,6 +80,18 @@ pub mod commands;
 /// which there is nothing to report. The findings themselves stay in
 /// [`status`]. Consumed by `crate::dialogs::diagnostics`.
 pub mod diagnostics;
+/// Every word the Manage-dimension-groups window shows.
+///
+/// A sibling of [`scale`] and it inherits that module's rule 15 discipline: the
+/// bare word "dimension" never appears, because a **ce dimension** (one pdfce
+/// authors) and a **pdf dimension** (CAD-exported page content pdfce must not
+/// alter) are opposites and the ambiguity has already cost one investigation.
+///
+/// Its own hardest job is different from `scale`'s: explaining that a group
+/// edit reaches **backwards**, over dimensions already placed on pages that are
+/// not on screen — and doing it with a count that is computed before the edit
+/// rather than reported after it.
+pub mod dimension_groups;
 /// The copy the open/close/recent surface owns — the file dialog's title and
 /// filter names, and every string the Recent control draws. Consumed by
 /// `crate::app::files` and `crate::app::recent`.

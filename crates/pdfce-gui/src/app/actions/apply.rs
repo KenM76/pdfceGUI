@@ -359,15 +359,20 @@ impl PdfceApp {
             // new object's id is discarded because nothing here addresses it —
             // the Comments panel that will is a separate surface with its own
             // way of finding annotations on a page.
-            // One `add_dimension`, one undo entry — the same contract
-            // `CommitMarkup` below holds, through the same `vector_edit` funnel
-            // so the cancel-mutate-bump-invalidate protocol is not written a
-            // second time.
-            Action::CommitDimension { page, group, kind } => {
-                vector_edit(doc, "add-dimension", page, 1, |session| {
-                    session.add_dimension(page, group, kind).map(|_| Vec::new())
-                });
-            }
+            // ★ Every ce-dimension verb, routed. The body is in
+            // `super::dimensions` — a sibling of `annots` and `pages`, split
+            // out under R2 along the same seam — because the family shares a
+            // rule this file cannot express in one arm: four of the eight
+            // rewrite every member of a group across every page, and four
+            // touch one annotation. See that module's header.
+            //
+            // ★ The `CommitMarkup` arm below is deliberately NOT routed with
+            // it, even though authoring a ce dimension and authoring a markup
+            // look like the same act. They share no invalidation rule — a
+            // markup has no group whose other members could move — and folding
+            // them together would put a document-wide raster clear one careless
+            // edit away from every markup placed on the canvas.
+            Action::Dimension(action) => super::dimensions::apply(doc, action),
             // ★ The `Option` is `markup::Refusal::Mismatched` arriving at the
             // only place it can: a kind holding another family's geometry.
             //
@@ -377,34 +382,6 @@ impl PdfceApp {
             // future undo/redo surface could replay. Declining by name beats a
             // panic in the frame that is trying to draw, and it emphatically
             // beats authoring a shape nobody asked for.
-            // ★ A recalibration, which is one undo step however many
-            // dimensions it rewrites.
-            //
-            // `vector_edit` is the shared path, and the page it is given is
-            // **0** with a note rather than an `Option`, because a group is
-            // document-scoped: its members may be anywhere. The page reaches
-            // `vector_edit` only for the trace line and the raster
-            // invalidation, and the invalidation is deliberately wider than
-            // the page — see below.
-            Action::SetGroupScale {
-                group,
-                scale,
-                format,
-            } => {
-                // Every cached raster is dropped, not just one page's. A
-                // dimension group's members are wherever the operator put
-                // them, so a recalibration can change a page the operator is
-                // not looking at — and a strip entry drawn before it would
-                // keep showing the old number with nothing to say so. This is
-                // the same wholesale-invalidation argument `app::pages` makes
-                // for a permutation, arriving from a different direction.
-                doc.strip_rasters.clear();
-                vector_edit(doc, "set-group-scale", 0, 1, |session| {
-                    session
-                        .set_group_scale(group, scale, format)
-                        .map(|_| Vec::new())
-                });
-            }
             // Deleting the selected annotation — an ANNOTATION verb, so its
             // body lives in `annots` beside the ones the Format tab will add.
             // This arm routes. See `annots::delete`.

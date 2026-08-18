@@ -118,6 +118,20 @@ mod annots;
 /// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
 /// they are reachable exactly where they were before the split.
 mod apply;
+/// ★ Everything the **ce-dimension** feature asks the document to do — the
+/// groups, their scales, standards and style defaults, and the per-ce-dimension
+/// overrides.
+///
+/// A sibling of [`annots`] and [`pages`], drawn along the same seam they are:
+/// *what class of thing does this verb act on?* Its own header carries the one
+/// fact a reader needs first — that four of its eight verbs regenerate every
+/// member of a group, on every page, and four touch exactly one annotation.
+///
+/// `pub` rather than private, unlike [`apply`], because the surfaces that raise
+/// these verbs are outside `app`: `dialogs::scale`, `dialogs::dimension_groups`,
+/// `panels::dimension` and `canvas::measure` all name
+/// [`dimensions::DimensionAction`] to build one.
+pub mod dimensions;
 pub mod disclosure;
 /// The four page verbs' bodies, and the structural resync every edit owes.
 ///
@@ -752,36 +766,6 @@ pub enum Action {
     /// Re-deriving the page from `doc.view.page_index` in the apply would be a
     /// second source of truth that is right until a page step raised in the
     /// same frame is applied first.
-    /// **Author a ce dimension on the page** — the release of a completed
-    /// measure pick.
-    ///
-    /// Raised by [`crate::canvas::measure`] when a pick machine returns a
-    /// `DimensionKind`, which for the linear tool is the **third** click (what,
-    /// to what, and where it sits) and for the others is the pick that first
-    /// makes the geometry knowable.
-    ///
-    /// # ★ Why the geometry arrives whole rather than as points
-    ///
-    /// `DimensionKind` is `pdfce-core`'s own type and it is carried across
-    /// unchanged, which is the property the salvage's two equivalence tests
-    /// exist to protect: the value built here is **byte-for-byte the one
-    /// `pdfce-cli dimension-add` builds** from the same picks, so a dimension
-    /// authored on the canvas and one authored from the command line are the
-    /// same bytes in the file. Decomposing it into coordinates here and
-    /// rebuilding it in the apply arm would put a second constructor in the
-    /// path and quietly end that guarantee.
-    ///
-    /// This is also why the variant carries no colour, width or standard: those
-    /// live on the **group**, which is why `group` is the other field.
-    CommitDimension {
-        /// Page index the dimension is placed on.
-        page: usize,
-        /// The authoring group it joins, which is what carries its scale,
-        /// number format and drafting standard.
-        group: pdfce_core::dimension::GroupId,
-        /// The immutable geometry, straight from the pick machine.
-        kind: pdfce_core::dimension::DimensionKind,
-    },
     /// **Author one markup annotation on the page** — the release of a band
     /// drag, the release of a freehand stroke, or the ending of a vertex run.
     ///
@@ -834,43 +818,25 @@ pub enum Action {
         pen: crate::canvas::markup::pen::Pen,
     },
 
-    /// ★ **Calibrate a dimension group** — say what its numbers mean.
+    /// ★ **Everything the ce-dimension feature asks for**, as one variant
+    /// carrying which.
     ///
-    /// Raised by `crate::dialogs::scale` and by nothing else.
+    /// Eight verbs — author a ce dimension, create a group, calibrate one, set
+    /// its drafting standard, set its appearance defaults, show or hide its
+    /// layer, override one ce dimension's style, and switch a circular one
+    /// between radius and diameter. They live in
+    /// [`dimensions::DimensionAction`] rather than as eight variants here, and
+    /// that type's own documentation gives the three reasons.
     ///
-    /// # Why this is an `Action` and not a call
-    ///
-    /// `EditSession::set_group_scale` **re-propagates every member's baked
-    /// appearance stream**. A dimension's label is drawn into its `/AP`, so
-    /// changing the scale rewrites every dimension in the group — which may be
-    /// dozens of annotations across several pages.
-    ///
-    /// That makes it a document edit with an undo step, and the funnel's whole
-    /// purpose is that such an edit is ordered against every other and appears
-    /// **once** in the command log. One `Ctrl+Z` undoes a recalibration,
-    /// whatever it touched. That is the group model's own promise — *a group
-    /// exists so its members agree* — and a dialog issuing one call per member
-    /// would break it in the most annoying way available: an undo stack the
-    /// operator has to press forty times.
-    ///
-    /// # Why it carries no page
-    ///
-    /// Every other document-editing variant here names one. A group is
-    /// **document-scoped by construction**: its members may be on any page, and
-    /// the sidecar that records it is not a page property. Adding a page here
-    /// would be a field the apply arm had to ignore, which is how a reader
-    /// comes to believe a recalibration is page-local.
-    SetGroupScale {
-        /// The group to recalibrate.
-        group: pdfce_core::dimension::GroupId,
-        /// The tri-state scale to store — always `Calibrated` from this
-        /// dialog, because a back-calculated scale is by definition neither
-        /// "1:1" nor "never set".
-        scale: pdfce_core::dimension::ScaleState,
-        /// The number format: the display unit, and how its fractional part is
-        /// written.
-        format: pdfce_core::dimension::NumberFormat,
-    },
+    /// The short version is the one that matters at this level: **four of them
+    /// rewrite every member of a group, across every page it has members on,
+    /// and four touch one annotation.** That routing rule is a property of the
+    /// family rather than of any one verb, so it is expressed once — as
+    /// `DimensionAction::regenerates_the_whole_group` — where a ninth verb has
+    /// to pick a side in order to compile. Flat variants would have re-derived
+    /// it in eight arms, and the day one of them got it wrong the symptom
+    /// would be a stale number on a page the operator was not looking at.
+    Dimension(dimensions::DimensionAction),
     /// ★ **Mark the text the operator has selected** — underline, strikeout or
     /// squiggly.
     ///

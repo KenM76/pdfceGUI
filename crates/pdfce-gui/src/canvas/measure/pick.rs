@@ -68,8 +68,6 @@
 //! - [`super::scale::ScalePick`] + [`super::scale::ScaleEntryFields`] — draw a
 //!   reference line, then the two co-equal scale-entry paths (real-length
 //!   recommended, ratio) that back-calc through `preview_group_scale` (§4).
-//! - [`super::scale::GroupAction`] — the group-panel actions, each a mapping
-//!   onto exactly one shipped `EditSession` command (§5.4: one undo step each).
 //! - [`super::state::MeasureState`] — the container built on tool entry that
 //!   holds all of the above plus the shared snap controls.
 //!

@@ -203,6 +203,7 @@ use pdfce_core::vector::linepick::{ParallelPolicy, pick_line_in_page};
 use pdfce_core::vector::snap::{SnapCandidate, SnapConfig, snap_candidates};
 
 use crate::app::actions::Action;
+use crate::app::actions::dimensions::DimensionAction;
 use crate::app::state::OpenDoc;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::snap;
@@ -311,6 +312,45 @@ pub fn cycle_snap(ctx: &egui::Context) -> bool {
 #[must_use]
 pub fn active_group(ctx: &egui::Context) -> Option<pdfce_core::dimension::GroupId> {
     read(ctx).map(|st| st.group)
+}
+
+/// **Choose the group the next ce dimension will join.**
+///
+/// The write half of [`active_group`], and the control the ui-spec calls the
+/// *group picker* (§2.6). `MeasureState::group` has carried that meaning since
+/// the Phase 7 salvage and **nothing wrote to it** until
+/// `crate::dialogs::dimension_groups` shipped on 2026-08-18 — so a second group
+/// could exist, carry its own scale, and be joinable by nothing.
+///
+/// # Why it manufactures a state when there is none, and why not through `load`
+///
+/// It must **create** the state if there is none: the Manage-groups window can
+/// be opened with no measure tool ever armed, and an operator who picks a group
+/// there and then arms Linear expects their choice to have survived. Reading
+/// and giving up would drop the choice silently.
+///
+/// It does not go through [`load`], though, and the difference is not cosmetic.
+/// `load` takes a page and a kind and **synchronises to both** — including
+/// `clear_gesture()` when the page differs. This function has neither to hand
+/// and has no business discarding a pick in progress on behalf of a window that
+/// is not the canvas. So it seeds a bare state at page 0 instead, which the
+/// tool's own `load` corrects on the frame the tool is next armed; a fresh
+/// state has no gesture, so the correction discards nothing.
+///
+/// # Why it is not an `Action`
+///
+/// It changes no document. It says where the *next* gesture's product will go,
+/// which is application state with no undo log to order against and nothing to
+/// alias — the same argument `canvas::markup::swatch` makes about the pen, one
+/// value along. The dimension it eventually authors **is** an action, and
+/// carries this group in it.
+pub fn set_active_group(ctx: &egui::Context, group: pdfce_core::dimension::GroupId) {
+    let mut st = read(ctx).unwrap_or_else(|| MeasureState::new(0));
+    if st.group == group {
+        return;
+    }
+    st.group = group;
+    store(ctx, st);
 }
 
 fn read(ctx: &egui::Context) -> Option<MeasureState> {
@@ -694,11 +734,11 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
     match kind {
         MeasureKind::Linear => {
             if let Some(authored) = st.linear.commit_point(p) {
-                actions.push(Action::CommitDimension {
+                actions.push(Action::Dimension(DimensionAction::Commit {
                     page: page_index,
                     group: st.group,
                     kind: authored,
-                });
+                }));
             }
         }
         // Taken above, before the point resolution this arm is unreachable
@@ -743,11 +783,11 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
                 if let Some(Ok(authoring)) =
                     st.two_lines.authoring(epsilon, TwoLinePlacement::default())
                 {
-                    actions.push(Action::CommitDimension {
+                    actions.push(Action::Dimension(DimensionAction::Commit {
                         page: page_index,
                         group: st.group,
                         kind: authoring.kind,
-                    });
+                    }));
                     st.two_lines.clear();
                 }
             }

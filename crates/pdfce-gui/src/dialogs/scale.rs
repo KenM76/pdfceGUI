@@ -67,6 +67,7 @@ use egui::Ui;
 use pdfce_core::dimension::{FractionMode, GroupId, Unit};
 
 use crate::app::actions::Action;
+use crate::app::actions::dimensions::DimensionAction;
 use crate::canvas::measure::scale::ScaleEntryFields;
 use crate::text::scale as t;
 
@@ -446,11 +447,11 @@ impl ScaleDialog {
                 self.group, self.fields.ratio_paper, self.fields.ratio_real, self.fields.basis,
             )
         });
-        actions.push(Action::SetGroupScale {
+        actions.push(Action::Dimension(DimensionAction::SetGroupScale {
             group: self.group,
             scale,
             format,
-        });
+        }));
     }
 }
 

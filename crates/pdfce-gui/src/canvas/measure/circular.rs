@@ -63,6 +63,7 @@ use egui::{Pos2, Rect};
 
 use super::{MeasureKind, MeasureState, read, store};
 use crate::app::actions::Action;
+use crate::app::actions::dimensions::DimensionAction;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::target::CanvasTargetProvider;
 
@@ -123,11 +124,11 @@ pub(super) fn commit(st: &mut MeasureState, page_index: usize, actions: &mut Vec
     let Some(kind) = st.circular.author() else {
         return false;
     };
-    actions.push(Action::CommitDimension {
+    actions.push(Action::Dimension(DimensionAction::Commit {
         page: page_index,
         group: st.group,
         kind,
-    });
+    }));
     // Emptied, not left standing. The next dimension starts from nothing, the
     // same way `LinearPick` resets on its placing click — otherwise a second
     // Finish would author the same circle again from a set the operator
@@ -534,7 +535,9 @@ mod tests {
              in the same group"
         );
         assert_eq!(click_actions.len(), 1, "exactly one dimension per ending");
-        let Some(Action::CommitDimension { page, kind, .. }) = click_actions.first() else {
+        let Some(Action::Dimension(DimensionAction::Commit { page, kind, .. })) =
+            click_actions.first()
+        else {
             panic!("a dimension is committed")
         };
         assert_eq!(*page, 2, "on the page the pick was made on, not the view's");
