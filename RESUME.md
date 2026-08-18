@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18 at `82605b5`.** For a session starting cold on
+**Written 2026-08-18 at `6dc6749`.** For a session starting cold on
 `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -14,11 +14,11 @@ at a section of it.
 
 | | |
 |---|---|
-| **Shell HEAD** | `82605b5` — **clean tree** |
+| **Shell HEAD** | `6dc6749` — **clean tree** |
 | **Engine** | `D:\Dev\pdfce` local `main`, locked at `ac15158`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
 | **Tests** | **1,839 passing, 0 failing** |
-| **Gates** | **12 of 12, 0 skipped** |
-| **`ui-verify`** | **24 passed, 0 failed, 3 skipped** |
+| **Gates** | **14 of 14, 0 skipped** |
+| **`ui-verify`** | **25 passed, 0 failed, 2 skipped** |
 | **Latest build** | `D:\builds\pdfcegui-20260818-0536-ac15158-82605b5\`, mirrored to `OneDrive\pdfceGUI2` |
 | **Requests owed by pdfce** | **NONE — `open/` is empty.** Seven filed, all seven answered inside a day |
 
@@ -33,9 +33,10 @@ cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
 python tools/package-portable.py --verify --note "what this milestone added"
 ```
 
-The three `ui-verify` skips are honest and named: `page_ops` wants a fixture
-with no `/Rotate` furniture, `ocr` wants the model weights beside the binary,
-`markup_style` is intermittent (passes alone, occasionally skips in-suite).
+The `ui-verify` skips are honest and named: `page_ops` wants a fixture with no
+`/Rotate` furniture, and `ocr` wants the model weights beside the binary.
+`markup_style` is intermittent — it skipped in the run before last and passed
+in the last one, so treat a third skip as scheduling, not as a regression.
 
 ---
 
@@ -207,6 +208,31 @@ directly passes **every** unit test in `canvas::textannot` — the spec builder
 is pure and correct either way — and puts an empty box on the operator's
 drawing every time they let go of the mouse. Nothing in the workspace can see
 it; only a running window can.
+
+---
+
+## ★ One thing to know about the copy, added after this file's first draft
+
+`tools/gates/check-string-gaps.sh` is new, and so is the defect class it
+hunts. **Rust's line continuation eats the newline and the next line's
+indentation; lose the trailing backslash and the indentation ships.** The
+literal still compiles and still passes every test that does not compare it to
+a hand-written expectation.
+
+`pdfce-core` reported six of these in its own error messages. The same grep
+here found **36 across 22 files, eight of them in `crates/pdfce-gui/src/text/`
+— copy the operator reads on screen**, including every sentence of the
+Set-scale dialog. All repaired; the gate now runs in `run-all.sh`.
+
+**Why it matters to you specifically:** it is invisible in a diff. Reviewing
+the source you see a wrapped sentence and the spaces read as indentation, which
+is what your eye is trained to skip. If you write operator copy this session,
+you will not catch it by looking — run the gate.
+
+**Stated limitation:** the gate asserts the *source*. No driven check reads the
+Set-scale copy, so the repair is verified at the literal and not yet in a
+rendered window. If you touch that dialog, that is a `ui-verify` assertion
+worth adding while you are in there.
 
 ---
 
