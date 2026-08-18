@@ -169,9 +169,27 @@ pub(super) fn resync(doc: &mut OpenDoc) {
     // every one of them a picture of something else. Cleared wholesale rather
     // than selectively: working out which strip entries survive a permutation
     // is a second statement of the permutation, and the cache refills from the
-    // visible set on the next frame anyway. `page_texture` is dropped by
-    // `vector_edit` itself, which is why it is not touched here.
+    // visible set on the next frame anyway.
     doc.strip_rasters.clear();
+
+    // ★ …and the CURRENT page's raster, for the same reason and only for that
+    // reason — 2026-08-18.
+    //
+    // This line used to be absent, with a comment saying `page_texture` was
+    // *"dropped by `vector_edit` itself, which is why it is not touched
+    // here"*. That was true and it was also what made every ordinary edit
+    // blank the page: `vector_edit` dropped the texture on **every** edit in
+    // order to trigger a re-render, so the one case that genuinely needed it
+    // never had to ask.
+    //
+    // Now `vector_edit` keeps the raster and signals staleness through
+    // `page_texture_epoch`, so the drop belongs where its REASON is. The
+    // distinction is the whole of it: after a content edit the old raster is
+    // an older picture of the same sheet, and showing it for two frames is
+    // right. After a delete or a reorder it is a picture of a **different
+    // sheet** — the index resolves elsewhere — and showing it would be wrong
+    // rather than merely late.
+    doc.page_texture = None;
 
     if renumbered {
         // The canvas selection names objects by paint-order index **on a page

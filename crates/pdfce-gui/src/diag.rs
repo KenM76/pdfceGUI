@@ -503,6 +503,50 @@ pub fn reset_change_gates() {
     lock(&UI_RECTS_LAST_FRAME).clear();
 }
 
+/// The values last emitted under each `trace_on_change` key.
+static LAST_BY_KEY: LazyLock<Mutex<std::collections::HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Emit `key value` **only when `value` differs from the last one under `key`**.
+///
+/// # Why this exists beside [`trace`]
+///
+/// Some facts are worth reporting and are only true per frame — whether a text
+/// draft exists, whether the keyboard is owned, how long the draft is. Tracing
+/// those with [`trace`] produces a line every frame at sixty hertz, which is
+/// not a diagnostic; it is a denial of service on the reader, and the reader is
+/// somebody already having a bad day.
+///
+/// A change log is the honest shape for a *state* rather than an *event*, and
+/// this crate already has one: [`ui_rect`] emits only when a rect moves. This
+/// is the same idea for a string, keyed so several callers can use it without
+/// interfering.
+///
+/// ★ **It has [`ui_rect`]'s known weakness and it is stated rather than
+/// discovered.** A change log cannot report that something *stopped* — see
+/// [`end_ui_frame`], added after that exact gap made `ui-verify` report
+/// eighteen controls as mislaid. Here the equivalent is a state that ceases:
+/// the last line stands, and a reader must not take it for "still true". Where
+/// that matters, include the *ceasing* in the value — `draft=false` is a value,
+/// not an absence, which is why the text-edit line reports it that way.
+///
+/// The closure is not called at all when tracing is off, exactly as [`trace`]'s
+/// is: the whole cost of a disabled diagnostic is one atomic read.
+pub fn trace_on_change(key: &str, value: impl FnOnce() -> String) {
+    if !enabled() {
+        return;
+    }
+    let value = value();
+    let mut last = lock(&LAST_BY_KEY);
+    if last.get(key).is_some_and(|previous| *previous == value) {
+        return;
+    }
+    last.insert(key.to_owned(), value.clone());
+    drop(last);
+    // ui-text-exempt: diagnostic trace, never displayed in the UI
+    eprintln!("pdfce-diag {key} {value}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -460,8 +460,15 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
             //    cached decomposition describing it is now stale.
             doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
             // 4. Nothing else notices an edit — the render key compares page
-            //    index and raster scale, and a fill changes neither.
-            doc.page_texture = None;
+            //    index and raster scale, and a fill changes neither. The epoch
+            //    bump above is what `render::settle` reads, through
+            //    `OpenDoc::page_texture_epoch`.
+            //
+            //    ★ This used to also assign `page_texture = None`, which
+            //    blanked the page between the fill and the next raster. A form
+            //    fill cannot change the page SET, so the old raster is an older
+            //    picture of the same sheet and belongs on screen until the new
+            //    one lands. See `actions::apply::vector_edit`.
             // ★ Stamped with the epoch bumped two lines above, NOT the one the
             // fill ran against. The panel shows a disclosure only while it
             // describes the revision on screen, and the revision on screen from

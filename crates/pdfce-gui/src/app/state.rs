@@ -307,6 +307,37 @@ pub struct OpenDoc {
     /// in [`Self::strip_rasters`]** — see
     /// [`crate::render::strip::StripRasters`], which carries the argument.
     pub page_texture: Option<PageTexture>,
+    /// The [`Self::edit_epoch`] [`Self::page_texture`] is a picture of.
+    ///
+    /// # ★ Why this exists: the blank flash after every edit
+    ///
+    /// `RenderKey` compares page index, raster scale, annotation stance and
+    /// layer generation — **not the edit epoch**, because an edit changes none
+    /// of them. So until 2026-08-18 the only way an edit could make the canvas
+    /// re-render was to assign `page_texture = None`, and every writer did
+    /// exactly that.
+    ///
+    /// Nulling it is also what put a **blank page on screen between the edit
+    /// and the next raster**. The operator: *"the page goes blank and flashes
+    /// after every change instead of just writing and rendering the change."*
+    ///
+    /// The strip cache never had this problem — `StripRasters` keys on
+    /// `(page, key, epoch)` and has since it was written. This field is the
+    /// current page's missing third term, so the same question can be asked
+    /// the same way: *is the picture on screen a picture of the revision the
+    /// operator is looking at?* A "no" now requests a fresh raster **and keeps
+    /// showing the old one until it arrives**, which is what
+    /// `OpenDoc::rasterize`'s own docs already promised for the slow-render
+    /// case: *"the previous texture staying on screen meanwhile."*
+    ///
+    /// # What still drops the texture, and why that is not this
+    ///
+    /// A **page-set change** — delete, reorder, insert. There the stale raster
+    /// is a picture of a *different sheet*, not an older revision of the same
+    /// one, so showing it would be wrong rather than merely late.
+    /// `actions::pages::resync` drops it on exactly that condition, beside the
+    /// strip cache and the selection it drops for the same reason.
+    pub page_texture_epoch: u64,
     /// **The other visible pages' rasters**, under a continuous mode.
     ///
     /// Empty for the whole of a single-page session — which is the mechanical
@@ -613,6 +644,7 @@ impl OpenDoc {
             observed_zoom: view.zoom,
             view,
             page_texture: None,
+            page_texture_epoch: 0,
             // Empty by construction, like everything else here. A strip cache
             // carried across an open would hold textures of another file's
             // pages under this file's indices.

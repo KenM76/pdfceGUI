@@ -993,7 +993,22 @@ pub(super) fn vector_edit<E: std::fmt::Display>(
     match edit(session) {
         Ok(disclosures) => {
             doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
-            doc.page_texture = None;
+            // ★ The texture is NOT dropped here — the fix for 2026-08-18's
+            // *"the page goes blank and flashes after every change."*
+            //
+            // `doc.page_texture = None` did two jobs: it made `render::settle`
+            // notice the edit, and it took the picture off the screen. Only the
+            // first was wanted; the second put an empty page in front of the
+            // operator between every edit and its raster.
+            //
+            // `OpenDoc::page_texture_epoch` now carries the third term the
+            // strip cache always had, so settle gets its "no" from the epoch
+            // and the stale raster stays up until the new one lands — which
+            // `OpenDoc::rasterize`'s docs already promised for a slow render.
+            //
+            // A page-SET change is different: there the stale raster is a
+            // picture of another sheet, and `pages::resync` drops it on exactly
+            // that condition.
             // ★ **Step 5, added when the page verbs landed** — see
             // `super::pages`' header, which carries the whole argument and the
             // table of what each kind of edit invalidates.

@@ -175,6 +175,10 @@ impl OpenDoc {
                 let texture = raster::texture_from_pixels(ctx, &pixels);
                 if page == self.view.page_index {
                     self.page_texture = Some(texture);
+                    // Stamped with the epoch it is a picture of, exactly as the
+                    // strip's own `insert` two lines below has always been. See
+                    // `OpenDoc::page_texture_epoch`.
+                    self.page_texture_epoch = self.edit_epoch;
                     self.render_error = None;
                 } else {
                     self.strip_rasters.insert(
@@ -379,8 +383,18 @@ impl PdfceApp {
         let current = doc.page_texture.as_ref().map(|t| t.key);
         // No texture at all is "stale" in the discrete sense: there is nothing
         // on screen worth waiting to replace.
+        // ★ …and an EDIT is a discrete change too, even though it moves no
+        // field of the key.
+        //
+        // The key answers "is this a picture of the right page, at the right
+        // scale, with the right annotation stance". It cannot answer "is it a
+        // picture of the right *revision*", because an edit changes none of
+        // those. That third term is `page_texture_epoch`, and adding it here is
+        // what lets `vector_edit` stop nulling the texture — which is what put
+        // a blank page on screen after every edit.
+        let stale_edit = doc.page_texture_epoch != doc.edit_epoch;
         let stale_discrete =
-            current.is_none_or(|k| k.discrete_inputs() != wanted.discrete_inputs());
+            stale_edit || current.is_none_or(|k| k.discrete_inputs() != wanted.discrete_inputs());
         let stale_scale = current.is_some_and(|k| k.scale_bits() != wanted.scale_bits());
 
         // A page whose previous render failed must not be retried every frame:

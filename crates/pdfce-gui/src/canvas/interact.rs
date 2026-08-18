@@ -1412,6 +1412,34 @@ pub(super) fn interact(
     if active_tool.text_edit_kind().is_some() {
         let owns_keyboard = !ctx.text_edit_focused();
         let _ = crate::canvas::textedit::typing(ui, &ctx, owns_keyboard, actions);
+        // ★ Evidence for *"it doesn't type anything in the box when I type and
+        // nothing gets added"* — the operator, 2026-08-18. Four facts, each
+        // killing a different hypothesis: `draft=false` (the click stored
+        // none), `owns_keyboard=false` (a `TextEdit` has focus, so `typing`
+        // reads no events), `text_events=0` (egui delivered none — the keys
+        // are not reaching this window), `len` not rising (read and stored,
+        // insert not landing).
+        //
+        // ★ Why a trace rather than a test: the driven check for text editing
+        // seeds the draft through `PDFCE_DIAG_TYPE`, the one path that BYPASSES
+        // the event loop, so it passes on a build where real typing is dead.
+        // Until a check types for real, this line is what tells them apart.
+        crate::diag::trace_on_change("text-edit-typing", || {
+            let draft = crate::canvas::textedit::read(&ctx);
+            let text_events = ctx.input(|i| {
+                i.events
+                    .iter()
+                    .filter(|e| matches!(e, egui::Event::Text(t) if !t.is_empty()))
+                    .count()
+            });
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "kind={:?} draft={} owns_keyboard={owns_keyboard} text_events={text_events} len={}",
+                active_tool.text_edit_kind(),
+                draft.is_some(),
+                draft.map_or(0, |d| d.text.chars().count()),
+            )
+        });
     }
 
     // ★ The cursor — the whole precedence in one pure function, in `tool`,
