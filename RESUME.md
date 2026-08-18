@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `2955ab3`.** For a session starting cold
+**Written 2026-08-18, last revised at `077a6c2`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `2955ab3`
+## ★★★ State, as measured at `077a6c2`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,12 +18,12 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `2955ab3`, clean tree |
-| **Engine** | `D:\Dev\pdfce` local `main`, locked at `bd861a0`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | 1,851 passing, 0 failing |
+| **Measured at** | `077a6c2`, clean tree |
+| **Engine** | `D:\Dev\pdfce` local `main`, locked at `4993559`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
+| **Tests** | 1,856 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | ★ **NOT RUN since `6dc6749`.** Two new checks are written and unrun — see the queue below |
-| **Latest build** | see `D:\builds\` — the newest `pdfcegui-*` directory; two most recent mirrored to `OneDrive\pdfceGUI1` / `pdfceGUI2` |
+| **Latest build** | `D:\builds\pdfcegui-20260818-1125-4993559-077a6c2\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
 | **Requests owed by pdfce** | one `note_*`, filed by us and not blocking — `open/` otherwise empty |
 
 ## ★★ The harness queue — needs the operator's go-ahead
@@ -43,6 +43,7 @@ cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
 |---|---|
 | `print_paper_changes_the_plan` | choosing a paper size re-plans the job — `paper=` and `sheet=` on one trace line must BOTH move. Also that the Properties… button is drawn |
 | `new_document_sizes_the_page` | New from template ▸ A3 ▸ Landscape produces a 420 × 297 mm page, read back **after the re-parse** |
+| **annotation selection — NOT YET WRITTEN** | ★ the largest undriven thing here. A check should: open a fixture with markup, switch to Review, click a stamp, assert `annot-select id=… kind=…`, press Delete, assert the page carries one fewer annotation. Every trace line it needs already exists |
 
 Both are written not to press the two buttons a harness must never press: the
 print commit (it consumes paper) and Properties… (a vendor driver's modal —
@@ -89,75 +90,96 @@ in the last one, so treat a third skip as scheduling, not as a regression.
 
 ## What to do next, in the operator's likely order
 
-### ★ First: run the harness queue above
+> ### ★★★ Read this before picking anything: the order came from the wrong place
+>
+> On 2026-08-18 the operator said, of a day and a half of work:
+>
+> > *"I'm still flabbergasted by how the GUI is still not user friendly. …It
+> > feels like nothing is moving forward on these things. …Hours and hours,
+> > and I click and can't figure out how to enable some of the basic stuff."*
+>
+> He was right, and the cause was **scheduling, not difficulty**. This list
+> used to be ordered by *what the engine most recently unblocked* — which is
+> how print paper sizes and a page-size chooser got built while
+> **clicking a stamp did nothing at all**. Both were things he had asked for;
+> neither was on the path to what he was actually hitting.
+>
+> **Order this list by what the operator reaches for, not by what just
+> arrived in the channel.** The engine's replies are an input to *how* a thing
+> gets built, never to *which* thing.
 
-Two features shipped this session and neither has been driven. That is the one
-outstanding obligation, it needs nothing but the operator's desktop, and under
-R1 nothing else should be called done until it is discharged.
+### ★ First: run the harness queue below
 
-### 1. Revision clouds — the last standard revisioning tool
+Three features are shipped and undriven. It needs nothing but the desktop.
 
-Text box, sticky note and stamp landed 2026-08-18. Clouds are the fourth and
-are **still not started upstream**, accepted and scheduled since 2026-08-14.
-Verified rather than assumed: `grep Cloud` and `grep BorderEffect` over
-`pdfce-core` return nothing, and `MarkupSpec` has `Square`, `Circle`, `Line`,
-`Ink`, `Polygon`, `PolyLine`, `TextMarkup` and no cloud.
+### 1. The Format tab's first slice — restyle a selected annotation
 
-**Nothing on this side is missing.** If the operator wants the set truly
-finished, this is a re-raise in the channel, not work here.
+**Selection landed 2026-08-18** (`00ff4c7`): a stamp, note, shape or ce
+dimension can be clicked, is outlined, and can be **deleted**. What is still
+missing is everything that made the operator ask *"how do I **edit** a stamp"*:
+colour, width, opacity.
 
-### 2. ★★ The selection model — the piece that unblocks the Format tab
+`EditSession::set_markup_style` is the verb and it is shipped. The routing is
+already done for you — `AnnotKind` on the selected target is `Markup` or
+`CeDimension`, and the second **must** go to `set_dimension_style` instead.
 
-This is the largest thing left and it is worth reading the reasoning before
-picking anything else up.
+> ★★ A ce dimension is a `/Line` with `/IT /LineDimension`. It passes every
+> "markup pdfce can author" test, and restyling one through `set_markup_style`
+> regenerates it as a **bare line — label and witness lines gone** — from an
+> operator who asked only to recolour it. The engine refuses by name; the kind
+> on the target is what stops the refusal being reached.
 
-`EditSession::set_markup_style` shipped 2026-08-18 — colour, interior, width,
-opacity and arrowheads on an existing annotation, keeping its object id. That
-is the Format contextual tab's first real slice, and **this shell cannot reach
-it**, because `Selection` is a paint-order index and cannot name an
-annotation.
+Deliberately **not** in that verb, so the tab must not offer them: note text,
+**move and resize**, and `/LE` on PolyLine. Move/resize is the next ask after
+this one and needs its own engine request.
 
-The engine said so explicitly when declining to ship the enumerator we asked
-for:
+### 2. Dimension select-and-drag — a REGRESSION, not an unbuilt feature
 
-> *"What you actually want is `markup_rects(page_index)` … **Not shipped,
-> deliberately**: your own blocker is on your side, and a query with no caller
-> is exactly the `[x] core / [ ] gui` drift R151 exists for. **Ask for it with
-> your selection change and it lands in the same session.**"*
+The **old** GUI does this: `run_dimension_drag` at
+`D:\Dev\pdfce\crates\pdfce-gui\src\main.rs:22782`, with
+`doc.selected_dimension`, `doc.dimension_drag`, and `dimension_rects`
+hit-tested per page. The new shell never called `dimension_rects` at all.
 
-So the order is fixed and it is not the obvious one: **change `Selection`
-first, file `markup_rects` at the same moment, then build the Format tab.**
-Filing the request before the selection change would be asking for the thing
-they just declined, for the reason they declined it.
+Selection now covers *clicking* one. **Dragging it is still gone**, and R6 says
+nothing regresses. The old code exists and is salvageable; 18 references to
+`selected_dimension` in that file are the whole feature.
 
-They also corrected one of our claims, and it saves work: `bounds_of` applies
-the pen half-width at *authoring* time, so the stored `/Rect` already contains
-it and **a shell hit-testing `/Rect` is correct today**. We do not need pdfce
-to own the hit test.
+### 3. "Highlight fillable fields" — the smallest real win on this list
 
-**★★ And read this before writing a single line of that tab.** A ce dimension
-is a `/Line` with `/IT /LineDimension`. It passes every "markup pdfce can
-author" test, and restyling one regenerates it as a **bare line — label and
-witness lines gone** — from an operator who asked only to recolour it. The
-engine refuses by name (`EditError::AnnotationIsCeDimension`) and points at
-`set_dimension_style`. **A Format tab must route ce dimensions there.**
-`panels::comments::model` already computes the set of ce-dimension object ids
-per document, so the routing predicate exists.
+Form filling **works**, in every mode including Read: `canvas::forms` never
+consults the mode. What is missing is that **nothing shows where the fields
+are** — Acrobat tints them blue, pdfce paints nothing and only changes the
+cursor to an I-beam. That is the whole of *"How do I click on a form to edit
+it in the Canvas?"*
 
-### 3. Resize an EXISTING page
+`canvas/forms.rs`'s own header names it and declines to build it:
+
+> *"…a weaker one than Acrobat's blue field tint. The honest remedy is a
+> **"highlight fillable fields" toggle**, which is a ribbon command; this
+> module deliberately adds none and the entry point is reported rather than
+> wired."*
+
+It is a view overlay like rulers, the grid and find hits — **not** content
+marking, so rule 4 permits it. One command, one condition, one overlay pass.
+
+### 4. Resize an EXISTING page
 
 `set_media_boxes(indices, rect)` shipped with `set_media_box` and only the
-second is used. A page-resize surface belongs in Document ▸ Properties and is
-a genuinely different capability from the New chooser: does content move, does
-`/CropBox` follow, is shrinking below the content a refusal. None of those
-arise for a blank page and all of them arise here, so it is a design question
-before it is a coding one.
+second is used. Belongs in Document ▸ Properties, and is a **design** question
+before a coding one: does content move, does `/CropBox` follow, is shrinking
+below the content a refusal.
 
-> **Read `archive/2026-08-18-mediabox-and-markup-reply.md` first.**
-> `/MediaBox` is inheritable (§7.7.3.4), so the write is three-way, and *"a
-> target equal to the inherited value REMOVES the page's own entry"* is
-> load-bearing and invisible to a one-page fixture — **writing to the ancestor
-> that supplies the value resizes every sibling.**
+> Read `archive/2026-08-18-mediabox-and-markup-reply.md` first. `/MediaBox` is
+> inheritable (§7.7.3.4), so the write is three-way, and *"a target equal to
+> the inherited value REMOVES the page's own entry"* is load-bearing and
+> invisible to a one-page fixture — **writing to the ancestor that supplies
+> the value resizes every sibling.**
+
+### Not ours: revision clouds
+
+Confirmed moving upstream on 2026-08-18 — `EditError::TooFewVertices` and a
+`Cloud` subtype are in `D:\Dev\pdfce`'s working tree. The operator: *"don't
+worry about item 5. It's aware of that one now."*
 
 ## What NOT to do
 
