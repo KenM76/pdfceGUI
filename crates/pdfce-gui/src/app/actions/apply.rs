@@ -392,6 +392,51 @@ impl PdfceApp {
                     );
                 }
             }
+            // ★ Placing a text-bearing annotation CHANGES NOTHING. It opens the
+            // dialog, and the words decide whether anything is authored.
+            //
+            // It is in this file rather than handled at the canvas, because the
+            // canvas may not reach `PdfceApp` — everything a gesture wants the
+            // application to do arrives here as an `Action`, and "open a
+            // window" is no exception to that just because it touches no
+            // document.
+            Action::BeginTextAnnot { page, kind, rect } => {
+                self.dialogs.open_text_annot(&self.status, page, kind, rect);
+            }
+            // …and this is the one that reaches the document, through the same
+            // `vector_edit` funnel every other authoring verb uses. The engine
+            // verb differs (`add_text_annotation` rather than `add_markup`)
+            // because the spec type does; nothing else about the protocol does.
+            Action::CommitTextAnnot {
+                page,
+                kind,
+                rect,
+                text,
+                stamp,
+            } => {
+                // ★ The pen's ink, so a callout matches the comments beside it
+                // and one Style group governs the whole markup family.
+                //
+                // Read here rather than carried on the action, which is the
+                // OPPOSITE of `CommitMarkup`'s rule two arms up — and the
+                // difference is real. That action is raised by a gesture that
+                // completed frames before the queue drains, so the live pen may
+                // have moved under it. This one is raised by a DIALOG the
+                // operator has been sitting in, and is applied on the same
+                // frame they pressed Accept. There is no window for the value
+                // to go stale across.
+                let ink = self.pen.ink;
+                if let Some(spec) = crate::canvas::textannot::spec(kind, rect, &text, stamp, ink) {
+                    vector_edit(doc, "add-text-annot", page, 1, |session| {
+                        session.add_text_annotation(page, &spec).map(|_| Vec::new())
+                    });
+                } else {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        format!("text-annot-declined kind={kind:?} reason=no-text")
+                    });
+                }
+            }
             // ★ One text markup, through the SAME funnel and the same engine
             // verb as the drag-shaped kinds above.
             //
@@ -603,124 +648,19 @@ impl PdfceApp {
                 });
             }
             Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
-            // ===============================================================
-            // ★ THE REDACTION MARKING VERBS
+            // ★ The three REDACTION arms live in `super::redact`.
             //
-            // Three arms, each one call, through the same `vector_edit` funnel
-            // every other document change uses — which is the whole reason they
-            // are one line each. Marking is an ordinary edit: it authors an
-            // annotation, the engine records it as an undoable command, and the
-            // page has to re-raster because a `/Redact` mark draws a red
-            // outline the operator needs to see.
-            //
-            // ★ **Nothing here removes anything.** The irreversible half is
-            // `crate::dialogs::redact`, which reaches no arm in this file at
-            // all: it changes no document, so it has nothing to order against
-            // and no epoch to bump, and routing it through here would put the
-            // one operation that cannot be undone into a queue that replays.
-            //
-            // `.map(|_| Vec::new())` on the first two adapts the engine's
-            // `Vec<ObjId>`/`ObjId` to the disclosure list `vector_edit` traces,
-            // and the empty vec is a statement rather than a placeholder —
-            // authoring an annotation rewrites no existing operator, so nothing
-            // changed form and rule 4 owes the operator nothing. It is the same
-            // adaptation `CommitMarkup` makes one screen up.
-            // ===============================================================
-            Action::MarkRedactionsBySearch {
-                query,
-                pattern,
-                appearance,
-            } => {
-                if !query.is_empty() {
-                    let page = doc.view.page_index;
-                    // The label distinguishes the two marking modes on the
-                    // trace, because a pattern that marked nothing and a
-                    // literal that marked nothing are different diagnoses:
-                    // one is a query the document does not contain, the other
-                    // is very often a `#` the operator meant literally.
-                    let label = if pattern {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "redact-mark-pattern"
-                    } else {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "redact-mark-search"
-                    };
-                    let before = crate::panels::redact::mark_ids(&doc.session).len();
-                    vector_edit(doc, label, page, 1, |session| {
-                        // ★ Case-INSENSITIVE, always, and it is not a missing
-                        // control. Over-marking is the safe direction of error
-                        // on this verb and under-marking is not: a mark the
-                        // operator did not want is one row and one click in the
-                        // review list, and a mark they did want and did not get
-                        // is a name shipped in a document they believe is
-                        // redacted. The old shell made the same ruling in the
-                        // same words.
-                        //  The `_styled` verbs, which arrived on 2026-08-17
-                        // (`a7210a4`) in answer to this shell's filing: before
-                        // them `author_text_matches` built its spec internally
-                        // with `fill: None`, so a fill the operator chose was
-                        // discarded on this path and honoured on the whole-page
-                        // one. A control honoured on some marks and silently
-                        // dropped on others is worse than no control, on the
-                        // one operation that cannot be undone.
-                        if pattern {
-                            session.mark_redactions_by_pattern_styled(&query, true, &appearance)
-                        } else {
-                            session.mark_redactions_by_search_styled(
-                                &query,
-                                &pdfce_core::edit::TextSearchOptions::default()
-                                    .with_case_insensitive(true),
-                                &appearance,
-                            )
-                        }
-                        .map(|_| Vec::new())
-                    });
-                    // ★ Reported AFTER the edit, from the same census the panel
-                    // lists from, so the number on the trace and the number of
-                    // rows on screen cannot disagree. `created=0` is the
-                    // interesting value: it is a search that found nothing,
-                    // which on a scanned page is the named real-world failure
-                    // — `crate::text::redact::search_hint` is the sentence that
-                    // warns about it, and this is how a reader of a trace sees
-                    // it happen.
-                    let after = crate::panels::redact::mark_ids(&doc.session).len();
-                    crate::diag::trace(|| {
-                        format!(
-                            // ui-text-exempt: diagnostic trace, never displayed in the UI
-                            "redact-marked mode={} created={} total={}",
-                            if pattern { "pattern" } else { "literal" },
-                            after.saturating_sub(before),
-                            after
-                        )
-                    });
-                }
-            }
-            Action::MarkPageForRedaction { page, appearance } => {
-                // Resolved here rather than carried on the action because the
-                // rectangle is the page's, not the operator's — see the
-                // variant's docs. A page index past the end is unreachable from
-                // the panel and is answered rather than indexed, because an
-                // action is plain data a test can build.
-                if let Some(spec) = doc
-                    .pages
-                    .get(page)
-                    .map(|p| crate::panels::redact::whole_page_spec(p, &appearance))
-                {
-                    vector_edit(doc, "redact-mark-page", page, 1, |session| {
-                        session.add_redaction(page, &spec).map(|_| Vec::new())
-                    });
-                } else {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        format!("redact-mark-page-declined page={page} reason=no-such-page")
-                    });
-                }
-            }
-            Action::RemoveRedactionMark { annot_id } => {
-                let page = doc.view.page_index;
-                vector_edit(doc, "redact-unmark", page, 1, |session| {
-                    session.delete_redaction_mark(annot_id).map(|()| Vec::new())
-                });
+            // Moved there on 2026-08-18 under rule R2, and the seam is a real
+            // one rather than a line count: they are the only arms whose
+            // subject is *marking content for removal*, they share a vocabulary
+            // (`RedactAppearance`, the census, the mark ids) that nothing else
+            // in this file uses, and their comments carry the argument for the
+            // one operation pdfce cannot undo. Moving the arms without their
+            // reasoning would have been the split this project warns about.
+            Action::MarkRedactionsBySearch { .. }
+            | Action::MarkPageForRedaction { .. }
+            | Action::RemoveRedactionMark { .. } => {
+                super::redact::apply(doc, action);
             }
             // ===============================================================
             // ★ THE PAGE VERBS
@@ -965,7 +905,7 @@ impl PdfceApp {
 /// only capability the error branch below actually uses — it puts the message on
 /// the trace and declines. Nothing here inspects a variant, so nothing here
 /// needed to know the type.
-fn vector_edit<E: std::fmt::Display>(
+pub(super) fn vector_edit<E: std::fmt::Display>(
     doc: &mut OpenDoc,
     label: &str,
     page: usize,

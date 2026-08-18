@@ -80,6 +80,9 @@ pub mod redact;
 /// **paper** rather than of the thing drawn on it. A plausible answer to a
 /// question nobody asked, which is worse than a missing feature.
 pub mod scale;
+/// The words half of a text-bearing annotation — the second half of the
+/// place-then-type gesture. Its header argues why it is a dialog.
+pub mod textannot;
 
 /// ★ The Settings window — the thirteen questions the PDF standard declines to
 /// answer, and the operator's answers to them.
@@ -156,6 +159,9 @@ pub struct DialogsState {
     /// header says a dialog that edits the document *"must use the funnel"*,
     /// and this is the first one that does.
     scale: Option<scale::ScaleDialog>,
+    /// The open text-annotation dialog, if a text box, sticky or stamp has
+    /// just been placed.
+    text_annot: Option<textannot::TextAnnotDialog>,
 
     /// The Apply-redactions dialog, when one is open.
     ///
@@ -341,6 +347,31 @@ impl DialogsState {
     /// get out of the way of the page they are about to click on.
     pub fn close_scale(&mut self) {
         self.scale = None;
+        self.text_annot = None;
+    }
+
+    /// **Open the text-annotation dialog for a just-placed annotation.**
+    ///
+    /// Raised by `Action::BeginTextAnnot`, which the canvas pushes on the
+    /// gesture that finishes placing.
+    ///
+    /// ★ It REPLACES an open dialog rather than refusing, unlike
+    /// [`Self::open_scale`]. The situations are opposite: that guard protects a
+    /// half-typed value from a second ribbon press, and here a second placing
+    /// gesture is the operator plainly saying they want to annotate somewhere
+    /// else. Refusing would leave them looking at a window describing a box
+    /// they have moved on from.
+    pub fn open_text_annot(
+        &mut self,
+        status: &Status,
+        page: usize,
+        kind: crate::canvas::textannot::TextAnnotKind,
+        rect: pdfce_core::page_tree::Rect,
+    ) {
+        if !matches!(status, Status::Open(_)) {
+            return;
+        }
+        self.text_annot = Some(textannot::TextAnnotDialog::open(page, kind, rect));
     }
 
     pub fn open_diagnostics(&mut self, status: &Status) {
@@ -438,6 +469,9 @@ impl DialogsState {
         // nothing from the open document at all.
         if self.scale.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.scale = None;
+        }
+        if self.text_annot.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.text_annot = None;
         }
     }
 

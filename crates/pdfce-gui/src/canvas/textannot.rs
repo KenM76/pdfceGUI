@@ -168,6 +168,25 @@ pub const STAMPS: &[StampName] = &[
 /// review is the one that says the review passed.
 pub const DEFAULT_STAMP: StampName = StampName::Approved;
 
+/// The side, in PDF points, of the square a sticky note's rect is given.
+///
+/// # ★ It is not a size the operator sees
+///
+/// A `/Text` annotation's marker is drawn at a **fixed size** and carries
+/// `NoZoom`/`NoRotate`, so the reader paints the same icon however big the
+/// rect is. `TextAnnotSpec::Sticky`'s own documentation says as much: *"the
+/// marker is fixed-size … so only its lower-left corner matters in practice."*
+///
+/// So this number decides nothing about the picture. What it must be is
+/// **non-degenerate** — a zero-area rect is refused by the engine's geometry
+/// validation and would turn a placed note into a silent refusal — and roughly
+/// icon-sized, so that anything reading the rect for a hit test or a bounding
+/// box gets an answer near the truth rather than a point.
+///
+/// 20 pt is about the size Acrobat draws its note icon at, which makes it the
+/// least surprising answer to a question the format says is not being asked.
+pub const STICKY_PT: f64 = 20.0;
+
 /// The longest note or caption offered.
 ///
 /// # ★ It bounds the FIELD, not the format

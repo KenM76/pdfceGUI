@@ -655,6 +655,37 @@ pub(super) fn interact(
                     doc.current_page(),
                     actions,
                 );
+            } else if let crate::canvas::tool::CanvasTool::TextAnnot(kind) = active_tool {
+                // ★ The STICKY's whole placing gesture: one click, one point.
+                //
+                // The dragged kinds reach the dialog through
+                // `GestureOutcome::TextAnnot` instead, so this arm is the
+                // sticky's alone — but it is written for the family rather than
+                // for the variant, and guarded by `is_dragged`, so a second
+                // click-placed kind added later takes this path without an
+                // edit and a kind that stops being click-placed leaves it.
+                //
+                // The rect is a small square around the point. A `/Text`
+                // marker is fixed-size and `NoZoom` — the format discards the
+                // rect's extent — so the size here is not a promise about what
+                // is drawn; what matters is the LOWER-LEFT corner, which is
+                // where the marker lands. `STICKY_PT` is documented at its
+                // definition for exactly that reason.
+                if !kind.is_dragged()
+                    && let Some(page) = doc.current_page()
+                    && let Some((at, _)) = markup::band::endpoints(point, point, page)
+                {
+                    actions.push(Action::BeginTextAnnot {
+                        page: page_index,
+                        kind,
+                        rect: pdfce_core::page_tree::Rect {
+                            llx: at.0,
+                            lly: at.1,
+                            urx: at.0 + crate::canvas::textannot::STICKY_PT,
+                            ury: at.1 + crate::canvas::textannot::STICKY_PT,
+                        },
+                    });
+                }
             } else if let Some(kind) = active_tool.measure_kind() {
                 measure::click(
                     measure::Pick {
@@ -850,6 +881,50 @@ pub(super) fn interact(
                     doc.current_page(),
                     actions,
                 );
+            }
+        }
+        // ★ A text-annotation band. It draws exactly as a markup band does and
+        // COMMITS NOTHING — on `Phase::Complete` it raises the request that
+        // opens the dialog, and the words decide whether anything is authored.
+        //
+        // The band reuses `markup::band::preview_rect` rather than growing its
+        // own painter, so a text box's rubber band and a rectangle's are the
+        // same pixels from the same code. What differs is only what release
+        // means, which is the whole reason the two have separate variants.
+        GestureOutcome::TextAnnot {
+            kind,
+            from,
+            to,
+            phase,
+        } => {
+            // A plain RECTANGLE band, whatever the kind. `Preview` carries a
+            // `MarkupKind` because that is what decides the shape drawn, and
+            // both dragged text kinds occupy a rectangle — so this is not a
+            // borrowed constant, it is the correct answer.
+            band = Some(markup::band::Preview {
+                kind: markup::MarkupKind::Rectangle,
+                from,
+                to,
+            });
+            if phase == crate::canvas::gesture::Phase::Complete {
+                // `endpoints` — the SAME canvas-to-page conversion the markup
+                // band uses, already public. A second conversion here is how a
+                // preview and an authored box come to disagree about where the
+                // operator dragged.
+                if let Some(page) = doc.current_page()
+                    && let Some((start, end)) = markup::band::endpoints(from, to, page)
+                {
+                    actions.push(Action::BeginTextAnnot {
+                        page: page_index,
+                        kind,
+                        rect: pdfce_core::page_tree::Rect {
+                            llx: start.0.min(end.0),
+                            lly: start.1.min(end.1),
+                            urx: start.0.max(end.0),
+                            ury: start.1.max(end.1),
+                        },
+                    });
+                }
             }
         }
         // A resize drag is CONSUMED and commits nothing. Consuming it is the

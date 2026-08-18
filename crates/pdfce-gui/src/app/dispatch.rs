@@ -748,6 +748,33 @@ impl PdfceApp {
                     });
                 }
             }
+            // ★ The three text-bearing kinds, ABOVE the geometric markup arm.
+            //
+            // Ordering is a statement rather than a tie-break — the two
+            // families claim disjoint ids, and `mapping`'s own tests assert
+            // that no `markup.*` id answers to both. It is written first
+            // because a reader scanning for "what arms a markup tool?" should
+            // meet both families together, and because if the two ever DID
+            // overlap the failure would be silent: this arm would win and the
+            // geometric one would simply stop being reached.
+            //
+            // The capability is `author_markup`, the same one the geometric
+            // kinds gate on. A callout is markup — it sits over the page, it
+            // appears in the Comments panel beside a rectangle, and a mode that
+            // may not author one has no business authoring the other.
+            id if crate::canvas::textannot::TextAnnotKind::from_command(id).is_some() => {
+                if !self.capabilities().author_markup {
+                    crate::diag::trace(|| {
+                        format!(
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            "command-declined id={id} reason=mode-cannot-author-markup"
+                        )
+                    });
+                } else if let Some(kind) = crate::canvas::textannot::TextAnnotKind::from_command(id)
+                {
+                    let _ = crate::canvas::tool::arm_text_annot(ctx, kind);
+                }
+            }
             id if crate::shell::commands::markup_for_command(id).is_some() => {
                 if !self.capabilities().author_markup {
                     crate::diag::trace(|| {

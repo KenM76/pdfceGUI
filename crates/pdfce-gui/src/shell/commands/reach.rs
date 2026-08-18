@@ -582,6 +582,16 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if super::markup_for_command(id).is_some() {
         return Some("markup_for_command");
     }
+    // ★ The text-bearing markup kinds, whose guard is an associated function
+    // on the kind rather than a free function in `mapping`.
+    //
+    // The checker reads the NAME the dispatcher calls, and the dispatcher calls
+    // `TextAnnotKind::from_command`, so that is the string — the path is not
+    // part of what it matches. It sits beside `markup_for_command` because a
+    // reader asking "what claims a `markup.*` id?" needs both answers together.
+    if crate::canvas::textannot::TextAnnotKind::from_command(id).is_some() {
+        return Some("from_command");
+    }
     if super::page_display_for_command(id).is_some() {
         return Some("page_display_for_command");
     }
@@ -610,6 +620,8 @@ const EVALUATED_GUARDS: &[&str] = &[
     "text_mark_for_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
     "markup_for_command",
+    // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
+    "from_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
     "page_display_for_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
@@ -1074,7 +1086,7 @@ pub const FX_CONST: &str = "fx.constant";
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
         assert_eq!(
-            total, 22,
+            total, 19,
             "the allow-list holds {total} entries; this module's header quotes the \
              figure, so move both together"
         );

@@ -120,6 +120,10 @@ mod apply;
 /// one's is *a page index is a position, not an identity*. See its header for
 /// the table of what each kind of page edit invalidates.
 mod pages;
+/// The three arms that mark content for removal. Split out of `apply` under
+/// rule R2; its header carries the seam argument and names the one thing
+/// deliberately absent from it.
+mod redact;
 
 // ---------------------------------------------------------------------------
 // The edit disclosure — what [`vector_edit`] carries out to `app::status`
@@ -1156,6 +1160,57 @@ pub enum Action {
     // program that cannot be undone travelling as plain data through a queue
     // that a future replay, a macro or a test could re-run.
     // =======================================================================
+    /// **A text-bearing annotation has been placed and now needs its words.**
+    ///
+    /// Raised by the canvas on the release (or click) that finishes the
+    /// placing gesture, and by nothing else. It **changes no document** — it
+    /// opens `crate::dialogs::textannot`, which is where the operator types.
+    ///
+    /// # ★ Why the geometry travels and the words do not
+    ///
+    /// The rectangle is the operator's choice and it is made *now*, on the
+    /// page they were looking at, at the zoom they were at. The words are made
+    /// later, in a dialog, and may never be made at all. Carrying the rect on
+    /// the action is the same rule `CommitMarkup` follows for its pen: an
+    /// `Action` is plain data describing what the operator did, and what they
+    /// did was draw a box.
+    BeginTextAnnot {
+        /// The 0-based page the annotation will be authored onto.
+        page: usize,
+        /// Which text-bearing kind is being placed.
+        kind: crate::canvas::textannot::TextAnnotKind,
+        /// The rectangle, in PDF user space, already normalised.
+        rect: pdfce_core::page_tree::Rect,
+    },
+    /// **Author the text-bearing annotation the dialog just accepted.**
+    ///
+    /// Raised by `crate::dialogs::textannot` and by nothing else. This is the
+    /// one that reaches the document.
+    ///
+    /// # ★ Everything it needs travels with it, including the stamp
+    ///
+    /// The same argument `CommitMarkup` makes about the pen, applied to three
+    /// values instead of one: by the time the queue drains, the dialog is
+    /// closed and its fields are gone. Reading them at apply time is not
+    /// merely fragile, it is impossible — which is the tidier version of the
+    /// hazard the pen has, where the value still exists and is simply the
+    /// wrong one.
+    CommitTextAnnot {
+        /// The 0-based page.
+        page: usize,
+        /// Which kind to author.
+        kind: crate::canvas::textannot::TextAnnotKind,
+        /// The rectangle, in PDF user space.
+        rect: pdfce_core::page_tree::Rect,
+        /// What the operator typed. Empty for a stamp, whose words are its
+        /// `/Name`.
+        text: String,
+        /// The stamp chosen from the gallery. Ignored by the other two kinds,
+        /// and carried unconditionally rather than as an `Option` because a
+        /// gallery always has a selection — there is no "no stamp chosen"
+        /// state for the dialog to be in.
+        stamp: pdfce_core::annot_author::StampName,
+    },
     /// **Mark every occurrence of some text for redaction.**
     ///
     /// Raised by [`crate::panels::redact`]'s Find & mark control. Applied

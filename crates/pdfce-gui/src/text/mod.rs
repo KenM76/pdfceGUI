@@ -145,6 +145,10 @@ pub mod status;
 /// Every sentence the text-EDITING tool shows: the three refusals a caret can
 /// meet, and the rule-4 disclosure the engine does not write for a pinned tail.
 /// Consumed by `crate::canvas::textedit` and by the `CommitTextEdit` apply arm.
+/// Copy for the three markup kinds that carry words. Its header carries the
+/// one distinction every string in it has to preserve: a text box prints and a
+/// sticky note does not.
+pub mod textannot;
 pub mod textedit;
 
 use std::path::Path;

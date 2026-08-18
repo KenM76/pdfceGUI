@@ -263,26 +263,22 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // ===================================================================
     // MARKUP
     // ===================================================================
-    (
-        "markup.text_box",
-        "A different gesture and a different spec type. `canvas::markup`'s table of kinds it \
-         deliberately does not carry: “Note · text box · sticky · stamp — Text-bearing, not \
-         geometric. A different gesture (place, then type) and a different spec type \
-         (`TextAnnotSpec`).” Nothing about the drag-and-release machinery the seven shipped \
-         kinds share applies to it.",
-    ),
-    (
-        "markup.sticky_note",
-        "Named in the same row of `canvas::markup`'s table as the entry above, for the same \
-         two reasons: it is text-bearing rather than geometric, so it needs a place-then-type \
-         gesture and `TextAnnotSpec` rather than `MarkupSpec`.",
-    ),
-    (
-        "markup.stamp",
-        "The third kind in that same row, plus one blocker of its own: `manifest/markup.rs` \
-         records that “the stamp control exists and needs a GALLERY, which is a change to \
-         the control rather than a new command”. A stamp with no chooser has no operand.",
-    ),
+    // ★★ text_box, sticky_note and stamp were HERE until 2026-08-18.
+    //
+    // Their recorded reason was accurate and is worth keeping, because it is
+    // what the work turned out to be rather than an excuse: `canvas::markup`'s
+    // own table of kinds it does not carry — *"Note · text box · sticky ·
+    // stamp — Text-bearing, not geometric. A different gesture (place, then
+    // type) and a different spec type (`TextAnnotSpec`)."*
+    //
+    // Both halves were true and neither was small. Building them meant a
+    // fourth `CanvasTool` family, a `DragKind` whose release does NOT author,
+    // a dialog, two actions and a click path — because the seven geometric
+    // kinds author on release from geometry alone, and these cannot: releasing
+    // produces an empty box, and an empty box is not an annotation.
+    //
+    // The stamp additionally needed the gallery `manifest/markup.rs` called
+    // for: *"a stamp with no chooser has no operand."*
     // ===================================================================
     // MEASURE
     // ===================================================================

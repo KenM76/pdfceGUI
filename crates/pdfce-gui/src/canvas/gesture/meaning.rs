@@ -118,6 +118,21 @@ pub enum DragKind {
     /// mid-drag cannot reach a drag already in flight, so there is no
     /// in-progress gesture to discard.
     Markup(MarkupKind),
+    /// Dragging out the **rectangle a text-bearing annotation will occupy** —
+    /// a text box or a stamp.
+    ///
+    /// # ★ Its own variant rather than `Markup(kind)`, and the reason is the
+    /// completion rule
+    ///
+    /// A `Markup` drag authors on release. This one does not: the release
+    /// opens a dialog and the operator types, and nothing reaches the document
+    /// until they accept. Sharing the variant would make every arm that asks
+    /// *"does this release author?"* need a second predicate for the exception.
+    ///
+    /// The sticky note is absent because it is not dragged at all — its rect is
+    /// discarded by the format, so it is placed with a click and takes the
+    /// click branch beside the measure and caret tools.
+    TextAnnot(crate::canvas::textannot::TextAnnotKind),
 }
 
 /// What a press means, given the tool, what it landed on and what is armed —
@@ -369,6 +384,29 @@ pub fn press_kind(
     // caret tool the content branch below would answer first and a press would
     // marquee objects under an I-beam. Returning early is what makes that
     // unreachable rather than merely unlikely.
+    // ★ …and a text-annotation tool splits BOTH ways, which is why it needs its
+    // own rung rather than joining either family above.
+    //
+    // A text box and a stamp are **dragged** — the operator is choosing how
+    // wide the words are — so they want a `DragKind`. A sticky note is
+    // **clicked**, because its rect is fixed-size and `NoZoom` and the format
+    // discards whatever was dragged; asking for a width would be asking for a
+    // number nobody reads.
+    //
+    // `is_dragged` is the predicate the whole family branches on, so the two
+    // shapes cannot drift apart here from the way they are authored — the same
+    // welding `uses_gallery` does for the stamp's text.
+    if let CanvasTool::TextAnnot(kind) = tool {
+        return PressMeaning {
+            drag: kind.is_dragged().then_some(DragKind::TextAnnot(kind)),
+            // The click is live for the sticky and, deliberately, ALSO for the
+            // dragged kinds: a click with the text-box tool armed is a
+            // zero-area drag, and answering `false` would make it fall through
+            // to the marquee underneath — an operator who meant to place a
+            // callout and twitched would select objects instead.
+            click: caps.author_markup,
+        };
+    }
     if tool.text_edit_kind().is_some() {
         return PressMeaning {
             drag: None,

@@ -216,6 +216,10 @@ pub mod settings_theme;
 /// caret tool, a click resolves a run, a commit plans the follower disposition,
 /// a save writes it, and a second process reads it back. Its verdict is a byte
 /// scan for an operator the operator did NOT touch.
+/// ★ The three markup kinds that carry WORDS, and the one property that
+/// separates them from the seven geometric ones: the RELEASE MUST NOT AUTHOR.
+/// Its header carries why no unit test can see that.
+pub mod text_annot;
 pub mod text_edit;
 pub mod text_markup;
 /// The canvas text-selection sweep: the one feature whose entire behaviour is a
@@ -451,6 +455,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `save_copy` failed should be read first: every link from Ctrl+S
         // onwards is that check's, and this one has the whole text-edit path
         // stacked in front of them.
+        Box::new(text_annot::TextAnnotPlacesAndAuthors),
         Box::new(text_edit::TextEditPinsAnAlignedTail),
         // After both, because it is the only driving check that does not touch
         // the ribbon band at all — it clicks mode segments and the page — and
