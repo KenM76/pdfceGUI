@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `077a6c2`.** For a session starting cold
+**Written 2026-08-18, last revised at `3b40492`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `077a6c2`
+## ★★★ State, as measured at `3b40492`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,8 +18,8 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `077a6c2`, clean tree |
-| **Engine** | `D:\Dev\pdfce` local `main`, locked at `4993559`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
+| **Measured at** | `3b40492`, clean tree |
+| **Engine** | `D:\Dev\pdfce` local `main`, locked at `d51e0d9`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
 | **Tests** | 1,856 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | **25 passed · 1 failed · 3 skipped**, run 2026-08-18 in the operator's lunch window. The one failure is a HARNESS gap — see below |
@@ -161,7 +161,24 @@ Selection now covers *clicking* one. **Dragging it is still gone**, and R6 says
 nothing regresses. The old code exists and is salvageable; 18 references to
 `selected_dimension` in that file are the whole feature.
 
-### 3. "Highlight fillable fields" — the smallest real win on this list
+### 3. Two open operator reports, both from 2026-08-18 and neither diagnosed
+
+**Add text types nothing.** *"adding text does bring up a window and a prompt,
+but it doesn't type anything in the box when I type and nothing gets added."*
+A `text-edit-typing` trace was added and reports draft / owns_keyboard /
+text_events / len — four facts that kill four hypotheses. **★ The existing
+driven check cannot see this**: it seeds the draft through `PDFCE_DIAG_TYPE`,
+the one path that bypasses the event loop, so it passes on a build where real
+typing is dead. A check that types for real is the first thing to write.
+
+**No context-sensitive panel, and no tool indicator.** *"When I click to use a
+tool I have no indicator to tell me what to do next or what tool I am even
+using."* Verified: the status bar carries page, find, fit, zoom and
+disclosures, and **nothing names the armed tool**. Read `MODES_AND_PANELS.md`
+before designing — the flexible panel system is specified there and this is not
+a thing to improvise.
+
+### 4. "Highlight fillable fields" — the smallest real win on this list
 
 Form filling **works**, in every mode including Read: `canvas::forms` never
 consults the mode. What is missing is that **nothing shows where the fields
@@ -179,7 +196,7 @@ it in the Canvas?"*
 It is a view overlay like rulers, the grid and find hits — **not** content
 marking, so rule 4 permits it. One command, one condition, one overlay pass.
 
-### 4. Resize an EXISTING page
+### 5. Resize an EXISTING page
 
 `set_media_boxes(indices, rect)` shipped with `set_media_box` and only the
 second is used. Belongs in Document ▸ Properties, and is a **design** question
