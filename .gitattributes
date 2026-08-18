@@ -89,6 +89,28 @@
 *.jpeg binary
 *.bin binary
 *.ico binary
+# ★ `.rgba` — a RAW pixel buffer, and the reason it is listed rather than left
+# to `text=auto` is this file's own opening argument.
+#
+# `crates/pdfce-gui/assets/window-icon-64.rgba` is 64x64x4 bytes of straight
+# RGBA handed to `eframe::IconData`, which requires the length to be EXACTLY
+# `width * height * 4`. Git's binary heuristic samples the first 8,000 bytes
+# for a NUL and would very likely get this right — the icon is mostly
+# transparent, so the buffer is mostly zeroes — but "very likely" is what the
+# 69 CRLF-inflated fixtures at the top of this file were too.
+#
+# The failure would also be quiet in a new way: a CRLF-inflated buffer is
+# LONGER than its declared dimensions, winit rejects it with a log line nobody
+# reads, and the window icon silently stops appearing on a fresh clone while
+# the executable's own icon resource keeps working. Two different mechanisms
+# for one picture, one of them broken, on someone else's machine.
+*.rgba binary
+
+# Windows resource scripts. Pinned to LF with the `.rs`/`.toml` family rather
+# than left to `text=auto`, for the same reason they are: `pdfce-gui.rc` is
+# compiled by `rc.exe` during the build, so its bytes reach a build product,
+# and `package-portable.py` digests the source tree.
+*.rc text eol=lf
 
 # Font binaries — same rationale as the PDF-fixture rules above.
 *.ttf binary
