@@ -1,16 +1,18 @@
-# HANDOFF — read this first, then say "continue"
+# HANDOFF — the long-form record
 
-**Written 2026-08-13, at commit `a748414`.** For a session starting cold on
-`D:\Dev\pdfceGUI`.
-
-This file carries what the other documents cannot: the **working
-agreements**, the **standing instructions**, and the **judgement calls**
-that would otherwise have to be rediscovered. It does not duplicate
-`FEATURES.md` (what works), `PROJECT_PLAN.md` (the charter) or
-`RIBBON_IA.md` (the information architecture) — it tells you when to read
-them.
-
----
+> # ★★★ START AT `RESUME.md`, NOT HERE.
+>
+> `RESUME.md` carries the measured state, what to do next, and what not to do.
+> It is one screen and it is current.
+>
+> **This file is the institutional record**: the standing rules, the phase
+> order, the six obligations of registering a command, and every finding this
+> project has accumulated. It is authoritative and it is long, and its §1
+> status table has been superseded four times — which is exactly why the
+> resume point moved out of it.
+>
+> Read this one when `RESUME.md` points you at a section, or when you need the
+> reasoning behind a rule rather than the rule.
 
 ## 1. Where things stand, in one screen
 
