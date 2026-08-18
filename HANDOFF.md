@@ -16,6 +16,26 @@
 
 ## 1. Where things stand, in one screen
 
+> ### ★★ 2026-08-18, at `ed58337` — read `RESUME.md` for the live numbers
+>
+> The tables below are a **layered record**, each dated, each superseded. Do
+> not read down them looking for current state; `RESUME.md`'s one table is the
+> current state and it is re-measured, not edited.
+>
+> What this section is still for is the *history* of a number, which turns out
+> to matter: on 2026-08-18 `catalog.rs`'s icon-coverage heading was found
+> claiming *86 of 101 named, 15 refused* against a registry of 94 — the
+> **fifth** drift of that pair, and the test added after the fourth had not
+> caught it, because it pins the split against its own literals and the
+> sentence was never one of them. That heading now carries no numbers.
+>
+> Landed this day: the print dialog's **paper list, driver Properties… button
+> and restored tray control**, and `file.new_from_template`'s **page-size
+> chooser**. ★ **Neither has been driven** — `ui-verify` needs the operator's
+> desktop and the two checks are written and unrun. Under §2 that means both
+> are *implemented and unverified*, and `RESUME.md` says so in those words.
+
+
 | | |
 |---|---|
 | **Shell HEAD** | `3e27b79` — clean tree |
@@ -796,6 +816,39 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
   and a text selection can now both be non-empty, which is why
   `canvas::keys`' Escape ladder had to be re-argued rather than merely
   extended.
+
+- ~~**Paper size, tray and printer Properties in the print dialog**~~ —
+  **done 2026-08-18.** All three of this project's print filings were answered
+  as one engine defect (`build_devmode` synthesised a zeroed `DEVMODE`, and
+  tray, paper and orientation all resolve through it). The shell half is a
+  combo, a button and a checkbox — plus one thing that is not a control:
+  `plan` now reads `printer_caps_for(printer, config, paper)`, without which a
+  job asking for A3 on a Letter-default device is *planned* for Letter and
+  *printed* on A3, with no clip reported. Two disclosures the operator could
+  not otherwise learn: a chosen paper is a **request** two measured drivers
+  were found silently ignoring, and a job whose driver would not report its
+  settings prints with media type, quality and finishing **fallen back**.
+
+  ★ **The tray control is drawn in all three capability states**, which
+  inverts R83's usual direction. `pdfce-print` declined our `bool` proposal
+  with a measurement: `DC_BINS` on Microsoft Print to PDF returns nothing
+  while that same device's `dmDefaultSource` is already `DMBIN_FORMSOURCE`.
+  R83 forbids offering what the hardware *cannot* honour; it does not forbid
+  offering what the driver merely declined to advertise.
+
+- ~~**New at a chosen page size**~~ — **done 2026-08-18.**
+  `file.new_from_template`, beside `file.new` in File ▸ File, `Ctrl+Alt+N`:
+  A0–A6, Letter, Legal, Tabloid, Executive, ANSI A–E, both orientations, plus
+  a custom size in millimetres. `NO_SURFACE.md` had listed this as an unbuilt
+  GUI surface and it was an **engine** gap — `app::blank` §3a refused the
+  ten-assets implementation because it could not answer a custom size at any
+  count, and filed instead. `set_media_box` shipped the next day and the
+  answer is one asset.
+
+  ★ **The document is serialized and re-parsed** rather than handed over as
+  the `EditSession` that resized it. Otherwise a brand-new A1 sheet arrives
+  already modified, with `Ctrl+Z` waiting to take it back to A4. A new
+  document is not an edited document.
 
 - Scoped reset chooser.
 - `ui-verify`'s `find_opens_and_finds` **has never passed here**: synthetic
