@@ -352,28 +352,42 @@ pub const fn insert_dialog_title() -> &'static str {
     "Insert pages from a PDF"
 }
 
-/// ★ **What arrived, where it went, and the one thing that did not come with
-/// it.**
+/// ★ **What arrived, and the two different ways the rest did not.**
 ///
-/// # Why the sentence names all three
+/// # ★★ This sentence was WRONG for two hours, and the correction is the point
 ///
-/// `EditSession::insert_pages` copies each page and everything reachable from
-/// it — content streams, resources, fonts, XObjects — at fresh object numbers.
-/// It does **not** merge the source document's *document-level* structures:
-/// **outlines (bookmarks), the AcroForm field tree, named destinations and
-/// page labels**.
+/// It read: *"Bookmarks, form fields and page labels from that file did not
+/// come across — its pages did."* Three nouns, one verb, and the verb is true
+/// of two of them and **false of the third**.
 ///
-/// That is a deliberate, documented consequence of staying incremental — a
-/// document-level merge rewrites objects an incremental save exists in order
-/// not to touch — and `pdfce-core` states it as a choice between two correct
-/// answers rather than a limitation.
+/// Measured rather than assumed, after the operator asked why the structures
+/// could not simply be re-added: a source with **12 form fields** inserted into
+/// a blank document produces **13 widget annotations and no `/AcroForm` at
+/// all**. The widgets came across — `insert_pages` copies everything reachable
+/// from the page, and a page's `/Annots` reaches its widgets. What did not come
+/// across is the **field tree that names them**.
 ///
-/// It is still something pdfce did that the operator did not ask for, so
-/// rule 4 applies: an operator whose bookmarks did not come across is entitled
-/// to know that **here**, at the moment it happened, rather than by going
-/// looking for a bug in a document they have already saved.
+/// So they are not absent. They are **orphaned**: boxes that draw exactly like
+/// form fields, that an operator will click on, and that nothing can fill
+/// because no field claims them. That is this project's own *"visible control,
+/// silently inert"* failure arriving through a document instead of a ribbon —
+/// and the old sentence would have sent an operator looking for the missing
+/// fields rather than at the ones in front of them.
 ///
-/// # Why the page number is 1-based and the count is not a range
+/// **A disclosure that names the wrong failure is worse than none**, because it
+/// is believed. It was written from the engine's summary — *"does not merge the
+/// source's document-level structures"* — which is accurate about `/AcroForm`
+/// and says nothing about the widgets, and I did not check.
+///
+/// # The three fates, which is what the sentence now distinguishes
+///
+/// | structure | what happens |
+/// |---|---|
+/// | pages, content, resources, fonts | copied at fresh object numbers |
+/// | **form fields** | widgets **arrive**, `/AcroForm` does not — inert boxes |
+/// | bookmarks, page labels, named destinations | genuinely absent |
+///
+/// # Why the page number is 1-based
 ///
 /// *"after page 7"* is the sheet the operator was looking at, in the numbering
 /// the page box and the thumbnails use. A 0-based index here would be the only
@@ -383,7 +397,7 @@ pub fn inserted(count: usize, after_page_index: usize) -> String {
     let after = after_page_index.saturating_add(1);
     let pages = if count == 1 { "page" } else { "pages" };
     format!(
-        "Inserted {count} {pages} after page {after}. Bookmarks, form fields and page labels from that file did not come across — its pages did."
+        "Inserted {count} {pages} after page {after}. Bookmarks and page labels from that file did not come across. Any form fields on those pages arrived as boxes without their definitions, so they are drawn but cannot be filled."
     )
 }
 

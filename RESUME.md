@@ -24,7 +24,7 @@ it. It is here so you know roughly where you are, not so you can quote it.
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | **25 passed · 1 failed · 3 skipped**, run 2026-08-18 in the operator's lunch window. The one failure is a HARNESS gap — see below |
 | **Latest build** | `D:\builds\pdfcegui-20260818-1125-4993559-077a6c2\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
-| **Requests owed by pdfce** | one `note_*`, filed by us and not blocking — `open/` otherwise empty |
+| **Requests owed by pdfce** | **one open** — `request_insert_pages_leaves_orphaned_widgets…`, filed 2026-08-18. A correctness report, not a feature |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
 
