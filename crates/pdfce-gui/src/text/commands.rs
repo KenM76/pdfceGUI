@@ -132,6 +132,29 @@ pub const fn file_new() -> CommandText {
     )
 }
 
+/// `file.new_from_template`
+///
+/// # ★ The label follows `RIBBON_IA.md` and the tooltip corrects for it
+///
+/// §5.1 specifies the row as `New from template… (page size)`, following
+/// Inkscape's `Ctrl+Alt+N`. What this shell offers is page sizes and not a
+/// template gallery, so the word "template" over-promises — and the IA is
+/// settled and reviewed, so a session may propose an amendment and may not
+/// make one.
+///
+/// The tooltip is therefore doing real work rather than restating the label:
+/// it says **page size** in its first four words, so an operator hovering
+/// before they click learns what the window offers without opening it. See
+/// `crate::dialogs::new_document`'s header for the full argument.
+#[must_use]
+pub const fn file_new_from_template() -> CommandText {
+    CommandText::new(
+        "New from template…",
+        "Choose a page size and make a new document: A0 to A6, Letter, Legal, Tabloid, the ANSI \
+         engineering sizes, or a size you type. It replaces what is open.",
+    )
+}
+
 /// `file.close`
 #[must_use]
 pub const fn file_close() -> CommandText {

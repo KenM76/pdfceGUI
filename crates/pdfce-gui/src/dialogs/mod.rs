@@ -64,6 +64,7 @@ pub mod about;
 /// with the page currently on the canvas, with the room the status bar's one
 /// elided line does not have.
 pub mod diagnostics;
+pub mod new_document;
 pub mod ocr;
 pub mod print;
 /// The Apply-redactions transaction — the report, the two acknowledgements, and
@@ -183,6 +184,16 @@ pub struct DialogsState {
     /// [`crate::text::about`] for why a shipped `LICENSE` file is not enough
     /// once a CC-BY-SA-4.0 asset is in the package.
     about: Option<about::AboutDialog>,
+
+    /// The sized-New dialog, when one is open.
+    ///
+    /// **Application-scoped**, beside About and for the strongest version of
+    /// its reason: an operator with nothing open is not somebody this window is
+    /// *tolerated* for, they are the operator it exists for. Closing a document
+    /// must therefore not close it — and, unlike About, this one would be
+    /// actively harmful to close, because the document it is about to make is
+    /// how the operator gets out of the empty state.
+    new_document: Option<new_document::NewDocumentDialog>,
 }
 
 impl DialogsState {
@@ -404,6 +415,26 @@ impl DialogsState {
         self.about = Some(about::AboutDialog::open());
     }
 
+    /// Open the sized-New dialog.
+    ///
+    /// **The dispatch target for `file.new_from_template`.** Like
+    /// [`Self::open_about`] it takes no [`Status`] and the command is
+    /// registered with no `enabled_when`: New is the command an empty shell
+    /// exists to offer, and gating it on a document would grey the one control
+    /// that answers *"there is nothing here"*.
+    ///
+    /// The already-open guard is print's rather than About's: this window holds
+    /// a size, an orientation and two typed numbers, and a second press of the
+    /// ribbon control part-way through would silently reset all four to A4
+    /// portrait — the operator's own choices, discarded by the control they
+    /// pressed to look at them.
+    pub fn open_new_document(&mut self) {
+        if self.new_document.is_some() {
+            return;
+        }
+        self.new_document = Some(new_document::NewDocumentDialog::open());
+    }
+
     /// Draw every open dialog, and close the ones that asked to close.
     ///
     /// Called once per frame from frame composition, **after** the canvas and
@@ -445,6 +476,13 @@ impl DialogsState {
         // behaviour, which is why it is above it rather than beside it.
         if self.about.as_mut().map(|d| d.show(ctx)) == Some(false) {
             self.about = None;
+        }
+        // Beside About, above the guard, and for a sharper version of the same
+        // reason: this window's whole purpose is to produce a document, so a
+        // guard that closed it when none was open would close it exactly when
+        // it was needed.
+        if self.new_document.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.new_document = None;
         }
 
         let Status::Open(doc) = status else {

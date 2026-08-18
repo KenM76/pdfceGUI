@@ -55,7 +55,9 @@
 //! 1. **Tests and fixtures.** A test that pins the engine's own default
 //!    behaviour must be able to say `ExtractOptions::default()`, or it is
 //!    testing the operator's configuration instead of the engine's contract.
-//!    The check skips `#[cfg(test)]` modules and `ocr/fixture.rs`.
+//!    The check skips `#[cfg(test)]` modules, `ocr/fixture.rs` and
+//!    `app/blank.rs` — see [`tests::no_call_site_builds_its_own_options`] for
+//!    each one's argument.
 //! 2. **`with_provenance(true)`.** Text editing needs provenance, which no
 //!    setting controls. It is a *modifier* on the funnel's output rather than
 //!    a second construction: `settings.extract_options().with_provenance(true)`.
@@ -336,6 +338,14 @@ mod tests {
     ///
     /// - **`app/settings.rs`** — this file. It is the funnel.
     /// - **`ocr/fixture.rs`** — a synthetic-document generator, not a surface.
+    /// - **`app/blank.rs`** — the sized-New path serializes and re-parses a
+    ///   443-byte template, and **no operator-visible byte of that rewrite
+    ///   survives**: two of `SaveOptions`' three fields spell the written
+    ///   file, which is discarded in the same statement, and the third writes
+    ///   `/Producer` into an `/Info` the template does not have. It uses
+    ///   `identity()`, which promises to change nothing. The full argument is
+    ///   on `blank::document_sized`; this line exists so a reader who finds
+    ///   the exemption first is not left guessing.
     /// - **`redact/`** — see [`SettingsExt::save_options`]. The proof must run
     ///   over bytes no setting can vary.
     /// - **`#[cfg(test)]` modules anywhere** — a test pinning the engine's own
@@ -417,9 +427,10 @@ mod tests {
                     continue;
                 }
                 let name = path.to_string_lossy().replace('\\', "/");
-                // The three exempt files, matched on their path suffix so the
+                // The four exempt files, matched on their path suffix so the
                 // check works from any working directory.
                 if name.ends_with("app/settings.rs")
+                    || name.ends_with("app/blank.rs")
                     || name.ends_with("ocr/fixture.rs")
                     || name.contains("/redact/")
                 {

@@ -97,7 +97,16 @@
 //! That is what the size picker is for, and it is a follow-up row rather than a
 //! silent guess dressed up as a default.
 //!
-//! ### ★ 3a. The size picker is BLOCKED on the engine — checked 2026-08-17
+//! ### ★ 3a. The size picker WAS blocked on the engine — 2026-08-17, unblocked 2026-08-18
+//!
+//! **Read this section as a record, not as current state.** Everything below
+//! was true when it was written and the conclusion — *do not build ten assets*
+//! — was the right one. `pdfce-core` shipped `set_media_box` and `paper` the
+//! next day, and [`document_sized`] is the one-asset implementation this
+//! section said the verb would buy. It is kept because a decision NOT to build
+//! something is the kind that gets silently re-litigated, and because the shape
+//! of the argument — *a half-capability that forecloses the real fix is worse
+//! than no capability* — is the reusable part.
 //!
 //! It is not merely unbuilt, and the reason is worth having here so the next
 //! session does not spend an afternoon rediscovering it.
@@ -228,6 +237,133 @@ pub const HEIGHT_PT: f64 = 841.89;
 pub fn document() -> Result<(Document, Vec<Page>), String> {
     let doc = Document::from_bytes(TEMPLATE.to_vec()).map_err(|err| err.to_string())?;
     let pages = pdfce_core::page_tree::pages(&doc).map_err(|err| err.to_string())?;
+    Ok((doc, pages))
+}
+
+/// The blank document, **resized** to `rect` before anybody sees it.
+///
+/// # ★ Why this exists at all, and why §3a above is now historical
+///
+/// The module header's §3a says the size picker is blocked, and sets out the
+/// evidence: nothing in `pdfce-core` wrote a `/MediaBox`, so the only
+/// shell-side implementation was one checked-in template asset per size — ten
+/// with landscape, more with ANSI, *and a custom size still impossible at any
+/// count*. The filing was made
+/// (`request_no_verb_sets_a_pages_media_box.md`), neither implementation was
+/// built, and the reasoning for not building the half-capability is in §3a and
+/// still correct.
+///
+/// **`pdfce-core` answered it on 2026-08-18** — `EditSession::set_media_box`,
+/// `set_media_boxes` and a `pdfce_core::paper` table. So this is the one asset
+/// and one dialog §3a said the verb would buy: every size, both orientations,
+/// custom included, with [`TEMPLATE`] unchanged.
+///
+/// §3a is left standing rather than deleted. It is the record of a decision
+/// *not* to build something, and this project's own rule about prose that
+/// quotes a fact is that the useful moment is the one where the fact changed —
+/// which is here.
+///
+/// # ★ Why the document is serialized and re-parsed rather than handed over
+///
+/// The obvious implementation is to build the [`EditSession`], resize page 0,
+/// and give the caller the session. **That produces a document that is already
+/// modified**: the undo stack holds one command, `save_pending()` is true, and
+/// `Ctrl+Z` on a brand-new A1 sheet takes the operator back to A4 — a state
+/// they never asked for and cannot name.
+///
+/// A new document is not an edited document. So the resize happens *before the
+/// document exists as far as the shell is concerned*: the bytes are rewritten
+/// with [`EditSession::to_full_bytes`] and parsed back, and what the caller
+/// receives is an ordinary freshly-parsed `Document` whose page simply is that
+/// size. Nothing is pending, nothing is undoable, and
+/// [`crate::app::lifecycle`] needs no special case.
+///
+/// The cost is one save and one parse of a ~450-byte file, which is not
+/// measurable. The cost of the alternative is a permanent oddity in the undo
+/// stack of every created document.
+///
+/// # Why `to_full_bytes` rather than `to_incremental_bytes`
+///
+/// An incremental save appends a revision, so the result would carry the A4
+/// original *and* the resize — a two-revision file for a document that has no
+/// history worth keeping and no signature to preserve. `to_full_bytes` writes
+/// one revision. The engine's warning on it — that it destroys existing
+/// digital signatures — cannot apply: the input is [`TEMPLATE`], which has
+/// none.
+///
+/// # ★ `SaveOptions::identity()`, and why this is not a hole in the funnel
+///
+/// `crate::app::settings`' funnel exists because an option struct built at a
+/// call site discards every setting the operator chose, and a test parses this
+/// crate's syntax tree to enforce it. This call site is exempt, and the
+/// argument is not "it is only a template" — it is that **no operator-visible
+/// byte of this rewrite survives**.
+///
+/// `SaveOptions` has three fields. Two of them, `xref_entry_eol` and
+/// `trailing_eol`, are byte-level spellings of the *written file*, and this
+/// file is parsed back and discarded within the same statement — the document
+/// the operator eventually saves is written by `crate::app::save`, which does
+/// read their settings. The third, `producer`, writes `/Producer` into an
+/// **existing** `/Info` dictionary and explicitly does not create one; the
+/// template has no `/Info` (read it — it is 443 bytes and hand-legible), so
+/// the policy is inert here whichever way it is set.
+///
+/// `identity()` rather than `default()` regardless, because it is the value
+/// that promises to change nothing, and a future template that grew an `/Info`
+/// would then be preserved rather than silently stamped. That is R41's rule —
+/// pdfce does not write its own identity into a file the operator did not ask
+/// it to mark — and a new document's construction is not an act of authorship
+/// the operator directed at a file.
+///
+/// # Errors
+///
+/// A `String` for the caller to show, in three cases that are all worth
+/// telling apart in the message rather than in a type:
+///
+/// - the template did not parse — a **build defect**, the same unreachable arm
+///   [`document`] has;
+/// - the size was degenerate — `EditError::MediaBoxDegenerate`, reachable from
+///   a custom size the operator typed, which is why the dialog checks before
+///   it asks for one;
+/// - the rewrite failed — unreachable for a 443-byte unencrypted file with no
+///   hybrid cross-reference, and reported rather than unwrapped.
+pub fn document_sized(rect: pdfce_core::page_tree::Rect) -> Result<(Document, Vec<Page>), String> {
+    let base = Document::from_bytes(TEMPLATE.to_vec()).map_err(|err| err.to_string())?;
+    let mut session = pdfce_core::edit::EditSession::new(base);
+    let change = session
+        .set_media_box(0, rect)
+        .map_err(|err| err.to_string())?;
+    let (bytes, _report) = session
+        .to_full_bytes(&pdfce_core::writer::SaveOptions::identity())
+        .map_err(|err| err.to_string())?;
+
+    let written = bytes.len();
+    let doc = Document::from_bytes(bytes).map_err(|err| err.to_string())?;
+    let pages = pdfce_core::page_tree::pages(&doc).map_err(|err| err.to_string())?;
+
+    // ★ Traced AFTER the re-parse, and reporting the page as the RE-PARSED
+    // document states it rather than the rectangle that was asked for.
+    //
+    // The distinction is the whole value of the line. A trace of the request
+    // says what this function was told; a trace of `pages[0].media_box` says
+    // what a reader of the resulting file will see, which is what the operator
+    // gets and the only thing worth asserting from outside the process.
+    // `ui-verify`'s `new_document_sizes_the_page` reads `result_w`/`result_h`
+    // for exactly that reason — a build that recorded the request and wrote
+    // nothing would have a perfect `w=`/`h=` and a 595 × 842 page.
+    let media = pages.first().map(|page| page.media_box);
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "new-document-sized w={:.2} h={:.2} change={change:?} bytes={}              result_w={:.2} result_h={:.2}",
+            rect.width(),
+            rect.height(),
+            written,
+            media.map_or(0.0, |m| m.urx - m.llx),
+            media.map_or(0.0, |m| m.ury - m.lly),
+        )
+    });
+
     Ok((doc, pages))
 }
 

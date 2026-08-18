@@ -128,6 +128,32 @@ impl PdfceApp {
                 self.new_document();
                 return;
             }
+            // ★ The sized New, beside the plain one and behind the SAME guard.
+            //
+            // Not a copy of the guard — the same arm shape, deliberately
+            // adjacent, so that a change to what "there are unsaved edits"
+            // means cannot be applied to one New and missed on the other. That
+            // is the failure this file's own header calls a second rule of its
+            // own.
+            Action::NewSized {
+                width_pt,
+                height_pt,
+            } => {
+                if self.save_pending() {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "new-sized-declined reason=save-pending".to_owned()
+                    });
+                    return;
+                }
+                // The lower-left corner is the origin: a new page has nothing
+                // to offset from, and `Action::NewSized`'s own docs say why the
+                // action carries a size rather than a rectangle.
+                self.new_document_sized(pdfce_core::page_tree::Rect::from_corners(
+                    0.0, 0.0, width_pt, height_pt,
+                ));
+                return;
+            }
             Action::Close => {
                 if self.save_pending() {
                     crate::diag::trace(|| {
@@ -253,14 +279,19 @@ impl PdfceApp {
 
         match action {
             // Handled above, before the guard that needs an open document —
-            // which is the point, since one of them is how a document becomes
+            // which is the point, since three of them are how a document becomes
             // open. Spelled out rather than folded into a catch-all so that a
             // new variant added to the enum still fails to compile here.
             // ui-text-exempt: a panic message, read from a stack trace by
             // whoever moved one of these two arms. Never rendered.
-            Action::Open(_) | Action::New | Action::Close | Action::SaveCopy | Action::Find(_) => {
+            Action::Open(_)
+            | Action::New
+            | Action::NewSized { .. }
+            | Action::Close
+            | Action::SaveCopy
+            | Action::Find(_) => {
                 // ui-text-exempt: a panic message, read from a stack trace by
-                // whoever moved one of these five arms. Never rendered.
+                // whoever moved one of these six arms. Never rendered.
                 unreachable!("handled before the document guard")
             }
             Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),

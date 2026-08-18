@@ -367,6 +367,36 @@ pub enum Action {
     /// where the template comes from, why the engine has no part in it, and
     /// why New leaves the operator's mode alone.
     New,
+    /// **Make a new document at a chosen sheet size.**
+    ///
+    /// Raised by [`crate::dialogs::new_document`] and by nothing else —
+    /// `file.new_from_template` opens that dialog rather than acting, because
+    /// the size is a question and a command cannot ask one.
+    ///
+    /// Applied by [`PdfceApp::new_document_sized`], behind the same
+    /// `save_pending` guard [`Self::New`] takes. The two are one verb with two
+    /// sources of the sheet, and a second guard would eventually disagree with
+    /// the first.
+    ///
+    /// # Why points, and why a size rather than a rectangle
+    ///
+    /// **Points** because that is the unit the engine's `/MediaBox` is in and
+    /// the unit this action is one step away from writing. The dialog speaks
+    /// millimetres to the operator and converts once, at the edge, which is
+    /// the same discipline `pdfce_core::paper` applies to its own table.
+    ///
+    /// **A size and not a rectangle** because a new page's lower-left corner
+    /// is the origin and there is nothing to decide about it. Carrying a full
+    /// rectangle would invite a caller to offer an offset page, which is a
+    /// legal PDF and a thing no New command should be able to produce by
+    /// accident. It also keeps this enum free of a `pdfce_core` type, which
+    /// every other variant already is.
+    NewSized {
+        /// Sheet width in points, after orientation has been applied.
+        width_pt: f64,
+        /// Sheet height in points, after orientation has been applied.
+        height_pt: f64,
+    },
     /// **Write the open document, edits and all, to a file the operator
     /// names.**
     ///

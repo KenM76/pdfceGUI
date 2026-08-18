@@ -100,6 +100,10 @@ pub mod markup;
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
 pub mod menus;
+/// The sized-New dialog's copy — the size list, the orientation pair, the
+/// custom fields and the one refusal. Consumed by
+/// `crate::dialogs::new_document`.
+pub mod new_document;
 /// Every word the Recognise-text surface says — the dialog that runs OCR and
 /// discloses what it inferred, and the offer the Find bar makes on a page with
 /// no text on it. Consumed by `crate::dialogs::ocr` and `crate::find::bar`.

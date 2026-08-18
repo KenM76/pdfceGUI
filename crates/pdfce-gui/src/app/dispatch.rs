@@ -166,6 +166,13 @@ impl PdfceApp {
             // of document*, which pdfce has no analogue for. See
             // `crate::app::blank` §3.
             "file.new" => actions.push(Action::New),
+            // ★ Opens a WINDOW rather than pushing an action, which is the
+            // difference between the two New commands and the whole reason
+            // there are two. A command cannot ask a question; a dialog can.
+            // The action it eventually raises is `Action::NewSized`, from
+            // `crate::dialogs::new_document`, behind the same `save_pending`
+            // guard `Action::New` takes.
+            "file.new_from_template" => self.dialogs.open_new_document(),
             "file.open" => crate::app::files::raise(crate::app::files::pick_document(), actions),
             // ★ Close. `doc.open` gates the control, so the no-document case
             // is unreachable from the ribbon — and the action handles it

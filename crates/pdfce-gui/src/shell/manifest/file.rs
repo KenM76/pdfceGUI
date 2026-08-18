@@ -98,11 +98,15 @@ pub(super) fn tab() -> Tab {
             // make a document, open a document, reopen one they had, put it
             // away.
             //
-            // §5.1 specifies this row as "New (blank / from template)". The
-            // **blank** half ships; the **from template** half — which is
-            // where a page-size choice belongs — is `file.new_from_template`
-            // in `PLANNED`, and the split is Inkscape's own: `Ctrl+N` makes a
-            // document, `Ctrl+Alt+N` chooses what kind.
+            // §5.1 specifies this row as "New (blank / from template)".
+            // ★ **BOTH halves ship as of 2026-08-18.** The blank half is
+            // `file.new`; the from-template half is `file.new_from_template`,
+            // which is where the page-size choice lives, and the split is
+            // Inkscape's own: `Ctrl+N` makes a document, `Ctrl+Alt+N` chooses
+            // what kind. The second one was in `PLANNED` until
+            // `EditSession::set_media_box` shipped — see
+            // `crate::app::blank`'s §3a for what it was blocked on and why the
+            // ten-assets alternative was refused rather than built.
             //
             // ★ `Recent ⌄` is an `Item::Custom`, not a command item, and that
             // is the only structural oddity on this tab.
@@ -126,6 +130,7 @@ pub(super) fn tab() -> Tab {
                 ribbon::group_file_file(),
                 [
                     command("file.new"),
+                    command("file.new_from_template"),
                     command("file.open"),
                     Item::custom(super::RECENT_FILES),
                     command("file.close"),

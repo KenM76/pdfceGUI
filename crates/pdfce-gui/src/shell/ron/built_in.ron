@@ -45,6 +45,7 @@
                     caption: "File",
                     items: [
                         Command("file.new"),
+                        Command("file.new_from_template"),
                         Command("file.open"),
                         Custom(
                             kind: "recent_files",
@@ -387,6 +388,7 @@
         "Ctrl+1": "mode.read",
         "Ctrl+2": "mode.review",
         "Ctrl+3": "mode.edit",
+        "Ctrl+Alt+N": "file.new_from_template",
         "Ctrl+E": "edit.text",
         "Ctrl+F": "edit.find",
         "Ctrl+H": "view.read_mode",

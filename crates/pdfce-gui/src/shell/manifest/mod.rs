@@ -262,6 +262,17 @@ pub fn built_in() -> Shell {
         // table cannot spell is a chord no keypress delivers. That is the
         // defect `Ctrl+O` sat in for the whole life of the ribbon.
         .with_binding("Ctrl+N", "file.new")
+        // ★ Ctrl+Alt+N — Inkscape's own chord for the same split, which is the
+        // split this pair copies: Ctrl+N makes a document, Ctrl+Alt+N chooses
+        // what kind. `RIBBON_IA.md` §5.1 specifies the row and not a chord, so
+        // this is the shell's choice rather than the IA's, and it is a cheap
+        // one to overturn — it is one line here and one row in the shortcuts
+        // window, which reads the keymap rather than restating it.
+        //
+        // Ctrl+Alt is AltGr on some European layouts. Accepted here because the
+        // chord is a convenience on a command that is also two clicks away in
+        // the File band, so a layout that cannot spell it loses nothing.
+        .with_binding("Ctrl+Alt+N", "file.new_from_template")
         .with_binding("Ctrl+O", "file.open")
         .with_binding("Ctrl+S", "file.save_copy")
         .with_binding("Ctrl+Z", "edit.undo")
@@ -481,17 +492,21 @@ pub const PLANNED: &[(&str, &str)] = &[
     // What did NOT ship is the other half of §5.1's row, and it has its own
     // entry below rather than being folded into a comment, because it is a
     // capability an operator will ask for by name.
-    (
-        "file.new_from_template",
-        "N — §5.1's `New (blank / from template)` row shipped only its BLANK half. This is \
-         where a page-SIZE choice belongs: `file.new` makes A4 with no dialog, which is what \
-         Acrobat and Inkscape do, and an operator whose sheets are A3 and A1 will want to say \
-         so. Inkscape's own split is the shape to copy — Ctrl+N makes a document, Ctrl+Alt+N \
-         chooses what kind — so this is a second command and not a dialog bolted onto the \
-         first. It needs one template asset per offered size (each ~450 bytes, own work, \
-         covered by `crates/pdfce-gui/src/app/assets/PROVENANCE.md`) and a chooser; no engine \
-         work at all.",
-    ),
+    // `file.new_from_template` was here — "N — §5.1's `New (blank / from
+    // template)` row shipped only its BLANK half […] It needs one template
+    // asset per offered size […] and a chooser; no engine work at all."
+    //
+    // ★ Both halves of that note turned out to be wrong in the same direction,
+    // and the correction is worth keeping. It said "no engine work at all",
+    // and the engine work was the whole blocker: nothing in `pdfce-core` wrote
+    // a `/MediaBox`, so the asset-per-size plan was the ONLY implementation
+    // available — and it could not answer a custom size at any number of
+    // assets. `crate::app::blank`'s §3a is the full record. `set_media_box`
+    // shipped 2026-08-18, and the command now needs **one** asset, which is
+    // the one that was already there.
+    //
+    // Kept as a comment rather than deleted because "this was planned and is
+    // now built" is the transition this list exists to make legible.
     // `file.recent` was here — "N — needs a persisted recent-files list;
     // nothing writes one today." Something writes one now
     // (`crate::app::recent`), so the command is registered, the `recent_files`
@@ -1094,8 +1109,8 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            20,
-            "twenty key bindings"
+            21,
+            "twenty-one key bindings"
         );
     }
 

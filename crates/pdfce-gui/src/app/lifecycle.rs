@@ -137,6 +137,42 @@ impl PdfceApp {
     /// it may not modify this one"*, and `file.new` is the most literal
     /// instance of that rule there could be.
     pub fn new_document(&mut self) {
+        self.adopt_created(blank::document());
+    }
+
+    /// `file.new_from_template` — a blank document at a **chosen** sheet size.
+    ///
+    /// The other half of `RIBBON_IA.md` §5.1's *New (blank / from template)*
+    /// row, and Inkscape's own split: `Ctrl+N` makes a document, this one asks
+    /// what kind. Reached from [`crate::dialogs::new_document`], which is where
+    /// the size, the orientation and the custom-size validation live.
+    ///
+    /// # ★ It is not "New, then resize"
+    ///
+    /// [`blank::document_sized`] serializes and re-parses, so what arrives here
+    /// is an ordinary freshly-parsed document that simply is that size —
+    /// nothing pending, nothing undoable. See that function's own header for
+    /// why handing over an edited session would have been wrong.
+    ///
+    /// Everything else about it is `file.new`: same name sequence, same
+    /// `Untitled` naming, same [`Self::adopt`], and the same rule that it does
+    /// not change the mode.
+    pub fn new_document_sized(&mut self, rect: pdfce_core::page_tree::Rect) {
+        self.adopt_created(blank::document_sized(rect));
+    }
+
+    /// The half of the two New verbs that is not about *what* was created.
+    ///
+    /// Extracted when the size chooser arrived, for the reason [`Self::adopt`]
+    /// itself was extracted: every statement here is something that must be
+    /// true of a created document, and two copies would eventually agree about
+    /// four of the five. The naming, the counter, the trace and the failure
+    /// arm are identical for both verbs; only the bytes differ, and the bytes
+    /// arrive already made.
+    fn adopt_created(
+        &mut self,
+        made: Result<(Document, Vec<pdfce_core::page_tree::Page>), String>,
+    ) {
         // Incremented before the name is built, so the first document of a
         // session is `Untitled 1` rather than `Untitled 0`. Per session and
         // never persisted: the number distinguishes this run's documents from
@@ -147,12 +183,13 @@ impl PdfceApp {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             format!(
-                "new-document name={name:?} template-bytes={}",
-                blank::TEMPLATE.len()
+                "new-document name={name:?} template-bytes={} made={}",
+                blank::TEMPLATE.len(),
+                made.is_ok(),
             )
         });
 
-        self.status = match blank::document() {
+        self.status = match made {
             Ok((doc, pages)) => Status::Open(Box::new(OpenDoc::created(
                 name,
                 EditSession::new(doc),

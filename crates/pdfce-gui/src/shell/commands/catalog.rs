@@ -63,18 +63,38 @@
 //!   an icon that does not exist would produce a missing-glyph box at run
 //!   time — a placeholder, arriving through the back door.
 //!
-//! ## Coverage, as of 2026-08-14: 86 of 101 named, 15 refused
+//! ## Coverage — ★ the numbers live in the TEST, not in this sentence
 //!
-//! Before that date the split was 47 named and 41 not, with **no rule
-//! behind which was which** — a band drew glyphs and bare words side by
-//! side, and the ribbon read as half-finished because it was. Thirty
-//! commands gained a key in that pass (25 new glyphs plus two reuses of
-//! `chevron-up`/`chevron-down` for page reordering, which is the meaning
-//! `crate::icons::Icon::ChevronUp`'s doc comment already gave them).
+//! This heading read *"as of 2026-08-14: 86 of 101 named, 15 refused"* until
+//! 2026-08-18, and every one of those three numbers was wrong: the registry
+//! held 94, of which 85 were named and 9 refused. `86 + 15 = 101` is
+//! internally consistent, which is why nobody looked twice.
 //!
-//! The other eleven are **recorded refusals**, each stated in full at its
-//! own registration below and summarised in `crate::icons::assets` §5
-//! deviation #8. In one line each:
+//! That is the **fifth** drift of this pair, and the four before it are
+//! recorded on `super::tests::the_icon_coverage_split_adds_up_to_the_registry`
+//! — which was added, after the fourth, to stop exactly this. It did not,
+//! because it pins the split against its own literals and this sentence was
+//! never one of them. A test that says *"update the header together"* is a
+//! note asking a human to do the thing they just failed to do.
+//!
+//! So the sentence no longer carries numbers. `run --lib
+//! the_icon_coverage_split_adds_up_to_the_registry` prints the current pair
+//! and fails when it moves, which is a claim that cannot be stale by
+//! construction. This project has now taken the same repair three times — the
+//! gate runner's header, `README.md`'s test count, and this — and the shape is
+//! always the same: **when prose and a measurement disagree, delete the prose's
+//! copy of the measurement rather than correcting it.**
+//!
+//! What the sentence is still for: before 2026-08-14 the split was 47 named
+//! and 41 not, with **no rule behind which was which** — a band drew glyphs and
+//! bare words side by side, and the ribbon read as half-finished because it
+//! was. Thirty commands gained a key in that pass (25 new glyphs plus two
+//! reuses of `chevron-up`/`chevron-down` for page reordering, which is the
+//! meaning `crate::icons::Icon::ChevronUp`'s doc comment already gave them).
+//!
+//! The rest are **recorded refusals**, each stated in full at its own
+//! registration below and summarised in `crate::icons::assets` §5 deviation
+//! #8. In one line each:
 //!
 //! | Command(s) | Why no glyph |
 //! |---|---|
@@ -200,6 +220,22 @@ pub(super) fn all() -> Vec<Command> {
         // operator with nothing open is exactly the operator most likely to
         // want this.
         command("file.new", t::file_new(), 103),
+        // ★ The sized New, immediately after the plain one.
+        //
+        // Order matters here in the way §5.1's own table does: New, New from
+        // template, Open, Recent, Close. The two ways to MAKE a document sit
+        // together, then the two ways to get one back, then the way to put one
+        // away.
+        //
+        // **No icon**, for `file.new`'s reason and not a new one: the icon
+        // directory is declared the operator's own art, and the two New
+        // controls sharing a glyph they do not have would be worse than the
+        // two of them reading `New` and `New from template…`.
+        //
+        // **No enable predicate**, for the strongest version of `file.new`'s:
+        // an operator with nothing open is not somebody this is tolerated for,
+        // they are the operator it exists for.
+        command("file.new_from_template", t::file_new_from_template(), 104),
         command("file.open", t::file_open(), 100).with_icon("open"),
         command("file.close", t::file_close(), 101)
             .with_icon("close")

@@ -138,6 +138,7 @@ pub mod measure_linear;
 /// count instead of a pixel. Its header carries the argument and the
 /// falsifying phase.
 pub mod new_document;
+pub mod new_document_size;
 /// `ocr_recognises_a_page_and_writes_a_new_file` — the whole Recognise-text
 /// chain against a genuinely image-only document, ending in the one assertion
 /// no unit test can make: **the file that was opened is byte-identical
@@ -341,6 +342,19 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // ribbon-click channel is broken it says so here, in seconds, instead
         // of at the end of a canvas drag.
         Box::new(new_document::NewDocumentMakesAPage),
+        // ★ Immediately after its sibling, and it drives the OTHER New.
+        //
+        // `new_document` asserts that `file.new` makes a page at all;
+        // this one asserts that `file.new_from_template` makes a page of the
+        // size that was asked for. Adjacent because a failure in the first
+        // explains a failure in the second, and reading them the other way
+        // round wastes the reader's first hypothesis.
+        //
+        // It launches with NO fixture, like its sibling and for the command's
+        // own reason: `file.new_from_template` is registered with no
+        // `enabled_when` because an operator with nothing open is the one it
+        // exists for.
+        Box::new(new_document_size::NewDocumentSizesThePage),
         // Clicks and captures, so it takes the desktop — but only with the
         // mouse, and only for a few seconds. Placed after the three ribbon
         // chrome checks because it depends on the same rects they read and a

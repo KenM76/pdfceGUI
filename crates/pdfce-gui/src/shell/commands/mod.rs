@@ -211,7 +211,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 94);
+        assert_eq!(registry().len(), 95);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -246,13 +246,23 @@ mod tests {
             total,
             "the split must partition the registry"
         );
-        // …and the header's two numbers, which is what a reader actually
-        // consults. Failing here means editing that sentence, not this literal:
-        // the count is a fact about the registry and the sentence is a claim
-        // about it, and this test exists because the claim has been wrong four
-        // times.
-        assert_eq!(named, 85, "`## Coverage` says 85 named; update it together");
-        assert_eq!(refused, 9, "…and 9 refused");
+        // ★ The literals, and they are now the ONLY copy of these numbers.
+        //
+        // This block used to end "update that sentence together", pointing at
+        // `catalog`'s `## Coverage` heading. It drifted anyway — a fifth time,
+        // to *86 of 101 named, 15 refused* against a registry of 94 — because a
+        // test cannot enforce a comment. The heading no longer carries numbers
+        // and this is where they live: a literal that fails loudly beats a
+        // sentence that is wrong quietly.
+        //
+        // Failing here means the registry changed. Read the diff, decide
+        // whether the new command should have a glyph, and move the number
+        // that is genuinely wrong.
+        assert_eq!(named, 85, "commands naming an icon");
+        assert_eq!(
+            refused, 10,
+            "commands with no icon, each argued at its registration"
+        );
         // Each refusal is argued at its own registration and listed in the
         // header's table. Asserting the ids too would be a third copy of that
         // list; asserting the *count* is what stops a glyph being quietly
@@ -419,6 +429,11 @@ mod tests {
             // the state New exists for. A `doc.open` gate here would grey the
             // one control that answers "there is nothing here".
             "file.new",
+            // The sized New, for exactly `file.new`'s reason. Two commands
+            // that both answer "there is nothing here" must both be reachable
+            // from that state, and a predicate on one of them would be a
+            // difference between siblings with no argument behind it.
+            "file.new_from_template",
             "file.open",
             // Available with nothing open, like `file.open`, and for the same
             // reason: it is how you GET a document. Its own control greys
