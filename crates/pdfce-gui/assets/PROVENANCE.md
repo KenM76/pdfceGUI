@@ -56,8 +56,12 @@ saying so is the entire reason this section is at the top:
 
 ### On the red PDF badge, and why it carries no third-party claim
 
-The icon is a white page with a folded corner and a red badge reading **PDF**.
-That is deliberately the generic file-type idiom — the same one Chrome,
+The icon is a white page with a folded corner and a red badge reading **PDF**
+over **CE** — the product's own name, split the way it is spelled. The second
+line was added on the operator's instruction, 2026-08-18: *"just add CE below
+PDF in the same red box."*
+
+The page-and-badge form is deliberately the generic file-type idiom — the same one Chrome,
 Firefox, macOS Preview, Okular, SumatraPDF and every file manager use — because
 its whole job is to be recognised in Explorer as *the thing that opens PDFs*,
 which is what the request asked for.
@@ -66,15 +70,16 @@ It is **not** Adobe's mark and reproduces nothing of theirs: no Acrobat "A", no
 Adobe logotype, no brand colour lifted from their guidelines, no typeface of
 theirs. The red is `#C62828`, chosen to read at 16 px against both light and
 dark Explorer backgrounds. "PDF" is the name of an **ISO standard**
-(ISO 32000), not a brand, and the letters are drawn here from rectangles and
-half-capsules — there is no font in this repository and none was used.
+(ISO 32000), not a brand, and every letter is drawn here from primitives —
+P, D, F and E from rectangles and half-capsules, C from an ellipse ring with
+its right flank opened. There is no font in this repository and none was used.
 
 ---
 
 ## ★ The art is a SCRIPT, and the binaries are outputs
 
 `tools/make-icon.py` is the source. It draws the page, the fold, the badge and
-the three letters from geometry, supersamples 4×, and writes every file listed
+both lines of lettering from geometry, supersamples 4×, and writes every file listed
 above plus a review strip at `evidence/app-icon.png`.
 
 Regenerate with:

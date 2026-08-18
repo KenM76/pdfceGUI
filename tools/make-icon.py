@@ -30,7 +30,10 @@ PDFs"*:
 
   * a portrait page with a folded top-right corner, in near-white on a thin
     grey outline, so it reads as a document at 16 px;
-  * a red badge across the lower third carrying the letters **PDF**.
+  * a red badge across the lower half carrying **PDF** over **CE** — the
+    product's own name, split the way it is spelled. The second line was
+    added on the operator's instruction, 2026-08-18: *"just add CE below
+    PDF in the same red box."*
 
 Red because that is the colour every PDF file-type icon has used for twenty
 years and the one an operator's eye is trained on. It is deliberately NOT
@@ -46,10 +49,15 @@ other applications' icons rather than beside pdfce's own surfaces.
 HOW THE LETTERS ARE DRAWN WITHOUT A FONT
 ========================================
 
-There is no font renderer here and pulling one in for three letters would be
-absurd. P, D and F are the three most primitive letterforms in the alphabet —
-a vertical stem plus, at most, one bowl and two bars — so each is defined as a
-handful of rectangles and one half-capsule, in a unit square, and scaled.
+There is no font renderer here and pulling one in for five letters would be
+absurd. P, D, F and E are a vertical stem plus, at most, one bowl and two
+bars; C is an ellipse ring with its right flank opened. Each is defined as a
+handful of primitives in a unit square, and scaled.
+
+The two lines share ONE cap height and are CENTRED rather than justified, so
+`PDF` and `CE` have the same stroke weight and read as one lockup. Stretching
+each line to the badge's width — which is what the single-line version did —
+would give the two-letter line half again the stride of the three-letter one.
 
 The result is a geometric sans that is legible at 16 px, which is the only
 requirement. It is not a typeface and does not need to be.
@@ -143,8 +151,8 @@ MARGIN_X = 0.14  # left/right space around the page
 MARGIN_TOP = 0.06
 MARGIN_BOTTOM = 0.06
 FOLD_SIZE = 0.30  # the folded corner's leg length, as a fraction of the page
-BADGE_TOP = 0.54  # where the red band starts, down the page
-BADGE_BOTTOM = 0.86
+BADGE_TOP = 0.48  # where the red band starts, down the page
+BADGE_BOTTOM = 0.92
 BADGE_INSET = -0.06  # negative: the badge overhangs the page, as most do
 CORNER_R = 0.03  # page corner rounding
 
@@ -229,21 +237,96 @@ def glyph_f(x, y):
     return _bar(x, y, 0.0, 0.62, 0.42, 0.42 + STEM)
 
 
-GLYPHS = [(0.86, glyph_p), (0.85, glyph_d), (0.78, glyph_f)]
+def glyph_e(x, y):
+    """`F` with a foot. Written out rather than composed from `glyph_f`, because
+    the two arms differ in length and a shared helper would need both."""
+    if _bar(x, y, 0.0, STEM, 0.0, 1.0):
+        return True
+    if _bar(x, y, 0.0, 0.78, 0.0, STEM):  # top arm
+        return True
+    if _bar(x, y, 0.0, 0.62, 0.42, 0.42 + STEM):  # middle arm, optically high
+        return True
+    return _bar(x, y, 0.0, 0.78, 1.0 - STEM, 1.0)  # foot
+
+
+# `C`'s geometry. An ellipse RING with the right flank opened, rather than the
+# flat-left/rounded-right capsule the P and D bowls use — a C is the mirror of
+# that shape and reusing `_capsule` would have produced a backwards letter.
+C_RX = 0.42
+C_APERTURE = 0.30  # half-height of the opening on the right
+
+
+def glyph_c(x, y):
+    cx, cy = C_RX, 0.5
+    rx, ry = C_RX, 0.5
+    # The aperture, cut first: cheapest test, and it is what makes this a C
+    # rather than an O.
+    if x > cx and abs(y - cy) < C_APERTURE:
+        return False
+    outer = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0
+    if not outer:
+        return False
+    irx, iry = rx - STEM, ry - STEM
+    if irx <= 0.0 or iry <= 0.0:
+        return True  # too heavy to have a counter; see STEM's note
+    return ((x - cx) / irx) ** 2 + ((y - cy) / iry) ** 2 > 1.0
+
+
+# The badge's two lines. `pdfce` is PDF + ce, and the operator asked for the
+# second line on 2026-08-18: *"just add CE below PDF in the same red box."*
+LINE_PDF = [(0.86, glyph_p), (0.85, glyph_d), (0.78, glyph_f)]
+LINE_CE = [(2 * C_RX, glyph_c), (0.78, glyph_e)]
 GLYPH_GAP = 0.20
 
+# Fractions of the badge's height. The two lines share one cap height, so
+# `PDF` and `CE` have the same stroke weight and read as one lockup rather
+# than as a heading and a subtitle.
+LINE_PAD = 0.13
+LINE_GAP = 0.11
 
-def _letters(x, y):
-    """`PDF` laid out across a 0..1 box."""
-    total = sum(w for w, _ in GLYPHS) + GLYPH_GAP * (len(GLYPHS) - 1)
-    at = x * total
-    for width, test in GLYPHS:
-        if at < width:
-            return test(at, y)
-        at -= width + GLYPH_GAP
+
+def _text_line(u, v, box, glyphs):
+    """One line of glyphs at the box's height, CENTRED, never stretched.
+
+    ★ Centred rather than justified, which is the whole reason this helper
+    exists. The previous version mapped `x` across the box so a line always
+    FILLED it — fine for one line, wrong the moment there are two: `CE` is
+    two glyphs where `PDF` is three, so stretching both to the same width
+    would draw `CE` half again as wide-strided as `PDF` and the pair would not
+    read as one word.
+    """
+    x0, x1, y0, y1 = box
+    height = y1 - y0
+    if height <= 0.0 or v < y0 or v > y1:
+        return False
+    # Glyph units are multiples of the cap height, so the line's drawn width
+    # falls out of the same number rather than being a second measurement.
+    span = (sum(w for w, _ in glyphs) + GLYPH_GAP * (len(glyphs) - 1)) * height
+    at = (u - ((x0 + x1) / 2.0 - span / 2.0)) / height
+    gy = (v - y0) / height
+    for width, test in glyphs:
         if at < 0.0:
-            return False  # in the gap between two letters
+            return False
+        if at < width:
+            return test(at, gy)
+        at -= width + GLYPH_GAP
     return False
+
+
+def _letters(box):
+    """`PDF` over `CE`, as a predicate over the badge's text box."""
+    x0, x1, y0, y1 = box
+    height = y1 - y0
+    pad = height * LINE_PAD
+    gap = height * LINE_GAP
+    cap = (height - 2.0 * pad - gap) / 2.0
+    top = (x0, x1, y0 + pad, y0 + pad + cap)
+    bottom = (x0, x1, y1 - pad - cap, y1 - pad)
+
+    def test(u, v):
+        return _text_line(u, v, top, LINE_PDF) or _text_line(u, v, bottom, LINE_CE)
+
+    return test
 
 
 # ---------------------------------------------------------------------------
@@ -262,10 +345,9 @@ def sample(u, v):
     by1 = py0 + (py1 - py0) * BADGE_BOTTOM
     if bx0 <= u <= bx1 and by0 <= v <= by1:
         # The letters occupy the middle of the badge, with breathing room.
-        lx0, lx1 = bx0 + (bx1 - bx0) * 0.09, bx1 - (bx1 - bx0) * 0.09
-        ly0, ly1 = by0 + (by1 - by0) * 0.22, by1 - (by1 - by0) * 0.22
-        if lx0 <= u <= lx1 and ly0 <= v <= ly1:
-            if _letters((u - lx0) / (lx1 - lx0), (v - ly0) / (ly1 - ly0)):
+        lx0, lx1 = bx0 + (bx1 - bx0) * 0.06, bx1 - (bx1 - bx0) * 0.06
+        if lx0 <= u <= lx1 and by0 <= v <= by1:
+            if _letters((lx0, lx1, by0, by1))(u, v):
                 return (*BADGE_TEXT, 1.0)
         return (*BADGE, 1.0)
 
