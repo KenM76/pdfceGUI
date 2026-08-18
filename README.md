@@ -10,11 +10,17 @@ against **Open PDF Studio 1.82.0** (openaec / OpenAEC Foundation, LGPL,
 Tauri 2 + SolidJS over a multi-process PDFium worker pool) installed on
 this machine. It became the code on 2026-08-13.
 
-**➡ New session? Read `HANDOFF.md` first.**
+**➡ New session? Read `RESUME.md` first** — measured state, what to do
+next, what not to do, on one screen. `HANDOFF.md` is the long-form record
+behind it.
+
+Run these rather than trusting a count written in prose; every status number
+this project has written down has been overtaken within a day or two.
 
 ```
-cargo test --workspace         # 1,530 tests, 0 failed
-bash tools/gates/run-all.sh    # 10 passed, 0 failed, 0 skipped
+cargo test --workspace
+bash tools/gates/run-all.sh
+cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500
 ```
 
 Stages **S0–S5** are complete, along with **Phase 3** (viewer conventions,

@@ -53,6 +53,20 @@ project that starts editing the engine has stopped being a GUI project.
 
 ## Read first, every session
 
+**0. `D:\Dev\pdfceGUI\RESUME.md` — START HERE, BEFORE ANYTHING BELOW.**
+One screen: the measured state, what to do next in the operator's likely
+order, and what not to do. Everything under it is standing doctrine that
+changes slowly; `RESUME.md` is the part that changed since last session,
+and it names the two or three things a cold session would otherwise
+rediscover the hard way. `HANDOFF.md` is its long-form record — read that
+when `RESUME.md` points you into it, or when you need the reasoning behind
+a rule rather than the rule.
+
+**Re-measure before quoting any number either of them states.** Prose
+drifting from a count is a defect this project has spent six corrections
+on, including in the gate runner's own header. The commands are in
+`RESUME.md`.
+
 1. `D:\Dev\pdfceGUI\PROJECT_PLAN.md` — topology, staging, fold-in
    procedure, and the definition of done. This is your charter.
 2. `D:\Dev\pdfceGUI\SALVAGE.md` — what carries over from the old GUI,
