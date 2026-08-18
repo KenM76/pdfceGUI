@@ -255,11 +255,22 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     }
 
     // --- B. the Print control ----------------------------------------------
-    let trace = session.trace()?;
-    let Some(control) = declared(&trace, ui_rect, SUBJECT) else {
+    // ★ Through the overflow when the ribbon has folded it there.
+    //
+    // At the harness's 1100 pt window the File tab correctly folds its
+    // rightmost groups — Print among them — into the overflow menu. That is the
+    // responsive layout working. A lookup that read only the tab surface
+    // reported "none of its controls is `ribbon.item.file.print`", which is
+    // true, reads as "Print is missing", and is false — and it stood as this
+    // check's FAIL for days, written up as a harness gap and left there.
+    // See [`crate::checks::driving::declared_or_in_overflow`].
+    let Some(control) =
+        crate::checks::driving::declared_or_in_overflow(&session, &driver, ui_rect, SUBJECT)?
+    else {
+        let trace = session.trace()?;
         return Ok(Some(format!(
-            "the File tab is active and its controls publish their rects, but none of them is \
-             `{SUBJECT}`. Controls declared: {}.",
+            "the File tab is active and neither it nor its overflow declares `{SUBJECT}`. \
+             Controls declared: {}.",
             list(&declared_names(&trace, ui_rect, ITEM_PREFIX))
         )));
     };

@@ -4,11 +4,11 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] delete_key_after_canvas_click
        detects: D1 — the canvas takes egui focus on click, and the keyboard guard tests 'any widget focused' rather than 'a text field focused', so Delete is permanently suppressed from the first canvas click onward
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 9644 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
-       · window client area 1100x800 px at desktop (86, 109), DPI scale 1.00
+       · launched target/release/pdfce-gui.exe as pid 28184 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · window client area 1100x800 px at desktop (190, 213), DPI scale 1.00
        · clicked the Edit mode segment first — the shell's default mode is Read, where a canvas click on content is refused BY DESIGN (DEFECTS.md D6). Without this step the check reports the mode gate as a selection defect, which is what it did before 2026-08-17
        · canvas rect LRect { min: Pt { x: 296.0, y: 117.0 }, max: Pt { x: 764.0, y: 478.6 } } at zoom 0.296
-       · document point (page 0, 300.0, 500.0) → window (384.6, 330.9) → screen (471, 440) at DPI scale 1.00
+       · document point (page 0, 300.0, 500.0) → window (384.6, 330.9) → screen (575, 544) at DPI scale 1.00
        · precondition holds: the click hit ? object(s) and the selection is 1 object(s)
        · oracle: the page object count, which is 5903 before the key. This measures the property the check is about rather than the verb meant to change it.
        · page object count after Delete: 5902
@@ -17,8 +17,8 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] ribbon_group_captions_legible
        detects: ribbon group captions rendering below a readable contrast, or not rendering at all — the 2026-08-08 audit found two groups with no caption
-       · launched target/release/pdfce-gui.exe as pid 15980
-       · window client area 1100x800 px at desktop (112, 135), DPI scale 1.00
+       · launched target/release/pdfce-gui.exe as pid 40128
+       · window client area 1100x800 px at desktop (216, 239), DPI scale 1.00
        · the application declared 57 ui-rect region(s): canvas-viewport, central-panel, dock.body.view.panel_forms, dock.body.view.panel_pages, dock.left, dock.left.0, dock.left.0.0, dock.left.0.0.tabbar, dock.left.split.side, dock.right, dock.right.0, dock.right.0.0, dock.right.0.0.tabbar, dock.right.split.side, dock.tab.view.panel_bookmarks, dock.tab.view.panel_forms, dock.tab.view.panel_pages, page, panel-pages, panel-pages-current-tile, panel-pages-grid, ribbon.group.file.export, ribbon.group.file.export.caption, ribbon.group.file.file, ribbon.group.file.file.caption, ribbon.group.file.recognise, ribbon.group.file.recognise.caption, ribbon.group.file.save, ribbon.group.file.save.caption, ribbon.item.file.close, ribbon.item.file.copy_document_text, ribbon.item.file.copy_page_text, ribbon.item.file.export_dxf, ribbon.item.file.export_form_data, ribbon.item.file.new, ribbon.item.file.new_from_template, ribbon.item.file.ocr, ribbon.item.file.open, ribbon.item.file.save_copy, ribbon.mode.edit, ribbon.mode.read, ribbon.mode.review, ribbon.modes, ribbon.overflow, ribbon.qat.edit.redo, ribbon.qat.edit.undo, ribbon.qat.file.open, ribbon.qat.file.save_copy, ribbon.tab.file, ribbon.tab.view, status-bar, status-group:find, status-group:fit, status-group:notes, status-group:page, status-group:zoom, status-page-box
        · 4 of them follow the ribbon-caption naming convention
        · region set `ribbon_group_captions` — 4 region(s); source: the application's own ui-rect declarations, this run
@@ -33,7 +33,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] qat_controls_are_icon_only
        detects: the quick-access toolbar falls back to text labels because no icon painter was supplied
-       · launched target/release/pdfce-gui.exe as pid 23296
+       · launched target/release/pdfce-gui.exe as pid 17748
        · 4 quick-access control(s) declared their rects
        · ribbon.qat.file.open: 24.0 x 24.0 pt, aspect 1.00
        · ribbon.qat.file.save_copy: 24.0 x 24.0 pt, aspect 1.00
@@ -43,7 +43,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] new_document_makes_a_page
        detects: File ▸ New does not make a document, or makes one whose page will not draw
-       · launched target/release/pdfce-gui.exe as pid 19804
+       · launched target/release/pdfce-gui.exe as pid 30228
        · the fixture opened with 36 pages
        · `ribbon.item.file.new` occupies 34.4 x 24.0 pt
        · press 1: the shell traced `ribbon-command-invoked id=file.new`, so the click reached the control
@@ -58,15 +58,15 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] new_document_sizes_the_page
        detects: the size chooser reports the sheet it was asked for and makes an A4 page
-       · launched target/release/pdfce-gui.exe as pid 31360 with no document
+       · launched target/release/pdfce-gui.exe as pid 26868 with no document
        · the dialog opened at LRect { min: Pt { x: 387.0, y: 311.0 }, max: Pt { x: 713.0, y: 683.0 } }
        · the re-parsed page is 420.0 × 297.0 mm (1190.5 × 841.9 pt)
        artifact: target/ui-verify\new_document_size.trace.txt
 
 [PASS] markup_rectangle_arms_from_the_ribbon
        detects: clicking Markup ▸ Shapes ▸ Rectangle does not arm the canvas tool, or arms it without the control rendering pressed — a four-link chain in which every link has a passing unit test and no test observes two of them connected
-       · launched target/release/pdfce-gui.exe as pid 30296 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
-       · window client area 1100x800 px at desktop (216, 239), DPI scale 1.00
+       · launched target/release/pdfce-gui.exe as pid 41932 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · window client area 1100x800 px at desktop (86, 109), DPI scale 1.00
        · ribbon.mode.review declared at LRect { min: Pt { x: 972.6, y: 2.0 }, max: Pt { x: 1032.3, y: 26.0 } }; clicking its centre
        · the Review segment reported the click, so pointer input reaches the ribbon
        · ribbon.tab.markup declared at LRect { min: Pt { x: 245.0, y: 2.0 }, max: Pt { x: 295.2, y: 26.0 } }; clicking its centre
@@ -86,7 +86,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] markup_freehand_and_vertex_kinds
        detects: Markup ▸ Freehand draws nothing or writes the raw pointer trail unsimplified, a click with Polyline or Polygon armed places no vertex, or Finish shape is live when there is nothing to finish — the three kinds `FEATURES.md` carried as engine-ready-but-not-drag- shaped, and the two call sites in their chain that no unit test in the workspace can observe
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 34344 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · launched target/release/pdfce-gui.exe as pid 42600 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
        · the review segment and the Markup tab both reported their clicks
        · with nothing clicked out, a press of `ribbon.item.markup.finish` produced no `ribbon-command-invoked` — the control is greyed, which is the state phases C and E have to make escapable
        · Freehand armed
@@ -109,7 +109,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] markup_style_group_is_drawn
        detects: Markup ▸ Style declares a colour_swatch item that no renderer draws, so the group is a caption over an empty band and the pen is two hard-coded constants
-       · launched target/release/pdfce-gui.exe as pid 4124
+       · launched target/release/pdfce-gui.exe as pid 38172
        · all three Style controls are drawn: markup.style.ink, markup.style.highlighter, markup.style.width
        · the width control is live: 6 `markup-pen` line(s), last width_pts=3.5
        artifact: target/ui-verify\markup_style.trace.txt
@@ -117,8 +117,8 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] measure_linear_places_a_dimension
        detects: clicking Measure ▸ Dimension ▸ Linear and then three points on the page does not place a dimension — the control does not arm, or arms without rendering pressed, or the picks never reach the tool, or the third pick's action is refused by the engine and the document is left unchanged while the shell reports a commit
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 29820 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
-       · window client area 1100x800 px at desktop (112, 135), DPI scale 1.00
+       · launched target/release/pdfce-gui.exe as pid 31724 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · window client area 1100x800 px at desktop (164, 187), DPI scale 1.00
        · the review segment reported the click, so pointer input reaches the ribbon
        · ribbon.tab.measure declared at LRect { min: Pt { x: 299.2, y: 2.0 }, max: Pt { x: 355.1, y: 26.0 } }; clicking its centre
        · the Measure tab reported the click
@@ -132,9 +132,9 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
        · pressed rendering confirmed from the pixels: the clicked control changed, its un-clicked sibling did not, and the two differ in one capture
        · canvas rect LRect { min: Pt { x: 296.0, y: 117.0 }, max: Pt { x: 764.0, y: 478.6 } } at zoom 0.296, showing page 1
        · picks: A (475, 551), B (1030, 551), placement (871, 759) in PDF user space
-       · pick 1 of 3: click 1 at document (475, 551) → screen (548, 451)
-       · pick 2 of 3: click 1 at document (1030, 551) → screen (712, 451)
-       · pick 3 of 3: click 1 at document (871, 759) → screen (665, 389)
+       · pick 1 of 3: click 1 at document (475, 551) → screen (600, 503)
+       · pick 2 of 3: click 1 at document (1030, 551) → screen (764, 503)
+       · pick 3 of 3: click 1 at document (871, 759) → screen (717, 441)
        · the pick sequence is committed=false, false, true — the third pick is the commit, and there is no accept box
        · the engine accepted it: `pdfce-diag add-dimension page=0 n=1 epoch=1 disclosures=none` — the edit epoch is now 1, which is the counter the selection re-resolve and the raster key both read
        artifact: target/ui-verify\measure_linear.trace.txt
@@ -143,12 +143,12 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] measure_calibrates_by_picking_two_points
        detects: the scale can only be set by typing a ratio — the two-point calibration the operator asked for does not arm, does not route its clicks, or re-opens the dialog with no measurement in it
-       · launched target/release/pdfce-gui.exe as pid 39872
+       · launched target/release/pdfce-gui.exe as pid 26720
        · the Set-scale dialog opened from Measure > Scale
        · the calibrate button armed the two-point pick and closed the dialog
        · canvas at zoom 0.296; picking two points 400 pt apart
-       · pick A: document (300.0, 500.0) -> screen (523, 492)
-       · pick B: document (700.0, 500.0) -> screen (641, 492)
+       · pick A: document (300.0, 500.0) -> screen (575, 544)
+       · pick B: document (700.0, 500.0) -> screen (693, 544)
        · the pick completed and measured 396.08 pt
        · the dialog re-opened on the real-length path, asking what the line represents
        · 396.08 pt is within 150 pt of the 400 pt clicked, so the measurement is of the page and not of something else
@@ -157,14 +157,14 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] save_copy_round_trip
        detects: Save a copy writes nothing, writes over the document that was opened, writes a full rewrite where the command's own tooltip promises an appended update, or writes a file the operator's edit is not in — the five-link chain from a ribbon click to a file on disk, three links of which no test in the workspace can observe
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt, 1831090 bytes, digest 4da2832ce9888b1d
-       · launched target/release/pdfce-gui.exe on D:/Dev/temp/pdfce/SW41177.pdf as pid 27752 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\save-copy-round-trip.pdf
+       · launched target/release/pdfce-gui.exe on D:/Dev/temp/pdfce/SW41177.pdf as pid 42224 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\save-copy-round-trip.pdf
        · the fixture: the Comments panel lists 0 annotation(s) — `pdfce-diag comments-panel pages=36 listed=0 with_note=0 descriptions=0 authors=0 ce_dimensions=0 suppressed=0 unresolved=0 replies=0 group_members=0 excluded_widgets=0 excluded_popups=0 excluded_trapnet=0 excluded_total=0`
        · the rectangle was authored: `pdfce-diag markup-commit kind=Rectangle page=0 x0=379.08 y0=343.99 x1=917.23 y1=563.99`
        · the Comments panel now lists 1, one more than before the drag — the annotation is on the session in memory
        · the copy was written: `pdfce-diag save-copy path="target/ui-verify\\save-copy-round-trip.pdf" bytes=1832129 appended=1039 objects=3 verbatim=0 reserialized=3 promoted=0 deleted=0 identical=false delinearized=true epoch=1 origin=Opened`
        · ★ the opened document is byte-identical after the run — 1831090 bytes, digest 4da2832ce9888b1d
        · ★ the copy's first 1831090 bytes are the source's, verbatim, and it is 1832129 bytes long — an appended revision, which is what the command's tooltip promises and what preserves any signature the file carries
-       · launched target/release/pdfce-gui.exe on target/ui-verify\save-copy-round-trip.pdf as pid 24792 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\save-copy-unused.pdf
+       · launched target/release/pdfce-gui.exe on target/ui-verify\save-copy-round-trip.pdf as pid 24208 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\save-copy-unused.pdf
        · the SAVED COPY: the Comments panel lists 1 annotation(s) — `pdfce-diag comments-panel pages=36 listed=1 with_note=0 descriptions=0 authors=0 ce_dimensions=0 suppressed=0 unresolved=0 replies=0 group_members=0 excluded_widgets=0 excluded_popups=0 excluded_trapnet=0 excluded_total=0`
        · ★★ ROUND TRIP PROVEN: a second process opened the saved copy from disk and its Comments panel lists 1 annotation(s), one more than the fixture's 0. The rectangle an OS-injected drag authored in the first process is in the file the second one read
        · NOT covered here: the save dialog itself. `PDFCE_DIAG_SAVE_PATH` answers it and it is never opened, because it is a modal top-level window owned by the OS shell that no synthetic input can reach (`app::files`' rule 1). Everything else — the ribbon click, the dispatch arm, `Action::SaveCopy`, the apply phase, `to_incremental_bytes` and the write — is the real code path. That the dialog opens pre-filled with the suggested name is covered by `app::save::suggested_path`'s unit tests and by nothing that runs a window
@@ -182,32 +182,24 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
          document with no page rotation —
          `D:\Dev\pdfce\fixtures\pageops\four-pages.pdf` is the one this project uses.
 
-[FAIL] print_dialog_reaches_the_spooler
+[PASS] print_dialog_reaches_the_spooler
        detects: File ▸ Print opens a dialog that says this build cannot print, on a machine with printers
-       · launched target/release/pdfce-gui.exe as pid 12084
-       → the File tab is active and its controls publish their rects, but none of
-         them is `ribbon.item.file.print`. Controls declared: ribbon.item.file.new,
-         ribbon.item.file.new_from_template, ribbon.item.file.open,
-         ribbon.item.file.close, ribbon.item.file.ocr, ribbon.item.file.save_copy,
-         ribbon.item.file.export_dxf, ribbon.item.file.export_form_data,
-         ribbon.item.file.copy_page_text, ribbon.item.file.copy_document_text.
+       · launched target/release/pdfce-gui.exe as pid 13500
+       · the spooler answered with 12 printer(s); the adapter is reaching `pdfce-print`
        artifact: target/ui-verify\print_dialog.trace.txt
 
-[SKIP] print_paper_changes_the_plan
+[PASS] print_paper_changes_the_plan
        detects: choosing a paper size relabels the control and the job is still planned for the device's default sheet
-       · launched target/release/pdfce-gui.exe as pid 32740
-       → the File tab is active and none of its controls is `ribbon.item.file.print`.
-         Controls declared: ribbon.item.file.new, ribbon.item.file.new_from_template,
-         ribbon.item.file.open, ribbon.item.file.close, ribbon.item.file.ocr,
-         ribbon.item.file.save_copy, ribbon.item.file.export_dxf,
-         ribbon.item.file.export_form_data, ribbon.item.file.copy_page_text,
-         ribbon.item.file.copy_document_text. That is `print_dialog`'s defect, not
-         this one — it is reported there.
+       · launched target/release/pdfce-gui.exe as pid 38900
+       · the selected device enumerated 20 paper form(s); form_source=NotListed
+       · before: paper=DeviceDefault sheet=Some((792.0, 612.0))
+       · print.paper.item.1: paper=Form(9) sheet=Some((841.68, 595.2))
+       · choosing `Form(9)` re-planned the job from Some((792.0, 612.0)) to Some((841.68, 595.2)) (after 1 click(s) of a 21-entry list)
        artifact: target/ui-verify\print_paper.trace.txt
 
 [PASS] settings_theme_takes_effect
        detects: three themes ship, and nothing an operator can press chooses one (DEFECTS.md D10)
-       · launched target/release/pdfce-gui.exe as pid 23932 with NO document
+       · launched target/release/pdfce-gui.exe as pid 32992 with NO document
        · window body Rgb { r: 232, g: 232, b: 234 } -> Rgb { r: 46, g: 49, b: 53 } after choosing Dark (mean channel drop 183)
        artifact: target/ui-verify\settings_theme.trace.txt
        artifact: target/ui-verify\settings_theme.before.png
@@ -215,7 +207,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] undo_redo_round_trip
        detects: Undo and Redo do nothing, or take the change off the session without invalidating what the operator is looking at — the five-link chain from a quick-access click to a re-rasterized page, three links of which no test in the workspace can observe
-       · launched target/release/pdfce-gui.exe on D:/Dev/temp/pdfce/SW41177.pdf as pid 38300
+       · launched target/release/pdfce-gui.exe on D:/Dev/temp/pdfce/SW41177.pdf as pid 15800
        · baseline: the Comments panel lists 0 annotation(s) — `pdfce-diag comments-panel pages=36 listed=0 with_note=0 descriptions=0 authors=0 ce_dimensions=0 suppressed=0 unresolved=0 replies=0 group_members=0 excluded_widgets=0 excluded_popups=0 excluded_trapnet=0 excluded_total=0`
        · the rectangle was authored (`pdfce-diag markup-commit kind=Rectangle page=0 x0=379.08 y0=343.99 x1=917.23 y1=563.99`) and the Comments panel lists 1, one more than the baseline — there is now exactly one change to take back
        · the undo: the arm decided — `pdfce-diag undo kind=AddAnnotation { kind: Square } undo_depth=1`
@@ -228,14 +220,14 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
        · the redo: the Comments panel now lists 1 annotation(s)
        · ★★ ROUND TRIP PROVEN: 0 → 1 authored → 0 undone → 1 redone, with a fresh `objects` line and a fresh `render-spawn` at each step — so the epoch moved and the page was re-rasterized, not merely the session mutated. `ribbon.qat.edit.undo` was greyed before the edit and `ribbon.qat.edit.redo` is greyed after the redo
        · ★ …and phase B's silence is evidence rather than an absence: `ribbon.qat.edit.undo` was clicked at its centre with an empty command log and the shell traced no `ribbon-command-invoked`, while the SAME control clicked in phase D did — so the pointer reaches it, and a greyed `egui` control is what swallowed the first press
-       · NOT covered here: `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` — `checks::chords` drives those          and asserts each one dispatches. This check covers the single `dispatch_command` every          route shares, through the quick-access toolbar. Until 2026-08-18 this note said the          chords COULD NOT be driven and were covered by the manifest's keymap test; both halves          were false, and all three were among fourteen declared chords the dispatcher ignored —          which matters more here than anywhere else in the shell, because the keyboard is undo's          PRIMARY route
+       · NOT covered here: `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Shift+Z`. `checks::chords` presses all three and asserts each dispatches. Until 2026-08-18 this note said they COULD NOT be driven and were covered by the manifest keymap test; both halves were false, and all three were among fourteen declared chords the dispatcher ignored.
        · NOT covered here: that the page's PIXELS show the undone state. `render-spawn` proves a raster was asked for, which is the step that was in doubt; it does not prove what came out. A pixel oracle was rejected for `save_copy`'s reason — a 2 pt rectangle over a CAD drawing is a few hundred antialiased pixels among a page full of thin dark lines, and no threshold in this crate separates the two
        artifact: target/ui-verify\undo_redo.trace.txt
 
 [PASS] redaction_removes_and_proves_it
        detects: Applying a redaction reports success and leaves the marked text in the saved file, writes over the document it came from, or offers its irreversible confirm control before the operator has acknowledged anything — none of which a passing test suite can see, because the only honest evidence is the bytes on disk read by a second process
        · fixture target/ui-verify\redaction-fixture.pdf — 878 bytes, digest d56823ffb39e92ee; both `CONFIDENTIALWITNESSALPHA` (page 1) and `UNTOUCHEDWITNESSBETA` (page 2) are present in its bytes
-       · launched target/release/pdfce-gui.exe on target/ui-verify\redaction-fixture.pdf as pid 39848 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\redaction-applied.pdf
+       · launched target/release/pdfce-gui.exe on target/ui-verify\redaction-fixture.pdf as pid 16068 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\redaction-applied.pdf
        · phase A: pdfce's own extraction reads 24 character(s) from page 1 of the fixture
        · phase C: 1 mark(s) on 1 page(s) — `pdfce-diag redact-panel marks=1 pages=1 epoch=1`
        · phase D: `pdfce-diag redact-prepared marks=1 pages=1 glyphs=24 streams=1 checked=1 short=0 residuals=0 verified=true bytes=917`
@@ -243,15 +235,24 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
        · phase F: `pdfce-diag redact-written path="target/ui-verify\\redaction-applied.pdf" bytes=917 marks=1 pages=1 glyphs=24 streams=1 checked=1 residuals=0 verified=true promoted=0`
        · phase G: the document that was opened is byte-for-byte unchanged
        · phase H: target/ui-verify\redaction-applied.pdf is 917 bytes — `CONFIDENTIALWITNESSALPHA` is absent from them and `UNTOUCHEDWITNESSBETA` is present
-       · launched target/release/pdfce-gui.exe on target/ui-verify\redaction-applied.pdf as pid 6032 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\redaction-unused.pdf
+       · launched target/release/pdfce-gui.exe on target/ui-verify\redaction-applied.pdf as pid 34288 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\redaction-unused.pdf
        · phase I: the redacted file re-opens — `pdfce-diag canvas rect=[[296.0 198.5] - [764.0 432.5]] zoom=1.1700 page=0 pages=2 off=[0.0 0.0] sel=0 display=continuous visible=2 drawn=2`
        · phase I: a second process extracts NOTHING from the redacted page — `text-copy-declined reason=nothing-to-copy`
        artifact: target/ui-verify\redaction.trace.txt
        artifact: target/ui-verify\redaction.reopen.trace.txt
 
+[PASS] about_reports_the_build
+       detects: About does not open, or opens without saying when this program was built and which engine revision is inside it — so an operator looking at two builds that behave differently has no way to tell them apart
+       · launched target/release/pdfce-gui.exe as pid 11524 with NO document, which is a state About must work in
+       · About opened and declared its body
+       · built 2026-08-18 22:07 UTC from e5c7918-dirty; engine 0.7.0 at 6af5655
+       · iccce is NOT in this build, and About says so
+       artifact: target/ui-verify\about.trace.txt
+       artifact: target/ui-verify\about.png
+
 [PASS] add_text_takes_real_keystrokes
        detects: the Add text tool arms and places a caret, and characters typed on the real keyboard never reach the draft — so the operator gets a caret that ignores them and nothing is ever written to the page
-       · launched target/release/pdfce-gui.exe as pid 38340
+       · launched target/release/pdfce-gui.exe as pid 36888
        · Edit > Add text armed the caret in Add mode
        · the click on blank paper started an Add draft
        · real keystrokes reached the draft — the OS -> egui -> draft link holds
@@ -260,7 +261,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] every_declared_chord_dispatches
        detects: a keyboard shortcut the manifest declares — and the menus print beside its command — reaches no command when pressed, so the operator's keyboard silently does nothing and the only evidence is that they stop using it
-       · launched target/release/pdfce-gui.exe as pid 41132
+       · launched target/release/pdfce-gui.exe as pid 23484
        · control chord Ctrl+2 arrived, so the input channel works
        · all 7 chords dispatched the command the manifest binds them to
        · NOT covered here: `F11`. It resizes the window mid-run and would invalidate every rect already measured; its dispatch is covered by the unit gate. Nor is this list swept from the manifest — a chord added tomorrow is not pressed here until it is added above, which is what `every_chord_the_manifest_binds_actually_fires` is for
@@ -268,17 +269,17 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] text_annot_places_and_authors
        detects: the text box control does not arm, the drag authors an EMPTY annotation on release instead of asking for words, the dialog never appears, or accepting it writes nothing to the document
-       · launched target/release/pdfce-gui.exe as pid 21304
+       · launched target/release/pdfce-gui.exe as pid 6916
        · Markup > Text box armed the text-annotation tool
        · the page carries 0 annotation(s) before the drag
-       · dragging a 220x220 pt box: screen (575, 544) -> (640, 479)
+       · dragging a 220x220 pt box: screen (523, 492) -> (588, 427)
        · the release authored nothing — still 0 annotation(s) — and opened the dialog instead, which is the property that separates this family from the seven geometric kinds
        · Accept authored: the page went from 0 to 1 annotation(s)
        artifact: target/ui-verify\text_annot.trace.txt
 
 [PASS] text_annot_takes_the_keyboard_unclicked
        detects: the text-annotation dialog opens and does not hold the keyboard, so an operator who types straight into it — which is what the window is asking them to do — gets nothing, and Accept stays greyed
-       · launched target/release/pdfce-gui.exe as pid 26400
+       · launched target/release/pdfce-gui.exe as pid 30976
        · Markup > Text box armed the text-annotation tool
        · the drag opened the dialog and it declared its text field
        · typed two characters WITHOUT clicking the field, the way an operator does
@@ -291,22 +292,22 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] text_edit_pins_an_aligned_tail
        detects: Text editing does not reach the page at all, or it reaches it and drags the text the operator did not touch with it — DEFECTS.md D4b's right-aligned and rotated cases, which the old shell got wrong because its only call site passed EditOptions::default() and never asked the page anything
        · fixture D:\Dev\pdfceGUI\tools\ui-verify\../../fixtures/tail-alignment.pdf — 924 bytes, page 1 is 612 x 792 pt
-       · launched on D:\Dev\pdfceGUI\tools\ui-verify\../../fixtures/tail-alignment.pdf as pid 37116
+       · launched on D:\Dev\pdfceGUI\tools\ui-verify\../../fixtures/tail-alignment.pdf as pid 40708
        · the ribbon control armed the caret tool
        · the click placed a caret: `pdfce-diag text-edit-caret kind=Edit page=0 run=0 len=10`
        · the commit planned: `pdfce-diag text-edit-plan page=0 run=0 disposition=Pin reason=Flush(Right)                          pinned=true`
        · the copy is 1457 bytes, of which 533 were appended
        · ★ the untouched line's operator `412.64 668.00 Tm` is in the appended revision verbatim
-       · launched on target/ui-verify\text-edit-round-trip.pdf as pid 34300
-       · a second process (pid 34300) opened the copy and drew it
+       · launched on target/ui-verify\text-edit-round-trip.pdf as pid 40992
+       · a second process (pid 40992) opened the copy and drew it
        artifact: target/ui-verify\text_edit.trace.txt
        artifact: target/ui-verify\text_edit.reopen.trace.txt
 
 [PASS] read_mode_refuses_canvas_edits
        detects: a click on page content in Read mode still selects it, or a selection made in Edit survives into Read — the mode gate's capabilities not reaching the canvas, which is the one link in that chain no unit test observes
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 35244 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
-       · window client area 1100x800 px at desktop (60, 83), DPI scale 1.00
+       · launched target/release/pdfce-gui.exe as pid 26308 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · window client area 1100x800 px at desktop (242, 265), DPI scale 1.00
        · --doc-point (page 1, 300, 500) will be tried first
        · candidate 1: the click at (300, 500) traced no `canvas-selection via=click` line in read
        · candidate 1: the SAME click in edit traced `pdfce-diag canvas-selection via=click mod=false sel=1 level=Object` — so the point is on content, the pointer reached the canvas, and read's silence a moment ago was a refusal rather than a miss
@@ -317,12 +318,12 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] text_selection_sweeps_and_copies
        detects: a drag across text on the page selects nothing, selects text but highlights nothing, or sweeps text in a mode whose primary button is the content marquee — the canvas wiring that assembles a page's extraction per frame, which is the one link in that chain no unit test observes
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 31944 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · launched target/release/pdfce-gui.exe as pid 38668 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
        · band 1: no text under the sweep from (982, 73) to (1536, 73); trying the next
        · band 2: the sweep traced `pdfce-diag canvas-text-selection via=drag page=0 chars=17 quads=1` — so the drag reached the canvas, the press meant text, and the range covers glyphs
        · the window with the selection on it is saved beside the trace. It is evidence, not the oracle: at the wash's alpha over a drawing sheet, selected and unselected text are the same picture to any threshold, which is why this check asserts on `chars` and `quads` instead
        · 1 `page-text` line(s) so far — one per (page, edit epoch) actually extracted. A sweep is many frames; anything near the frame count means the cache in `app::cache::PageTextCache` is not being hit
-       · most recent extraction: `pdfce-diag page-text page=0 runs=457 chars=2016 ms=27 status=ok`
+       · most recent extraction: `pdfce-diag page-text page=0 runs=457 chars=2016 ms=33 status=ok`
        · the same band in edit traced no new `canvas-text-selection` — the primary button is the content marquee there, as it was before this feature existed
        · verdict established on band 2: read swept text the same drag did not sweep in edit, and the selection it made both copied characters and drew boxes
        · not covered here: Escape clears the selection, Ctrl+A selects the page and Ctrl+C copies it. This check does not drive them; keystrokes DO reach the window (see find_bar), so all three are covered by unit test alone and the gap is on the record rather than implied by a green result
@@ -332,7 +333,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] text_markup_marks_a_selection
        detects: Markup ▸ Text markup ▸ Underline is live with nothing selected, does nothing when text IS selected, authors an annotation over different boxes from the ones highlighted, or marks a selection that a later edit has invalidated — the join between the text-selection gesture and the markup authoring path, which neither feature's tests can observe
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 9696 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · launched target/release/pdfce-gui.exe as pid 19128 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
        · the review segment reported the click — the one mode that both selects text and authors markup (see this check's MODE constant)
        · the Markup tab reported the click
        · ribbon.item.markup.underline at LRect { min: Pt { x: 425.7, y: 35.0 }, max: Pt { x: 510.4, y: 59.0 } }, with ribbon.item.markup.strikeout and ribbon.item.markup.squiggly beside it
@@ -353,7 +354,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [SKIP] ocr_recognises_a_page_and_writes_a_new_file
        detects: Recognise text is unreachable in the mode the operator asked for it in, produces no layer, writes nothing, or — the one that cannot be caught anywhere else — writes the recognised document back over the file that was opened
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — 1831090 bytes, digest 4da2832ce9888b1d
-       · launched target/release/pdfce-gui.exe as pid 31664 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\ocr-recognised.pdf
+       · launched target/release/pdfce-gui.exe as pid 41540 with PDFCE_DIAG_SAVE_PATH=target/ui-verify\ocr-recognised.pdf
        · the `file` tab is present and took a click while the mode selector is on `read` — so the command is reachable in the mode the operator asked for it in, which the specification's Tools placement would not have been
        · the dialog is up and declared its own rect
        → the dialog drew no `ocr-run` control, so it is refusing rather than offering
@@ -366,7 +367,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 [PASS] text_tool_selects_and_marks_in_edit
        detects: View ▸ Navigate ▸ Text does not arm the canvas tool, a sweep in Edit with it armed selects nothing, or Markup ▸ Underline stays greyed in Edit once text IS selected — the P3 tension of three controls drawn on a tab where they could never enable, and the join between a ribbon toggle, a canvas gesture and a condition that no unit test observes in one window
        · fixture D:/Dev/temp/pdfce/SW41177.pdf — page 1 is 1584x1224 pt
-       · launched target/release/pdfce-gui.exe as pid 13996 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
+       · launched target/release/pdfce-gui.exe as pid 23276 with PDFCE_DIAG=1 and EGUI_SHELL_DIAG=1
        · the edit segment reported the click — the mode whose primary button is the content marquee, and therefore the only one where the text tool is not redundant
        · ribbon.item.markup.underline at LRect { min: Pt { x: 425.7, y: 35.0 }, max: Pt { x: 510.4, y: 59.0 } } on the Markup tab in edit
        · with nothing selected, a click on ribbon.item.markup.underline produced no `ribbon-command-invoked` — the control is greyed, which is the state this feature had to make ESCAPABLE rather than remove
@@ -385,7 +386,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] render_diagnostics_opens_its_report
        detects: Tools ▸ Render diagnostics is drawn, enabled, and opens nothing
-       · launched target/release/pdfce-gui.exe as pid 39464
+       · launched target/release/pdfce-gui.exe as pid 18776
        · the shell traced `ribbon-command-invoked id=tools.render_diagnostics`, so the click reached the control
        · the report was laid out at 506 x 332 pt
        artifact: target/ui-verify\render_diagnostics.trace.txt
@@ -393,7 +394,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] find_opens_and_finds
        detects: Ctrl+F does not reach Find, or Find opens without finding anything
-       · launched target/release/pdfce-gui.exe as pid 38996
+       · launched target/release/pdfce-gui.exe as pid 35792
        · control chord Ctrl+2 arrived, so the input channel works
        · Ctrl+F dispatched `edit.find`
        · the find bar reported open
@@ -403,7 +404,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] read_mode_hides_the_chrome
        detects: View ▸ Read mode is drawn, bound to Ctrl+H, and does not hide the ribbon or the panels
-       · launched target/release/pdfce-gui.exe as pid 19080
+       · launched target/release/pdfce-gui.exe as pid 20104
        · full screen grew the client area from 1920 x 1000 px to 1920 x 1080 px
        · a second press restored it to 1920 x 1000 px
        · with the chrome drawn, `central-panel` starts 117.3 pt down the client area
@@ -418,7 +419,7 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] settings_headings_legible
        detects: D2 — the theme assigns widgets.active.fg_stroke a near-white but never assigns widgets.active.bg_fill, so CollapsingHeader headings and dock tab labels render near-white on light grey
-       · launched target/release/pdfce-gui.exe as pid 39948
+       · launched target/release/pdfce-gui.exe as pid 30360
        · the Settings control is not on the ribbon band at this window width — it is the first item of the LAST group on the File tab, which the ribbon correctly folds into the overflow. Opening the overflow to reach it.
        · the Settings dialog is open and declared its own body rect
        · measures the 2 heading(s) currently IN VIEW; the dialog scrolls and this check does not drive the scroll, so headings below the fold are not measured. D2 was a theme-wide foreground/background pairing and would show on the first heading as readily as the last
@@ -432,8 +433,8 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
 
 [PASS] ui_scale_resizes_the_chrome
        detects: the UI-scale preference is parsed, edited and never handed to egui, so every control is drawn at one size on every machine — or it IS applied and something lands outside the window at a large scale, which no unit test can see
-       · launched at ui_scale = 1.00 as pid 18176
-       · launched at ui_scale = 1.80 as pid 42068
+       · launched at ui_scale = 1.00 as pid 19216
+       · launched at ui_scale = 1.80 as pid 36936
        · client area 1100x800 pt → 611x444 pt (the OS window is 1100x800 px at both scales, so a smaller area in POINTS is `pixels_per_point` having moved) — x1.80
        · both launches traced `ui-scale-initial`, so the preference was applied before the first frame and no launch flashed at the wrong size
        ·   ribbon.tab.file              28.3x24.0 pt (both) · 2.57%x3.00% → 4.63%x5.40% of the window (x1.80, y1.80)
@@ -449,6 +450,9 @@ ui-verify — profile `pdfce-gui` (the application this project is building (cra
        artifact: target/ui-verify\ui_scale.large.png
 
 ------------------------------------------------------------------------
-  28 passed, 1 failed, 3 skipped
+  31 passed, 0 failed, 2 skipped
 
-RESULT: FAIL — a check drove the application and the assertion did not hold.
+RESULT: INCOMPLETE — 31 verified, 2 could not run.
+
+  Read each SKIP reason and decide whether it is expected. While the
+  application is under construction, most of them will be.
