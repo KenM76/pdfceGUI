@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `02b955a`.** For a session starting cold
+**Written 2026-08-18, last revised at `0becb4c`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `02b955a`
+## ★★★ State, as measured at `0becb4c`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,19 +18,26 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `02b955a`, clean tree |
+| **Measured at** | `0becb4c`, clean tree |
 | **Engine** | `D:\Dev\pdfce` local `main`, locked at `e13f8ed`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | 1,862 passing, 0 failing |
+| **Tests** | 1,864 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | **25 passed · 1 failed · 3 skipped**, run 2026-08-18 in the operator's lunch window. The one failure is a HARNESS gap — see below |
+| **`ui-verify`** | **28 passed · 1 failed · 3 skipped**, run 2026-08-18 with the operator off the machine. Three checks are new and all three are keyboard checks. The one failure is the pre-existing `print_dialog` ribbon-overflow HARNESS gap |
 | **Latest build** | `D:\builds\pdfcegui-20260818-1635-e13f8ed-02b955a\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
 | **Requests owed by pdfce** | **one open** — `request_insert_pages_leaves_orphaned_widgets…`, filed 2026-08-18. A correctness report, not a feature |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
 
 `ui-verify` drives the real cursor and keyboard, so it may not run while the
-operator is at the machine. It was run in a lunch window on 2026-08-18:
-**25 passed, 1 failed, 3 skipped.**
+operator is at the machine. Last run 2026-08-18 with the operator off the PC:
+**28 passed, 1 failed, 3 skipped.**
+
+★★ **It CAN type, and for months this project believed it could not.** Three of
+those checks are new and all three press keys: `add_text_takes_real_keystrokes`,
+`text_annot_takes_the_keyboard_unclicked`, `every_declared_chord_dispatches`.
+See the founding-rule section near the end of this file — the false belief is
+the single most expensive thing recorded in this repository so far, and the
+shape of how it survived matters more than the fix.
 
 ```bash
 cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
@@ -416,17 +423,63 @@ against a wrong diagnosis outlives the problem and hides it.**
 
 ---
 
-## The founding rule, and where this session falls short of it
+## ★★★ The founding rule, and the day it paid for itself
 
 > **Verify by driving the binary, not by a passing test.**
 
-**Both features shipped on 2026-08-18 are implemented and NOT DRIVEN.** The
-checks exist; the harness has not run; the operator's desktop was in use. That
-is stated plainly rather than softened, because this project was founded on a
-commit that said *"analysis-confirmed, NOT empirically verified"* and was
-treated as done anyway.
+**2026-08-18, second half: everything below was driven.** The operator handed
+over the machine and the harness ran. What it settled is worth reading before
+anything else in this file, because two of the three findings **contradict what
+a green test suite said an hour earlier**.
 
-What driving buys, from the session before, in four trace lines:
+### It falsified my own fix
+
+The morning's `dialogs::textannot` focus fix — latch on `has_focus()` rather
+than on having asked — has a headless regression test that fails on the old
+implementation and passes on the new. It looked like the operator's bug.
+
+`text_annot_takes_the_keyboard_unclicked` was then run against a binary built
+with the **old** latch. **It passed.** The dialog took the keyboard all along;
+the race the test constructs does not happen in the real frame. The fix stays,
+because asking for focus and holding it really are different facts and the
+bounded retry costs nothing — but **it is not the explanation**, and anyone
+reading the commit for that story should read this paragraph instead.
+
+### It found a defect no test could have
+
+`app::keyboard::commands` compared a per-frame modifier snapshot
+(`i.modifiers`) against a per-event fact (`Event::Key`). On a long frame — the
+application rasterizing a dense CAD sheet — a quick `Ctrl+Z` arrives with Ctrl
+already up and is silently dropped. It presented as *harness flakiness*: a
+different pair of chords dead on each run, and reordering the list moved which.
+
+### And it named what nobody was looking at
+
+Nine module headers in `tools/ui-verify` recorded, as a fact about the machine,
+that synthetic keyboard input does not reach the target window. It was inferred
+from `Ctrl+E` arming nothing — `Ctrl+E` being one of the fourteen chords the
+dispatcher never dispatched. Eight of those headers cited `checks::find_bar` as
+the source; `find_bar` **passes**, and its own report says *"control chord
+Ctrl+2 arrived, so the input channel works"*. The record contradicted itself in
+the same run report for months.
+
+**A constraint inferred about the environment is a reading, not a fact** — the
+operator's own standing rule, and this is the second time it has cost this
+project real work. A reading that stops people testing something is the
+expensive kind: while it stood, no check drove a chord; because none did,
+nothing contradicted it; and undo had no keyboard for months.
+
+---
+
+## Where a session can still fall short of it
+
+The morning half of 2026-08-18 shipped two features with checks written and
+**not run**, because the operator's desktop was in use. That is the normal
+state of this project between hand-overs, and it is stated plainly rather than
+softened: this project was founded on a commit that said *"analysis-confirmed,
+NOT empirically verified"* and was treated as done anyway.
+
+What driving buys, in four trace lines:
 
 ```
 Markup > Text box armed the text-annotation tool
