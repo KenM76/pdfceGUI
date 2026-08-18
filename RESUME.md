@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `ed58337`.** For a session starting cold
+**Written 2026-08-18, last revised at `b6e0e9a`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `ed58337`
+## ★★★ State, as measured at `b6e0e9a`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,12 +18,12 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `ed58337`, clean tree |
+| **Measured at** | `b6e0e9a`, clean tree |
 | **Engine** | `D:\Dev\pdfce` local `main`, locked at `e618d67`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | 1,846 passing, 0 failing |
+| **Tests** | 1,851 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | ★ **NOT RUN since `6dc6749`.** Two new checks are written and unrun — see the queue below |
-| **Latest build** | `D:\builds\pdfcegui-20260818-0823-e618d67-ed58337\`, mirrored to `OneDrive\pdfceGUI2` |
+| **Latest build** | see `D:\builds\` — the newest `pdfcegui-*` directory; two most recent mirrored to `OneDrive\pdfceGUI1` / `pdfceGUI2` |
 | **Requests owed by pdfce** | one `note_*`, filed by us and not blocking — `open/` otherwise empty |
 
 ## ★★ The harness queue — needs the operator's go-ahead
@@ -48,6 +48,21 @@ Both are written not to press the two buttons a harness must never press: the
 print commit (it consumes paper) and Properties… (a vendor driver's modal —
 unpublishable, un-dismissable, and one left standing hangs every check after
 it).
+
+### ★ Two things from 2026-08-18 that the harness CANNOT check, and why
+
+Not queue items. Recorded here so nobody adds a check for them and then
+wonders why it cannot be made to work.
+
+| change | why no check |
+|---|---|
+| **the crosshair cursor** | **Windows composites the pointer separately from window contents.** `BitBlt` and `PrintWindow` — the two ways `ui-verify` captures a window — return an image with **no cursor in it**, at any price. There is no pixel oracle. The substitute is a trace line, `cursor-crosshair on px=… / off`, emitted on change; it proves the wiring, not the legibility. Legibility was checked by rendering the glyph onto black, grey and white and looking at it — `evidence/crosshair-32.png`, `-64.png` |
+| **the executable's icon** | It is read by the **shell**, from the PE image, without the program running. Nothing a harness that drives the running program can observe. Verified instead by extracting it back out of the built exe with Windows' own `ExtractAssociatedIcon` — `evidence/embedded-icon-check.png` — which is stronger evidence than a screenshot would have been, because it is the same API Explorer uses |
+
+Both are also **loudly visible to the operator on first use**, which is the
+other half of the calculus: R1 exists for defects that a green suite hides, and
+a white crosshair or a missing icon is not one of those. The print and page-size
+work above is.
 
 **Re-measure before you rely on any of it.** Prose drifting from a number is a
 defect this project has spent seven corrections on — the gate runner's own
