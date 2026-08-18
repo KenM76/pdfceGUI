@@ -165,7 +165,6 @@ timestamp and means something else is writing there.
 from __future__ import annotations
 
 import argparse
-import datetime
 import hashlib
 import os
 import re
@@ -1128,7 +1127,7 @@ def main() -> int:
         # `%z` is emitted as an explicit offset rather than a zone abbreviation:
         # abbreviations are ambiguous across regions and the offset never is.
         build_env = os.environ.copy()
-        build_env["PDFCE_BUILD_STAMP"] = datetime.datetime.now().astimezone().strftime(
+        build_env["PDFCE_BUILD_STAMP"] = datetime.now().astimezone().strftime(
             "%Y-%m-%d %H:%M %z"
         )
         rc = subprocess.run(
