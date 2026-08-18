@@ -22,48 +22,65 @@ it. It is here so you know roughly where you are, not so you can quote it.
 | **Engine** | `D:\Dev\pdfce` local `main`, locked at `4993559`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
 | **Tests** | 1,856 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | ★ **NOT RUN since `6dc6749`.** Two new checks are written and unrun — see the queue below |
+| **`ui-verify`** | **25 passed · 1 failed · 3 skipped**, run 2026-08-18 in the operator's lunch window. The one failure is a HARNESS gap — see below |
 | **Latest build** | `D:\builds\pdfcegui-20260818-1125-4993559-077a6c2\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
 | **Requests owed by pdfce** | one `note_*`, filed by us and not blocking — `open/` otherwise empty |
 
-## ★★ The harness queue — needs the operator's go-ahead
+## ★★ The harness — last run 2026-08-18, and what it found
 
 `ui-verify` drives the real cursor and keyboard, so it may not run while the
-operator is at the machine. Two checks were written this session and **neither
-has ever executed**. Under R1 that means both features are **implemented and
-unverified**, and they must be reported in exactly those words until the queue
-is run.
+operator is at the machine. It was run in a lunch window on 2026-08-18:
+**25 passed, 1 failed, 3 skipped.**
 
 ```bash
 cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
-  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500
+  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
 ```
 
-| check | asserts |
+★ **Redirect to a file.** The first attempt piped through `tail`, which threw
+away the failure detail and cost a second run of the operator's window. The
+second run was skipped wholesale as STALE because a source file was edited
+while it was in flight — **finish the edits, rebuild, then run.**
+
+### The one failure, and it is the harness rather than the application
+
+`print_dialog_reaches_the_spooler` reported that the File tab declares no
+`ribbon.item.file.print`. It does not — at **1100 pt**, the harness's window
+width, the ribbon has correctly folded the **Print, Document and pdfce groups
+into the overflow**, and `ribbon.overflow` is declared in the same frame.
+
+Two things are true and both matter:
+
+1. **The check has a gap.** `settings_headings_legible` meets the same
+   condition in the same run and handles it — *"the Settings control is not on
+   the ribbon band at this window width … Opening the overflow to reach it."*
+   The print check needs the same step. `print_paper_changes_the_plan` skips
+   for the same reason and defers to it, correctly.
+2. **`file.new_from_template` made the File band one item wider** on
+   2026-08-18, which is what tipped it over at that width. On a wide window
+   Print is still on the band; it was not verified at the operator's own window
+   size.
+
+**Fix the check first**, and only then decide whether the size chooser has
+earned a place on the band — that is an IA question for the operator, not a
+build session's.
+
+### The three skips are honest and named
+
+| check | why |
 |---|---|
-| `print_paper_changes_the_plan` | choosing a paper size re-plans the job — `paper=` and `sheet=` on one trace line must BOTH move. Also that the Properties… button is drawn |
-| `new_document_sizes_the_page` | New from template ▸ A3 ▸ Landscape produces a 420 × 297 mm page, read back **after the re-parse** |
-| **annotation selection — NOT YET WRITTEN** | ★ the largest undriven thing here. A check should: open a fixture with markup, switch to Review, click a stamp, assert `annot-select id=… kind=…`, press Delete, assert the page carries one fewer annotation. Every trace line it needs already exists |
+| `page_ops_round_trip` | the fixture already carries 36 `/Rotate` entries, so the evidence would be indistinguishable from the document's own furniture. Point `--pdf` at `D:\Dev\pdfce\fixtures\pageops\four-pages.pdf` |
+| `ocr_recognises_a_page_and_writes_a_new_file` | needs the `models/ocrs` weights beside the exe, i.e. a **packaged** build |
+| `print_paper_changes_the_plan` | blocked by the failure above, and says so |
 
-Both are written not to press the two buttons a harness must never press: the
-print commit (it consumes paper) and Properties… (a vendor driver's modal —
-unpublishable, un-dismissable, and one left standing hangs every check after
-it).
+### Still not written
 
-### ★ Two things from 2026-08-18 that the harness CANNOT check, and why
-
-Not queue items. Recorded here so nobody adds a check for them and then
-wonders why it cannot be made to work.
-
-| change | why no check |
-|---|---|
-| **the crosshair cursor** | **Windows composites the pointer separately from window contents.** `BitBlt` and `PrintWindow` — the two ways `ui-verify` captures a window — return an image with **no cursor in it**, at any price. There is no pixel oracle. The substitute is a trace line, `cursor-crosshair on px=… / off`, emitted on change; it proves the wiring, not the legibility. Legibility was checked by rendering the glyph onto black, grey and white and looking at it — `evidence/crosshair-32.png`, `-64.png` |
-| **the executable's icon** | It is read by the **shell**, from the PE image, without the program running. Nothing a harness that drives the running program can observe. Verified instead by extracting it back out of the built exe with Windows' own `ExtractAssociatedIcon` — `evidence/embedded-icon-check.png` — which is stronger evidence than a screenshot would have been, because it is the same API Explorer uses |
-
-Both are also **loudly visible to the operator on first use**, which is the
-other half of the calculus: R1 exists for defects that a green suite hides, and
-a white crosshair or a missing icon is not one of those. The print and page-size
-work above is.
+An **annotation-selection** check — click a stamp, assert `annot-select`, press
+Delete, assert one fewer annotation. Every trace line it needs already exists.
+And a check that **types for real**: the text-editing check seeds its draft
+through `PDFCE_DIAG_TYPE`, which is the one path that bypasses the event loop,
+so it would pass on a build where typing is dead — which is what the operator
+reported on 2026-08-18.
 
 **Re-measure before you rely on any of it.** Prose drifting from a number is a
 defect this project has spent seven corrections on — the gate runner's own
