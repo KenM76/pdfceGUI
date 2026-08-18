@@ -131,6 +131,10 @@
 // Filling an interactive form where it is drawn: the boxes, the hit test that
 // deliberately takes no tolerance, and the one editor a focused field gets.
 pub mod forms;
+// pdfce's OWN crosshair bitmap, supplied to the OS as a real cursor. The
+// platform's stock crosshair is monochrome and its colour belongs to the
+// operator's pointer scheme, which is how it came to be white on white paper.
+pub mod cursor;
 pub mod geometry;
 pub mod gesture;
 // Draggable alignment lines: what a guide belongs to, where it lives on disk,

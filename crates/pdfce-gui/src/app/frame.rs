@@ -187,6 +187,26 @@ impl eframe::App for PdfceApp {
             ctx.set_zoom_factor(ui_scale);
         }
 
+        // ★ Step 0c — clear any bitmap cursor, BEFORE anything draws.
+        //
+        // `egui::PlatformOutput::take` keeps `cursor_image` across frames —
+        // *"sticky between frames"*, in its own comment — and `egui-winit`'s
+        // `apply_cursor` prefers the image over `cursor_icon` whenever one is
+        // present. So a bitmap set once by the canvas outlives every later
+        // `set_cursor_icon` from anywhere in the application: the crosshair
+        // would follow the pointer onto the ribbon, into the panels, over the
+        // scrollbars, and stay there after the document was closed.
+        //
+        // One place resets and one place asks. `canvas::interact` re-asserts it
+        // on the frames it wants it, which is strictly later in this function,
+        // so a frame where the canvas does not run — no document, or a full
+        // overlay — cannot leave a stale cursor behind. That last case is the
+        // one a "clear it when the tool retires" version would miss.
+        //
+        // Costs one `Option` write per frame. See `canvas::cursor` for why the
+        // application supplies its own crosshair at all.
+        ctx.set_cursor_image(None);
+
         // Step 1 — keyboard, before any widget can consume a key.
         let page_count = match &self.status {
             Status::Open(doc) => Some(doc.pages.len()),

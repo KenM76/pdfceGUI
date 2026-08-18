@@ -1309,15 +1309,39 @@ pub(super) fn interact(
     // the hand pans the grey surround as readily as the paper.
     let pointer_down = ctx.input(|i| i.pointer.primary_down() || i.pointer.middle_down());
     let over_canvas = ctx.pointer_latest_pos().is_some_and(|p| clip.contains(p));
-    if let Some(icon) = tool::cursor_for(
+    let icon = tool::cursor_for(
         active_tool,
         gestures.active(),
         hovered_grip.filter(|_| response.hovered()),
         pointer_down,
         over_canvas,
-    ) {
+    );
+    if let Some(icon) = icon {
         ctx.set_cursor_icon(icon);
     }
+
+    // ★ …and where that answer is a CROSSHAIR, supply our own bitmap.
+    //
+    // The operator, 2026-08-18: *"The crosshairs when over the canvas are white
+    // making it hard to see them."* Nothing in this crate drew them — the
+    // platform's stock crosshair is monochrome and its colour belongs to the
+    // operator's pointer scheme, which no application can read. So pdfce stops
+    // asking for it and hands the OS a two-tone bitmap instead; the full
+    // argument, including why it is not inverted and why the two tones are not
+    // theme colours, is in `canvas::cursor`'s header.
+    //
+    // The icon is still set above and is the **fallback**: `egui-winit` drops
+    // to `cursor_icon` on any integration or platform that cannot take a
+    // bitmap, so the stock crosshair remains the answer where ours cannot be.
+    //
+    // Only set here, never cleared here. `app::frame` clears it once per frame
+    // before anything draws — see the note there for why a canvas-local clear
+    // would miss the frames that matter. `cursor::apply` also emits the one
+    // trace line this feature has, because a cursor is the one thing in this
+    // application a screenshot cannot contain: Windows composites the pointer
+    // separately, so `ui-verify`'s window capture returns an image with no
+    // cursor in it at any price.
+    crate::canvas::cursor::apply(&ctx, icon == Some(egui::CursorIcon::Crosshair));
 
     let count = selection.len();
     // Back onto the document, by value. Moved rather than cloned: a marquee
