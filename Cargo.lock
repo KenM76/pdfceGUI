@@ -2319,7 +2319,7 @@ dependencies = [
 [[package]]
 name = "pdfce-core"
 version = "0.7.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#ac1515808e7e63daf6a33fc7c02604d006f72f25"
+source = "git+file:///D:/Dev/pdfce?branch=main#e618d6746ace9df68602bd846743498b0649c81a"
 dependencies = [
  "aes",
  "cbc",
@@ -2354,7 +2354,7 @@ dependencies = [
 [[package]]
 name = "pdfce-print"
 version = "0.7.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#ac1515808e7e63daf6a33fc7c02604d006f72f25"
+source = "git+file:///D:/Dev/pdfce?branch=main#e618d6746ace9df68602bd846743498b0649c81a"
 dependencies = [
  "thiserror 2.0.20",
  "windows",
@@ -2363,7 +2363,7 @@ dependencies = [
 [[package]]
 name = "pdfce-render"
 version = "0.7.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#ac1515808e7e63daf6a33fc7c02604d006f72f25"
+source = "git+file:///D:/Dev/pdfce?branch=main#e618d6746ace9df68602bd846743498b0649c81a"
 dependencies = [
  "pdfce-core",
  "skrifa",

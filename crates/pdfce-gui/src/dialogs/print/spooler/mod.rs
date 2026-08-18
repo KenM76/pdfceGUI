@@ -1,12 +1,27 @@
-//! # `dialogs::print::spooler` — the one file that knows `pdfce-print` exists
+//! # `dialogs::print::spooler` — the one module that knows `pdfce-print` exists
 //!
 //! ## ★ Read this first: this module is the ADAPTER, and it is now live
 //!
 //! Everything else in [`crate::dialogs::print`] — the three tabs, the range
 //! parser, the zoom anchor, the preview raster cache, the clip disclosure,
-//! the commit button's label — is written against the types *in this file*.
+//! the commit button's label — is written against the types *in here*.
 //! Nothing else in the dialog names a printing type, which is what confined
 //! the whole "make printing work" change to this one module.
+//!
+//! ## Two files, and where the seam is
+//!
+//! This was one file until 2026-08-18, when the paper-selection work would
+//! have carried it past R2's 1,500-line limit. It split on a seam that was
+//! already there:
+//!
+//! | file | subject | changes when |
+//! |---|---|---|
+//! | this one | **the job** — which pages, at what size, in what order, placed where | the layout arithmetic changes |
+//! | [`device`] | **the device** — which printers exist, what each can do, which sheets it offers, what its driver holds | the way a device is interrogated changes |
+//!
+//! [`device`]'s types are re-exported here, so every caller still says
+//! `spooler::Printer` and `spooler::device_features`. See the re-export's own
+//! note for why the seam is not pushed out to the call sites.
 //!
 //! ## ★ The defect this file carried for the whole of v0.1.0, recorded
 //!
@@ -88,6 +103,18 @@
 //! owes.
 
 use std::fmt;
+
+mod device;
+
+// ★ Re-exported rather than left as `spooler::device::…`.
+//
+// The dialog is written against `spooler::` as ONE vocabulary, and it was
+// written that way before this module became a directory. A split that made
+// forty call sites choose between two paths would have moved a private
+// implementation detail — where a type happens to live — into every file
+// that names one. The seam is real and worth having; it is not worth
+// spending the caller's attention on.
+pub(crate) use device::{DeviceFeatures, Printer, device_features, list_printers};
 
 // ---------------------------------------------------------------------------
 // Failure
@@ -278,45 +305,8 @@ pub(crate) struct DeviceSettings {
 }
 
 // ---------------------------------------------------------------------------
-// Device description — what comes back
+// Job description — what comes back
 // ---------------------------------------------------------------------------
-
-/// One printer the system knows about. Maps to `pdfce_print::Printer`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Printer {
-    /// The name the spooler reports, and the one a job is addressed to.
-    pub(crate) name: String,
-    /// The driver's name.
-    ///
-    /// Carried because two printers can share a human-readable name closely
-    /// enough that an operator cannot tell them apart, and the driver usually
-    /// distinguishes them. Traced rather than shown today: the selector is a
-    /// combo of names, and a two-line row is a change to make on evidence
-    /// that the ambiguity actually bites.
-    pub(crate) driver: String,
-    /// The port, for the same reason as [`Self::driver`].
-    pub(crate) port: String,
-    /// Whether this is the system default — the dialog's initial selection.
-    pub(crate) is_default: bool,
-}
-
-/// What a device says it can do, beyond geometry.
-///
-/// Maps to `pdfce_print::DeviceFeatures`. Read **once**, when the dialog
-/// opens: asking a driver this question sixty times a second while a dialog
-/// sits open would be rude to a service other applications share.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct DeviceFeatures {
-    /// The driver reports duplex support. The dialog draws no duplex control
-    /// without it (R83).
-    pub(crate) supports_duplex: bool,
-    /// How many copies the driver can produce itself.
-    ///
-    /// **Reported, not used.** pdfce sends its own sequence today, so this is
-    /// carried to the trace so a later decision about hardware collation can
-    /// be made on evidence rather than on assumption.
-    pub(crate) max_copies: u16,
-}
 
 /// The sheet, the printable area within it, and the resolution — **already
 /// turned for this job's orientation**.
@@ -647,68 +637,14 @@ fn to_engine_bitmap(bitmap: &PageBitmap) -> pdfce_print::PageBitmap {
 }
 
 // ---------------------------------------------------------------------------
-// The four calls into the engine
+// The two calls that DO the job
 // ---------------------------------------------------------------------------
 //
-// These were four holes with refusals in them for the whole of v0.1.0; see
-// the module header for what that cost and why. Nothing here computes a
-// placement, a sequence or a resolution — see the module docs on why a second
-// implementation of any of those is worse than no implementation at all.
-
-/// Enumerate the system's printers.
-///
-/// Called **once**, when the dialog opens — enumerating printers touches the
-/// spooler, and doing it per frame while a dialog sits open would be rude to
-/// a service other applications share. [`super::PrintDialog::new`] is the
-/// only caller and it stores the result.
-///
-/// # Errors
-///
-/// [`Unavailable::Spooler`] when the spooler could not be queried at all,
-/// which on a non-Windows target is always (`PrintError::Unsupported`).
-///
-/// **An empty `Vec` is `Ok`, not an error.** A machine with no printers
-/// installed is a normal machine; see [`Unavailable`]'s own documentation for
-/// why the type has nowhere to put that case.
-pub(crate) fn list_printers() -> Result<Vec<Printer>, Unavailable> {
-    match pdfce_print::list_printers() {
-        Ok(found) => Ok(found
-            .into_iter()
-            .map(|printer| Printer {
-                name: printer.name,
-                driver: printer.driver,
-                port: printer.port,
-                is_default: printer.is_default,
-            })
-            .collect()),
-        Err(error) => Err(Unavailable::Spooler(error.to_string())),
-    }
-}
-
-/// Read one device's non-geometric capabilities.
-///
-/// Consulted **before** offering the duplex control at all (R83), never
-/// after. [`super::PrintDialog::refresh_features`] calls it once per change
-/// of the selected printer — which is the fix for a defect the old shell
-/// still carries: it read features only for the *initially* selected device
-/// and never again, so switching printers left the duplex control gated on
-/// the previous one's capabilities.
-///
-/// # Errors
-///
-/// [`Unavailable::Spooler`] when the driver would not answer. The caller
-/// falls back to [`DeviceFeatures::default`] — `supports_duplex: false` —
-/// which is the safe direction: a device that cannot describe itself gets no
-/// duplex control, rather than a control that may silently do nothing.
-pub(crate) fn device_features(printer: &str) -> Result<DeviceFeatures, Unavailable> {
-    match pdfce_print::device_features(printer) {
-        Ok(features) => Ok(DeviceFeatures {
-            supports_duplex: features.supports_duplex,
-            max_copies: features.max_copies,
-        }),
-        Err(error) => Err(Unavailable::Spooler(error.to_string())),
-    }
-}
+// These, and the two device queries in [`device`], were four holes with
+// refusals in them for the whole of v0.1.0; see the module header for what
+// that cost and why. Nothing here computes a placement, a sequence or a
+// resolution — see the module docs on why a second implementation of any of
+// those is worse than no implementation at all.
 
 /// Plan the whole job: turn the geometry, resolve the resolution, place every
 /// page.
