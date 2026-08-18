@@ -790,6 +790,31 @@ def main() -> int:
             print("           otherwise this build is older than the engine repository.")
         elif before and after and before != after:
             print(f"  engine {before[:7]} -> {after[:7]}")
+            # ★ The trap this automation creates, and it caught its author
+            # within one run of being written.
+            #
+            # Updating the engine as a build step means the revision that
+            # SHIPS can differ from the one whatever tests were last run
+            # against — including a `cargo test` the operator ran by hand five
+            # minutes earlier, and including the revision quoted in a `--note`
+            # typed before the update happened. Both went wrong on the first
+            # real use: the note said `3c4c00e`, the binary linked `0d6f4ac`.
+            #
+            # `--verify` closes it, because the update runs BEFORE the identity
+            # block and therefore before verification. Without it, say so — a
+            # build whose engine moved under it and was never re-tested is
+            # exactly the state `BUILD-INFO.txt`'s verification line exists to
+            # report, and a warning here reaches the person who can still act.
+            if not args.verify:
+                print(
+                    "  WARNING: the engine MOVED and --verify was not passed, so nothing"
+                )
+                print(
+                    "           has been tested against the revision this build will link."
+                )
+                print(
+                    "           Re-run with --verify, and check any revision quoted in --note."
+                )
         else:
             print("  engine already at the latest commit")
 
