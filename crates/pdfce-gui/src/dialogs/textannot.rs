@@ -79,15 +79,39 @@ pub struct TextAnnotDialog {
     accept_requested: bool,
     /// Set by Cancel, consumed by [`Self::show`].
     close_requested: bool,
-    /// Whether the text field has been focused yet.
+    /// Whether the text field has been **observed holding** focus.
     ///
-    /// ★ One-shot, and it exists because a dialog that asks a question should
-    /// put the caret where the answer goes. Without it the operator draws a
-    /// box, a window appears asking what it should say, and they have to click
-    /// into the field before they can type — which is a step the window itself
-    /// created.
+    /// ★ It exists because a dialog that asks a question should put the caret
+    /// where the answer goes. Without it the operator draws a box, a window
+    /// appears asking what it should say, and they have to click into the field
+    /// before they can type — which is a step the window itself created.
+    ///
+    /// ★★ Note what it records: that the field **has** focus, not that focus
+    /// was **requested**. Those were conflated, and the difference is the whole
+    /// defect — see [`Self::field`].
     focused_once: bool,
+    /// How many frames have asked for focus without getting it.
+    ///
+    /// Bounds the retry, so a field that can never take focus cannot fight the
+    /// operator for the rest of the dialog's life. See
+    /// [`FOCUS_ATTEMPT_FRAMES`].
+    focus_attempts: u8,
 }
+
+/// **How many frames may ask for the text field's focus before giving up.**
+///
+/// The retry exists because the dialog's first frame races the pointer release
+/// that opened it (see [`TextAnnotDialog::field`]); it is bounded because
+/// asking forever would take focus back from Cancel and from the stamp gallery,
+/// and a window that cannot be dismissed is worse than one that cannot be typed
+/// into.
+///
+/// Eight frames is a shade over a tenth of a second at 60 Hz — longer than any
+/// number of frames a release takes to resolve, and far shorter than a human
+/// noticing the window and reaching for the mouse. Nothing here depends on the
+/// exact value; it only has to sit inside that gap, which is two orders of
+/// magnitude wide.
+const FOCUS_ATTEMPT_FRAMES: u8 = 8;
 
 impl TextAnnotDialog {
     /// Open for a placed annotation.
@@ -110,6 +134,7 @@ impl TextAnnotDialog {
             accept_requested: false,
             close_requested: false,
             focused_once: false,
+            focus_attempts: 0,
         }
     }
 
@@ -198,11 +223,39 @@ impl TextAnnotDialog {
                 .char_limit(MAX_TEXT_CHARS),
         );
         crate::diag::ui_rect(REGION_TEXT, response.rect);
-        // One-shot focus — see the field's docs. `request_focus` every frame
-        // would fight anything else the operator clicked, including Cancel.
+        // ★★ **Ask until the field actually HOLDS focus — not once.**
+        //
+        // This used to latch on having *asked*: `request_focus(); focused_once
+        // = true;`. Asking and holding are different facts, and the gap between
+        // them is a window the operator types into and nothing happens.
+        //
+        // The dialog's first frame is the frame **after** the gesture that
+        // opened it — `Action::BeginTextAnnot` is raised by the canvas and
+        // applied when the queue drains, so the pointer release that finished
+        // the drag is still being resolved around the request. A request that
+        // loses that race was never retried, because the latch had already been
+        // set by the asking; the field then sat there looking like the place to
+        // type while every keystroke went somewhere else. The operator's report
+        // was *"it doesn't type anything in the box when I type"*.
+        //
+        // ★ Why it is bounded, and not simply "ask whenever unfocused". The
+        // original comment's objection is still correct — `request_focus` every
+        // frame would fight anything the operator clicked, including Cancel, and
+        // a dialog that cannot be cancelled is worse than one that cannot be
+        // typed into. So the retry is limited to [`FOCUS_ATTEMPT_FRAMES`], which
+        // is long enough to outlast the release being resolved and far short of
+        // a human reaching for the mouse.
+        //
+        // ★ And it latches on `has_focus()` rather than counting down, so the
+        // common case costs exactly one request: the frame after a successful
+        // one observes focus and stops asking for good.
         if !self.focused_once {
-            response.request_focus();
-            self.focused_once = true;
+            if response.has_focus() {
+                self.focused_once = true;
+            } else if self.focus_attempts < FOCUS_ATTEMPT_FRAMES {
+                self.focus_attempts += 1;
+                response.request_focus();
+            }
         }
         ui.label(egui::RichText::new(t::bound(self.kind)).small().weak());
     }
@@ -230,6 +283,35 @@ mod tests {
             lly: 0.0,
             urx: 100.0,
             ury: 40.0,
+        }
+    }
+
+    /// **A `RawInput` describing a real screen at a deterministic time.**
+    ///
+    /// Two fields of `RawInput::default()` are wrong for driving this dialog,
+    /// and each cost a debugging round when it was left alone.
+    ///
+    /// **`screen_rect` is `None`.** This dialog sizes itself from
+    /// `content_rect` — `420.min(width - 40)` — so a default input hands
+    /// `egui::Window` a degenerate size and the field inside it a width nothing
+    /// can be focused in. A test that lays out differently from the application
+    /// is measuring a different program.
+    ///
+    /// **`time` is `None`, and egui then fills it from the wall clock.** That
+    /// makes frame timing depend on how loaded the machine is, so a test that
+    /// drives several frames is reproducible when run alone and intermittent
+    /// when run beside a thousand others — which is precisely the flake that
+    /// gets re-run until it is green and then believed. Time is supplied here,
+    /// one 60 Hz tick per frame, so the sequence is the same every time.
+    fn on_screen(frame: u32) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            time: Some(f64::from(frame) / 60.0),
+            predicted_dt: 1.0 / 60.0,
+            ..Default::default()
         }
     }
 
@@ -290,18 +372,118 @@ mod tests {
         let mut d = TextAnnotDialog::open(0, TextAnnotKind::TextBox, rect());
         let mut actions = Vec::new();
 
-        // Frame 1: the field is created and requests focus.
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        // Frame 0: the field is created and requests focus.
+        let _ = ctx.run_ui(on_screen(0), |ui| {
             d.show(ui.ctx(), &mut actions);
         });
 
-        // Frame 2: a real keystroke, the way a keyboard delivers one.
-        let mut input = egui::RawInput::default();
+        // Frame 1: a real keystroke, the way a keyboard delivers one.
+        let mut input = on_screen(1);
         input.events.push(egui::Event::Text("h".to_owned()));
         let _ = ctx.run_ui(input, |ui| {
             d.show(ui.ctx(), &mut actions);
         });
 
         assert_eq!(d.text, "h", "the window took the keystroke");
+    }
+
+    /// ★★ **The regression test: focus LOST on the opening frame is re-taken.**
+    ///
+    /// The defect this replaced latched on having *asked* for focus rather than
+    /// on holding it, so a request that lost its frame was never retried and
+    /// the field sat there looking typeable while every keystroke went
+    /// elsewhere. That is unreachable in a bare `egui::Context` — the request
+    /// always wins when nothing competes — which is why the test above passed
+    /// on the broken build and why this one takes the focus away by hand.
+    ///
+    /// The theft models what the real frame does: the dialog's first draw is
+    /// the frame AFTER the gesture that opened it, so the pointer release that
+    /// finished the drag is still being resolved around the request.
+    #[test]
+    fn focus_stolen_on_the_opening_frame_is_taken_back() {
+        let ctx = egui::Context::default();
+        let mut d = TextAnnotDialog::open(0, TextAnnotKind::TextBox, rect());
+        let mut actions = Vec::new();
+        let thief = egui::Id::new("whatever-won-the-release");
+
+        // Frame 0: the dialog draws and asks for focus...
+        let _ = ctx.run_ui(on_screen(0), |ui| {
+            d.show(ui.ctx(), &mut actions);
+        });
+        // ...and loses it, the way a release being resolved would take it.
+        ctx.memory_mut(|m| m.request_focus(thief));
+
+        // The retry frames. Bounded by the budget rather than assuming one
+        // frame is enough: when two widgets ask for focus in the same pass egui
+        // keeps the earlier request, so the field can need a second attempt to
+        // win it back. The claim under test is *"within the budget"*, which is
+        // what the production code promises - not *"on the very next frame"*.
+        for frame in 1..=u32::from(FOCUS_ATTEMPT_FRAMES) {
+            let _ = ctx.run_ui(on_screen(frame), |ui| {
+                d.show(ui.ctx(), &mut actions);
+            });
+        }
+
+        // The keystroke, which is the assertion that matters -- "focus was
+        // requested" is the very claim that shipped broken.
+        let mut input = on_screen(u32::from(FOCUS_ATTEMPT_FRAMES) + 1);
+        input.events.push(egui::Event::Text("h".to_owned()));
+        let _ = ctx.run_ui(input, |ui| {
+            d.show(ui.ctx(), &mut actions);
+        });
+
+        assert_eq!(
+            d.text, "h",
+            "the field lost focus on its opening frame and never took it back, so the operator \
+             types into a window that is ignoring them"
+        );
+    }
+
+    /// ★ ...and the retry is BOUNDED, so Cancel stays clickable.
+    ///
+    /// The objection the original one-shot latch was written to answer, and it
+    /// is still correct: a field that asks for focus every frame takes it back
+    /// from whatever the operator clicked, and a window that cannot be
+    /// dismissed is worse than one that cannot be typed into.
+    ///
+    /// The competitor is a **real drawn button**, not a bare `Id`. egui drops
+    /// focus for an id no widget registered that frame, so focusing an invented
+    /// id proves nothing about who won — it only proves egui tidied up.
+    #[test]
+    fn the_focus_retry_gives_up_so_another_control_can_hold_it() {
+        let ctx = egui::Context::default();
+        let mut d = TextAnnotDialog::open(0, TextAnnotKind::TextBox, rect());
+        let mut actions = Vec::new();
+        let mut other = None;
+
+        // A real button, drawn every frame beside the dialog, taking focus the
+        // way a control the operator clicked would. Its id is read back from
+        // the `Response` rather than invented, so the assertion names the
+        // widget egui actually registered.
+        let mut n = 0;
+        let mut frame = |steal: bool, d: &mut TextAnnotDialog, other: &mut Option<egui::Id>| {
+            n += 1;
+            let _ = ctx.run_ui(on_screen(n), |ui| {
+                d.show(ui.ctx(), &mut actions);
+                let r = ui.button("Cancel");
+                *other = Some(r.id);
+                if steal {
+                    r.request_focus();
+                }
+            });
+        };
+
+        // Outlast the budget, taking focus back every single frame.
+        for _ in 0..(FOCUS_ATTEMPT_FRAMES as usize + 2) {
+            frame(true, &mut d, &mut other);
+        }
+        // One more frame with nobody competing: the field must NOT grab it.
+        frame(false, &mut d, &mut other);
+
+        assert_eq!(
+            ctx.memory(|m| m.focused()),
+            other,
+            "the field kept grabbing focus back, so nothing else in the window can be used"
+        );
     }
 }
