@@ -183,11 +183,16 @@ impl PdfceApp {
                         format!("command-declined id={id} reason=mode-cannot-edit-content")
                     });
                 } else if let Status::Open(doc) = &self.status {
-                    let after_page = doc.view.page_index;
+                    let current = doc.view.page_index;
                     if let crate::app::files::Picked::Path(path) =
                         crate::app::files::pick_insert_source()
                     {
-                        actions.push(Action::InsertPagesFromFile { path, after_page });
+                        // ★ Count the source's pages HERE, before the dialog
+                        // opens, so it can say "4 pages" rather than asking the
+                        // operator to commit to a file they have not seen
+                        // inside. A file that will not open is reported now
+                        // instead of after a dialog they filled in.
+                        self.dialogs.open_insert_pages(path, current);
                     }
                 }
             }

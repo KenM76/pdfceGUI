@@ -426,3 +426,127 @@ pub fn insert_failed(detail: &str) -> String {
 pub const fn insert_empty() -> &'static str {
     "That PDF has no pages, so nothing was inserted."
 }
+
+/// The insert dialog's window title.
+#[must_use]
+pub const fn insert_window_title() -> &'static str {
+    "Insert pages"
+}
+
+/// Which file, and how big it is — the first thing the dialog says.
+///
+/// The **count is the point**. An operator about to insert a document they
+/// picked from a folder has no other way to know whether it is the four-page
+/// revision or the forty-page one, and finding out afterwards means an undo.
+#[must_use]
+pub fn insert_source(name: &str, pages: usize) -> String {
+    if pages == 1 {
+        format!("{name} — 1 page")
+    } else {
+        format!("{name} — {pages} pages")
+    }
+}
+
+/// Heading over the which-pages radios.
+#[must_use]
+pub const fn insert_which_heading() -> &'static str {
+    "Pages to insert"
+}
+
+/// The take-everything option, with the count in it.
+#[must_use]
+pub fn insert_all(pages: usize) -> String {
+    if pages == 1 {
+        "All (1 page)".to_owned()
+    } else {
+        format!("All ({pages} pages)")
+    }
+}
+
+/// The typed-range option.
+#[must_use]
+pub const fn insert_range() -> &'static str {
+    "Pages"
+}
+
+/// What the range field accepts, shown only while it is selected.
+///
+/// It states the two behaviours that surprise people, because both are useful
+/// here rather than merely tolerated: a range is a **sequence**, so `3,1-2`
+/// inserts page 3 first, and it is not de-duplicated, so `1,1` inserts a page
+/// twice. An operator who wants either has no other way to ask for it in one
+/// gesture.
+#[must_use]
+pub const fn insert_range_hint() -> &'static str {
+    "e.g. 1-4 or 3,1-2. They are inserted in the order you type, and a page may be listed twice."
+}
+
+/// The range does not name any page of the source.
+///
+/// One sentence for every way it can fail — a number past the end, a backwards
+/// range, a typo — because the remedy is the same for all of them and the
+/// source's own page count is already on screen two lines above.
+#[must_use]
+pub const fn insert_range_unparsable() -> &'static str {
+    "That does not name any page of this file, so there is nothing to insert."
+}
+
+/// Heading over the where-it-goes radios.
+#[must_use]
+pub const fn insert_where_heading() -> &'static str {
+    "Where"
+}
+
+/// After the page the operator was looking at. **The default.**
+#[must_use]
+pub fn insert_after_page(page_number: usize) -> String {
+    format!("After page {page_number}")
+}
+
+/// Before it.
+#[must_use]
+pub fn insert_before_page(page_number: usize) -> String {
+    format!("Before page {page_number}")
+}
+
+/// Before every existing page.
+#[must_use]
+pub const fn insert_at_start() -> &'static str {
+    "At the start of the document"
+}
+
+/// After every existing page.
+#[must_use]
+pub const fn insert_at_end() -> &'static str {
+    "At the end of the document"
+}
+
+/// How many pages the current choice would insert.
+#[must_use]
+pub fn insert_summary(count: usize) -> String {
+    if count == 1 {
+        "1 page will be inserted.".to_owned()
+    } else {
+        format!("{count} pages will be inserted.")
+    }
+}
+
+/// The commit button, with the count in its own label.
+///
+/// The count is on the control rather than beside it, for the reason the print
+/// dialog's commit button carries its clip count: it is on the thing the
+/// operator's hand is already on, where it cannot be looked past.
+#[must_use]
+pub fn insert_commit(count: usize) -> String {
+    if count == 1 {
+        "Insert 1 page".to_owned()
+    } else {
+        format!("Insert {count} pages")
+    }
+}
+
+/// The dialog's Cancel.
+#[must_use]
+pub const fn insert_cancel() -> &'static str {
+    "Cancel"
+}

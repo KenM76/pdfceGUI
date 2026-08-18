@@ -64,6 +64,7 @@ pub mod about;
 /// with the page currently on the canvas, with the room the status bar's one
 /// elided line does not have.
 pub mod diagnostics;
+pub mod insert_pages;
 pub mod new_document;
 pub mod ocr;
 pub mod print;
@@ -194,6 +195,14 @@ pub struct DialogsState {
     /// actively harmful to close, because the document it is about to make is
     /// how the operator gets out of the empty state.
     new_document: Option<new_document::NewDocumentDialog>,
+
+    /// The insert dialog, when one is open.
+    ///
+    /// **Document-scoped**: it inserts into the open document, so closing that
+    /// document closes it. It sits in this group rather than beside About for
+    /// the reason the group exists — a dialog configuring an edit to a file
+    /// that is no longer open is configuring nothing.
+    insert_pages: Option<insert_pages::InsertPagesDialog>,
 }
 
 impl DialogsState {
@@ -428,6 +437,54 @@ impl DialogsState {
     /// ribbon control part-way through would silently reset all four to A4
     /// portrait — the operator's own choices, discarded by the control they
     /// pressed to look at them.
+    /// Open the insert dialog for `path`, having counted its pages.
+    ///
+    /// **The dispatch target for `pages.insert_from_file`, after the picker.**
+    ///
+    /// # ★ Why the page count is read here and not in the dialog
+    ///
+    /// Because a file that will not open must be reported **instead of** the
+    /// dialog, not after the operator has filled one in. Opening a window that
+    /// says "0 pages" and refuses its own commit button would be a surface
+    /// asking a question that cannot be answered.
+    ///
+    /// The load is cheap relative to what follows — the same file is opened
+    /// again by the insert itself — and a document parsed twice is the honest
+    /// trade for a dialog that can state a fact before the operator commits.
+    pub fn open_insert_pages(&mut self, path: std::path::PathBuf, current_page: usize) {
+        if self.insert_pages.is_some() {
+            return;
+        }
+        let count = match pdfce_core::document::Document::load(&path) {
+            Ok(doc) => pdfce_core::page_tree::pages(&doc).map_or(0, |p| p.len()),
+            Err(error) => {
+                let detail = error.to_string();
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "insert-picked-unreadable path={path:?} reason={detail}"
+                    )
+                });
+                0
+            }
+        };
+        if count == 0 {
+            // Nothing to ask about. The refusal is the status-bar sentence the
+            // insert path already owns, so the operator meets one voice rather
+            // than a dialog and then a note.
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("insert-declined path={path:?} reason=no-pages")
+            });
+            return;
+        }
+        self.insert_pages = Some(insert_pages::InsertPagesDialog::open(
+            path,
+            count,
+            current_page,
+        ));
+    }
+
     pub fn open_new_document(&mut self) {
         if self.new_document.is_some() {
             return;
@@ -501,6 +558,9 @@ impl DialogsState {
         }
         if self.redact.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
             self.redact = None;
+        }
+        if self.insert_pages.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.insert_pages = None;
         }
         // ★ Takes the action queue, unlike its four neighbours. See the field.
         // It does not take `doc`: the scale it sets belongs to a *group*, which

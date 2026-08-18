@@ -600,8 +600,12 @@ impl PdfceApp {
             // lives in `pages` beside rotate, delete, reorder and extract, and
             // this arm routes. See `pages::insert_from_file` for why it must
             // mutate the session rather than replace it.
-            Action::InsertPagesFromFile { path, after_page } => {
-                super::pages::insert_from_file(doc, &path, after_page);
+            Action::InsertPagesFromFile {
+                path,
+                pages,
+                position,
+            } => {
+                super::pages::insert_from_file(doc, &path, &pages, position);
             }
             Action::CommitAddText { page, origin, text } => {
                 let req = pdfce_core::text_edit::AddTextRequest::new(page, origin, text);

@@ -312,16 +312,23 @@ pub enum Action {
     InsertPagesFromFile {
         /// The document to take pages from.
         path: std::path::PathBuf,
-        /// The 0-based page the insertion lands **after** — the page the
-        /// operator was looking at.
+        /// Which of ITS pages, 0-based, **in the order the operator asked
+        /// for**.
         ///
-        /// ★ The current page rather than the end of the document, and rather
-        /// than a chooser. An operator on sheet 7 who inserts a file means
-        /// *"here"*; ending up at sheet 40 would be a surprise. A position
-        /// chooser is the next increment and is named in `RESUME.md` — the
-        /// pages panel's Move up/down already covers the correction in the
-        /// meantime.
-        after_page: usize,
+        /// Order is carried rather than sorted, and duplicates are kept,
+        /// because the range grammar treats the text as a sequence: `3,1-2`
+        /// inserts source page 3 first, and `1,1` inserts a page twice. Both
+        /// are things an operator can only ask for in one gesture if this
+        /// field preserves them.
+        pages: Vec<usize>,
+        /// Where they land, in the engine's own vocabulary.
+        ///
+        /// ★ `pdfce_core::pageops::InsertPosition` directly rather than a
+        /// local enum mapped at the boundary. Four choices — `Start`, `End`,
+        /// `Before(n)`, `After(n)` — and a second spelling of them would be a
+        /// second place for "before" and "after" to drift, where the drift is
+        /// silent because both compile and both insert *somewhere*.
+        position: pdfce_core::pageops::InsertPosition,
     },
     New,
     /// **Make a new document at a chosen sheet size.**

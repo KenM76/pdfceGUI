@@ -152,7 +152,13 @@ impl PrintRange {
 /// Page numbers are one-based — the numbers printed on the paper — and any
 /// number outside the document refuses the whole spec rather than being
 /// clamped. Clamping would turn a typo into a job.
-pub(super) fn parse_page_range(spec: &str, count: usize) -> Option<Vec<usize>> {
+/// ★ `pub(crate)` since 2026-08-18, so `dialogs::insert_pages` shares it.
+///
+/// The argument above was made about the GUI and the CLI. It is the same
+/// argument between two GUI surfaces and stronger: an operator who learned this
+/// syntax on Print is entitled to it working on Insert, and a second parser
+/// here would be the drift that paragraph exists to prevent, one layer in.
+pub(crate) fn parse_page_range(spec: &str, count: usize) -> Option<Vec<usize>> {
     let mut out = Vec::new();
     for part in spec.split(',') {
         let part = part.trim();

@@ -328,7 +328,12 @@ fn delete_disclosures(
 /// | the file would not open | [`crate::text::pages::insert_failed`], carrying the engine's own reason — encrypted, truncated, not a PDF |
 /// | it opened and has no pages | [`crate::text::pages::insert_empty`] — **not a failure**, and collapsing it into one would send the operator looking for corruption that is not there |
 /// | the insert itself refused | `vector_edit`'s own decline path, as every other edit |
-pub(super) fn insert_from_file(doc: &mut OpenDoc, path: &Path, after_page: usize) {
+pub(super) fn insert_from_file(
+    doc: &mut OpenDoc,
+    path: &Path,
+    pages: &[usize],
+    position: pdfce_core::pageops::InsertPosition,
+) {
     // Loaded OUTSIDE the edit closure and borrowed inside it: `insert_pages`
     // takes a `DocumentView` over it, so it has to outlive the call — and
     // loading it inside would mean deciding what to do about a *load* failure
@@ -347,11 +352,7 @@ pub(super) fn insert_from_file(doc: &mut OpenDoc, path: &Path, after_page: usize
             return;
         }
     };
-    let view = source.view();
-    let count = pdfce_core::page_tree::page_slots(view.graph())
-        .map(|slots| slots.len())
-        .unwrap_or_default();
-    if count == 0 {
+    if pages.is_empty() {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             format!("insert-pages-refused path={path:?} reason=no-pages")
@@ -362,17 +363,58 @@ pub(super) fn insert_from_file(doc: &mut OpenDoc, path: &Path, after_page: usize
         );
         return;
     }
-    // Every page of the chosen file, in its own order. A page RANGE is the next
-    // increment; offering the whole file is the honest default because it is
-    // what "insert this document" means, where any subset would be pdfce
-    // choosing one nobody asked for.
-    let pages: Vec<usize> = (0..count).collect();
-    let position = pdfce_core::pageops::InsertPosition::After(after_page);
-    super::apply::vector_edit(doc, "insert-pages", after_page, count, |session| {
+    let view = source.view();
+    let count = pages.len();
+
+    // ★ Where the first inserted sheet will land, computed BEFORE the edit.
+    //
+    // Afterwards the document has more pages and `position` no longer names a
+    // slot in it — `End` in particular means something different once the
+    // pages have arrived. Working it out here is also what lets this be a
+    // plain number rather than a second interpretation of `InsertPosition`.
+    let landing = match position {
+        pdfce_core::pageops::InsertPosition::Start => 0,
+        pdfce_core::pageops::InsertPosition::End => doc.pages.len(),
+        pdfce_core::pageops::InsertPosition::Before(n) => n,
+        pdfce_core::pageops::InsertPosition::After(n) => n.saturating_add(1),
+        // `InsertPosition` is `#[non_exhaustive]`: a variant added upstream
+        // lands the operator on the page they were already on, which is wrong
+        // but harmless, where a panic would lose the insert they just made.
+        _ => doc.view.page_index,
+    };
+    let before = doc.pages.len();
+
+    super::apply::vector_edit(doc, "insert-pages", landing, count, |session| {
         session
-            .insert_pages(&view, &pages, position)
-            .map(|arrived| vec![crate::text::pages::inserted(arrived, after_page)])
+            .insert_pages(&view, pages, position)
+            .map(|arrived| vec![crate::text::pages::inserted(arrived, landing)])
     });
+
+    // ★★ GO TO WHAT WAS INSERTED — the half that makes this a feature rather
+    // than a verb.
+    //
+    // An operator who inserts four sheets wants to see them; leaving the view
+    // on the page they were reading means the only evidence anything happened
+    // is a sentence in the status bar. `HANDOFF.md` §3 instruction 0 is exactly
+    // this: *"what would a competent user reach for next, within this same
+    // gesture?"* — and the answer is "look at them".
+    //
+    // Guarded on the page count actually having grown, so a refused insert
+    // does not navigate: `vector_edit` reports a refusal to the trace and the
+    // disclosure, and moving the view on a failure would be a second, wordless
+    // claim that something landed.
+    if doc.pages.len() > before {
+        let target = landing.min(doc.pages.len().saturating_sub(1));
+        doc.view.go_to_page(target, doc.pages.len());
+        doc.tracked_page = doc.view.page_index;
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "insert-pages-landed at={target} pages={} was={before}",
+                doc.pages.len()
+            )
+        });
+    }
 }
 
 /// The engine call behind [`Action::RotatePages`].
