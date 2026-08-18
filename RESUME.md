@@ -1,6 +1,6 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `0becb4c`.** For a session starting cold
+**Written 2026-08-18, last revised at `9da6e6e`.** For a session starting cold
 on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -10,7 +10,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `0becb4c`
+## ★★★ State, as measured at `9da6e6e`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
@@ -18,12 +18,12 @@ it. It is here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Measured at** | `0becb4c`, clean tree |
+| **Measured at** | `9da6e6e`, clean tree |
 | **Engine** | `D:\Dev\pdfce` local `main`, locked at `e13f8ed`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | 1,864 passing, 0 failing |
+| **Tests** | 1,868 passing, 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | **28 passed · 1 failed · 3 skipped**, run 2026-08-18 with the operator off the machine. Three checks are new and all three are keyboard checks. The one failure is the pre-existing `print_dialog` ribbon-overflow HARNESS gap |
-| **Latest build** | `D:\builds\pdfcegui-20260818-1635-e13f8ed-02b955a\`, mirrored to `OneDrive\pdfceGUI2`. No `-dirty` suffix — see the packager note below |
+| **`ui-verify`** | **31 passed · 0 failed · 2 skipped** — the first fully green run this project has had. Four checks are new. Both skips are honest and named |
+| **Latest build** | `D:\builds\pdfcegui-20260818-1754-6af5655-e5c7918\`, mirrored to `OneDrive\pdfceGUI2`. **About now names its own build time and the engine revision inside it** — open it and read the Build block rather than trusting this row |
 | **Requests owed by pdfce** | **one open** — `request_insert_pages_leaves_orphaned_widgets…`, filed 2026-08-18. A correctness report, not a feature |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
@@ -33,11 +33,38 @@ operator is at the machine. Last run 2026-08-18 with the operator off the PC:
 **28 passed, 1 failed, 3 skipped.**
 
 ★★ **It CAN type, and for months this project believed it could not.** Three of
-those checks are new and all three press keys: `add_text_takes_real_keystrokes`,
+the four new checks press keys: `add_text_takes_real_keystrokes`,
 `text_annot_takes_the_keyboard_unclicked`, `every_declared_chord_dispatches`.
-See the founding-rule section near the end of this file — the false belief is
+The fourth is `about_reports_the_build`, the first driven check of the About
+window — which had no declared region, so nothing could find it, while it
+carries the third-party attributions and their legal obligation.
+
+See the founding-rule section near the end of this file. The false belief is
 the single most expensive thing recorded in this repository so far, and the
 shape of how it survived matters more than the fix.
+
+### ★ The two skips, and why neither is a gap in the application
+
+- `page_ops_round_trip` — the fixture already carries 36 `/Rotate` entries, so
+  the check's evidence (find `/Rotate 90` in the saved copy and not in the
+  source) would be ambiguous on this document. Wants a fixture with none.
+- `ocr_recognises_a_page_and_writes_a_new_file` — needs a model present.
+
+### ★★ Two checks were reporting FALSE failures, and both were believed
+
+`print_dialog_reaches_the_spooler` stood at FAIL and `print_paper_changes_the_plan`
+at SKIP, both saying the File tab declares no `ribbon.item.file.print`. True,
+and false: at the harness's 1100 pt window the ribbon had correctly folded
+Print into the **overflow**. It was written up as a harness gap and left.
+
+`driving::declared_or_in_overflow` looks in both places, and both checks pass.
+
+**That is the second false-failure-believed of the same day** — the other being
+"this machine cannot send synthetic keys", which cost the keyboard. A harness
+that cries wolf gets believed the way any worn-out alarm does, and the cost is
+not the noise: it is that the next real failure reads as more noise. **When a
+check reports something absent, ask what else could make it absent before
+writing the limitation down.**
 
 ```bash
 cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
@@ -78,16 +105,20 @@ build session's.
 |---|---|
 | `page_ops_round_trip` | the fixture already carries 36 `/Rotate` entries, so the evidence would be indistinguishable from the document's own furniture. Point `--pdf` at `D:\Dev\pdfce\fixtures\pageops\four-pages.pdf` |
 | `ocr_recognises_a_page_and_writes_a_new_file` | needs the `models/ocrs` weights beside the exe, i.e. a **packaged** build |
-| `print_paper_changes_the_plan` | blocked by the failure above, and says so |
+| `print_paper_changes_the_plan` | ★ FIXED — both now look in the ribbon overflow |
 
 ### Still not written
 
 An **annotation-selection** check — click a stamp, assert `annot-select`, press
-Delete, assert one fewer annotation. Every trace line it needs already exists.
-And a check that **types for real**: the text-editing check seeds its draft
-through `PDFCE_DIAG_TYPE`, which is the one path that bypasses the event loop,
-so it would pass on a build where typing is dead — which is what the operator
-reported on 2026-08-18.
+Delete, assert one fewer annotation. Every trace line it needs already exists,
+and Delete can now be pressed, because the keyboard works.
+
+★ **A check that types for real is DONE** — three of them, in fact
+(`add_text_takes_real_keystrokes`, `text_annot_takes_the_keyboard_unclicked`,
+`every_declared_chord_dispatches`). The text-EDITING check still seeds its
+draft through `PDFCE_DIAG_TYPE`, which bypasses the event loop; that seam is
+now a convenience rather than a workaround, and the link it skips is covered
+by `add_text`.
 
 **Re-measure before you rely on any of it.** Prose drifting from a number is a
 defect this project has spent seven corrections on — the gate runner's own
