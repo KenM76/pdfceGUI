@@ -336,3 +336,79 @@ pub fn deleted_separations_repaired(sets: usize) -> String {
         )
     }
 }
+
+// ---------------------------------------------------------------------------
+// Insert from file
+// ---------------------------------------------------------------------------
+
+/// The title on the picker `pages.insert_from_file` opens.
+///
+/// Not the Open dialog's title. The two pick a PDF and mean opposite things —
+/// one replaces what is on screen, the other adds to it — and a picker headed
+/// *"Open a PDF"* over a document the operator is editing is a sentence that
+/// says the wrong thing at the moment they are most likely to read it.
+#[must_use]
+pub const fn insert_dialog_title() -> &'static str {
+    "Insert pages from a PDF"
+}
+
+/// ★ **What arrived, where it went, and the one thing that did not come with
+/// it.**
+///
+/// # Why the sentence names all three
+///
+/// `EditSession::insert_pages` copies each page and everything reachable from
+/// it — content streams, resources, fonts, XObjects — at fresh object numbers.
+/// It does **not** merge the source document's *document-level* structures:
+/// **outlines (bookmarks), the AcroForm field tree, named destinations and
+/// page labels**.
+///
+/// That is a deliberate, documented consequence of staying incremental — a
+/// document-level merge rewrites objects an incremental save exists in order
+/// not to touch — and `pdfce-core` states it as a choice between two correct
+/// answers rather than a limitation.
+///
+/// It is still something pdfce did that the operator did not ask for, so
+/// rule 4 applies: an operator whose bookmarks did not come across is entitled
+/// to know that **here**, at the moment it happened, rather than by going
+/// looking for a bug in a document they have already saved.
+///
+/// # Why the page number is 1-based and the count is not a range
+///
+/// *"after page 7"* is the sheet the operator was looking at, in the numbering
+/// the page box and the thumbnails use. A 0-based index here would be the only
+/// place in the application that counted differently.
+#[must_use]
+pub fn inserted(count: usize, after_page_index: usize) -> String {
+    let after = after_page_index.saturating_add(1);
+    let pages = if count == 1 { "page" } else { "pages" };
+    format!(
+        "Inserted {count} {pages} after page {after}. Bookmarks, form fields and page labels from that file did not come across — its pages did."
+    )
+}
+
+/// The chosen file could not be opened, and why.
+///
+/// `detail` is `pdfce-core`'s own error `Display`, passed through for the same
+/// reason [`crate::text::canvas_render_failed`] passes one through: those
+/// errors are specific, and replacing one with *"could not open the file"*
+/// discards the half that says whether it was encrypted, truncated or not a
+/// PDF at all.
+///
+/// **Says nothing was inserted.** A failure part-way through a multi-page
+/// insert would otherwise leave the operator wondering whether some of it
+/// landed; the verb is one command and either records it or does not.
+#[must_use]
+pub fn insert_failed(detail: &str) -> String {
+    format!("Nothing was inserted. {detail}")
+}
+
+/// The chosen file has no pages to insert.
+///
+/// A separate sentence from [`insert_failed`] because it is not a failure: the
+/// file opened, it is a valid PDF, and it is empty. Collapsing the two would
+/// send an operator looking for corruption in a file that has none.
+#[must_use]
+pub const fn insert_empty() -> &'static str {
+    "That PDF has no pages, so nothing was inserted."
+}

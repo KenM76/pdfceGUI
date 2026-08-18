@@ -284,6 +284,29 @@ pub(crate) use register::{SCAFFOLDED, UNREACHED_ARMS};
 
 const DISPATCH_SRC: &str = include_str!("../../app/dispatch.rs");
 
+/// ★ The **second** file the routing table lives in.
+///
+/// # Why there are two, and why the checker had to learn about it
+///
+/// `app::dispatch` grew past R2's 1,500-line limit on 2026-08-18 and the Pages
+/// tab's arms moved to `app::dispatch::pages`, behind a guard arm
+/// (`id if pages::handles(id)`). The parent file no longer *contains* those
+/// six commands anywhere a `syn` walk of it can see.
+///
+/// This checker noticed immediately and correctly — it reported
+/// `pages.delete`, `pages.extract`, `pages.move_up`, `pages.move_down` and
+/// both rotates as unreachable — which is exactly the behaviour its header
+/// argues for over a `bash` grep: **it fails closed.** A grep would have found
+/// the string `"pages.delete"` in either file and said nothing.
+///
+/// The lesson worth keeping is that a checker which reads ONE file is a
+/// checker with a shelf life: R2 guarantees that any file it reads will
+/// eventually be split, so *"where is the routing table?"* is a question with a
+/// growing answer. Adding a source here is the cheap half; the expensive half
+/// would have been discovering the blindness from an operator pressing a dead
+/// control.
+const DISPATCH_PAGES_SRC: &str = include_str!("../../app/dispatch/pages.rs");
+
 /// This module's parent, read for the `&'static str` constants that arm
 /// patterns may name.
 ///
@@ -304,6 +327,16 @@ const CONSTS_SRC: &str = include_str!("mod.rs");
 /// The method whose `match` is the routing table.
 // ui-text-exempt: a Rust item name, matched against the parsed syntax tree.
 const DISPATCHER: &str = "dispatch_command";
+
+/// The name of the **free function** a split-out dispatcher file holds its
+/// match in.
+///
+/// [`DISPATCHER`] is an inherent method on `PdfceApp`; a file split out under
+/// R2 has no `impl` block to hang one on, so its entry point is a plain
+/// function. Two names rather than one loosened matcher, because "any function
+/// containing a match" would start classifying helper functions as routing
+/// tables the day somebody wrote one.
+const SPLIT_DISPATCHER: &str = "dispatch";
 
 /// The identifier the routing `match` scrutinises, and that its guard arms
 /// pass to the mapping functions.
@@ -472,7 +505,8 @@ fn unclassifiable(n: usize, what: &str) -> String {
 /// literals on the *right* of its arrows. Reading the wrong one is the mistake
 /// a grep makes; reading the right one is the reason this walks a tree.
 fn find_routing_match(file: &syn::File) -> Option<&syn::ExprMatch> {
-    file.items.iter().find_map(|item| {
+    // The method on `PdfceApp` — the parent dispatcher's shape.
+    let method = file.items.iter().find_map(|item| {
         let syn::Item::Impl(imp) = item else {
             return None;
         };
@@ -487,6 +521,23 @@ fn find_routing_match(file: &syn::File) -> Option<&syn::ExprMatch> {
                 syn::Stmt::Expr(syn::Expr::Match(m), _) => Some(m),
                 _ => None,
             })
+        })
+    });
+    if method.is_some() {
+        return method;
+    }
+    // …or the free function a file split out under R2 uses instead, because it
+    // has no `impl` block to hang a method on. See [`SPLIT_DISPATCHER`].
+    file.items.iter().find_map(|item| {
+        let syn::Item::Fn(f) = item else {
+            return None;
+        };
+        if f.sig.ident != SPLIT_DISPATCHER {
+            return None;
+        }
+        f.block.stmts.iter().find_map(|stmt| match stmt {
+            syn::Stmt::Expr(syn::Expr::Match(m), _) => Some(m),
+            _ => None,
         })
     })
 }
@@ -601,6 +652,24 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::panels::Panel::from_command_id(id).is_some() {
         return Some("from_command_id");
     }
+    // ★ The Pages tab's arms, which live in `app::dispatch::pages` since that
+    // file was split out under R2 on 2026-08-18.
+    //
+    // This one differs from every entry above in a way worth naming: the others
+    // guard on a *mapping* that also produces the operand (a `MarkupKind`, a
+    // `Panel`), so evaluating the guard and dispatching are the same question
+    // asked once. `handles` produces nothing — it is a membership test, and its
+    // partner `dispatch` matches the id again.
+    //
+    // That is two statements of one set, which is the shape this crate usually
+    // refuses. It is accepted here because the two sit adjacent in one small
+    // file and because `dispatch`'s fall-through is `unreachable!` naming the
+    // id — so a member of `handles` missing from `dispatch` panics loudly in a
+    // developer build rather than silently doing nothing. Were they to grow
+    // apart, the fix is to make `handles` return an operand like its siblings.
+    if crate::app::dispatch::pages::handles(id) {
+        return Some("handles");
+    }
     None
 }
 
@@ -626,6 +695,8 @@ const EVALUATED_GUARDS: &[&str] = &[
     "page_display_for_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
     "chrome_for_command",
+    // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
+    "handles",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
     "from_command_id",
 ];
@@ -663,8 +734,19 @@ mod tests {
     /// The real dispatcher's arms, or a panic naming why they could not be
     /// read.
     fn dispatcher() -> Arms {
-        read_arms(DISPATCH_SRC, &string_consts(CONSTS_SRC))
-            .expect("the dispatcher must be readable")
+        let consts = string_consts(CONSTS_SRC);
+        let mut arms = read_arms(DISPATCH_SRC, &consts).expect("the dispatcher must be readable");
+        // ★ …and every file it has been split into. See `DISPATCH_PAGES_SRC`:
+        // the parent no longer contains the Pages tab's ids anywhere a `syn`
+        // walk of it can see, and this checker reported all six as unreachable
+        // the moment they moved — correctly, and loudly, which is the whole
+        // argument its header makes for parsing over grepping.
+        let split =
+            read_arms(DISPATCH_PAGES_SRC, &consts).expect("the pages dispatcher must be readable");
+        arms.literals.extend(split.literals);
+        arms.guards.extend(split.guards);
+        arms.catch_all |= split.catch_all;
+        arms
     }
 
     /// Every registered id the dispatcher does not route.
@@ -1085,13 +1167,32 @@ pub const FX_CONST: &str = "fx.constant";
             .iter()
             .filter(|(_, reason)| reason.contains("\u{2605} P3"))
             .count();
+        // ★ The literal, and it is the ONLY copy of this number.
+        //
+        // Its message used to end *"this module's header quotes the figure, so
+        // move both together"*. The header does not quote it, and a message
+        // that sends a reader off to update prose is the shape this project has
+        // now corrected five times — the gate runner's header, `README.md`'s
+        // test count, `catalog.rs`'s icon split, the print dialog's paper
+        // sentence, and this. **When prose and a measurement disagree, delete
+        // the prose's copy rather than correcting it**; where the prose is
+        // already gone, stop telling people to update it.
+        //
+        // Failing here means the allow-list changed, and the two directions
+        // mean opposite things. An entry ADDED is a command drawn and left
+        // unwired. An entry REMOVED is work that landed —
+        // `pages.insert_from_file` on 2026-08-18.
         assert_eq!(
-            total, 19,
-            "the allow-list holds {total} entries; this module's header quotes the \
-             figure, so move both together"
+            total, 18,
+            "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
-            p3, 8,
+            // Same rule as the total above: one copy of the number, here.
+            // It went from 8 to 7 when `pages.insert_from_file` was wired on
+            // 2026-08-18 — a P3 breach retired, which is the direction this
+            // count exists to make visible.
+            p3,
+            7,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

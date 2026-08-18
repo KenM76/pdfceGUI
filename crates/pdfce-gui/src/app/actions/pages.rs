@@ -294,6 +294,87 @@ fn delete_disclosures(
 // The four verbs
 // ---------------------------------------------------------------------------
 
+/// **Insert another document's pages after `after_page`.**
+///
+/// # ★ Why this uses the SESSION verb and not `pageops::insert`
+///
+/// `pdfce_core::pageops::insert` also inserts pages and returns the bytes of a
+/// **new document**. Wiring that would have meant replacing `OpenDoc::session`
+/// wholesale — which discards the undo stack, invisibly to any test that
+/// checks page counts, and visibly the first time an operator presses Ctrl+Z
+/// twice.
+///
+/// So it was filed rather than shipped, and `pdfce-core` answered the same day
+/// with `EditSession::insert_pages`: the missing member of the `delete_pages` /
+/// `reorder_pages` / `rotate_pages` family. It records **one** undoable command
+/// however many pages arrive, exactly as a reorder does however many move.
+///
+/// # What it does not carry
+///
+/// Page content, resources, fonts and XObjects come across at fresh object
+/// numbers. The source's **document-level** structures do not — outlines, the
+/// AcroForm field tree, named destinations, page labels. That is the honest
+/// cost of staying incremental, because a document-level merge rewrites objects
+/// an incremental save exists in order not to touch.
+///
+/// [`crate::text::pages::inserted`] says so in the disclosure, because an
+/// operator whose bookmarks did not come across is entitled to know at the
+/// moment it happened rather than by going looking for a bug.
+///
+/// # The three ways it can decline, and why they read differently
+///
+/// | condition | sentence |
+/// |---|---|
+/// | the file would not open | [`crate::text::pages::insert_failed`], carrying the engine's own reason — encrypted, truncated, not a PDF |
+/// | it opened and has no pages | [`crate::text::pages::insert_empty`] — **not a failure**, and collapsing it into one would send the operator looking for corruption that is not there |
+/// | the insert itself refused | `vector_edit`'s own decline path, as every other edit |
+pub(super) fn insert_from_file(doc: &mut OpenDoc, path: &Path, after_page: usize) {
+    // Loaded OUTSIDE the edit closure and borrowed inside it: `insert_pages`
+    // takes a `DocumentView` over it, so it has to outlive the call — and
+    // loading it inside would mean deciding what to do about a *load* failure
+    // from a context that can only report an *edit* failure.
+    let source = match pdfce_core::document::Document::load(path) {
+        Ok(source) => source,
+        Err(error) => {
+            let detail = error.to_string();
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "insert-pages-refused path={path:?} reason={detail}"
+                )
+            });
+            super::record_note(doc.edit_epoch, crate::text::pages::insert_failed(&detail));
+            return;
+        }
+    };
+    let view = source.view();
+    let count = pdfce_core::page_tree::page_slots(view.graph())
+        .map(|slots| slots.len())
+        .unwrap_or_default();
+    if count == 0 {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("insert-pages-refused path={path:?} reason=no-pages")
+        });
+        super::record_note(
+            doc.edit_epoch,
+            crate::text::pages::insert_empty().to_owned(),
+        );
+        return;
+    }
+    // Every page of the chosen file, in its own order. A page RANGE is the next
+    // increment; offering the whole file is the honest default because it is
+    // what "insert this document" means, where any subset would be pdfce
+    // choosing one nobody asked for.
+    let pages: Vec<usize> = (0..count).collect();
+    let position = pdfce_core::pageops::InsertPosition::After(after_page);
+    super::apply::vector_edit(doc, "insert-pages", after_page, count, |session| {
+        session
+            .insert_pages(&view, &pages, position)
+            .map(|arrived| vec![crate::text::pages::inserted(arrived, after_page)])
+    });
+}
+
 /// The engine call behind [`Action::RotatePages`].
 ///
 /// Handed to `vector_edit` as a closure rather than run here, so the whole

@@ -183,22 +183,16 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     ),
     (
         "pages.merge_into",
-        "★ P3 — as its sibling above, and blocked harder. `app::dispatch`'s table: it needs \
-         “a file picker plus an insertion point, and — the blocking half — `insert` returns \
-         the bytes of a NEW document rather than mutating the session. Wiring it means \
-         replacing `OpenDoc::session` wholesale, which discards the command log the undo \
-         work is building.” An architectural decision, not a wiring job.",
+        "★ P3 — needs a file picker and a destination, and is NOT blocked the way it was. \
+         Its old entry said `insert` “returns the bytes of a NEW document rather than \
+         mutating the session … which discards the command log the undo work is building”. \
+         That was true, was filed rather than worked around, and `pdfce-core` answered on \
+         2026-08-18 with `EditSession::insert_pages` — which `pages.insert_from_file` now \
+         uses. What remains here is a genuine question rather than a blocker: merge_into and \
+         insert_from_file differ by WHERE the pages land, so this one wants a destination \
+         document, and a shell that can only edit the open document has nowhere to put it \
+         yet.",
     ),
-    (
-        "pages.insert_from_file",
-        "★ P3 — the twin of the entry above, blocked on the same two things. `app::dispatch`'s \
-         table: “the manifest's own table separates them by WHERE the pages land, not by \
-         which engine verb runs.” Neither is in the Pages context menu, which the panel's \
-         own test records as a deliberate exclusion — so the breach is the ribbon tab alone.",
-    ),
-    // ===================================================================
-    // EDIT
-    // ===================================================================
     (
         "edit.objects",
         "★ P3 — NO RECORDED REASON ANYWHERE. It appears in a test list and in an argument \

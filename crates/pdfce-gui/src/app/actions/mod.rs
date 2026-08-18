@@ -104,6 +104,13 @@
 
 use crate::viewer::FitMode;
 
+/// The sentences one edit owed, and the epoch rule that keeps them honest.
+/// Split out of this file under R2 when annotation selection needed the room;
+/// its own header carries the seam.
+/// The verbs that change an annotation — delete today, the Format tab's
+/// restyles next. Split out of `apply` under R2; its header carries the seam
+/// and the ce-dimension routing obligation every future verb here inherits.
+mod annots;
 /// What applying an [`Action`] does — the interpreter half of this module.
 ///
 /// Split out under **R2**; see its own header for the seam. Not `pub`: nothing
@@ -111,9 +118,6 @@ use crate::viewer::FitMode;
 /// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
 /// they are reachable exactly where they were before the split.
 mod apply;
-/// The sentences one edit owed, and the epoch rule that keeps them honest.
-/// Split out of this file under R2 when annotation selection needed the room;
-/// its own header carries the seam.
 pub mod disclosure;
 /// The four page verbs' bodies, and the structural resync every edit owes.
 ///
@@ -274,6 +278,50 @@ pub enum Action {
         page: usize,
         /// The annotation, by stable object id.
         id: pdfce_core::object::ObjId,
+    },
+    /// **Insert another document's pages into this one, after the current page.**
+    ///
+    /// Raised by `pages.insert_from_file` once the picker has answered.
+    ///
+    /// # ★ Why this is an editing verb and not an open
+    ///
+    /// `pdfce_core::pageops::insert` also inserts pages, and returns the bytes
+    /// of a **new document**. Wiring that would have meant replacing
+    /// `OpenDoc::session` wholesale, which discards the undo stack — invisible
+    /// in any test that checks page counts, and visible the first time an
+    /// operator presses Ctrl+Z twice.
+    ///
+    /// So it was filed rather than shipped, and `pdfce-core` answered the same
+    /// day with `EditSession::insert_pages`: the missing member of the
+    /// `delete_pages` / `reorder_pages` / `rotate_pages` family. It records
+    /// **one** undoable command however many pages arrive, exactly as a reorder
+    /// does however many pages move.
+    ///
+    /// # What it does not carry, and why the operator is told
+    ///
+    /// The session verb copies each page and everything reachable from it —
+    /// content, resources, fonts, XObjects — at fresh object numbers. It does
+    /// **not** merge the source's document-level structures: outlines, the
+    /// AcroForm field tree, named destinations, page labels. That is the honest
+    /// cost of staying incremental, because a document-level merge rewrites
+    /// objects an incremental save exists in order not to touch.
+    ///
+    /// `crate::text::pages::inserted` says so, because an operator whose
+    /// bookmarks did not come across is entitled to know that before they go
+    /// looking for a bug.
+    InsertPagesFromFile {
+        /// The document to take pages from.
+        path: std::path::PathBuf,
+        /// The 0-based page the insertion lands **after** — the page the
+        /// operator was looking at.
+        ///
+        /// ★ The current page rather than the end of the document, and rather
+        /// than a chooser. An operator on sheet 7 who inserts a file means
+        /// *"here"*; ending up at sheet 40 would be a surprise. A position
+        /// chooser is the next increment and is named in `RESUME.md` — the
+        /// pages panel's Move up/down already covers the correction in the
+        /// meantime.
+        after_page: usize,
     },
     New,
     /// **Make a new document at a chosen sheet size.**

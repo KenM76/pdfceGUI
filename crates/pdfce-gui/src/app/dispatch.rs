@@ -44,6 +44,9 @@
 //! operand and the newest reachable entry; the panel commands map an id to a
 //! panel.
 
+// The Pages tab's arms, split out under R2. See its header for the seam.
+pub(crate) mod pages;
+
 use super::PdfceApp;
 use super::actions::Action;
 use super::state::Status;
@@ -166,6 +169,28 @@ impl PdfceApp {
             // of document*, which pdfce has no analogue for. See
             // `crate::app::blank` §3.
             "file.new" => actions.push(Action::New),
+            // ★ Insert another PDF's pages after the current one. Gated here
+            // rather than at the control, on the shell's own pattern — *"push
+            // the chord blind, gate the effect in dispatch"* — because a chord
+            // reaches any command from any state. The picker blocks and runs
+            // between frames, as `file.open`'s does, and has its OWN
+            // diagnostic seam so a harness can drive an insert without also
+            // answering an open.
+            "pages.insert_from_file" => {
+                if !self.capabilities().edit_content {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-edit-content")
+                    });
+                } else if let Status::Open(doc) = &self.status {
+                    let after_page = doc.view.page_index;
+                    if let crate::app::files::Picked::Path(path) =
+                        crate::app::files::pick_insert_source()
+                    {
+                        actions.push(Action::InsertPagesFromFile { path, after_page });
+                    }
+                }
+            }
             // ★ Opens a WINDOW rather than pushing an action, which is the
             // difference between the two New commands and the whole reason
             // there are two. A command cannot ask a question; a dialog can.
@@ -900,22 +925,12 @@ impl PdfceApp {
             // at a rung whose delete verb does not exist yet.
             "format.delete" => {
                 if let Status::Open(doc) = &self.status {
-                    // ★ An ANNOTATION first, and the order is the mutual
-                    // exclusion restated where it is acted on.
-                    //
-                    // `SelectionState` cannot hold both — selecting one clears
-                    // the other — so this is not a tie-break, it is the two
-                    // cases of one question written in the order that reads
-                    // best. Asking about content first would work identically
-                    // and would leave a reader wondering which wins.
+                    // ★ An ANNOTATION first — not a tie-break: `SelectionState`
+                    // cannot hold both, so these are the two cases of one
+                    // question. Locked (§12.5.3 bit 8) does nothing rather than
+                    // raising an action the engine would refuse; the control
+                    // itself should be absent, which is the Format tab's work.
                     if let Some(annot) = doc.selection.annot() {
-                        // Locked (§12.5.3 bit 8): the file says the user
-                        // interface may not change this annotation, so the
-                        // command does nothing rather than raising an action
-                        // the engine would refuse. R83 at the dispatch rather
-                        // than at the verb — and the control itself is what
-                        // should be absent, which is the Format tab's work
-                        // when it grows past one button.
                         if !annot.target.locked {
                             actions.push(Action::DeleteAnnotation {
                                 page: annot.target.page,
@@ -931,126 +946,12 @@ impl PdfceApp {
                     }
                 }
             }
-            // ===============================================================
-            // ★★ THE PAGE VERBS — six commands, one operand rule, five arms
-            //
-            // Every one of these was registered, drawn on the Pages tab, listed
-            // in the page tile's context menu and — for four of them — bound to
-            // a chord (`[`, `]`, `Alt+Up`, `Alt+Down`), with **no arm at all**.
-            // Every press traced `command-unimplemented`, which is defect D1's
-            // shape six times over, and `FEATURES.md` claimed the panel shipped
-            // *"a context menu of the six page verbs"*.
-            //
-            // # The operand is the panel's multi-select, asked for once
-            //
-            // `crate::panels::pages::ops::operands` is the single place that
-            // rule is written down — the picked sheets when there are any, the
-            // current page when there are none — and every arm below calls it.
-            // That is `SelectionState::deletable_objects_on`'s precedent, and
-            // it exists for the same reason: *two statements of a destructive
-            // rule is one too many*.
-            //
-            // ★ Note which selection is NOT read here.
-            // `crate::panels::PanelsState::selected_pages` is the **page**
-            // selection; `selection.any` and `doc.selection` are the **object**
-            // one. `crate::panels::pages::select`'s header carries the table of
-            // how they differ, and the consequence at this site is that no
-            // `pages.*` command is gated on `selection.any` and none should be:
-            // with nothing picked these act on the current page, which is a
-            // defined answer and not a disabled state. **No new `enabled_when`
-            // condition was needed**, so §5's fifth obligation does not apply.
-            //
-            // # The arms route; they do not compute
-            //
-            // Each builds one `Action` from one pure function and pushes it.
-            // The permutation arithmetic, the edge refusals and the operand
-            // fallback are all in `ops`, under unit test, because index
-            // arithmetic that looks obviously right and is off by one at the
-            // boundary is exactly what a `match` limb cannot be reviewed for.
-            // ===============================================================
-            "pages.rotate_left" | "pages.rotate_right" => {
-                // The id IS the operand, exactly as it is for the page-display
-                // radio and the markup tools: one arm, one mapping, rather than
-                // two arms that can come to disagree about which way round the
-                // signs go. `-90` is anticlockwise, which is what `rotate-ccw`
-                // draws and what `crate::text::commands::pages_rotate_left`
-                // promises.
-                let delta = if id == "pages.rotate_left" { -90 } else { 90 };
-                if let Some(pages) = self.page_operands() {
-                    actions.push(Action::RotatePages { pages, delta });
-                }
-            }
-            "pages.delete" => {
-                if let Some(pages) = self.page_operands() {
-                    actions.push(Action::DeletePages { pages });
-                }
-            }
-            "pages.extract" => {
-                if let Some(pages) = self.page_operands() {
-                    actions.push(Action::ExtractPages { pages });
-                }
-            }
-            // ★ **The two move verbs, and the one arm in this family that can
-            // decline.**
-            //
-            // `move_order` returns a permutation or a refusal, and the refusal
-            // is deliberate rather than an omission: `EditSession::reorder_pages`
-            // would *accept* the identity permutation and return `Ok(())`
-            // having recorded nothing, so handing it one would produce a
-            // control the operator pressed that changed nothing, said nothing
-            // and bumped no epoch. That is the defect class this project is
-            // named after, so the engine is never asked a question whose answer
-            // is "nothing".
-            //
-            // ★ **It is traced and not worded, and that is a scope statement
-            // rather than a judgement that it should not be.** The surface for
-            // a worded decline is `crate::app::status::decline`, which was
-            // being rewritten by the concurrent undo/redo work while this
-            // landed; adding two variants to `Declined` mid-rewrite is how two
-            // sessions produce one broken file. The two refusals carry
-            // *distinct* reason tokens so the follow-up is a mapping rather
-            // than an investigation: `at-the-edge` wants a sentence naming the
-            // boundary, `nothing-to-move` one naming the document.
-            //
-            // The two are traced separately because they are different facts
-            // with different remedies — pick a different sheet, or there is
-            // nothing to be done — and a reader of a trace from a machine they
-            // cannot see should not have to guess which nothing happened. That
-            // is the same rule `measure.finish` and `markup.finish` follow four
-            // arms above.
-            "pages.move_up" | "pages.move_down" => {
-                use crate::panels::pages::ops::{MoveDirection, move_order};
-                let direction = if id == "pages.move_up" {
-                    MoveDirection::Up
-                } else {
-                    MoveDirection::Down
-                };
-                let Some(pages) = self.page_operands() else {
-                    return;
-                };
-                let count = match &self.status {
-                    Status::Open(doc) => doc.pages.len(),
-                    // Unreachable: `page_operands` returned `Some`, which it
-                    // only does for an open document with pages. Answered
-                    // rather than unwrapped because a panic in a dispatch arm
-                    // takes the operator's document with it.
-                    _ => 0,
-                };
-                match move_order(&pages, count, direction) {
-                    Ok(order) => actions.push(Action::ReorderPages { order }),
-                    Err(reason) => crate::diag::trace(|| {
-                        format!(
-                            // ui-text-exempt: diagnostic trace, never displayed.
-                            "command-declined id={id} reason={} n={}",
-                            match reason {
-                                crate::panels::pages::ops::MoveRefusal::AtTheEdge => "at-the-edge",
-                                crate::panels::pages::ops::MoveRefusal::NothingToMove =>
-                                    "nothing-to-move",
-                            },
-                            pages.len()
-                        )
-                    }),
-                }
+            // The page verbs — rotate, delete, extract, move. Their arms and
+            // the operand rule they share live in `dispatch::pages`, split out
+            // under R2; see its header for the seam and for the three page
+            // commands that still have no arm.
+            id if crate::app::dispatch::pages::handles(id) => {
+                crate::app::dispatch::pages::dispatch(self, id, actions);
             }
             // ★ **The three page commands that have no arm, and why each one
             // is absent rather than forgotten.**

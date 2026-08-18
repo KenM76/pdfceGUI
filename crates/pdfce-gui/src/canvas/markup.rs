@@ -631,6 +631,23 @@ pub fn spec(kind: MarkupKind, geometry: &Geometry, pen: pen::Pen) -> Option<Mark
                     // under it.
                     interior: None,
                     border_width: width,
+                    // ★ `/BE` — the CLOUDY border, which `pdfce-core` gained on
+                    // 2026-08-18 (Pass 82.0). `None` is a plain rectangle,
+                    // which is what this tool has always drawn and what the
+                    // Markup ▸ Shapes ▸ Rectangle control promises.
+                    //
+                    // Named explicitly rather than absorbed by a struct update,
+                    // for the reason `to_engine_settings` states about the same
+                    // situation in the print adapter: a `..Default::default()`
+                    // would have taken this field silently and would take the
+                    // NEXT one too, which is how a shell comes to ignore a
+                    // capability the engine grew for it. The compile error this
+                    // replaced is the whole value of naming every field.
+                    //
+                    // The cloud is a SEPARATE control — `RIBBON_IA.md` §5.5's
+                    // revision-cloud row — and giving Rectangle a cloudy border
+                    // would change what a shipped control draws without asking.
+                    border_effect: None,
                 },
                 MarkupKind::Ellipse => MarkupSpec::Circle {
                     rect,

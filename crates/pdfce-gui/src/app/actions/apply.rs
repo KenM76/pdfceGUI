@@ -405,44 +405,11 @@ impl PdfceApp {
                         .map(|_| Vec::new())
                 });
             }
-            // ★ Deleting the selected annotation — the verb that makes a
-            // stamp placed in the wrong spot correctable.
-            //
-            // Until 2026-08-18 there was none, and the operator reported it:
-            // *"How do I edit a stamp I've applied?"* The only way to remove
-            // one was `Ctrl+Z` immediately afterwards, which is not a way to
-            // remove one — it is a way to not have placed it.
-            //
-            // Through `vector_edit` like every other document change, so the
-            // undo entry, the epoch bump, the cache invalidation and the
-            // disclosure all happen the one way they happen everywhere. The
-            // closure returns the disclosure list, which is where the
-            // collateral goes: the operator named ONE annotation and the
-            // engine may legitimately have removed or altered more.
-            //
-            // `page` is carried for the message and the trace and is NOT given
-            // to the verb — `delete_annotation` finds the annotation by id
-            // wherever it lives, and it has to, because a reply may sit on a
-            // different page from the comment it replies to.
+            // Deleting the selected annotation — an ANNOTATION verb, so its
+            // body lives in `annots` beside the ones the Format tab will add.
+            // This arm routes. See `annots::delete`.
             Action::DeleteAnnotation { page, id } => {
-                vector_edit(doc, "delete-annotation", page, 1, |session| {
-                    session.delete_annotation(id).map(|report| {
-                        crate::text::markup::deleted_collateral(
-                            report.popup_removed,
-                            report.parent_popup_cleared,
-                            report.replies_orphaned,
-                            report.group_members_promoted,
-                        )
-                        .into_iter()
-                        .collect()
-                    })
-                });
-                // The selection named an object that no longer exists. Cleared
-                // here rather than left for the next frame to notice: an
-                // outline around a deleted annotation is a promise that a
-                // second Delete would do something, and the second Delete
-                // would refuse.
-                doc.selection.clear_annot();
+                super::annots::delete(doc, page, id);
             }
             Action::CommitMarkup {
                 page,
@@ -629,6 +596,13 @@ impl PdfceApp {
             // somewhere. What the operator gets today is legible, real page
             // content they can undo; what they do not get yet is a choice about
             // its appearance, and `Format` is where that lands.
+            // Insert another document's pages — a PAGE verb, so its body
+            // lives in `pages` beside rotate, delete, reorder and extract, and
+            // this arm routes. See `pages::insert_from_file` for why it must
+            // mutate the session rather than replace it.
+            Action::InsertPagesFromFile { path, after_page } => {
+                super::pages::insert_from_file(doc, &path, after_page);
+            }
             Action::CommitAddText { page, origin, text } => {
                 let req = pdfce_core::text_edit::AddTextRequest::new(page, origin, text);
                 vector_edit(doc, "add-text", page, 1, |session| {

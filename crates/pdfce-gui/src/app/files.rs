@@ -119,6 +119,13 @@ use std::path::PathBuf;
 /// `PDFCE_DIAG_EXPORT_DIR` — and the naming is part of the pattern rather
 /// than decoration: a reader who finds one of them knows what kind of thing
 /// the others are.
+/// The environment variable `pages.insert_from_file`'s picker reads.
+///
+/// Deliberately NOT `DIAG_OPEN_PATH` — see [`pick_insert_source`] for why
+/// sharing one seam between two verbs would make a check that drives both
+/// impossible to write.
+const DIAG_INSERT_PATH: &str = "PDFCE_DIAG_INSERT_PATH"; // ui-text-exempt: an environment variable name, never displayed
+
 pub const DIAG_OPEN_PATH: &str = "PDFCE_DIAG_OPEN_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
 /// The environment variable that answers the **save** dialog instead of
@@ -295,6 +302,51 @@ fn native_pick() -> Picked {
         .add_filter(crate::text::files::filter_all(), &["*"])
         .pick_file()
         .map_or(Picked::Cancelled, Picked::Path)
+}
+
+/// **Ask which PDF to take pages from** — `pages.insert_from_file`.
+///
+/// # ★ Why this is not [`pick_document`] with a different title
+///
+/// Two reasons, and the second is the one that matters.
+///
+/// **The title.** Open replaces what is on screen; insert adds to it. A picker
+/// headed *"Open a PDF"* over a document the operator is part-way through
+/// editing says the wrong thing at the moment they are most likely to read it.
+///
+/// **★ The diagnostic seam.** [`pick_document`] reads `PDFCE_DIAG_OPEN_PATH`,
+/// which is how `ui-verify` drives Open without a modal dialog blocking the
+/// harness. If insert shared it, a check that set the variable to drive Open
+/// would ALSO silently answer every insert picker — so a run that opened one
+/// file and inserted another could not be written at all, and a run that meant
+/// to test one would quietly be testing both.
+///
+/// `PDFCE_DIAG_INSERT_PATH` is its own seam for its own verb. Same shape, same
+/// `from_env` parser, separate variable.
+#[must_use]
+pub fn pick_insert_source() -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_INSERT_PATH)) {
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "insert-picked source=env answer={answer:?}"
+            )
+        });
+        return answer;
+    }
+    let answer = rfd::FileDialog::new()
+        .set_title(crate::text::pages::insert_dialog_title())
+        .add_filter(crate::text::files::filter_pdf(), &["pdf"])
+        .add_filter(crate::text::files::filter_all(), &["*"])
+        .pick_file()
+        .map_or(Picked::Cancelled, Picked::Path);
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "insert-picked source=native answer={answer:?}"
+        )
+    });
+    answer
 }
 
 /// **Ask where to write a new document.**
