@@ -189,6 +189,10 @@ pub mod target;
 // capability, the interaction decisions and which of Acrobat / Inkscape /
 // SolidWorks each came from, and the one derivation that makes what is
 // highlighted and what is copied the same value.
+/// The three markup kinds that carry WORDS — text box, sticky note and
+/// stamp. A different gesture (place, then type) and a different engine spec
+/// from the seven geometric kinds; its header carries the argument.
+pub mod textannot;
 pub mod textsel;
 // EDITING the page's own words, and placing new ones: the caret, the draft, and
 // — in its `disposition` submodule — the two cases `DEFECTS.md` D4b records as
