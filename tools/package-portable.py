@@ -194,6 +194,32 @@ ENGINE = Path("D:/Dev/pdfce")
 #: quietly break that property and would do it in the one command nobody reads
 #: the output of.
 ENGINE_CRATES = ["pdfce-core", "pdfce-render", "pdfce-print"]
+
+#: Where a finished build is mirrored so it syncs to the operator's other
+#: machines.
+#:
+#: Operator instruction, 2026-08-17: *"can you put the last latest 2 builds on
+#: my onedrive? just put them in a folder called pdfceGUI1 and pdfceGUI2 and
+#: rotate the latest build between them."*
+MIRROR_ROOT = Path("C:/Users/Ken/OneDrive")
+
+#: The two mirror slots, rotated so the newest build replaces the OLDER one.
+#:
+#: ★ Two rather than one, and the reason is the whole point of the request: the
+#: previous build stays reachable. This shell is mid-rebuild and every release
+#: can regress something — the operator's own report that started this week was
+#: exactly that. A single mirrored folder would overwrite the last known-good
+#: build with the one that broke, on a drive that then syncs the loss to every
+#: other machine.
+#:
+#: ★ Rotation is decided by MTIME, not by a counter in a file. A counter is
+#: state that can disagree with the directory it describes — deleted by hand,
+#: lost on a fresh machine, or written by a run that then failed to copy. The
+#: directories' own timestamps cannot drift from the directories, so the rule
+#: "replace whichever slot is older" is derivable from the mirror itself and
+#: needs nothing remembered. An empty or missing slot is treated as infinitely
+#: old, so the first two builds fill both slots before anything is overwritten.
+MIRROR_SLOTS = ["pdfceGUI1", "pdfceGUI2"]
 DEFAULT_DEST = Path("D:/builds")
 
 #: Payload files copied verbatim from the repo root, in the order they are
@@ -545,7 +571,7 @@ def run_verification(repo: Path) -> tuple[bool, str]:
     ok = True
     for label, cmd in (
         ("tests", ["cargo", "test", "--workspace", "--quiet"]),
-        ("gates", ["bash", "tools/gates/run-all.sh"]),
+        ("gates", [_bash(), "tools/gates/run-all.sh"]),
     ):
         print(f"package-portable: {label} ...")
         r = subprocess.run(
@@ -683,6 +709,115 @@ def self_test() -> int:
         "(name collision, digest, asset copy)."
     )
     return 0
+
+
+def _bash() -> str:
+    """The bash to run the gates with, **by absolute path**.
+
+    # ★★ This is the real cause of a quirk this project has documented and
+    # worked around since it started
+
+    `HANDOFF.md` §7 has carried a note for weeks: *"`--verify` may report the
+    gates as skipped because a spawned bash does not inherit `~/.cargo/bin`."*
+    The workaround was to run the gates by hand and state the result in
+    `--note`. The diagnosis was wrong, and no amount of PATH manipulation was
+    ever going to fix it.
+
+    `subprocess.run(["bash", ...])` does not resolve `bash` the way this
+    machine's shell does. Windows `CreateProcess` searches its own PATH and
+    finds **`C:\Windows\System32\bash.exe` — the WSL launcher** — before Git
+    Bash. Asked what it sees, that interpreter reports:
+
+    ```text
+    PATH_HEAD=/usr/local/sbin:/usr/local/bin:...:/usr/lib/wsl/lib:/mnt/c/Users/K
+    type -p cargo -> NOTFOUND
+    ```
+
+    A Linux PATH. Windows `cargo.exe` is not on it under that name and never
+    will be, so prepending `~/.cargo/bin` — which the caller does, and which
+    its own comment already admitted "did NOT fix it" where it was observed —
+    could not have worked.
+
+    It also explains the *other* symptom, which looked unrelated: WSL bash
+    refuses a script with CRLF line endings (`cd: $'\r': No such file or
+    directory`), while Git Bash tolerates it. Two scripts had drifted to CRLF
+    despite `.gitattributes` pinning `*.sh text eol=lf`, so `--verify` failed
+    with a line-ending error that the same file ran fine under by hand. One
+    root cause, two unrecognisable symptoms.
+
+    `shutil.which` uses Python's own resolution and returns Git Bash here.
+    Passing its absolute path removes the ambiguity entirely.
+
+    Falls back to the bare name if `which` finds nothing, so a machine with a
+    differently-installed bash still gets an attempt rather than a crash — and
+    on such a machine the gates' own SKIPPED reasons are the honest report.
+    """
+    return shutil.which("bash") or "bash"
+
+
+def mirror(out: Path) -> None:
+    """**Copy a finished build into the older of the two OneDrive slots.**
+
+    Called after the package is assembled and verified, so a failed run never
+    replaces a good mirrored build with a broken one — the rotation only ever
+    sees builds that were worth keeping.
+
+    # ★ It replaces the OLDER slot, and that is the whole design
+
+    The two slots exist so the previous build stays reachable. This shell is
+    mid-rebuild; every release can regress something, and the operator report
+    that started this week was exactly that. Overwriting the single most recent
+    mirror would put the last known-good build under the one that broke — on a
+    drive that then syncs the loss to every other machine.
+
+    Which slot is older is read from the directories' own modification times
+    rather than from a counter file. A counter is state that can disagree with
+    the thing it describes: deleted by hand, absent on a fresh machine, or
+    written by a run that then failed to copy. A directory's timestamp cannot
+    drift from the directory. A missing or empty slot is treated as infinitely
+    old, so the first two builds fill both before anything is overwritten.
+
+    # Failure is reported and never fatal
+
+    OneDrive is a network-backed folder: it can be syncing, locked, offline, or
+    out of quota, and none of that says anything about the build sitting
+    correctly in `D:uilds`. Raising here would throw away a good package
+    because a copy failed, so every problem prints and returns.
+    """
+    if not MIRROR_ROOT.is_dir():
+        print()
+        print(f"package-portable: mirror skipped - {MIRROR_ROOT} is not there.")
+        return
+
+    def age_key(slot: str) -> float:
+        d = MIRROR_ROOT / slot
+        # Missing or empty sorts oldest, so the first two runs fill both slots.
+        if not d.is_dir() or not any(d.iterdir()):
+            return -1.0
+        return d.stat().st_mtime
+
+    target_name = min(MIRROR_SLOTS, key=age_key)
+    target = MIRROR_ROOT / target_name
+    keeps = [s for s in MIRROR_SLOTS if s != target_name]
+
+    try:
+        if target.exists():
+            shutil.rmtree(target)
+        # `copytree` of the package directory's CONTENTS, not the timestamped
+        # folder itself: the slot name is the identity the operator navigates
+        # by, and nesting `pdfceGUI1/pdfcegui-2026…/pdfce-gui.exe` would make
+        # them click through a folder whose name they already know.
+        # `BUILD-INFO.txt` carries the real identity inside.
+        shutil.copytree(out, target)
+    except OSError as e:
+        print()
+        print(f"package-portable: mirror FAILED - {e}")
+        print(f"  The build in {out} is fine; only the OneDrive copy did not happen.")
+        return
+
+    print()
+    print(f"package-portable: mirrored to {target}")
+    print(f"  (replaced the older slot; {', '.join(keeps)} still holds the previous build)")
 
 
 def main() -> int:
@@ -1052,6 +1187,7 @@ def main() -> int:
             "context rather than a warning:\n"
             f"{listed}{more}\n"
         )
+
     if engine_behind and engine_behind not in ("", "0"):
         warn += (
             f"\n*** THE ENGINE HAS MOVED ON: {engine_behind} COMMIT(S) NOT IN THIS BUILD ***\n"
@@ -1145,6 +1281,21 @@ are in the program itself: File > pdfce > About pdfce.
     for f in sorted(out.iterdir()):
         print(f"  {f.name:<26} {f.stat().st_size:>10,} bytes")
     print(f"  {'TOTAL':<26} {total:>10,} bytes")
+
+    # ★ LAST — after `BUILD-INFO.txt` has been written into `out`.
+    #
+    # The first version called this while the warning text was still being
+    # assembled, several statements before the file existed, and the mirrored
+    # slot came out **without a BUILD-INFO.txt** — missing the one document
+    # that says which engine and which shell the binary is. The exe was
+    # otherwise perfect, which is what made it easy to miss: the folder looks
+    # complete unless you go looking for the file that identifies it.
+    #
+    # Mirroring is the last thing that happens for exactly this reason. Every
+    # payload file is on disk by now, and a mirror taken at any earlier point
+    # is a copy of a directory that is still being built.
+    mirror(out)
+
     # ★ The engine's WORKING TREE is no longer a warning — it cannot reach the
     # binary. What IS worth a console line is the engine being ahead of the
     # locked revision, because that is the question an operator has when a fix
