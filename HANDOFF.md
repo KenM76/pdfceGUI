@@ -239,6 +239,48 @@ value to its **consumer** — which is §10's *"registration is not
 implementation"* one layer down, and it is why a `NO_SURFACE.md` row is never
 automatically a build-the-surface task.
 
+### ★ The print set, put through the channel 2026-08-18 and being worked in parallel
+
+The operator reported the print gaps a **third** time — *"pretty much every
+program I have ever seen lets you press a properties button beside the selected
+printer"* — and instructed that the requests be worked by the pdfce session in
+parallel rather than queued.
+
+**The root cause is one design choice, and finding it took three passes.**
+`pdfce-print`'s `build_devmode` (`lib.rs:2188`) **synthesises a DEVMODE from
+zero** — `DEVMODEW { dmSize, ..Default::default() }` — sets the two fields
+pdfce knows about, and hands that to `CreateDC`. It never asks the driver for
+one. That single fact explains all three asks at once:
+
+* **no sheet size**, because there is no DEVMODE to put a `dmPaperSize` *in*;
+* **no properties dialog**, because `DocumentProperties` *returns* a fully
+  populated driver DEVMODE and `spool` builds its own and accepts none — so
+  whatever the operator configured is discarded;
+* **no per-page paper**, for the same reason plus the two siblings.
+
+The ask is therefore ONE change: start from the driver's DEVMODE and let a
+caller supply one. The request was restructured to lead with that, the two
+earlier symptom-level framings are kept as an appendix (they show why the first
+two answers were wrong), and the three print requests are cross-linked with a
+standing note in the channel README.
+
+**★ The boundary question is worth carrying**, because it was genuinely
+arguable and the answer generalises. `pdfce-gui` links `pdfce-print` and has a
+window handle, so it *could* call `DocumentProperties` itself. It must not: the
+dialog's **output** is a DEVMODE, and a DEVMODE is meaningless to anything but
+`spool`. A GUI that opened the dialog and could not hand the result anywhere
+would be rebuilding the `pick_tray` defect **deliberately** — an operator
+configuring settings that are then thrown away. And `pdfce-cli` prints too, so
+paper selection living only in the GUI is the same boundary error mirrored.
+
+The test that decided it: **not "is this a UI call?" but "where does its output
+have to go?"** A UI call whose result only one crate can consume belongs beside
+that crate.
+
+Nothing is built on this side and nothing should be. The GUI half is one
+dropdown and one **Properties...** button beside the printer combo, and under
+R9 neither can honestly exist until there is something behind them.
+
 ### `NO_SURFACE.md` — the inventory, kept
 
 Everything below is condensed from it. The full list, with `file:line` for every
