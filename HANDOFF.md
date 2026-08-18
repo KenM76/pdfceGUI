@@ -490,6 +490,46 @@ Test documents that matter:
 
 ## 3. Standing instructions from the operator
 
+> ### ★★★ 0. Scope a request to the whole expected behaviour — 2026-08-18
+>
+> The instruction that reframes every other one on this list:
+>
+> > *"when I ask for something, my expectation is usually that everything
+> > surrounding that request is also done to where it would match the behaviour
+> > a user would expect. Otherwise I am left typing out every little missing
+> > detail."*
+>
+> and, on a decision not to ask the engine for two capabilities because nobody
+> had requested them:
+>
+> > *"not adding such things just because they weren't explicitly asked for i
+> > think is how we end up with partially finished features."*
+>
+> **The failure it names is real and it is ours.** The pattern is: ship the core
+> of a request, enumerate the deferrals honestly in the commit message and in
+> `RESUME.md`, and treat the enumeration as sufficient. It is not — it relocates
+> the work onto the operator, who then has to notice the gap, remember it, and
+> ask again. In one day: *Insert from file* landed with no position choice, no
+> page range and no page count; *New at a chosen size* with no remembered
+> default; *annotation selection* with no move or resize. Each defensible alone;
+> together, a GUI that does the first 70 % of everything.
+>
+> **What to do instead.** Before calling a feature done, ask *"what would a
+> competent user reach for next, within this same gesture?"* — a position, a
+> range, a count, a preview, a default that is remembered — and build it.
+>
+> **Deferring is still allowed. It must be a decision with a reason**, not a
+> scope boundary drawn where the request's sentence ended. *"Blocked on an
+> engine verb"* is a reason. *"They only literally asked for X"* is not.
+>
+> **★ And it changes how the request channel is used.** R151's *"a verb with no
+> caller is drift"* applies to a **convenience query** duplicating something
+> already reachable — it is why `markup_rects` was rightly not shipped. It does
+> **not** apply to the missing members of one feature: those make the feature
+> permanently partial, and the partiality is discovered by a user rather than by
+> us. Ask for the cluster.
+
+
 These were given explicitly and are still in force.
 
 1. **Check `D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\` periodically
