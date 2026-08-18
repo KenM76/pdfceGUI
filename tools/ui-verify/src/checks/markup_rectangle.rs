@@ -42,10 +42,17 @@
 //!
 //! # What it does, through the operating system
 //!
-//! Mouse only. Synthetic keyboard input does not reach the target window from
-//! the session that injects it on this machine — that is why
-//! [`crate::checks::find_bar`] has never passed here and reports SKIP rather
-//! than blaming Find. Every gesture below is a real `SetCursorPos` +
+//! Mouse only, because nothing below needs a key — not because a key could
+//! not be sent.
+//!
+//! ★ **CORRECTED 2026-08-18.** These headers used to say synthetic keyboard
+//! input does not reach the target window on this machine. It DOES — see
+//! [`crate::checks::add_text`], which types real characters into a caret
+//! draft and asserts they landed. The belief came from `Ctrl+E` producing no
+//! trace, which was the dead-keymap defect (fourteen of twenty-one declared
+//! chords were dispatched by nothing) misread as a property of the machine —
+//! and while it stood nobody drove a chord, so nothing could contradict it.
+//! Every gesture below is a real `SetCursorPos` +
 //! `mouse_event` click at a point derived from a rectangle **the application
 //! itself declared on the frame it drew it**; see
 //! [`crate::coords::WindowFrame::declared_center`].

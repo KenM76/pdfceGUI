@@ -401,21 +401,49 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
         return Vec::new();
     }
 
-    let (modifiers, pressed) = ctx.input(|i| {
-        let pressed: Vec<(String, Key)> = keymap
-            .iter()
-            .filter_map(|(chord, _)| parse_chord(chord).map(|(_, key)| (chord.to_owned(), key)))
-            .filter(|(_, key)| i.key_pressed(*key))
-            .collect();
-        (i.modifiers, pressed)
-    });
+    // ★★ **Read the modifiers CARRIED BY THE KEY EVENT, not the frame's.**
+    //
+    // The obvious shape — `i.key_pressed(key)` for the key and `i.modifiers`
+    // for the modifiers — is subtly wrong, and wrong in a way that only shows
+    // under load. `i.modifiers` is the modifier state as of the END of the
+    // frame; `Event::Key` carries the state as of the KEYSTROKE. Those differ
+    // whenever the modifier is released in the same frame the key was pressed
+    // in, which is what happens when a frame is long: the operator taps
+    // `Ctrl+Z` in fifty milliseconds and the application, busy rasterizing a
+    // dense CAD sheet, sees press and release together with `Ctrl` already up.
+    // The chord then matches nothing and the keystroke is silently dropped.
+    //
+    // It was found by driving: `tools/ui-verify`'s chord check reported a
+    // different pair of chords dead on each run, and reordering the list moved
+    // which ones. A per-frame snapshot compared against a per-event fact is
+    // exactly the kind of defect that looks like harness flakiness — and the
+    // last time something in this file looked like harness flakiness, the
+    // conclusion drawn was "this machine cannot type", which cost the project
+    // its entire keyboard surface for months. See `checks::chords`.
+    //
+    // Matching per event also removes the two-pass shape below it: each event
+    // knows its own key and its own modifiers, so there is nothing to carry
+    // between the `input` borrow and the filter.
+    let events = ctx.input(|i| i.events.clone());
 
-    pressed
-        .into_iter()
-        .filter(|(chord, _)| {
-            let Some((wanted, _)) = parse_chord(chord) else {
-                return false;
+    let mut out = Vec::new();
+    for ev in events {
+        let egui::Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } = ev
+        else {
+            continue;
+        };
+        for (chord, id) in keymap.iter() {
+            let Some((wanted, wanted_key)) = parse_chord(chord) else {
+                continue;
             };
+            if wanted_key != key {
+                continue;
+            }
             // ★ EXACT, never `Modifiers::matches_logically`.
             //
             // egui's own matcher is permissive — it asks whether the pattern's
@@ -435,21 +463,30 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
             //
             // `command` rather than `ctrl` for the reason [`collect`] gives: it
             // is Ctrl everywhere and Cmd on macOS.
-            modifiers.command == wanted.command
-                && modifiers.shift == wanted.shift
-                && modifiers.alt == wanted.alt
-        })
-        .filter_map(|(chord, _)| {
-            let id = keymap.get(&chord)?;
+            if modifiers.command != wanted.command
+                || modifiers.shift != wanted.shift
+                || modifiers.alt != wanted.alt
+            {
+                continue;
+            }
             crate::diag::trace(|| {
-                format!(
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    "chord-command chord={chord} id={id}"
-                )
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // ★ The chord is QUOTED (`{chord:?}`), and it has to be. Two of
+                // the manifest's bindings are `[` and `]`, and the harness's
+                // trace parser tracks bracket depth so that
+                // `rect=[[0.0 0.0] - [16.0 9.0]] zoom=1.5` does not split into
+                // nonsense. An unquoted `chord=[` therefore opened a bracket
+                // that never closed, and every field after it on the line —
+                // including `id` — was swallowed into the chord's value. The
+                // check read `[` as dead while the line proving it alive sat in
+                // the file it had just read.
+                format!("chord-command chord={chord:?} id={id}")
             });
-            Some(id.to_owned())
-        })
-        .collect()
+            out.push(id.to_owned());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -692,6 +729,56 @@ mod tests {
                  shortcut, but pressing it dispatched {ids:?}"
             );
         }
+    }
+
+    /// ★★ **A chord survives its modifier being released in the SAME frame.**
+    ///
+    /// The regression test for a defect that only appears under load and reads,
+    /// from outside, as harness flakiness.
+    ///
+    /// [`commands`] used to ask `i.key_pressed(key)` for the key and
+    /// `i.modifiers` for the modifiers. Those are different clocks:
+    /// `i.modifiers` is the state at the END of the frame, `Event::Key` carries
+    /// the state at the KEYSTROKE. On a long frame — the application busy
+    /// rasterizing a dense CAD sheet — an operator's fifty-millisecond
+    /// `Ctrl+Z` arrives as press-and-release together, `i.modifiers` reports
+    /// `Ctrl` already up, the chord matches nothing, and undo is silently
+    /// dropped.
+    ///
+    /// This frame is exactly that: a `Ctrl+Z` key event carrying its own
+    /// modifiers, followed by the modifiers going empty before the frame ends.
+    /// Revert [`commands`] to the frame snapshot and it fails.
+    #[test]
+    fn a_chord_survives_its_modifier_being_released_in_the_same_frame() {
+        let ctx = Context::default();
+        let keymap = built_in_keymap();
+
+        let mut input = RawInput::default();
+        input.events.push(egui::Event::Key {
+            key: Key::Z,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        });
+        // ...and the modifier is up again before the frame is read, which is
+        // what `i.modifiers` would report.
+        input.events.push(egui::Event::Key {
+            key: Key::Z,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        input.modifiers = Modifiers::NONE;
+
+        let mut ids = Vec::new();
+        let _ = ctx.run_ui(input, |ui| ids = commands(ui.ctx(), Some(&keymap)));
+        assert_eq!(
+            ids,
+            vec!["edit.undo".to_owned()],
+            "a quick Ctrl+Z on a long frame must still reach undo"
+        );
     }
 
     /// ★ A chord with extra modifiers held does NOT fire the shorter one.

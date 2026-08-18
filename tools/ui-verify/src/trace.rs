@@ -81,7 +81,20 @@ impl TraceLine {
     /// A field's raw value, or `None` if the line does not carry it.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.fields.get(key).map(String::as_str)
+        self.fields.get(key).map(|v| {
+            // ★ A quoted value is returned WITHOUT its quotes.
+            //
+            // The application quotes any value that may contain a character
+            // this parser gives structural meaning to — a chord spelled `[`
+            // being the case that forced it. Every caller wants the string the
+            // application meant, not its literal, and leaving the quotes on
+            // would make `l.get("chord") == Some("Ctrl+Z")` silently false for
+            // exactly the lines that needed quoting most.
+            let v = v.as_str();
+            v.strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .unwrap_or(v)
+        })
     }
 
     /// A field parsed as an integer.

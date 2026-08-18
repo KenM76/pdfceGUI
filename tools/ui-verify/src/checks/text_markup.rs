@@ -70,11 +70,18 @@
 //!
 //! # Mouse only
 //!
-//! Every gesture here is a real `SetCursorPos` + `mouse_event`. Synthetic
-//! keyboard input does not reach the target window from the session that injects
-//! it on this machine (see [`crate::checks::find_bar`], and `HANDOFF.md` §8's
-//! record of a lead against that which failed to reproduce), and **nothing in
-//! this check needs a key** — which is itself a consequence of the interaction
+//! Every gesture here is a real `SetCursorPos` + `mouse_event`, and **nothing in
+//! this check needs a key**
+//!
+//! ★ **CORRECTED 2026-08-18.** These headers used to say synthetic keyboard
+//! input does not reach the target window on this machine. It DOES — see
+//! [`crate::checks::add_text`], which types real characters into a caret
+//! draft and asserts they landed. The belief came from `Ctrl+E` producing no
+//! trace, which was the dead-keymap defect (fourteen of twenty-one declared
+//! chords were dispatched by nothing) misread as a property of the machine —
+//! and while it stood nobody drove a chord, so nothing could contradict it.
+//!
+//! Continuing: — which is itself a consequence of the interaction
 //! model chosen: select-then-press is two clicks and a drag.
 //!
 //! # Every way this reports SKIP, and why none of them is a pass

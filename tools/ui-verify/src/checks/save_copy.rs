@@ -153,11 +153,20 @@
 //!
 //! # Mouse only
 //!
-//! Every gesture is a real `SetCursorPos` + `mouse_event`. Synthetic keyboard
-//! input does not reach the target window from the session that injects it on
-//! this machine — see [`crate::checks::find_bar`] and `HANDOFF.md` §8's record
-//! of a lead against that which failed to reproduce. **`Ctrl+S` is therefore not
-//! driven**, and the keymap binding is covered only by
+//! Every gesture is a real `SetCursorPos` + `mouse_event`. **`Ctrl+S` is not
+//! driven here**, and the keymap binding is covered only by
+//!
+//! ★ **CORRECTED 2026-08-18.** These headers used to say synthetic keyboard
+//! input does not reach the target window on this machine. It DOES — see
+//! [`crate::checks::add_text`], which types real characters into a caret
+//! draft and asserts they landed. The belief came from `Ctrl+E` producing no
+//! trace, which was the dead-keymap defect (fourteen of twenty-one declared
+//! chords were dispatched by nothing) misread as a property of the machine —
+//! and while it stood nobody drove a chord, so nothing could contradict it.
+//!
+//! ★★ `Ctrl+S` was one of the fourteen dead chords. It is now dispatchable and
+//! this check SHOULD drive it — that is unwritten work, not a limitation.
+//! Continuing the original note:
 //! `shell::manifest`'s keymap test and by the one dispatcher every route shares.
 //!
 //! # Every way this reports SKIP, and why none of them is a pass
@@ -904,7 +913,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
          covered by `app::save::suggested_path`'s unit tests and by nothing that runs a window",
     );
     report.note(
-        "NOT covered here: `Ctrl+S`. Synthetic keystrokes do not reach the target window from \
+        "NOT covered here: `Ctrl+S`, which is unwritten work — keystrokes DO reach the window, \
          this session (see find_bar), so the chord is covered by the manifest's keymap test and by \
          the single dispatcher every route shares, and the gap is on the record rather than \
          implied by a green result",

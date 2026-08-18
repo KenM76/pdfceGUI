@@ -66,10 +66,17 @@
 //!
 //! # What it does, through the operating system
 //!
-//! Mouse only. Synthetic keyboard input does not reach the target window from
-//! the session that injects it on this machine — that is why
-//! [`crate::checks::find_bar`] has never passed here and reports SKIP rather
-//! than blaming Find. Nothing below needs a key: a linear dimension is three
+//! Mouse only, and nothing below needs a key:
+//!
+//! ★ **CORRECTED 2026-08-18.** These headers used to say synthetic keyboard
+//! input does not reach the target window on this machine. It DOES — see
+//! [`crate::checks::add_text`], which types real characters into a caret
+//! draft and asserts they landed. The belief came from `Ctrl+E` producing no
+//! trace, which was the dead-keymap defect (fourteen of twenty-one declared
+//! chords were dispatched by nothing) misread as a property of the machine —
+//! and while it stood nobody drove a chord, so nothing could contradict it.
+//!
+//! To restate the reason this check is mouse-only: a linear dimension is three
 //! clicks, and *that is the feature*.
 //!
 //! 1. Click the **Review** mode segment. Measure is in Review's and Edit's tab
@@ -183,10 +190,11 @@
 //!
 //! `measure-snap-cycle index=N` reports the operator choosing *"the other
 //! candidate"* between an endpoint and the midpoint a few pixels from it. It is
-//! driven by <kbd>Tab</kbd>, and synthetic keyboard input does not reach the
-//! target window on this machine (see below), so asserting it here would turn a
-//! working check into a SKIP. It is named rather than omitted so the gap is on
-//! the record: **the snap cycle is covered by unit test alone.**
+//! driven by <kbd>Tab</kbd>, and this check has never asserted it. It is named
+//! rather than omitted so the gap is on the record: **the snap cycle is covered
+//! by unit test alone.** ★ The reason given here used to be that keyboard input
+//! could not be sent; that was false (see the correction below), so this gap is
+//! now simply unwritten work rather than a limitation.
 //!
 //! ## Document evidence — that the engine accepted it
 //!

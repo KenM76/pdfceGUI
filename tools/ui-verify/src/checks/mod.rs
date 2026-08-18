@@ -206,10 +206,6 @@ pub mod ribbon_captions;
 pub mod save_copy;
 pub mod settings_headings;
 
-/// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
-/// operator could press chose one. Proved the only way a theme can be proved:
-/// two captures of one window, before and after the click.
-pub mod settings_theme;
 /// Marking a text selection — underline, strikeout, squiggly. The first
 /// commands in this shell whose operand is **not the pointer**, and therefore
 /// the first check that asserts a control is *correctly disabled* as well as
@@ -221,7 +217,14 @@ pub mod settings_theme;
 /// ★ The three markup kinds that carry WORDS, and the one property that
 /// separates them from the seven geometric ones: the RELEASE MUST NOT AUTHOR.
 /// Its header carries why no unit test can see that.
+pub mod add_text;
+pub mod chords;
+/// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
+/// operator could press chose one. Proved the only way a theme can be proved:
+/// two captures of one window, before and after the click.
+pub mod settings_theme;
 pub mod text_annot;
+pub mod text_annot_focus;
 pub mod text_edit;
 pub mod text_markup;
 /// The canvas text-selection sweep: the one feature whose entire behaviour is a
@@ -487,7 +490,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `save_copy` failed should be read first: every link from Ctrl+S
         // onwards is that check's, and this one has the whole text-edit path
         // stacked in front of them.
+        Box::new(add_text::AddTextTakesRealKeystrokes),
+        Box::new(chords::EveryDeclaredChordDispatches),
         Box::new(text_annot::TextAnnotPlacesAndAuthors),
+        Box::new(text_annot_focus::TextAnnotTakesTheKeyboardUnclicked),
         Box::new(text_edit::TextEditPinsAnAlignedTail),
         // After both, because it is the only driving check that does not touch
         // the ribbon band at all — it clicks mode segments and the page — and

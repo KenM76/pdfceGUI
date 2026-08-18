@@ -106,9 +106,16 @@
 //!
 //! # Mouse only
 //!
-//! Synthetic keyboard input does not reach the target window from the session
-//! that injects it on this machine — see [`crate::checks::find_bar`], which
-//! reports SKIP rather than blaming Find. Nothing here needs a key. The Delete
+//! Nothing here needs a key.
+//!
+//! ★ **CORRECTED 2026-08-18.** These headers used to say synthetic keyboard
+//! input does not reach the target window on this machine. It DOES — see
+//! [`crate::checks::add_text`], which types real characters into a caret
+//! draft and asserts they landed. The belief came from `Ctrl+E` producing no
+//! trace, which was the dead-keymap defect (fourteen of twenty-one declared
+//! chords were dispatched by nothing) misread as a property of the machine —
+//! and while it stood nobody drove a chord, so nothing could contradict it.
+//! The Delete
 //! key is *also* gated by `Capabilities::edit_content`
 //! (`canvas::keys::canvas_keys` takes `caps`), and asserting that from outside
 //! the process is blocked on the same environment limit; it is covered by unit

@@ -146,10 +146,10 @@ const NEW_EVENT: &str = "new-document";
 /// Spelled out rather than derived, because the derivation lives in
 /// `crate::text::files::untitled` inside the application and a harness that
 /// recomputed it would agree with a wrong implementation.
-const FIRST_NAME: &str = "\"Untitled 1.pdf\"";
+const FIRST_NAME: &str = "Untitled 1.pdf";
 
 /// …and the second, which is step 6's whole subject.
-const SECOND_NAME: &str = "\"Untitled 2.pdf\"";
+const SECOND_NAME: &str = "Untitled 2.pdf";
 
 pub struct NewDocumentMakesAPage;
 
@@ -488,13 +488,21 @@ mod tests {
 
     /// ★ **The expected names are the ones the application actually writes.**
     ///
-    /// Both constants carry the surrounding quotes, because `PathBuf` is traced
-    /// through `{:?}` and the trace therefore reads `name="Untitled 1.pdf"`.
-    /// Dropping them would make every `get("name") == Some(expected)` compare
-    /// false, and the check would report New as broken on a build where it
-    /// works — the exact false negative `find_bar`'s first run produced.
+    /// These constants used to carry the surrounding quotes, because `PathBuf`
+    /// is traced through `{:?}` and the trace reads `name="Untitled 1.pdf"`.
+    /// **`TraceLine::get` now strips a value's surrounding quotes**, so they are
+    /// written bare and this test is what keeps the two in step: it parses a
+    /// real quoted trace line and asserts the bare constant matches it.
+    ///
+    /// The change was forced by a chord spelled `[`. An unquoted `chord=[`
+    /// opened a bracket the field splitter never saw closed, and swallowed every
+    /// field after it on the line — so the application now quotes values that
+    /// may contain structural characters, and `get` unwraps them, so that no
+    /// caller has to know which values those are. Getting this backwards makes
+    /// the check report New as broken on a build where it works, which is the
+    /// exact false negative it was written to avoid.
     #[test]
-    fn the_expected_names_are_quoted_the_way_the_trace_quotes_them() {
+    fn the_expected_names_survive_the_trace_quoting_them() {
         let trace = Trace::parse(
             "pdfce-diag start argv1=None\n\
              pdfce-diag new-document name=\"Untitled 1.pdf\" template-bytes=443\n\

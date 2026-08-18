@@ -81,11 +81,8 @@
 //!
 //! # Mouse only
 //!
-//! Every gesture here is a real `SetCursorPos` + `mouse_event`. **Synthetic
-//! keyboard input does not reach the target window from the session that injects
-//! it on this machine** — see [`crate::checks::find_bar`], and `HANDOFF.md` §8's
-//! record of a lead against that which failed to reproduce. Nothing in this check
-//! needs a key, which is a consequence of the interaction model rather than a
+//! Every gesture here is a real `SetCursorPos` + `mouse_event`. Nothing in this
+//! check needs a key, which is a consequence of the interaction model rather than a
 //! coincidence: the tool is armed from the ribbon and the mark is a ribbon press,
 //! so the whole feature is clicks and one drag.
 //!
@@ -805,7 +802,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(
         "not covered here: Escape with the tool armed (rung 5 clears the text selection, and the \
          tool is deliberately NOT an Escape claimant — see `canvas::keys`' header), and Ctrl+A / \
-         Ctrl+C in Edit. Synthetic keystrokes do not reach the target window from this session \
+         Ctrl+C in Edit. This check does not drive them; keystrokes DO reach the window \
          (see find_bar), so all three are covered by unit test alone and the gap is on the record \
          rather than implied by a green result",
     );

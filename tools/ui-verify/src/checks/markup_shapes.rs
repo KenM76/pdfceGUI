@@ -77,10 +77,17 @@
 //!
 //! # Mouse only, and what is therefore NOT covered
 //!
-//! Every gesture here is a real `SetCursorPos` + `mouse_event`. **Synthetic
-//! keyboard input does not reach the target window from the session that injects
-//! it on this machine** — see [`crate::checks::find_bar`] and `HANDOFF.md` §8's
-//! record of a lead against that which failed to reproduce.
+//! Every gesture here is a real `SetCursorPos` + `mouse_event`, because nothing
+//! in this check needs a key.
+//!
+//! ★ **CORRECTED 2026-08-18.** These headers used to say synthetic keyboard
+//! input does not reach the target window on this machine. It DOES — see
+//! [`crate::checks::add_text`], which types real characters into a caret
+//! draft and asserts they landed. The belief came from `Ctrl+E` producing no
+//! trace, which was the dead-keymap defect (fourteen of twenty-one declared
+//! chords were dispatched by nothing) misread as a property of the machine —
+//! and while it stood nobody drove a chord, so nothing could contradict it.
+
 //!
 //! Two things follow, and both are on the record rather than implied by a green
 //! result:
@@ -826,7 +833,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 
     report.note(
         "not covered here: the double-click ending, and Escape's two rungs (abandon the run, then \
-         retire the pen). Synthetic keystrokes do not reach the target window from this session \
+         retire the pen). This check does not drive them; keystrokes DO reach the window \
          and a synthetic double-click is a timing race that would make this check flaky, so both \
          are covered by unit test alone and the gap is on the record rather than implied by a \
          green result",

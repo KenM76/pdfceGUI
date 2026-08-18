@@ -79,9 +79,10 @@
 //!
 //! # Mouse only
 //!
-//! Synthetic keyboard input does not reach the target window from the session
-//! that injects it on this machine — see [`crate::checks::find_bar`], and
-//! `HANDOFF.md` §8's record of a lead against that which failed to reproduce.
+//! ★ **Escape, Ctrl+A and Ctrl+C are not driven here, and that is unwritten
+//! work rather than a limitation.** This block used to say synthetic keyboard
+//! input could not reach the window; it can (see [`crate::checks::add_text`]),
+//! and the claim was a misreading of the dead-keymap defect.
 //! **So Escape, Ctrl+A and Ctrl+C are not driven here**, and this file says so
 //! rather than implying otherwise: they are covered by unit test alone
 //! (`canvas::keys` for Escape, `canvas::textsel` for the other two), and the gap
@@ -543,7 +544,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // so a reader of a PASS knows exactly what it does and does not cover.
     report.note(
         "not covered here: Escape clears the selection, Ctrl+A selects the page and Ctrl+C copies \
-         it. Synthetic keystrokes do not reach the target window from this session (see \
+         it. This check does not drive them; keystrokes DO reach the window (see \
          find_bar), so all three are covered by unit test alone and the gap is on the record \
          rather than implied by a green result",
     );

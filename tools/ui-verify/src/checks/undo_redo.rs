@@ -138,12 +138,17 @@
 //! # Mouse only — `Ctrl+Z` is NOT driven
 //!
 //! Every gesture here is a real `SetCursorPos` + `mouse_event` on a QAT control
-//! or the page. **Synthetic keyboard input does not reach the target window from
-//! the session that injects it on this machine** (see `crate::checks::find_bar`
-//! and `HANDOFF.md` §8's record of a lead against that which failed to
-//! reproduce), so `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` cannot be pressed here
-//! at all. They are covered by `shell::manifest`'s keymap test and by the single
-//! `dispatch_command` every route shares — the same dispatcher this check drives
+//! or the page. `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` are **not driven here**,
+//! and [`crate::checks::chords`] drives them instead.
+//!
+//! ★★ This block used to say they *could not* be pressed, because synthetic
+//! keyboard input did not reach the window. That was false, and the two
+//! sentences it went on to offer as compensation were false with it: the
+//! `shell::manifest` keymap test swept only `Ctrl+<digit>`, and all three of
+//! these chords were among **fourteen the manifest declared and the dispatcher
+//! never dispatched**. Undo's primary route was dead, and the note reassuring
+//! the reader about it was the reason nobody looked. They are covered by the
+//! single `dispatch_command` every route shares — the same dispatcher this check drives
 //! through the QAT — and the gap is stated rather than implied by a green
 //! result.
 //!
@@ -967,12 +972,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         UNDO.0
     ));
     report.note(
-        "NOT covered here: `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z`. Synthetic keystrokes do not \
-         reach the target window from this session (see find_bar), so the chords cannot be driven \
-         at all — they are covered by `shell::manifest`'s keymap test and by the single \
-         `dispatch_command` every route shares, which is the same arm this check drove through the \
-         quick-access toolbar. That gap matters more for these two commands than for any other in \
-         the shell, because the keyboard is undo's PRIMARY route",
+        "NOT covered here: `Ctrl+Z`, `Ctrl+Y`, `Ctrl+Shift+Z`. `checks::chords` presses all three and asserts each dispatches. Until 2026-08-18 this note said they COULD NOT be driven and were covered by the manifest keymap test; both halves were false, and all three were among fourteen declared chords the dispatcher ignored.",
     );
     report.note(format!(
         "NOT covered here: that the page's PIXELS show the undone state. `{RENDER_SPAWN_EVENT}` \

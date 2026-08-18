@@ -33,12 +33,29 @@
 //!
 //! **Text cannot be injected on this machine.** `crate::sys::vk` is a closed
 //! list of eight non-character keys whose own comment refuses to grow into
-//! `pub const A..Z`, and `crate::checks::markup_shapes` records the harder fact
-//! underneath it: *keyboard input does not reach the target window from the
-//! session that injects it on this machine.* That was **re-confirmed for this
-//! check on 2026-08-15**: a first cut pressed `Ctrl+E` to arm the tool and the
-//! trace carried no `text-edit-tool` line at all, while a *pointer* click on the
-//! same command armed it.
+//! `pub const A..Z`.
+//!
+//! ★★ **The paragraph that used to be here was WRONG, and its wrongness is the
+//! most instructive thing in this file.** It said *keyboard input does not reach
+//! the target window from the session that injects it on this machine*, and
+//! called that **re-confirmed on 2026-08-15**: a first cut pressed `Ctrl+E` to
+//! arm the tool, the trace carried no `text-edit-tool` line, and a pointer click
+//! on the same command armed it.
+//!
+//! `Ctrl+E` was **dead in the dispatcher**. It was one of fourteen chords the
+//! manifest declared and `app::keyboard::commands` never dispatched, because it
+//! matched against a hand-written table of eight spellings. The experiment was
+//! sound and the conclusion was drawn one layer too low: *this chord does
+//! nothing* became *this machine cannot type*.
+//!
+//! That reading was then written into NINE module headers as a fact about the
+//! environment. While it stood, no check drove a chord; because no check drove a
+//! chord, nothing contradicted it; and the dead chords stayed dead. **A
+//! misdiagnosis recorded as fact protected the defect that produced it.**
+//! `crate::checks::add_text` types real characters and passes.
+//!
+//! The seam below is kept anyway — it supplies a *known* string, which is worth
+//! having — but it is a convenience now, not a workaround.
 //!
 //! Typing is this feature's entire input, so a check that could supply no text
 //! would be reduced to asserting *"the tool armed"* — `HANDOFF.md` §2's grid
