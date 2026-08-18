@@ -1172,7 +1172,18 @@ pub(super) fn interact(
             &ctx,
             doc,
             page_index,
-            screen_pos,
+            // ★ CONVERTED — `resolve_hover` takes CANVAS space, and this line
+            // handed it `screen_pos` raw until 2026-08-18. The click path
+            // converted and the preview did not, so the marker sat away from
+            // the pointer by the scroll origin over the zoom while the click
+            // landed correctly. The operator reported it as *"the crosshairs
+            // click the right place under them, but the preview … is offset"*.
+            //
+            // Every other reader of `screen_pos` on this path already wrote
+            // this conversion (the gesture's own `pos`, the hit test, the
+            // trace), which is what made the odd one out invisible: it looked
+            // like the others because it named the same variable.
+            screen_pos.map(|p| map.to_page(p)),
             targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
             map,
         )

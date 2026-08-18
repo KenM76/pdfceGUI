@@ -462,15 +462,41 @@ pub(super) struct Resolved {
 /// Called from `canvas::interact` **before** it drops the provider, which is
 /// the constraint that shaped this API: the draw happens after the drop, so the
 /// query cannot happen there.
+/// ★ `canvas_pos` is **CANVAS** space, not screen space, and the name says so
+/// because getting it wrong is invisible.
+///
+/// # The defect this parameter was renamed after
+///
+/// It was called `pointer`, and `canvas::interact` handed it `screen_pos`
+/// **unconverted** while every sibling call on the same value wrote
+/// `map.to_page(p)`. The operator found it, 2026-08-18:
+///
+/// > *"when I click on measure it on the drawing the crosshairs click the
+/// > right place under them, but the preview of what is being selected is
+/// > offset from the crosshairs instead of being underneath them."*
+///
+/// That is exactly what the bug produces, and the shape is worth keeping. The
+/// **click** path (`click`, via `Pick::canvas_point`) was handed a properly
+/// converted point and committed the right place; only the **preview** read
+/// the raw screen position, so the snap candidate was resolved near a
+/// different part of the page. A wrong answer next to a right one, with
+/// nothing to say which was which — and the offset is the scroll origin over
+/// the zoom, so it is zero at the top-left of an unscrolled page at 100 % and
+/// grows from there. It would look like "sometimes it is fine".
+///
+/// `Pos2` cannot carry its own space, so the only defences available are the
+/// parameter's **name** and this paragraph. `canvas::mapping`'s header is the
+/// standing argument for why these conversions live in one place; this is the
+/// case that proves the argument was about the call sites too.
 pub(super) fn resolve_hover(
     ctx: &egui::Context,
     doc: &OpenDoc,
     page_index: usize,
-    pointer: Option<Pos2>,
+    canvas_pos: Option<Pos2>,
     targets: Option<&dyn CanvasTargetProvider>,
     map: &PageMapping,
 ) -> Option<Resolved> {
-    let (pointer, page) = (pointer?, doc.current_page()?);
+    let (pointer, page) = (canvas_pos?, doc.current_page()?);
     let pdf = viewer::canvas_to_pdf_space(pointer, page)?;
     let raw = Point {
         x: f64::from(pdf.x),
@@ -859,6 +885,37 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
     if let Some(c) = hover.and_then(|h| h.candidate)
         && let Some(screen) = page_to_screen(c.point, page, map)
     {
+        // ★★ The marker's screen position and the pointer's, on one line.
+        //
+        // The evidence for an invariant that is **true by the definition of
+        // snapping**: a snap marker is never further from the pointer than the
+        // snap tolerance. That is what "snap" means — the click is being moved
+        // to something *near* where the operator is aiming.
+        //
+        // It exists because of the defect `resolve_hover`'s own docs record:
+        // the preview was resolved against a raw SCREEN position while the
+        // click used a converted CANVAS one, so the marker sat away from the
+        // pointer by the scroll origin over the zoom. It survived four days and
+        // no unit test could have seen it — both functions were individually
+        // correct and the caller mixed two spaces that are the same type.
+        //
+        // `dx`/`dy` rather than a distance: a pure-x or pure-y offset says
+        // "one axis of the conversion", and a reader chasing a regression
+        // wants to know which.
+        crate::diag::trace(|| {
+            let p = ctx.pointer_latest_pos();
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "measure-snap-marker kind={:?} marker={:.1},{:.1} pointer={:?} dx={:.1} dy={:.1} tol={:.2}",
+                c.kind,
+                screen.x,
+                screen.y,
+                p.map(|q| (q.x, q.y)),
+                p.map_or(f32::NAN, |q| screen.x - q.x),
+                p.map_or(f32::NAN, |q| screen.y - q.y),
+                map.snap_tolerance(),
+            )
+        });
         // Zoom-invariant: the marker is a screen-space affordance, so its size
         // is in points and does not grow with magnification.
         ui.painter().extend(snap::snap_marker_shapes(
