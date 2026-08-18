@@ -122,11 +122,11 @@
 //! | Ctrl+`-` | zoom out one rung | here ([`OWNED`]) |
 //! | PageDown / PageUp | next / previous page | here ([`OWNED`]) — the unmodified keys D1 killed |
 //! | Home / End | first / last page | here ([`OWNED`]) |
-//! | Ctrl+`N` | `file.new` → a blank document | the manifest keymap ([`DERIVED`]) |
-//! | Ctrl+`O` | `file.open` → the file picker | the manifest keymap ([`DERIVED`]) |
-//! | Ctrl+`F` | `edit.find` → open or close the Find bar | the manifest keymap ([`DERIVED`]) |
-//! | Ctrl+`0` | `view.zoom_actual` → actual size | the manifest keymap ([`DERIVED`]) |
-//! | Ctrl+`1` / Ctrl+`2` / Ctrl+`3` | `mode.read` / `mode.review` / `mode.edit` | the manifest keymap ([`DERIVED`]) |
+//! | Ctrl+`N` | `file.new` → a blank document | the manifest keymap |
+//! | Ctrl+`O` | `file.open` → the file picker | the manifest keymap |
+//! | Ctrl+`F` | `edit.find` → open or close the Find bar | the manifest keymap |
+//! | Ctrl+`0` | `view.zoom_actual` → actual size | the manifest keymap |
+//! | Ctrl+`1` / Ctrl+`2` / Ctrl+`3` | `mode.read` / `mode.review` / `mode.edit` | the manifest keymap |
 //!
 //! Ctrl+`=` is bound alongside Ctrl+`+` because `+` is a shifted key on
 //! most layouts and requiring the shift makes "zoom in" a three-finger
@@ -160,65 +160,50 @@ use egui_shell::manifest::Keymap;
 
 use crate::app::actions::Action;
 
-/// **The keys whose meaning comes from the manifest keymap, and how a
-/// manifest spells each of them.**
+/// **Spell a manifest chord into the modifiers and key that fire it.**
 ///
-/// This is a *spelling* table, not a binding table: it says how `Key::Num0`
-/// is written down in a keymap, never what pressing it does. What it does is
-/// [`crate::shell::manifest::built_in`]'s to say, and only its.
+/// The replacement for what used to be a hand-written `DERIVED` spelling
+/// table, and the reason that table had to go: it listed eight chords while
+/// the shipped keymap bound twenty-one, so **fourteen bindings were declared,
+/// printed in menus and tooltips as shortcuts, and dispatched by nothing** —
+/// `Ctrl+Z`, `Ctrl+Y`, `Ctrl+S`, `Ctrl+E`, `Ctrl+Shift+E`, `F11`, `[`, `]`
+/// and six more. Undo had a keyboard shortcut everywhere except the keyboard.
 ///
-/// Every entry is a `command`-modifier chord (Ctrl everywhere, Cmd on
-/// macOS). The digits are the keys the shipped keymap actually uses;
-/// [`tests::every_digit_chord_the_manifest_binds_can_be_spelled`] fails if a
-/// keymap grows a `Ctrl+4` this table cannot see, because a chord that
-/// cannot be spelled is a chord that silently does nothing.
-pub const DERIVED: &[(Key, &str)] = &[
-    // ★ Not a digit, and the first entry here that is not.
-    //
-    // `Ctrl+O` has been in the manifest keymap since the ribbon landed, and
-    // `crate::text::commands::file_open`'s tooltip has printed "(Ctrl+O)" on
-    // an operator-visible surface for just as long — while this table held
-    // only digits, so the chord could not be *spelled*, so nothing looked it
-    // up, so pressing it did nothing at all. That is the same lie the
-    // two-owner defect told, from the third direction: a keymap entry, a
-    // tooltip and a shortcut list all naming a chord no keypress delivers.
-    //
-    // `every_digit_chord_the_manifest_binds_can_be_spelled` could not catch
-    // it, by construction — it only sweeps `Ctrl+<digit>` — which is worth
-    // knowing before trusting it about `Ctrl+S`, `Ctrl+Z`, `Ctrl+E` and the
-    // rest of the keymap's letter chords. Those are still unspellable, and
-    // deliberately: a chord here dispatches a command, and a command with no
-    // dispatch arm would trace `command-unimplemented` on a keypress that
-    // used to do nothing quietly. They land with their commands.
-    (Key::O, "Ctrl+O"),
-    // ★ The second letter chord, and it is here because its command landed.
-    //
-    // The paragraph above says the keymap's letter chords are *"still
-    // unspellable, and deliberately: a chord here dispatches a command, and a
-    // command with no dispatch arm would trace `command-unimplemented` on a
-    // keypress that used to do nothing quietly. They land with their
-    // commands."* This is that rule being followed rather than broken:
-    // `edit.find` is registered, has a dispatch arm that toggles the Find bar,
-    // and has an operator-visible control on the status bar. Ctrl+S, Ctrl+Z,
-    // Ctrl+Y, Ctrl+E and the rest stay unspellable until the same is true of
-    // each of them.
-    (Key::F, "Ctrl+F"),
-    // ★ The third letter chord, and the rule above is followed rather than
-    // stretched: `file.new` is registered, has a dispatch arm that raises
-    // `Action::New`, and has a control in File ▸ File. It was added in the same
-    // edit as the manifest's `Ctrl+N` binding, which is the pairing the two
-    // paragraphs above exist to insist on — `Ctrl+O` spent the whole life of
-    // the ribbon bound in the keymap, printed in a tooltip, and unspellable
-    // here, so pressing it did nothing at all.
-    //
-    // Ctrl+S, Ctrl+Z, Ctrl+Y and Ctrl+E stay unspellable until the same is
-    // true of each of them.
-    (Key::N, "Ctrl+N"),
-    (Key::Num0, "Ctrl+0"),
-    (Key::Num1, "Ctrl+1"),
-    (Key::Num2, "Ctrl+2"),
-    (Key::Num3, "Ctrl+3"),
-];
+/// A table that must be kept in step with a manifest by hand will fall out of
+/// step with it, and the failure is silent in both directions: the keymap
+/// entry looks bound, the menu hint looks true, and the key does nothing. So
+/// nothing is kept in step any more — the manifest is parsed, and a chord
+/// fires if and only if it can be spelled.
+///
+/// # The grammar
+///
+/// `Modifier+Modifier+Key`, modifiers in any order, matching what
+/// `built_in.ron` already writes: `Ctrl`, `Shift`, `Alt` (and `Cmd`/`Command`
+/// as aliases for `Ctrl`, since egui's `command` is Ctrl everywhere and Cmd on
+/// macOS). The key is whatever [`Key::from_name`] accepts, which is egui's own
+/// parser — so `[`, `Down`, `F11`, `0` and `E` all resolve, and the manifest
+/// cannot invent a spelling this shell then fails to honour.
+///
+/// Returns `None` for a chord that cannot be spelled, which
+/// [`tests::every_chord_the_manifest_binds_actually_fires`] turns into a build
+/// failure rather than a dead key.
+fn parse_chord(chord: &str) -> Option<(egui::Modifiers, Key)> {
+    let mut modifiers = egui::Modifiers::NONE;
+    let mut key = None;
+    for part in chord.split('+') {
+        match part {
+            "Ctrl" | "Cmd" | "Command" => modifiers.command = true,
+            "Shift" => modifiers.shift = true,
+            "Alt" => modifiers.alt = true,
+            // A trailing empty segment is the literal `+` of a chord spelled
+            // `Ctrl++`. Splitting on the separator cannot tell the two apart,
+            // so the empty string is read as the key it can only have been.
+            "" => key = Some(Key::Plus),
+            other => key = Some(Key::from_name(other)?),
+        }
+    }
+    Some((modifiers, key?))
+}
 
 /// **The chords this module binds outright — viewer navigation — and every
 /// spelling a manifest might use for each.**
@@ -264,7 +249,34 @@ pub fn collect(ctx: &Context, page_count: Option<usize>) -> Vec<Action> {
     // the latter means "any widget has focus", the canvas takes focus on
     // click, and the difference cost the operator the Delete key and all
     // keyboard page navigation from the first click onward.
-    let typing = ctx.text_edit_focused();
+    // ★★ …and a CANVAS text draft counts as typing too, which
+    // `text_edit_focused()` alone cannot see.
+    //
+    // These bindings are page keys, not characters, so the harm is not a
+    // mistyped bracket - it is `PageDown` under a half-typed word. A page
+    // change abandons the draft (see `canvas::textedit::load`), so without this
+    // the operator's words are discarded by a key they pressed for navigation
+    // and never told. The chord dispatcher in [`commands`] asks the same two
+    // questions for its own reason; the predicate is shared, the argument is
+    // not.
+    //
+    // The caret this shell paints on the page is deliberately **not** an
+    // `egui::TextEdit` — `canvas::textedit`'s header gives the reason, and it is
+    // a good one: the caret sits in PDF space at the glyphs' own scale, which a
+    // floating widget cannot do. The cost is that egui has no focused text field
+    // to report, so the D1 guard above answers `false` for an operator who is
+    // visibly mid-word.
+    //
+    // Two bindings in the built-in keymap are **bare characters** — `[` and `]`,
+    // on `pages.rotate_left` / `pages.rotate_right`. Without this term, typing a
+    // bracket into a draft rotates the page instead of inserting the character,
+    // and the operator gets no bracket and a rotated drawing. Any bare-character
+    // binding added later inherits the fix rather than re-discovering the bug.
+    //
+    // Asked as "is a draft in flight" rather than "is a caret tool armed",
+    // because an armed tool that has not been clicked yet owns no keystrokes —
+    // the page keys must keep working right up until the caret is placed.
+    let typing = ctx.text_edit_focused() || crate::canvas::textedit::read(ctx).is_some();
 
     let (modifiers, pressed) = ctx.input(|i| {
         (
@@ -321,7 +333,7 @@ pub fn collect(ctx: &Context, page_count: Option<usize>) -> Vec<Action> {
     actions
 }
 
-/// **Read this frame's [`DERIVED`] chords and return the command ids the
+/// **Read this frame's keypresses and return the command ids the
 /// manifest keymap binds them to.**
 ///
 /// The whole of the "one owner per chord" fix, in one function. It knows how
@@ -359,25 +371,76 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
         return Vec::new();
     };
 
-    let (modifiers, pressed) = ctx.input(|i| {
-        (
-            i.modifiers,
-            DERIVED
-                .iter()
-                .map(|(key, _)| i.key_pressed(*key))
-                .collect::<Vec<bool>>(),
-        )
-    });
-    if !modifiers.command || modifiers.shift || modifiers.alt {
+    // ★★ **Typing beats every chord, and that is not the D1 predicate alone.**
+    //
+    // Two claimants have to be asked about, because this shell composes text in
+    // two different places:
+    //
+    // 1. `text_edit_focused()` — a real `egui::TextEdit`: a form field, the
+    //    page-number box, a dialog's box, the Find bar. D1's predicate, never
+    //    `egui_wants_keyboard_input()`, for the reason [`collect`] gives.
+    // 2. A **canvas text draft** — the caret this shell paints on the page,
+    //    which is deliberately *not* a `TextEdit` (`canvas::textedit`'s header
+    //    says why: the caret sits in PDF space at the glyphs' own scale, which
+    //    a floating widget cannot do). egui therefore reports no focused text
+    //    field for an operator who is visibly mid-word, and asking only (1)
+    //    would let `[` rotate the drawing instead of inserting a bracket.
+    //
+    // ALL chords yield, not just the unmodified ones, and that is the
+    // conservative reading on purpose. `Ctrl+Z` inside a text field is the
+    // field's undo; if this fired first, the operator's next keystroke would
+    // revert the *document* instead of the word — destructive, silent, and
+    // exactly backwards from what the key looked like it did. Every command a
+    // chord reaches is also on the ribbon, so yielding costs a click; getting
+    // it wrong costs an edit the operator did not ask for.
+    //
+    // Asked as *"is a draft in flight"* rather than *"is a caret tool armed"*,
+    // because an armed tool that has not been clicked yet owns no keystrokes —
+    // the page keys must keep working right up until the caret is placed.
+    if ctx.text_edit_focused() || crate::canvas::textedit::read(ctx).is_some() {
         return Vec::new();
     }
 
-    DERIVED
-        .iter()
-        .zip(pressed)
-        .filter(|(_, was_pressed)| *was_pressed)
-        .filter_map(|((_, chord), _)| {
-            let id = keymap.get(chord)?;
+    let (modifiers, pressed) = ctx.input(|i| {
+        let pressed: Vec<(String, Key)> = keymap
+            .iter()
+            .filter_map(|(chord, _)| parse_chord(chord).map(|(_, key)| (chord.to_owned(), key)))
+            .filter(|(_, key)| i.key_pressed(*key))
+            .collect();
+        (i.modifiers, pressed)
+    });
+
+    pressed
+        .into_iter()
+        .filter(|(chord, _)| {
+            let Some((wanted, _)) = parse_chord(chord) else {
+                return false;
+            };
+            // ★ EXACT, never `Modifiers::matches_logically`.
+            //
+            // egui's own matcher is permissive — it asks whether the pattern's
+            // modifiers are *present*, not whether the extras are *absent* — so
+            // `Ctrl+Shift+Z` would satisfy the pattern `Ctrl+Z` as well as its
+            // own. The keymap binds both, to **redo** and **undo**, so a
+            // permissive match makes one keypress mean two opposite things and
+            // the winner is whichever the iteration order reaches first.
+            //
+            // This is the generalisation of the rule the previous
+            // implementation stated for two modifiers and enforced by refusing
+            // them outright: *"the manifest spells a shifted chord separately,
+            // so treating `Ctrl+Shift+0` as `Ctrl+0` would fire a binding whose
+            // spelling is not in the keymap."* Refusing them outright is what
+            // made `Ctrl+Shift+E` and `Ctrl+Shift+Z` undispatchable; comparing
+            // them exactly keeps the property and drops the casualty.
+            //
+            // `command` rather than `ctrl` for the reason [`collect`] gives: it
+            // is Ctrl everywhere and Cmd on macOS.
+            modifiers.command == wanted.command
+                && modifiers.shift == wanted.shift
+                && modifiers.alt == wanted.alt
+        })
+        .filter_map(|(chord, _)| {
+            let id = keymap.get(&chord)?;
             crate::diag::trace(|| {
                 format!(
                     // ui-text-exempt: diagnostic trace, never displayed.
@@ -535,9 +598,15 @@ mod tests {
     fn a_digit_reaches_no_command_without_its_modifier() {
         let ctx = Context::default();
         let keymap = built_in_keymap();
-        for (key, chord) in DERIVED {
+        for (chord, _) in keymap.iter() {
+            let Some((wanted, key)) = parse_chord(chord) else {
+                continue;
+            };
+            if wanted == egui::Modifiers::NONE {
+                continue; // `[` is spelled with no modifier; it needs none.
+            }
             let mut ids = Vec::new();
-            let _ = ctx.run_ui(key_press(*key, Modifiers::NONE), |ui| {
+            let _ = ctx.run_ui(key_press(key, Modifiers::NONE), |ui| {
                 ids = commands(ui.ctx(), Some(&keymap));
             });
             assert!(ids.is_empty(), "`{chord}` fired with no modifier held");
@@ -578,53 +647,148 @@ mod tests {
                     "the chord `{chord}` ({key:?}) has two owners: `app::keyboard::collect` binds \
                      it to a viewer action, and the manifest keymap binds it to `{}`. One chord, \
                      one owner — either drop the keymap entry or move the binding out of \
-                     `collect` and into `DERIVED`.",
+                     `collect` and into the manifest keymap.",
                     keymap.get(chord).unwrap_or_default(),
                 );
             }
         }
     }
 
-    /// A chord cannot be both derived and owned.
+    /// ★★ **THE GATE. Every chord the manifest binds actually fires.**
     ///
-    /// True by construction today, and cheap to keep true: the two tables are
-    /// forty lines apart and the failure mode of getting it wrong is a chord
-    /// that fires twice with two different meanings.
+    /// The test whose absence let fourteen shortcuts ship dead. Its
+    /// predecessor asserted the right property and then swept a *third* of the
+    /// keymap - `if !is_digit_chord { continue; }` - while its own doc comment
+    /// stated the general rule: *"a chord this module cannot see would then be
+    /// a keymap entry, a menu hint and a tooltip promising something no
+    /// keypress delivers."* The reasoning was right and the enforcement was
+    /// narrowed, so `Ctrl+Z`, `Ctrl+Y`, `Ctrl+S`, `Ctrl+E`, `Ctrl+Shift+E`,
+    /// `F11`, `[`, `]`, `Alt+Up`, `Alt+Down` and four more sat in the manifest,
+    /// printed themselves in menus, and did nothing.
+    ///
+    /// So this sweeps **every** entry, and it does not check that a chord can
+    /// be *spelled* - it presses it and checks the command comes back. A
+    /// spelling test would have passed on a dispatcher that spelled the chord
+    /// correctly and then filtered it out for holding Shift, which is exactly
+    /// how `Ctrl+Shift+E` died.
     #[test]
-    fn the_two_tables_do_not_overlap() {
-        for (_, derived) in DERIVED {
-            for (_, spellings) in OWNED {
-                assert!(
-                    !spellings.contains(derived),
-                    "`{derived}` is listed as both derived and owned"
-                );
-            }
+    fn every_chord_the_manifest_binds_actually_fires() {
+        let ctx = Context::default();
+        let keymap = built_in_keymap();
+        for (chord, command) in keymap.iter() {
+            let (modifiers, key) = parse_chord(chord).unwrap_or_else(|| {
+                panic!(
+                    "the manifest binds `{chord}` to `{command}`, but no key can be spelled from \
+                     it, so pressing it does nothing"
+                )
+            });
+            let mut ids = Vec::new();
+            let _ = ctx.run_ui(key_press(key, modifiers), |ui| {
+                ids = commands(ui.ctx(), Some(&keymap));
+            });
+            assert!(
+                ids.iter().any(|id| id == command),
+                "the manifest binds `{chord}` to `{command}` and the menus print it as a \
+                 shortcut, but pressing it dispatched {ids:?}"
+            );
         }
     }
 
-    /// Every `Ctrl+<digit>` the manifest binds can be spelled here.
+    /// ★ A chord with extra modifiers held does NOT fire the shorter one.
     ///
-    /// The keymap is allowed to grow; what it must not do is grow a chord
-    /// this module cannot see, because that chord would then be a keymap
-    /// entry, a menu hint and a tooltip promising something no keypress
-    /// delivers — the same lie the two-owner defect told, from the other
-    /// direction.
+    /// `Ctrl+Z` is undo and `Ctrl+Shift+Z` is redo. egui's own
+    /// `Modifiers::matches_logically` is permissive - it asks only that the
+    /// pattern's modifiers are present - so a dispatcher built on it fires
+    /// **both** on one keypress, and which of undo and redo wins is iteration
+    /// order. This is why [`commands`] compares the three flags exactly.
     #[test]
-    fn every_digit_chord_the_manifest_binds_can_be_spelled() {
+    fn a_longer_chord_does_not_also_fire_the_shorter_one() {
+        let ctx = Context::default();
         let keymap = built_in_keymap();
-        for (chord, command) in keymap.iter() {
-            let is_digit_chord = chord.strip_prefix("Ctrl+").is_some_and(|rest| {
-                rest.len() == 1 && rest.starts_with(|c: char| c.is_ascii_digit())
-            });
-            if !is_digit_chord {
-                continue;
-            }
-            assert!(
-                DERIVED.iter().any(|(_, spelling)| *spelling == chord),
-                "the manifest binds `{chord}` to `{command}`, but `DERIVED` has no spelling for \
-                 that key, so pressing it does nothing. Add the `Key` and its spelling."
-            );
-        }
+        let mut ids = Vec::new();
+        let _ = ctx.run_ui(
+            key_press(Key::Z, Modifiers::COMMAND.plus(Modifiers::SHIFT)),
+            |ui| ids = commands(ui.ctx(), Some(&keymap)),
+        );
+        assert_eq!(
+            ids,
+            vec!["edit.redo".to_owned()],
+            "Ctrl+Shift+Z is redo and must not also be undo"
+        );
+    }
+
+    /// ★ A focused text field silences every chord.
+    ///
+    /// Both halves of the guard matter, and this is the `egui::TextEdit` one:
+    /// `Ctrl+Z` inside a field is the field's undo, and a document-level undo
+    /// firing underneath it would revert an edit the operator never touched.
+    #[test]
+    fn a_focused_text_field_silences_the_chords() {
+        let ctx = Context::default();
+        let keymap = built_in_keymap();
+        let id = egui::Id::new("a-field");
+
+        // Frame 1: register a real TextEdit and focus it, so
+        // `text_edit_focused()` is genuinely true rather than assumed.
+        let _ = ctx.run_ui(RawInput::default(), |ui| {
+            let mut text = String::new();
+            let r = ui.add(egui::TextEdit::singleline(&mut text).id(id));
+            r.request_focus();
+        });
+
+        let mut focused = false;
+        let mut ids = Vec::new();
+        let _ = ctx.run_ui(key_press(Key::Z, Modifiers::COMMAND), |ui| {
+            let mut text = String::new();
+            ui.add(egui::TextEdit::singleline(&mut text).id(id));
+            focused = ui.ctx().text_edit_focused();
+            ids = commands(ui.ctx(), Some(&keymap));
+        });
+        assert!(focused, "precondition: the field really holds focus");
+        assert!(
+            ids.is_empty(),
+            "a chord fired while the operator was typing"
+        );
+    }
+
+    /// ★ ...and a CANVAS text draft silences them too.
+    ///
+    /// The half `text_edit_focused()` cannot see. The caret this shell paints
+    /// on the page is not an `egui::TextEdit`, so egui reports no focused text
+    /// field for an operator who is mid-word - and `[` is bound to
+    /// `pages.rotate_left`. Without the draft term, typing a bracket rotates
+    /// the drawing and inserts nothing.
+    #[test]
+    fn a_canvas_text_draft_silences_the_bare_chords() {
+        use crate::canvas::textedit::{Anchor, Draft, TextEditKind, store};
+        let ctx = Context::default();
+        let keymap = built_in_keymap();
+
+        let press = || key_press(Key::OpenBracket, Modifiers::NONE);
+        let mut ids = Vec::new();
+        let _ = ctx.run_ui(press(), |ui| ids = commands(ui.ctx(), Some(&keymap)));
+        assert_eq!(
+            ids,
+            vec!["pages.rotate_left".to_owned()],
+            "precondition: `[` rotates when nothing is being composed"
+        );
+
+        store(
+            &ctx,
+            Draft {
+                page: 0,
+                kind: TextEditKind::Add,
+                anchor: Anchor::Origin { x: 1.0, y: 1.0 },
+                text: String::new(),
+                seeded: true,
+            },
+        );
+        let mut ids = Vec::new();
+        let _ = ctx.run_ui(press(), |ui| ids = commands(ui.ctx(), Some(&keymap)));
+        assert!(
+            ids.is_empty(),
+            "a bracket typed into a draft must not rotate the page"
+        );
     }
 
     /// ★ **`Ctrl+0` is actual size, and it is the manifest that says so.**
@@ -655,11 +819,15 @@ mod tests {
     /// ★ **`Ctrl+O` reaches the Open command.**
     ///
     /// The chord was in the keymap and printed in `file_open`'s tooltip from
-    /// the day the ribbon landed, and pressing it did **nothing**: [`DERIVED`]
-    /// held only digits, so the key could not be spelled, so nothing was
-    /// looked up. Two operator-visible surfaces named a chord that did not
-    /// exist — and `every_digit_chord_the_manifest_binds_can_be_spelled`
-    /// could not see it, because it only sweeps `Ctrl+<digit>`.
+    /// the day the ribbon landed, and pressing it did **nothing**: the shell
+    /// carried a hand-written spelling table that held only digits, so the key
+    /// could not be spelled, so nothing was looked up. Two operator-visible
+    /// surfaces named a chord that did not exist.
+    ///
+    /// It was fixed by adding a row to that table, which fixed exactly this
+    /// chord and left thirteen others dead — the table is now gone and
+    /// [`parse_chord`] reads the manifest, so the class is closed rather than
+    /// the instance. See `every_chord_the_manifest_binds_actually_fires`.
     ///
     /// Asserted through the real keymap rather than an invented one, so the
     /// test fails if the binding is ever removed from the manifest as well as

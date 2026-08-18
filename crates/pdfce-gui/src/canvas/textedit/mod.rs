@@ -217,7 +217,10 @@ pub struct Draft {
     pub text: String,
     /// Whether the diagnostic seam has already been consumed for this draft, so
     /// a seam-supplied string is typed **once** rather than on every frame.
-    seeded: bool,
+    ///
+    /// `pub` only so a test in another module can build a draft that is already
+    /// past the seam. Nothing outside this module should ever set it to `false`.
+    pub seeded: bool,
 }
 
 /// Why a click could not start a draft, in a form the status bar can render.
@@ -245,7 +248,7 @@ pub fn read(ctx: &egui::Context) -> Option<Draft> {
 }
 
 /// Store a draft.
-fn store(ctx: &egui::Context, draft: Draft) {
+pub(crate) fn store(ctx: &egui::Context, draft: Draft) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(DRAFT_MEMORY_KEY), draft));
 }
 
@@ -902,6 +905,37 @@ mod tests {
     fn each_kind_names_its_own_registered_command() {
         assert_eq!(TextEditKind::Edit.command_id(), "edit.text");
         assert_eq!(TextEditKind::Add.command_id(), "edit.add_text");
+    }
+
+    /// **The oracle for *"it doesn't type anything in the box when I type"*.**
+    ///
+    /// Every existing text-edit check seeds the draft through `PDFCE_DIAG_TYPE`,
+    /// which is the ONE path that bypasses the event loop — so all of them pass
+    /// on a build where real typing is dead. This one drives a real
+    /// `egui::Context` with a real `Event::Text` and asserts the draft grew.
+    #[test]
+    fn a_real_text_event_lands_in_the_draft() {
+        let ctx = egui::Context::default();
+        store(
+            &ctx,
+            Draft {
+                page: 0,
+                kind: TextEditKind::Add,
+                anchor: Anchor::Origin { x: 10.0, y: 10.0 },
+                text: String::new(),
+                seeded: true,
+            },
+        );
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Text("h".to_owned()));
+        let mut actions = Vec::new();
+        let inner = ctx.clone();
+        let _ = ctx.run_ui(input, move |c| {
+            egui::CentralPanel::default().show(c, |ui| {
+                typing(ui, &inner, true, &mut actions);
+            });
+        });
+        assert_eq!(read(&ctx).map(|d| d.text), Some("h".to_owned()));
         assert_ne!(
             TextEditKind::Edit.command_id(),
             TextEditKind::Add.command_id()

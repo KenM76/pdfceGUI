@@ -275,4 +275,33 @@ mod tests {
         box_.text = "note".to_owned();
         assert!(ready(&box_));
     }
+
+    /// **The oracle for *"it doesn't type anything in the box when I type"*.**
+    ///
+    /// Every test above asserts on the struct's fields, which is exactly the
+    /// blind spot `DEFECTS.md` D1 was: they all pass on a build whose window
+    /// accepts no keystrokes, because none of them ever draws one. This drives
+    /// a real `egui::Context` through two frames — one to build the field and
+    /// take its one-shot focus, one carrying a real `Event::Text` — and asserts
+    /// the words arrived.
+    #[test]
+    fn typing_into_the_open_window_reaches_the_draft() {
+        let ctx = egui::Context::default();
+        let mut d = TextAnnotDialog::open(0, TextAnnotKind::TextBox, rect());
+        let mut actions = Vec::new();
+
+        // Frame 1: the field is created and requests focus.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            d.show(ui.ctx(), &mut actions);
+        });
+
+        // Frame 2: a real keystroke, the way a keyboard delivers one.
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Text("h".to_owned()));
+        let _ = ctx.run_ui(input, |ui| {
+            d.show(ui.ctx(), &mut actions);
+        });
+
+        assert_eq!(d.text, "h", "the window took the keystroke");
+    }
 }

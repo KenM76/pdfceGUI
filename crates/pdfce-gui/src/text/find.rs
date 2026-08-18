@@ -47,7 +47,7 @@
 //!   punctuation for prose.**
 //! - **Name the chord only when the chord works.** [`toggle_tooltip`] names
 //!   `Ctrl+F` because `crate::shell::manifest::built_in`'s keymap binds it
-//!   and `crate::app::keyboard::DERIVED` can spell it. Both halves are
+//!   and `crate::app::keyboard::parse_chord` can spell it. Both halves are
 //!   required — the keymap alone was not enough for `Ctrl+O`, which was
 //!   named in a tooltip and did nothing for the whole of the ribbon's first
 //!   life.

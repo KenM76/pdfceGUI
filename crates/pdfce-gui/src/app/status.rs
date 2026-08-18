@@ -222,7 +222,7 @@
 //! > **nothing** … It lands with the find panel.
 //!
 //! It has landed. `edit.find` is registered, `Ctrl+F` is bound to it in the
-//! manifest keymap and spelled in `crate::app::keyboard::DERIVED`, the
+//! manifest keymap and parsed by `crate::app::keyboard::parse_chord`, the
 //! dispatch arm toggles the bar, and `crate::find::bar` is the surface. So
 //! the control appears — and it appears **here** rather than on the ribbon
 //! because §6 puts it here, in the section headed *what deliberately does not

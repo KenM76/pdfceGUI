@@ -253,7 +253,7 @@ pub fn built_in() -> Shell {
         // Acrobat, Inkscape and SolidWorks all bind Ctrl+N to New, as does
         // every other document application; there was nothing to decide here
         // beyond whether it was allowed to be bound at all, and the rule in
-        // `crate::app::keyboard::DERIVED`'s header says it is: *"a chord here
+        // `crate::app::keyboard::commands`' header says it is: *"a chord here
         // dispatches a command, and a command with no dispatch arm would trace
         // `command-unimplemented` on a keypress that used to do nothing
         // quietly. They land with their commands."* `file.new` has an arm, so

@@ -919,7 +919,7 @@ pub const fn edit_form_flatten() -> CommandText {
 /// consumed by a widget.
 ///
 /// The tooltip names `Ctrl+F` because the chord genuinely works: the manifest
-/// keymap binds it AND `crate::app::keyboard::DERIVED` can spell it. Both
+/// keymap binds it AND `crate::app::keyboard::parse_chord` can spell it. Both
 /// halves are required — `Ctrl+O` was in the keymap and printed in a tooltip
 /// for the whole of the ribbon's first life while pressing it did nothing,
 /// because the spelling table held only digits.
