@@ -55,6 +55,9 @@ use egui_shell::theme::Theme;
 
 use crate::text::about as t;
 
+/// The region this window's body publishes, so a driven check can find it.
+pub const REGION_BODY: &str = "dialog:about"; // ui-text-exempt: trace region name, never displayed
+
 /// The About dialog. Its existence is its "open" state — see
 /// [`super::DialogsState`]'s header for why there is no `open: bool`.
 ///
@@ -102,7 +105,14 @@ impl AboutDialog {
             // surface an operator is reading must not move when they zoom.
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .open(&mut open)
-            .show(ctx, |ui| self.body(ui));
+            .show(ctx, |ui| {
+                // Declared like every other dialog's body, so a driven check can
+                // find this window. Its absence is why nothing has ever driven
+                // About — which carries the third-party ATTRIBUTIONS, the one
+                // surface in this program with a legal obligation behind it.
+                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+                self.body(ui);
+            });
         open && !std::mem::take(&mut self.close_requested)
     }
 
@@ -119,6 +129,9 @@ impl AboutDialog {
         ui.label(t::summary());
         ui.add_space(6.0);
         ui.label(egui::RichText::new(t::licence_line()).color(theme.palette.text_muted));
+
+        ui.add_space(10.0);
+        build_block(ui, &theme);
 
         ui.add_space(12.0);
         ui.separator();
@@ -163,6 +176,105 @@ impl AboutDialog {
                 self.close_requested = true;
             }
         });
+    }
+}
+
+/// **When this was built, and what is inside it.**
+///
+/// Every value here arrives through `env!` from `build.rs`, so none of it can
+/// drift from what was compiled: there is no constant to forget to bump.
+///
+/// # ★ Why the components are listed at all
+///
+/// `summary()` already says the engine is built in. That answers *"does this
+/// talk to pdfce or contain it"* and not the question an operator asks when a
+/// bug appears and disappears between two copies of the program: **which
+/// pdfce**. Two builds an hour apart can carry different engines, and until
+/// this block existed the only way to find out was to read `BUILD-INFO.txt`
+/// beside the executable — which the operator does not have when someone sends
+/// them a screenshot of the window.
+///
+/// # ★ Why an absent component is named
+///
+/// See [`crate::text::about::component_absent`]. Short version: the
+/// no-placeholders rule governs controls, and this is a report.
+fn build_block(ui: &mut egui::Ui, theme: &Theme) {
+    // ★ The provenance, traced as well as drawn.
+    //
+    // A screenshot proves the block rendered; it does not prove the values are
+    // the ones that were compiled in, and reading four fields out of a PNG is
+    // not something this harness can do. The trace is the assertable half, and
+    // it carries exactly what the labels carry — so a check can fail on an
+    // EMPTY stamp, which is the failure mode that would otherwise look like a
+    // layout glitch rather than a missing value.
+    //
+    // Quoted, for the reason `app::keyboard`'s chord trace is quoted: a value
+    // with a space or a bracket in it corrupts the rest of the line otherwise.
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI.
+        format!(
+            "about-build stamp={:?} rev={:?} engine={:?} engine_rev={:?} iccce={:?}",
+            env!("PDFCE_BUILD_TIME"),
+            env!("PDFCE_GUI_REV"),
+            env!("PDFCE_ENGINE_VERSION"),
+            env!("PDFCE_ENGINE_REV"),
+            env!("PDFCE_ICCCE_VERSION"),
+        )
+    });
+    // ★ `.strong()` AND an explicit colour, which is the sanctioned pairing.
+    //
+    // `RichText::strong()` has no colour role of its own — it resolves to
+    // `widgets.active.fg_stroke`, the foreground of the accent-FILLED widget
+    // state — so on an ordinary panel it is pale text on a pale background.
+    // This exact line shipped without the colour and the driven capture showed
+    // "Build" as barely-there grey while every label under it was legible.
+    // `tools/gates/check-strong-text.sh` catches it; the screenshot found it
+    // first, which is the order this project expects.
+    ui.label(
+        egui::RichText::new(t::build_heading())
+            .strong()
+            .color(theme.palette.text),
+    );
+    ui.add_space(4.0);
+    ui.label(t::build_line(
+        env!("PDFCE_BUILD_TIME"),
+        env!("PDFCE_GUI_REV"),
+    ));
+
+    component(
+        ui,
+        "pdfce",
+        env!("PDFCE_ENGINE_VERSION"),
+        env!("PDFCE_ENGINE_REV"),
+        env!("PDFCE_ENGINE_TIME"),
+    );
+    component(
+        ui,
+        "iccce",
+        env!("PDFCE_ICCCE_VERSION"),
+        env!("PDFCE_ICCCE_REV"),
+        env!("PDFCE_ICCCE_TIME"),
+    );
+
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(t::components_note())
+            .small()
+            .color(theme.palette.text_muted),
+    );
+}
+
+/// One component row: its revision and commit date, or a statement that it is
+/// not in this build.
+///
+/// The two cases share a function so they cannot be worded inconsistently, and
+/// so a component moving from absent to present needs no edit here — the
+/// lockfile decides.
+fn component(ui: &mut egui::Ui, name: &str, version: &str, rev: &str, committed: &str) {
+    if version.is_empty() {
+        ui.label(t::component_absent(name));
+    } else {
+        ui.label(t::component_line(name, version, rev, committed));
     }
 }
 

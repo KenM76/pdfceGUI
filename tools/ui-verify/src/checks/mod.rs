@@ -217,6 +217,7 @@ pub mod settings_headings;
 /// ★ The three markup kinds that carry WORDS, and the one property that
 /// separates them from the seven geometric ones: the RELEASE MUST NOT AUTHOR.
 /// Its header carries why no unit test can see that.
+pub mod about;
 pub mod add_text;
 pub mod chords;
 /// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
@@ -490,6 +491,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `save_copy` failed should be read first: every link from Ctrl+S
         // onwards is that check's, and this one has the whole text-edit path
         // stacked in front of them.
+        Box::new(about::AboutReportsTheBuild),
         Box::new(add_text::AddTextTakesRealKeystrokes),
         Box::new(chords::EveryDeclaredChordDispatches),
         Box::new(text_annot::TextAnnotPlacesAndAuthors),

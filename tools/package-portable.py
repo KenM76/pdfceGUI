@@ -165,6 +165,7 @@ timestamp and means something else is writing there.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import os
 import re
@@ -1113,10 +1114,28 @@ def main() -> int:
     # --- build --------------------------------------------------------------
     if not args.no_build:
         print("package-portable: cargo build --release -p pdfce-gui ...")
+        # PDFCE_BUILD_STAMP -- the LOCAL build time, stamped into the About box.
+        #
+        # `crates/pdfce-gui/build.rs` reads this and falls back to computing UTC
+        # when it is unset. The fallback exists because the workspace may not add
+        # a date crate (PROJECT_PLAN.md section 2 forbids any dependency that is
+        # not already in pdfce's lockfile) and a build script with no date crate
+        # cannot know the machine's UTC offset. Python can, so a packaged build
+        # -- the kind an operator actually runs -- gets the local wall-clock time
+        # they would compare against, and an ad-hoc `cargo build` gets an honest
+        # UTC stamp that says UTC.
+        #
+        # `%z` is emitted as an explicit offset rather than a zone abbreviation:
+        # abbreviations are ambiguous across regions and the offset never is.
+        build_env = os.environ.copy()
+        build_env["PDFCE_BUILD_STAMP"] = datetime.datetime.now().astimezone().strftime(
+            "%Y-%m-%d %H:%M %z"
+        )
         rc = subprocess.run(
             ["cargo", "build", "--release", "-p", "pdfce-gui"],
             cwd=REPO,
             check=False,
+            env=build_env,
         ).returncode
         if rc != 0:
             print("package-portable: the release build failed; nothing packaged.")

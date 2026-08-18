@@ -144,6 +144,76 @@ pub fn version_line(version: &str) -> String {
     format!("Version {version}")
 }
 
+// ===========================================================================
+// Build provenance
+// ===========================================================================
+
+/// Heading for the block naming when this was built and what is inside it.
+///
+/// The operator asked for this on 2026-08-18: *"when I go to about pdfce in
+/// pdfceGUI, can you include the date and time of the build. Also the date and
+/// time of the builds of the used pdfce and iccce"*.
+#[must_use]
+pub fn build_heading() -> &'static str {
+    "Build"
+}
+
+/// The line for this program's own build.
+///
+/// `stamp` and `rev` come from `build.rs` through `env!`, so they cannot drift
+/// from what was actually compiled. `rev` carries a `-dirty` suffix when the
+/// tree had uncommitted changes, which is the fact an operator most needs when
+/// a build does something a commit does not explain.
+#[must_use]
+pub fn build_line(stamp: &str, rev: &str) -> String {
+    format!("pdfceGUI — built {stamp} from {rev}")
+}
+
+/// The line for a component compiled INTO this program.
+///
+/// ★ The wording distinguishes **committed** from **built**, and the
+/// distinction is the whole reason this is not simply three build times.
+/// `pdfce-core` and its siblings have no build of their own — they were
+/// compiled by the same `cargo build` that produced everything else here, so
+/// their "build time" is this binary's build time restated, which answers
+/// nothing. What identifies the engine in a given executable is the revision
+/// and when that revision was committed.
+///
+/// Reads *"pdfce 0.7.0 — revision 6af5655, committed 2026-08-18 14:02"*.
+#[must_use]
+pub fn component_line(name: &str, version: &str, rev: &str, committed: &str) -> String {
+    let mut line = format!("{name} {version} — revision {rev}");
+    if !committed.is_empty() {
+        line.push_str(&format!(", committed {committed}"));
+    }
+    line
+}
+
+/// The line for a component that is **not part of this build**.
+///
+/// ★ Reported rather than omitted, and the judgement is worth writing down
+/// because it looks like a breach of the no-placeholders rule and is not. That
+/// rule governs **controls**: an unavailable capability must offer no button,
+/// because a button that does nothing is a lie about what the program can do.
+/// This is a provenance report. An operator asking what is inside their
+/// executable is owed *"no colour management in this one"* — which is a
+/// different and more useful answer than silence, and is what tells them why
+/// a colour-managed file looks the way it does.
+///
+/// It fills itself in the day the dependency is added: `build.rs` reads the
+/// workspace `Cargo.lock`, and a transitive dependency appears there without
+/// anyone editing anything.
+#[must_use]
+pub fn component_absent(name: &str) -> String {
+    format!("{name} — not in this build")
+}
+
+/// Explains what the component lines are, once, under them.
+#[must_use]
+pub fn components_note() -> &'static str {
+    "These are compiled into this program. A revision and its commit date identify the source they were built from; they have no separate build of their own."
+}
+
 /// One sentence saying what this program is.
 ///
 /// Present because an About box that gives a version and no identity tells an
@@ -324,6 +394,72 @@ pub fn attributions() -> &'static [Attribution] {
 
 #[cfg(test)]
 mod tests {
+    /// ★ **The build stamp is present and is not a placeholder.**
+    ///
+    /// `build.rs` sets `PDFCE_BUILD_TIME` from `PDFCE_BUILD_STAMP` when the
+    /// packager supplies one and from a computed UTC clock otherwise. Both
+    /// paths must produce something an operator can read; an empty string would
+    /// render as "built  from abc1234", which looks like a layout bug rather
+    /// than a missing value.
+    #[test]
+    fn the_build_stamp_is_populated() {
+        let stamp = env!("PDFCE_BUILD_TIME");
+        assert!(!stamp.trim().is_empty(), "build.rs set no build time");
+        assert!(
+            stamp.contains('-') && stamp.contains(':'),
+            "a build stamp should carry a date and a time, got {stamp:?}"
+        );
+        let rev = env!("PDFCE_GUI_REV");
+        assert!(!rev.trim().is_empty(), "build.rs set no revision");
+    }
+
+    /// ★ The engine is REALLY named, because this is the row that identifies
+    /// which pdfce is inside a given executable.
+    ///
+    /// A `Cargo.lock` this build script could not read would leave the version
+    /// empty and the About box would say "pdfce - not in this build" about a
+    /// program that is nothing but pdfce. That reads as a far worse claim than
+    /// a missing date, so it is asserted rather than left to be noticed.
+    #[test]
+    fn the_engine_reports_a_version_and_a_revision() {
+        assert!(
+            !env!("PDFCE_ENGINE_VERSION").is_empty(),
+            "the engine version was not read out of Cargo.lock"
+        );
+        assert!(
+            !env!("PDFCE_ENGINE_REV").is_empty(),
+            "the engine revision was not read out of Cargo.lock"
+        );
+    }
+
+    /// A component line reads as a sentence with and without a commit date.
+    ///
+    /// The date is optional because a dependency taken from a source this build
+    /// cannot run `git` in - crates.io, or an `https://` remote - still has a
+    /// version and a revision worth printing. What it must not do is print a
+    /// dangling "committed" with nothing after it.
+    #[test]
+    fn a_component_line_survives_a_missing_commit_date() {
+        let with = component_line("pdfce", "0.7.0", "6af5655", "2026-08-18 14:02");
+        assert!(with.contains("0.7.0") && with.contains("6af5655"));
+        assert!(with.contains("committed 2026-08-18 14:02"));
+
+        let without = component_line("pdfce", "0.7.0", "6af5655", "");
+        assert!(
+            !without.contains("committed"),
+            "an empty date must leave the word out too, got {without:?}"
+        );
+        assert!(without.ends_with("6af5655"));
+    }
+
+    /// An absent component says so, and says it about itself.
+    #[test]
+    fn an_absent_component_names_itself() {
+        let line = component_absent("iccce");
+        assert!(line.starts_with("iccce"));
+        assert!(line.contains("not in this build"));
+    }
+
     use super::*;
     use std::path::PathBuf;
 

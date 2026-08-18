@@ -175,6 +175,50 @@ pub fn declared_names(trace: &Trace, ui_rect: &str, prefix: &str) -> Vec<String>
 /// # Errors
 ///
 /// If the captured stderr cannot be read at all.
+/// The control that holds the groups a narrow ribbon could not fit.
+pub const OVERFLOW: &str = "ribbon.overflow";
+
+/// **Find a ribbon item, opening the overflow if that is where it went.**
+///
+/// ★ The fix for a whole class of false SKIPs, and it is worth understanding
+/// why they were false rather than treating this as a convenience.
+///
+/// The harness drives a **1100 pt** window. At that width the ribbon correctly
+/// folds its rightmost groups into an overflow menu — that is the responsive
+/// behaviour working, not failing. A check that looked only at the tab surface
+/// then reported *"no `ribbon.item.file.print` region on the File tab"*, which
+/// is true and reads as *"the command is missing"*, which is false. It cost
+/// `print_dialog_reaches_the_spooler` a standing FAIL that was written up as a
+/// harness gap and left, and it would have cost `about` the same.
+///
+/// So: look on the tab; if it is not there and an overflow control is, click
+/// the overflow and look again. A caller gets `None` only when the item is
+/// genuinely absent from both, which is the finding it meant to make.
+///
+/// # Why this returns the rect rather than clicking
+///
+/// Because *"where is it"* and *"press it"* are different decisions, and some
+/// callers want to measure a control rather than invoke it. The overflow is
+/// left OPEN on return, which is what a caller that is about to click wants;
+/// a caller that is not can dismiss it with Escape.
+pub fn declared_or_in_overflow(
+    session: &Session,
+    driver: &crate::input::Driver,
+    ui_rect: &str,
+    name: &str,
+) -> Result<Option<LRect>> {
+    let trace = session.trace()?;
+    if let Some(rect) = declared(&trace, ui_rect, name) {
+        return Ok(Some(rect));
+    }
+    let Some(overflow) = declared(&trace, ui_rect, OVERFLOW) else {
+        return Ok(None);
+    };
+    driver.click_at(session.frame()?.declared_center(overflow))?;
+    session.settle(16);
+    Ok(declared(&session.trace()?, ui_rect, name))
+}
+
 pub fn shell_trace(session: &Session) -> Result<Trace> {
     Trace::read(session.trace_path(), SHELL_TRACE_PREFIX)
 }
