@@ -574,6 +574,23 @@ const fn to_engine_settings(settings: DeviceSettings) -> pdfce_print::DeviceSett
         orientation: to_engine_orientation(settings.orientation),
         duplex: to_engine_duplex(settings.duplex),
         pick_tray_by_page_size: settings.pick_tray_by_page_size,
+        // ★ `DeviceDefault` — say nothing about paper, which is what this
+        // build has always done and is what the engine did implicitly before
+        // the field existed.
+        //
+        // The field arrived on 2026-08-18 when `pdfce-print` answered this
+        // project's filing: `build_devmode` had been SYNTHESISING a DEVMODE
+        // from zero and now starts from the driver's, so paper is expressible
+        // for the first time. The shell has no control for it yet — that is
+        // the next piece of work, and `printer_forms()` is the enumeration it
+        // will populate from.
+        //
+        // Explicit rather than `..Default::default()`, deliberately: a struct
+        // update would have absorbed this field silently and would absorb the
+        // NEXT one too, which is how a shell comes to ignore a capability the
+        // engine grew for it. The compile error this replaced is the whole
+        // value of naming every field.
+        paper: pdfce_print::PaperSelection::DeviceDefault,
     }
 }
 
