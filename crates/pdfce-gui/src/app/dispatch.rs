@@ -658,6 +658,29 @@ impl PdfceApp {
                 });
                 self.dialogs.open_dimension_groups(&self.status, group);
             }
+            // ★ **A second ROUTE to `file.properties`, and deliberately not a
+            // second implementation of it.**
+            //
+            // `Action::Command` exists for exactly this: `crate::app::actions`'
+            // own docs say it is there *"so a second route to an existing
+            // command cannot become a second implementation of it"*, with the
+            // Find bar's OCR offer as the precedent. Calling
+            // `panels::show(Panel::Properties)` here instead would put the
+            // panel's opening guards — mode gating, dock state, the
+            // already-open case — in two places, and the two would drift.
+            //
+            // The two ids exist because the shell enforces one command, one
+            // tab, and the placements answer different questions: File ▸
+            // Document is "tell me about this file", Format is "tell me about
+            // the thing I just clicked". `format.properties` is the second
+            // question's button and the first question's command is what it
+            // presses.
+            "format.properties" => {
+                actions.push(crate::app::actions::Action::Command(
+                    // ui-text-exempt: a registered command id, never displayed
+                    "file.properties".to_owned(),
+                ));
+            }
             "measure.finish" => {
                 if !self.capabilities().author_measure {
                     crate::diag::trace(|| {

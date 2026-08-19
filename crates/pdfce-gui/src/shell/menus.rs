@@ -86,7 +86,7 @@
 //!
 //! | Context id | Right-click site | Items | The reasoning |
 //! |---|---|---|---|
-//! | [`CANVAS_OBJECT`] | a selected object on the page | `view.zoom_selection`, `format.delete` | Zoom to selection is here because **SolidWorks and Acrobat both reach it by right-click** and only Inkscape binds a key for it — operator instruction of 2026-08-14 to match those three; see the registration site for why no chord was invented. Then §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. |
+//! | [`CANVAS_OBJECT`] | a selected object on the page | `view.zoom_selection`, `format.properties`, `format.delete` | Zoom to selection is here because **SolidWorks and Acrobat both reach it by right-click** and only Inkscape binds a key for it — operator instruction of 2026-08-14 to match those three; see the registration site for why no chord was invented. Then §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. **`format.properties` joined them on 2026-08-18**, with the ce-dimension properties section: a selected ce dimension's group, measurement, style overrides and radius/diameter switch are otherwise reachable only by noticing that a contextual tab appeared or by opening a dock panel by name, and the operator's report was *"I click and can't figure out how to enable some of the basic stuff."* It sits above Delete because the destructive row is last in every menu here. |
 //! | [`CANVAS_EMPTY`] | blank page, or the paper beside the drawing | `view.zoom_fit_page`, `view.zoom_fit_width`, `view.zoom_actual` | The three **named** zoom levels, all of which have a live dispatch arm today. A right-click on paper is about the *view*, because there is no object to be about. |
 //! | [`DOCK_TAB`] | a panel tab in the dock | `view.reset_layout` | The only registered command that acts on the dock. The **command** is wired (`PdfceApp::dispatch_command` calls `Modes::reset` with `ResetScope::All`); the **menu** still cannot be attached — see the warning below. |
 //! | [`OBJECTS_ROW`] | a row in the Objects panel | `file.properties` | The Properties panel is *where an object row is described*; right-clicking a row focuses it and this is the command that puts the description on screen — which it now does: `PdfceApp::show_panel` activates the panel, mounting it first if the operator's arrangement no longer holds it. |
@@ -280,6 +280,20 @@ pub fn built_in() -> Menus {
         // that cannot be undone by looking somewhere else.
         .with(Menu::new(CANVAS_OBJECT).with_items([
             Item::command("view.zoom_selection"),
+            // ★ The right-click route to the Properties panel, added 2026-08-18
+            // with the ce-dimension properties section.
+            //
+            // It is here because it is where the operator actually looks. A ce
+            // dimension's group, its measured value, its eleven inherited-or-
+            // overridden settings and its radius/diameter switch are otherwise
+            // reachable only by knowing that a contextual **Format** tab
+            // appeared, or by opening a dock panel by name — and the operator's
+            // report that started this work was *"I click and can't figure out
+            // how to enable some of the basic stuff."*
+            //
+            // Above Delete, which stays last: the destructive row is last in
+            // every menu in this file, deliberately.
+            Item::command("format.properties"),
             Item::command("format.delete"),
         ]))
         // -------------------------------------------------------------------
@@ -908,7 +922,10 @@ mod tests {
     fn each_menu_holds_exactly_the_documented_items() {
         let menus = built_in();
         for (context, expected) in [
-            (CANVAS_OBJECT, &["view.zoom_selection", "format.delete"][..]),
+            (
+                CANVAS_OBJECT,
+                &["view.zoom_selection", "format.properties", "format.delete"][..],
+            ),
             (
                 CANVAS_EMPTY,
                 &[

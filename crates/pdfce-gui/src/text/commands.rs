@@ -1110,6 +1110,34 @@ pub const fn format_delete() -> CommandText {
     )
 }
 
+/// `format.properties`
+///
+/// ★ **A second route to `file.properties`, not a second implementation of
+/// it.** Its dispatch arm raises `Action::Command("file.properties")`, which is
+/// the mechanism that exists so exactly this cannot become two ways of opening
+/// one panel with two sets of guards — the Find bar's OCR offer is the
+/// precedent.
+///
+/// It is registered as its own id rather than listing `file.properties` twice
+/// because the shell enforces **one command, one tab**, and the two placements
+/// answer different questions: File ▸ Document is *"tell me about this file"*
+/// and Format is *"tell me about the thing I just clicked"*.
+///
+/// The tooltip names the ce dimension case explicitly. That is the capability
+/// the panel gained on 2026-08-18 — the style cascade, the tolerance and the
+/// radius/diameter switch — and it is the one an operator has no other way to
+/// discover, because a selected ce dimension looks exactly like an unselected
+/// one apart from its outline.
+#[must_use]
+pub const fn format_properties() -> CommandText {
+    CommandText::new(
+        "Properties",
+        "Show the Properties panel for what is selected — for a dimension, its \
+         group, what it measured, and every setting it inherits from its group \
+         or overrides for itself.",
+    )
+}
+
 // ===========================================================================
 // MODES
 //

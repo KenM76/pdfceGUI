@@ -127,6 +127,6 @@ pub(super) fn tab() -> Tab {
         .with_groups([group(
             "selection",
             ribbon::group_format_selection(),
-            [command("format.delete")],
+            [command("format.properties"), command("format.delete")],
         )])
 }

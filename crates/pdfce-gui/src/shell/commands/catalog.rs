@@ -1109,6 +1109,21 @@ pub(super) fn all() -> Vec<Command> {
         command("format.delete", t::format_delete(), 800)
             .with_icon("delete")
             .enabled_when("selection.any"),
+        // ★ A second ROUTE to `file.properties`, not a second command that
+        // opens the panel. Its arm raises `Action::Command("file.properties")`,
+        // which is the mechanism that keeps one command's guards in one place.
+        //
+        // Registered as its own id because the shell enforces one command, one
+        // tab — and the two placements answer different questions: File ▸
+        // Document is "tell me about this file", Format is "tell me about the
+        // thing I just clicked".
+        //
+        // The icon is `properties`, shared with `file.properties` under the
+        // header's shared-key convention: same panel, same glyph, and the two
+        // are never drawn together because Format is contextual.
+        command("format.properties", t::format_properties(), 801)
+            .with_icon("properties")
+            .enabled_when("selection.any"),
         // ===================================================================
         // MODES — tokens 900-999
         //

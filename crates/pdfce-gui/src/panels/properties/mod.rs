@@ -100,6 +100,15 @@
 //! unlike most inferences this one is invisible: a confidently wrong "Yes"
 //! looks exactly like a right one.
 
+/// ★ The **selected ce dimension's** own properties — a contextual section
+/// drawn above this panel's object form.
+///
+/// It makes this panel's founding premise false and says so: the ui-spec's
+/// *"nothing else competed for the word Properties"* stopped holding the day a
+/// canvas selection became a second claimant on it. Its own header carries the
+/// argument for broadening this panel's purpose rather than inventing a ninth.
+mod dimension;
+
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
 use crate::panels::PanelsState;
@@ -154,9 +163,27 @@ pub fn font_embedded(
 }
 
 /// Draw the Properties panel.
-pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, _actions: &mut Vec<Action>) {
+pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>) {
+    // ★ The contextual section goes FIRST, and it is the reason this function
+    // takes an action queue at all.
+    //
+    // Transient "what I am looking at right now" content above persistent
+    // content is the ordering the Objects/Properties split already establishes
+    // in spirit, and here it is load-bearing rather than tidy: an operator who
+    // has just clicked a ce dimension on the canvas is looking at the top of
+    // this panel, and putting its properties under a possibly long object form
+    // would put them below the fold.
+    let drew_dimension = dimension::section(ui, doc, actions);
+
     let Some(index) = state.focus() else {
-        ui.label(t::properties_nothing_focused());
+        // ★ Silent when the section drew, because it is not true otherwise. A
+        // ce dimension selected on the canvas with nothing focused in the
+        // object tree is the ordinary state the instant an operator clicks one,
+        // and *"nothing is selected"* under a section describing the thing that
+        // is selected would be the panel contradicting itself.
+        if !drew_dimension {
+            ui.label(t::properties_nothing_focused());
+        }
         return;
     };
     // The description is taken out of the shared decomposition and OWNED

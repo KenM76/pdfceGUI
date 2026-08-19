@@ -61,6 +61,14 @@
 
 /// The Comments panel — every annotation on the document, listed.
 pub mod comments;
+/// The ce-dimension properties section — the bottom tier of the style cascade
+/// made reachable, with the tier each value came from named beside it.
+///
+/// Its own header carries the one rule this catalog must not break: **it never
+/// builds a label**. A limit tolerance suppresses the nominal rather than
+/// printing beside it, and a panel previewing the two by concatenation
+/// disagrees with the bytes in the page.
+pub mod dimension;
 /// The Fonts panel's inventory report.
 pub mod fonts;
 /// The Objects panel, and the wording of every object fact.

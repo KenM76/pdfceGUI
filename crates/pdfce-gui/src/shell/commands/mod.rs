@@ -211,7 +211,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 95);
+        assert_eq!(registry().len(), 96);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -258,7 +258,7 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 85, "commands naming an icon");
+        assert_eq!(named, 86, "commands naming an icon");
         assert_eq!(
             refused, 10,
             "commands with no icon, each argued at its registration"

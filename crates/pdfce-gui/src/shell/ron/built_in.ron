@@ -369,6 +369,7 @@
                     id: "selection",
                     caption: "Selection",
                     items: [
+                        Command("format.properties"),
                         Command("format.delete"),
                     ],
                 ),
@@ -409,6 +410,7 @@
             context: "canvas.object",
             items: [
                 Command("view.zoom_selection"),
+                Command("format.properties"),
                 Command("format.delete"),
             ],
         ),
