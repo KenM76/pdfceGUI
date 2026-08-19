@@ -573,6 +573,170 @@ pub fn value_font_embedded_ambiguous() -> &'static str {
     "pdfce could not tell — this document declares more than one font under that name, and they need not agree. The Fonts panel lists each one separately."
 }
 
+// ===========================================================================
+// The selected markup's style — `set_markup_style`
+// ===========================================================================
+
+/// The heading over the markup restyle controls.
+#[must_use]
+pub const fn markup_heading() -> &'static str {
+    "This markup"
+}
+
+/// The line under it: what kind of mark is selected.
+///
+/// ★ The file's own `/Subtype`, translated. An operator placed a *rectangle*
+/// and the file calls it `Square`; they placed an *arrow* and the file calls it
+/// `Line`. Showing the file's word would be correct and useless — the standing
+/// rule in `text::commands` is that a label is the operator's vocabulary and an
+/// id is the format's.
+#[must_use]
+pub fn markup_subtype(subtype: &str) -> String {
+    let name = match subtype {
+        "Square" => "Rectangle",
+        "Circle" => "Ellipse",
+        "Line" => "Arrow or line",
+        "Polygon" => "Polygon or revision cloud",
+        "PolyLine" => "Polyline",
+        "Ink" => "Freehand",
+        "Highlight" => "Highlight",
+        "Underline" => "Underline",
+        "StrikeOut" => "Strikeout",
+        "Squiggly" => "Squiggly",
+        "FreeText" => "Text box",
+        "Text" => "Sticky note",
+        "Stamp" => "Stamp",
+        // ★ Not "Unknown". A subtype this catalogue has no word for is still a
+        // real mark the operator can see and is about to restyle, and the
+        // file's own spelling is the most honest thing left to show them.
+        other => other,
+    };
+    format!("{name} on this page")
+}
+
+/// The colour control's label.
+#[must_use]
+pub const fn markup_colour_label() -> &'static str {
+    "Colour"
+}
+
+/// The width control's label.
+#[must_use]
+pub const fn markup_width_label() -> &'static str {
+    "Line width"
+}
+
+/// The suffix on the width control.
+#[must_use]
+pub const fn markup_width_suffix() -> &'static str {
+    " pt"
+}
+
+/// The opacity control's label.
+#[must_use]
+pub const fn markup_opacity_label() -> &'static str {
+    "Opacity"
+}
+
+/// The suffix on the opacity control.
+///
+/// A percentage, because that is the unit every application an operator has
+/// used states opacity in. `/CA`'s own `0.0..=1.0` is a file-format detail they
+/// should never meet.
+#[must_use]
+pub const fn markup_opacity_suffix() -> &'static str {
+    " %"
+}
+
+/// The button that removes a property, restoring the file's own default.
+///
+/// ★ *"Clear"*, not *"Reset"* or *"Default"*. It removes the key from the
+/// annotation dictionary, and what happens then is that the **standard's**
+/// default applies — which is not necessarily what the mark looked like when
+/// the operator placed it. "Reset" would promise a return to a previous state
+/// that pdfce does not remember.
+#[must_use]
+pub const fn markup_clear() -> &'static str {
+    "Clear"
+}
+
+/// ★★ What restyling costs, said once under the whole section.
+///
+/// Two facts an operator cannot see and would otherwise discover from a
+/// changed file:
+///
+/// 1. **The appearance is regenerated.** `set_markup_style` redraws the mark
+///    from the geometry pdfce models, so anything the original expressed
+///    *outside* that model — a border effect pdfce does not author, a producer's
+///    own decoration — is gone from the new appearance even though its
+///    dictionary key survives. The engine reports each one, and those arrive
+///    verbatim on the status row; this sentence is the standing warning that
+///    such a report is possible at all.
+/// 2. **A wider line moves the box.** For every subtype except a rectangle and
+///    an ellipse, `/Rect` is derived from the geometry plus a margin that
+///    contains the stroke and any arrowheads — so widening the pen makes the
+///    annotation's rectangle bigger. That is the engine's own ⚠, and it is the
+///    difference between a mark that looks the same and a mark that occupies
+///    the same space.
+#[must_use]
+pub const fn markup_note() -> &'static str {
+    "Changing any of these redraws the mark from the shape pdfce has recorded for it. A wider \
+     line also makes the mark's own box bigger, except on rectangles and ellipses."
+}
+
+/// Why the controls are greyed on a locked annotation.
+///
+/// Names the standard, because an operator who meets this wants to know whether
+/// pdfce is refusing or the document is — and it is the document. It also names
+/// the one thing that is still possible, which is the rule a refusal follows
+/// everywhere in this shell.
+#[must_use]
+pub const fn markup_locked() -> &'static str {
+    "This mark is locked by the document, so its appearance cannot be changed here. You can \
+     still delete it."
+}
+
+/// ★★ What regenerating an appearance LOST, in the operator's terms.
+///
+/// `set_markup_style` redraws a mark from the geometry pdfce models, so
+/// anything the original expressed *outside* that model is gone from the new
+/// appearance even though its dictionary key survives. The engine names each
+/// one; this is the sentence that reaches the operator, and it is owed under
+/// rule 4's surviving half — **an inference the operator cannot see still owes
+/// an off-canvas report.**
+///
+/// ★ Every sentence says **what they will see**, not what a key is called. An
+/// operator who is told *"the `/BE` border effect was dropped"* has been told
+/// nothing; one who is told *"its cloudy edge is now a plain outline"* can look
+/// at the page and decide whether they mind.
+#[must_use]
+pub const fn markup_dropped(dropped: pdfce_core::edit::DroppedProperty) -> &'static str {
+    use pdfce_core::edit::DroppedProperty as D;
+    match dropped {
+        D::BorderEffect => {
+            "This mark had a cloudy or hand-drawn edge that pdfce does not redraw. It is now a plain outline."
+        }
+        D::BorderStyle => {
+            "This mark had a border style pdfce does not redraw — a bevel, an inset or an underline. It is now a plain outline."
+        }
+        D::DashPattern => "This mark's dashed outline is now a solid one.",
+        D::RectDifferences => {
+            "This mark's own box was inset from the area it covered, and that inset is gone. The mark is drawn to the box now."
+        }
+        D::LineEnding => {
+            "This mark had arrowheads or line ends pdfce does not redraw, and they are gone."
+        }
+        // `DroppedProperty` is `#[non_exhaustive]`, so a wildcard is required
+        // rather than optional. It answers with the general form of the same
+        // fact, which is true of every member: something the file expressed is
+        // not in the picture pdfce just drew, and saying so imprecisely is far
+        // better than saying nothing.
+        _ => {
+            "This mark carried something pdfce does not redraw, and it is not in the new appearance."
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

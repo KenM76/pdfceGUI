@@ -118,6 +118,12 @@ mod annots;
 /// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
 /// they are reachable exactly where they were before the split.
 mod apply;
+/// ★ `ViewChrome` — which piece of View ▸ Display an action is about.
+///
+/// Split out on 2026-08-19: it is not an action, it is the one *operand* in
+/// this vocabulary with a type of its own. Re-exported below, so no call site
+/// learns that it moved.
+mod chrome;
 /// ★ Everything the **ce-dimension** feature asks the document to do — the
 /// groups, their scales, standards and style defaults, and the per-ce-dimension
 /// overrides.
@@ -159,6 +165,7 @@ pub mod forms;
 /// verb do to the document*, and undo and redo describe **no edit at all** —
 /// they ask the session to replay one it has already recorded.
 mod history;
+pub use chrome::ViewChrome;
 /// The four page verbs' bodies, and the structural resync every edit owes.
 ///
 /// A sibling of [`apply`] rather than part of it, on rule R2's own reasoning:
@@ -187,58 +194,6 @@ mod redact;
 // This block is the answer to the question that section used to leave open:
 // *where does an operator read one?*
 // ---------------------------------------------------------------------------
-
-/// Which piece of View ▸ Display chrome a [`Action::ToggleViewChrome`] is
-/// about.
-///
-/// An enum rather than three action variants — see that variant's own docs —
-/// and it lives here rather than in `canvas` because it is the *operand of an
-/// action*, and `shell::commands` (which maps ids to it) must not have to
-/// reach into the canvas to name one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViewChrome {
-    /// `view.rulers` — the gutters along the canvas edges.
-    Rulers,
-    /// `view.grid` — the drawing grid over each page.
-    Grid,
-    /// `view.guides` — whether the operator's guides are shown and draggable.
-    Guides,
-}
-
-impl ViewChrome {
-    /// Every variant, in the order View ▸ Display lists them.
-    ///
-    /// Iterated by the tests that assert each has a command and each command
-    /// has a `selected:` condition — the same both-directions check
-    /// `PageDisplay::ALL` exists for, and for the same reason: a fourth toggle
-    /// added to the enum with no registration would draw nothing and nothing
-    /// else in the suite would notice.
-    pub const ALL: &'static [ViewChrome] =
-        &[ViewChrome::Rulers, ViewChrome::Grid, ViewChrome::Guides];
-
-    /// Read this toggle out of a view state.
-    #[must_use]
-    pub fn read(self, view: &crate::viewer::ViewState) -> bool {
-        match self {
-            ViewChrome::Rulers => view.rulers,
-            ViewChrome::Grid => view.grid,
-            ViewChrome::Guides => view.guides,
-        }
-    }
-
-    /// Write this toggle into a view state.
-    ///
-    /// The pair with [`Self::read`], so the enum's mapping onto
-    /// [`crate::viewer::ViewState`]'s three fields is stated exactly twice, in
-    /// adjacent functions, instead of once per consumer.
-    pub fn write(self, view: &mut crate::viewer::ViewState, on: bool) {
-        match self {
-            ViewChrome::Rulers => view.rulers = on,
-            ViewChrome::Grid => view.grid = on,
-            ViewChrome::Guides => view.guides = on,
-        }
-    }
-}
 
 /// One operator intent, applied after the frame that raised it.
 ///
@@ -1081,6 +1036,45 @@ pub enum Action {
         /// and `TextPen` resolves them at the boundary. See its docs for why
         /// black is written `Black` and not `Rgb(0, 0, 0)`.
         pen: crate::canvas::textedit::pen::TextPen,
+    },
+    /// ★★ **Restyle a markup that is already on the page** — the action behind
+    /// `EditSession::set_markup_style`, and the first caller that verb has ever
+    /// had in this shell.
+    ///
+    /// It shipped in the engine on 2026-08-18 and had **zero GUI call sites**
+    /// until 2026-08-19: it appeared only in doc comments, which
+    /// `pdfce`'s own capability register recorded as a ⬜ this project put
+    /// there. Both blockers `shell::manifest::format`'s header named are
+    /// discharged — the verb, and a selection model that can address an
+    /// annotation — so what was left was work.
+    ///
+    /// # ★ The style carries ONE field, not a whole struct
+    ///
+    /// `MarkupStyle`'s every field is `Option`, and its own doc says why: *"a
+    /// Format tab whose colour picker also had to restate the current width
+    /// would overwrite whatever the operator had set from the other control."*
+    ///
+    /// So the surface raises one of these per control that changed, carrying
+    /// the one field that changed, and never assembles a struct from what its
+    /// widgets happen to be showing. The failure that prevents is a colour
+    /// change that silently reverts a width set a moment earlier, from a widget
+    /// that was one frame stale.
+    ///
+    /// # Why the page travels beside the id
+    ///
+    /// The verb does not need it — an `ObjId` names the annotation outright —
+    /// and `vector_edit` does: it invalidates the page's raster and the strip's
+    /// entry for it, and a restyle changes what that page draws. Deriving the
+    /// page at apply time would mean asking which page an object is on, which
+    /// is a graph walk for a number the surface already had.
+    SetMarkupStyle {
+        /// The 0-based page the annotation lives on.
+        page: usize,
+        /// The annotation, by object id — **stable**, unlike a content
+        /// object's paint-order index.
+        id: pdfce_core::object::ObjId,
+        /// What to change. Every field `None` but the one control that moved.
+        style: pdfce_core::edit::MarkupStyle,
     },
     /// Show or hide one optional-content group.
     ///

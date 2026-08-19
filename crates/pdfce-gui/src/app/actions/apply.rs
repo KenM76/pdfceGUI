@@ -654,6 +654,33 @@ impl PdfceApp {
             // lives in `pages` beside rotate, delete, reorder and extract, and
             // this arm routes. See `pages::insert_from_file` for why it must
             // mutate the session rather than replace it.
+            // ★★ Restyle a placed markup, through the same four-step protocol
+            // every other document change uses.
+            //
+            // The arm routes; it does not compute. Which field is `Some` was
+            // decided by the control the operator moved, in
+            // `panels::properties::markup`, and assembling a `MarkupStyle` here
+            // from anything would be this arm making a decision the surface
+            // already made — the failure `MarkupStyle`'s own doc names.
+            //
+            // ★ `report.dropped` is carried into the disclosure list rather than
+            // discarded, and it is the whole reason this verb returns one:
+            // regenerating an appearance loses anything the original expressed
+            // OUTSIDE the model pdfce draws — a border effect it does not
+            // author, a producer's own decoration — and the dictionary key
+            // survives while the picture does not. Rule 4: an inference the
+            // operator cannot see still owes an off-canvas report.
+            Action::SetMarkupStyle { page, id, style } => {
+                vector_edit(doc, "set-markup-style", page, 1, |session| {
+                    session.set_markup_style(id, &style).map(|report| {
+                        report
+                            .dropped
+                            .iter()
+                            .map(|d| crate::text::panels::properties::markup_dropped(*d).to_owned())
+                            .collect::<Vec<String>>()
+                    })
+                });
+            }
             Action::CommitAddText {
                 page,
                 origin,

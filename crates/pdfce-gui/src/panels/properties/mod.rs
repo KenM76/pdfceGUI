@@ -120,6 +120,13 @@ mod dimension;
 /// accessor that `pdfce-core` does not expose"* — was true when written and
 /// false when read.
 pub mod info;
+/// ★★ Restyling a markup that is already on the page — colour, line width and
+/// opacity, through `EditSession::set_markup_style`.
+///
+/// Its header carries why this is the PANEL rather than the Format tab (the
+/// operator's own 2026-08-12 decision, quoted from `RIBBON_IA.md` §5.8) and why
+/// every control raises one action carrying one field.
+mod markup;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
@@ -199,8 +206,17 @@ pub fn font_embedded(
 /// unwritable: the section that is *always* shown must not be reachable only
 /// through the section that usually is not.
 pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>) {
+    // ★★ The markup restyle section, first among the selection-scoped ones.
+    //
+    // Before the ce-dimension section and before the object one, because the
+    // three are **mutually exclusive by construction** — `SelectionState` holds
+    // an annotation or a content selection, never both, and `AnnotKind` splits
+    // the annotation case in the type — so the order is about which the reader
+    // meets in the source rather than which the operator sees. Markup is first
+    // because it is the one that WRITES: the other two describe.
+    let drew_markup = markup::section(ui, doc, actions);
     let drew_dimension = dimension::section(ui, doc, actions);
-    object_section(ui, doc, state, drew_dimension);
+    object_section(ui, doc, state, drew_dimension || drew_markup);
     ui.separator();
     info::section(ui, doc, state.properties_mut(), actions);
 }
