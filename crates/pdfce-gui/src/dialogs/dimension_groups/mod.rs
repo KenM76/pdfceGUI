@@ -107,6 +107,14 @@ pub const REGION_NEW_NAME: &str = "dimension-groups.new_name"; // ui-text-exempt
 /// index would change under a check the moment a group was added, which is
 /// exactly what a check that adds a group is doing.
 pub const REGION_DRAW_INTO_PREFIX: &str = "dimension-groups.draw_into."; // ui-text-exempt: trace region name, never displayed
+/// The prefix of the per-row name regions — what a check clicks to make a group
+/// the one the lower half of the window is configuring.
+///
+/// Distinct from [`REGION_DRAW_INTO_PREFIX`] beside it, and the distinction is
+/// the window's own: the radio chooses where the **next dimension** goes, the
+/// name chooses which group's **settings are on screen**. Collapsing them would
+/// make inspecting a group silently redirect the next dimension drawn.
+pub const REGION_ROW_PREFIX: &str = "dimension-groups.row."; // ui-text-exempt: trace region name, never displayed
 
 /// The Manage-dimension-groups window's live state.
 ///
@@ -316,10 +324,13 @@ impl DimensionGroupsDialog {
                     // A separate "configure" button per row would be a second
                     // control doing what clicking the row already means
                     // everywhere else in this application.
-                    if ui
-                        .selectable_label(self.selected == group.id, &group.name)
-                        .clicked()
-                    {
+                    let row = ui.selectable_label(self.selected == group.id, &group.name);
+                    crate::diag::ui_rect(
+                        // ui-text-exempt: trace region name, never displayed
+                        &format!("{REGION_ROW_PREFIX}{}", group.id.0),
+                        row.rect,
+                    );
+                    if row.clicked() {
                         self.selected = group.id;
                     }
                     ui.label(t::member_count(model.member_count(group.id)));

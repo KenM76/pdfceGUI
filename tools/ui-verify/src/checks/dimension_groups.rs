@@ -1,5 +1,6 @@
-//! `dimension_groups_window_makes_a_group` — the Manage-groups window opens,
-//! and a group made in it reaches the document and comes back joinable.
+//! `dimension_groups_window_makes_a_group` — the Manage-groups window opens, a
+//! group made in it reaches the document and comes back joinable, and the same
+//! group can then be renamed and removed.
 //!
 //! # The gap this closes
 //!
@@ -42,6 +43,25 @@
 //! **nothing in the build ever wrote to it**: a second group could be created
 //! and joined by nothing. A row with a radio on it is the only evidence that
 //! the group is reachable rather than merely recorded.
+//!
+//! # ★ And the round trip, added 2026-08-19 with the verbs it exercises
+//!
+//! Create, **rename**, **delete** — ending with the list exactly as long as it
+//! started. Each verb alone would show only that its arm exists; together they
+//! show that the window's three controls act on **the same group**.
+//!
+//! That is the failure a per-row surface actually has and no single-verb
+//! assertion can see: a rename field bound to the *selected* row while Delete
+//! acts on the *authoring* row would let every individual step report success
+//! while the operator renamed one group and deleted another. The two are
+//! deliberately different things in this window — the radio chooses where the
+//! next dimension goes, the name chooses whose settings are on screen — which
+//! is exactly what makes confusing them possible.
+//!
+//! **The populated-group branch is not covered**, and is named rather than left
+//! unstated: deleting a group that still has members asks a destination
+//! question, and reaching it needs a fixture whose dimensions already live in a
+//! named group.
 
 use crate::checks::driving::{
     SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, declared_or_in_overflow, list, shell_trace,
@@ -65,6 +85,17 @@ const ADD: &str = "dimension-groups.add";
 const DRAW_INTO: &str = "dimension-groups.draw_into.";
 /// The appearance-defaults block, which proves the lower half drew at all.
 const APPEARANCE: &str = "dimension-groups.appearance";
+/// The prefix of the per-row name regions — what selects a group for the lower
+/// half of the window.
+const ROW: &str = "dimension-groups.row.";
+/// The rename field.
+const RENAME: &str = "dimension-groups.rename";
+/// The Delete button.
+const DELETE: &str = "dimension-groups.delete";
+/// The label `vector_edit` traces when `rename_dimension_group` succeeded.
+const RENAMED: &str = "rename-dimension-group";
+/// The label it traces for `delete_dimension_group_with`.
+const DELETED: &str = "delete-dimension-group";
 /// The trace event `vector_edit` emits when the engine verb succeeded.
 ///
 /// `apply::vector_edit` traces the label it was given on the success path, so
@@ -75,6 +106,17 @@ const APPEARANCE: &str = "dimension-groups.appearance";
 const APPLIED: &str = "add-dimension-group";
 /// The keystrokes that spell the new group's name.
 const NAME_KEYS: [u16; 6] = [vk::D, vk::E, vk::T, vk::A, vk::I, vk::L];
+/// One more letter, appended when renaming.
+///
+/// ★ **Appended rather than retyped**, and that is what makes the rename
+/// observable without reading the text back. The field opens seeded with the
+/// group's current name, and the Rename button is drawn **only while the draft
+/// differs from it** — so a single extra letter producing a commit is itself
+/// evidence the field was seeded from the document rather than opening empty.
+///
+/// A rename box that opened empty would let an operator wipe a name by pressing
+/// a button they took for a no-op, and nothing else in this check would notice.
+const RENAME_KEY: u16 = vk::L;
 
 /// See the module documentation.
 pub struct DimensionGroupsWindowMakesAGroup;
@@ -326,5 +368,112 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         "the new group is listed and carries an authoring radio: {}",
         list(&after)
     ));
+
+    // --- 8: rename it, and delete it ---------------------------------------
+    //
+    // ★ A ROUND TRIP, deliberately: create, rename, delete, ending with the
+    // list exactly as long as it started. Each verb alone would only show that
+    // its arm exists; together they show that the window's three controls act
+    // on the SAME group — which is the failure a per-row surface actually has,
+    // and which no single-verb assertion can see.
+    //
+    // The new group is found by set difference rather than by position. A check
+    // that assumed "the last row" would be asserting something about the
+    // model's ordering that nothing promises.
+    let Some(added) = after.iter().find(|name| !before.contains(name)) else {
+        return Ok(Some(format!(
+            "the row count grew and no NEW `{DRAW_INTO}*` name appeared, which the model \
+             cannot produce — before {}, after {}.",
+            list(&before),
+            list(&after)
+        )));
+    };
+    let Some(id) = added.strip_prefix(DRAW_INTO) else {
+        return Err(Error::new(format!(
+            "`{added}` does not begin with `{DRAW_INTO}`, so the group id cannot be read out \
+             of it and the rename and delete steps have nothing to aim at."
+        )));
+    };
+
+    let trace = session.trace()?;
+    let Some(row) = declared(&trace, ui_rect, &format!("{ROW}{id}")) else {
+        return Ok(Some(format!(
+            "the new group has an authoring radio and NO `{ROW}{id}` region, so its name is \
+             not clickable and the lower half of the window can never be pointed at it. \
+             Every setting below the list would be unreachable for this group."
+        )));
+    };
+    driver.click_at(session.frame()?.declared_center(row))?;
+    session.settle(14);
+
+    // --- rename ------------------------------------------------------------
+    let trace = session.trace()?;
+    let Some(field) = declared(&trace, ui_rect, RENAME) else {
+        return Ok(Some(format!(
+            "the selected group's settings declare no `{RENAME}` region, so a mistyped group \
+             name is permanent for the life of the document."
+        )));
+    };
+    driver.click_at(session.frame()?.declared_center(field))?;
+    session.settle(10);
+    driver.press(RENAME_KEY)?;
+    session.settle(8);
+    // Enter rather than the button: the button is drawn beside the field only
+    // while there is something to do, so it has no stable region to aim at —
+    // and the row handles Enter for exactly the reason a check needs it, which
+    // is that a name is a thing people type and then press Enter on.
+    driver.press(vk::ENTER)?;
+    session.settle(18);
+
+    let trace = session.trace()?;
+    if trace.last(RENAMED).is_none() {
+        return Ok(Some(format!(
+            "a letter was typed into `{RENAME}` and Enter was pressed, and no `{RENAMED}` \
+             line followed. Either the field takes no keystrokes, or Enter is not a commit — \
+             and because the button is drawn only while the draft differs, a field that never \
+             received the letter shows no button either, so both failures look identical from \
+             outside."
+        )));
+    }
+    report.note("the group was renamed, through the document");
+
+    // --- delete ------------------------------------------------------------
+    //
+    // The group is EMPTY — nothing has been drawn into it — so this exercises
+    // the straight path rather than the destination question a populated group
+    // asks. **That branch is not covered here**, and it is named rather than
+    // left as an unstated gap: it needs a fixture whose dimensions already live
+    // in a named group, which this one does not have.
+    let trace = session.trace()?;
+    let Some(delete) = declared(&trace, ui_rect, DELETE) else {
+        return Ok(Some(format!(
+            "the selected group declares no `{DELETE}` region, so a group created by mistake \
+             stays in the picker for the life of the document."
+        )));
+    };
+    driver.click_at(session.frame()?.declared_center(delete))?;
+    session.settle(20);
+
+    let trace = session.trace()?;
+    if trace.last(DELETED).is_none() {
+        return Ok(Some(format!(
+            "Delete was pressed on an EMPTY group and no `{DELETED}` line followed. An empty \
+             group is the case the engine accepts without a policy, so this is the shell half \
+             and not a refusal."
+        )));
+    }
+    let finally = declared_names(&session.trace()?, ui_rect, DRAW_INTO);
+    if finally.len() != before.len() {
+        return Ok(Some(format!(
+            "★ the round trip did not close: {} row(s) before, {} after the delete. Create, \
+             rename and delete must act on the same group, and a mismatch here means one of \
+             the three pointed somewhere else — which every individual step would still \
+             report as a success. Rows: {}.",
+            before.len(),
+            finally.len(),
+            list(&finally)
+        )));
+    }
+    report.note("created, renamed and deleted the same group — the list is back where it started");
     Ok(None)
 }
