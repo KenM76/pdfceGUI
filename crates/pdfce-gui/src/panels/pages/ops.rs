@@ -272,6 +272,130 @@ pub fn move_order(
     }
 }
 
+/// **The permutation a DRAG asks `EditSession::reorder_pages` for** — the
+/// operands lifted out and re-inserted at one chosen gap.
+///
+/// `pages` is [`operands`]' output: ascending, de-duplicated, in range.
+/// `page_count` is the document's current length. `gap` is a **gap index**,
+/// not a page index — see below, because it is the one thing about this
+/// function that is easy to get wrong.
+///
+/// # ★ Gap indices, and why they are not page indices
+///
+/// There are `page_count + 1` places a block can land in a document of
+/// `page_count` pages, and only `page_count` pages. Numbering the landing
+/// places by the page they precede would leave the last one — *after the final
+/// sheet* — unnameable, which is the commonest drag on a drawing set.
+///
+/// So `gap` counts the boundaries:
+///
+/// ```text
+///   gap:   0      1      2      3
+///        │ p0   │ p1   │ p2   │
+/// ```
+///
+/// `gap == 0` is before the first page; `gap == page_count` is after the last.
+/// This is the same distinction `pdfce_core::pageops::InsertPosition` draws
+/// with `Before(n)` / `After(n)` / `Start` / `End`, and the mapping is exact:
+/// `Before(n)` is gap `n`, `After(n)` is gap `n + 1`, `Start` is gap 0, `End`
+/// is gap `page_count`. The Insert-from-file dialog names its destination in
+/// those words, and a drag has to mean the same thing or the two surfaces
+/// would disagree about where "here" is.
+///
+/// # ★ The gap is measured against the document BEFORE the lift
+///
+/// This is the subtle half and it is what [`drag_is_a_no_op`] exists for.
+/// The operator points at a boundary in the grid they can see — a grid that
+/// still contains the pages they are dragging. Lifting those pages out closes
+/// up the gaps they occupied, so a landing place at gap `g` is, after the
+/// lift, wherever `g` ends up once every operand below it has been removed.
+///
+/// The implementation therefore does exactly that, in the order a person
+/// would: take the operands out in document order, count how many of them sat
+/// below `gap`, and splice the block back in at `gap` minus that count. A
+/// version that "corrected" the gap up front would have to reason about
+/// operands *straddling* the boundary, which is where an off-by-one lives.
+///
+/// # Returns
+///
+/// `Ok(order)` with `order[i]` = the **current** 0-based index of the page
+/// that should end up at position `i` — `reorder_pages`' contract verbatim,
+/// and a permutation of `0..page_count` by construction because it is built by
+/// removing every operand from the identity and re-inserting all of them.
+///
+/// `Err(MoveRefusal::NothingToMove)` for an empty operand set or a document
+/// too short to reorder, and `Err(MoveRefusal::AtTheEdge)` for a drag that
+/// lands the block back where it started. The second is the important one: the
+/// engine would accept an identity permutation and record an undo entry for
+/// it, so an operator who picked a page up and put it down would get a
+/// document marked as edited and a `Ctrl+Z` that does nothing visible. That is
+/// the same argument [`move_order`] makes for refusing at the edge, arriving
+/// from a different direction.
+pub fn drop_order(
+    pages: &[usize],
+    page_count: usize,
+    gap: usize,
+) -> Result<Vec<usize>, MoveRefusal> {
+    if pages.is_empty() || page_count < 2 {
+        return Err(MoveRefusal::NothingToMove);
+    }
+    let gap = gap.min(page_count);
+    let moving: BTreeSet<usize> = pages.iter().copied().filter(|p| *p < page_count).collect();
+    if moving.is_empty() {
+        return Err(MoveRefusal::NothingToMove);
+    }
+    if drag_is_a_no_op(&moving, gap) {
+        return Err(MoveRefusal::AtTheEdge);
+    }
+
+    // Everything that is NOT moving, in document order — the sequence the
+    // block is spliced into.
+    let mut order: Vec<usize> = (0..page_count).filter(|p| !moving.contains(p)).collect();
+    // How far into that sequence the chosen boundary now sits: the boundary
+    // was at `gap` in the full document, and every operand strictly below it
+    // has been lifted out from underneath.
+    let lifted_below = moving.iter().filter(|p| **p < gap).count();
+    let at = gap.saturating_sub(lifted_below).min(order.len());
+    // Reversed, because each `insert` pushes the previous one along: inserting
+    // the largest first at a fixed position leaves them ascending. Splicing a
+    // whole slice would say the same thing and is not available on `Vec`
+    // without `splice`, whose range semantics are a second thing to get right.
+    for &page in moving.iter().rev() {
+        order.insert(at, page);
+    }
+    Ok(order)
+}
+
+/// Whether landing `moving` at `gap` would leave the document exactly as it
+/// is.
+///
+/// True in two cases, and both are ordinary rather than pathological — they
+/// are what a drag that has not gone anywhere yet looks like:
+///
+/// 1. **The boundary is inside the block.** Dragging pages 4–6 and hovering
+///    the gap between 5 and 6 asks for them to be re-inserted where they
+///    already are.
+/// 2. **The boundary is either lip of a contiguous block.** Dragging 4–6 to
+///    the gap immediately before 4, or immediately after 6, is the same
+///    request.
+///
+/// A **non-contiguous** selection dropped at its own first lip is NOT a no-op
+/// — pages 1, 5 and 9 dropped before page 1 become 1, 5, 9 adjacent at the
+/// top, which is a real edit — so the predicate tests contiguity rather than
+/// only the endpoints. Getting that wrong would refuse the single most useful
+/// thing a drag does on a drawing set: gathering scattered sheets together.
+#[must_use]
+pub fn drag_is_a_no_op(moving: &BTreeSet<usize>, gap: usize) -> bool {
+    let (Some(&lo), Some(&hi)) = (moving.iter().next(), moving.iter().next_back()) else {
+        return true;
+    };
+    let contiguous = hi - lo + 1 == moving.len();
+    if !contiguous {
+        return false;
+    }
+    (lo..=hi + 1).contains(&gap)
+}
+
 /// Where each page ended up, as `new_position[old_index]`.
 ///
 /// The inverse of a [`move_order`] permutation, and the one thing every reader
@@ -304,6 +428,135 @@ pub fn inverse(order: &[usize]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A drop's landing, as the page order the document ends up in.
+    ///
+    /// `drop_order` returns the engine's permutation — *which page is at
+    /// position i* — and every assertion below is easier to read as the page
+    /// sequence itself, which is what an operator sees in the grid.
+    fn landing(pages: &[usize], count: usize, gap: usize) -> Vec<usize> {
+        drop_order(pages, count, gap).expect("the drop was expected to land")
+    }
+
+    /// A contiguous block moves forward, and the gap is read against the
+    /// document as it was before the lift.
+    ///
+    /// ★ The case that catches an off-by-one: dragging pages 0–1 to gap 4 in a
+    /// five-page document. Naively splicing at 4 into the three remaining
+    /// pages would put them after page 4, not before it. The lift-count
+    /// correction is what makes the answer `[2, 3, 0, 1, 4]`.
+    #[test]
+    fn a_block_dragged_forward_lands_at_the_boundary_that_was_pointed_at() {
+        assert_eq!(landing(&[0, 1], 5, 4), vec![2, 3, 0, 1, 4]);
+        assert_eq!(landing(&[0], 5, 3), vec![1, 2, 0, 3, 4]);
+    }
+
+    /// A block dragged backwards needs no correction, and must not get one.
+    #[test]
+    fn a_block_dragged_backward_lands_at_the_boundary_that_was_pointed_at() {
+        assert_eq!(landing(&[3, 4], 5, 1), vec![0, 3, 4, 1, 2]);
+        assert_eq!(landing(&[4], 5, 0), vec![4, 0, 1, 2, 3]);
+    }
+
+    /// The last gap is reachable, which is the whole reason gaps are numbered
+    /// rather than named by the page they precede.
+    #[test]
+    fn the_gap_after_the_final_sheet_is_a_real_destination() {
+        assert_eq!(landing(&[0], 4, 4), vec![1, 2, 3, 0]);
+        // And a gap beyond it is clamped rather than refused: a pointer past
+        // the end of the last row means "after everything", which is what the
+        // operator is reaching for.
+        assert_eq!(landing(&[0], 4, 99), vec![1, 2, 3, 0]);
+    }
+
+    /// ★ **A scattered selection gathered at its own first page is a real
+    /// edit**, and refusing it would cost the most useful thing a drag does.
+    ///
+    /// Pages 0, 4 and 8 dropped at gap 0 become adjacent at the top. A
+    /// predicate that only compared the drop against the block's endpoints
+    /// would call this a no-op, because gap 0 is the lower lip of the
+    /// selection's range — and the operator would drag, release, and watch
+    /// nothing happen.
+    #[test]
+    fn gathering_scattered_pages_at_their_own_first_page_is_not_a_no_op() {
+        assert!(!drag_is_a_no_op(&set(&[0, 4, 8]), 0));
+        assert_eq!(landing(&[0, 4, 8], 9, 0), vec![0, 4, 8, 1, 2, 3, 5, 6, 7]);
+    }
+
+    /// A contiguous block dropped on itself, on either lip or anywhere inside,
+    /// is refused rather than recorded.
+    ///
+    /// The engine would accept the identity permutation and write an undo
+    /// entry for it, so an operator who picked a page up and put it back would
+    /// get a document marked as edited and a `Ctrl+Z` that changes nothing
+    /// they can see.
+    #[test]
+    fn a_block_dropped_on_itself_is_refused_at_every_boundary_it_spans() {
+        for gap in 4..=7 {
+            assert!(
+                drag_is_a_no_op(&set(&[4, 5, 6]), gap),
+                "gap {gap} is inside or on the lip of 4..=6"
+            );
+            assert_eq!(drop_order(&[4, 5, 6], 10, gap), Err(MoveRefusal::AtTheEdge));
+        }
+        assert!(!drag_is_a_no_op(&set(&[4, 5, 6]), 3));
+        assert!(!drag_is_a_no_op(&set(&[4, 5, 6]), 8));
+    }
+
+    /// Every result is a permutation of `0..page_count`, which is what
+    /// `reorder_pages` refuses anything else for.
+    ///
+    /// Swept over every operand set and every gap in a small document rather
+    /// than spot-checked: the failure this guards against is not one wrong
+    /// answer, it is a whole family of drags producing a vector the engine
+    /// declines for a reason no operator could act on.
+    #[test]
+    fn every_landing_is_a_permutation() {
+        const COUNT: usize = 6;
+        for mask in 1u32..(1 << COUNT) {
+            let pages: Vec<usize> = (0..COUNT).filter(|i| mask & (1 << i) != 0).collect();
+            for gap in 0..=COUNT {
+                let Ok(order) = drop_order(&pages, COUNT, gap) else {
+                    continue;
+                };
+                let seen: BTreeSet<usize> = order.iter().copied().collect();
+                assert_eq!(
+                    seen,
+                    (0..COUNT).collect::<BTreeSet<usize>>(),
+                    "pages {pages:?} at gap {gap} produced {order:?}"
+                );
+                assert_eq!(order.len(), COUNT);
+            }
+        }
+    }
+
+    /// The operands stay in document order and stay together, however
+    /// scattered they were.
+    ///
+    /// A drag says *"put these here"*, and "these" is a set the operator built
+    /// by clicking. Re-ordering them relative to each other would be the panel
+    /// inventing an intention; leaving gaps between them would make the drag
+    /// do half of what it looks like it does.
+    #[test]
+    fn the_moved_pages_arrive_adjacent_and_in_document_order() {
+        let order = landing(&[1, 3, 5], 7, 7);
+        assert_eq!(order, vec![0, 2, 4, 6, 1, 3, 5]);
+        let positions: Vec<usize> = [1, 3, 5]
+            .iter()
+            .map(|p| order.iter().position(|q| q == p).expect("present"))
+            .collect();
+        assert_eq!(positions, vec![4, 5, 6], "adjacent, ascending, in order");
+    }
+
+    /// Nothing selected, or nothing to reorder, is a refusal by name.
+    #[test]
+    fn an_empty_drag_is_refused_rather_than_silently_identity() {
+        assert_eq!(drop_order(&[], 5, 2), Err(MoveRefusal::NothingToMove));
+        assert_eq!(drop_order(&[0], 1, 0), Err(MoveRefusal::NothingToMove));
+        // An out-of-range operand is filtered, and a set that filters to
+        // nothing refuses rather than producing the identity.
+        assert_eq!(drop_order(&[9], 3, 0), Err(MoveRefusal::NothingToMove));
+    }
 
     /// A set built the way a caller's `BTreeSet` arrives.
     fn set(items: &[usize]) -> BTreeSet<usize> {

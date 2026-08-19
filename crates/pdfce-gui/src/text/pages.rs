@@ -88,6 +88,63 @@ pub fn pages_selected(selected: usize) -> String {
     }
 }
 
+/// ★ **Where a drag will put the pages it is carrying** — the sentence beside
+/// the insertion caret.
+///
+/// The caret says *where* graphically; this says it in words, and both are
+/// needed. A caret between two tiles in a scrolling grid of near-identical
+/// drawing sheets is precise and not **checkable**: an operator cannot read a
+/// page number off a hairline. The Insert-from-file dialog reached the same
+/// conclusion for the same reason and its comment is the precedent — *"the
+/// dialog is centred over a document the operator may have scrolled: the
+/// number is what makes the choice checkable."*
+///
+/// # ★ The vocabulary is the Insert dialog's, deliberately
+///
+/// *Before page N*, *the start*, *the end* — the same three phrasings the
+/// insert-position radios use, because a drag and an insert answer the same
+/// question about the same document and two different vocabularies for one
+/// destination is how an operator ends up unsure whether they mean the same
+/// thing. `gap` is a **gap index** in `panels::pages::ops`' sense: `0` is
+/// before the first sheet, `page_count` is after the last.
+#[must_use]
+pub fn drag_landing(moving: usize, gap: usize, page_count: usize) -> String {
+    let what = if moving == 1 {
+        "Moving 1 page".to_owned()
+    } else {
+        format!("Moving {moving} pages")
+    };
+    if gap == 0 {
+        format!("{what} to the start")
+    } else if gap >= page_count {
+        format!("{what} to the end")
+    } else {
+        // `gap` is the boundary before page `gap`, and page numbers an
+        // operator reads are 1-based — so the sheet this lands in front of is
+        // `gap + 1`. The two conversions are done in one place, here, because
+        // doing them at the call site is how a caret and its caption come to
+        // name different sheets.
+        format!("{what} to before page {}", gap + 1)
+    }
+}
+
+/// A drag hovering a boundary that would change nothing.
+///
+/// ★ **Said rather than shown by absence.** The alternative is to hide the
+/// caret when the drop would not land, and that is worse: an operator whose
+/// caret has vanished cannot tell *"this drop does nothing"* from *"the panel
+/// has stopped tracking my pointer"*. The caret is dimmed and this sentence
+/// explains the dimming.
+///
+/// It is the ordinary state at the beginning of every drag — a block hovering
+/// over itself — so the wording has to read as information rather than as a
+/// refusal.
+#[must_use]
+pub const fn drag_lands_nowhere() -> &'static str {
+    "Release here and the order does not change — drag to a boundary outside \
+     the pages you picked up."
+}
+
 /// A document with a page tree that resolved to nothing.
 ///
 /// Rare and not impossible: a damaged `/Pages` node can flatten to an empty

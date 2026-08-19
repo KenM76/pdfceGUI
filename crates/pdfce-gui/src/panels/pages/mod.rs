@@ -229,6 +229,21 @@ pub fn body(
     if !pages.selection.is_empty() {
         ui.label(t::pages_selected(pages.selection.len()));
     }
+    // ★ The words half of the drop indicator. The caret says *where*
+    // graphically and this says it in a page number, because a hairline
+    // between two near-identical drawing sheets is precise and not checkable —
+    // the same conclusion, in the same vocabulary, the Insert-from-file dialog
+    // reached for its destination radios.
+    if pages.drag.is_some()
+        && let Some((gap, lands)) = pages.drag_landing
+    {
+        let moving = ops::operands(pages.selection.pages(), current, page_count).len();
+        ui.label(if lands {
+            t::drag_landing(moving, gap, page_count)
+        } else {
+            t::drag_lands_nowhere().to_owned()
+        });
+    }
 
     // The previews control. Read from the cache and written straight back, so
     // "is the box ticked" and "will anything be drawn" are one expression
@@ -257,6 +272,10 @@ pub fn body(
     let mut go: Option<usize> = None;
     let mut tokens: Vec<HandlerToken> = Vec::new();
     let mut visible: Vec<usize> = Vec::new();
+    // Where a drag in flight would land, resolved during the layout pass
+    // because that is the only place a tile's rectangle exists. `None` when no
+    // drag is in flight, or when the pointer is over no tile at all.
+    let mut drop: Option<DropTarget> = None;
 
     let grid = egui::ScrollArea::vertical()
         .id_salt("pages-grid")
@@ -270,8 +289,33 @@ pub fn body(
                 &mut visible,
                 &mut go,
                 &mut tokens,
+                &mut drop,
             );
+            // Painted INSIDE the scroll area and AFTER the rows, which is what
+            // puts it on top of the tiles rather than under them — egui paints
+            // in call order. Outside the closure the caret would be in the
+            // parent's coordinate space and would not scroll with the grid it
+            // is pointing into.
+            paint_caret(ui, drop.as_ref());
         });
+
+    // ★ The release is read from RAW POINTER INPUT, not from the tile's own
+    // `Response`.
+    //
+    // The same discipline `canvas::guides::release` uses, and for the same
+    // reason: a drag that began on a tile may end anywhere — over the header,
+    // outside the panel, past the end of the last row — and a `Response` only
+    // knows about releases inside the widget that produced it. Reading the
+    // input means a drag always ends, which is the property that stops a
+    // half-finished drag surviving into the next frame as a caret nobody can
+    // get rid of.
+    //
+    // It runs AFTER the grid because `drop` is what the grid resolved.
+    // Recorded BEFORE the settle, which consumes the drag: the header reads it
+    // on the next frame, and a drag that has just ended must leave nothing for
+    // it to read.
+    pages.drag_landing = drop.map(|d| (d.gap, d.lands));
+    settle_drag(ui, doc, pages, drop.as_ref(), actions);
 
     // The two named regions a pixel check aims at. The panel's own rect comes
     // from the `Ui` rather than from a response, because the body is a column
@@ -329,6 +373,185 @@ pub fn body(
 /// Trace slot for the panel's once-per-change summary.
 const PANEL_SLOT: &str = "pages-panel"; // ui-text-exempt: trace slot name, never displayed
 
+/// **Where a drag in flight would land**, resolved during the layout pass.
+///
+/// ## Why this exists at all, rather than the drag storing a gap
+///
+/// Because a gap has no position until the grid has been laid out. The panel
+/// is a hand-rolled row layout over sheets of mixed sizes at a column count
+/// derived from the dock's current width, so *"the boundary between page 6 and
+/// page 7"* is a rectangle that only exists inside [`grid_rows`]. Resolving it
+/// there and carrying it out is the same shape `visible`, `go` and `tokens`
+/// already have: an answer only the layout pass is in a position to give.
+///
+/// ## Why the caret is a `Rect` and not a stroke
+///
+/// It is a **line**, and the two endpoints are all the layout pass knows. A
+/// `Rect` carries both in one value the grid can build and [`paint_caret`] can
+/// consume without either naming a colour or a width — which keeps the
+/// *geometry* decision beside the tile rectangles and the *appearance*
+/// decision beside the theme.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DropTarget {
+    /// The gap index the pointer is nearest, in [`ops`]' sense: `0` is before
+    /// the first sheet, `page_count` is after the last.
+    gap: usize,
+    /// The line to draw, in the scroll area's own coordinate space.
+    caret: egui::Rect,
+    /// Whether releasing here would actually change the order.
+    ///
+    /// Computed by [`ops::drag_is_a_no_op`] against the operand set — the one
+    /// place that rule lives, and the reason it is carried rather than
+    /// recomputed at paint time is that the paint pass has no operand set: it
+    /// runs after the borrow of `PagesUi` the grid needed.
+    lands: bool,
+}
+
+/// How thick the insertion caret is drawn.
+///
+/// The same weight as [`CURRENT_RING_PTS`], deliberately: both are "the panel
+/// pointing at something", and a caret thinner than the ring would read as a
+/// hairline artefact on a dense grid rather than as a deliberate mark.
+const CARET_PTS: f32 = 2.0;
+
+/// How much of the caret's colour survives when the drop would change nothing.
+///
+/// ★ **Dimmed, not hidden.** Drawing no caret over a boundary that would not
+/// land cannot be told apart from the panel having stopped tracking the
+/// pointer — and the no-op boundary is where *every* drag begins, because a
+/// block starts out hovering over itself. This is the same full-strength /
+/// dimmed pair `canvas::guides::preview` uses to say *"release here and this
+/// does not happen"*, at a comparable ratio (it uses 170 and 60 out of 255).
+const CARET_DIMMED: f32 = 0.35;
+
+/// Draw the insertion caret for a drag in flight.
+///
+/// # Rule 4: this is the cursor, not a mark on content
+///
+/// A drop caret is in exactly the class the rule permits by name — *"snap
+/// indicators, hover highlights, rubber-bands and selection handles are the
+/// cursor and are welcome"*. It draws nothing into a page, tints no thumbnail,
+/// and disappears the instant the pointer is released. A screenshot of this
+/// grid with a drag in flight differs from one of the same document saved and
+/// reopened only by where the pointer is, which is the one-line test.
+///
+/// # The colour is the theme's, never a literal
+///
+/// `visuals().selection.stroke.color` — the same source the current-page ring
+/// and the guide preview take, so a preset that changes the accent changes all
+/// three together. `gamma_multiply` rather than a second, paler constant, for
+/// the same reason: one colour with a stated relationship beats two colours
+/// that have to be kept in step.
+fn paint_caret(ui: &egui::Ui, drop: Option<&DropTarget>) {
+    let Some(drop) = drop else {
+        return;
+    };
+    let base = ui.visuals().selection.stroke.color;
+    let colour = if drop.lands {
+        base
+    } else {
+        base.gamma_multiply(CARET_DIMMED)
+    };
+    ui.painter().line_segment(
+        [drop.caret.left_top(), drop.caret.left_bottom()],
+        egui::Stroke::new(CARET_PTS, colour),
+    );
+    crate::diag::ui_rect_visible(
+        // ui-text-exempt: trace region name, never displayed
+        "panel-pages-drop-caret",
+        drop.caret.expand(CARET_PTS),
+        ui.clip_rect(),
+    );
+}
+
+/// **End a drag** — read the release, raise the reorder, clear the state.
+///
+/// # Why the release is read from raw input
+///
+/// `canvas::guides::release`'s discipline, and its reason applies here
+/// unchanged: a drag that began on a tile may end anywhere — over the header,
+/// outside the panel, past the end of the last row, or after the pointer left
+/// the window entirely. A `Response` only reports releases inside the widget
+/// that produced it, so a release elsewhere would leave the drag in flight
+/// with a caret nobody could get rid of.
+///
+/// # Why it runs unconditionally
+///
+/// Because a drag that has started has to be able to end. Gating this on a
+/// drop target being resolved would strand every drag released over empty
+/// space below the last row — which is exactly where an operator lets go when
+/// they mean *"put it at the end"* and miss.
+///
+/// # A drag that lands nowhere raises NO action
+///
+/// Not an identity permutation. `reorder_pages` would accept one, record an
+/// undo entry, and bump the edit epoch — so a document would be marked dirty
+/// and a `Ctrl+Z` would appear to do nothing. `ops::drop_order` refuses it by
+/// name and this function drops the refusal, which is the same choice
+/// `app::dispatch::pages`' move arm makes for `MoveRefusal::AtTheEdge`.
+fn settle_drag(
+    ui: &egui::Ui,
+    doc: &OpenDoc,
+    pages: &mut PagesUi,
+    drop: Option<&DropTarget>,
+    actions: &mut Vec<Action>,
+) {
+    if pages.drag.is_none() {
+        return;
+    }
+    // The cursor says the panel is carrying something. Set every frame of the
+    // drag rather than once at the start: egui resolves the cursor per frame
+    // from whatever asked most recently, so a request made at `drag_started`
+    // would be overwritten by the next widget the pointer passed over.
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    if !ui
+        .ctx()
+        .input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+    {
+        return;
+    }
+    pages.drag = None;
+    // The caption is read from this on the NEXT frame, and the drag is over —
+    // clearing it here rather than letting the next layout pass fail to resolve
+    // one is what stops a landing sentence outliving the gesture that produced
+    // it by a frame. Cheap, and the alternative is a flicker nobody can
+    // reproduce on demand.
+    pages.drag_landing = None;
+
+    let page_count = doc.pages.len();
+    let operands = ops::operands(pages.selection.pages(), doc.view.page_index, page_count);
+    let Some(target) = drop else {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            "pages-drag-release gap=none reordered=0".to_owned()
+        });
+        return;
+    };
+    match ops::drop_order(&operands, page_count, target.gap) {
+        Ok(order) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    "pages-drag-release gap={} moving={} reordered=1",
+                    target.gap,
+                    operands.len()
+                )
+            });
+            actions.push(Action::ReorderPages { order });
+        }
+        Err(refusal) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    "pages-drag-release gap={} moving={} reordered=0 refusal={refusal:?}",
+                    target.gap,
+                    operands.len()
+                )
+            });
+        }
+    }
+}
+
 /// Lay the grid out row by row, drawing only the rows that are on screen.
 ///
 /// # Why rows are laid out by hand rather than with `horizontal_wrapped`
@@ -361,6 +584,7 @@ fn grid_rows(
     visible: &mut Vec<usize>,
     go: &mut Option<usize>,
     tokens: &mut Vec<HandlerToken>,
+    drop: &mut Option<DropTarget>,
 ) {
     let spacing = ui.spacing().item_spacing.x;
     let full_width = ui.available_width();
@@ -397,7 +621,9 @@ fn grid_rows(
                     row_rect.top() + (thumb_height - height),
                 );
                 let rect = egui::Rect::from_min_size(origin, egui::vec2(tile_width, height));
-                tile(ui, doc, pages, page_index, current, rect, host, go, tokens);
+                tile(
+                    ui, doc, pages, page_index, current, rect, host, go, tokens, drop,
+                );
             }
         }
         first = last;
@@ -420,9 +646,14 @@ fn tile(
     host: Option<&MenuHost<'_>>,
     go: &mut Option<usize>,
     tokens: &mut Vec<HandlerToken>,
+    drop: &mut Option<DropTarget>,
 ) {
     let id = ui.id().with(("pages-tile", page_index));
-    let response = ui.interact(rect, id, egui::Sense::click());
+    // ★ `click_and_drag`, not `click`. The tile was click-only for the whole
+    // life of this panel, which is why reordering was two ribbon buttons that
+    // move one place at a time — the gesture every operator tries first was
+    // not sensed at all.
+    let response = ui.interact(rect, id, egui::Sense::click_and_drag());
     let visuals = ui.visuals().clone();
     let painter = ui.painter();
 
@@ -513,6 +744,56 @@ fn tile(
         width_pts / PTS_PER_MM,
         height_pts / PTS_PER_MM,
     ));
+
+    // ★ A drag begins here, and it begins by settling the OPERAND SET.
+    //
+    // The same rule the context menu already follows
+    // (`PageSelection::right_click`): a gesture's verbs must apply to the tile
+    // the operator pointed at. Dragging a page that is not in the selection
+    // means *"move this one"*, not *"move those other ones I picked earlier"* —
+    // and a drag that silently carried a selection made three minutes ago on a
+    // different part of the document would be the most surprising thing this
+    // panel could do.
+    // `drag_started_by(Primary)`, not `drag_started()`. egui's plain predicate
+    // is true for the middle button as well, and a right-press that wandered a
+    // few pixels before releasing would start a reorder the operator meant as
+    // a context menu — the gesture they use to reach the very commands this
+    // one replaces.
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        pages.selection.right_click(page_index);
+        pages.drag = Some(page_index);
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            format!(
+                "pages-drag-start page={} carrying={}",
+                page_index + 1,
+                pages.selection.len()
+            )
+        });
+    }
+
+    // While a drag is in flight, every tile the pointer is over offers itself
+    // as a landing boundary. The nearer vertical edge wins, which is what makes
+    // a caret feel like it snaps to a gap rather than to a tile.
+    if pages.drag.is_some()
+        && let Some(pointer) = ui.ctx().pointer_latest_pos()
+        && rect.expand(SELECTION_MAT_PTS).contains(pointer)
+    {
+        let after = pointer.x > rect.center().x;
+        let gap = if after { page_index + 1 } else { page_index };
+        let caret_x = if after { rect.right() } else { rect.left() };
+        *drop = Some(DropTarget {
+            gap,
+            // Half the inter-tile spacing beyond the sheet on each side, so the
+            // line sits IN the gap rather than on the sheet's own edge, where
+            // it would read as a border the page had grown.
+            caret: egui::Rect::from_min_max(
+                egui::pos2(caret_x, rect.top() - SELECTION_MAT_PTS),
+                egui::pos2(caret_x, rect.bottom() + SELECTION_MAT_PTS),
+            ),
+            lands: !ops::drag_is_a_no_op(pages.selection.pages(), gap),
+        });
+    }
 
     if response.clicked() {
         let modifiers = ui.input(|i| i.modifiers);
@@ -633,6 +914,38 @@ pub struct PagesUi {
     pub selection: select::PageSelection,
     /// The pictures, and the policy that fills them.
     pub cache: thumbnails::ThumbnailCache,
+    /// The page a drag-to-reorder was started on, while one is in flight.
+    ///
+    /// ★ **A field rather than `egui::Memory`**, unlike `canvas::guides`' drag
+    /// — and the difference is not style. A guide drag has no struct to live
+    /// in: the canvas is a function. This panel already owns inter-frame state
+    /// here, and the drag has to be cleared by the same code that clears the
+    /// selection when a document closes, which is a method on this type.
+    ///
+    /// It holds the **origin**, not the operand set. The operands are
+    /// `ops::operands(&selection, current, page_count)` — resolved at release
+    /// rather than captured at press, so a drag reflects the selection as it
+    /// stands. There is no way to change the selection mid-drag today, and
+    /// capturing it would be a second copy that could disagree the day there
+    /// is.
+    pub drag: Option<usize>,
+    /// The landing the **previous** frame resolved, for the sentence in the
+    /// header. `None` when no drag is in flight, or when the pointer was over
+    /// no tile.
+    ///
+    /// ★ **One frame late, deliberately, and the precedent is
+    /// `MeasureState::derived_pointer`**, which carries the same trade in the
+    /// same words: *"the pane draws before the pass that computes it, so it
+    /// shows the previous frame's pointer. On a value that follows the mouse,
+    /// one frame is invisible; deriving it in the pane instead is impossible,
+    /// since the canvas transform lives with the canvas."*
+    ///
+    /// Here the transform is the grid layout: a gap has no position until the
+    /// rows have been placed, and the rows are placed below the header. The
+    /// alternative — putting the sentence under the grid — would drop it off
+    /// the bottom of a scrolled panel exactly when the operator is dragging
+    /// toward the end of a long document.
+    pub drag_landing: Option<(usize, bool)>,
 }
 
 impl std::fmt::Debug for PagesUi {
@@ -640,6 +953,8 @@ impl std::fmt::Debug for PagesUi {
         f.debug_struct("PagesUi")
             .field("selection", &self.selection.len())
             .field("cache", &self.cache)
+            .field("drag", &self.drag)
+            .field("drag_landing", &self.drag_landing)
             .finish()
     }
 }
