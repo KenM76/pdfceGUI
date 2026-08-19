@@ -197,6 +197,16 @@ pub mod status;
 /// sticky note does not.
 pub mod textannot;
 pub mod textedit;
+/// The words of the question `file.close` had been promising to ask since it
+/// shipped, and did not.
+///
+/// Its own header carries the two rules the copy follows and both are unusual:
+/// nothing in it says *"changes"* — it says how many **edits**, because the
+/// decision an operator is being asked to make depends entirely on whether they
+/// moved one dimension or spent an hour — and nothing in it says *"Save"*,
+/// because this build has no Save and a button that claimed one would be the
+/// same lie as the tooltip that exposed the defect.
+pub mod unsaved;
 
 use std::path::Path;
 

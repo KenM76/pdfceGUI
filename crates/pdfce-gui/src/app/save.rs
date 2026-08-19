@@ -197,16 +197,40 @@ use crate::app::state::OpenDoc;
 /// both pure of any dialog and both are tested — and the join is proven by
 /// `tools/ui-verify`'s `save_copy_round_trip`, which answers the dialog through
 /// the seam and then re-opens the file that came out.
-pub fn save_copy(doc: &OpenDoc) {
+/// ★ **Returns whether a file was actually written**, added 2026-08-19.
+///
+/// It returned `()` until then, and the reason it now answers is a caller that
+/// did not exist: `crate::dialogs::unsaved`'s *Save a copy…* button, which
+/// **only proceeds with the close or open it is standing in front of if the
+/// save succeeded.**
+///
+/// The three false cases are not the same thing and it is worth saying so,
+/// because a future hand will be tempted to distinguish them:
+///
+/// * the operator **cancelled the picker** — they changed their mind
+///   mid-transaction, and the least surprising reading is *"leave my document
+///   alone"*;
+/// * the picker is **unavailable** in this build;
+/// * the write **failed** — already reported on both channels by
+///   [`write_and_report`].
+///
+/// All three answer `false` and all three mean the same thing to that caller:
+/// *do not destroy the document*. Returning a richer type so it could tell
+/// them apart would invite a branch that proceeded on one of them, and there
+/// is no member of that set it would be safe to proceed on.
+pub fn save_copy(doc: &OpenDoc) -> bool {
     let suggested = suggested_path(doc);
     match files::pick_save_path(&suggested, crate::text::files::save_copy_dialog_title()) {
         Picked::Path(target) => write_and_report(doc, &target),
         // A cancelled save is a complete, correct, uninteresting outcome.
-        Picked::Cancelled => {}
-        Picked::Unavailable => crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            "save-copy-unavailable reason=no-picker-in-this-build".to_owned()
-        }),
+        Picked::Cancelled => false,
+        Picked::Unavailable => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "save-copy-unavailable reason=no-picker-in-this-build".to_owned()
+            });
+            false
+        }
     }
 }
 
@@ -216,7 +240,9 @@ pub fn save_copy(doc: &OpenDoc) {
 /// in the reading as well as in the testing: everything here is what happens
 /// *once a destination exists*, and it is the half that has a failure worth
 /// wording.
-fn write_and_report(doc: &OpenDoc, target: &Path) {
+/// Returns whether the bytes reached the disk — see [`save_copy`] for the
+/// caller that turns that answer into *may this document be destroyed*.
+fn write_and_report(doc: &OpenDoc, target: &Path) -> bool {
     match write_copy(doc, target) {
         Ok(report) => {
             crate::diag::trace(|| {
@@ -260,6 +286,7 @@ fn write_and_report(doc: &OpenDoc, target: &Path) {
                     doc.origin,
                 )
             });
+            true
         }
         Err(error) => {
             crate::diag::trace(|| {
@@ -270,6 +297,7 @@ fn write_and_report(doc: &OpenDoc, target: &Path) {
             // and no sentence is indistinguishable from a control that does
             // nothing.
             crate::app::status::decline::record_save_failure();
+            false
         }
     }
 }

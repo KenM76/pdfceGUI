@@ -492,6 +492,88 @@ impl PdfceApp {
         crate::diag::reset_change_gates();
     }
 
+    /// **Resume what the operator asked for, once they have said what to do
+    /// about their unsaved edits.**
+    ///
+    /// Called from [`Self::ui`]'s frame, immediately after the dialogs draw.
+    /// `crate::dialogs::unsaved`'s header carries the defect this closes; this
+    /// function is the half that acts.
+    ///
+    /// # ★ Why the resume calls the lifecycle functions directly rather than
+    /// re-raising the `Action`
+    ///
+    /// Re-raising would be the tidier-looking answer and it does not work:
+    /// `Action::Close` and its three siblings now consult
+    /// `DialogsState::ask_unsaved` at the top of their arms, so a re-raised
+    /// action would be asked the same question again and the operator would be
+    /// in a loop they can only leave by pressing Cancel. Adding a
+    /// *"but not this time"* flag to the action would put a second, invisible
+    /// meaning on a value the funnel's whole discipline says is plain data.
+    ///
+    /// So this calls `close_document`, `open_path`, `new_document` and
+    /// `new_document_sized` — **the same four functions those arms call**, one
+    /// line below their guards. There is no second implementation of any of
+    /// them; what is skipped is exactly the guard that has just been answered.
+    ///
+    /// # The save branch, and why a cancelled picker cancels everything
+    ///
+    /// [`crate::app::save::save_copy`] answers `false` for a cancelled picker,
+    /// an unavailable picker and a failed write, and this proceeds on `true`
+    /// alone. Its own docs argue why none of the three is safe to proceed on;
+    /// the operator-facing form is that **pressing Cancel in a file dialog must
+    /// never be a way to destroy a document.**
+    ///
+    /// A cancelled save leaves the window closed and the document open, which
+    /// is the state the operator is in the middle of anyway — they pressed
+    /// Close, then thought better of naming a file. Re-asking would be the
+    /// application insisting on finishing a transaction the operator abandoned.
+    pub(super) fn resume_after_unsaved(&mut self) {
+        let Some((intent, outcome)) = self.dialogs.take_unsaved_answer() else {
+            return;
+        };
+        use crate::dialogs::unsaved::{Outcome, PendingIntent};
+
+        if outcome == Outcome::SaveCopy {
+            let saved = match &self.status {
+                crate::app::state::Status::Open(doc) => crate::app::save::save_copy(doc),
+                // Unreachable: the question is only asked over an open
+                // document. Spelled rather than `unwrap`ped, because the
+                // consequence of being wrong here is destroying a document to
+                // satisfy a `match`.
+                _ => false,
+            };
+            if !saved {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    "unsaved-resume-abandoned reason=copy-not-written".to_owned()
+                });
+                return;
+            }
+        }
+
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // Names BOTH halves. A trace saying only "resumed" could not
+            // distinguish an operator who saved a copy first from one who threw
+            // their work away, and those are the two outcomes a reader of this
+            // log will most want to tell apart.
+            format!("unsaved-resume outcome={outcome:?} intent={intent:?}")
+        });
+
+        match intent {
+            PendingIntent::Close => self.close_document(),
+            PendingIntent::Open(path) => self.open_path(path),
+            PendingIntent::New => self.new_document(),
+            PendingIntent::NewSized {
+                width_pt,
+                height_pt,
+            } => self.new_document_sized(pdfce_core::page_tree::Rect::from_corners(
+                0.0, 0.0, width_pt, height_pt,
+            )),
+        }
+    }
+
     /// **Whether a save is in flight, so an Open or a Close must wait.**
     ///
     /// # The rule, stated where it will be needed

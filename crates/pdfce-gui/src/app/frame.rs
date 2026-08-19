@@ -428,6 +428,21 @@ impl eframe::App for PdfceApp {
             &self.commands,
         );
 
+        // ★★ The unsaved-edits answer, drained IMMEDIATELY after the dialogs
+        // draw and before anything else in this frame reads the document.
+        //
+        // Here rather than in `dispatch` for the reason the calibration round
+        // trip below is: it is not a command. It is a frame-level observation
+        // that a window the operator was looking at has been answered — and
+        // the act it authorises (close, open, replace) belongs to the
+        // application rather than to a dialog, which is why the window parks an
+        // answer instead of calling `close_document` itself.
+        //
+        // Before the calibration edges, not after, and the ordering is real:
+        // both of those manipulate a window that describes the open document,
+        // and this line may have just replaced it.
+        self.resume_after_unsaved();
+
         // ★ The calibration round trip: dialog -> canvas gesture -> dialog.
         //
         // Two edges, read once per frame, in this order.

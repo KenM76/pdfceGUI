@@ -133,6 +133,15 @@ mod apply;
 /// [`dimensions::DimensionAction`] to build one.
 pub mod dimensions;
 pub mod disclosure;
+/// ★★ The four actions that replace the open document — Open, New, NewSized,
+/// Close — and the two guards all four share.
+///
+/// Split out of [`apply`] on 2026-08-19 along a seam that file had already
+/// described in prose. Its header carries the guard table, why the two guards
+/// are two predicates and not one, and the defect the second of them closed:
+/// until that day all four destroyed every edit made since the file was
+/// opened, silently, while `file.close`'s tooltip promised otherwise.
+mod document;
 /// ★ What leaves the document — DXF today, and the sixth sibling of [`apply`].
 ///
 /// Its header carries the property that makes it a subject rather than a

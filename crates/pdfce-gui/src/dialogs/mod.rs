@@ -88,6 +88,14 @@ pub mod print;
 /// removal runs on open, why confirmation is three gates rather than one click,
 /// and why the destination is asked for every time.
 pub mod redact;
+/// ★★ The question `file.close` promised in its own tooltip and never asked —
+/// the confirmation that stands between an operator's afternoon of markup and
+/// `Status::Empty`.
+///
+/// Its header carries the defect it closes, why `save_pending` was NOT the bug
+/// and must not become the fix, and why the first button says *Save a copy…*
+/// rather than *Save*.
+pub mod unsaved;
 
 /// ★ The Set-scale dialog — what a dimension's number *means*.
 ///
@@ -248,6 +256,24 @@ pub struct DialogsState {
     /// **Document-scoped**: it exports a page of the open file, and its scale
     /// suggestion is computed from that document's own dimension groups.
     export_dxf: Option<export_dxf::ExportDxfDialog>,
+
+    /// The unsaved-edits confirmation, when one is open.
+    ///
+    /// **Document-scoped in subject and deliberately NOT closed by
+    /// [`Self::close_document_scoped`]**, which is the one exception in this
+    /// struct and is worth stating where the field is.
+    ///
+    /// Every other document-scoped dialog describes a document that is still
+    /// open, so dropping it when the document goes is right. This one describes
+    /// a document that is *about to* go, and the act that closes it is the act
+    /// this window authorised. Clearing it there would be harmless today and
+    /// would be a trap the moment anything else called `close_document` — the
+    /// window would vanish mid-question and the operator would be left having
+    /// been asked nothing.
+    ///
+    /// It is cleared by its own answer instead, in `PdfceApp`'s drain, which is
+    /// the only place that can know the question was finished with.
+    unsaved: Option<unsaved::UnsavedDialog>,
 }
 
 impl DialogsState {
@@ -648,6 +674,81 @@ impl DialogsState {
         if self.text_annot.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.text_annot = None;
         }
+        // ★ LAST, and the position is load-bearing in a way none of its
+        // neighbours' are.
+        //
+        // This window's answer destroys or replaces the open document. Drawing
+        // it before its siblings would let a frame exist in which the operator
+        // has pressed *Close without saving*, `PdfceApp` has not drained the
+        // answer yet, and every dialog above is still drawing over a document
+        // that is about to stop existing. Nothing would crash — the drain
+        // happens between frames — but the ordering that makes that true should
+        // be a statement rather than an accident, because the accident is one
+        // reorder away and its failure mode is a surface describing a document
+        // nobody has any more.
+        if self.unsaved.as_mut().map(|d| d.show(ctx)) == Some(false) {
+            self.unsaved = None;
+        }
+    }
+
+    /// Take the operator's answer to the unsaved-edits question, if they have
+    /// given one.
+    ///
+    /// Drained by `crate::app::PdfceApp` immediately after [`Self::show`], for
+    /// the reason every hand-over in this module has one: the act it authorises
+    /// — closing, opening, replacing — belongs to the application, not to a
+    /// dialog, and a window that could call `close_document` would be a second
+    /// route to the most destructive operation this shell has.
+    ///
+    /// ★ **It clears the window on the way out.** The answer and the window's
+    /// lifetime are one fact, and separating them is how a confirmation gets
+    /// asked twice — or, worse, answered once and acted on every frame.
+    pub fn take_unsaved_answer(&mut self) -> Option<(unsaved::PendingIntent, unsaved::Outcome)> {
+        let answer = self.unsaved.as_mut()?.take_outcome()?;
+        self.unsaved = None;
+        Some(answer)
+    }
+
+    /// **Ask about `intent` if the open document has unsaved edits.**
+    ///
+    /// Returns `true` when the question was raised and the caller must
+    /// **stop** — the intent is now this window's to resume. `false` means
+    /// there was nothing to ask about and the caller proceeds unchanged.
+    ///
+    /// # ★ Why the return value is "did I interrupt you" rather than "may I
+    /// proceed"
+    ///
+    /// Both spellings work and only one of them is safe to get wrong. A guard
+    /// read as *"may I proceed"* fails **open** when somebody inverts it or
+    /// forgets it: the document is destroyed. This one fails **closed** — a
+    /// missing `if` means the question is asked and its answer resumes the
+    /// intent anyway, so the operator sees one redundant prompt rather than
+    /// losing their afternoon.
+    ///
+    /// The already-open guard matters more here than on any other dialog in
+    /// this struct: without it, a keymap chord repeated while the question is
+    /// on screen would replace the pending intent with a second one, and the
+    /// operator would answer a question about Close and get an Open.
+    pub fn ask_unsaved(&mut self, status: &Status, intent: unsaved::PendingIntent) -> bool {
+        if self.unsaved.is_some() {
+            // Already asking. Swallow the second request rather than stacking
+            // it: the operator is looking at a question and has not answered
+            // it, and the honest reading of a second press is impatience.
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "unsaved-ask-ignored reason=already-asking".to_owned()
+            });
+            return true;
+        }
+        let Some(dialog) = unsaved::ask_for(status, intent) else {
+            return false;
+        };
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "unsaved-asked".to_owned()
+        });
+        self.unsaved = Some(dialog);
+        true
     }
 
     /// Drop the state of every dialog that is about the open document.

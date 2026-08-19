@@ -103,66 +103,38 @@ impl PdfceApp {
         // control flow rather than a coincidence: adding an arm here that fell
         // through would be a use-after-move and the compiler would say so.
         match action {
-            Action::Open(path) => {
-                if self.save_pending() {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        format!("open-declined path={path:?} reason=save-pending")
-                    });
-                    return;
-                }
-                self.open_path(path);
-                return;
-            }
-            // ★ New, beside Open for both of the reasons Open is here: with
-            // nothing open it is the *ordinary* case, and it consults the same
-            // one predicate rather than a second rule of its own.
-            Action::New => {
-                if self.save_pending() {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "new-declined reason=save-pending".to_owned()
-                    });
-                    return;
-                }
-                self.new_document();
-                return;
-            }
-            // ★ The sized New, beside the plain one and behind the SAME guard.
+            // ★★ The four arms that replace the open document live in
+            // `super::document`, one function each, with the two guards they
+            // share and the table that orders them.
             //
-            // Not a copy of the guard — the same arm shape, deliberately
-            // adjacent, so that a change to what "there are unsaved edits"
-            // means cannot be applied to one New and missed on the other. That
-            // is the failure this file's own header calls a second rule of its
-            // own.
+            // Moved there on 2026-08-19 when this file crossed R2's 1,500-line
+            // gate. The seam was already drawn in prose above — *"the actions
+            // that are about WHICH document is open"* — and it is a real one:
+            // everything below acts ON the open document, and these four decide
+            // WHICH document is open, or whether there is one. Different
+            // subject, different failure mode. An arm below can be wrong about
+            // a page; one of these can be wrong about an afternoon's work.
+            //
+            // They stay listed here, by name, rather than behind a single
+            // catch-all, because this `match` is the one place a reader can see
+            // the whole action vocabulary in order.
+            Action::Open(path) => {
+                self.apply_open(path);
+                return;
+            }
+            Action::New => {
+                self.apply_new();
+                return;
+            }
             Action::NewSized {
                 width_pt,
                 height_pt,
             } => {
-                if self.save_pending() {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "new-sized-declined reason=save-pending".to_owned()
-                    });
-                    return;
-                }
-                // The lower-left corner is the origin: a new page has nothing
-                // to offset from, and `Action::NewSized`'s own docs say why the
-                // action carries a size rather than a rectangle.
-                self.new_document_sized(pdfce_core::page_tree::Rect::from_corners(
-                    0.0, 0.0, width_pt, height_pt,
-                ));
+                self.apply_new_sized(width_pt, height_pt);
                 return;
             }
             Action::Close => {
-                if self.save_pending() {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "close-declined reason=save-pending".to_owned()
-                    });
-                    return;
-                }
-                self.close_document();
+                self.apply_close();
                 return;
             }
             // ★ Save a copy — matched here for the guard's own reason rather
@@ -189,7 +161,18 @@ impl PdfceApp {
             // to drop — see `save`'s section 2.
             Action::SaveCopy => {
                 match &self.status {
-                    Status::Open(doc) => crate::app::save::save_copy(doc),
+                    // ★ The `bool` is DISCARDED here, deliberately, and that is
+                    // not the same as ignoring it. `save_copy` answers "did a
+                    // file get written" for exactly one caller —
+                    // `crate::dialogs::unsaved`, which must not destroy a
+                    // document on the strength of a save that did not happen.
+                    // A plain `file.save_copy` has nothing waiting on the
+                    // answer: it succeeded or it reported its own failure, and
+                    // either way the next thing that happens is the operator's
+                    // choice rather than this arm's.
+                    Status::Open(doc) => {
+                        let _ = crate::app::save::save_copy(doc);
+                    }
                     _ => crate::diag::trace(|| {
                         // ui-text-exempt: diagnostic trace, never displayed in the UI
                         "save-copy-declined reason=no-document".to_owned()

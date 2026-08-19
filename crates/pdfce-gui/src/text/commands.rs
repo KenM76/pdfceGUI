@@ -156,6 +156,25 @@ pub const fn file_new_from_template() -> CommandText {
 }
 
 /// `file.close`
+///
+/// ★★ **The tooltip that was a promise nothing kept, from the day it shipped
+/// until 2026-08-19.** *"You are asked what to do about unsaved edits first"* —
+/// and nothing asked. `Action::Close` consulted `save_pending`, which is
+/// permanently `false` by design, and then dropped the `EditSession`. Every
+/// edit made since the file was opened went with it, silently, with no prompt
+/// and no undo.
+///
+/// The sentence is **unchanged**, because it was never wrong about what pdfce
+/// should do — it was a specification sitting on the ribbon, and the build had
+/// not met it. `crate::dialogs::unsaved` is the surface that now does.
+///
+/// The generalisable half is worth keeping here, where the next tooltip gets
+/// written: **an operator-visible string that describes behaviour is a claim,
+/// and nothing in this project checks a claim of that shape.** The ui-strings
+/// gate asserts the string lives in `text/`; the catalog tests assert it is a
+/// sentence and that no two labels collide; no gate can ask whether it is
+/// *true*. This one was found by an outside audit, three weeks after the fact,
+/// by someone reading the tooltip and then reading the code.
 #[must_use]
 pub const fn file_close() -> CommandText {
     CommandText::new(
