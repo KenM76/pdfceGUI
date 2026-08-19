@@ -556,6 +556,40 @@ pub enum Action {
         /// Where the anchor ends up, in PDF user space.
         to: pdfce_core::vector::Point,
     },
+    /// ★★ **Move many of one object's nodes at once** — what a RESIZE is, in
+    /// the absence of a scale verb.
+    ///
+    /// `pdfce-core` has no verb that scales a vector object. Re-derived against
+    /// its source on 2026-08-19 rather than taken from a note, because two
+    /// other blockers this project recorded had quietly expired: `grep "pub fn
+    /// .*scale"` over `edit.rs` returns one hit and it is `set_group_scale`, a
+    /// ce-dimension calibration.
+    ///
+    /// So a resize is expressed as what it *is* — every node of the path moved
+    /// to `anchor + (p - anchor) * (sx, sy)` — and `EditSession::move_nodes`
+    /// takes a slice, which makes the whole gesture **one command and one undo
+    /// entry**. A per-node loop would be neither: N undo entries for one drag,
+    /// and each move planned against byte offsets the previous one invalidated.
+    ///
+    /// The geometry is computed by `crate::canvas::resizing`, which is pure and
+    /// tested; this variant carries the result and nothing else. That is the
+    /// funnel's rule and it matters more here than usual — an action that
+    /// carried a grip and two factors would put the arithmetic in `apply`,
+    /// where it could not be tested without a document.
+    MoveNodes {
+        /// The 0-based page.
+        page: usize,
+        /// The object whose nodes move, by paint-order index.
+        object: usize,
+        /// Every node's new position, object-scoped, in PDF user space.
+        ///
+        /// Absolute destinations rather than displacements, matching
+        /// [`Self::MoveNode`] and for the same reason its docs give: the
+        /// operand the planner rewrites is a coordinate pair, so "where the
+        /// point ends up" is what lets it map one point through the object's
+        /// CTM inverse instead of decomposing a translation.
+        moves: Vec<(usize, pdfce_core::vector::Point)>,
+    },
     // =======================================================================
     // ★ THE PAGE VERBS — structural edits, and the family that renumbers
     //
@@ -1441,58 +1475,4 @@ pub(crate) fn plant_edit_disclosure_for_test(disclosure: EditDisclosure) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// ★ **`edit.undo` and `edit.redo` raise actions rather than falling
-    /// through to `command-unimplemented`.**
-    ///
-    /// The dispatch link, and the one this pair spent the whole project
-    /// missing. It is `crate::app::files`'
-    /// `the_save_copy_command_raises_the_save_action` for the other two
-    /// commands that were registered, drawn on the quick-access toolbar, bound
-    /// to a chord, and wired to nothing — and it is written the same way for
-    /// the same reason: through `PdfceApp::dispatch_token` with the token the
-    /// **ribbon** would raise, so a build that renamed the id or reassigned the
-    /// token fails here rather than shipping a control whose press is traced
-    /// and discarded.
-    ///
-    /// # What it deliberately does not assert
-    ///
-    /// That the actions *do* anything. Two arms that pushed the wrong variant
-    /// would pass a test written as "some action was raised", which is why the
-    /// comparison is against the exact vector — and what each variant does when
-    /// applied is `crate::app::actions::apply`'s
-    /// `an_undo_is_an_edit_and_moves_the_epoch_like_one`, on a real fixture with
-    /// a real edit on the log.
-    ///
-    /// # Why an EMPTY log is the state under test here
-    ///
-    /// Because the dispatcher must not consult one. `undo.available` greys the
-    /// control and the apply arm declines an empty stack in words — both of
-    /// which are somebody else's job — and an arm that checked the session here
-    /// would be the second place that question is asked. So the action is raised
-    /// with nothing to undo, exactly as it would be for a `Ctrl+Z` fired at a
-    /// freshly opened document, and the decline happens downstream.
-    #[test]
-    fn the_history_commands_raise_actions() {
-        let ctx = egui::Context::default();
-        let mut app = crate::app::tests::opened();
-
-        for (id, expected) in [("edit.undo", Action::Undo), ("edit.redo", Action::Redo)] {
-            let token = app
-                .commands
-                .get(id)
-                .unwrap_or_else(|| panic!("`{id}` must be registered")) // ui-text-exempt: test panic
-                .handler;
-            let mut actions = Vec::new();
-            app.dispatch_token(&ctx, token, &mut actions);
-            assert_eq!(
-                actions,
-                vec![expected],
-                "`{id}` must raise its action rather than falling through to \
-                 `command-unimplemented`, which is what it did for the whole life of the project"
-            );
-        }
-    }
-}
+mod tests;

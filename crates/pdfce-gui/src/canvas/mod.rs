@@ -184,6 +184,14 @@ pub mod overlay;
 /// the ribbon manifest's command ids are. Its header carries the mapping
 /// argument and the distinctness test the shell says the application owes.
 pub mod overlays;
+/// ★ Everything the canvas draws, once everything is decided — lifted out of
+/// [`interact`] when that file crossed R2's ceiling. Its header carries the
+/// layer order and the argument for each position in it.
+mod painting;
+/// ★★ The eight resize grips, finally committing — built out of `move_nodes`
+/// because `pdfce-core` has no scale verb, which was re-derived against its
+/// source rather than taken from a note.
+pub mod resizing;
 // The ruler gutters, the 1-2-5 tick ladder they and the grid share, and what
 // unit the whole thing reads in. Its header carries the three decisions this
 // feature turns on: the unit, the space the grid lives in, and why the

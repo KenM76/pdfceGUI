@@ -175,6 +175,48 @@ impl Grip {
             Self::Move => mid,
         }
     }
+
+    /// ★★ **The corner a drag on this grip must leave EXACTLY WHERE IT IS.**
+    ///
+    /// [`Self::anchor`] answers where the grip *is*; this answers what it pivots
+    /// about, and the two are opposite corners. Dragging the south-east grip moves
+    /// the south-east corner and leaves the north-west one still — which is what
+    /// every drawing application does, and what the standing *"behave the way the
+    /// tools they already use behave"* tie-breaker asks for.
+    ///
+    /// # Why it is a method here and not arithmetic in `canvas::resizing`
+    ///
+    /// Because it is the same fact as `anchor`, mirrored, and the two must agree:
+    /// the ghost is drawn about this point and the commit is computed about it, so
+    /// a second spelling would be a preview and an edit that disagreed about which
+    /// corner stayed still — an object that jumps on release by exactly the box's
+    /// size.
+    ///
+    /// ★ A mid-edge grip pivots about the **opposite edge**, keeping the axis it
+    /// does not scale centred. `East` returns the west edge at the same y, so the
+    /// unscaled axis's factor of 1.0 leaves every point on it unmoved whatever y
+    /// this returns — but returning the mid-point rather than a corner keeps the
+    /// value meaningful if a future edit ever scales both.
+    ///
+    /// [`Self::Move`] pivots about itself: it does not resize, and a caller that
+    /// reached here for it has already gone wrong. Returning the centre is the
+    /// harmless answer — a scale about the centre with factors of 1.0 is the
+    /// identity — rather than a panic in a frame that is trying to draw.
+    #[must_use]
+    pub fn pivot(self, bounds: Rect) -> Pos2 {
+        let mid = bounds.center();
+        match self {
+            Self::NorthWest => bounds.right_bottom(),
+            Self::North => Pos2::new(mid.x, bounds.bottom()),
+            Self::NorthEast => bounds.left_bottom(),
+            Self::East => Pos2::new(bounds.left(), mid.y),
+            Self::SouthEast => bounds.left_top(),
+            Self::South => Pos2::new(mid.x, bounds.top()),
+            Self::SouthWest => bounds.right_top(),
+            Self::West => Pos2::new(bounds.right(), mid.y),
+            Self::Move => mid,
+        }
+    }
 }
 
 /// The grips to draw for a screen-space selection box, with their squares.
@@ -325,6 +367,47 @@ mod tests {
                 assert!((r.width() - GRIP_SIZE_PX).abs() < f32::EPSILON);
                 assert!((r.height() - GRIP_SIZE_PX).abs() < f32::EPSILON);
             }
+        }
+    }
+
+    /// ★★ **`pivot` is the OPPOSITE of `anchor`, for every resize grip.**
+    ///
+    /// The property the whole resize rests on, asserted as a relation rather
+    /// than against a table of corners — a table would pass for a build whose
+    /// `pivot` returned `anchor` unchanged if somebody wrote the table from the
+    /// same wrong function.
+    ///
+    /// The failure it forbids is specific and looks plausible: scaling about
+    /// the grip being dragged makes the shape grow *away* from the operator's
+    /// hand instead of towards it. It resizes; it is wrong; and it is the kind
+    /// of wrong that survives a screenshot.
+    #[test]
+    fn every_resize_grip_pivots_about_the_opposite_point() {
+        let b = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 60.0));
+        let mid = b.center();
+        for g in Grip::RESIZE {
+            let a = g.anchor(b);
+            let p = g.pivot(b);
+            // Reflecting the anchor through the box centre gives the pivot, on
+            // every axis the grip actually scales. A mid-edge grip's other axis
+            // is the centre in both, so the relation holds on both axes for all
+            // eight without a special case.
+            assert!(
+                (a.x + p.x - 2.0 * mid.x).abs() < 1e-4,
+                "{g:?}: anchor.x={} pivot.x={} do not straddle the centre",
+                a.x,
+                p.x
+            );
+            assert!(
+                (a.y + p.y - 2.0 * mid.y).abs() < 1e-4,
+                "{g:?}: anchor.y={} pivot.y={} do not straddle the centre",
+                a.y,
+                p.y
+            );
+            assert_ne!(
+                a, p,
+                "{g:?} pivots about itself, so a drag would scale about the hand"
+            );
         }
     }
 }

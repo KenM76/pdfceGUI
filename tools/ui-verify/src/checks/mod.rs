@@ -212,6 +212,7 @@ pub mod render_diagnostics;
 /// ribbon and the docks stop being drawn). `app::window` §1 carries the
 /// argument for why those are two commands rather than a duplicate.
 pub mod read_mode_chrome;
+pub mod redaction;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -220,7 +221,12 @@ pub mod read_mode_chrome;
 /// strings, in two processes — and it says which of the three answers is the
 /// verdict and which two exist to stop the verdict passing vacuously. Its
 /// header carries the falsification table.
-pub mod redaction;
+/// ★ The eight resize grips, driven — they were cursored, hit-tested and
+/// drag-consuming from S4 and committed nothing until 2026-08-19.
+///
+/// Its header carries the six links and names the one that would fail silently
+/// and plausibly: a resize about the wrong anchor still resizes.
+pub mod resize;
 pub mod ribbon_captions;
 /// ★ `file.save_copy` — the command that was registered, drawn, on the
 /// quick-access toolbar and bound to `Ctrl+S` with **no dispatch arm**, so
@@ -549,6 +555,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // operation the program has. Its fixture is **generated**, so unlike
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
+        Box::new(resize::ResizeScalesAShape),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

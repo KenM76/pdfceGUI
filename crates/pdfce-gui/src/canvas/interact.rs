@@ -130,8 +130,8 @@ use crate::shell::menus::MenuHost;
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
 use super::{
-    CANVAS_MARGIN, gesture, grid, guides, handles, keys, markup, measure, menus, moving, overlay,
-    strip, textsel, tool, trace, zoom,
+    CANVAS_MARGIN, gesture, handles, keys, markup, measure, menus, moving, overlay, strip, textsel,
+    tool, trace, zoom,
 };
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
@@ -384,8 +384,29 @@ pub(super) fn interact(
     // lives in `gesture::press_kind`, which is pure and tested; this is the one
     // call that supplies it with the frame's facts.
     let grip_box = overlay::grip_box(map, &selection);
+    // ★★ The PRESS ORIGIN, not the current pointer — corrected 2026-08-19 when
+    // the resize grips first committed and a driven drag became a **marquee**.
+    //
+    // This is `PointerFrame::press_origin`'s defect arriving from the second
+    // direction, and the first fix did not cover it. `egui` does not call an
+    // interaction a drag until the pointer has travelled a threshold, and by
+    // the frame it says so the pointer is already **that far from where it went
+    // down**. `press_origin` fixed the drag's *start point* for the marquee and
+    // the move — measured at 94 PDF points of error on A1 at 0.21× zoom — and
+    // left this line reading `screen_pos`, which is *where the pointer is now*.
+    //
+    // A grip is an 8 pt square with 2 pt of slack. So the press that mattered
+    // was inside the grip and the frame that asked was 20 pt away, `grip_at`
+    // answered `None`, and the gesture became a rubber-band that **cleared the
+    // selection the operator was trying to resize**. Driven, on `SW41177.pdf`:
+    // `canvas-selection via=marquee sel=0` where a resize was expected.
+    //
+    // It never showed before because nothing committed on a grip drag, so the
+    // only symptom was a resize that did nothing — which is exactly what the
+    // grips did on purpose, and is why a real defect hid inside a documented
+    // one for the whole life of the feature.
     let hovered_grip = grip_box
-        .zip(screen_pos)
+        .zip(ctx.input(|i| i.pointer.press_origin()).or(screen_pos))
         .and_then(|(bounds, p)| handles::grip_at(bounds, p));
     let press_kind = gesture::press_kind(
         active_tool,
@@ -513,6 +534,16 @@ pub(super) fn interact(
             outcome,
             GestureOutcome::Click { .. }
                 | GestureOutcome::Move { .. }
+                // ★★ Resize joined this list on 2026-08-19, and its absence
+                // was the second defect the first driven resize found.
+                //
+                // The decomposition is what `canvas::resizing` reads every node
+                // position out of, so without it the commit declined with
+                // `NoObjectModel` — a refusal that is correct for "the model
+                // could not be read" and was here reporting "nobody asked for
+                // it". The list was written when a resize committed nothing, so
+                // there was genuinely nothing for it to need.
+                | GestureOutcome::Resize { .. }
                 | GestureOutcome::Marquee {
                     phase: Phase::Complete,
                     intent: MarqueeIntent::Select,
@@ -528,6 +559,12 @@ pub(super) fn interact(
     // ---- 5. apply the gesture -----------------------------------------
     let mut marquee = None;
     let mut ghost = None;
+    // ★ A second preview value beside `ghost` rather than a variant of it,
+    // matching `ink_trail`'s own argument below: a move ghost is one
+    // displacement and a resize ghost is a grip plus two factors, and folding
+    // them into one `enum` would put a branch inside the paint loop for a value
+    // that is `None` on every frame nobody is dragging.
+    let mut resize_ghost: Option<(handles::Grip, (f32, f32))> = None;
     let mut band = None;
     // The freehand trail, already simplified, in canvas space. A second
     // preview value beside `band` rather than a variant of it, because the two
@@ -1028,17 +1065,41 @@ pub(super) fn interact(
                 }
             }
         }
-        // A resize drag is CONSUMED and commits nothing. Consuming it is the
-        // load-bearing part: without it the drag would fall through to a
-        // marquee, so aiming at a grip would replace the selection the operator
-        // was trying to act on. `pdfce-core` has no scale verb, so there is
-        // nothing to commit and — see `overlay::draw_move_ghost` — nothing to
-        // preview either. See `handles` for the whole argument.
+        // ★★ A resize drag COMMITS, as of 2026-08-19.
         //
-        // `Cancelled` lands here too: an abandoned drag draws nothing, commits
-        // nothing, and its only remaining effect is to keep Escape away from
-        // the ladder at step 6.
-        GestureOutcome::Resize { .. } | GestureOutcome::Cancelled | GestureOutcome::Idle => {}
+        // The comment that stood here read *"a resize drag is CONSUMED and
+        // commits nothing … `pdfce-core` has no scale verb, so there is nothing
+        // to commit and nothing to preview either"*. The first clause is still
+        // true — re-derived against the engine's source rather than taken from
+        // this note — and the conclusion no longer follows: **scaling a path is
+        // moving every one of its nodes**, and `move_nodes` takes a slice, so a
+        // whole resize is one command and one undo entry. See
+        // `canvas::resizing`.
+        //
+        // Consuming the drag is still load-bearing and is now a consequence
+        // rather than the point: without it the drag would fall through to a
+        // marquee, so aiming at a grip would replace the selection the operator
+        // was trying to act on.
+        GestureOutcome::Resize { grip, delta, phase } => {
+            resize_ghost = crate::canvas::resizing::drag(
+                crate::canvas::resizing::Frame {
+                    grip,
+                    delta,
+                    phase,
+                    bounds: overlay::grip_box(map, &selection),
+                    page_index,
+                    map: Some(map),
+                    page: doc.current_page(),
+                },
+                &selection,
+                targets.as_deref(),
+                actions,
+            )
+            .map(|f| (grip, f));
+        }
+        // `Cancelled` draws nothing, commits nothing, and its only remaining
+        // effect is to keep Escape away from the ladder at step 6.
+        GestureOutcome::Cancelled | GestureOutcome::Idle => {}
     }
 
     // ---- 5b. the right-click ---------------------------------------------
@@ -1194,184 +1255,34 @@ pub(super) fn interact(
     }
 
     // ---- 8. draw --------------------------------------------------------
-    let painter = ui.painter().with_clip_rect(clip);
-    // ★ The grid goes UNDER everything, including the find wash. It is the
-    // only thing painted here that is about the *paper* rather than about
-    // something the operator has selected, searched for or is dragging, so
-    // anything drawn over it is a statement about the drawing and must win.
-    // Draws nothing at all with the toggle off. See `rulers`' header §2 for
-    // why it is per page rather than across the viewport.
-    if doc.view.grid {
-        grid::draw(ui, doc, pages, clip);
-    }
-    // ★ The find highlights go on FIRST, under everything else.
     //
-    // They are a wash over page content — an answer to "where is the text I
-    // asked about" — while the selection outline is a statement about what a
-    // verb would act on. Painting the wash over the outline would dim the
-    // control feedback with a hint; painting it under leaves both readable.
-    //
-    // `page_highlights` yields nothing at all when the results are not current
-    // — a stale epoch, a query the operator has edited, a closed bar — so an
-    // edit stops the highlights by supplying an empty iterator rather than by
-    // a check here. That is what keeps rule 4: this file cannot paint a mark
-    // over content the search no longer describes, because it is never handed
-    // one. See `crate::find`'s staleness section.
-    //
-    // ★ **Once per drawn page, each through its own map** — the one place the
-    // canvas is legitimately about pages other than the one being acted on. A
-    // search describes the whole document, so under a continuous mode its hits
-    // are on several of the pages on screen at once, and painting them all
-    // through the acting page's map would stack every page's highlights onto
-    // one page. That is the failure this feature was most likely to ship
-    // silently: the hits are found, the wash is drawn, and it is drawn in the
-    // wrong place — which looks like a highlight bug rather than a mapping one.
-    //
-    // The loop reduces to exactly the previous call under `Single`, where
-    // `pages` holds one entry and it is the acting page.
-    for view in *pages {
-        overlay::draw_find_hits(
-            &painter,
-            ui.visuals(),
-            &view.map,
-            find.page_highlights(view.page, doc.edit_epoch),
-        );
-    }
-    // ★ The text selection's wash, in the same layer as the find wash and for
-    // the same reason: both are statements about *characters on the page*
-    // rather than about a control, so they belong under anything that describes
-    // a verb's operand. They cannot in fact both be on screen over the same
-    // glyphs and matter — Find is a query and this is a sweep — but the
-    // ordering is stated rather than left to chance, because the day they
-    // overlap the reader has to be able to see both.
-    //
-    // Per drawn page, through that page's own map, exactly as the find wash is:
-    // the selection is single-page, so all but one iteration is handed an empty
-    // slice — but painting through the *acting* page's map instead would put a
-    // continuous-strip selection on the wrong sheet, which is the failure the
-    // find wash's own comment records as the one most likely to ship silently.
-    for view in *pages {
-        overlay::draw_text_selection(
-            &painter,
-            ui.visuals(),
-            &view.map,
-            text_selection
-                .as_ref()
-                .map_or(&[][..], |s| s.highlights(view.page, doc.edit_epoch)),
-        );
-    }
-    overlay::draw_selection(&painter, ui.visuals(), map, &selection);
-    if let Some(rect) = marquee {
-        overlay::draw_marquee(&painter, ui.visuals(), map, rect);
-    }
-    // The ghost sits ON TOP of the real outline, and both stay visible: the
-    // pair is what states the displacement. `ghost` is `Some` only when
-    // `moving::drag` has already established that the release will commit — a
-    // preview of a move that will be refused is the thing rule 4 and the
-    // no-placeholders invariant both forbid.
-    // The guides sit on TOP of the selection, and the order is the point: a
-    // guide is a line the operator has to see while they align something to
-    // it, and a selection outline is a box a few points across that a hairline
-    // crossing it does not hide. The reverse order would hide a guide behind
-    // exactly the object the operator is aligning to it.
-    guides::draw(ui, doc, pages, clip);
-    if let Some(delta) = ghost {
-        overlay::draw_move_ghost(&painter, ui.visuals(), map, &selection, delta);
-    }
-    // Last, and over everything: the band IS the cursor for as long as it
-    // exists, and a guide or an outline drawn over the shape being authored
-    // would obscure the one thing the operator is aiming.
-    if let Some(band) = band {
-        markup::band::draw_preview(&painter, map, band, pen);
-    }
-    // …and the freehand trail, on the same argument and in the same layer: while
-    // the button is down the stroke IS the cursor, and it is drawn from the
-    // simplified point list the release will author rather than from the raw
-    // input, so the mark does not visibly change shape at the moment it commits.
-    if let Some(trail) = &ink_trail {
-        markup::ink::draw_preview(&painter, map, trail, pen);
-    }
-    // ★ …and the vertex run, which is drawn on EVERY frame the tool is armed
-    // rather than only while a gesture is in flight — because for this family
-    // there is no "in flight" the frame can see. A run between clicks is a
-    // pointer that is not down, so a preview gated on a gesture would appear only
-    // during the instant of a click and the operator would be placing vertices
-    // into a canvas that never showed them.
-    //
-    // It takes the frame's `map` and the pointer, and it draws three things: the
-    // committed run, the rubber segment to the pointer, and — for a Polygon
-    // alone — the closing segment back to the first vertex, which is the single
-    // visible difference between the two tools before the commit. See
-    // `markup::vertex::preview`.
-    if let Some(kind) = active_tool.markup_kind().filter(|k| k.is_vertex()) {
-        markup::vertex::preview(
-            ui,
-            doc.current_page(),
+    // ★ Lifted to `canvas::painting` on 2026-08-19 — see that module's header
+    // for why this is the seam. Everything above decides; that decides nothing.
+    crate::canvas::painting::draw(
+        ui,
+        &ctx,
+        doc,
+        pages,
+        &crate::canvas::painting::Frame {
             page_index,
-            kind,
+            clip,
             map,
-            screen_pos.map(|p| map.to_page(p)),
+            selection: &selection,
+            marquee,
+            ghost,
+            resize_ghost,
+            band,
+            ink_trail,
+            active_tool,
             pen,
-        );
-    }
-    // …and the measure preview, on the same argument: while a pick is in
-    // progress the preview IS the cursor, and it describes what the next click
-    // will commit.
-    //
-    // ★ It takes the frame's `map`, and the comment here used to say it did not
-    // need one *"because it converts through the renderer's own page
-    // transform"*. That was the defect: the renderer's transform at scale 1.0
-    // lands in **canvas** space — page top-left origin, no zoom — and the
-    // painter speaks screen, so every mark the measure preview drew was offset
-    // by wherever the page sat in the window and drawn at 100 % whatever the
-    // magnification. See `measure::page_to_screen`, which is now the one place
-    // both hops happen.
-    if let Some(kind) = active_tool.measure_kind() {
-        measure::preview(
-            ui,
-            measure::Preview {
-                doc,
-                page_index,
-                kind,
-                map,
-                hover: measure_hover,
-                picked: &measure_picked,
-            },
-        );
-    }
-    // ★ …and the caret, which is the same argument once more: while a draft is
-    // in flight the caret IS the cursor, and it describes where the next
-    // keystroke lands.
-    //
-    // It draws a caret and an extent bracket and **no glyphs** — see
-    // `textedit::preview`, which carries the argument for why a better ghost is
-    // the wrong fix for `DEFECTS.md` D4a rather than a deferred one.
-    if active_tool.text_edit_kind().is_some() {
-        crate::canvas::textedit::preview(
-            ui,
-            &ctx,
-            &crate::canvas::textedit::Preview {
-                doc,
-                page_index,
-                map,
-            },
-        );
-    }
+            screen_pos,
+            find,
+            text_selection: text_selection.as_ref(),
+            measure_hover,
+            measure_picked: &measure_picked,
+        },
+    );
 
-    // ★ **The keystrokes**, read raw and consumed here.
-    //
-    // After the gesture machine and before the cursor, which is the only place
-    // it can be: it needs `actions` (Enter commits) and it must not run on a
-    // frame the canvas does not own the keyboard for.
-    //
-    // `!ctx.text_edit_focused()` is the guard, and it is `DEFECTS.md` **D1**'s
-    // predicate rather than `egui_wants_keyboard_input()` — for the identical
-    // reason `app::keyboard` and `canvas::tool::space_held` use it. The wrong
-    // one is true whenever *any* widget has focus, and the canvas takes focus on
-    // click, so a build using it would stop accepting characters the moment the
-    // operator clicked the page they are trying to type on. The right one asks
-    // whether a **text field** has it — the page-number box, a Properties value
-    // — which is the only case where a character is not ours.
     if active_tool.text_edit_kind().is_some() {
         let owns_keyboard = !ctx.text_edit_focused();
         let _ = crate::canvas::textedit::typing(ui, &ctx, owns_keyboard, actions);

@@ -325,6 +325,27 @@ impl PdfceApp {
                     session.move_node(page, object, node, to)
                 });
             }
+            // ★★ A resize, and it is `move_nodes` because there is no scale
+            // verb — see `Action::MoveNodes` and `crate::canvas::resizing`.
+            //
+            // ONE call with every node in it, deliberately: the slice is what
+            // makes a whole resize one command and one undo entry, and a loop
+            // over `move_node` would be neither.
+            //
+            // The count passed to `vector_edit` is the number of NODES, which
+            // is what its trace line reports as the operand size. That is the
+            // honest figure for this edit — one object, many points — and it is
+            // the number a reader comparing a trace against a drag would want.
+            Action::MoveNodes {
+                page,
+                object,
+                moves,
+            } => {
+                let count = moves.len();
+                vector_edit(doc, "move-nodes", page, count, |session| {
+                    session.move_nodes(page, object, &moves)
+                });
+            }
             // ★ One markup annotation, through the same four-step protocol
             // every other document change uses.
             //

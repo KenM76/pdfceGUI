@@ -195,9 +195,33 @@ pub fn draw_selection(
     }
 
     if let Some(box_) = grip_box(mapping, selection) {
+        // ★★ Published so a driven check can AIM AT A GRIP.
+        //
+        // Added 2026-08-19 with the resize commit, and it is the difference
+        // between a check that measures the feature and one that measures the
+        // harness's guesswork: a grip sits at a corner of this box, and the
+        // box's extent is a fact only the application knows. A check that
+        // guessed "a few pixels down and right of where I clicked" would land
+        // inside the object on any shape larger than a grip — which is a MOVE
+        // drag, and the check would then pass while exercising the wrong
+        // gesture entirely.
+        //
+        // The name is the SELECTION's rather than the grips', because the box
+        // is what is published: `handles::grip_rects` derives all eight from
+        // it, so a harness that has this rect has every grip and cannot
+        // disagree with the application about where they are.
+        crate::diag::ui_rect(SELECTION_OUTLINE_REGION, box_);
         draw_grips(painter, visuals, box_);
     }
 }
+
+/// The region the selection's grip box publishes.
+///
+/// ★ It is the box the eight grips are laid out on, not the union of the
+/// outlines: `visible_outline_rect` widens a degenerate outline to a minimum
+/// extent so a hairline is still grabbable, and a check aiming at the un-widened
+/// rect would miss the grips on exactly the objects that needed the widening.
+pub const SELECTION_OUTLINE_REGION: &str = "canvas.selection-outline"; // ui-text-exempt: trace region name, never displayed
 
 /// Paint the eight resize grips around a screen-space box.
 ///
@@ -267,6 +291,55 @@ pub fn draw_move_ghost(
             MIN_OUTLINE_EXTENT_PX,
         );
         painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
+    }
+}
+
+/// Paint the **resize ghost**: the selection's outlines, scaled about the
+/// grip's anchor.
+///
+/// [`draw_move_ghost`]'s sibling, and split from it rather than folded in for
+/// the reason `canvas::resizing`'s own header gives about the arithmetic: a
+/// move is one displacement applied to everything, a resize is a **map** whose
+/// answer depends on where each corner started. One function taking an
+/// `enum { Move(Vec2), Resize(Pos2, Vec2) }` would branch inside a loop that is
+/// otherwise two lines.
+///
+/// ★ The anchor is in **screen** space, because that is the space the outlines
+/// are projected into and the space [`crate::canvas::handles::Grip::anchor`]
+/// already answers in. Converting to PDF for the preview and back again would
+/// be two conversions for a picture that is thrown away next frame — and, worse,
+/// a second place for the ghost and the commit to disagree about which corner
+/// stayed still.
+pub fn draw_resize_ghost(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    selection: &SelectionState,
+    anchor: egui::Pos2,
+    (sx, sy): (f32, f32),
+) {
+    let stroke = Stroke::new(1.5, ghost(visuals.selection.stroke.color));
+    for (_, page_rect) in selection.outlines() {
+        let screen = mapping.rect_to_screen(*page_rect);
+        // `anchor + (p - anchor) * s`, per corner — the same map the commit
+        // applies to every node, one level up, so what the operator sees is the
+        // outline of what they will get.
+        let scaled = egui::Rect::from_min_max(
+            egui::pos2(
+                anchor.x + (screen.min.x - anchor.x) * sx,
+                anchor.y + (screen.min.y - anchor.y) * sy,
+            ),
+            egui::pos2(
+                anchor.x + (screen.max.x - anchor.x) * sx,
+                anchor.y + (screen.max.y - anchor.y) * sy,
+            ),
+        );
+        painter.rect_stroke(
+            visible_outline_rect(scaled, MIN_OUTLINE_EXTENT_PX),
+            CornerRadius::ZERO,
+            stroke,
+            StrokeKind::Middle,
+        );
     }
 }
 

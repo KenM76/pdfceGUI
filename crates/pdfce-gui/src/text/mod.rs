@@ -150,6 +150,7 @@ pub mod pages;
 pub mod panels;
 /// Every word the print dialog shows. Consumed by `crate::dialogs::print`.
 pub mod print;
+pub mod redact;
 /// Every word the redaction surface says — the marking panel, the apply
 /// report, the two acknowledgements, and the residual lines. Consumed by
 /// `crate::panels::redact` and `crate::dialogs::redact`.
@@ -159,7 +160,13 @@ pub mod print;
 /// "verified" unless a verification step ran, and never put the word "Undo"
 /// near a post-apply state. This is the one feature where a comfortable
 /// sentence is a security defect.
-pub mod redact;
+/// ★ Every sentence the eight resize grips show — six refusals and one
+/// disclosure.
+///
+/// Its header carries why the refusals matter more than the feature: the grips
+/// were drawn, cursored and drag-consuming for the whole life of this shell and
+/// committed nothing, which is `DEFECTS.md` D4a's shape exactly.
+pub mod resizing;
 /// The ribbon's structural strings: tab labels and questions, group
 /// captions, mode labels. Consumed by `crate::shell::manifest`.
 pub mod ribbon;
