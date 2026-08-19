@@ -7,3 +7,4 @@
 - [The engine session runs in parallel](project_the_engine_session_runs_in_parallel_and_answers_within_the_hour.md) — it answers requests within minutes and dirties the read-only tree; that is not a violation.
 - [Always publish the latest build to OneDrive](feedback_always_publish_the_latest_build_to_onedrive.md) — `package-portable.py` after every keeper build; it alternates pdfceGUI1/2 itself, so the previous one survives.
 - [Refresh FEATURES.md before every release](feedback_refresh_features_md_before_every_release.md) — re-measure against the build, then package; he reads it to know what he has.
+- [Never defer on an external blocker](feedback_never_defer_on_an_external_blocker.md) — decompose the operation into verbs that exist; three "blockers" were never real.
