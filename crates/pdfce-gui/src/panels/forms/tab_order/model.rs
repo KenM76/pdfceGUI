@@ -285,8 +285,30 @@ pub struct PageTabs {
     /// `/Annots` order.
     pub rows: Vec<TabRow>,
     /// `/Widget` annotations with an object identity that no listed field
-    /// claims. See this module's §5.
-    pub unclaimed: usize,
+    /// claims — **the ids themselves**, in `/Annots` order. See this module's
+    /// §5.
+    ///
+    /// # ★ Why this is a list of ids and was a bare count
+    ///
+    /// It was `usize` for the whole of its life, because the only thing anybody
+    /// could do with an unclaimed widget was be told about it. The sentence it
+    /// fed even said so, hedging at the end — *"if the form declares entries
+    /// pdfce could not read, these may be theirs"* — which is a guess offered
+    /// because there was nothing better to offer.
+    ///
+    /// `EditSession::adopt_widget` shipped 2026-08-19 and **takes an `ObjId`**.
+    /// The moment a verb exists that can act on one of these, a count is the
+    /// wrong shape: it can be displayed and it cannot be pressed. Widening it
+    /// here rather than re-walking `/Annots` at the button keeps one walk as
+    /// the single answer to *"which widgets does this page list that no field
+    /// owns"*, which is what stops the list and the action from ever
+    /// disagreeing about the set.
+    ///
+    /// Order is `/Annots` order, which is the order [`Self::rows`] is in, so a
+    /// registered widget appears in the rows at the position its unclaimed
+    /// entry occupied — the list does not reshuffle under the operator when
+    /// they press the button.
+    pub unclaimed: Vec<Unclaimed>,
     /// `/Widget` annotations written as **direct dictionaries** inside
     /// `/Annots`, which have no identity to match against. See §5.
     pub anonymous: usize,
@@ -295,12 +317,34 @@ pub struct PageTabs {
     pub other_annots: usize,
 }
 
+/// One `/Widget` this page lists that no field in the form claims.
+///
+/// # ★ Why this is a struct and not the bare `ObjId`
+///
+/// Because two independent things are true of it and both are needed at the
+/// same moment: it is a **thing to register** (the id, which
+/// `EditSession::adopt_widget` takes) and it is a **place in the tab
+/// sequence** (the position, which is how an operator finds the box on the
+/// page — they tab to it and watch the focus ring land).
+///
+/// The position cannot be recovered from the id afterwards without walking
+/// `/Annots` again, and a second walk is a second answer to a question this
+/// module exists to answer once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unclaimed {
+    /// The widget's object identity — what `adopt_widget` takes.
+    pub id: ObjId,
+    /// **1-based** position among the widgets on this page, on the same
+    /// numbering as [`TabRow::position`].
+    pub position: usize,
+}
+
 impl PageTabs {
     /// How many `/Widget` annotations this page's `/Annots` listed, whether or
     /// not a row could be made for each.
     #[must_use]
     pub fn widgets_seen(&self) -> usize {
-        self.rows.len() + self.unclaimed + self.anonymous
+        self.rows.len() + self.unclaimed.len() + self.anonymous
     }
 }
 
@@ -558,11 +602,14 @@ pub fn collect<G: ObjectGraph + ?Sized>(graph: &G, slots: &[PageSlot], form: &Ac
             page_index,
             tabs: page_tabs(graph, slot),
             rows: Vec::new(),
-            unclaimed: 0,
+            unclaimed: Vec::new(),
             anonymous: 0,
             other_annots: 0,
         };
 
+        // Every `/Widget` this page lists advances this, whether or not a row
+        // can be made for it. See the comment at the increment.
+        let mut widget_ordinal = 0usize;
         for annot in page_annotations(graph, slot.id) {
             // Not a widget: it is still in the tab sequence, and it is not a
             // form field. Counted, never listed — see §5.
@@ -574,19 +621,46 @@ pub fn collect<G: ObjectGraph + ?Sized>(graph: &G, slots: &[PageSlot], form: &Ac
             // inside `/Annots`, which Table 164 forbids. There is nothing to
             // match it against, so no row can name a field for it.
             let Some(id) = annot.id else {
+                // Advances the ordinal for the same reason the unclaimed case
+                // does: it IS a widget in the page's `/Annots`, so a viewer
+                // tabbing through the page stops on it. It cannot be listed —
+                // there is no identity to name it by — but the widgets after it
+                // are genuinely one position later than they would otherwise be.
+                widget_ordinal += 1;
                 page.anonymous += 1;
                 continue;
             };
+            // ★ Counted here, BEFORE the ownership question — which is the
+            // fix for a numbering defect this widening exposed.
+            //
+            // The position used to be `rows.len() + 1`, and `rows` holds only
+            // the widgets a field claims. So an unclaimed or anonymous widget
+            // between two rows did not advance the count, and every row after
+            // it was numbered one too low — while the field's own doc comment
+            // said the number was *"among the widgets on this page"*, which is
+            // what it now is.
+            //
+            // Invisible while the other two were bare counts: an operator could
+            // read "3 widgets belong to no field" and had nothing to line the
+            // numbers up against. It stops being invisible the moment those
+            // widgets are listed with positions beside the rows, and two
+            // sequences interleaved on one page must agree or neither is worth
+            // printing. It also matters more than a display nicety, because the
+            // number is what an operator uses to *find* the box: they press Tab
+            // that many times and expect the focus ring to land on it.
+            widget_ordinal += 1;
             let Some(&(field_index, widget_index)) = owner.get(&id) else {
-                page.unclaimed += 1;
+                page.unclaimed.push(Unclaimed {
+                    id,
+                    position: widget_ordinal,
+                });
                 continue;
             };
             let field = &form.fields[field_index];
             page.rows.push(TabRow {
                 // 1-based, and among the WIDGETS — so it is the number an
-                // operator counts while tabbing. `rows.len()` is the count of
-                // widgets already listed on this page, which is exactly it.
-                position: page.rows.len() + 1,
+                // operator counts while tabbing.
+                position: widget_ordinal,
                 field: field.fully_qualified_name.clone(),
                 // A blank-but-present `/TU` is treated as absent rather than
                 // shown, the same judgement `rows::row_label` makes: the file
@@ -1151,7 +1225,7 @@ mod tests {
         );
         assert_eq!(l.pages[0].rows[0].field, "Name");
         assert_eq!(l.pages[0].rows[0].position, 1);
-        assert_eq!(l.pages[0].unclaimed, 0);
+        assert!(l.pages[0].unclaimed.is_empty());
         assert_eq!(l.pages[0].anonymous, 0);
     }
 
@@ -1199,7 +1273,11 @@ mod tests {
         let l = collect(&graph, std::slice::from_ref(&slot), &empty_form());
         let p = &l.pages[0];
         assert!(p.rows.is_empty(), "no field claims either annotation");
-        assert_eq!(p.unclaimed, 1, "the widget belongs to no listed field");
+        assert_eq!(
+            p.unclaimed.len(),
+            1,
+            "the widget belongs to no listed field"
+        );
         assert_eq!(p.other_annots, 1, "the link is not a widget");
         assert_eq!(p.anonymous, 0, "both were written as indirect objects");
     }
@@ -1236,7 +1314,7 @@ mod tests {
 
         let l = collect(&graph, std::slice::from_ref(&slot), &empty_form());
         assert_eq!(l.pages[0].anonymous, 1);
-        assert_eq!(l.pages[0].unclaimed, 0);
+        assert!(l.pages[0].unclaimed.is_empty());
         assert!(l.pages[0].rows.is_empty());
     }
 

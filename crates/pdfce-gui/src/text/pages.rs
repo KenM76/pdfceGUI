@@ -479,25 +479,88 @@ pub const fn insert_dialog_title() -> &'static str {
 ///
 /// The sentence is therefore worded as a fact about what arrived, not as an
 /// interim apology for a feature that is coming.
+/// # ★★ TWO numbers, because they are two different pieces of news
+///
+/// `orphaned_widgets_unrecoverable` arrived hours after `orphaned_widgets`,
+/// with the engine's own correction of the sentence it had suggested the day
+/// before. It measured its own output — 13 orphans from a real AcroForm — and
+/// found two shapes:
+///
+/// | shape | of 13 | registering it |
+/// |---|---|---|
+/// | **merged field-widget** (§12.7.3.1) | 11 | recovers the field exactly |
+/// | **bare kid** (a radio group member) | 2 | **impossible** — its identity is not in this file |
+///
+/// The engine's words: the undifferentiated sentence *"is true of both rows and
+/// useful for only one."* For the 11 it describes **a chore this shell can now
+/// offer to complete**. For the 2 it describes **a permanent loss** whose only
+/// remedy is going back to the source file — and the combined total says the
+/// milder of the two, which is the wrong way for a disclosure to be wrong.
+///
+/// So the clause splits, and each half is dropped when its number is zero. A
+/// document with 11 recoverable and 0 unrecoverable gets one sentence with a
+/// route in it. A document with 0 and 2 gets one sentence with no route,
+/// because there is none.
+///
+/// # ★ The recoverable clause names WHERE, and that is the whole point of it
+///
+/// *"Forms ▸ Tab order lists them"* is the difference between a disclosure and
+/// a complaint. Before `EditSession::adopt_widget` shipped there was nothing to
+/// name, so the sentence could only report the damage; now the panel that
+/// already computes exactly this set can register them one press at a time, and
+/// a disclosure that stops short of saying so leaves the operator with a
+/// correct description of a problem and no idea it is solvable.
+///
+/// # Why the unrecoverable clause says "re-insert from the original"
+///
+/// Because it is the only thing that works, and because the alternative an
+/// operator would otherwise try — typing a name into the box — produces
+/// something that *looks* like success. A named bare kid is a new, empty,
+/// typeless field. It is not the radio button that was lost, and an operator
+/// who believes it is will go looking for its group. See
+/// [`crate::text::status::adopt_declined_no_name`], which refuses the word
+/// *restore* for the same reason.
 #[must_use]
-pub fn inserted(count: usize, orphans: usize, after_page_index: usize) -> String {
+pub fn inserted(
+    count: usize,
+    orphans: usize,
+    unrecoverable: usize,
+    after_page_index: usize,
+) -> String {
     let after = after_page_index.saturating_add(1);
     let pages = if count == 1 { "page" } else { "pages" };
-    let head = format!(
+    let mut line = format!(
         "Inserted {count} {pages} after page {after}. Bookmarks and page labels \
          from that file did not come across."
     );
-    match orphans {
-        0 => head,
-        1 => format!(
-            "{head} 1 form control came across without its definition — it is \
-             drawn but cannot be filled."
+    // Saturating rather than a plain subtraction: the two numbers come from one
+    // struct and the engine's contract is that the second counts a subset of the
+    // first, but a disclosure is the last place to trust an invariant it can
+    // cheaply not need. An underflow here would be a panic in the middle of a
+    // successful edit.
+    match orphans.saturating_sub(unrecoverable) {
+        0 => {}
+        1 => line.push_str(
+            " 1 form control needs re-registering before it can be filled — \
+             Forms, Tab order lists it.",
         ),
-        n => format!(
-            "{head} {n} form controls came across without their definitions — \
-             they are drawn but cannot be filled."
-        ),
+        n => line.push_str(&format!(
+            " {n} form controls need re-registering before they can be filled — \
+             Forms, Tab order lists them."
+        )),
     }
+    match unrecoverable {
+        0 => {}
+        1 => line.push_str(
+            " 1 more lost its field definition entirely; to get that one back, \
+             insert the pages again from the document they came from.",
+        ),
+        n => line.push_str(&format!(
+            " {n} more lost their field definitions entirely; to get those back, \
+             insert the pages again from the document they came from."
+        )),
+    }
+    line
 }
 
 /// The chosen file could not be opened, and why.
@@ -670,7 +733,7 @@ mod tests {
     /// gets skipped is then the *bookmarks* one, which is always true.
     #[test]
     fn no_orphans_means_no_clause_about_them() {
-        let quiet = inserted(4, 0, 6);
+        let quiet = inserted(4, 0, 0, 6);
         assert!(
             !quiet.contains("form"),
             "a zero count must say nothing: {quiet}"
@@ -685,27 +748,90 @@ mod tests {
         );
     }
 
-    /// A real count is stated, unhedged, and agrees in number.
+    /// A real count is stated, unhedged, agrees in number, and names the route.
     ///
     /// The singular is its own arm rather than an `(s)`: one orphaned control
     /// is an ordinary case — a single signature field on a title sheet — and
     /// *"1 form controls"* is the shape that makes an operator distrust the
     /// number beside it.
+    ///
+    /// ★ The route is asserted, not just the count. A disclosure that reports a
+    /// solvable problem without saying it is solvable leaves the operator with
+    /// a correct description and nothing to do with it.
     #[test]
     fn a_real_count_is_stated_without_hedging() {
-        let one = inserted(1, 1, 0);
-        assert!(one.contains("1 form control came across"), "{one}");
+        let one = inserted(1, 1, 0, 0);
+        assert!(one.contains("1 form control needs re-registering"), "{one}");
         assert!(!one.contains("Any"), "the hedge is gone: {one}");
+        assert!(one.contains("Tab order"), "the route is named: {one}");
 
-        let many = inserted(2, 3, 0);
-        assert!(many.contains("3 form controls came across"), "{many}");
-        assert!(many.contains("their definitions"), "{many}");
+        let many = inserted(2, 3, 0, 0);
+        assert!(
+            many.contains("3 form controls need re-registering"),
+            "{many}"
+        );
+        assert!(many.contains("lists them"), "{many}");
+    }
+
+    /// ★★ The two counts are two sentences, and the recoverable one is the
+    /// **difference**, not the total.
+    ///
+    /// The engine's correction, asserted. `orphaned_widgets` counts every
+    /// orphan; `orphaned_widgets_unrecoverable` counts the subset whose field
+    /// identity is not in this file at all. Reporting the total as
+    /// re-registerable would send the operator to a panel where two of the
+    /// boxes refuse, with a sentence that had promised otherwise.
+    ///
+    /// The measured case is the fixture: 13 orphans, 2 of them bare kids.
+    #[test]
+    fn the_recoverable_count_excludes_the_ones_that_cannot_be_recovered() {
+        let measured = inserted(1, 13, 2, 0);
+        assert!(
+            measured.contains("11 form controls need re-registering"),
+            "13 minus the 2 that cannot be: {measured}"
+        );
+        assert!(
+            measured.contains("2 more lost their field definitions"),
+            "{measured}"
+        );
+        assert!(
+            measured.contains("insert the pages again"),
+            "the only remedy that works must be named: {measured}"
+        );
+    }
+
+    /// Every orphan being unrecoverable produces one sentence, not a zero.
+    ///
+    /// R9's rule applied to prose: *"0 form controls need re-registering"* is a
+    /// placeholder wearing a number, and it would be sitting immediately beside
+    /// a sentence saying two of them are gone for good.
+    #[test]
+    fn all_unrecoverable_means_no_re_registering_clause() {
+        let all_lost = inserted(1, 2, 2, 0);
+        assert!(
+            !all_lost.contains("re-registering"),
+            "there is nothing to re-register: {all_lost}"
+        );
+        assert!(all_lost.contains("2 more lost their"), "{all_lost}");
+    }
+
+    /// A count larger than the total cannot panic.
+    ///
+    /// The invariant says it cannot happen — the second field counts a subset
+    /// of the first — and the subtraction saturates anyway. A disclosure runs
+    /// at the end of a *successful* edit, which is the worst possible moment to
+    /// panic on an arithmetic assumption about another crate's struct.
+    #[test]
+    fn an_impossible_pair_does_not_panic() {
+        let odd = inserted(1, 1, 4, 0);
+        assert!(!odd.contains("re-registering"), "{odd}");
+        assert!(odd.contains("4 more lost"), "{odd}");
     }
 
     /// The page count agrees in number too.
     #[test]
     fn one_page_is_a_page_and_two_are_pages() {
-        assert!(inserted(1, 0, 0).contains("Inserted 1 page after"));
-        assert!(inserted(2, 0, 0).contains("Inserted 2 pages after"));
+        assert!(inserted(1, 0, 0, 0).contains("Inserted 1 page after"));
+        assert!(inserted(2, 0, 0, 0).contains("Inserted 2 pages after"));
     }
 }

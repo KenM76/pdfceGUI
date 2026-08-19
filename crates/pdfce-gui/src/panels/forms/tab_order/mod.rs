@@ -124,6 +124,8 @@
 /// Turning a document into a per-page widget sequence — the classification,
 /// testable without a `Ui`.
 pub mod model;
+/// The rows that register an unclaimed widget back into the form.
+mod register;
 
 use pdfce_core::forms::AcroForm;
 use pdfce_core::view::DocumentView;
@@ -233,7 +235,7 @@ pub(super) fn section(
                         // hover — the collision `crate::panels::comments` keys
                         // its rows against.
                         ui.push_id(page.page_index, |ui| {
-                            page_block(ui, doc, page, &mut go);
+                            page_block(ui, doc, page, &mut go, actions);
                         });
                         ui.separator();
                     }
@@ -251,7 +253,13 @@ pub(super) fn section(
 /// A page with no widget on it is still drawn. Its `/Tabs` state is a fact about
 /// the document, and a gap in the page numbering would read as a bug in the
 /// view rather than as an empty page.
-fn page_block(ui: &mut egui::Ui, doc: &OpenDoc, page: &PageTabs, go: &mut Option<usize>) {
+fn page_block(
+    ui: &mut egui::Ui,
+    doc: &OpenDoc,
+    page: &PageTabs,
+    go: &mut Option<usize>,
+    actions: &mut Vec<Action>,
+) {
     // 1-based **only here**, where a human reads it. The index travels 0-based
     // to `Action::GoToPage`; see
     // [`tests::the_page_index_travels_zero_based_and_prints_one_based`].
@@ -344,11 +352,19 @@ fn page_block(ui: &mut egui::Ui, doc: &OpenDoc, page: &PageTabs, go: &mut Option
     // What this page could not list, each counted separately because each is a
     // different fact — see [`model`]'s §5. Conditional, because zero of any of
     // them says nothing.
-    if page.unclaimed > 0 {
+    if !page.unclaimed.is_empty() {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            t::tab_order_unclaimed(page.unclaimed),
+            t::tab_order_unclaimed(page.unclaimed.len()),
         );
+        // ★ The remedy under the statement of the problem, in that order.
+        //
+        // The section's own rule is "every disclosure above the list", and this
+        // is the same rule applied one level down: an operator reads what is
+        // wrong, and the next thing under their eye is the thing that fixes it.
+        // Put the rows above the sentence and they are three unlabelled name
+        // boxes.
+        register::rows(ui, doc, page.page_index, &page.unclaimed, actions);
     }
     if page.anonymous > 0 {
         ui.colored_label(
@@ -483,7 +499,7 @@ fn trace(listing: &Listing) {
                 page.tabs.sequence(),
                 page.widgets_seen(),
                 page.rows.len(),
-                page.unclaimed,
+                page.unclaimed.len(),
                 page.anonymous,
                 page.other_annots,
             )

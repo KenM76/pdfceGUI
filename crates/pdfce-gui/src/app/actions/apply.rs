@@ -765,6 +765,13 @@ impl PdfceApp {
             // Those three answers to one edit are the whole subject over there,
             // and they were the only part of it living here.
             Action::Page(action) => super::pages::apply(doc, &mut self.panels, action),
+            // One line, like its neighbours: the whole of this verb — its two
+            // correctable refusals, its three unreachable ones and the three
+            // conditional clauses of its disclosure — is `super::forms`, whose
+            // header carries the measurement that makes the wording necessary.
+            Action::AdoptWidget { page, widget, name } => {
+                super::forms::adopt(doc, page, widget, name);
+            }
             // ★ An export changes NOTHING — no `vector_edit`, no undo entry,
             // no epoch bump, no invalidation. It reads the open page and writes
             // a different file, which is why its body is in `super::export`

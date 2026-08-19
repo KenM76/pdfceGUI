@@ -588,10 +588,19 @@ pub(super) fn insert_from_file(
             // `/AcroForm` is not merged and every object number is remapped), so
             // the number goes in front of the operator unhedged and a zero drops
             // the clause entirely.
+            //
+            // ★ `orphaned_widgets_unrecoverable` joined it later the same day,
+            // and the two numbers are two different pieces of news. The engine
+            // measured its own output and found that of 13 orphans, 11 could be
+            // registered and 2 had lost their identity permanently — and said
+            // plainly that the old undifferentiated sentence *"is true of both
+            // and useful for only one"*, because it describes a chore for the
+            // 11 and a permanent loss for the 2, in the milder wording.
             .map(|outcome| {
                 vec![crate::text::pages::inserted(
                     outcome.pages_inserted,
                     outcome.orphaned_widgets,
+                    outcome.orphaned_widgets_unrecoverable,
                     landing,
                 )]
             })

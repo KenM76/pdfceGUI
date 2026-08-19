@@ -804,6 +804,87 @@ pub fn page_rejected_note() -> &'static str {
     "Not a page number — type digits, then Enter"
 }
 
+// --- Registering an unclaimed form control ---------------------------------
+
+/// `adopt_widget` refused: the name is already another field's.
+///
+/// # ★ Why the sentence explains the standard rather than just refusing
+///
+/// Because the refusal looks arbitrary otherwise. Every other program the
+/// operator uses will happily hold two things with one name in one file, and
+/// "that name is taken" reads as pdfce being fussy about a namespace it made
+/// up.
+///
+/// It is not pdfce's namespace. ISO 32000-2 SS12.7.3.1 makes the fully
+/// qualified name the field's **identity**: two top-level fields called
+/// `Address` are one field with two boxes, and filling either fills both. So
+/// the second half of the sentence is the part that does the work — it says
+/// what would happen if pdfce allowed it, which is the only thing that makes
+/// the refusal obviously right rather than obviously annoying.
+#[must_use]
+pub const fn adopt_declined_name_taken() -> &'static str {
+    "Another field in this document already uses that name. In a PDF, two fields with the same \
+     name are one field with two boxes — filling either would fill both — so pdfce needs a \
+     different name."
+}
+
+/// `adopt_widget` refused: the widget carries no name and none was typed.
+///
+/// # ★ The word this sentence must not use is "restore"
+///
+/// The operator's mental model at this moment is *"something was lost, and I
+/// am putting it back"*, and for the common case that is exactly right — a
+/// merged field-widget carries its own name, type and value, and registering
+/// it recovers the field as it was.
+///
+/// This is the other case, and it is not that. The box was a **bare kid**: its
+/// name, its field type, its radio flags and its value all lived in a field
+/// dictionary that is not in this document. Naming it here **creates a new
+/// field** with no type and no value. That is a legitimate thing to want, and
+/// it is not a recovery — an operator told they had restored a radio button
+/// would go looking for its group, and there is no group.
+///
+/// So the sentence offers the name box and says what naming it will produce,
+/// and it names the only route that gets the original back.
+#[must_use]
+pub const fn adopt_declined_no_name() -> &'static str {
+    "This box carries no name of its own, so pdfce has nothing to register it under. Type a name \
+     to make it a new, empty field — its original name, type and any value it had are not in \
+     this file. To get those back, insert the pages again from the document they came from."
+}
+
+/// The disclosure after a widget was registered.
+///
+/// # ★ Three facts, each conditional, and none of them is "done"
+///
+/// `AdoptOutcome` carries three things the operator cannot see and would not
+/// guess, and each is dropped when it is not true rather than being reported as
+/// a negative:
+///
+/// - **the name it went in under** — always said, because for a blank box it is
+///   the name the file already carried, which the operator has never seen;
+/// - **`field_type: None`** — legal (`/FT` is inheritable) and useless, because
+///   a top-level field has nothing left to inherit from. No viewer knows how to
+///   render or fill it. This is the fuzzy-never-sneaky half that would
+///   otherwise be invisible: the registration **succeeded** and the box is
+///   still not fillable;
+/// - **`acroform_created`** — the document had no interactive form at all and
+///   now has one, which changes what other software does with the file.
+#[must_use]
+pub fn adopted(name: &str, typed: bool, acroform_created: bool) -> String {
+    let mut line = format!("Registered as \u{201c}{name}\u{201d}.");
+    if !typed {
+        line.push_str(
+            " It has no field type, so no viewer knows how to fill it — pdfce cannot give it one \
+             without the field definition it lost.",
+        );
+    }
+    if acroform_created {
+        line.push_str(" This document had no interactive form before; it has one now.");
+    }
+    line
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

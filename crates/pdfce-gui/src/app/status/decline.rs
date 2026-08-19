@@ -249,6 +249,49 @@ pub(crate) enum Declined {
     /// sentence on the next frame, without the operator invoking a command,
     /// which is [`Self::NothingToFrame`]'s shape exactly: *the remedy happened,
     /// so the sentence is history.*
+    /// **A widget could not be registered: another field already has the name.**
+    ///
+    /// `EditError::FieldNameTaken`, raised by `EditSession::adopt_widget`.
+    ///
+    /// # ★ Why this is refused rather than auto-renamed, which is the engine's
+    /// ruling and this shell agrees with it
+    ///
+    /// ISO 32000-2 SS12.7.3.1 makes the **fully qualified name the field's
+    /// identity**. Two top-level fields called `Address` are not two fields —
+    /// they are *one field with two widgets*, so typing in either fills both.
+    /// No viewer reports this. The operator discovers it by typing into one box
+    /// and watching another change, which is the worst possible way to learn it.
+    ///
+    /// `pageops::assemble` auto-renames on merge because it has nobody to ask.
+    /// This surface **does** have somebody to ask, and the engine put it
+    /// plainly: *"`Address_2` is a name nobody chose."* So the edit declines and
+    /// the operator retypes, with what they typed still in the box in front of
+    /// them.
+    ///
+    /// The clashing name is **not** carried into the sentence. It is a `Copy`
+    /// enum, and more to the point the name is already on screen — the operator
+    /// typed it seconds ago and it is still in the field they typed it into.
+    FieldNameTaken,
+    /// **A widget could not be registered because it carries no name of its
+    /// own, and none was supplied.**
+    ///
+    /// `EditError::WidgetHasNoFieldIdentity`.
+    ///
+    /// # ★ What this actually means, and why the sentence must not say
+    /// "recovered"
+    ///
+    /// It is a **bare kid**: a widget whose `/Parent` pointed at its field, in a
+    /// document where that `/Parent` is gone. The engine measured a real form
+    /// and found 2 of 13 in this shape after an insert, and named its own cause
+    /// — `insert_pages` drops `/Parent` from every dictionary it copies, which
+    /// is correct for a page and destroys a widget's only link to its identity.
+    ///
+    /// What was lost is not just the name. It was the name **and** the field
+    /// type, the radio flags and the value. Nothing in this document holds any
+    /// of it, so a name typed here **creates a new field**; it does not recover
+    /// the old one. The sentence says so, because an operator told they had
+    /// "restored" a radio button would go looking for its group.
+    WidgetHasNoName,
     NothingToUndo,
     /// **`edit.redo` was invoked with an empty redo stack.**
     ///
@@ -332,6 +375,13 @@ impl Declined {
             // parameters are deliberately ignored rather than being joined by a
             // third that would always be `true`.
             Self::SaveFailed | Self::SettingsNotSaved => true,
+            // ★ Same ruling, third and fourth cases. A name is not going to
+            // stop being taken, and a widget is not going to grow a `/T`,
+            // between one frame and the next. Both are corrected by the
+            // operator doing something — typing a different name and pressing
+            // Register again — and pressing Register is a command, which
+            // `retire` catches.
+            Self::FieldNameTaken | Self::WidgetHasNoName => true,
             // ★ The stack filled up. Something was authored — or, for redo,
             // something was undone — and the sentence is now history, exactly
             // as `NothingToFrame` is once something is selected. The operator
@@ -356,6 +406,8 @@ impl Declined {
             Self::SettingsNotSaved => t::settings_not_saved(),
             Self::NothingToUndo => t::undo_declined_empty(),
             Self::NothingToRedo => t::redo_declined_empty(),
+            Self::FieldNameTaken => t::adopt_declined_name_taken(),
+            Self::WidgetHasNoName => t::adopt_declined_no_name(),
         }
     }
 }
@@ -488,6 +540,31 @@ pub(crate) fn record_settings_not_saved() {
 /// here in practice; passing anything else records a decline the arm did not
 /// mean, which is why the two callers are one arm apart in one function.
 pub(crate) fn record_history_empty(declined: Declined) {
+    LAST.with_borrow_mut(|slot| *slot = Some(declined));
+}
+
+/// Record that `adopt_widget` refused, and which of its two correctable
+/// refusals it was.
+///
+/// Called from `crate::app::actions::forms`, the apply phase, exactly as
+/// [`record_history_empty`] is and for the same reason: the arm holding the
+/// session is the one that can tell.
+///
+/// # ★ Why only two of the engine's five refusals reach here
+///
+/// `adopt_widget` refuses five ways. Three of them cannot happen from this
+/// surface and wording them would be wording states the operator cannot be in:
+///
+/// | refusal | why it is unreachable here |
+/// |---|---|
+/// | `NotAWidget` | the ids come from `page_annotations(..).is_widget()`, in this document |
+/// | `WidgetAlreadyOwned` | the ids are exactly the ones no field claimed, from the same walk |
+/// | `FieldNameEmpty` | the box is trimmed and an empty one sends `None`, not `Some("")` |
+///
+/// They still reach the trace through [`super::super::actions::apply::vector_edit`]'s
+/// error branch, which is where an impossible refusal belongs: visible to
+/// whoever is debugging, absent from the status bar an operator reads.
+pub(crate) fn record_adopt_refusal(declined: Declined) {
     LAST.with_borrow_mut(|slot| *slot = Some(declined));
 }
 

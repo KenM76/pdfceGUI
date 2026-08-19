@@ -140,6 +140,9 @@ pub mod disclosure;
 /// rule the mutation funnel enforces is irrelevant to them and every rule about
 /// file handling applies instead.
 pub mod export;
+/// Registering a form control the document draws but no field claims — one
+/// verb, whose refusal and disclosure wording is the substantial part.
+pub mod forms;
 /// The four page verbs' bodies, and the structural resync every edit owes.
 ///
 /// A sibling of [`apply`] rather than part of it, on rule R2's own reasoning:
@@ -698,6 +701,47 @@ pub enum Action {
     /// individual edit would still be correct in the document and wrong only
     /// on screen.
     Page(pages::PageAction),
+    /// ★ **Register a form control the document draws but no field claims.**
+    ///
+    /// Raised by `crate::panels::forms::tab_order` and by nothing else — the
+    /// one view that already knew which widgets these are, because listing them
+    /// is what it is for.
+    ///
+    /// # Why the widget is an `ObjId` and not a position
+    ///
+    /// The same reason [`Self::AddBookmark`]'s parent is: a position is
+    /// invalidated by the edit itself. Registering a widget moves it out of the
+    /// unclaimed list and into the rows, so a second registration keyed on
+    /// "the second unclaimed box" would act on a different box than the one the
+    /// operator pressed beside. `adopt_widget` takes an id for this reason and
+    /// the listing carries one for the same reason.
+    ///
+    /// # Why the page travels with it
+    ///
+    /// Only for the funnel: [`apply::vector_edit`] wants a page for its trace
+    /// line and its per-page raster drop. The edit itself is document-level —
+    /// `/AcroForm` is in the catalog — so nothing about *which* page is
+    /// consulted by the engine. It is the page the box is drawn on, which is
+    /// the one whose raster has to be rebuilt, and that is the only claim being
+    /// made by carrying it.
+    ///
+    /// # `None` is the common answer and it is not "no name"
+    ///
+    /// It means *use the name the box already carries*. Most unclaimed widgets
+    /// are merged field-widgets holding their own `/T`, and supplying a name for
+    /// one of those **overrides** a name the file already had. See
+    /// [`forms`]'s header for the two shapes and why an operator cannot tell
+    /// them apart by looking.
+    AdoptWidget {
+        /// The page the widget is drawn on — for the trace and the re-raster.
+        page: usize,
+        /// The widget's object identity, from `tab_order::model::Unclaimed`.
+        widget: pdfce_core::object::ObjId,
+        /// A name to register it under, or `None` to keep the one it carries.
+        /// Trimmed and non-empty by the time it gets here.
+        name: Option<String>,
+    },
+
     /// ★ **Add a bookmark to the document's outline.**
     ///
     /// Raised by `crate::panels::bookmarks::add` and by nothing else.

@@ -156,6 +156,20 @@ fn body(ui: &mut Ui, keymap: Option<&Keymap>, registry: &CommandRegistry) {
                 });
         });
 
+    // ★ Traced so a driven check can assert the two numbers rather than the
+    // pixels — and the SECOND one is the assertion worth having.
+    //
+    // `dropped` counts chords naming a command this build did not register. On
+    // a full build it must be **zero**: every chord in the manifest's keymap
+    // names a command the registry has, which is the manifest-versus-registry
+    // agreement nothing else checks end to end. A non-zero here on the shipped
+    // build means the two have drifted, and the symptom in the application is a
+    // key that silently does nothing.
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed
+        format!("shortcuts-listed commands={} dropped={dropped}", rows.len())
+    });
+
     ui.add_space(4.0);
     ui.weak(t::derived_note(rows.len()));
     if dropped > 0 {
