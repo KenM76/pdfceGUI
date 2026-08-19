@@ -45,13 +45,18 @@
 //! path reachable from a dialog opened cold, and, as the source notes, an
 //! accessibility win: a scale can be set entirely by typing.
 //!
-//! **This dialog offers the ratio path.** The real-length path is offered when
-//! a reference line has been drawn, and drawing one is a canvas gesture
-//! (`ScalePick`) that is not yet armed by any command — so the radio for it is
-//! **absent rather than greyed**, on the standing rule: greying is for
-//! *temporarily* unavailable, and no control in this dialog can produce a
-//! reference line. The window says which path it is offering and why, because
-//! an operator who has read the manual will look for the other one.
+//! **A cold-opened dialog offers the ratio path.** ★ This paragraph used to
+//! end *"drawing one is a canvas gesture (`ScalePick`) that is not yet armed by
+//! any command"*, and that stopped being true on 2026-08-17: the **Measure it
+//! on the drawing…** button in this very window arms it, and the dialog
+//! re-opens on the real-length path with the measured length in it.
+//!
+//! What survives is the reason the radio is **absent rather than greyed** when
+//! no line has been drawn: greying is for *temporarily* unavailable, and with
+//! no reference line there is nothing for the real-length path to be about. The
+//! window says which path it is offering and why, because an operator who has
+//! read the manual will look for the other one — and now the window is also
+//! where they find it.
 //!
 //! ## Why the real-length field still accepts `4'-7 1/2"`
 //!
@@ -464,31 +469,32 @@ fn unit_combo(ui: &mut Ui, id: &str, unit: &mut Unit) {
     egui::ComboBox::from_id_salt(id)
         .selected_text(t::unit_name(*unit))
         .show_ui(ui, |ui| {
-            for option in UNITS {
+            for option in &units() {
                 ui.selectable_value(unit, *option, t::unit_name(*option));
             }
         });
 }
 
-/// The units offered, metric first.
+/// The units offered.
 ///
-/// A local list because `pdfce_core::dimension::Unit` exposes no `ALL` — every
-/// other enumerable set this crate reads (`MarkupKind::ALL`, `Preset::ALL`)
-/// does, and this one does not, so the list is here and the risk is stated: a
-/// unit the engine gains will not appear until this array does. The catch-all
-/// in `text::scale::unit_name` covers the *naming* half so such a unit is at
-/// least legible if it arrives from a file; it cannot make it selectable.
+/// ★ **This was a hand-written array, on a claim that was false when it was
+/// written.** It read: *"A local list because `pdfce_core::dimension::Unit`
+/// exposes no `ALL` … a unit the engine gains will not appear until this array
+/// does."*
 ///
-/// Metric before imperial because millimetres are what a CAD export is
-/// overwhelmingly in, and the first entry is the one a hurried operator picks.
-const UNITS: &[Unit] = &[
-    Unit::Millimeter,
-    Unit::Centimeter,
-    Unit::Meter,
-    Unit::Inch,
-    Unit::DecimalFeet,
-    Unit::FeetInches,
-];
+/// `Unit::all()` exists (`units.rs:111`) and its own doc comment says what it
+/// is for: *"the GUI unit dropdown and the CLI unit parser iterate this."* The
+/// hand-written array happened to hold the same six in the same order, so the
+/// divergence was **latent rather than active** — which is the worst kind to
+/// leave, because nothing would go wrong until a unit was added and then it
+/// would go wrong silently, in a dropdown nobody would think to re-count.
+///
+/// The engine's order is metric first, for the same reason the local list
+/// chose it: millimetres are what a CAD export is overwhelmingly in, and the
+/// first entry is the one a hurried operator picks.
+fn units() -> [Unit; 6] {
+    Unit::all()
+}
 
 /// The number styles offered.
 ///

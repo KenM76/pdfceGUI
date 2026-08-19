@@ -128,6 +128,10 @@ pub(super) fn commit(st: &mut MeasureState, page_index: usize, actions: &mut Vec
         page: page_index,
         group: st.group,
         kind,
+        // Nothing to disclose: a best-fit circle's output is the circle the
+        // operator assembled, and its residual is already on screen through the
+        // live preview. See `DimensionAction::Commit`'s field.
+        disclosures: Vec::new(),
     }));
     // Emptied, not left standing. The next dimension starts from nothing, the
     // same way `LinearPick` resets on its placing click — otherwise a second

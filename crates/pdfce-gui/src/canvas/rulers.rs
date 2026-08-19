@@ -510,10 +510,27 @@ impl Scale {
     ///
     /// The **default group**, which `pdfce-core` guarantees always exists
     /// (`ui-spec` §5.3: *"a dimension always has a home and the group panel is
-    /// never empty"*). Not an "active" group, because the GUI has no group
-    /// picker yet and inventing one here would be a second answer to a
-    /// question the Tool Options pane will own; when that surface lands, this
-    /// is the one line that changes.
+    /// never empty"*).
+    ///
+    /// ★ **This used to say "not an 'active' group, because the GUI has no
+    /// group picker yet … when that surface lands, this is the one line that
+    /// changes."* The surface landed on 2026-08-18 —
+    /// `crate::dialogs::dimension_groups`' *Draw into* column, written through
+    /// `crate::canvas::measure::set_active_group` — and **the line has
+    /// deliberately not changed.** The prediction assumed the answer was
+    /// obvious once the picker existed. It is not, and the two readings are
+    /// both defensible:
+    ///
+    /// | follow the **default** group (today) | follow the **active** group |
+    /// |---|---|
+    /// | the ruler is page furniture, read while panning and reading, and a tool state left over from ten minutes ago is an arbitrary thing for it to depend on | the ruler and the ce dimension the operator is about to draw would **agree**, which is the ruler's stated purpose — *"a ruler and a dimension across one span agree to the digit"* |
+    /// | a scale that changes because a radio moved in another window, with nothing on screen saying why, is a bug report | on a sheet with a 1:50 plan and a 1:5 detail, one fixed scale is wrong for half the sheet whatever it is |
+    ///
+    /// It is a **behaviour question for the operator**, not a gap, so it is
+    /// recorded here rather than decided. If it is answered *active*, this is
+    /// still the one line that changes — the function would take an
+    /// `&egui::Context` and ask `measure::active_group`, and everything
+    /// downstream is already scale-agnostic.
     ///
     /// A document whose sidecar is missing, unreadable or written by a newer
     /// build answers [`Scale::default`] — raw points. Every one of those means

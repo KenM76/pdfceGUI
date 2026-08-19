@@ -123,6 +123,32 @@ pub enum DimensionAction {
         group: GroupId,
         /// The immutable geometry, straight from the pick machine.
         kind: DimensionKind,
+        /// ★ **What the gesture inferred, in the operator's words** — carried
+        /// with the edit rather than recorded when the gesture ended.
+        ///
+        /// Empty for the linear and circular tools, whose output is what the
+        /// operator pointed at. Non-empty for the **two-line** tool, which
+        /// classifies: it may read two lines as parallel *because the operator
+        /// asked*, overriding a real measured angle, and it may find an apex
+        /// that exists only if the lines are extended. `pdfce-core` requires
+        /// both to be said (`03-capabilities.md` §1.5 obligation 4), and this
+        /// build said neither until 2026-08-19.
+        ///
+        /// # ★ Why it travels HERE and not through `record_note`
+        ///
+        /// Because the apply phase runs **after** the frame that raised this,
+        /// and `vector_edit` writes its own disclosure list to the same slot on
+        /// success. A note recorded at gesture time would be wiped by the
+        /// commit it is about — silently, and only on the successful path,
+        /// which is the path it exists for.
+        ///
+        /// The funnel already has the mechanism: `vector_edit`'s closure
+        /// returns the disclosure list. This field is what lets a gesture put
+        /// something in it.
+        ///
+        /// A refusal is the opposite case and correctly uses `record_note`:
+        /// nothing is committed, so no apply phase will overwrite it.
+        disclosures: Vec<String>,
     },
 
     /// ★ **Calibrate a dimension group** — say what its numbers mean.
@@ -430,9 +456,20 @@ pub(super) fn apply(doc: &mut OpenDoc, action: DimensionAction) {
         // One `add_dimension`, one undo entry — the same contract
         // `CommitMarkup` holds, through the same funnel, so the protocol is
         // not written a second time.
-        DimensionAction::Commit { page, group, kind } => {
+        DimensionAction::Commit {
+            page,
+            group,
+            kind,
+            disclosures,
+        } => {
             super::apply::vector_edit(doc, "add-dimension", page, 1, |session| {
-                session.add_dimension(page, group, kind).map(|_| Vec::new())
+                // The gesture's disclosures are returned as the edit's, which
+                // is what puts them on the status bar stamped with the epoch
+                // this commit produced. `map` rather than a discarded result:
+                // the id the engine returns is not needed and the list is.
+                session
+                    .add_dimension(page, group, kind)
+                    .map(|_| disclosures)
             });
         }
         DimensionAction::SetGroupScale {

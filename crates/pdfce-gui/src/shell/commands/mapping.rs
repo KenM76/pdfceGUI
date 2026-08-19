@@ -284,8 +284,10 @@ pub fn text_mark_for_command(id: &str) -> Option<crate::canvas::markup::text::Te
 /// absent command is supposed to be.
 ///
 /// `measure.set_scale` is registered and is deliberately **not** a kind: it
-/// changes what measurements are read against rather than placing one, and its
-/// dialog does not exist yet.
+/// changes what measurements are read against rather than placing one. (This
+/// sentence used to end *"and its dialog does not exist yet"*. It does —
+/// `crate::dialogs::scale`, since 2026-08-17 — and the reason for not being a
+/// kind never depended on that clause.)
 ///
 /// `measure.finish` is registered and is not a kind either, for a sharper
 /// reason: it does not *arm* anything. It **ends** the radius/diameter

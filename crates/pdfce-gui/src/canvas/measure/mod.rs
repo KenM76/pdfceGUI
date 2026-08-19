@@ -199,7 +199,7 @@ impl MeasureKind {
 use egui::{Pos2, Rect, Ui};
 use pdfce_core::dimension::TwoLinePlacement;
 use pdfce_core::vector::Point;
-use pdfce_core::vector::linepick::{ParallelPolicy, pick_line_in_page};
+use pdfce_core::vector::linepick::pick_line_in_page;
 use pdfce_core::vector::snap::{SnapCandidate, SnapConfig, snap_candidates};
 
 use crate::app::actions::Action;
@@ -738,6 +738,11 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
                     page: page_index,
                     group: st.group,
                     kind: authored,
+                    // Nothing to disclose: the linear tool measures between two
+                    // points the operator picked, so its output is what they
+                    // pointed at rather than a classification of it. See
+                    // `DimensionAction::Commit`'s field.
+                    disclosures: Vec::new(),
                 }));
             }
         }
@@ -778,17 +783,80 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
                 return;
             };
             if let Some(line) = pick_line_in_page(model, p, map.tolerance()) {
-                let epsilon = ParallelPolicy::default().epsilon_degrees;
+                // ★ **The OPERATOR's threshold, not the default.**
+                //
+                // This line read `ParallelPolicy::default().epsilon_degrees`
+                // until 2026-08-19, which made `Settings::parallel_epsilon_degrees`
+                // — persisted, shown in the Settings window, edited, and
+                // reaching `ScaleEntryFields` and the CLI — do **nothing** for
+                // the one gesture it exists for. `pick.rs`'s own doc says the
+                // value *"comes from `Settings::parallel_epsilon_degrees` and
+                // is never a literal at the call site, so this tool and the CLI
+                // cannot disagree about when two lines count as parallel"*, and
+                // a hard-coded default IS a literal at the call site wearing a
+                // constructor.
+                //
+                // `doc.settings` rather than the live `PdfceApp` copy, because
+                // that is the snapshot every other derived answer on this
+                // document was computed under — the canvas has no route to the
+                // application's settings and must not grow one.
+                let epsilon = doc.settings.parallel_epsilon_degrees;
                 st.two_lines.offer_line(line, epsilon);
-                if let Some(Ok(authoring)) =
-                    st.two_lines.authoring(epsilon, TwoLinePlacement::default())
-                {
-                    actions.push(Action::Dimension(DimensionAction::Commit {
-                        page: page_index,
-                        group: st.group,
-                        kind: authoring.kind,
-                    }));
-                    st.two_lines.clear();
+                match st.two_lines.authoring(epsilon, TwoLinePlacement::default()) {
+                    Some(Ok(authoring)) => {
+                        // ★ The disclosure travels WITH the action.
+                        //
+                        // Not recorded here through `record_note`: the apply
+                        // phase runs after this frame and writes its own
+                        // disclosure list to the same slot, so a note recorded
+                        // now would be wiped by the commit it is about. The
+                        // funnel's own mechanism is the closure's return value,
+                        // and this is what it is for.
+                        let disclosures = crate::text::measure::two_line_reading(
+                            authoring.forced_parallel,
+                            authoring.measured_angle_degrees,
+                            authoring.apex_is_real() == Some(false),
+                        )
+                        .into_iter()
+                        .collect();
+                        actions.push(Action::Dimension(DimensionAction::Commit {
+                            page: page_index,
+                            group: st.group,
+                            kind: authoring.kind,
+                            disclosures,
+                        }));
+                        st.two_lines.clear();
+                    }
+                    // ★ **The refusal, surfaced by name.** It was swallowed —
+                    // `if let Some(Ok(..))` — so a collinear pair produced a
+                    // second click that did nothing, silently, and an operator
+                    // with no reason to suspect the geometry clicked again.
+                    //
+                    // `record_note` is right here where it was wrong above:
+                    // NOTHING is being committed, so no apply phase will
+                    // overwrite the slot, and the sentence has nowhere else to
+                    // go. That is the same case `canvas::interact` records for
+                    // a caret that cannot be placed, and it is stamped with the
+                    // CURRENT epoch so it survives until the next real edit
+                    // moves past it.
+                    //
+                    // The pair is cleared, because both picks are now known not
+                    // to work together and leaving them would make the next
+                    // click the third of a pair the operator thought was its
+                    // first.
+                    Some(Err(refusal)) => {
+                        crate::app::actions::record_note(
+                            doc.edit_epoch,
+                            crate::text::measure::two_line_refused(refusal).to_owned(),
+                        );
+                        crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed
+                            format!("two-line-refused reason={refusal:?}")
+                        });
+                        st.two_lines.clear();
+                    }
+                    // One line picked, waiting for the second. Nothing to say.
+                    None => {}
                 }
             }
         }

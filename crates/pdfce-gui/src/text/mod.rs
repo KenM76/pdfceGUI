@@ -108,6 +108,14 @@ pub mod forms;
 /// what they are, and the only place an operator learns the setting applies to
 /// the **next** mark rather than to one already drawn.
 pub mod markup;
+/// What the measure tools say about what they INFERRED — the two-line
+/// gesture's refusals, the angle an override overrode, and an apex that is
+/// only real if the lines are extended.
+///
+/// Its own header carries the reason it exists: `pdfce-core` gives that
+/// gesture three facts a shell is expected to surface, and this build
+/// surfaced none of them until 2026-08-19.
+pub mod measure;
 /// The copy the **context-menu** surface owns, as distinct from the copy
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
