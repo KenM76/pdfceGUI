@@ -46,11 +46,17 @@
 //! *"re-deriving the arithmetic in the GUI is how a preview and a result drift
 //! apart."* Nothing here computes a rectangle.
 //!
-//! It does **not** preview the effective resolution, and that is the honest
-//! gap: there is no pure sibling for it, and computing `pixels / (points / 72)`
-//! locally would be the second derivation that same doc warns about — of a
-//! number the operator is then told again, differently, a moment later. Filed
-//! as a request. See [`crate::text::images`]'s header.
+//! It previews **the resolution** too, as of 2026-08-19 — filed that morning
+//! and shipped the same day. `NewImage::effective_dpi()` and
+//! `below_screen_resolution()` are pure, and the half that mattered is that
+//! `add_image` now **calls** them rather than repeating the formula, so the
+//! preview and the outcome cannot disagree.
+//!
+//! ★ The four-line version this window nearly computed would have been wrong.
+//! Under `ImageFit::Contain` the placed rectangle is the *letterboxed*
+//! sub-rectangle, not the box the operator typed, so measuring `rect` reports a
+//! resolution low by exactly the letterbox ratio. The pure sibling was not
+//! saving four lines; it was saving the letterbox.
 //!
 //! ## Why the import happens BEFORE the window opens
 //!
@@ -340,6 +346,25 @@ impl InsertImageDialog {
                 (placed.urx - placed.llx) / PTS_PER_MM,
                 (placed.ury - placed.lly) / PTS_PER_MM,
             ));
+        }
+        // ★ The resolution, previewed — the number that decides whether the
+        // sheet plots, shown beside the spinners that set it rather than after
+        // the commit that fixes it.
+        //
+        // From `effective_dpi()` and `below_screen_resolution()`, which are the
+        // SAME calls `add_image` makes to build its own disclosure. Nothing
+        // here computes a resolution: the naive four-liner would have measured
+        // `rect` rather than the placed rectangle and reported a figure low by
+        // exactly the letterbox ratio under `Contain`.
+        //
+        // Not `weak` when it is soft. This is the one line in the window that
+        // changes what an operator should do, and a quiet grey sentence is the
+        // one they skip.
+        let dpi = t::dpi_preview(spec.effective_dpi(), spec.below_screen_resolution());
+        if spec.below_screen_resolution() {
+            ui.label(dpi);
+        } else {
+            ui.weak(dpi);
         }
         ui.add_space(8.0);
 

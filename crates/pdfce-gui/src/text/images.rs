@@ -25,23 +25,31 @@
 //! That last clause is why the sentence exists: both mistakes look perfect
 //! until the sheet is plotted.
 //!
-//! ## ★ What this window does NOT preview, and why
+//! ## ★ It IS previewed now, and the request that got it is worth the paragraph
 //!
-//! The effective resolution, **before** the placement is committed.
+//! This section used to say the resolution could not be shown before the
+//! commit, because `NewImage` offered `placed_rect()` as a pure preview and
+//! nothing for the resolution — and computing `pixels / (points / 72)` locally
+//! would have been the second derivation `placed_rect()`'s own doc warns
+//! about: *"re-deriving the arithmetic in the GUI is how a preview and a result
+//! drift apart."*
 //!
-//! `NewImage::placed_rect()` is offered as a pure function precisely so a front
-//! end can preview the rectangle without re-deriving the arithmetic — its own
-//! doc says *"re-deriving the arithmetic in the GUI is how a preview and a
-//! result drift apart"* — and there is no pure sibling for the resolution.
-//! Computing `pixels / (points / 72)` here would be exactly the second
-//! derivation that doc warns about, of a number the operator is then told
-//! again, differently, after the commit.
+//! Filed 2026-08-19, shipped the same day: `NewImage::effective_dpi()` and
+//! `below_screen_resolution()`, pure, and — the part that was actually asked
+//! for — **`add_image` now calls them instead of repeating them**, so the
+//! preview and the outcome cannot disagree. The engine deleted its own copy of
+//! the formula and pinned the equality with a test.
 //!
-//! So the window previews the **placed size**, from the engine's own function,
-//! and the resolution arrives with the result. Filed as a request for a pure
-//! `effective_dpi()` sibling; until it lands, one press of undo is the cost of
-//! a placement that turns out too soft, and a wrong number stated confidently
-//! beforehand would be worse than a right one stated after.
+//! ★ **And the four-line version this shell nearly wrote would have been
+//! wrong.** Under `ImageFit::Contain` the placed rectangle is the *letterboxed*
+//! sub-rectangle, not the box the operator typed — so measuring `rect` reports
+//! a resolution low by exactly the letterbox ratio. The pure sibling is not
+//! saving four lines; it is saving the letterbox.
+//!
+//! A **zero-area** placement reports `(0.0, 0.0)` and `below_screen_resolution`
+//! is `true`. Zero is not a resolution, but it is a number a label can render,
+//! and the engine chose it over `inf` and over `NaN` — the last of which would
+//! have made its own preview/outcome equality test pass vacuously.
 
 use pdfce_core::edit::ImageFit;
 use pdfce_core::image_import::{ImageFormat, RecompressReason};
@@ -224,6 +232,33 @@ pub const fn fit_hint(fit: ImageFit) -> &'static str {
              shape differs. Right when the box came from a measurement."
         }
         _ => "",
+    }
+}
+
+/// ★ **What resolution this placement will be**, before it is committed.
+///
+/// The number `pdfce-core` insists is *"not a warning — a number"*, shown
+/// beside the spinners that decide it rather than after the commit that fixes
+/// it. Both mistakes it can report look perfect on screen at editing zoom: a
+/// 4000-pixel photo in a 2-inch box wastes megabytes, and a 100-pixel logo
+/// across a page plots soft.
+///
+/// Taken from `NewImage::effective_dpi()` and `below_screen_resolution()` —
+/// **the same calls `add_image` makes to build its own disclosure**, since
+/// 2026-08-19. Nothing here computes a resolution, and after the commit the
+/// operator is told the same figure by the same producer.
+#[must_use]
+pub fn dpi_preview(effective_dpi: (f64, f64), below_screen_resolution: bool) -> String {
+    let (dx, dy) = effective_dpi;
+    let dpi = if (dx - dy).abs() < 0.5 {
+        format!("{dx:.0} dpi")
+    } else {
+        format!("{dx:.0} × {dy:.0} dpi")
+    };
+    if below_screen_resolution {
+        format!("At this size the picture is {dpi} — it will look soft in print.")
+    } else {
+        format!("At this size the picture is {dpi}.")
     }
 }
 
@@ -544,6 +579,34 @@ mod tests {
         // a variant not listed, and there is no way to name one. Compared
         // against the arm's own text instead.
         "PDF could not carry the file's own bytes unchanged"
+    }
+
+    /// ★ The preview and the after-the-fact disclosure say the same number the
+    /// same way.
+    ///
+    /// They are two functions, and the engine went to the trouble of making the
+    /// two *sources* one — deleting its own copy of the formula so
+    /// `add_image` calls the pure sibling. This asserts the shell did not undo
+    /// that on the wording side: an operator who reads "150 dpi" in the window
+    /// and "150 dpi" in the status bar has been told one thing twice, which is
+    /// what makes the preview trustworthy.
+    ///
+    /// The soft case is asserted in both, because that is the one where a
+    /// difference in phrasing would read as a difference in verdict.
+    #[test]
+    fn the_preview_and_the_outcome_state_the_resolution_alike() {
+        let preview = dpi_preview((150.0, 150.0), false);
+        let outcome = placement_disclosures((150.0, 150.0), false, false, false, None, 0, 0);
+        assert!(preview.contains("150 dpi"), "{preview}");
+        assert!(outcome[0].contains("150 dpi"), "{outcome:?}");
+
+        let soft_preview = dpi_preview((30.0, 30.0), true);
+        let soft_outcome = placement_disclosures((30.0, 30.0), true, false, false, None, 0, 0);
+        assert!(soft_preview.contains("soft in print"), "{soft_preview}");
+        assert!(
+            soft_outcome[0].contains("soft in print"),
+            "{soft_outcome:?}"
+        );
     }
 
     /// An unresolved resolution is stated as an assumption, not as a fact
