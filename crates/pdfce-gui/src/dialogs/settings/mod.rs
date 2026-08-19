@@ -384,6 +384,11 @@ pub fn show(
                         display::render_quality(ui, &mut draft.working_prefs);
                         ui.add_space(10.0);
                         display::zoom_settle(ui, &mut draft.working_prefs);
+                        // ★ Third, after the two an operator adjusts while
+                        // looking at a page and before the two that apply to
+                        // the NEXT document. See `display::page_cache`.
+                        ui.add_space(10.0);
+                        display::page_cache(ui, &mut draft.working_prefs);
                         // ★ The two "when a document opens" settings come after
                         // the two "how a frame is drawn" ones, and the order is
                         // the group's argument rather than the order they were

@@ -485,7 +485,19 @@ impl PdfceApp {
             return;
         }
         let visible = std::mem::take(&mut doc.strip_visible);
-        doc.strip_rasters.retain(&visible, current);
+        // ★★ `retain` no longer takes the visible set, and that is the whole of
+        // the operator's *"they constantly redraw with larger files"*.
+        //
+        // It used to drop every entry not on screen, so a sheet scrolled past
+        // was rendered again from the content stream the moment it came back —
+        // 691 ms on a dense A1 (`BENCHMARK.md`). What bounds the cache now is
+        // the operator's own budget and the distance rule inside `retain`.
+        //
+        // `visible` is still taken above, because the strip's *request* logic
+        // below needs it: what to render next is still "the nearest visible page
+        // that has no raster". Only the *keeping* rule changed.
+        doc.strip_rasters
+            .retain(current, doc.prefs.page_cache.texels());
 
         // A zoom gesture in flight: the whole strip waits with the current
         // page, for the same reason the current page waits. Requesting pages

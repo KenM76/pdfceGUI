@@ -163,6 +163,15 @@ pub mod ocr;
 /// breaks — that the shell's page vector, its rasters and its two selections
 /// stop describing a document that no longer exists. Its header carries the
 /// argument and the three falsifying phases.
+/// ★★ A page pdfce has already drawn is not drawn again — the operator's
+/// *"they constantly redraw with larger files"*, measured by scrolling a real
+/// drawing set away and back.
+///
+/// Its header carries why the oracle is the REQUEST STREAM and not the cache's
+/// size: a build that held a gigabyte and still re-requested would pass a size
+/// assertion and fail the operator, and a screenshot cannot help at all,
+/// because a re-rendered page and a remembered one are the same picture.
+pub mod page_cache;
 pub mod page_ops;
 
 /// ★ `file.print` — the dialog that told every operator this build could not
@@ -452,6 +461,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // reason: it launches the binary **twice**, because a page count read
         // in the process that deleted the page is a count the code under test
         // wrote about itself.
+        Box::new(page_cache::PagesStayDrawnWhenYouScrollBack),
         Box::new(page_ops::PageOpsRoundTrip),
         // ★ The FIRST check anywhere that drives the Pages PANEL rather than
         // the Pages tab. `page_ops` above drives the ribbon and records why it

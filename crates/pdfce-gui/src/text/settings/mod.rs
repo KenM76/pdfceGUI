@@ -316,14 +316,15 @@ mod tests {
     /// meaningful without the other: a catalog can describe a setting nobody
     /// draws, and a dialog can draw one nobody described.
     ///
-    /// 14 answers to a silent standard, plus 5 preferences of the shell's own.
+    /// 14 answers to a silent standard, plus **6** preferences of the shell's
+    /// own.
     ///
     /// ★ Was 13 + 5 until 2026-08-19, when `quad_point_order` acquired a
     /// control. That setting had been honoured by the engine and offered
     /// nowhere, which is the gap
     /// `crate::dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window`
     /// now refuses to compile past.
-    const SETTINGS_COUNT: usize = 19;
+    const SETTINGS_COUNT: usize = 20;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -398,6 +399,16 @@ mod tests {
             // of which file its value happens to be stored in.
             (quality_title(), quality_silence(), quality_radius()),
             (settle_title(), settle_silence(), settle_radius()),
+            // ★ How much memory pdfce may spend so a page it has already drawn
+            // does not have to be drawn again — 2026-08-19. Its radius line is
+            // the one in this window that names a way to make the program
+            // FAIL rather than merely behave differently, which is why it says
+            // so out loud.
+            (
+                page_cache_title(),
+                page_cache_silence(),
+                page_cache_radius(),
+            ),
             (
                 opening_fit_title(),
                 opening_fit_silence(),

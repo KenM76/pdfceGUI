@@ -810,3 +810,84 @@ pub const fn chrome_guides_bound() -> &'static str {
     "Whichever you choose, a document you have already placed guides on opens \
      with them showing. Work you did outranks a default."
 }
+
+// ===========================================================================
+// Drawing the page — how much is remembered
+// ===========================================================================
+
+/// Page cache: what it is.
+#[must_use]
+pub const fn page_cache_title() -> &'static str {
+    "How many pages pdfce keeps in memory"
+}
+
+/// Page cache: what is open.
+///
+/// Nothing about the standard, and it says so — the same honesty
+/// [`quality_silence`] applies. What it says instead is the **symptom**, because
+/// that is how an operator finds this control: they came here because scrolling
+/// back to a sheet made them wait.
+#[must_use]
+pub const fn page_cache_silence() -> &'static str {
+    "Not a question about the PDF standard — a trade between memory and waiting. \
+     Drawing a dense engineering sheet takes about two thirds of a second, so a \
+     page pdfce still remembers appears instantly and one it has forgotten does \
+     not."
+}
+
+/// Page cache: what changing it costs.
+///
+/// ★ Names the direction that can actually hurt. Too small is slow, which is
+/// recoverable and obvious; too large is an allocation failure, which is not.
+#[must_use]
+pub const fn page_cache_radius() -> &'static str {
+    "Affects memory and waiting, never the file. Setting it higher than this \
+     machine can spare will make pdfce fail to draw rather than run slowly."
+}
+
+/// One cache size's name — the step, and what it actually costs.
+///
+/// ★★ The megabyte figure is **computed from the budget**, never written beside
+/// it. Two spellings of one quantity drift, and the drift here would be a
+/// settings window promising 512 MB while the cache spent 2 GB —
+/// `NO_SURFACE.md` §1's ★★ finding with a number instead of a colour.
+///
+/// "Large" is not something anybody can budget against. An operator with 8 GB
+/// and one with 64 GB are making different decisions and neither can make theirs
+/// from an adjective.
+#[must_use]
+pub fn page_cache_label(cache: crate::app::prefs::PageCache) -> String {
+    use crate::app::prefs::PageCache as C;
+    let mb = cache.megabytes();
+    match cache {
+        C::Small => format!("Small — about {mb} MB"),
+        C::Medium => format!("Medium — about {mb} MB"),
+        C::Large => format!("Large — about {mb} MB (pdfce's default)"),
+        C::Maximum => format!("Maximum — about {mb} MB"),
+    }
+}
+
+/// One cache size's description.
+///
+/// Each says **how much work it saves**, in sheets rather than in bytes, because
+/// a drawing set is what this operator has and "25 sheets" is a thing he can
+/// picture where "1 GB" is not.
+#[must_use]
+pub const fn page_cache_note(cache: crate::app::prefs::PageCache) -> &'static str {
+    use crate::app::prefs::PageCache as C;
+    match cache {
+        C::Small => {
+            "What pdfce used before this release. Enough for a few large sheets; \
+             scrolling across a drawing set will redraw them."
+        }
+        C::Medium => "A report, or a dozen large sheets at a time.",
+        C::Large => {
+            "About twenty-five large sheets at screen size. Enough that moving \
+             back and forth through a drawing set does not redraw anything."
+        }
+        C::Maximum => {
+            "A whole drawing set kept ready at once. Choose it if this machine \
+             has memory to spare and you work across many sheets."
+        }
+    }
+}

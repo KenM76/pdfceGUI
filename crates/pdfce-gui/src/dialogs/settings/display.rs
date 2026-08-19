@@ -48,7 +48,9 @@
 use egui::Ui;
 
 use super::widgets;
-use crate::app::prefs::{MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, Prefs, RenderQuality};
+use crate::app::prefs::{
+    MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, PageCache, Prefs, RenderQuality,
+};
 use crate::text::settings as t;
 
 /// How sharply a page is rasterised.
@@ -78,6 +80,48 @@ pub fn render_quality(ui: &mut Ui, prefs: &mut Prefs) {
             *option,
             t::quality_label(*option),
             Some(t::quality_note(*option)),
+        );
+    }
+}
+
+/// ★★ How much memory the page cache may hold.
+///
+/// # Why this is in *Drawing the page* and not in a group of its own
+///
+/// This window files by the **symptom that brings an operator looking**
+/// (`super`'s header), and the symptom here is *"scrolling back to a sheet
+/// makes me wait"* — which is a fact about how a frame is drawn, exactly like
+/// the two controls above it. A "Memory" group would file it by what it spends
+/// rather than by what it does, and nobody arrives with the symptom *"pdfce is
+/// using the wrong amount of RAM"*.
+///
+/// # ★ Third rather than first in the group, and it is the newest
+///
+/// Quality and settle are read on every frame by an operator who is *looking at
+/// the page*; this one is read when they are annoyed by a wait they have
+/// already had. That is the same ordering argument the group makes about the
+/// two opening-view controls below: settings that affect what you are looking
+/// at now, then settings that affect what happens next.
+pub fn page_cache(ui: &mut Ui, prefs: &mut Prefs) {
+    widgets::header(
+        ui,
+        t::page_cache_title(),
+        t::page_cache_silence(),
+        t::page_cache_radius(),
+    );
+    for option in PageCache::ALL {
+        widgets::option(
+            ui,
+            &mut prefs.page_cache,
+            *option,
+            // ★ Owned, unlike every other label in this window, because the
+            // megabyte figure is COMPUTED from the budget rather than written
+            // beside it. `widgets::option` takes `&str`, and a `String` that
+            // lives to the end of the call is the smallest thing that works —
+            // the alternative is four `const` labels carrying four hand-copied
+            // numbers, which is the drift this derivation exists to prevent.
+            &t::page_cache_label(*option),
+            Some(t::page_cache_note(*option)),
         );
     }
 }

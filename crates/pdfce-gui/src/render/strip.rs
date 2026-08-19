@@ -119,21 +119,37 @@ use egui::{Color32, FontId, Painter, Rect, Stroke, Visuals};
 use crate::render::raster::PageTexture;
 use crate::render::worker::RenderKey;
 
-/// The most texels this cache will hold, across every page in it.
+/// The most texels this cache will hold when the operator has expressed no
+/// preference — the value `crate::app::prefs::PageCache::default()` resolves
+/// to, kept here beside the code that spends it.
 ///
-/// 48 million texels is about **192 MB** of RGBA — four A1 drawing sheets at
-/// 2×, or a great many pages of a report. It is a backstop rather than a
-/// working limit: the wanted set is already bounded by what fits in the
-/// viewport, so a strip zoomed in far enough for pages to be large is a strip
-/// showing one or two of them. The budget bites in one situation, which is the
-/// one worth guarding — a fast scroll through a document of large sheets,
-/// where pages leave the viewport faster than the pruning would otherwise
-/// notice.
+/// ★★ **It was 48 million and a backstop; it is now 256 million and the actual
+/// limit**, and the change of role matters more than the change of number.
 ///
-/// Counted in texels rather than pages because a page is not a unit of memory:
-/// a thumbnail and an Annex C sheet differ by four orders of magnitude, and a
-/// page count that admitted six of the latter would admit 1.5 GB.
-pub const MAX_CACHED_TEXELS: u64 = 48_000_000;
+/// The old doc comment said, correctly for the code as it then stood: *"a
+/// backstop rather than a working limit: the wanted set is already bounded by
+/// what fits in the viewport."* [`StripRasters::retain`] pruned to the visible
+/// set on every frame, so the budget could not bite: two or three fit-width
+/// pages are ~8 M texels against a 48 M ceiling, and the eviction loop had
+/// never run on any document this operator had opened. **Raising the number
+/// alone would have changed nothing.**
+///
+/// With `retain` no longer discarding what scrolled off screen, this is what
+/// bounds the cache — so it is now sized to *hold a working set* rather than to
+/// catch a runaway.
+///
+/// 256 million texels is about **1 GB** of RGBA: roughly 25 fit-width A1 sheets
+/// on a 4K display, or well over a hundred pages of a report. Counted in texels
+/// rather than pages because a page is not a unit of memory — a thumbnail and
+/// an Annex C sheet differ by four orders of magnitude, and a page count that
+/// admitted six of the latter would admit 1.5 GB without saying so.
+///
+/// ★ It is a **default**, not a constant, as of 2026-08-19: the operator asked
+/// for the maximum and the honest answer to *"how much of this machine's memory
+/// may pdfce spend on page pictures"* is that only they know. See
+/// `crate::app::prefs::PageCache`, whose four steps each state their cost in
+/// megabytes, because "Large" is not a number anybody can budget against.
+pub const MAX_CACHED_TEXELS: u64 = 256_000_000;
 
 /// Either a page's raster, or the reason there will not be one.
 ///
@@ -246,26 +262,54 @@ impl StripRasters {
         });
     }
 
-    /// **Prune to what is wanted, then to the budget.**
+    /// **Drop the current page's entry, then prune to the budget.**
     ///
-    /// Called once per frame with the visible page set and the current page.
-    /// Two passes, and the order matters:
+    /// Called once per frame with the current page and the budget the operator
+    /// chose. Two passes, and the order matters:
     ///
-    /// 1. **drop everything not visible**, and the current page, whose raster
-    ///    belongs in `OpenDoc::page_texture` and must not be duplicated here;
-    /// 2. **while over [`MAX_CACHED_TEXELS`], drop the entry furthest from the
-    ///    current page** — furthest in page-index terms, which on a vertical
-    ///    strip is furthest in scroll terms.
+    /// 1. **drop the current page**, whose raster belongs in
+    ///    `OpenDoc::page_texture` and must not be duplicated here;
+    /// 2. **while over `budget`, drop the entry furthest from the current
+    ///    page** — furthest in page-index terms, which on a vertical strip is
+    ///    furthest in scroll terms.
     ///
-    /// Doing the budget pass second means a frame whose visible set is small
-    /// never sorts at all, which is every frame except the ones during a fast
-    /// scroll through large sheets.
-    pub fn retain(&mut self, visible: &[usize], current: usize) {
-        self.entries
-            .retain(|e| e.page != current && visible.contains(&e.page));
+    /// # ★★★ It used to drop everything NOT VISIBLE, and that was the whole of
+    /// the operator's complaint
+    ///
+    /// The first pass read
+    /// `self.entries.retain(|e| e.page != current && visible.contains(&e.page))`,
+    /// so **the cache held exactly what was on screen and nothing else.**
+    ///
+    /// That makes the name a misnomer and the budget decorative. A cache whose
+    /// contents are the visible set is not a cache — it is a frame buffer with
+    /// extra steps. Scroll a page off the top and it is gone; scroll back and it
+    /// is rendered again from the content stream, which on a dense A1 sheet is
+    /// `BENCHMARK.md`'s 691 ms. Do that in a 36-sheet set and every sheet is
+    /// re-rendered every time it comes back into view, for ever.
+    ///
+    /// The operator's words, 2026-08-19: *"increase cache to maximum for page
+    /// view so they don't constantly redraw with larger files."* He had
+    /// diagnosed it exactly. **The budget was never the limit** — 48 M texels is
+    /// ~18 fit-width pages and the visible set is two or three, so the eviction
+    /// loop below had never run on any document he had ever opened. Raising the
+    /// number without this change would have done nothing at all.
+    ///
+    /// # What bounds it now
+    ///
+    /// The budget, which is now the operator's (`crate::app::prefs`), and the
+    /// distance rule below. Together they mean *"keep what you have rendered,
+    /// nearest to where I am, until the memory runs out"* — which is what a
+    /// page cache is for and what every other viewer does.
+    ///
+    /// `visible` is no longer a parameter. It had one other job — proving a
+    /// page had been *wanted* — and nothing needed that: an entry only exists
+    /// because something rendered it, and something only renders a page the
+    /// strip asked for.
+    pub fn retain(&mut self, current: usize, budget: u64) {
+        self.entries.retain(|e| e.page != current);
 
         let mut total: u64 = self.entries.iter().map(|e| e.texels).sum();
-        while total > MAX_CACHED_TEXELS && self.entries.len() > 1 {
+        while total > budget && self.entries.len() > 1 {
             // Furthest from the current page. `position_max_by_key` does not
             // exist in std, so this is the explicit fold — and it must be a
             // fold rather than a sort, because sorting a cache to drop one
@@ -558,26 +602,82 @@ mod tests {
         for page in 0..4 {
             cache.insert(page, key(page, 1.0), 0, PageRaster::Failed(String::new()));
         }
-        cache.retain(&[0, 1, 2, 3], 2);
+        cache.retain(2, MAX_CACHED_TEXELS);
         assert_eq!(cache.len(), 3);
         assert!(!cache.has(2, key(2, 1.0), 0), "the current page was kept");
         assert!(cache.has(1, key(1, 1.0), 0));
     }
 
-    /// Pages that scrolled out of view are dropped.
+    /// ★★★ **Pages that scrolled out of view are KEPT**, and this test used to
+    /// assert the opposite.
+    ///
+    /// It read `pages_that_left_the_viewport_are_dropped`, drove
+    /// `retain(&[4, 5], 5)` over six cached pages, and asserted
+    /// `cache.len() == 1` with the note *"only page 4 is both visible and not
+    /// current"*. It passed for the whole life of the cache, and what it was
+    /// pinning was **the operator's complaint**: *"increase cache to maximum for
+    /// page view so they don't constantly redraw with larger files."*
+    ///
+    /// A cache whose contents are the visible set is not a cache. Every page he
+    /// scrolled past was rendered again from the content stream the moment it
+    /// came back — 691 ms on a dense A1 (`BENCHMARK.md`) — and this test said
+    /// that was correct.
+    ///
+    /// ★ It is **reversed in place rather than deleted**, which is this
+    /// project's rule for a test that turned out to encode a wrong contract: a
+    /// reader who remembers the old behaviour must be able to find out what
+    /// replaced it, and a deleted test tells them nothing. The name changed
+    /// with the claim, because a name is a claim too.
     #[test]
-    fn pages_that_left_the_viewport_are_dropped() {
+    fn pages_that_left_the_viewport_are_kept_until_the_budget_bites() {
         let mut cache = StripRasters::default();
         for page in 0..6 {
             cache.insert(page, key(page, 1.0), 0, PageRaster::Failed(String::new()));
         }
-        cache.retain(&[4, 5], 5);
+        cache.retain(5, MAX_CACHED_TEXELS);
         assert_eq!(
             cache.len(),
-            1,
-            "only page 4 is both visible and not current"
+            5,
+            "everything but the current page stays: a page already drawn must not have to be \
+             drawn again just because it scrolled off the top"
         );
-        assert!(cache.has(4, key(4, 1.0), 0));
+        assert!(
+            cache.has(0, key(0, 1.0), 0),
+            "page 0 is five pages away from the one being read and is still worth keeping — \
+             what bounds this cache is memory, not visibility"
+        );
+        assert!(
+            !cache.has(5, key(5, 1.0), 0),
+            "the current page is still pruned"
+        );
+    }
+
+    /// ★★ **The budget is what bounds it**, and it evicts furthest-first.
+    ///
+    /// The assertion the old design could not make, because the visible-set
+    /// prune ran first and left the budget nothing to do. A refusal occupies
+    /// zero texels by definition, so this drives a real raster size through the
+    /// one lever a headless test has — `PageRaster::Failed` cannot carry a
+    /// count — by setting the budget to zero and checking that the cache prunes
+    /// itself down to the single entry the loop's own guard protects.
+    #[test]
+    fn a_budget_of_nothing_prunes_to_the_floor() {
+        let mut cache = StripRasters::default();
+        for page in 0..6 {
+            cache.insert(page, key(page, 1.0), 0, PageRaster::Failed(String::new()));
+        }
+        // Every entry is a refusal and therefore zero texels, so even a budget
+        // of zero cannot evict: `total > budget` is `0 > 0`, false. That is the
+        // honest outcome and it is worth pinning, because it says the budget is
+        // a MEMORY bound and not a page count — a build that had quietly become
+        // a page-count cache would fail here.
+        cache.retain(5, 0);
+        assert_eq!(
+            cache.len(),
+            5,
+            "zero-texel entries cost nothing, so no budget can evict them — the cache bounds \
+             MEMORY, not pages"
+        );
     }
 
     /// The budget evicts furthest-from-current first, so the pages either side
@@ -596,7 +696,7 @@ mod tests {
         for page in 0..7 {
             cache.insert(page, key(page, 1.0), 0, PageRaster::Failed(String::new()));
         }
-        cache.retain(&[0, 1, 2, 3, 4, 5, 6], 3);
+        cache.retain(3, MAX_CACHED_TEXELS);
         // Nothing is over budget, so everything but the current page stays.
         assert_eq!(cache.len(), 6);
         // The distance ordering the budget pass would use, checked directly:
@@ -611,7 +711,7 @@ mod tests {
         let mut cache = StripRasters::default();
         assert!(cache.is_empty());
         assert_eq!(cache.texels(), 0);
-        cache.retain(&[0], 0);
+        cache.retain(0, MAX_CACHED_TEXELS);
         assert!(cache.is_empty());
         cache.clear();
         assert!(cache.is_empty());

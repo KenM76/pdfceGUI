@@ -89,6 +89,14 @@
 
 /// How big the **program's own controls** are drawn — the one accessibility
 /// preference, and the only one here that changes nothing about the document.
+/// ★★ How much memory pdfce may spend so a page it has already drawn does not
+/// have to be drawn again.
+///
+/// Its header carries the defect it exists for and the part of that defect a
+/// reader would otherwise carry out wrongly: the cache pruned itself to the
+/// VISIBLE SET on every frame, so the budget had never bitten, and raising the
+/// number alone would have changed nothing at all.
+pub mod cache;
 pub mod chrome;
 /// What an operator is shown when a page **first appears** — read once per
 /// document open, never on the hot path.
@@ -99,6 +107,7 @@ pub mod quality;
 
 use std::path::PathBuf;
 
+pub use cache::PageCache;
 pub use chrome::{DEFAULT_UI_SCALE, MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
 pub use opening::{OpeningFit, PageChrome};
 pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
@@ -122,6 +131,15 @@ pub const PREFS_FILE: &str = "preferences.txt";
 pub struct Prefs {
     /// How sharply a page is rasterised.
     pub render_quality: RenderQuality,
+    /// ★★ **How much memory the page cache may hold**, so a page already drawn
+    /// is not drawn again.
+    ///
+    /// Read every frame by `crate::render::settle::fill_strip`, which hands it
+    /// to `StripRasters::retain` — the one place it is spent. Read live rather
+    /// than at open, unlike [`Self::opening_fit`]: shrinking it must take effect
+    /// at once, because an operator reaching for a smaller value is an operator
+    /// whose machine is already struggling.
+    pub page_cache: PageCache,
     /// How long a zoom must stop changing before it is committed to a real
     /// rasterisation, in milliseconds.
     ///
@@ -181,6 +199,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Self {
             render_quality: RenderQuality::default(),
+            page_cache: PageCache::default(),
             zoom_settle_ms: DEFAULT_SETTLE_MS,
             opening_fit: OpeningFit::default(),
             chrome: PageChrome::default(),
@@ -307,6 +326,15 @@ impl Prefs {
                 continue;
             }
             match key {
+                // ui-text-exempt: a file KEY, parsed out of preferences.txt.
+                "page_cache" => match PageCache::from_key(value) {
+                    Some(c) => prefs.page_cache = c,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "render_quality" => match RenderQuality::from_key(value) {
                     Some(q) => prefs.render_quality = q,
                     None => notes.push(PrefNote::BadValue {
@@ -435,6 +463,20 @@ impl Prefs {
         // "How sharply pages are drawn" in the Settings window.
         out.push_str("render_quality = ");
         out.push_str(self.render_quality.key());
+        out.push('\n');
+        out.push_str(
+            "\n\
+             # How much memory pdfce may use to remember pages it has already\n\
+             # drawn, so that scrolling back to one does not draw it again:\n\
+             #   small   = about 190 MB. What pdfce used before 2026-08-19.\n\
+             #   medium  = about 490 MB.\n\
+             #   large   = about 980 MB. The shipped answer.\n\
+             #   maximum = about 1950 MB. A whole drawing set kept resident.\n\
+             # Pages furthest from the one you are looking at are dropped first.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("page_cache = ");
+        out.push_str(self.page_cache.key());
         out.push('\n');
         out.push_str(
             "\n\
@@ -602,6 +644,7 @@ mod tests {
             for fit in OpeningFit::ALL {
                 let original = Prefs {
                     render_quality: *quality,
+                    page_cache: PageCache::default(),
                     zoom_settle_ms: 275,
                     opening_fit: *fit,
                     // Deliberately not all-true and not all-false: an assignment
@@ -935,6 +978,12 @@ mod tests {
         // what a failed parse would have left behind.
         let prefs = Prefs {
             render_quality: RenderQuality::Sharper,
+            // ★ Not the default, deliberately, and this test's own comment says
+            // why: "a non-default in every field, so no emitted value can
+            // coincide with what a failed parse would have left behind". A
+            // `PageCache::Large` here would pass on a build whose writer emitted
+            // no `page_cache` key at all.
+            page_cache: PageCache::Maximum,
             zoom_settle_ms: 400,
             opening_fit: OpeningFit::ActualSize,
             chrome: PageChrome {
