@@ -211,7 +211,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 97);
+        assert_eq!(registry().len(), 98);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -258,7 +258,7 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 87, "commands naming an icon");
+        assert_eq!(named, 88, "commands naming an icon");
         assert_eq!(
             refused, 10,
             "commands with no icon, each argued at its registration"
@@ -450,6 +450,13 @@ mod tests {
             "tools.merge_files",
             "tools.split_files",
             "view.fullscreen",
+            // ★ The Tool panel is live with NOTHING OPEN, and it is the only
+            // panel toggle that is. Its body still names the tools this mode
+            // has and where they live on the ribbon, which is exactly what an
+            // operator who has just launched pdfce is looking for. Gating it on
+            // `doc.open` would hide the surface at the one moment it answers
+            // the question it was built for.
+            "view.panel_tool",
             "view.read_mode",
             "view.reset_layout",
             "view.sidebar",

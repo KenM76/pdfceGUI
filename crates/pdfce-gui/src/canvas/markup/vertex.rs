@@ -224,7 +224,18 @@ impl VertexRun {
 /// tool nobody armed. `measure::read`'s own docs make the identical argument, and
 /// `measure`'s `asking_whether_finish_is_available_creates_no_measure_state` is
 /// the test that caught the shape of it there.
-fn read(ctx: &egui::Context) -> Option<VertexRun> {
+///
+/// ★ `pub` as of 2026-08-19, for `crate::panels::tool`'s stage row — *"3 corners
+/// placed. Double-click the last one to finish."* That is the one place a live
+/// vertex count may be rendered: a number floated near the pointer would be
+/// pdfce putting a surface over the drawing on its own initiative, which
+/// `MODES_AND_PANELS.md` sets to **never**, and the count is a real need because
+/// a polygon and a revision cloud both refuse at two corners.
+///
+/// The read-only-ness is what makes widening it safe. Every caution above is
+/// about **`load`**, which manufactures a run; this observes one and cannot
+/// create state.
+pub fn read(ctx: &egui::Context) -> Option<VertexRun> {
     ctx.data_mut(|d| d.get_temp::<VertexRun>(egui::Id::new(VERTEX_MEMORY_KEY)))
 }
 

@@ -153,6 +153,7 @@
                     caption: "Panels",
                     items: [
                         Command("view.sidebar"),
+                        Command("view.panel_tool"),
                         Command("view.panel_pages"),
                         Command("view.panel_bookmarks"),
                         Command("view.panel_layers"),

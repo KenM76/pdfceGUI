@@ -360,24 +360,46 @@ fn spec(mode_id: &str) -> ModeSpec {
         // now shares is not a stance Review has lost.
         "review" => ModeSpec {
             left: vec![vec![pages(), Panel::Bookmarks.command_id()]],
-            right: vec![vec![
-                comments(),
-                Panel::Properties.command_id(),
-                Panel::Forms.command_id(),
-                // ★ Dimension groups, and Review gets it for the reason the
-                // mode taxonomy already settled: Review is shown the `measure`
-                // tab, so it may author a ce dimension, and a mode that can
-                // author one must be able to say which group it joins. The
-                // panel's command lives on that tab (`measure.manage_groups`),
-                // so this mode can reopen it after closing it — the trap
-                // `Panel::Forms` had to move off the Edit tab to escape.
+            right: vec![
+                // ★★ The Tool panel gets a STACK OF ITS OWN, at the top, and
+                // it is the only panel in any arrangement that does.
                 //
-                // Last in the stack, like Redact in Edit's: a tabbed stack
-                // draws only its active tab, so a panel at the end is
-                // reachable in one click and invisible until asked for. Group
-                // setup is not what a reviewer opens Review to do.
-                Panel::DimensionGroups.command_id(),
-            ]],
+                // Every recent addition went in as the last tab of an existing
+                // stack, and the reasoning was right for those panels: Redact
+                // is *"reachable in a click and invisible until asked for"*
+                // because a surface whose whole subject is permanent removal
+                // must not be on screen unasked, and Dimension groups followed
+                // because *"group setup is not what a reviewer opens Review to
+                // do."*
+                //
+                // **This panel is the exact inverse.** Its entire purpose is
+                // being OFFERED rather than asked for — it exists because an
+                // operator could not find a command that was on the ribbon all
+                // along. A tab that is invisible until clicked cannot fix a
+                // discoverability defect: it has the same shape as the defect.
+                //
+                // Its own stack, first, so it is on screen at frame one with no
+                // clicks. That is the assertion the whole feature rests on.
+                vec![Panel::Tool.command_id()],
+                vec![
+                    comments(),
+                    Panel::Properties.command_id(),
+                    Panel::Forms.command_id(),
+                    // ★ Dimension groups, and Review gets it for the reason the
+                    // mode taxonomy already settled: Review is shown the `measure`
+                    // tab, so it may author a ce dimension, and a mode that can
+                    // author one must be able to say which group it joins. The
+                    // panel's command lives on that tab (`measure.manage_groups`),
+                    // so this mode can reopen it after closing it — the trap
+                    // `Panel::Forms` had to move off the Edit tab to escape.
+                    //
+                    // Last in the stack, like Redact in Edit's: a tabbed stack
+                    // draws only its active tab, so a panel at the end is
+                    // reachable in one click and invisible until asked for. Group
+                    // setup is not what a reviewer opens Review to do.
+                    Panel::DimensionGroups.command_id(),
+                ],
+            ],
             left_width: NAVIGATOR_WIDTH,
             right_width: INSPECTOR_WIDTH,
         },
@@ -398,6 +420,11 @@ fn spec(mode_id: &str) -> ModeSpec {
                 ],
             ],
             right: vec![
+                // The Tool panel, first and alone, for the reason Review's arm
+                // records at length. Ahead of Objects because Objects is a
+                // navigator an operator consults about the document, and this
+                // is the one surface that tells them what they are holding.
+                vec![Panel::Tool.command_id()],
                 vec![Panel::Objects.command_id()],
                 vec![
                     Panel::Properties.command_id(),
@@ -549,6 +576,7 @@ mod tests {
                 .map(PanelId::as_str)
                 .collect::<Vec<_>>(),
             [
+                Panel::Tool.command_id(),
                 comments(),
                 Panel::Properties.command_id(),
                 Panel::Forms.command_id(),
@@ -672,6 +700,7 @@ mod tests {
                 .map(PanelId::as_str)
                 .collect::<Vec<_>>(),
             [
+                Panel::Tool.command_id(),
                 comments(),
                 Panel::Properties.command_id(),
                 Panel::Forms.command_id(),

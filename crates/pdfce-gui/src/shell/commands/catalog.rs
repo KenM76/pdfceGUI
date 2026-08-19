@@ -617,6 +617,23 @@ pub(super) fn all() -> Vec<Command> {
         // The sidebar is the application's own furniture and toggles with
         // or without a document; the panels inside it need one to describe.
         command("view.sidebar", t::view_sidebar(), 240).with_icon("sidebar"),
+        // ★★ **The Tool panel**, registered 2026-08-19 — the operator's item 4,
+        // *"no side bar area showing what tool is active and its options"*, and
+        // the fix for his item 5 as well.
+        //
+        // Token 247, out of the `view.panel_*` run, because tokens are never
+        // reused and 240-246 are taken. The ORDER on the ribbon is
+        // the manifest's, not the token's: this sits FIRST in View ▸ Panels,
+        // ahead of every navigator, because it is the only panel there that
+        // answers *"what can I do"* rather than *"what is in this file"* — and
+        // because an operator looking for a missing command scans that group
+        // from the top.
+        command("view.panel_tool", t::view_panel_tool(), 247).with_icon("pointer"), // ★ NO `enabled_when`. A panel toggle is about the operator's own
+        // screen, and the Tool panel is the one panel whose body says
+        // something useful with nothing open — Block B still names the
+        // tools this mode has and where they live. Gating it on
+        // `doc.open` would hide the surface at exactly the moment somebody
+        // has launched pdfce and is looking for what it does.
         command("view.panel_bookmarks", t::view_panel_bookmarks(), 241)
             .with_icon("bookmarks")
             .enabled_when("doc.open"),

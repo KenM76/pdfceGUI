@@ -557,3 +557,54 @@ pub fn space_held(ctx: &egui::Context) -> bool {
 pub fn active(ctx: &egui::Context) -> CanvasTool {
     resolve(selected(ctx), space_held(ctx))
 }
+
+/// The `egui::Memory` key the mode's capabilities are parked under.
+///
+/// Salted like every other key in this module, for the reason
+/// [`SELECTED_KEY`]'s own note gives.
+const CAPABILITIES_KEY: &str = "pdfce.canvas.capabilities"; // ui-text-exempt: memory key, never displayed
+
+/// **Park what this mode may do, so a surface that is not handed it can ask.**
+///
+/// # ★ Why this exists at all, when `Capabilities` is already threaded
+///
+/// It is threaded to everything that *gates a gesture* — `retire_forbidden`,
+/// `takes_the_press`, `press_kind` — because those are called from the canvas
+/// pass, which has `PdfceApp` in scope. A **dock panel** does not: `Panel::show`
+/// is handed `(ui, Option<&OpenDoc>, &mut PanelsState, Option<&MenuHost>,
+/// &mut Vec<Action>)` and nothing else, which is the seam that keeps a panel
+/// from reaching into the application.
+///
+/// `crate::panels::tool` has to answer *"what does a press mean in this
+/// mode"* and *"which tools does this mode have"*, and both are this value.
+/// The alternatives were worse in specific ways:
+///
+/// * **widen `Panel::show`** — a sixth parameter every panel takes and one
+///   panel reads;
+/// * **re-derive from the ribbon's active mode inside the panel** — a second
+///   copy of `Capabilities::for_mode`, which would eventually disagree with the
+///   canvas about what a mode may do, and the symptom would be a panel that
+///   lies rather than a panel that crashes.
+///
+/// Parking it beside the armed tool is the smallest thing that works and it
+/// keeps **one** derivation: `PdfceApp::capabilities()` computes it,
+/// `on_mode_capabilities_changed` stores it, everything else reads it.
+pub fn store_capabilities(ctx: &egui::Context, caps: Capabilities) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(CAPABILITIES_KEY), caps));
+}
+
+/// What this mode may do, as last parked by [`store_capabilities`].
+///
+/// ★ Falls back to [`Capabilities::FULL`], and the fallback is the same
+/// decision `Capabilities::for_mode` makes for an unknown mode, for the same
+/// reason recorded there: a build with no validated manifest has no mode
+/// taxonomy, and a shell that silently withheld every capability would be a
+/// broken product rather than a safe one. Here it is also the honest answer for
+/// the first frame, before any mode change has occurred — the application
+/// starts in the manifest's first mode with its capabilities already applied by
+/// `modes::start`, and the panel simply has not been told yet.
+#[must_use]
+pub fn capabilities(ctx: &egui::Context) -> Capabilities {
+    ctx.data(|d| d.get_temp(egui::Id::new(CAPABILITIES_KEY)))
+        .unwrap_or(Capabilities::FULL)
+}

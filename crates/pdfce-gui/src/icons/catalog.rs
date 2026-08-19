@@ -189,6 +189,18 @@ pub enum Icon {
     /// [`Icon::AddText`]'s I-beam-plus or [`Icon::EditText`]'s pencil for
     /// that reason.
     Fonts,
+    /// The Tool panel — an arrow cursor with two option rules beside it.
+    ///
+    /// ★ The one panel glyph that draws **the operator's hand rather than the
+    /// document**. Bookmarks, Layers, Pages and Objects all picture content;
+    /// this panel's subject is what the pointer does, so its icon is the
+    /// pointer.
+    ///
+    /// Deliberately **not** [`Icon::Tools`]'s wrench, which is already spoken
+    /// for by the Tools ribbon tab — and which means *settings* in every other
+    /// application on this machine, a surface pdfce has separately and must not
+    /// be confused with.
+    Pointer,
     /// Markup → Rectangle.
     ShapeRect,
     /// Markup → Ellipse.
@@ -585,6 +597,7 @@ impl Icon {
         Icon::Layers,
         Icon::Signatures,
         Icon::Fonts,
+        Icon::Pointer,
         Icon::ShapeRect,
         Icon::ShapeEllipse,
         Icon::ShapeArrow,
@@ -680,6 +693,7 @@ impl Icon {
             Icon::Tools => assets::TOOL,
             Icon::Keyboard => assets::KEYBOARD,
             Icon::Info => assets::INFO,
+            Icon::Pointer => assets::POINTER,
             Icon::ShapeRect => assets::SHAPE_RECT,
             Icon::ShapeEllipse => assets::SHAPE_ELLIPSE,
             Icon::ShapeArrow => assets::SHAPE_ARROW,
@@ -782,6 +796,8 @@ impl Icon {
             Icon::Tools => "tools",
             Icon::Keyboard => "keyboard",
             Icon::Info => "info",
+            // ui-text-exempt: icon asset key, never displayed
+            Icon::Pointer => "pointer",
             Icon::ShapeRect => "shape-rect",
             Icon::ShapeEllipse => "shape-ellipse",
             Icon::ShapeArrow => "shape-arrow",
@@ -842,7 +858,7 @@ impl Icon {
     /// two copies of a mapping is exactly how a rename lands in one of them.
     /// [`Icon::name`] stays the single source of truth and this walks it.
     ///
-    /// The cost is 81 pointer-length comparisons with an early exit, for the
+    /// The cost is 82 pointer-length comparisons with an early exit, for the
     /// handful of icons a ribbon draws per frame — comfortably under a
     /// microsecond, against a frame budget of 16 ms. A `HashMap` would need
     /// a lazily-initialised static, would hash the key anyway, and would buy
@@ -891,7 +907,7 @@ mod tests {
         // twice shipped a paragraph that was quietly false.
         assert_eq!(
             Icon::ALL.len(),
-            81,
+            82,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

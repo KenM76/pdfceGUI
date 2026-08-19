@@ -163,6 +163,7 @@ pub mod pages;
 pub mod properties;
 pub mod redact;
 pub mod signatures;
+pub mod tool;
 
 /// One dockable panel.
 ///
@@ -267,6 +268,23 @@ pub enum Panel {
     /// and Edit both can. The same argument, in the same words, is why there
     /// is no `view.panel_redact`.
     DimensionGroups,
+    /// What the pointer does, which tool is armed, and where each tool lives.
+    ///
+    /// ★★ **The only panel in this taxonomy whose subject is the OPERATOR
+    /// rather than the document.** Every other variant answers a question about
+    /// the file — what pages it has, what layers, what fonts, what is on this
+    /// page, what one object's properties are. This one answers *"what can I
+    /// do, and what am I holding"*, and its absence is the operator's item 4,
+    /// verbatim: *"no side bar area showing what tool is active and its
+    /// options."*
+    ///
+    /// It is also the fix for his item 5. `edit.text` and `edit.add_text` are
+    /// registered, drawn, chord-bound and driven-verified, and he reported them
+    /// missing — a discoverability defect that stayed green for three weeks
+    /// because *"the tests pass"* is not a report of working software. See
+    /// [`tool`]'s header for the whole account, including why the panel is
+    /// captioned **Tool** and not *Tool options*.
+    Tool,
 }
 
 impl Panel {
@@ -277,7 +295,7 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
@@ -289,6 +307,7 @@ impl Panel {
         Self::Comments,
         Self::Redact,
         Self::DimensionGroups,
+        Self::Tool,
     ];
 
     /// The ribbon command that shows this panel.
@@ -409,6 +428,13 @@ impl Panel {
             // changed on 2026-08-19 is that pressing it toggles a panel rather
             // than opening a window.
             Self::DimensionGroups => "measure.manage_groups",
+            // ★ On View ▸ Panels, and FIRST in that group. Unlike the four
+            // exceptions above, this one needed no argument about which tab: it
+            // is a panel toggle in the ordinary sense, and it must be on a tab
+            // EVERY mode is shown, because every mode has tools and every mode
+            // can therefore mount it. `view` and `file` are the only two Read
+            // is shown; `view` is where panels live.
+            Self::Tool => "view.panel_tool",
         }
     }
 
@@ -501,6 +527,13 @@ impl Panel {
             Self::Comments => comments::body(ui, doc, state, actions),
             Self::Redact => redact::body(ui, doc, state, actions),
             Self::DimensionGroups => dimension_groups::body(ui, doc, state, actions),
+            // ★ Takes `host`, and is the third panel that does — but for a
+            // different reason from the other two. Objects and Pages want a
+            // context MENU; this one wants the command **registry**, so its
+            // identity row can read the label and chord off the same source
+            // the ribbon does rather than carrying a second copy of either.
+            // See `crate::shell::menus::MenuHost::label`.
+            Self::Tool => tool::body(ui, doc, host, actions),
         }
         Vec::new()
     }
@@ -1058,6 +1091,7 @@ mod tests {
                 Panel::Comments => 8,
                 Panel::Redact => 9,
                 Panel::DimensionGroups => 10,
+                Panel::Tool => 11,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

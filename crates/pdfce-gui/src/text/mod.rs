@@ -189,14 +189,21 @@ pub mod settings;
 /// Every string the status bar shows. Consumed by `crate::app::status`.
 pub mod status;
 
+pub mod textannot;
+pub mod textedit;
 /// Every sentence the text-EDITING tool shows: the three refusals a caret can
 /// meet, and the rule-4 disclosure the engine does not write for a pinned tail.
 /// Consumed by `crate::canvas::textedit` and by the `CommitTextEdit` apply arm.
 /// Copy for the three markup kinds that carry words. Its header carries the
 /// one distinction every string in it has to preserve: a text box prints and a
 /// sticky note does not.
-pub mod textannot;
-pub mod textedit;
+/// ★ Every word the Tool panel says — and it says a great deal, because that
+/// panel has almost no controls.
+///
+/// Its header carries three rules: no label that the command registry already
+/// owns, no sentence that is a tip rather than a fact, and no instruction that
+/// fails to say how its gesture ends.
+pub mod tool;
 /// The words of the question `file.close` had been promising to ask since it
 /// shipped, and did not.
 ///

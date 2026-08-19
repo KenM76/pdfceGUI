@@ -621,6 +621,11 @@ pub(super) const SEARCH: &str = include_str!("assets/search.svg");
 /// Copied from ScripTree's `icon-settings.svg` (the operator's own art; header §4b) — sliders rather than a cogwheel, for the reason the asset records.
 pub(super) const SETTINGS: &str = include_str!("assets/settings.svg");
 
+/// `pointer.svg` — the art for [`super::Icon::Pointer`].
+///
+/// Authored for pdfce in the header §3 style contract — an arrow cursor with two option rules; the asset records why it is emphatically not `tool.svg`'s wrench.
+pub(super) const POINTER: &str = include_str!("assets/pointer.svg");
+
 /// `shape-arrow.svg` — the art for [`super::Icon::ShapeArrow`].
 ///
 /// Authored for pdfce in the header §3 style contract.

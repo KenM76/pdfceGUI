@@ -478,6 +478,50 @@ impl<'a> MenuHost<'a> {
         }
     }
 
+    /// **The operator-visible label of `id`, from the one registry the ribbon
+    /// reads.**
+    ///
+    /// # ★ Why a panel is given this rather than a string of its own
+    ///
+    /// `crate::panels::tool` names the armed tool, and the only honest name for
+    /// it is **the name on the control that armed it**. A second string would
+    /// compile, would read identically on the day it was written, and would
+    /// drift the first time either was reworded — and the drift is invisible,
+    /// because nothing renders both at once.
+    ///
+    /// `NO_SURFACE.md` §1 records exactly that failure with a colour rather
+    /// than a label: a duplicate of a value that already existed, plus a test
+    /// that *"asserted the literal triple against a function returning the
+    /// literal triple. Two copies of one constant cannot disagree."* Reading
+    /// the registry makes the second copy unrepresentable instead of merely
+    /// unlikely.
+    ///
+    /// Returns `None` for an id this build does not register, which is a real
+    /// state rather than a defensive one: `SHELL_FRAMEWORK.md` §5b's whole
+    /// point is that a capability compiled out loses its command, and a caller
+    /// must render **nothing** for it rather than a name with no control behind
+    /// it.
+    #[must_use]
+    pub fn label(&self, id: &str) -> Option<&str> {
+        self.registry.get(id).map(|c| c.label.as_str())
+    }
+
+    /// **The chord bound to `id` by the operator's own keymap**, if any.
+    ///
+    /// From the manifest's keymap, inverted, exactly as a menu row's accelerator
+    /// hint is — `egui_shell::menu::shortcut::Shortcuts::of`. So an operator who
+    /// rebinds a key sees every surface follow, with nothing to keep in step.
+    ///
+    /// A panel that hard-coded `"Ctrl+E"` would be telling an operator to press
+    /// a key their manifest may not bind, which is worse than telling them
+    /// nothing: a chord that does not work reads as the *feature* not working.
+    #[must_use]
+    pub fn chord(&self, id: &str) -> Option<String> {
+        egui_shell::menu::shortcut::Shortcuts::of(self.shell)
+            .get(id)
+            .map(str::to_owned)
+    }
+
     /// The conditions this host evaluates predicates against.
     #[must_use]
     pub fn conditions(&self) -> &ConditionSet {

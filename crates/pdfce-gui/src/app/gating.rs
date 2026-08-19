@@ -100,6 +100,17 @@ impl PdfceApp {
     /// a no-op, and Read → Review leaves an armed Rectangle armed.
     pub(crate) fn on_mode_capabilities_changed(&mut self, ctx: &egui::Context) {
         let caps = self.capabilities();
+        // ★ Park it where a dock panel can read it. `crate::panels::tool` has
+        // to answer "what does a press mean in this mode" and is handed no
+        // `Capabilities` — see `canvas::tool::store_capabilities` for why this
+        // is a park rather than a sixth parameter on `Panel::show`, and why it
+        // must not be a second derivation.
+        //
+        // Here rather than anywhere else because this is the ONE function that
+        // runs when the answer changes: the capability set is a property of the
+        // mode, the mode changes in exactly one place, and this is what that
+        // place calls.
+        crate::canvas::tool::store_capabilities(ctx, caps);
         let retired = crate::canvas::tool::retire_forbidden(ctx, caps);
         let mut cleared = false;
         let mut abandoned = false;
