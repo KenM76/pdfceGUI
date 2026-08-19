@@ -16,7 +16,7 @@ at a section of it.
 printed at that commit; the tree has moved since, and the numbers move with
 it. It is here so you know roughly where you are, not so you can quote it.
 
-### ★★ Read this row first: TWELVE surfaces have landed and NONE has been driven
+### ★★ Read this row first: THIRTEEN surfaces have landed and NONE has been driven
 
 R1 is the rule this project was founded on, and this is where it currently
 stands **unpaid**. Everything below is gate-clean and unit-tested; none of it
@@ -36,6 +36,7 @@ desktop and needs the operator off the machine.
 | **Export to DXF** — at a scale inferred from the page's own dimension groups, or stated as unknown | 08-19 | `export_dxf_writes_the_pages_geometry` — **written, never run** |
 | **The keyboard reference** — every chord, folded out of the keymap that dispatches them | 08-19 | **none written** |
 | **Write a bookmark** — title, current page, filed under the last-clicked row | 08-19 | **none written** |
+| **Register a form control no field claims** — the Tab-order section's count became a list, and each row can be put back into the `/AcroForm` | 08-19 | **none written.** Needs a fixture with an orphaned widget, which `insert_pages` produces — so the check is *drive an insert, then register*, and that is two features in one script |
 
 ```bash
 cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
@@ -43,13 +44,13 @@ cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe   --pd
 
 | | |
 |---|---|
-| **Measured at** | `3cd4286`, clean tree |
+| **Measured at** | `8d2893c`, clean tree |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"`. **Read `Cargo.lock`, not this row** — the engine repo moved four times during one session |
-| **Tests** | 1,380 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Tests** | 1,417 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
 | **`ui-verify`** | **34 checks declared, and the three newest have never been run.** The last full run was 31 passed · 0 failed · 2 skipped at `dac3b3f`, which was *before* everything in the table above |
 | **Latest build** | **rebuild it, with `--verify`.** The `D:\builds\` package at the time of writing was taken from a dirty tree *and* while the engine had moved, and `package-portable.py`'s own warning says so on the run. **About names its own build time and engine revision** — open it and read the Build block rather than trusting this row |
-| **Requests owed by pdfce** | **one open**, and now only three quarters of its second half. `insert_pages`' part 1 shipped (`InsertOutcome`), and **`103.0` `add_outline_item` shipped 2026-08-19 and is wired** — the Bookmarks panel authors. Owed: `103.1` adopt-a-widget, `103.2` page labels, `103.3` named destinations, `102.1` carry field definitions. ★ **Four requests this week, four shipped inside a day.** Read the ce-dimension reply's `set_dimension_group` section before touching that verb, and `add_outline_item`'s `/Count` section before touching bookmarks |
+| **Requests owed by pdfce** | **one open**, and now only three quarters of its second half. `insert_pages`' part 1 shipped (`InsertOutcome`), and **`103.0` `add_outline_item` shipped 2026-08-19 and is wired** — the Bookmarks panel authors. **`103.1` `adopt_widget` shipped 2026-08-19 and is wired** — the Tab-order section registers orphaned widgets. Owed: `103.2` page labels, `103.3` named destinations, `102.1` carry field definitions. ★ **Five requests this week, five shipped inside a day.** One new one open: `request_adopt_widget_has_no_preflight...` — there is no `adopt_refusal` beside `fill_refusal`/`rename_refusal`, so the Register rows discover which shape a widget is by pressing. Read the ce-dimension reply's `set_dimension_group` section before touching that verb, and `add_outline_item`'s `/Count` section before touching bookmarks |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
 
