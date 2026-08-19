@@ -29,7 +29,7 @@ the useful bit:
 | *"Markup ▸ Style renders an empty captioned band"* — `colour_swatch` declared and never drawn, so colour, width, fill and opacity all had **zero** surface | ✅ **Fixed in `4035b64`.** Two colour swatches and a width. `RIBBON_IA.md` §5.5's *"partial G — colour only"* is now true of this build, having described the **old** shell |
 | Pen colour, highlight colour, stroke width | ✅ Settings are live — `canvas::markup::pen`, edited from the ribbon's Style group |
 | Fill | ⛔ **design decision, not a gap.** `spec` passes `interior: None` with a note: *"a filled comment shape hides the drawing it is a comment about, which on a CAD sheet is the whole content under it."* Reversing that is the operator's call |
-| Opacity | ⛔ **blocked on the engine.** Annotation transparency is `/CA` and `pdfce-core` does not write it |
+| Opacity | ⚠ **the blocker was FALSE, and had been for some time.** `EditSession::set_markup_style` takes a `MarkupStyle { opacity: Some(StyleEdit::Set(a)) }` and writes `/CA` (`edit.rs:13093`); `StyleEdit::Clear` removes it. What is genuinely absent is opacity **at author time** — `MarkupSpec` carries no alpha, so a shell that wanted to place a 40%-opaque highlight must author it and then restyle it, which is two verbs and two undo entries. That is a boundary observation and is filed as one, not a blocker. See §1b |
 | Arrowheads, ink tolerance, note text | ⬜ still open — the rows below stand |
 
 Everything in sections 2 to 5 was verified after those commits and stands as
@@ -60,7 +60,7 @@ Colour and width are live as of `4035b64`. The rows below are what is left.
 | ~~Underline / StrikeOut / Squiggly colour~~ | ~~`(0.85, 0.16, 0.16)`~~ | now `pen.ink` | ✅ **Markup ▸ Style** — see below | — |
 | ~~Stroke width~~ | `2.0` pt | now `Pen::width_pts`, range 0.25–12 | ✅ **Markup ▸ Style** | — |
 | Fill | never authored — `border` only | `canvas/markup.rs` | ⛔ **design decision** — a filled comment hides the drawing it comments on | operator call |
-| Opacity | never authored at all | — | ⛔ **blocked on the engine** — `/CA` is not written | Markup ▸ Style, when it lands |
+| Opacity | never authored at all | — | ⚠ **not blocked — the row was wrong.** `set_markup_style` writes `/CA`. Author-time alpha is the real gap; see §1b | Markup ▸ Style |
 | ~~Arrow head length~~ | `HEAD_LEN_PX = 14.0` | `canvas/markup/band.rs` | ⛔ **MIS-FILED — it is the cursor, not the mark** | ~~Format ▸ Arrowheads~~ |
 | ~~Arrow head angle~~ | `HEAD_ANGLE = 0.42` rad | `canvas/markup/band.rs` | ⛔ same | ~~Format ▸ Arrowheads~~ |
 | ~~Ink simplification tolerance~~ | ~~0.5 pt fixed~~ | now `Pen::simplify_tolerance_pts` | ✅ **already settable — it follows the pen width**, and it was a live defect until 2026-08-17 |  — |
@@ -151,6 +151,57 @@ constant is left in place of a control.
 > carrying out of this file: **when you leave a constant in place of a control,
 > write the test that will fail when the control arrives, not the comment that
 > asks someone to notice.**
+
+---
+
+### 1b. ★ The opacity row was wrong, and it is the SECOND stale external blocker found in one day
+
+Corrected **2026-08-19**. Both rows above said *"blocked on the engine — `/CA` is
+not written"*. `pdfce-core` writes it, from `EditSession::set_markup_style`, and
+has a test for both directions (`edit.rs:24514` sets `0.4`, `:24528` asserts the
+key is gone after `StyleEdit::Clear`).
+
+**What is actually missing is narrower and is worth stating precisely**, because
+the imprecise version is what produced a wrong row:
+
+* **Restyling an existing annotation's opacity** — available. `MarkupStyle` also
+  carries `/C`, `/IC`, `/BS /W` and `/LE`, so a Format-tab surface for a selected
+  markup has an engine verb waiting for it. This shell has no such surface yet;
+  that is a **shell** gap, not an engine one.
+* **Authoring at an opacity** — not available in one act. `MarkupSpec` has no
+  alpha field, so the sequence is `add_markup` then `set_markup_style`: two
+  verbs, two undo entries, and an operator who presses Undo once gets an opaque
+  mark rather than no mark. Filed to the request channel as
+  `request_authoring_a_markup_at_an_opacity_takes_two_verbs.md`.
+
+### 1c. ★★ The pattern, because this is now twice in one session
+
+`markup.cloud` sat in `shell::manifest::PLANNED` reading *"the ONLY markup kind
+still absent for an ENGINE reason"* while `MarkupSpec::Cloud` had already
+shipped. This row said `/CA` was not written while `set_markup_style` was
+writing it. **Both were true when written and neither had any way to stop being
+true out loud.**
+
+> **A recorded blocker that names an EXTERNAL repository is a claim this project
+> cannot re-check, and it decays silently.** An internal blocker fails a test
+> when it is removed. An external one just goes on being read.
+
+Three things this project can do about it, in descending order of how much they
+are worth:
+
+1. **Re-derive the claim before acting on it, every time.** Both of these took
+   one `grep` of `D:\Dev\pdfce\crates\pdfce-core\src\` to disprove. The cost
+   of checking is a minute; the cost of not checking was three weeks of the
+   operator asking for a tool whose only blocker had already been removed.
+2. **Write the blocker as a CITATION, not as a verdict.** *"`MarkupSpec` has no
+   `Cloud` variant — `annot_author.rs:280`, checked 2026-08-14"* is falsifiable
+   by a reader in ten seconds. *"Blocked on the engine"* is not.
+3. **Ask.** The request channel answers within the hour and the engine session
+   has said plainly it would rather carry a named blocker on its side than see
+   an empty box on ours.
+
+Written to `D:\dev\rag\rust\` as well, because the property is about
+cross-repository dependency claims and not about PDF.
 
 ---
 
