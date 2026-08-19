@@ -7,7 +7,7 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-19 at `ae5d0d4`.** For a session
+**Written 2026-08-18, last revised 2026-08-19 at `e86dda1`.** For a session
 starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -17,81 +17,114 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `3cd4286`
+## ★★★ State, as measured at `e86dda1`
 
-**This table is a reading, not a status.** Every row is what a command
-printed at that commit; the tree has moved since, and the numbers move with
-it. It is here so you know roughly where you are, not so you can quote it.
+**This table is a reading, not a status.** Every row is what a command printed
+at that commit; the tree has moved since, and the numbers move with it. It is
+here so you know roughly where you are, not so you can quote it.
 
-### ★★ Read this row first: EVERY surface has now been driven, and driving found four defects
+| | |
+|---|---|
+| **Tests** | 1,452 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Gates** | 14 of 14, 0 skipped |
+| **`ui-verify`** | **42 checks declared.** See the two rows below — the count is not the story |
+| **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · **Dimension groups** · **Tool** |
+| **Commands** | 98 registered · 77 `PLANNED` · 14 `SCAFFOLDED` (registered, drawn, inert), five of them P3 breaches |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency. **Read `Cargo.lock`, not this row** — it moved twice in one session, both times because `package-portable.py` re-resolved it |
+| **Latest build** | `OneDrive\pdfceGUI1`, and its `Cargo.lock` is committed. Open **About** and read the Build block rather than trusting this row |
 
-The operator handed over the machine on 2026-08-19 and R1's debt was paid.
-**38 checks, and every one of them has now passed in a driven run** — including
-the six that had been written and never executed, and one phase of
-`properties_metadata` that had SKIPPED on every run it ever made because it
-insisted on a keyboard chord the harness cannot deliver.
+### ★★★ READ THIS FIRST: R1's debt was paid on 2026-08-19, and re-incurred the same day
 
-Four defects came out of it, and **not one was visible to 1,417 passing tests**:
+The morning of 2026-08-19 paid it. The operator handed over the machine, all 38
+checks then declared were driven, and **four application defects came out that
+1,417 passing tests could not see** — the table further down keeps them, because
+their shapes recur.
+
+**Then he took the machine back, and six more features shipped without being
+driven at all.**
+
+| shipped 2026-08-19 afternoon | driven? |
+|---|---|
+| `panels::dimension_groups` — the window became a **dock panel**, six folds | ✗ |
+| `MarkupKind::Cloud` — the revision cloud, its glyph, its ribbon row | ✗ |
+| `panels::tool` — the Tool panel, in its own dock stack in two modes | ✗ |
+| `dialogs::unsaved` — the close/open/new confirmation | ✗ |
+| the settings-coverage gate, and `quad_point_order`'s control | ✗ |
+| the two-tone I-beam and the pre-first-click measure hover *(morning, before handover)* | ✗ |
+
+That is the largest verification debt this project has carried, and it is on
+exactly the class of change R1 exists for: **two new panels, a new dialog on the
+close path, a new markup kind, and a new ribbon row.** `CONTINUE.md` §3.0 is the
+queue and it outranks everything else in this file.
+
+★ **Three checks were rewritten and never run**, and the Tool panel took the top
+stack in the right dock of Review and Edit — so **every other panel's coordinates
+moved**. A red from any right-dock check is more likely to be that than a defect.
+
+★★ **And the check the day most needs does not exist.** The Tool panel was built
+to make `edit.text` and `edit.add_text` findable, and *"it renders"* is not that
+claim — asserting it renders would repeat the original failure exactly, because
+the commands rendered on the ribbon all along. The honest check is a **first
+frame with zero clicks**: launch, open the fixture, enter Edit, screenshot, and
+assert both labels are on screen inside the panel's rect.
+
+### The four defects driving found on 2026-08-19, kept because their shapes recur
 
 | defect | how it presented |
 |---|---|
-| **A `Window` with a `default_width` and no HEIGHT around a `ScrollArea` grows ~38 pt every frame** | two dialogs walked off the screen; the Manage-groups Add button was laid out at y=1114 in a body ending at y=676 — drawn, positioned, unclickable |
+| **A `Window` with a `default_width` and no HEIGHT around a `ScrollArea` grows ~38 pt every frame** | two dialogs walked off the screen; the Manage-groups Add button was laid out at y=1114 in a body ending at y=676 — drawn, positioned, unclickable. ★ **The panel move retired the condition rather than tuning it**: a dock panel's height is the dock's, decided before the body draws |
 | **The Bookmarks authoring row sat after an unbounded scroll** | `add_outline_item`, wired that morning, was **unreachable on any document with a real outline** — the 122-bookmark fixture pushed the row 129 pt below the panel |
 | **A region published at the TOP of a `ScrollArea` closure over `ui.min_rect()`** | reported `0.0 pt high` for ever — an instrument that can only return one answer cannot detect what it was added to detect |
-| **The Manage-groups Add button was below its own settings block** | it acts on the LIST and was positioned under a different group's settings, so it made the wrong claim about what it acts on even when visible |
+| **The Manage-groups Add button was below its own settings block** | it acts on the LIST and was positioned under a different group's settings, so it made the wrong claim about what it acts on even when visible. ★ The panel fixed the **claim**, not just the reach: Add now sits directly under the list |
 
 ★ And **three harness defects that produced confident, wrong failure reports
 about working code** — see `D:/dev/rag/egui/a_ui_rect_change_log_produces_confident_wrong_failures_in_BOTH_directions.md`.
 The drop caret was reported *"never published"* over a trace containing it.
-Read the trace before believing the check.
+**Read the trace before believing the check.**
 
 ⚠ **The suite is not deterministic.** The final full run had 35 passed · 1
 failed · 4 skipped; all three of the non-passes then passed in isolation, with
 messages pointing at pointer injection and window activation rather than at the
-application. Per-check runs are authoritative; a full-suite red needs the
-member re-run before it is believed.
+application. Per-check runs are authoritative; a full-suite red needs the member
+re-run before it is believed.
 
 Two skips are legitimate and not defects: `ocr` (no models in this build) and
 `page_ops` on `SW41177.pdf` (the fixture carries 36 `/Rotate` entries, so the
 evidence would be indistinguishable from its own furniture — it PASSES against
-`D:\Dev\pdfceixtures\synthetic\pageopsour-pages.pdf`, proven by a
-second process reopening the saved copy).
+`D:\Dev\pdfce\fixtures\synthetic\pageops\four-pages.pdf`).
 
-### The former status, kept because the table below is still the surface list
+### ★★ Two defects found by AUDIT rather than by driving, and both were worse
 
-R1 is the rule this project was founded on, and this is where it currently
-stands **unpaid**. Everything below is gate-clean and unit-tested; none of it
-has been exercised by a running window, because the harness drives the real
-desktop and needs the operator off the machine.
-
-| surface | landed | its check |
-|---|---|---|
-| **Manage dimension groups** — the window, and the *Draw into* picker `MeasureState::group` never had a writer for | 08-18 | `dimension_groups_window_makes_a_group` — **written, never run** |
-| **Rename, delete and re-group** — requested 08-18, engine shipped 08-19, wired the same morning | 08-19 | the same check, extended to a **create → rename → delete round trip** |
-| **Drag a page, see where it lands** — an insertion caret, dimmed where the drop would change nothing | 08-18 | `pages_drag_shows_where_it_lands` — **written, never run** |
-| **The selected ce dimension's own settings** — eleven cascade properties, tolerance, radius ↔ diameter, group picker | 08-18/19 | **none written.** It needs a document that already *contains* a ce dimension, which today means placing one first |
-| **The Properties panel's document half** — file, size, PDF version, pages, sheet size, encryption, four editable `/Info` fields | 08-19 | `properties_metadata_round_trips` — **written, never run** |
-| **Two-line dimensioning tells the truth** — the operator's parallel threshold, the refusal by name, the overridden angle | 08-19 | **none written** |
-| **The snap indicator has its colour** | 08-19 | unit-tested over every preset; a pixel oracle would be better |
-| **Insert an image** — placed by a rectangle in millimetres, with the resolution previewed | 08-19 | `insert_image_places_a_picture` — **written, never run** |
-| **Export to DXF** — at a scale inferred from the page's own dimension groups, or stated as unknown | 08-19 | `export_dxf_writes_the_pages_geometry` — **written, never run** |
-| **The keyboard reference** — every chord, folded out of the keymap that dispatches them | 08-19 | **none written** |
-| **Write a bookmark** — title, current page, filed under the last-clicked row | 08-19 | **none written** |
-| **Register a form control no field claims** — the Tab-order section's count became a list, and each row can be put back into the `/AcroForm` | 08-19 | **none written.** Needs a fixture with an orphaned widget, which `insert_pages` produces — so the check is *drive an insert, then register*, and that is two features in one script |
-
-```bash
-cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
-```
+Answering `pdfce`'s capability-register questions found two things no test and
+no driven run would have reached, because neither has a symptom on screen.
 
 | | |
 |---|---|
-| **Measured at** | `8d2893c`, clean tree |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"`. **Read `Cargo.lock`, not this row** — the engine repo moved four times during one session |
-| **Tests** | 1,417 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
-| **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | **34 checks declared, and the three newest have never been run.** The last full run was 31 passed · 0 failed · 2 skipped at `dac3b3f`, which was *before* everything in the table above |
-| **Latest build** | **rebuild it, with `--verify`.** The `D:\builds\` package at the time of writing was taken from a dirty tree *and* while the engine had moved, and `package-portable.py`'s own warning says so on the run. **About names its own build time and engine revision** — open it and read the Build block rather than trusting this row |
-| **Requests owed by pdfce** | **one open**, and now only three quarters of its second half. `insert_pages`' part 1 shipped (`InsertOutcome`), and **`103.0` `add_outline_item` shipped 2026-08-19 and is wired** — the Bookmarks panel authors. **`103.1` `adopt_widget` shipped 2026-08-19 and is wired** — the Tab-order section registers orphaned widgets. Owed: `103.2` page labels, `103.3` named destinations, `102.1` carry field definitions. ★ **Five requests this week, five shipped inside a day.** One new one open: `request_adopt_widget_has_no_preflight...` — there is no `adopt_refusal` beside `fill_refusal`/`rename_refusal`, so the Register rows discover which shape a widget is by pressing. Read the ce-dimension reply's `set_dimension_group` section before touching that verb, and `add_outline_item`'s `/Count` section before touching bookmarks |
+| **Close destroyed unsaved edits, silently** | `file.close`'s tooltip promised *"You are asked what to do about unsaved edits first"* since the day it shipped, and nothing asked. Open and New too. ★ Why it survived: **the guard that should have caught it existed, was well argued, was correct, and was answering a different question** — `save_pending` asks *is a save in flight*, which is permanently `false` here by design. Fixed |
+| **`Document::recovery()` is never called** | a document whose cross-reference table pdfce **rebuilt by scanning** opens with no indication at all. `last_wins_collisions` means two definitions of one object existed and pdfce chose between them: the operator is looking at one of two possible documents and has not been told there was a choice. Blocked on nothing. **Still open** — `NO_SURFACE.md` §3b |
+
+The transferable half: **driving finds what an operator can see. It cannot find
+a promise nobody kept, or a report nobody rendered.** Both of these were sitting
+in plain source, and what surfaced them was another project reading our
+documentation and asking a question about it.
+
+### ★★★ And four recorded claims turned out to be false, in one day
+
+| the claim | the truth | cost |
+|---|---|---|
+| `markup.cloud` — *"the ONLY markup kind still absent for an ENGINE reason"* | `MarkupSpec::Cloud` had shipped | the operator asked **three times** over ~3 weeks |
+| `NO_SURFACE.md` — *"Opacity: blocked on the engine, `/CA` is never written"* | `set_markup_style` writes it, tests both ways | a capability inventory reporting a false blocker |
+| `FEATURES.md` — *"the theme preset is not yet choosable"* | choosable since 2026-08-17 | found by the **other project** reading our file |
+| the shared `gui` column | read two incompatible ways for weeks, neither side seeing a contradiction | seven rows re-based down |
+
+> **A blocker that names a repository this project does not build cannot fail a
+> test.** Nothing compiles differently, nothing lints, and CI stays green
+> *precisely because the feature is still absent*.
+
+Every external blocker here is now a **dated citation** rather than a verdict.
+`NO_SURFACE.md` §1c and `D:\dev\rag\rust\` carry the argument. This is the
+single most expensive pattern this project has found, measured in weeks of the
+operator asking for something that was not blocked.
 
 ## ★★ The harness — last run 2026-08-18, and what it found
 
@@ -176,9 +209,26 @@ build session's.
 
 ### Still not written
 
+★★ **A first-frame discoverability check, and it is the most important missing
+one in the project.** Launch, open the fixture, enter Edit, screenshot with
+**zero clicks**, assert the strings `Add text` and `Edit text` are on screen and
+inside the Tool panel's rect. The panel was built because the operator could not
+find two commands that were on the ribbon all along, so a check asserting the
+panel *renders* would repeat the original failure exactly — the commands
+rendered too. Pair it with: arm `edit.text`, click blank paper, assert
+`Refusal::NoRun`'s sentence is on screen in the panel. That second one **fails
+today** for want of anywhere to put the sentence, which is the point.
+
 An **annotation-selection** check — click a stamp, assert `annot-select`, press
 Delete, assert one fewer annotation. Every trace line it needs already exists,
 and Delete can now be pressed, because the keyboard works.
+
+An **unsaved-edits** check — make an edit, press Close, assert the confirmation
+appeared **and that the document is still open**; then press *Close without
+saving* and assert it is not. The second half is the one that matters: a
+confirmation that appears and is ignored is worse than none, and until
+2026-08-19 that path destroyed the operator's work silently while its own
+tooltip promised otherwise.
 
 ★ **A check that types for real is DONE** — three of them, in fact
 (`add_text_takes_real_keystrokes`, `text_annot_takes_the_keyboard_unclicked`,
@@ -230,9 +280,14 @@ in the last one, so treat a third skip as scheduling, not as a regression.
 > arrived in the channel.** The engine's replies are an input to *how* a thing
 > gets built, never to *which* thing.
 
-### ★ First: run the harness queue below
+### ★★★ First: DRIVE. `CONTINUE.md` §3.0, and it outranks everything below.
 
-Three features are shipped and undriven. It needs nothing but the desktop.
+**Six features are shipped and undriven** — two panels, a dialog on the close
+path, a markup kind, a ribbon row, and two cursor fixes. Three checks were
+rewritten and never run. The Tool panel took the top stack in the right dock of
+two modes, so every other right-dock check's coordinates moved.
+
+It needs nothing but the desktop, and the operator off it.
 
 ### 1. The Format tab's first slice — restyle a selected annotation
 
@@ -327,11 +382,29 @@ below the content a refusal.
 > invisible to a one-page fixture — **writing to the ancestor that supplies
 > the value resizes every sibling.**
 
-### Not ours: revision clouds
+### ~~Not ours: revision clouds~~ — ★★ this heading cost three weeks
 
-Confirmed moving upstream on 2026-08-18 — `EditError::TooFewVertices` and a
-`Cloud` subtype are in `D:\Dev\pdfce`'s working tree. The operator: *"don't
-worry about item 5. It's aware of that one now."*
+**Struck 2026-08-19. It shipped that day, in about an hour.**
+
+It read: *"Confirmed moving upstream on 2026-08-18 — `EditError::TooFewVertices`
+and a `Cloud` subtype are in `D:\Dev\pdfce`'s working tree. The operator:
+'don't worry about item 5. It's aware of that one now.'"*
+
+Every word of that was true, and the **heading** was wrong. He meant the
+*engine* was aware. This file turned that into *"not ours"*, filed it under a
+heading a reader takes as a scheduling decision, and the operator went on asking
+for the revision cloud tool while the only thing blocking it — a `MarkupSpec`
+variant — sat shipped in a repository one `grep` away.
+
+Kept, struck, because the mis-reading is the finding:
+
+> **"The engine is aware" is not "this is not ours."** An upstream repository
+> acknowledging a gap says nothing about whose work the *surface* is, and a
+> heading that says otherwise stops anyone re-checking.
+
+And the deeper one, which now governs every blocker in this project: a claim
+about a repository you do not build **cannot fail a test**, so it goes on being
+read as current until somebody happens to look. `NO_SURFACE.md` §1c.
 
 ## What NOT to do
 
