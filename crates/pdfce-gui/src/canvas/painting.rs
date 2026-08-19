@@ -195,6 +195,7 @@ pub(super) fn draw(
         );
     }
     overlay::draw_selection(&painter, ui.visuals(), map, selection);
+    draw_anchors(&painter, ui, doc, map, selection, page_index);
     if let Some(rect) = marquee {
         overlay::draw_marquee(&painter, ui.visuals(), map, rect);
     }
@@ -331,4 +332,99 @@ pub(super) fn draw(
     // operator clicked the page they are trying to type on. The right one asks
     // whether a **text field** has it — the page-number box, a Properties value
     // — which is the only case where a character is not ours.
+}
+
+/// Mark the entered object's anchors when the operator is inside one.
+///
+/// # ★ Why this is a function here rather than three lines at the call site
+///
+/// Because it is the **only** place in the paint pass that needs the object
+/// model, and reaching for it costs a `Ref` into the document's decomposition
+/// cache. Keeping that borrow inside one short function is what guarantees it is
+/// released before the rest of the frame — the same discipline
+/// `app::cache::page_objects`' own docs set out, and the reason
+/// `canvas::interact` has a comment about dropping its `Ref` explicitly.
+///
+/// It draws nothing at the Object rung. An object's anchors are not the
+/// operator's subject there — the object is — and painting thousands of hollow
+/// squares over a selection they are about to *move as a whole* would be noise
+/// with a rendering cost.
+fn draw_anchors(
+    painter: &egui::Painter,
+    ui: &Ui,
+    doc: &OpenDoc,
+    map: &PageMapping,
+    selection: &SelectionState,
+    page_index: usize,
+) {
+    use crate::canvas::selection::SelectionLevel;
+
+    if !matches!(
+        selection.level(),
+        SelectionLevel::Part | SelectionLevel::Node
+    ) {
+        return;
+    }
+    let Some(entered) = selection.entered_object() else {
+        return;
+    };
+    if entered.page != page_index {
+        return;
+    }
+    let Ok(object) = usize::try_from(entered.object.0) else {
+        return;
+    };
+    let Some(page) = doc.pages.get(page_index) else {
+        return;
+    };
+    let Some(provider) = doc.page_objects() else {
+        return;
+    };
+    // ★★ **The entered SUBPATH's anchors, not the object's** — and this is the
+    // difference between a usable feature and a decoration.
+    //
+    // The first version drew the whole object's, with a 400-anchor cap above
+    // which the unselected ones were suppressed. Driving it against
+    // `SW41177.pdf` produced `canvas-anchors total=4972`: one object on this
+    // operator's own drawing carries five thousand anchors, so the cap fired,
+    // nothing unselected drew, and the operator had **no way to see where any
+    // anchor was** — on precisely the documents the feature exists for.
+    //
+    // A cap that suppresses the answer on the documents that need it is not a
+    // performance guard, it is the feature not working. The right scope was
+    // there all along and is also the semantically correct one: the operator
+    // descended into a *subpath*, and its anchors are what they may pick. A
+    // subpath is tens of anchors where an object is thousands, so the cap
+    // becomes a backstop rather than the normal case.
+    //
+    // `subpath_node_points` returns OBJECT-scoped indices, which is what the
+    // selection and `move_nodes` both speak — the offset arithmetic lives in
+    // the provider, in one place, exactly so callers like this one cannot get
+    // it subtly wrong.
+    //
+    // Converted to canvas space HERE, by the one function entitled to do it,
+    // and the `Ref` is dropped before anything is painted.
+    let anchors = match entered.subpath {
+        Some(subpath) => provider.subpath_node_points(object, subpath),
+        // No part entered yet — the Node rung is unreachable from here, and the
+        // object's whole anchor list is the honest answer to "what could you
+        // descend into". The cap still applies and still fires on a CAD object,
+        // which is correct: at the Part rung the operator's subject is the
+        // subpath, and five thousand dots would be noise rather than an answer.
+        None => provider.object_node_points(object),
+    };
+    let points: Vec<(usize, egui::Pos2)> = anchors
+        .into_iter()
+        .filter_map(|(index, p)| {
+            crate::viewer::pdf_space_to_canvas(egui::pos2(p.x as f32, p.y as f32), page)
+                .map(|c| (index, c))
+        })
+        .collect();
+    drop(provider);
+
+    let selected = selection
+        .selected_nodes_on(page_index, entered.object)
+        .into_iter()
+        .collect();
+    overlay::draw_anchors(painter, ui.visuals(), map, &points, &selected);
 }

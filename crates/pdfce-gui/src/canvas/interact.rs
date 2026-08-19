@@ -407,7 +407,18 @@ pub(super) fn interact(
     // one for the whole life of the feature.
     let hovered_grip = grip_box
         .zip(ctx.input(|i| i.pointer.press_origin()).or(screen_pos))
-        .and_then(|(bounds, p)| handles::grip_at(bounds, p));
+        .and_then(|(bounds, p)| {
+            handles::grip_at(
+                bounds,
+                p,
+                // ★ The eight scale handles belong to the Object rung. See
+                // `handles::grip_at` for the two reasons — the subject is
+                // wrong at an inner rung, and the corner grips physically
+                // cover the corner ANCHORS, which made the end nodes of every
+                // path undraggable.
+                selection.level() == crate::canvas::selection::SelectionLevel::Object,
+            )
+        });
     let press_kind = gesture::press_kind(
         active_tool,
         hovered_grip,

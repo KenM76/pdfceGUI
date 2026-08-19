@@ -91,3 +91,8 @@ pub fn is_foreground(_w: WindowHandle) -> bool {
 pub fn capture_screen(_region: PixRect) -> Result<Vec<u8>> {
     refuse("capturing the screen")
 }
+
+/// See the win32 implementation. Runs `body` with no modifiers held.
+pub fn with_modifiers<T>(_modifiers: &[u16], body: impl FnOnce() -> T) -> T {
+    body()
+}

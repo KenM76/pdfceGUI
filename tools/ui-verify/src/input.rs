@@ -106,6 +106,20 @@ const CLICK_HOLD: Duration = Duration::from_millis(60);
 /// on the preceding frame.
 const MOVE_SETTLE: Duration = Duration::from_millis(80);
 
+/// How long between the RELEASE of one click and the press of the next, in a
+/// double click.
+///
+/// ★ `egui`'s own threshold is **300 ms between PRESSES**, and it is a
+/// compiled-in constant rather than the operator's Windows double-click speed —
+/// which is the thing a reader assumes and which would make this harness behave
+/// differently on a machine where that setting had been changed.
+///
+/// With `CLICK_HOLD` at 60 ms, 40 ms here puts the presses 100 ms apart:
+/// comfortably inside the threshold with room for two slow frames, and slow
+/// enough that they land in **different frames**, which they must — `egui`
+/// counts clicks, and two presses inside one frame are one press.
+const DOUBLE_CLICK_GAP: Duration = Duration::from_millis(40);
+
 /// How many intermediate positions [`Driver::drag`] walks through.
 ///
 /// Enough that the application sees the pointer *travel* rather than teleport —
@@ -217,6 +231,70 @@ impl Driver {
         sys::mouse_button(false);
         std::thread::sleep(MOVE_SETTLE);
         Ok(())
+    }
+
+    /// Click twice in the same place, fast enough for the application to read
+    /// it as a double click.
+    ///
+    /// # ★ Why the gap is a named constant and not a guess
+    ///
+    /// `egui` decides a double click from the interval between two presses, and
+    /// its threshold is a fixed 300 ms — it does **not** read the operator's
+    /// Windows double-click speed, which is the thing a reader assumes. A
+    /// harness that clicked twice as fast as it could would be relying on
+    /// scheduler luck; one that used the OS setting would break on a machine
+    /// where the operator has slowed it down. So the gap is chosen against the
+    /// framework's own number, with room for a slow frame.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::click_at`].
+    pub fn double_click_at(&self, p: ScreenPoint) -> Result<()> {
+        // ★★ NOT two `click_at` calls, and the first version of this WAS.
+        //
+        // `click_at` sleeps `MOVE_SETTLE` before its press and again after its
+        // release, so two of them put **390 ms** between the presses — past
+        // `egui`'s 300 ms threshold — and the application read four
+        // independent single clicks. The check that used it reported "the Node
+        // rung was never entered" over a build whose Node rung was fine.
+        //
+        // The settles exist so a click lands on a settled layout; that argument
+        // applies to the FIRST press and to nothing after it, because the
+        // second press is at the same point on the same frame's layout. So the
+        // pointer is positioned and settled once, and the two press/release
+        // pairs follow with only `CLICK_HOLD` between them.
+        self.raise();
+        sys::set_cursor_position(p.x(), p.y())?;
+        std::thread::sleep(MOVE_SETTLE);
+        for _ in 0..2 {
+            sys::mouse_button(true);
+            std::thread::sleep(CLICK_HOLD);
+            sys::mouse_button(false);
+            std::thread::sleep(DOUBLE_CLICK_GAP);
+        }
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    /// Click with a modifier key held — Shift-click to extend a selection.
+    ///
+    /// # ★ Why this is not `press_chord` plus `click_at`
+    ///
+    /// Because the modifier has to be held **across** the mouse press, and
+    /// `press_chord` releases it as part of sending a keystroke. The
+    /// application reads `modifiers.shift` on the frame it processes the
+    /// pointer event, so a Shift that went down and up before the click is a
+    /// plain click — which is the failure mode that would make this check
+    /// report "the second anchor was not picked" over a perfectly working
+    /// build.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::click_at`], and additionally refuses with no target window:
+    /// a modifier held over the operator's own desktop is a stuck key.
+    pub fn click_with_modifier(&self, p: ScreenPoint, key: Key) -> Result<()> {
+        self.raise_and_confirm()?;
+        sys::with_modifiers(&[key.vk()], || self.click_at(p))
     }
 
     /// Move the pointer without clicking — for hover assertions, and for
@@ -402,5 +480,32 @@ fn run_powershell(script: &str) -> Result<()> {
             "powershell input step failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         )))
+    }
+}
+
+/// How long between the two presses of a double click.
+///
+/// A modifier key this harness can hold across a mouse gesture.
+///
+/// An enum rather than a bare `u16` virtual-key code, because the whole point
+/// of this type is that a caller cannot accidentally hold something that is not
+/// a modifier — a mouse gesture with `A` held is not a gesture any application
+/// defines, and it would arrive as a stray keystroke.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    /// Extend a selection.
+    Shift,
+    /// Toggle a member of one.
+    Ctrl,
+}
+
+impl Key {
+    /// The Windows virtual-key code.
+    #[must_use]
+    pub fn vk(self) -> u16 {
+        match self {
+            Self::Shift => sys::vk::SHIFT,
+            Self::Ctrl => sys::vk::CONTROL,
+        }
     }
 }

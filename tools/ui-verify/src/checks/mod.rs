@@ -219,6 +219,11 @@ pub mod render_diagnostics;
 /// those is invisible to every unit test because it is a property of the
 /// SEQUENCE of frames rather than of a function.
 pub mod geometry_fields;
+/// ★ Shift-picked anchors move TOGETHER — the row `pdfce`'s own `gui` column
+/// ticked `[x]` and their 2026-08-19 sweep corrected to "objects move together;
+/// nodes one at a time". The capability was in the selection model from the day
+/// the Node rung landed and no consumer read it that way.
+pub mod multi_node;
 /// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
 /// and a line in the shortcuts reference, and **no dispatch arm** for the whole
 /// life of the project. Its whole behaviour is one `if` in the frame
@@ -563,6 +568,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // aimed at a document that lacks the strings it scans for.
         Box::new(resize::ResizeScalesAShape),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
+        Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

@@ -261,10 +261,12 @@ pub fn grip_rects(bounds: Rect) -> Vec<(Grip, Rect)> {
 /// the same shape, which is the same argument that puts Bézier handles ahead
 /// of the nodes they belong to.
 #[must_use]
-pub fn grip_at(bounds: Rect, pointer: Pos2) -> Option<Grip> {
-    for (grip, rect) in grip_rects(bounds) {
-        if rect.expand(GRIP_GRAB_SLACK_PX).contains(pointer) {
-            return Some(grip);
+pub fn grip_at(bounds: Rect, pointer: Pos2, offer_resize: bool) -> Option<Grip> {
+    if offer_resize {
+        for (grip, rect) in grip_rects(bounds) {
+            if rect.expand(GRIP_GRAB_SLACK_PX).contains(pointer) {
+                return Some(grip);
+            }
         }
     }
     bounds.contains(pointer).then_some(Grip::Move)
@@ -333,13 +335,13 @@ mod tests {
         // Just inside the top-left corner — inside the body, and inside the
         // NW grip's square.
         assert_eq!(
-            grip_at(b, b.left_top() + Vec2::splat(2.0)),
+            grip_at(b, b.left_top() + Vec2::splat(2.0), true),
             Some(Grip::NorthWest)
         );
         // Well inside: the body.
-        assert_eq!(grip_at(b, b.center()), Some(Grip::Move));
+        assert_eq!(grip_at(b, b.center(), true), Some(Grip::Move));
         // Well outside: nothing.
-        assert_eq!(grip_at(b, b.left_top() - Vec2::splat(60.0)), None);
+        assert_eq!(grip_at(b, b.left_top() - Vec2::splat(60.0), true), None);
     }
 
     /// Every grip has a cursor, opposite corners share an axis cursor, and
@@ -409,5 +411,43 @@ mod tests {
                 "{g:?} pivots about itself, so a drag would scale about the hand"
             );
         }
+    }
+
+    /// ★★ **An inner rung offers `Move` and none of the eight.**
+    ///
+    /// The regression test for a defect found by driving: an anchor mark is
+    /// centred on its point, so an anchor at a corner of the object's bounding
+    /// box is half outside it — and the corner grip, with two points of grab
+    /// slack, covers exactly that spot. A drag from a selected corner anchor
+    /// raised no move at all, because the press had been claimed by the
+    /// north-west grip.
+    ///
+    /// The operator's version is *"I can drag the middle nodes and not the end
+    /// ones"*, which reads as a broken hit test rather than as two features
+    /// competing for one pixel.
+    #[test]
+    fn an_inner_rung_offers_move_and_no_scale_handles() {
+        let b = box_of(200.0, 100.0);
+        let corner = b.min;
+        assert_eq!(
+            grip_at(b, corner, true),
+            Some(Grip::NorthWest),
+            "the Object rung still offers all eight"
+        );
+        assert_eq!(
+            grip_at(b, corner, false),
+            Some(Grip::Move),
+            "an inner rung must hand the corner press to the MOVE gesture"
+        );
+        // And the interior is a move either way — that is how a move drag is
+        // recognised at every rung, so withholding the eight must not withhold
+        // it.
+        assert_eq!(grip_at(b, b.center(), false), Some(Grip::Move));
+        assert_eq!(grip_at(b, b.center(), true), Some(Grip::Move));
+        // Outside is still nothing.
+        assert_eq!(
+            grip_at(b, Pos2::new(b.max.x + 50.0, b.max.y + 50.0), false),
+            None
+        );
     }
 }

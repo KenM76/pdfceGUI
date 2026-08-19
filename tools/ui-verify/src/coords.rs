@@ -474,6 +474,33 @@ impl WindowFrame {
     /// expected to test the rect before aiming at it —
     /// [`crate::geom::LRect::is_substantial`] is the question.
     #[must_use]
+    /// A point a fixed number of screen pixels from another one.
+    ///
+    /// # ★ Why this is on `Frame` and not a method on `ScreenPoint`
+    ///
+    /// `coords`' standing rule is that **a coordinate is produced by a
+    /// conversion and never assembled**, and a bare `ScreenPoint::offset` would
+    /// be exactly the assembly the rule forbids — it would let any caller
+    /// invent a screen position out of arithmetic and a hope.
+    ///
+    /// This is deliberately narrower: a *displacement in screen pixels from a
+    /// point the application itself published*. That is what a drag is, and what
+    /// a sweep looking for a neighbouring control is. Living on `Frame` keeps it
+    /// beside `declared_at`, which is the other member of the same family —
+    /// both take an application-supplied anchor and move within it.
+    ///
+    /// It does not clamp. A sweep that walks off the window is caught by the
+    /// application not responding, which is the honest answer; clamping would
+    /// silently retry the same point and report a false negative.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn offset_from(&self, from: ScreenPoint, dx: f32, dy: f32) -> ScreenPoint {
+        let _ = self;
+        ScreenPoint {
+            x: from.x() + dx.round() as i32,
+            y: from.y() + dy.round() as i32,
+        }
+    }
+
     pub fn declared_center(&self, r: LRect) -> ScreenPoint {
         self.to_screen(WindowPoint {
             x: (r.min.x + r.max.x) / 2.0,

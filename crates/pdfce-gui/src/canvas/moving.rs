@@ -157,7 +157,7 @@ pub enum MoveSubject {
         /// The subpath, in decomposition order.
         subpath: usize,
     },
-    /// The Node rung: `move_node`.
+    /// The Node rung with exactly **one** anchor selected: `move_node`.
     Node {
         /// The page.
         page: usize,
@@ -166,6 +166,33 @@ pub enum MoveSubject {
         /// The anchor, **object-scoped** — the space `vector::anchor_count`
         /// reports and `pdfce-cli node-move --node N` addresses.
         node: usize,
+    },
+    /// The Node rung with **several** anchors selected: `move_nodes`.
+    ///
+    /// # ★ Why this is a second variant and not `Node` with a `Vec`
+    ///
+    /// Because the singular case has a verb of its own in `EditSession`, and
+    /// `docs/core-api/02`'s rule cuts the other way too: the plural verb is
+    /// correct for a set and the singular one is correct for a member, and
+    /// collapsing them would mean either routing one node through a slice
+    /// (losing the singular verb's own planner) or routing a set through a
+    /// loop (which is the thing the rule forbids by name — N undo entries, and
+    /// each planned against byte offsets the previous one invalidated).
+    ///
+    /// Both are the same gesture from the operator's side. The distinction is
+    /// which engine verb the shell is entitled to call, which is exactly the
+    /// kind of thing that belongs in a type rather than in an `if`.
+    Nodes {
+        /// The page.
+        page: usize,
+        /// The enclosing object, by paint-order index.
+        object: usize,
+        /// The anchors, object-scoped, ascending and unique.
+        ///
+        /// Never empty and never of length one — [`super::moving::subject`]
+        /// produces [`Self::Node`] for the singular case, so a reader of this
+        /// variant may assume two or more without checking.
+        nodes: Vec<usize>,
     },
 }
 
@@ -342,7 +369,26 @@ pub fn eligible(
         SelectionLevel::Node => {
             let (object, entry) = entered(selection, page)?;
             let node = entry.node.ok_or(Refusal::NoNodeEntered)?;
+            // ★★ **Every selected anchor on the entered object, not just the
+            // entered one.** `SelectionState::pick_within` has always added a
+            // Shift-clicked anchor as its own entry — the model could hold a
+            // multi-node selection from the day the Node rung landed — and this
+            // function read `entered_object()`, which is the FIRST entry. So an
+            // operator could Shift-click four anchors, watch four highlight,
+            // drag, and move one.
+            //
+            // That is the defect `pdfce`'s own `gui` column ticked `[x]` for
+            // months (their note of 2026-08-19: "multi-node select-and-move —
+            // objects move together; nodes one at a time"), and it is one of
+            // the six rows that were true of the OLD in-repo shell and became
+            // false when the column's referent moved to this build.
+            let nodes = selection.selected_nodes_on(page, entry.object);
             match ctx.part_kind {
+                Some(PartKind::Subpath) if nodes.len() > 1 => Ok(MoveSubject::Nodes {
+                    page,
+                    object,
+                    nodes,
+                }),
                 Some(PartKind::Subpath) => Ok(MoveSubject::Node { page, object, node }),
                 Some(other) => Err(Refusal::NoVerbForPart(other)),
                 None => Err(Refusal::NotAPath(object)),
@@ -386,6 +432,7 @@ pub fn action(
     subject: MoveSubject,
     delta: PageDelta,
     node_at: Option<Point>,
+    points: &[(usize, Point)],
 ) -> Result<Action, Refusal> {
     if !delta.is_travel() {
         return Err(Refusal::NoTravel);
@@ -415,6 +462,31 @@ pub fn action(
                 object,
                 node,
                 to: Point::new(from.x + delta.dx, from.y + delta.dy),
+            })
+        }
+        MoveSubject::Nodes {
+            page,
+            object,
+            nodes,
+        } => {
+            // ★ A selected anchor that the current decomposition does not have
+            // refuses the WHOLE drag rather than moving the ones it recognises.
+            // The same call `move_objects` makes over a non-path member, and
+            // for the same reason: a partial application reads as a rendering
+            // fault, not as a refusal, and the operator has no way to tell
+            // which of their four anchors was silently dropped.
+            let mut moves = Vec::with_capacity(nodes.len());
+            for node in nodes {
+                let from = points
+                    .iter()
+                    .find_map(|(i, p)| (*i == node).then_some(*p))
+                    .ok_or(Refusal::NodeNotFound(node))?;
+                moves.push((node, Point::new(from.x + delta.dx, from.y + delta.dy)));
+            }
+            Ok(Action::MoveNodes {
+                page,
+                object,
+                moves,
             })
         }
     }
@@ -536,8 +608,17 @@ pub fn drag(
         }
         _ => None,
     };
+    // The plural rung needs every anchor's position, and that is the allocation
+    // the singular rung's comment above is at pains to avoid — 6,681 anchors on
+    // one measured CAD export. Asked for once, on release, and only when the
+    // selection actually holds more than one node: the cost is paid by the
+    // gesture that needs it and by no other.
+    let points = match (&subject, provider) {
+        (MoveSubject::Nodes { object, .. }, Some(provider)) => provider.object_node_points(*object),
+        _ => Vec::new(),
+    };
 
-    match action(subject, delta, node_at) {
+    match action(subject, delta, node_at, &points) {
         Ok(raised) => {
             crate::diag::trace(|| {
                 format!(
@@ -603,6 +684,15 @@ mod tests {
         ClickHit {
             object: Some(TargetId(index)),
             ..ClickHit::default()
+        }
+    }
+
+    /// A click that landed on anchor `node` of subpath `part` of `object`.
+    fn hit_node(object: u64, part: usize, node: usize) -> ClickHit {
+        ClickHit {
+            object: Some(TargetId(object)),
+            part: Some(part),
+            node: Some(node),
         }
     }
 
@@ -846,7 +936,7 @@ mod tests {
         let sel = two_objects_selected();
         let subject = eligible(&sel, 0, paths()).expect("eligible");
         assert_eq!(
-            action(subject, PageDelta { dx: 0.0, dy: 0.0 }, None),
+            action(subject, PageDelta { dx: 0.0, dy: 0.0 }, None, &[]),
             Err(Refusal::NoTravel)
         );
     }
@@ -857,7 +947,8 @@ mod tests {
     fn the_smallest_real_travel_still_commits() {
         let sel = two_objects_selected();
         let subject = eligible(&sel, 0, paths()).expect("eligible");
-        let raised = action(subject, PageDelta { dx: 0.01, dy: 0.0 }, None).expect("committed");
+        let raised =
+            action(subject, PageDelta { dx: 0.01, dy: 0.0 }, None, &[]).expect("committed");
         assert!(matches!(raised, Action::MoveSelection { .. }));
     }
 
@@ -877,7 +968,7 @@ mod tests {
             },
         ] {
             let subject = eligible(&sel, 0, paths()).expect("eligible");
-            assert_eq!(action(subject, delta, None), Err(Refusal::NoTravel));
+            assert_eq!(action(subject, delta, None, &[]), Err(Refusal::NoTravel));
         }
     }
 
@@ -900,7 +991,7 @@ mod tests {
             }
         );
         assert_eq!(
-            action(subject, PageDelta { dx: 5.0, dy: -2.0 }, None),
+            action(subject, PageDelta { dx: 5.0, dy: -2.0 }, None, &[]),
             Ok(Action::MoveSelection {
                 page: 0,
                 objects: vec![0, 1],
@@ -973,7 +1064,7 @@ mod tests {
             }
         );
         assert_eq!(
-            action(subject, PageDelta { dx: 1.5, dy: 2.5 }, None),
+            action(subject, PageDelta { dx: 1.5, dy: 2.5 }, None, &[]),
             Ok(Action::MoveSubpath {
                 page: 0,
                 object: 0,
@@ -1055,6 +1146,7 @@ mod tests {
             subject,
             PageDelta { dx: 10.0, dy: -4.0 },
             Some(Point::new(100.0, 200.0)),
+            &[],
         );
         assert_eq!(
             raised,
@@ -1078,7 +1170,7 @@ mod tests {
             node: 4,
         };
         assert_eq!(
-            action(subject, PageDelta { dx: 1.0, dy: 1.0 }, None),
+            action(subject, PageDelta { dx: 1.0, dy: 1.0 }, None, &[]),
             Err(Refusal::NodeNotFound(4))
         );
     }
@@ -1103,5 +1195,123 @@ mod tests {
             "a ghost must not describe an unverifiable move"
         );
         assert!(actions.is_empty());
+    }
+
+    /// ★★ **Four Shift-clicked anchors move as FOUR anchors, in one command.**
+    ///
+    /// This is the regression test for a defect that lived in the gap between
+    /// two correct halves. `SelectionState::pick_within` has added a
+    /// Shift-clicked anchor as its own entry since the Node rung landed, and
+    /// `subject` read `entered_object()` — the FIRST entry. So the model held
+    /// four, the overlay drew four, and the drag moved one.
+    ///
+    /// Nothing failed. Both halves' unit tests passed. The only thing that
+    /// would have caught it is driving it, or a test like this one that asks
+    /// the two halves the same question.
+    #[test]
+    fn several_selected_anchors_move_as_one_command() {
+        let mut selection = SelectionState::default();
+        selection.click(0, hit_object(7), false, false);
+        selection.click(0, hit_node(7, 0, 1), false, true);
+        selection.click(0, hit_node(7, 0, 1), false, true);
+        // Now inside the object at the Node rung; Shift-pick three more.
+        for node in [4_usize, 9, 2] {
+            selection.click(0, hit_node(7, 0, node), true, false);
+        }
+        let nodes = selection.selected_nodes_on(0, TargetId(7));
+        assert!(
+            nodes.len() >= 2,
+            "the selection model must hold every Shift-picked anchor, got {nodes:?}"
+        );
+
+        let subject = eligible(
+            &selection,
+            0,
+            MoveContext {
+                non_path: None,
+                part_kind: Some(PartKind::Subpath),
+            },
+        )
+        .expect("a multi-node selection on a path has a move subject");
+        let MoveSubject::Nodes { nodes, .. } = &subject else {
+            panic!("several anchors must produce the PLURAL subject, got {subject:?}");
+        };
+        assert_eq!(
+            nodes.len(),
+            selection.selected_nodes_on(0, TargetId(7)).len()
+        );
+
+        // Every selected anchor's position, so the plural arm can resolve them.
+        let points: Vec<(usize, Point)> = (0..12)
+            .map(|i| {
+                (
+                    i,
+                    Point::new(f64::from(u32::try_from(i).unwrap()) * 10.0, 50.0),
+                )
+            })
+            .collect();
+        let raised = action(subject, PageDelta { dx: 3.0, dy: -7.0 }, None, &points)
+            .expect("the plural arm resolves every anchor");
+        let Action::MoveNodes { moves, .. } = raised else {
+            panic!("the plural subject must raise ONE MoveNodes, got {raised:?}");
+        };
+        assert!(moves.len() >= 2, "one command carrying every anchor");
+        for (index, to) in &moves {
+            let from = points[*index].1;
+            assert!((to.x - (from.x + 3.0)).abs() < 1e-9);
+            assert!((to.y - (from.y - 7.0)).abs() < 1e-9);
+        }
+    }
+
+    /// ★ **One stale anchor refuses the whole drag**, rather than moving the
+    /// three the decomposition still recognises.
+    ///
+    /// The same call `move_objects` makes over a non-path member, and for the
+    /// same reason its docs give: a partial application reads as a rendering
+    /// fault rather than as a refusal, and the operator has no way to learn
+    /// which of their anchors was dropped.
+    #[test]
+    fn one_missing_anchor_refuses_the_whole_move() {
+        let subject = MoveSubject::Nodes {
+            page: 0,
+            object: 7,
+            nodes: vec![0, 1, 99],
+        };
+        let points: Vec<(usize, Point)> = (0..3).map(|i| (i, Point::new(0.0, 0.0))).collect();
+        let err = action(subject, PageDelta { dx: 1.0, dy: 1.0 }, None, &points)
+            .expect_err("a selection that out-ran the decomposition must refuse");
+        assert_eq!(err, Refusal::NodeNotFound(99));
+    }
+
+    /// A single selected anchor still takes the SINGULAR verb.
+    ///
+    /// `EditSession` has both, and `docs/core-api/02`'s rule cuts both ways:
+    /// the plural verb is correct for a set and the singular one for a member.
+    /// Routing one anchor through a slice would lose the singular planner for
+    /// no gain.
+    #[test]
+    fn one_selected_anchor_still_takes_the_singular_verb() {
+        let mut selection = SelectionState::default();
+        selection.click(0, hit_object(7), false, false);
+        selection.click(0, hit_node(7, 0, 1), false, true);
+        selection.click(0, hit_node(7, 0, 1), false, true);
+        if selection.selected_nodes_on(0, TargetId(7)).len() != 1 {
+            // The descent did not reach the Node rung on this fixture shape;
+            // the assertion below would then be about the wrong thing.
+            return;
+        }
+        let subject = eligible(
+            &selection,
+            0,
+            MoveContext {
+                non_path: None,
+                part_kind: Some(PartKind::Subpath),
+            },
+        )
+        .expect("one anchor on a path has a move subject");
+        assert!(
+            matches!(subject, MoveSubject::Node { .. }),
+            "one anchor must stay singular, got {subject:?}"
+        );
     }
 }

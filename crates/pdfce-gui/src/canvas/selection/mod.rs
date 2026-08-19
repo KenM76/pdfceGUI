@@ -453,6 +453,42 @@ impl SelectionState {
         self.normalise();
     }
 
+    /// Every selected **anchor** on one object of one page, object-scoped,
+    /// ascending and unique.
+    ///
+    /// # ★ Why this exists as its own accessor
+    ///
+    /// Because a multi-node selection has been *representable* since the Node
+    /// rung landed — [`Self::pick_within`] adds a Shift-clicked anchor as its
+    /// own entry, and [`Self::entries`] holds them all — and **nothing read it
+    /// that way**. `canvas::moving::subject` asked [`Self::entered_object`],
+    /// which is the FIRST entry, so an operator could Shift-click four anchors,
+    /// watch four highlight, drag, and move one.
+    ///
+    /// A capability that the data model supports and no consumer reads is the
+    /// hardest kind of gap to see: nothing is missing, nothing fails, and the
+    /// unit tests of both halves pass. Giving it a name with a doc comment is
+    /// what makes the next consumer ask the right question.
+    ///
+    /// # Why it filters on the object as well as the page
+    ///
+    /// `move_nodes` addresses anchors **within one object**, so a set spanning
+    /// two objects is not one command. It cannot arise today — the Node rung is
+    /// entered inside a single object and `click_inside` ascends the moment a
+    /// click leaves it — but a caller that assumed otherwise would build an
+    /// operand list the engine would refuse, and the refusal would arrive after
+    /// the operator had watched an outline slide.
+    #[must_use]
+    pub fn selected_nodes_on(&self, page: usize, object: TargetId) -> Vec<usize> {
+        self.entries
+            .iter()
+            .filter(|e| e.page == page && e.object == object)
+            .filter_map(|e| e.node)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
     /// Ascend one rung, or clear, or decline the key. See [`EscapeOutcome`].
     ///
     /// **One press, one rung** — decision 025's L1. The old shell shipped

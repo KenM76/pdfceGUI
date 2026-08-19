@@ -501,3 +501,41 @@ pub fn capture_screen(region: PixRect) -> Result<Vec<u8>> {
     unsafe { ReleaseDC(std::ptr::null_mut(), screen_dc) };
     result
 }
+
+/// Hold `modifiers` down, run `body`, and release them **on every path**.
+///
+/// # ★ Why this takes a closure instead of exposing down/up
+///
+/// Because a leaked modifier is a stuck key on the operator's real keyboard,
+/// and this harness runs on the operator's real desktop. `key_stroke_with`'s own
+/// comment makes the point about early returns; a pair of public `modifier_down`
+/// / `modifier_up` functions would move the obligation to every caller, and the
+/// first caller to add a `?` between them would leave Shift held down system
+/// wide until the operator noticed their typing had gone into capitals.
+///
+/// A closure makes the release structural. `body` may panic and the modifiers
+/// still come up, because the loop below is after the call in a function that
+/// does not unwind past it — and every caller in this harness returns `Result`
+/// rather than panicking anyway.
+pub fn with_modifiers<T>(modifiers: &[u16], body: impl FnOnce() -> T) -> T {
+    // SAFETY: no pointers; scan code 0 tells Windows to derive it from the
+    // virtual key. Same contract as `key_stroke`.
+    unsafe {
+        for m in modifiers {
+            keybd_event(*m as u8, 0, 0, 0);
+        }
+    }
+    // Let the target see a frame with the modifiers held before the click
+    // arrives — the same reason `key_stroke_with` sleeps between its posts, and
+    // it matters more here because the application reads modifier state on the
+    // frame it processes the press, not on the frame the press was posted.
+    std::thread::sleep(CHORD_GAP);
+    let out = body();
+    std::thread::sleep(CHORD_GAP);
+    unsafe {
+        for m in modifiers.iter().rev() {
+            keybd_event(*m as u8, 0, KEYEVENTF_KEYUP, 0);
+        }
+    }
+    out
+}
