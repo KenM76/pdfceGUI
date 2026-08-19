@@ -1154,60 +1154,23 @@ pub(super) fn interact(
         page_index,
         doc.edit_epoch,
     );
-
-    // ★ The snap hover, resolved HERE because this is the last line at which
-    // the decomposition is still borrowed.
+    // ★ Both measure affordances, resolved in one call while the
+    // decomposition is still borrowed.
     //
-    // The indicator is drawn in the draw section far below, after the `drop`,
-    // so the query cannot happen there — and it must not happen twice. One
-    // `Resolved` is what makes the marker the operator aims at and the point
-    // the next click commits provably the same value rather than two
-    // derivations that agree by construction until they do not. See
-    // `measure::Resolved`.
-    //
-    // `None` for every tool but a measure tool, so an un-armed canvas pays one
-    // `Option` check and runs no query.
-    let measure_hover = active_tool.measure_kind().and_then(|_| {
-        measure::resolve_hover(
-            &ctx,
-            doc,
-            page_index,
-            // ★ CONVERTED — `resolve_hover` takes CANVAS space, and this line
-            // handed it `screen_pos` raw until 2026-08-18. The click path
-            // converted and the preview did not, so the marker sat away from
-            // the pointer by the scroll origin over the zoom while the click
-            // landed correctly. The operator reported it as *"the crosshairs
-            // click the right place under them, but the preview … is offset"*.
-            //
-            // Every other reader of `screen_pos` on this path already wrote
-            // this conversion (the gesture's own `pos`, the hit test, the
-            // trace), which is what made the odd one out invisible: it looked
-            // like the others because it named the same variable.
-            screen_pos.map(|p| map.to_page(p)),
-            targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
-            map,
-        )
-    });
-
-    // ★ …and the circular pick set's outlines, resolved here for the identical
-    // reason and under the identical constraint.
-    //
-    // The operator must be able to see which objects are in the fit — without
-    // it, toggling an arc in changes nothing on screen and the tool is a
-    // gesture with no feedback at all. `bounds` is a query on the
-    // decomposition, so it has to happen while the `Ref` below is still alive;
-    // the drawing happens after the `drop`. Empty for every other tool.
-    let measure_picked = active_tool
-        .measure_kind()
-        .map(|kind| {
-            measure::circular::pick_outlines(
-                &ctx,
-                page_index,
-                kind,
-                targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
-            )
-        })
-        .unwrap_or_default();
+    // They were forty lines of this function until R2 asked for four back.
+    // Moving them together rather than one at a time is deliberate: they share
+    // the constraint that made them fiddly — the `Ref` is dropped before
+    // anything paints, so both queries must happen HERE — and a reader who
+    // finds one should find the other beside it. See `measure::resolve::frame`.
+    let (measure_hover, measure_picked) = measure::resolve::frame(
+        &ctx,
+        doc,
+        page_index,
+        active_tool.measure_kind(),
+        screen_pos.map(|p| map.to_page(p)),
+        targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
+        map,
+    );
 
     // The decomposition is a `Ref` into `doc`, and `Ref` implements `Drop` —
     // so its borrow does NOT end at its last use, and the store at the bottom

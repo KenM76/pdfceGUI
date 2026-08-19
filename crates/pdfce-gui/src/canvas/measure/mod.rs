@@ -49,7 +49,14 @@
 //! is byte-for-byte the one `pdfce-cli dimension-add` writes.
 
 pub mod circular;
-pub mod pick;
+/// The hover affordance: which line or entity a measuring click will take.
+pub(super) mod hover;
+/// One derivation of where a click would land and on what.
+pub(in crate::canvas) mod resolve;
+
+use resolve::snapped;
+pub(in crate::canvas) use resolve::{Resolved, resolve_hover};
+mod pick;
 pub mod scale;
 pub mod state;
 
@@ -200,7 +207,6 @@ use egui::{Pos2, Rect, Ui};
 use pdfce_core::dimension::TwoLinePlacement;
 use pdfce_core::vector::Point;
 use pdfce_core::vector::linepick::pick_line_in_page;
-use pdfce_core::vector::snap::{SnapCandidate, SnapConfig, snap_candidates};
 
 use crate::app::actions::Action;
 use crate::app::actions::dimensions::DimensionAction;
@@ -425,132 +431,6 @@ pub fn abandon(ctx: &egui::Context) -> bool {
     true
 }
 
-/// **Resolve a raw pointer position to the point the pick will actually
-/// commit**, and say which candidate it came from.
-///
-/// This is the call the salvaged [`crate::canvas::snap`] primitives were
-/// waiting for. Until it existed every pick was the raw pointer position,
-/// which on a CAD sheet is the difference between a dimension that measures a
-/// line and one that measures *near* a line — and the second is worse than no
-/// dimension, because it is wrong by an amount nobody can see.
-///
-/// # The four gates, in order, and what each is for
-///
-/// 1. **The master toggle and the Alt override**, through
-///    [`snap::snap_query_enabled`]. Alt is the operator saying *"not this
-///    time"* — it is what makes the offer refusable, and it is why the catch
-///    radius can afford to be generous ([`PageMapping::snap_tolerance`]).
-/// 2. **A decomposition must exist.** No model, no candidates, raw point. This
-///    is a real case rather than a defensive one: the model is built only when
-///    something needs it, and a measure click is one of the things that asks.
-/// 3. **The query**, `pdfce_core::vector::snap_candidates` — the engine's, not
-///    ours. `SnapConfig::new` leaves intersections off and axes on, which is
-///    the shipped default; the grid is `None` because the canvas grid is a
-///    *view* aid drawn in page space and snapping to it would be snapping to
-///    something the document does not contain.
-/// 4. **The Tab cycle**, through [`snap::active_snap_candidate`], which is what
-///    lets the operator choose between an endpoint and a midpoint that are
-///    within a few pixels of each other.
-///
-/// Returns the raw point unchanged when any gate declines, with `None` for the
-/// candidate — so a caller never has to distinguish "snapping is off" from
-/// "nothing was near", because neither changes what it does next.
-fn snapped(
-    st: &MeasureState,
-    raw: Point,
-    alt_held: bool,
-    targets: Option<&dyn CanvasTargetProvider>,
-    page_index: usize,
-    map: &PageMapping,
-) -> (Point, Option<SnapCandidate>) {
-    if !snap::snap_query_enabled(st.snap_master, alt_held) {
-        return (raw, None);
-    }
-    let Some(model) = targets.and_then(|t| t.page_objects_model(page_index)) else {
-        return (raw, None);
-    };
-    let config = SnapConfig::new(map.snap_tolerance());
-    let candidates = snap_candidates(raw, &config, model);
-    match snap::active_snap_candidate(&candidates, st.snap_cycle) {
-        Some(c) => (c.point, Some(c)),
-        None => (raw, None),
-    }
-}
-
-/// **Where the pointer would pick, resolved once for the frame.**
-///
-/// ★ The indicator and the click read *this same value*, which is the whole
-/// reason it exists as a type rather than as two calls to [`snapped`]. A
-/// preview that re-ran the query would be a second derivation of the same
-/// answer, and the two would agree right up until they did not — the operator
-/// aiming at a marker drawn over an endpoint and committing a point somewhere
-/// else. `pdfce_FeatureRequests/README.md` rule 4 is explicit that a
-/// pre-commit affordance must describe *what is about to happen*; one
-/// derivation is how that stays true rather than being maintained.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Resolved {
-    /// The point a click would commit — snapped, or the raw pointer.
-    pub at: Point,
-    /// Which candidate produced it, if any. `None` means the raw pointer, and
-    /// nothing is drawn.
-    pub candidate: Option<SnapCandidate>,
-}
-
-/// Resolve the pointer for this frame, while the decomposition is still
-/// borrowed.
-///
-/// Called from `canvas::interact` **before** it drops the provider, which is
-/// the constraint that shaped this API: the draw happens after the drop, so the
-/// query cannot happen there.
-/// ★ `canvas_pos` is **CANVAS** space, not screen space, and the name says so
-/// because getting it wrong is invisible.
-///
-/// # The defect this parameter was renamed after
-///
-/// It was called `pointer`, and `canvas::interact` handed it `screen_pos`
-/// **unconverted** while every sibling call on the same value wrote
-/// `map.to_page(p)`. The operator found it, 2026-08-18:
-///
-/// > *"when I click on measure it on the drawing the crosshairs click the
-/// > right place under them, but the preview of what is being selected is
-/// > offset from the crosshairs instead of being underneath them."*
-///
-/// That is exactly what the bug produces, and the shape is worth keeping. The
-/// **click** path (`click`, via `Pick::canvas_point`) was handed a properly
-/// converted point and committed the right place; only the **preview** read
-/// the raw screen position, so the snap candidate was resolved near a
-/// different part of the page. A wrong answer next to a right one, with
-/// nothing to say which was which — and the offset is the scroll origin over
-/// the zoom, so it is zero at the top-left of an unscrolled page at 100 % and
-/// grows from there. It would look like "sometimes it is fine".
-///
-/// `Pos2` cannot carry its own space, so the only defences available are the
-/// parameter's **name** and this paragraph. `canvas::mapping`'s header is the
-/// standing argument for why these conversions live in one place; this is the
-/// case that proves the argument was about the call sites too.
-pub(super) fn resolve_hover(
-    ctx: &egui::Context,
-    doc: &OpenDoc,
-    page_index: usize,
-    canvas_pos: Option<Pos2>,
-    targets: Option<&dyn CanvasTargetProvider>,
-    map: &PageMapping,
-) -> Option<Resolved> {
-    let (pointer, page) = (canvas_pos?, doc.current_page()?);
-    let pdf = viewer::canvas_to_pdf_space(pointer, page)?;
-    let raw = Point {
-        x: f64::from(pdf.x),
-        y: f64::from(pdf.y),
-    };
-    let st = ctx.data_mut(|d| d.get_temp::<MeasureState>(egui::Id::new(MEASURE_MEMORY_KEY)))?;
-    if st.page_index != page_index {
-        return None;
-    }
-    let alt_held = ctx.input(|i| i.modifiers.alt);
-    let (at, candidate) = snapped(&st, raw, alt_held, targets, page_index, map);
-    Some(Resolved { at, candidate })
-}
-
 /// **Everything one measure click is resolved against.**
 ///
 /// A struct rather than seven parameters, and not merely to satisfy a lint: the
@@ -707,7 +587,7 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
     // honest answer: no decomposition, or snapping off, or nothing near.
     let alt_held = ctx.input(|i| i.modifiers.alt);
     let (p_raw, candidate) =
-        match resolve_hover(ctx, doc, page_index, Some(canvas_point), targets, map) {
+        match resolve_hover(ctx, doc, page_index, Some(canvas_point), targets, map, kind) {
             Some(r) => (r.at, r.candidate),
             None => snapped(&st, picked, alt_held, targets, page_index, map),
         };
@@ -950,12 +830,26 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
         return;
     };
     let ctx = ui.ctx();
-    let Some(st) = read(ctx) else {
-        return;
-    };
-    if st.page_index != page_index {
-        return;
-    }
+    // ★★ The SECOND instance of the same bail, and it is why fixing
+    // `resolve_hover` alone changed nothing.
+    //
+    // `read` returns `None` until the operator has clicked once, because
+    // [`load`] builds a default and only the click paths [`store`] it. This
+    // function returned early on that, so a freshly armed tool painted no snap
+    // marker and no hover highlight — the exact state the operator reported,
+    // and the exact state the comment forty lines below promises is handled.
+    //
+    // A driven run found `resolve_hover` producing `entity=1 snap=1` while
+    // nothing was drawn, which is what separated the two: one instrument said
+    // the answer existed and another said it was never painted. Neither alone
+    // would have located it.
+    //
+    // The fallback is a value, not a write. Painting must not mutate shared
+    // state, and `kind` is already on `Preview` because the caller knew what
+    // was armed.
+    let st = read(ctx)
+        .filter(|s| s.page_index == page_index)
+        .unwrap_or_else(|| MeasureState::for_kind(page_index, kind));
     let color =
         snap::snap_indicator_tint(ctx).unwrap_or_else(|| ui.visuals().selection.stroke.color);
 
@@ -975,6 +869,30 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
             stroke,
             egui::StrokeKind::Outside,
         );
+    }
+
+    // ★★ The hovered entity, drawn UNDER the snap marker.
+    //
+    // Order is the whole of it: the highlight is a wide translucent stroke and
+    // the marker is a small opaque glyph, so painting the highlight second
+    // would put a coloured bar over the very node it is meant to accompany. The
+    // node is the precise statement and must stay legible; the line is the
+    // context.
+    //
+    // Drawn before the in-progress check for the same reason the marker is —
+    // it does its work while the operator is deciding *where to click first*.
+    if let Some(entity) = hover.and_then(|h| h.entity) {
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "measure-hover-entity object={} segment={}",
+                entity.object_index,
+                u8::from(entity.segment.is_some())
+            )
+        });
+        ui.painter().extend(hover::shapes(entity, color, |p| {
+            page_to_screen(p, page, map)
+        }));
     }
 
     // ★ The snap indicator is drawn BEFORE the in-progress check, and that is

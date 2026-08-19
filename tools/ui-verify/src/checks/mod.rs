@@ -138,6 +138,8 @@ pub mod markup_shapes;
 /// check could not see it at all because a `Custom` item carries no command id.
 pub mod markup_style;
 pub mod measure_calibrate;
+/// Hovering with a measure tool armed says which line and which node.
+pub mod measure_hover;
 pub mod measure_linear;
 /// ★ File ▸ New — the first command that makes a document out of **compiled-in
 /// bytes** rather than out of a file the operator named, and the only check in
@@ -411,6 +413,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // together — and because a calibration is worthless if the linear pick
         // it reuses is broken, so failing in that order reads as a diagnosis.
         Box::new(measure_calibrate::MeasureCalibratesByPickingTwoPoints),
+        Box::new(measure_hover::MeasureHoverShowsWhatItWillTake),
         // ★ The Manage-groups window, wired 2026-08-18 after being registered,
         // drawn and inert for the whole life of this build. Beside the two
         // measure checks because it is the third link in the same chain: a
