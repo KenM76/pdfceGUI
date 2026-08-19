@@ -206,7 +206,16 @@ pub(super) fn draw(
         );
     }
     overlay::draw_selection(&painter, ui.visuals(), map, selection);
-    draw_anchors(&painter, ui, doc, map, selection, page_index, *handle_drag);
+    draw_anchors(
+        &painter,
+        ui,
+        doc,
+        map,
+        selection,
+        page_index,
+        *handle_drag,
+        active_tool,
+    );
     if let Some(rect) = marquee {
         overlay::draw_marquee(&painter, ui.visuals(), map, rect);
     }
@@ -360,6 +369,7 @@ pub(super) fn draw(
 /// operator's subject there — the object is — and painting thousands of hollow
 /// squares over a selection they are about to *move as a whole* would be noise
 /// with a rendering cost.
+#[allow(clippy::too_many_arguments)]
 fn draw_anchors(
     painter: &egui::Painter,
     ui: &Ui,
@@ -368,13 +378,28 @@ fn draw_anchors(
     selection: &SelectionState,
     page_index: usize,
     drag: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)>,
+    tool: crate::canvas::tool::CanvasTool,
 ) {
     use crate::canvas::selection::SelectionLevel;
 
-    if !matches!(
-        selection.level(),
-        SelectionLevel::Part | SelectionLevel::Node
-    ) {
+    // ★★ **Or the Node tool is armed**, as of 2026-08-19.
+    //
+    // Before that, anchors drew only after a two-double-click descent, so the
+    // operator who wanted to move an end point had to already know a rung
+    // ladder existed in order to discover it. Arming the white arrow now shows
+    // them on the first click — see `SelectionState::click_direct`, which puts
+    // the selection at the Part rung the moment a shape is clicked.
+    //
+    // The rung check STAYS beside the tool check rather than being replaced by
+    // it: an operator who descended by double-clicking with the Select tool has
+    // done the thing the marks describe, and taking them away because a
+    // different tool is armed would punish the route that worked.
+    if !tool.is_node()
+        && !matches!(
+            selection.level(),
+            SelectionLevel::Part | SelectionLevel::Node
+        )
+    {
         return;
     }
     let Some(entered) = selection.entered_object() else {

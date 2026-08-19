@@ -187,6 +187,7 @@ pub fn toggle_hand(ctx: &egui::Context) -> CanvasTool {
         // hand up". The text tool joins that arm rather than earning its own for
         // the identical reason: pressing Hand while sweeping text means Hand.
         CanvasTool::Select
+        | CanvasTool::Node
         | CanvasTool::Markup(_)
         | CanvasTool::Measure(_)
         | CanvasTool::TextAnnot(_)
@@ -236,6 +237,7 @@ pub fn toggle_text(ctx: &egui::Context) -> CanvasTool {
         // returning to Select, which is `toggle_hand`'s rule above and
         // `arm_markup`'s different-kind-re-arms rule, spelled once more.
         CanvasTool::Select
+        | CanvasTool::Node
         | CanvasTool::Hand
         | CanvasTool::Markup(_)
         | CanvasTool::Measure(_)
@@ -466,6 +468,15 @@ pub fn retire_forbidden(ctx: &egui::Context, caps: Capabilities) -> bool {
         // its own, so that a future reader adding a fifth tool has to decide which
         // of the two groups it joins.
         CanvasTool::Select | CanvasTool::Hand | CanvasTool::Text => true,
+        // ★ **Node is on the OTHER side of the line the paragraph above draws.**
+        //
+        // It is the first tool in this enum whose whole purpose is to *change*
+        // the document — an anchor is selected in order to be dragged — so
+        // unlike Select, Hand and Text it must retire when the mode forbids
+        // content editing. Leaving it armed in Review would put anchor marks on
+        // a page whose every drag is refused, which is the "visible control,
+        // silently inert" defect in its most literal form.
+        CanvasTool::Node => caps.edit_content,
         CanvasTool::Markup(_) => caps.author_markup,
         // ★ Gated on `author_markup`, not on a capability of its own.
         //

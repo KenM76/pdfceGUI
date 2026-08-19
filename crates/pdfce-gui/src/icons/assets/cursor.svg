@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- The Select tool — the arrow. Universal, no trademark risk. -->
+  <!-- No ui-spec row: `view.tool_select` was added 2026-08-19, on the operator's
+       report that the canvas selector was unpredictable. Authored in the §3 style
+       contract.
+
+       A filled arrowhead with a tail, pointing up-left at the conventional ~20°.
+       This is the single most standardised glyph in the whole product class —
+       Illustrator, Photoshop, Inkscape, Figma, Affinity, CorelDRAW and every
+       Windows shell cursor draw the same shape at the same angle — and the whole
+       point of the command it names is that the canvas should behave the way other
+       programs behave. A distinctive Select arrow would be the exact mistake the
+       command exists to correct.
+
+       FILLED, where its sibling `cursor-node.svg` is hollow. That pairing is not
+       decoration: Illustrator's black arrow and white arrow have meant "the whole
+       object" and "the points inside it" since 1987, and an operator who has used
+       any vector editor reads the pair without being told. The two icons must
+       therefore be identical in outline and differ ONLY in fill, which is why the
+       path data below is shared between them verbatim.
+
+       Rejected: a hand-with-pointing-finger, and a crosshair. The first is the Hand
+       tool's neighbour in this very group and would collide at 16 px; the second
+       says "place something here", which is the markup and measure tools' promise. -->
+  <path d="M14 8 34 26h-9l5 12-4 2-5-12-7 6z"
+        fill="currentColor" stroke="currentColor" stroke-width="2.5"
+        stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- The Points tool — the white arrow. Universal, no trademark risk. -->
+  <!-- No ui-spec row: `view.tool_node` was added 2026-08-19, on the operator's
+       report *"How do I get to see the end points of an object and select them to
+       drag and move? This doesn't work either."* Authored in the §3 style contract.
+
+       ★ The outline is BYTE-IDENTICAL to `cursor.svg`'s and the only difference is
+       `fill="none"`. That is the entire message and it must stay that way: the
+       black-arrow / white-arrow pair has meant "the whole object" versus "the
+       points inside it" in every vector editor since Illustrator 88, and it works
+       because the two shapes are the same shape. An arrow drawn at a different
+       angle, or with a different tail, would break the reading and the operator
+       would have to learn a new convention to get a feature whose whole purpose is
+       that it needs no learning.
+
+       The three small squares are the anchors the tool reveals, placed along a
+       shallow implied path below and right of the arrow tip so they read as "these
+       are what you are pointing at" rather than as a decorative cluster. Square,
+       not round, matching `canvas::overlay`'s own marks: on-curve points are
+       squares and control points are circles, throughout the program.
+
+       Rejected: an arrow with a single anchor beside it. One square reads as a
+       full stop; three read as a path. Rejected: drawing the implied path as a
+       stroke — at 16 px it merges with the arrow tail and the glyph turns to mud. -->
+  <path d="M14 8 34 26h-9l5 12-4 2-5-12-7 6z"
+        fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linejoin="round"/>
+  <rect x="14" y="34" width="6" height="6" fill="currentColor"/>
+  <rect x="25" y="39" width="6" height="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
+  <rect x="36" y="32" width="6" height="6" fill="none" stroke="currentColor" stroke-width="2.5"/>
+</svg>

@@ -489,6 +489,67 @@ pub const fn view_zoom_region() -> CommandText {
 
 /// `view.tool_hand`
 #[must_use]
+pub const fn edit_cut() -> CommandText {
+    CommandText::new(
+        "Cut",
+        "Copy the selected comment or markup and remove it. One Ctrl+Z brings it back.",
+    )
+}
+
+/// `edit.copy` — the object clipboard's copy.
+///
+/// ★ The tooltip names **what it copies**, not what it does, because the honest
+/// scope is narrower than the word "copy" promises: `EditSession` has no verb
+/// that puts page content back, so a copied path could never be pasted. Saying
+/// *"comment or markup"* is the difference between a control that under-promises
+/// and one an operator discovers is a lie the first time they try it on a line.
+#[must_use]
+pub const fn edit_copy() -> CommandText {
+    CommandText::new(
+        "Copy",
+        "Copy the selected comment or markup. Ctrl+C over selected TEXT copies the text instead.",
+    )
+}
+
+/// `edit.paste` — the object clipboard's paste.
+#[must_use]
+pub const fn edit_paste() -> CommandText {
+    CommandText::new(
+        "Paste",
+        "Put the copied comment or markup on this page. On the page it came from it lands \
+         slightly offset so you can see it; on any other page it lands where it was.",
+    )
+}
+
+/// See the module header.
+#[must_use]
+pub const fn view_tool_select() -> CommandText {
+    CommandText::new(
+        "Select",
+        "Click a shape to select it, drag to move it, drag on empty paper to select several. \
+         The tool everything returns to.",
+    )
+}
+
+/// The **Node tool** — the white arrow.
+///
+/// ★ Named *Points*, not *Node*, and not *Direct selection*. "Node" is this
+/// program's internal word (`SelectionLevel::Node`); a draughtsman says
+/// *point*, and `text::commands`' standing rule is that a label is the
+/// operator's vocabulary and an id is the format's. Illustrator's own name for
+/// it — "Direct Selection" — describes the mechanism rather than the subject
+/// and has confused people for thirty years.
+#[must_use]
+pub const fn view_tool_node() -> CommandText {
+    CommandText::new(
+        "Points",
+        "Click a shape to show its points, then click one and drag to move it. Shift-click to \
+         take several. A point on a curve also shows its handles.",
+    )
+}
+
+/// See the module header.
+#[must_use]
 pub const fn view_tool_hand() -> CommandText {
     CommandText::new(
         "Hand",
@@ -512,8 +573,14 @@ pub const fn view_tool_hand() -> CommandText {
 pub const fn view_tool_text() -> CommandText {
     CommandText::new(
         "Text",
-        "Drag to select text on the page instead of selecting objects. Press again to return to \
-         the select tool.",
+        // ★ Rewritten 2026-08-19. It used to say only "drag to select text",
+        // which was the whole of what the tool did and was exactly the trap the
+        // operator fell into: he armed it, got an I-beam, clicked, and could not
+        // type. The click now edits, so the tooltip leads with that — the
+        // sentence a control shows is a promise, and this one was keeping a
+        // smaller promise than the operator was reading into it.
+        "Click text to edit it, or click empty space to start new text. Drag to select text \
+         for copying. Press again to return to the select tool.",
     )
 }
 

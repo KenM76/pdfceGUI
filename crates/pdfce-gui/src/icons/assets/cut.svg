@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Cut — scissors. Universal, no trademark risk. -->
+  <!-- No ui-spec row: `edit.cut` was added 2026-08-19 with the object clipboard.
+       Authored in the §3 style contract.
+
+       Two blades crossing at a pivot, two finger rings below. It is the oldest
+       glyph in graphical software — the Xerox Star shipped it in 1981 and nothing
+       has displaced it — and the command's own label is the word Cut, so anything
+       cleverer would only make the button harder to find.
+
+       The blades cross ABOVE the rings rather than below, because scissors held
+       point-up is how the glyph is drawn everywhere and a point-down pair reads
+       as a bird. The rings are circles rather than ellipses: at 16 px an ellipse's
+       minor axis collapses and the two rings merge into one blob. -->
+  <circle cx="14" cy="36" r="6" stroke="currentColor" stroke-width="2.5"/>
+  <circle cx="34" cy="36" r="6" stroke="currentColor" stroke-width="2.5"/>
+  <path d="M18 32 36 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M30 32 12 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

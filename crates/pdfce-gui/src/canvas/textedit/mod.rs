@@ -368,7 +368,51 @@ pub fn click(
                 y: f64::from(pdf.y),
             }
         }
-        TextEditKind::Edit => resolve_run(click)?,
+        // ★★ **A click that names no run starts a new one**, as of 2026-08-19.
+        //
+        // This used to be `resolve_run(click)?` — a bare `?`, so a click on
+        // blank paper with the caret armed refused, wrote a sentence to the
+        // status row, and did nothing. Two separate tools were needed to type a
+        // character in an empty spot versus in an existing word, and which one
+        // you had was invisible.
+        //
+        // The operator, 2026-08-19:
+        //
+        // > *"How do I make new text when I click on the canvas and expect to
+        // > edit there? Same problem as the previous."*
+        //
+        // Every editor he has used does this with **one** text tool: click in
+        // text to edit it, click in space to start some. So a `NoRun` refusal
+        // becomes an origin at the click point, and the two ribbon commands
+        // (`edit.text`, `edit.add_text`) survive as two doors into one room.
+        //
+        // ★ Only `NoRun` falls through. Every other refusal — an encrypted
+        // document, a page that will not decompose, a run the engine cannot
+        // address — is still reported, because those say *this cannot be done
+        // here* rather than *there is nothing here*. Swallowing them would put
+        // a caret on a page that cannot take the edit, which is D4a's defect
+        // with a nicer opening move.
+        TextEditKind::Edit => match resolve_run(click) {
+            Ok(anchor) => anchor,
+            Err(Refusal::NoRun) => {
+                let page = click
+                    .doc
+                    .pages
+                    .get(click.page_index)
+                    .ok_or(Refusal::NoText)?;
+                let pdf = crate::viewer::canvas_to_pdf_space(click.canvas_point, page)
+                    .ok_or(Refusal::NoText)?;
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    "text-edit-became-add reason=no-run-under-the-click".to_owned()
+                });
+                Anchor::Origin {
+                    x: f64::from(pdf.x),
+                    y: f64::from(pdf.y),
+                }
+            }
+            Err(other) => return Err(other),
+        },
     };
     let text = match &anchor {
         Anchor::Run { original, .. } => original.clone(),

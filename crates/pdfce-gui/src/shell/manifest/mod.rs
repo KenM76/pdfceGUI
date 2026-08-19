@@ -278,6 +278,38 @@ pub fn built_in() -> Shell {
         .with_binding("Ctrl+Z", "edit.undo")
         .with_binding("Ctrl+Y", "edit.redo")
         .with_binding("Ctrl+Shift+Z", "edit.redo")
+        // ★★ **The four pointer tools on bare letters**, 2026-08-19.
+        //
+        // `V` `A` `T` `H` is not a preference — it is the layout Illustrator,
+        // Photoshop, InDesign, Figma, Affinity and Inkscape (which uses `S`/`N`
+        // for the two arrows but `T` and `H` identically) have converged on, and
+        // it is what an operator's hands already know. `RIBBON_IA.md` §3's rule
+        // for chords is *"take the one the product class has settled on unless
+        // it collides"*, and none of these collides: this shell binds no bare
+        // letter to anything else.
+        //
+        // ★ Bare, not `Ctrl+`. A bare letter is safe here precisely because
+        // `canvas::keys` gates every keystroke on `text_edit_focused()` — the
+        // guard whose ABSENCE was `DEFECTS.md` D1, the old shell's Delete key
+        // dying after any canvas click. Typing `v` into a form field or into the
+        // canvas caret must never arm a tool, and the one place that could go
+        // wrong is the place this project has already been burned and fixed.
+        // ★★ The three every program has bound since 1983.
+        //
+        // `Ctrl+C` is bound here **and** claimed by `canvas::textsel::clipboard`
+        // when a text range is swept. That is not a collision to resolve, it is
+        // the resolution: text wins, because a swept range is a more specific
+        // statement than a selected annotation and the operator made it more
+        // recently. Every program in the class answers the same way, and
+        // `textsel` runs first by construction — it reads the keys before the
+        // command dispatcher sees them.
+        .with_binding("Ctrl+X", "edit.cut")
+        .with_binding("Ctrl+C", "edit.copy")
+        .with_binding("Ctrl+V", "edit.paste")
+        .with_binding("V", "view.tool_select")
+        .with_binding("A", "view.tool_node")
+        .with_binding("T", "view.tool_text")
+        .with_binding("H", "view.tool_hand")
         .with_binding("Ctrl+E", "edit.text")
         .with_binding("Ctrl+Shift+E", "edit.add_text")
         // ★ Was bound to `edit.copy_page_text` until 2026-08-14. The COMMAND
@@ -708,20 +740,20 @@ pub const PLANNED: &[(&str, &str)] = &[
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
         "N — as `edit.align`, same absent group.",
     ),
-    (
-        "edit.cut",
-        "N — there is no object clipboard. The two text-copy commands in File ▸ Export are a \
-         different mechanism and do not imply one. (They were in Edit ▸ Clipboard until \
-         2026-08-14; that group is deleted, so this row no longer has a band waiting for it.)",
-    ),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("edit.copy", "N — as `edit.cut`, the object clipboard."),
-    // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("edit.paste", "N — as `edit.cut`, the object clipboard."),
+    // ★★ `edit.cut`, `edit.copy` and `edit.paste` were HERE until 2026-08-19,
+    // marked N with the note *"there is no object clipboard"*. They are now
+    // registered and drawn — the operator reported their absence, and the
+    // measurement behind the note turned out to be broader than the truth:
+    // page CONTENT cannot be pasted (157 verbs in `edit.rs` and none inserts
+    // any), but a markup can, through `annot_author::spec_from_dict` out and
+    // `add_markup` back. `canvas::clipboard`'s header carries the table.
     (
         "edit.paste_in_place",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
-        "N — as `edit.cut`, and needs a notion of the source's page coordinates.",
+        "N — and deliberately so, rather than pending. `edit.paste` offsets a same-page paste \
+         so the copy is visible and lands a CROSS-page paste in place already, so this command \
+         would differ from Ctrl+V only on the one page where an operator would never want it. \
+         The fourth clipboard command is a control with no distinct behaviour to offer.",
     ),
     (
         "edit.sanitise",
@@ -1116,14 +1148,14 @@ mod tests {
         assert_eq!(shell.contextual_tabs().len(), 1, "one contextual tab");
         assert_eq!(
             shell.all_tabs().flat_map(Tab::groups).count(),
-            31,
-            "thirty-one groups"
+            32,
+            "thirty-two groups"
         );
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            21,
-            "twenty-one key bindings"
+            28,
+            "twenty-eight key bindings — the four pointer tools took V, A, T and H on \n             2026-08-19, which is the layout every program in this class uses"
         );
     }
 

@@ -418,6 +418,17 @@ pub enum Icon {
     /// at a smaller size but says MOVE THIS OBJECT. This tool moves the
     /// viewport and nothing else, and markup on the same page *can* be
     /// dragged — so the cheaper glyph would have been a lie.
+    /// Scissors — `edit.cut`.
+    Cut,
+    /// A clipboard — `edit.paste`.
+    Paste,
+    /// The **Select** tool's filled arrow.
+    Cursor,
+    /// The **Points** tool's hollow arrow, with the anchors it reveals.
+    ///
+    /// Its outline is byte-identical to [`Self::Cursor`]'s; see the SVG's own
+    /// comment for why that must stay true.
+    CursorNode,
     Hand,
 
     /// Rulers toggle — the canvas's ruled edges.
@@ -630,6 +641,10 @@ impl Icon {
         Icon::PageFacingContinuous,
         Icon::ZoomRegion,
         Icon::ZoomSelection,
+        Icon::Cut,
+        Icon::Paste,
+        Icon::Cursor,
+        Icon::CursorNode,
         Icon::Hand,
         Icon::Rulers,
         Icon::Grid,
@@ -724,6 +739,10 @@ impl Icon {
             Icon::PageFacingContinuous => assets::PAGE_FACING_CONTINUOUS,
             Icon::ZoomRegion => assets::ZOOM_REGION,
             Icon::ZoomSelection => assets::ZOOM_SELECTION,
+            Icon::Cut => assets::CUT,
+            Icon::Paste => assets::PASTE,
+            Icon::Cursor => assets::CURSOR,
+            Icon::CursorNode => assets::CURSOR_NODE,
             Icon::Hand => assets::HAND,
             Icon::Rulers => assets::RULERS,
             Icon::Grid => assets::GRID,
@@ -830,6 +849,10 @@ impl Icon {
             Icon::PageFacingContinuous => "page-facing-continuous",
             Icon::ZoomRegion => "zoom-region",
             Icon::ZoomSelection => "zoom-selection",
+            Icon::Cut => "cut",
+            Icon::Paste => "paste",
+            Icon::Cursor => "cursor",
+            Icon::CursorNode => "cursor-node",
             Icon::Hand => "hand",
             Icon::Rulers => "rulers",
             Icon::Grid => "grid",
@@ -907,7 +930,7 @@ mod tests {
         // twice shipped a paragraph that was quietly false.
         assert_eq!(
             Icon::ALL.len(),
-            82,
+            86,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

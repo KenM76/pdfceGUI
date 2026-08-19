@@ -427,6 +427,114 @@ impl SelectionState {
         }
     }
 
+    /// **The Node tool's click** — direct selection, with no descent ritual.
+    ///
+    /// # ★★ What this replaces, and why it is a separate entry point
+    ///
+    /// [`Self::click`] implements a *ladder*: a click selects an object, a
+    /// double-click descends to its part, another descends to a node. That
+    /// model is fine and it is what `move_node` and `move_subpath` are
+    /// addressed through — but until 2026-08-19 it was **the only way to reach
+    /// an anchor**, with nothing on screen at any stage saying a deeper rung
+    /// existed. The operator's report:
+    ///
+    /// > *"How do I get to see the end points of an object and select them to
+    /// > drag and move? This doesn't work either."*
+    ///
+    /// He is right, and the fix is the one every vector editor already uses:
+    /// **the tool is the rung.** With the Node tool armed there is no state to
+    /// descend through, so there is no way to be somewhere you did not choose.
+    ///
+    /// It is a *separate function* rather than a flag inside `click` because
+    /// the two make different decisions at every branch — this one never
+    /// ascends, never needs `entered_object`, and treats a click on a different
+    /// object as "show me that one's anchors" rather than as "leave here". A
+    /// boolean threaded through `click_at_object_rung` and `click_inside` would
+    /// have made both harder to read and neither easier to test.
+    ///
+    /// # What it does
+    ///
+    /// - **Click on an anchor** → that anchor alone is selected, at the Node
+    ///   rung, ready to drag.
+    /// - **Click on a shape but not on an anchor** → the object is entered at
+    ///   the Part rung with its nearest subpath, so **every anchor of that
+    ///   subpath appears**. That is the step the ladder had no gesture for and
+    ///   it is the one the operator was missing.
+    /// - **Shift-click an anchor** → adds it, or removes it if it was already
+    ///   in the set. `move_nodes` carries the whole set as one command.
+    /// - **Click empty paper** → clears, which is the universal convention and
+    ///   the one [`Self::marquee`] already follows.
+    pub fn click_direct(&mut self, page: usize, hit: ClickHit, shift: bool) {
+        // A content click drops an annotation selection, here, in the type that
+        // owns the exclusion — exactly as `click` does and for the reason its
+        // comment gives: an invariant a caller maintains is one the next caller
+        // will not.
+        self.annot = None;
+
+        let Some(object) = hit.object else {
+            // ★ Shift over empty paper clears too, and that is deliberate.
+            // Shift means "add to what I have", and there is nothing there to
+            // add; preserving the selection would make an aimless Shift-click a
+            // no-op the operator cannot distinguish from a missed anchor.
+            self.entries.clear();
+            self.level = SelectionLevel::Object;
+            return;
+        };
+
+        let entry = Selection {
+            page,
+            object,
+            subpath: hit.part,
+            node: hit.node,
+        };
+
+        // Shift only ever *extends within the same object*. Extending across
+        // objects would build an operand list `move_nodes` cannot accept — it
+        // addresses anchors within one object — and the refusal would arrive
+        // after the operator had watched an outline slide.
+        let same_object = self
+            .entries
+            .first()
+            .is_some_and(|e| e.object == object && e.page == page);
+
+        if shift && same_object && hit.node.is_some() {
+            if let Some(at) = self.entries.iter().position(|e| *e == entry) {
+                self.entries.remove(at);
+                // Never leave the set empty at the Node rung: an empty set with
+                // `level == Node` is the inconsistent state `normalise` exists
+                // to prevent, and it would make the next plain click ambiguous.
+                if self.entries.is_empty() {
+                    self.entries.push(Selection {
+                        page,
+                        object,
+                        subpath: hit.part,
+                        node: None,
+                    });
+                    self.level = SelectionLevel::Part;
+                }
+            } else {
+                self.entries.push(entry);
+                self.level = SelectionLevel::Node;
+            }
+            self.normalise();
+            return;
+        }
+
+        self.entries = vec![entry];
+        self.level = if hit.node.is_some() {
+            SelectionLevel::Node
+        } else if hit.part.is_some() {
+            // ★ The Part rung, NOT the Object rung, and this single line is most
+            // of the fix. It is what makes the anchors appear on the very first
+            // click — `painting::draw_anchors` draws the entered subpath's
+            // anchors from the Part rung up, so entering it *is* showing them.
+            SelectionLevel::Part
+        } else {
+            SelectionLevel::Object
+        };
+        self.normalise();
+    }
+
     /// Replace or extend the selection with a marquee's enclosed set.
     ///
     /// Always resolves to the **Object** rung, and ascends if the operator

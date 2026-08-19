@@ -635,7 +635,7 @@ mod tests {
     fn a_digit_reaches_no_command_without_its_modifier() {
         let ctx = Context::default();
         let keymap = built_in_keymap();
-        for (chord, _) in keymap.iter() {
+        for (chord, bound) in keymap.iter() {
             let Some((wanted, key)) = parse_chord(chord) else {
                 continue;
             };
@@ -646,7 +646,23 @@ mod tests {
             let _ = ctx.run_ui(key_press(key, Modifiers::NONE), |ui| {
                 ids = commands(ui.ctx(), Some(&keymap));
             });
-            assert!(ids.is_empty(), "`{chord}` fired with no modifier held");
+            // ★ **The chord's OWN id must be absent** — not the whole list.
+            //
+            // It asserted `ids.is_empty()` until 2026-08-19, which was the same
+            // statement while no bare letter was bound to anything. The four
+            // pointer tools took `V`, `A`, `T` and `H` that day (the layout
+            // every program in this class uses), so pressing `H` now fires
+            // `view.tool_hand` — correctly — and an empty-list assertion would
+            // fail on `Ctrl+H` for a reason that has nothing to do with what it
+            // is testing.
+            //
+            // The property under test never was "a bare key does nothing". It is
+            // **"a chord that names a modifier does not fire without it"**, and
+            // that is what this now says.
+            assert!(
+                !ids.iter().any(|got| got == bound),
+                "`{chord}` fired with no modifier held"
+            );
         }
     }
 

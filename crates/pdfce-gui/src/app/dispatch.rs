@@ -511,6 +511,89 @@ impl PdfceApp {
             // any draft) from the other end. Reachable only by a chord or a
             // customized manifest, exactly like the markup and measure arms
             // below: the shipped manifest shows the Edit tab in Edit alone.
+            // ★ The two pointer tools, armed directly rather than toggled.
+            //
+            // `view.tool_hand` and `view.tool_text` TOGGLE — press twice to
+            // return to Select — because each was a single control with no
+            // sibling, so "press it again" was the only way back. These do not:
+            // they are members of a **row**, and in a row the way back to Select
+            // is to press Select. Toggling a member of a radio group is the
+            // behaviour that makes an operator press a button and watch a
+            // different one light up.
+            // ★★ **The object clipboard.** Cut and copy read the selection and
+            // write `egui::Memory`; paste raises `Action::PasteMarkup`. Every
+            // refusal is a SENTENCE on the status row rather than a silence,
+            // which is this shell's standing answer since `DEFECTS.md` D4a — a
+            // `Ctrl+C` that does nothing and says nothing is indistinguishable
+            // from a broken keyboard, and that is precisely how the operator
+            // experienced the absence of these three.
+            "edit.copy" | "edit.cut" => {
+                let Status::Open(doc) = &self.status else {
+                    return;
+                };
+                let cutting = id == "edit.cut";
+                if cutting && !self.capabilities().author_markup {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-author-markup")
+                    });
+                    return;
+                }
+                // ★ Copy is permitted in every mode and cut is not, and the
+                // split is the operator's own *copying is not authoring* ruling
+                // — the same line that put `file.copy_page_text` in Read and
+                // kept `edit.text` out of it. A cut removes an annotation.
+                let outcome = if cutting {
+                    crate::canvas::clipboard::cut(ctx, doc, actions)
+                } else {
+                    crate::canvas::clipboard::copy(ctx, doc)
+                };
+                if let Err(refusal) = outcome {
+                    crate::app::actions::record_note(
+                        doc.edit_epoch,
+                        crate::text::clipboard::refusal(refusal).to_owned(),
+                    );
+                }
+            }
+            "edit.paste" => {
+                let Status::Open(doc) = &self.status else {
+                    return;
+                };
+                if !self.capabilities().author_markup {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-author-markup")
+                    });
+                    return;
+                }
+                let page = doc.view.page_index;
+                let epoch = doc.edit_epoch;
+                if let Err(refusal) = crate::canvas::clipboard::paste(ctx, page, actions) {
+                    crate::app::actions::record_note(
+                        epoch,
+                        crate::text::clipboard::refusal(refusal).to_owned(),
+                    );
+                }
+            }
+            "view.tool_select" => {
+                crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Select);
+            }
+            "view.tool_node" => {
+                // Declines by name in a mode that cannot author, exactly as
+                // `edit.text` does below and for the identical reason: an anchor
+                // is selected in order to be dragged, and a mode that refuses
+                // the drag must refuse the tool rather than arm it and then say
+                // no to every gesture. `tool::retire_forbidden` closes the same
+                // gap from the other end when the mode changes underneath.
+                if self.capabilities().edit_content {
+                    crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Node);
+                } else {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-edit-content")
+                    });
+                }
+            }
             "edit.text" | "edit.add_text" => {
                 let kind = if id == "edit.add_text" {
                     crate::canvas::textedit::TextEditKind::Add
@@ -518,6 +601,13 @@ impl PdfceApp {
                     crate::canvas::textedit::TextEditKind::Edit
                 };
                 if self.capabilities().edit_content {
+                    // ★ Both ids still arm the caret directly, and both are kept
+                    // — two doors into one room. `edit.text` is the one an
+                    // operator finds on the Edit tab; `view.tool_text` (T) is
+                    // the one they find in the tool row. Since 2026-08-19 the
+                    // CLICK decides edit-versus-add, so the `kind` here is a
+                    // starting bias rather than a mode: `textedit::click` turns
+                    // an `Edit` that lands on no run into an origin.
                     let _ = crate::canvas::tool::arm_text_edit(ctx, kind);
                 } else {
                     crate::diag::trace(|| {

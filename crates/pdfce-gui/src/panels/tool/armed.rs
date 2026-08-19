@@ -198,6 +198,11 @@ fn identity(ui: &mut Ui, tool: CanvasTool, host: Option<&MenuHost<'_>>) {
 fn stage(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
     let text = match tool {
         CanvasTool::Select => return,
+        CanvasTool::Node => {
+            ui.label(egui::RichText::new(t::node_instruction()).small());
+            ui.label(egui::RichText::new(t::node_shift()).small().weak());
+            return;
+        }
         CanvasTool::Hand => {
             ui.label(egui::RichText::new(t::hand_instruction()).small());
             ui.label(egui::RichText::new(t::hand_borrow()).small().weak());
@@ -323,7 +328,8 @@ fn put_down(ui: &mut Ui, ctx: &egui::Context) {
 fn command_for(tool: CanvasTool) -> Option<&'static str> {
     match tool {
         // ui-text-exempt: command ids, never displayed
-        CanvasTool::Select => None,
+        CanvasTool::Select => Some("view.tool_select"),
+        CanvasTool::Node => Some("view.tool_node"),
         CanvasTool::Hand => Some("view.tool_hand"),
         CanvasTool::Text => Some("view.tool_text"),
         CanvasTool::Markup(kind) => Some(crate::shell::commands::markup_command(kind)),
@@ -359,7 +365,9 @@ fn command_for(tool: CanvasTool) -> Option<&'static str> {
 /// `RIBBON_IA.md` puts it, which is the promise the built-in shell keeps.
 fn tab_for(tool: CanvasTool) -> &'static str {
     match tool {
-        CanvasTool::Select | CanvasTool::Hand | CanvasTool::Text => crate::text::ribbon::tab_view(),
+        CanvasTool::Select | CanvasTool::Node | CanvasTool::Hand | CanvasTool::Text => {
+            crate::text::ribbon::tab_view()
+        }
         CanvasTool::Markup(_) | CanvasTool::TextAnnot(_) => crate::text::ribbon::tab_markup(),
         CanvasTool::Measure(_) => crate::text::ribbon::tab_measure(),
         CanvasTool::TextEdit(_) => crate::text::ribbon::tab_edit(),
@@ -374,13 +382,27 @@ mod tests {
 
     /// ★ Every armable tool names a command, and `Select` names none.
     ///
-    /// `Select` is the unarmed state — [`super`]'s body treats it as such and
-    /// never draws this block for it — so a command here would be a claim that
-    /// there is a control called "Select", which there is not.
+    /// ★★ **Rewritten 2026-08-19, and the sentence it replaces is the finding.**
+    ///
+    /// It used to read: *"`Select` is the unarmed state … so a command here
+    /// would be a claim that there is a control called Select, which there is
+    /// not."* True at the time, and the reason it was true is the defect: this
+    /// shell had a Hand toggle and a Text toggle and **no Select control**, so
+    /// the two read as unrelated switches rather than as members of a set, and
+    /// there was nowhere for a third and fourth to join.
+    ///
+    /// A tool palette is the most conventional object in this product class.
+    /// Not having one is the invention — which is exactly what the operator
+    /// said on 2026-08-19: *"a lot of ideas are getting invented instead of just
+    /// using the … most common method expected."*
+    ///
+    /// So every tool names a command now, including Select, and the assertion
+    /// is the stronger one: **no tool is unnameable.**
     #[test]
-    fn every_armed_tool_names_its_command_and_select_names_none() {
-        assert_eq!(command_for(CanvasTool::Select), None);
+    fn every_tool_names_its_command() {
         for tool in [
+            CanvasTool::Select,
+            CanvasTool::Node,
             CanvasTool::Hand,
             CanvasTool::Text,
             CanvasTool::Markup(MarkupKind::Rectangle),

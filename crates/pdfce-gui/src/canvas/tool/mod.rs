@@ -189,6 +189,38 @@ pub enum CanvasTool {
     /// default.
     #[default]
     Select,
+    /// **Direct selection** — the white arrow. Click an object and every one of
+    /// its anchors appears **immediately**; click an anchor to select it,
+    /// Shift-click to add, drag to move the set.
+    ///
+    /// # ★★ Why this exists, and what it replaces
+    ///
+    /// It replaces a **ritual this project invented**. Until 2026-08-19 the only
+    /// way to reach an anchor was to click an object, double-click to descend to
+    /// its subpath, double-click again to descend to a node — three gestures,
+    /// none of them signposted, with nothing on screen at any stage saying a
+    /// deeper rung existed. The operator's verdict, and it is the correct one:
+    ///
+    /// > *"How do I get to see the end points of an object and select them to
+    /// > drag and move? This doesn't work either. … The selector should be
+    /// > predictable like other programs. It seems a lot of ideas are getting
+    /// > invented instead of just using the … most common method expected."*
+    ///
+    /// Every vector editor an operator has ever used solves this with **a second
+    /// arrow**: Illustrator's Direct Selection (`A`), Inkscape's Node tool
+    /// (`N`), Figma's double-click-into-vector-edit, CorelDRAW's Shape tool
+    /// (`F10`). The tool *is* the rung. There is no hidden state to descend
+    /// through and no way to be at a rung you did not choose.
+    ///
+    /// # What the rung ladder is still for
+    ///
+    /// [`crate::canvas::selection::SelectionLevel`] stays exactly as it was —
+    /// it is a good **model** and it is what `move_node`, `move_subpath` and
+    /// `move_nodes` are addressed through. What changed is that arming this tool
+    /// *puts* you at the Node rung, instead of requiring you to find your way
+    /// there. Double-click descent still works and is still tested; it is simply
+    /// no longer the only route, which is what made it a trap.
+    Node,
     /// Click does nothing, drag moves the paper under the viewport.
     Hand,
     /// Drag authors a markup annotation of the carried kind.
@@ -472,6 +504,14 @@ impl CanvasTool {
     pub fn cursor(self, dragging: bool) -> Option<CursorIcon> {
         match self {
             Self::Select => None,
+            // ★ **The same answer as `Select` — `None` — and that is the whole
+            // point.** The Node tool's feedback is the anchors it draws, not a
+            // cursor, and returning an icon here would suppress the anchor and
+            // handle cursors underneath exactly as `Text`'s I-beam suppresses
+            // the grip cursors (see the note above). The operator learns which
+            // tool is armed from the Tool panel and from the marks on the page,
+            // which is where every other editor puts that information.
+            Self::Node => None,
             Self::Hand if dragging => Some(CursorIcon::Grabbing),
             Self::Hand => Some(CursorIcon::Grab),
             // ★ The text-annotation tools join the crosshair group. They place
@@ -551,6 +591,16 @@ impl CanvasTool {
     #[must_use]
     pub fn is_text(self) -> bool {
         matches!(self, Self::Text)
+    }
+
+    /// Whether this tool's subject is **anchors** rather than whole objects.
+    ///
+    /// True for [`Self::Node`] alone. Read by the paint pass — which draws every
+    /// anchor of the selected object while it is armed, rather than only after a
+    /// descent — and by the click router, which selects an anchor directly.
+    #[must_use]
+    pub fn is_node(self) -> bool {
+        matches!(self, Self::Node)
     }
 
     /// **Which text-edit kind is armed, if any.**

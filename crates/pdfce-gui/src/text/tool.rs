@@ -171,6 +171,24 @@ pub const fn put_down_hint() -> &'static str {
     "Esc does the same."
 }
 
+/// What the **Node tool** does, in the Tool panel's live stage.
+///
+/// ★ Written as the two gestures in the order an operator performs them, and
+/// naming the *thing* rather than the rung. "Anchor" is what a draughtsman
+/// calls the point; `SelectionLevel::Node` is what this program calls the
+/// state, and the panel speaks the first vocabulary — `text::commands`' rule
+/// that a label is the operator's word and an id is the format's.
+#[must_use]
+pub const fn node_instruction() -> &'static str {
+    "Click a shape to show its points. Click a point to select it, then drag to move it."
+}
+
+/// The line under it: how to take more than one.
+#[must_use]
+pub const fn node_shift() -> &'static str {
+    "Shift-click to add more points. A point on a curve also shows its handles."
+}
+
 /// The Hand tool's instruction.
 #[must_use]
 pub const fn hand_instruction() -> &'static str {

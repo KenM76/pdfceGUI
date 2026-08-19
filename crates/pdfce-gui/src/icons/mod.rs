@@ -291,13 +291,38 @@ mod tests {
     /// It is also the pipeline's only coverage of the fill path, so an
     /// "audit" that outlined it would silently delete a test as well as a
     /// meaning.
+    ///
+    /// ★★ **Widened on 2026-08-19, and the widening is the point rather than a
+    /// concession.** The rule this test enforces is *fill is semantic, never
+    /// decorative*, and the black-arrow / white-arrow pair is the purest
+    /// available instance of it: `cursor` and `cursor-node` have
+    /// **byte-identical outlines** and differ only in fill, and that difference
+    /// has meant "the whole object" versus "the points inside it" in every
+    /// vector editor since Illustrator 88.
+    ///
+    /// So the assertion is no longer `icon == Icon::Redact` but membership of a
+    /// named set with a reason per member. A future audit that outlines one of
+    /// these deletes a meaning as well as a test — which is what the original
+    /// comment warned about, applied to a larger set.
     #[test]
-    fn redaction_is_the_only_filled_icon() {
+    fn fill_is_semantic_and_the_set_that_uses_it_is_closed() {
+        /// Every icon entitled to a fill, and why.
+        ///
+        /// - [`Icon::Redact`] — every other tool draws or measures; this one
+        ///   obliterates.
+        /// - [`Icon::Cursor`] — the filled half of the arrow pair. Its hollow
+        ///   twin is the ONLY thing distinguishing the two tools.
+        /// - [`Icon::CursorNode`] — the hollow arrow, plus one filled anchor
+        ///   square among three outlined ones, which says *this is the point
+        ///   you picked* in the same language `canvas::overlay` draws on the
+        ///   page itself.
+        const FILLED: &[Icon] = &[Icon::Redact, Icon::Cursor, Icon::CursorNode];
+
         for &icon in Icon::ALL {
             let art = IconArt::parse(icon.source()).expect("parses");
             assert_eq!(
                 art.has_fill(),
-                icon == Icon::Redact,
+                FILLED.contains(&icon),
                 "fill expectation violated for '{}'",
                 icon.name()
             );

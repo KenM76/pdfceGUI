@@ -190,7 +190,17 @@ pub(super) fn tab() -> Tab {
             group(
                 "navigate",
                 ribbon::group_view_navigate(),
-                [command("view.tool_hand"), command("view.tool_text")],
+                // ★ **The order is the order a tool palette is always in**:
+                // the arrow, the white arrow, the type tool, the hand. Every
+                // program in this class puts them in that sequence, which means
+                // the operator's eye already knows where to go before they have
+                // read a single label.
+                [
+                    command("view.tool_select"),
+                    command("view.tool_node"),
+                    command("view.tool_text"),
+                    command("view.tool_hand"),
+                ],
             ),
             // ---------------------------------------------------------------
             // Zoom — the three named levels, mirrored from the status bar

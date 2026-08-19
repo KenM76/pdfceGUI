@@ -662,9 +662,36 @@ mod tests {
         assert_eq!(
             refused,
             [
+                // ★ The object clipboard, added 2026-08-19. Refused in Read
+                // because all three sit on the **Edit tab**, which Read does not
+                // show — the structural gate, not a special case.
+                //
+                // ★★ This does NOT take text copying away from Read, and the
+                // distinction matters because Acrobat Reader copies text and
+                // this mode is measured against it. `Ctrl+C` over a swept range
+                // is `canvas::textsel::clipboard`'s, read before the command
+                // dispatcher sees the key at all. What Read refuses is copying
+                // an *annotation*, which it could not paste anywhere.
                 // Authoring the page's own content — correctly refused.
                 "edit.add_text",
+                "edit.copy",
+                "edit.cut",
+                "edit.paste",
                 "edit.text",
+                // ★ The object clipboard, added 2026-08-19 — listed after the
+                // two text verbs because this array is SORTED (the assertion
+                // sorts and dedups), not grouped by subject.
+                //
+                // Refused in Read because all three sit on the **Edit tab**,
+                // which Read does not show: the structural gate, not a special
+                // case.
+                //
+                // ★★ It does NOT take text copying away from Read, and that
+                // distinction matters because Acrobat Reader copies text and
+                // this mode is measured against it. `Ctrl+C` over a swept range
+                // belongs to `canvas::textsel::clipboard`, which reads the key
+                // before the command dispatcher sees it. What Read refuses is
+                // copying an ANNOTATION, which it could not paste anywhere.
                 // Structural page verbs. Read shows no Pages tab, which is
                 // `MODES_AND_PANELS.md`'s own decision, not this gate's.
                 "pages.move_down",

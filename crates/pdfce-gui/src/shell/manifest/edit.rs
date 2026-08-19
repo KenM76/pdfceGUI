@@ -101,6 +101,31 @@ pub(super) fn tab() -> Tab {
                 ribbon::group_edit_insert(),
                 [command("edit.insert_image")],
             ),
+            // ★★ **Clipboard is BACK, 2026-08-19** — and the note below, which
+            // explains why it was deleted, is kept because its reasoning was
+            // right and only its premise expired.
+            //
+            // It was deleted because its two members moved to File ▸ Export and
+            // nothing was left. What refills it is not those two returning: it
+            // is `edit.cut`, `edit.copy` and `edit.paste`, the three the old
+            // note called *"a group whose eventual first four entries are
+            // cut/copy/paste/paste-in-place for the object clipboard (N)"*.
+            //
+            // Three, not four. **Paste-in-place is not here** and its absence is
+            // a decision: a same-page paste offsets so the copy is visible, and
+            // a cross-page paste lands in place already — so the fourth command
+            // would be a control that does what `Ctrl+V` does on the only page
+            // where an operator would press it. `canvas::clipboard`'s header
+            // carries the argument.
+            group(
+                "clipboard",
+                ribbon::group_edit_clipboard(),
+                [
+                    command("edit.cut"),
+                    command("edit.copy"),
+                    command("edit.paste"),
+                ],
+            ),
             // ---------------------------------------------------------------
             // ★ **Clipboard was here, and it is deleted rather than emptied.**
             //

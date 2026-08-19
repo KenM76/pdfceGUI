@@ -328,6 +328,24 @@ pub fn group_edit_insert() -> &'static str {
     "Insert"
 }
 
+/// Edit ▸ Clipboard.
+///
+/// ★★ **Back on 2026-08-19**, and the note below — which explains why it was
+/// deleted — is kept verbatim because its reasoning was right and only its
+/// premise expired. It ends *"the next author of an object clipboard needs the
+/// word — which is right here"*, and that is exactly what happened: the word was
+/// read out of that comment and put back into this function.
+///
+/// It is a small vindication of a rule this project applies everywhere and that
+/// is easy to feel silly about at the time: **delete the code, keep the
+/// reasoning.** A dead `pub fn` would have compiled for five days and quietly
+/// invited the group back before there was anything to put in it; a comment
+/// could not, and was still there when there was.
+#[must_use]
+pub fn group_edit_clipboard() -> &'static str {
+    "Clipboard"
+}
+
 // ★ `group_edit_clipboard` — `"Clipboard"` — was here until 2026-08-14, and
 // it is DELETED rather than kept for a caller that might come back.
 //

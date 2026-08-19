@@ -130,8 +130,8 @@ use crate::shell::menus::MenuHost;
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
 use super::{
-    CANVAS_MARGIN, gesture, handles, keys, markup, measure, menus, moving, overlay, strip, textsel,
-    tool, trace, zoom,
+    CANVAS_MARGIN, handles, keys, markup, measure, menus, moving, overlay, strip, textsel, tool,
+    trace, zoom,
 };
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
@@ -378,79 +378,28 @@ pub(super) fn interact(
 
     // ---- 2. what a press would land on -------------------------------
     //
-    // The armed tool and the marquee's INTENT are sampled here, at press time,
-    // alongside what the press landed on — see `gesture`'s header on why a
-    // release must not re-read either. The precedence between the four answers
-    // lives in `gesture::press_kind`, which is pure and tested; this is the one
-    // call that supplies it with the frame's facts.
-    let grip_box = overlay::grip_box(map, &selection);
-    // ★★ The PRESS ORIGIN, not the current pointer — corrected 2026-08-19 when
-    // the resize grips first committed and a driven drag became a **marquee**.
+    // Moved to `canvas::pressing` under R2 on 2026-08-19, when the Node tool
+    // and the Bézier-handle hit test pushed this file past 1,500 lines. It is a
+    // real seam: everything there answers *if the button went down here, right
+    // now, what would happen?* and changes nothing, where every remaining
+    // section of this function advances, routes or paints.
     //
-    // This is `PointerFrame::press_origin`'s defect arriving from the second
-    // direction, and the first fix did not cover it. `egui` does not call an
-    // interaction a drag until the pointer has travelled a threshold, and by
-    // the frame it says so the pointer is already **that far from where it went
-    // down**. `press_origin` fixed the drag's *start point* for the marquee and
-    // the move — measured at 94 PDF points of error on A1 at 0.21× zoom — and
-    // left this line reading `screen_pos`, which is *where the pointer is now*.
-    //
-    // A grip is an 8 pt square with 2 pt of slack. So the press that mattered
-    // was inside the grip and the frame that asked was 20 pt away, `grip_at`
-    // answered `None`, and the gesture became a rubber-band that **cleared the
-    // selection the operator was trying to resize**. Driven, on `SW41177.pdf`:
-    // `canvas-selection via=marquee sel=0` where a resize was expected.
-    //
-    // It never showed before because nothing committed on a grip drag, so the
-    // only symptom was a resize that did nothing — which is exactly what the
-    // grips did on purpose, and is why a real defect hid inside a documented
-    // one for the whole life of the feature.
-    let hovered_grip = grip_box
-        .zip(ctx.input(|i| i.pointer.press_origin()).or(screen_pos))
-        .and_then(|(bounds, p)| {
-            handles::grip_at(
-                bounds,
-                p,
-                // ★ The eight scale handles belong to the Object rung. See
-                // `handles::grip_at` for the two reasons — the subject is
-                // wrong at an inner rung, and the corner grips physically
-                // cover the corner ANCHORS, which made the end nodes of every
-                // path undraggable.
-                selection.level() == crate::canvas::selection::SelectionLevel::Object,
-            )
-        });
-    // ★★ The Bézier handles of every selected anchor, and the one under the
-    // press if there is one.
-    //
-    // Computed HERE, beside `hovered_grip`, and from `press_origin` for the
-    // identical reason that line gives: `egui` does not call an interaction a
-    // drag until the pointer has travelled a threshold, so by the frame it says
-    // so the pointer is already that far from where it went down. A handle is
-    // an eight-pixel target; reading the current pointer would miss it exactly
-    // as it missed the grips.
-    //
-    // The provider is asked for only at the Node rung — `visible` returns empty
-    // above it — so the ordinary case pays one `entered_object()` and one
-    // `subpath` check.
-    let visible_handles = doc
-        .page_objects()
-        .zip(doc.pages.get(page_index))
-        .map(|(provider, page)| {
-            crate::canvas::handledrag::visible(&selection, &provider, page, page_index)
-        })
-        .unwrap_or_default();
-    let hovered_handle = ctx
-        .input(|i| i.pointer.press_origin())
-        .or(screen_pos)
-        .and_then(|p| crate::canvas::handledrag::at(&visible_handles, map, p));
-
-    let press_kind = gesture::press_kind(
+    // ★ Its header carries the **precedence** — handle, then anchor, then grip,
+    // then the selection body — and the three separate defects that taught it.
+    // That rule is the single most bug-prone thing on this canvas and it now
+    // lives in one place with its own reasoning beside it.
+    let press = crate::canvas::pressing::look(
+        &ctx,
+        doc,
+        &selection,
+        map,
+        page_index,
+        screen_pos,
         active_tool,
-        hovered_grip,
-        hovered_handle,
-        zoom::region_zoom_armed(&ctx),
         caps,
     );
+    let hovered_grip = press.grip;
+    let press_kind = press.meaning;
 
     // ---- 3. advance the gesture --------------------------------------
     //
@@ -709,7 +658,54 @@ pub(super) fn interact(
             // A refusal is shown rather than swallowed. That is D4a's whole
             // lesson: the old shell's answer to a caret it could not place was a
             // boolean and a keyboard that stopped responding.
-            if let Some(kind) = active_tool.text_edit_kind() {
+            // ★★ **The Node tool takes the click before anything else**, and
+            // it is first because it is the most specific: the operator armed a
+            // tool whose entire subject is anchors, so a click means an anchor
+            // if one is there and "show me this shape's anchors" if not. See
+            // `SelectionState::click_direct`.
+            //
+            // `hit` here already carries the object, the nearest part AND the
+            // nearest node, because the probe that produced it is the one a
+            // double-click descent uses. That is why this needed no new query:
+            // the information the ladder made you perform two gestures to reach
+            // was in the very first click all along.
+            //
+            // ★ **The text tool's kind is decided by the CLICK, not by which
+            // ribbon command was pressed**, as of 2026-08-19. `CanvasTool::Text`
+            // in a mode that can author now places a caret; `textedit::click`
+            // falls back to a fresh origin when the point names no run. The
+            // operator's report is why:
+            //
+            // > *"How do I edit text when on the canvas? I get a box and the I
+            // > cursor, but I can't type anything. How do I make new text when I
+            // > click on the canvas and expect to edit there? Same problem."*
+            //
+            // He was getting the I-beam because the text tool SWEPT text, and
+            // the tool that types was a different tool reachable only through
+            // `Edit ▸ Content ▸ Edit text` — four steps of ritual before a
+            // character could be typed, and no surface anywhere saying so. One
+            // tool now, click decides, which is Illustrator, Word, Inkscape and
+            // every other program he has used.
+            let text_kind = active_tool.text_edit_kind().or_else(|| {
+                (active_tool.is_text() && caps.edit_content)
+                    .then_some(crate::canvas::textedit::TextEditKind::Edit)
+            });
+            if active_tool.is_node() && caps.edit_content {
+                let hit = targets
+                    .as_ref()
+                    .map(|t| probe(&**t, &selection, page_index, point, map))
+                    .unwrap_or_default();
+                selection.click_direct(page_index, hit, shift);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!(
+                        "canvas-selection via=node-tool mod={shift} sel={} level={:?} node={:?}",
+                        selection.len(),
+                        selection.level(),
+                        hit.node
+                    )
+                });
+            } else if let Some(kind) = text_kind {
                 match crate::canvas::textedit::click(
                     &ctx,
                     &crate::canvas::textedit::Click {

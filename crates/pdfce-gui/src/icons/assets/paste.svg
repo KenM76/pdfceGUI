@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Paste — a clipboard with its clip. Universal, no trademark risk. -->
+  <!-- No ui-spec row: `edit.paste` was added 2026-08-19 with the object clipboard.
+       Authored in the §3 style contract.
+
+       A rounded board with a clip across the top. The second-oldest glyph in this
+       group and equally undisplaced: every program in every class draws paste as a
+       clipboard, and the metaphor is the reason the feature is called a clipboard
+       at all.
+
+       The clip is a separate rounded rect straddling the board's top edge rather
+       than a notch cut into it — a notch disappears at 16 px and the glyph then
+       reads as a plain page, which is `Icon::Copy`'s territory and the one
+       collision that would actually mislead. -->
+  <rect x="11" y="10" width="26" height="32" rx="3" stroke="currentColor" stroke-width="2.5"/>
+  <rect x="18" y="5" width="12" height="9" rx="2.5" stroke="currentColor" stroke-width="2.5"/>
+  <path d="M18 25h12M18 32h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

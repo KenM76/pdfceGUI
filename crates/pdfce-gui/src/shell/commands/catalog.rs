@@ -501,6 +501,55 @@ pub(super) fn all() -> Vec<Command> {
         command("view.zoom_region", t::view_zoom_region(), 224)
             .with_icon("zoom-region")
             .enabled_when("doc.pages"),
+        // ★★ **The two pointer tools that make the canvas predictable**, added
+        // 2026-08-19 on the operator's report:
+        //
+        // > *"The selector should be predictable like other programs. It seems a
+        // > lot of ideas are getting invented instead of just using the … most
+        // > common method expected."*
+        //
+        // He is right, and `view.tool_select` had been **deliberately absent** —
+        // the comment that used to sit here read *"There is deliberately no
+        // `view.tool_select` beside them"*, on the argument that Select is the
+        // default you return to rather than a thing you pick. That argument is
+        // sound and it produced an unusable surface: with no Select control
+        // there was no *row of tools*, so the Hand and the Text tool read as two
+        // unrelated toggles rather than as members of a set, and there was
+        // nowhere for a third and fourth to join. A tool palette is the most
+        // conventional object in this product class; not having one is the
+        // invention.
+        // ★★ **The object clipboard, 2026-08-19** — the operator's report:
+        // *"also the standard copy/paste and I didn't try cut so possibly that
+        // one too aren't implemented."* They were not.
+        //
+        // ★ Scoped to **markup and comments**, because that is what the engine
+        // can express: `annot_author::spec_from_dict` reads one and `add_markup`
+        // writes one back. Page content cannot be pasted — 157 verbs in
+        // `edit.rs` and none inserts content, checked 2026-08-19 — so a copy of
+        // a path would be offering a paste that could never happen. The labels
+        // say "comment or markup" rather than "object" for exactly that reason.
+        //
+        // `enabled_when("doc.pages")` rather than a selection condition: what is
+        // selected changes every click, and a control that greys and un-greys
+        // under the pointer is harder to aim at than one that answers in a
+        // sentence when pressed. The refusals are `canvas::clipboard::Refusal`,
+        // on the status row, which is the same posture the six resize refusals
+        // take.
+        command("edit.cut", t::edit_cut(), 403)
+            .with_icon("cut")
+            .enabled_when("doc.pages"),
+        command("edit.copy", t::edit_copy(), 404)
+            .with_icon("copy")
+            .enabled_when("doc.pages"),
+        command("edit.paste", t::edit_paste(), 405)
+            .with_icon("paste")
+            .enabled_when("doc.pages"),
+        command("view.tool_select", t::view_tool_select(), 252)
+            .with_icon("cursor")
+            .enabled_when("doc.pages"),
+        command("view.tool_node", t::view_tool_node(), 253)
+            .with_icon("cursor-node")
+            .enabled_when("doc.pages"),
         command("view.tool_hand", t::view_tool_hand(), 225)
             .with_icon("hand")
             .enabled_when("doc.pages"),

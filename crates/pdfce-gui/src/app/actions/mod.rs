@@ -179,6 +179,38 @@ pub enum Action {
     /// revision in the file. `docs/core-api/03-capabilities.md` §3.4 states
     /// that rule and `crate::text::markup::deleted_collateral` observes it in
     /// the wording it chooses.
+    /// **Paste a copied markup onto `page`**, displaced by `(dx, dy)`.
+    ///
+    /// Raised by [`crate::canvas::clipboard::paste`] and by nothing else.
+    ///
+    /// # ★ Why the displacement travels rather than being applied at the copy
+    ///
+    /// Because where a paste lands depends on **which page it lands on**, and
+    /// that is not known until the operator presses the key: the same clipboard
+    /// entry offsets on its home page (so the copy is visible instead of
+    /// hidden under its original) and lands in place on any other (so a
+    /// revision cloud copied to sheet 12 is where it was on sheet 1). Baking a
+    /// displacement into the clipboard at copy time would make the second
+    /// behaviour impossible without a second clipboard entry.
+    ///
+    /// # Why the spec is boxed
+    ///
+    /// `MarkupSpec` is a large enum — its widest variant carries a vertex list,
+    /// a border effect and a style — and `Action` is passed by value through the
+    /// funnel. One `Box` here keeps every *other* action cheap, which is the
+    /// same trade `CommitTextAnnot` makes for the same reason.
+    PasteMarkup {
+        /// The 0-based page to author onto — **the page on screen now**, not
+        /// the one it was copied from.
+        page: usize,
+        /// The spec, verbatim from `annot_author::spec_from_dict`.
+        spec: Box<pdfce_core::annot_author::MarkupSpec>,
+        /// Horizontal displacement, PDF points.
+        dx: f64,
+        /// Vertical displacement, PDF points. **Negative is down** — y
+        /// increases upward in PDF user space.
+        dy: f64,
+    },
     DeleteAnnotation {
         /// The page it is on — for the trace and the disclosure, not for the
         /// verb, which finds the annotation by id wherever it lives. A reply

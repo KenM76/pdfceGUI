@@ -74,6 +74,8 @@
 pub mod about;
 /// The label and tooltip of every ribbon command. Consumed by
 /// `crate::shell::commands`.
+/// The four sentences the object clipboard can say when it cannot act.
+pub mod clipboard;
 pub mod commands;
 /// Every word the Render-diagnostics dialog adds around the findings — the
 /// title, the three measurements of the render itself, and the two states in

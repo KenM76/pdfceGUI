@@ -253,6 +253,11 @@ pub mod ribbon_captions;
 /// phases and the different wrong build each one catches.
 pub mod save_copy;
 pub mod settings_headings;
+/// ★★ **The operator's own two gestures** — press T and type, press A and see
+/// the points. Both features existed before 2026-08-19; reaching them took four
+/// steps and three gestures respectively, neither discoverable and neither
+/// resembling any other program. These assert the COUNT: one key, one click.
+pub mod tool_row;
 
 /// Marking a text selection — underline, strikeout, squiggly. The first
 /// commands in this shell whose operand is **not the pointer**, and therefore
@@ -575,6 +580,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
+        Box::new(tool_row::TheTextToolTypesOnOneClick),
+        Box::new(tool_row::ThePointsToolShowsPointsOnOneClick),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

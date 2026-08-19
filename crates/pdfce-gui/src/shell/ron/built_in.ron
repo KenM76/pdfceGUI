@@ -122,8 +122,10 @@
                     id: "navigate",
                     caption: "Navigate",
                     items: [
-                        Command("view.tool_hand"),
+                        Command("view.tool_select"),
+                        Command("view.tool_node"),
                         Command("view.tool_text"),
+                        Command("view.tool_hand"),
                     ],
                 ),
                 (
@@ -226,6 +228,15 @@
                     caption: "Insert",
                     items: [
                         Command("edit.insert_image"),
+                    ],
+                ),
+                (
+                    id: "clipboard",
+                    caption: "Clipboard",
+                    items: [
+                        Command("edit.cut"),
+                        Command("edit.copy"),
+                        Command("edit.paste"),
                     ],
                 ),
                 (
@@ -385,6 +396,7 @@
         "edit.redo",
     ],
     keymap: {
+        "A": "view.tool_node",
         "Alt+Down": "pages.move_down",
         "Alt+Up": "pages.move_up",
         "Ctrl+0": "view.zoom_actual",
@@ -392,6 +404,7 @@
         "Ctrl+2": "mode.review",
         "Ctrl+3": "mode.edit",
         "Ctrl+Alt+N": "file.new_from_template",
+        "Ctrl+C": "edit.copy",
         "Ctrl+E": "edit.text",
         "Ctrl+F": "edit.find",
         "Ctrl+H": "view.read_mode",
@@ -401,9 +414,14 @@
         "Ctrl+Shift+C": "file.copy_page_text",
         "Ctrl+Shift+E": "edit.add_text",
         "Ctrl+Shift+Z": "edit.redo",
+        "Ctrl+V": "edit.paste",
+        "Ctrl+X": "edit.cut",
         "Ctrl+Y": "edit.redo",
         "Ctrl+Z": "edit.undo",
         "F11": "view.fullscreen",
+        "H": "view.tool_hand",
+        "T": "view.tool_text",
+        "V": "view.tool_select",
         "[": "pages.rotate_left",
         "]": "pages.rotate_right",
     },

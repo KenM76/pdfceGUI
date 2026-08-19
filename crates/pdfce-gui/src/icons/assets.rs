@@ -486,6 +486,31 @@ pub(super) const GRID: &str = include_str!("assets/grid.svg");
 /// Authored for pdfce in the header §3 style contract — header §5 addition #7.
 pub(super) const GUIDES: &str = include_str!("assets/guides.svg");
 
+/// `cut.svg` — the art for [`super::Icon::Cut`].
+///
+/// Authored for pdfce in the header §3 style contract. Scissors — the oldest
+/// glyph in graphical software and the one nothing has displaced.
+pub(super) const CUT: &str = include_str!("assets/cut.svg");
+
+/// `paste.svg` — the art for [`super::Icon::Paste`].
+///
+/// Authored for pdfce in the header §3 style contract. A clipboard with its
+/// clip; the metaphor the feature is named after.
+pub(super) const PASTE: &str = include_str!("assets/paste.svg");
+
+/// `cursor.svg` — the art for [`super::Icon::Cursor`].
+///
+/// Authored for pdfce in the header §3 style contract. The filled half of the
+/// black-arrow / white-arrow pair; its outline is byte-identical to
+/// [`CURSOR_NODE`]'s and that is the whole message.
+pub(super) const CURSOR: &str = include_str!("assets/cursor.svg");
+
+/// `cursor-node.svg` — the art for [`super::Icon::CursorNode`].
+///
+/// Authored for pdfce in the header §3 style contract. The hollow half of the
+/// pair, plus the three anchor squares the tool reveals.
+pub(super) const CURSOR_NODE: &str = include_str!("assets/cursor-node.svg");
+
 /// `hand.svg` — the art for [`super::Icon::Hand`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #7.

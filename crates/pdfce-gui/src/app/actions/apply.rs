@@ -496,6 +496,25 @@ impl PdfceApp {
             Action::DeleteAnnotation { page, id } => {
                 super::annots::delete(doc, page, id);
             }
+            // ★ A paste is an `add_markup` and nothing more, which is the
+            // whole reason this feature was buildable at all: the spec that
+            // came off the clipboard is the same shape the authoring path
+            // already hands the engine, so there is one call site's worth of
+            // new code and no second notion of what a markup is.
+            //
+            // The displacement is already IN the spec — `clipboard::paste`
+            // translates it before raising this — so `dx`/`dy` here are carried
+            // for the trace and the disclosure only. They are not applied
+            // twice, and the field docs say so.
+            Action::PasteMarkup { page, spec, dx, dy } => {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("paste-markup page={page} dx={dx:.1} dy={dy:.1}")
+                });
+                vector_edit(doc, "paste-markup", page, 1, |session| {
+                    session.add_markup(page, &spec).map(|_| Vec::new())
+                });
+            }
             Action::CommitMarkup {
                 page,
                 kind,

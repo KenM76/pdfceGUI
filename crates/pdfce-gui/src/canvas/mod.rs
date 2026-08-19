@@ -144,13 +144,22 @@ pub mod guides;
 // along the seam that module's header already drew: a ruler is chrome beside
 // the canvas that reserves layout space, a grid is chrome over the page that
 // reserves none.
-pub mod grid;
 /// ★ Dragging a **Bézier handle** — the last Phase 1 row, and one `pdfce`'s
 /// own `gui` column ticked `[x]` while nothing here drew a handle at all.
 /// `EditSession::move_handle` had existed since Pass 30.1; what was missing was
 /// a way to see one and a way to grab one.
+/// ★ **Cut, copy and paste on the canvas** — the operator's report of
+/// 2026-08-19. Implements the row the engine can express (markup) and records
+/// the one it cannot (page content) as a dated citation rather than a promise.
+pub mod clipboard;
+pub mod grid;
 pub mod handledrag;
 pub mod handles;
+/// ★ **What a press would land on, and what it would mean.** Split out of
+/// `interact` under R2; its header carries the four-way precedence between a
+/// Bézier handle, an anchor, a resize grip and the selection body — the single
+/// most bug-prone rule on this canvas, learned three separate times in one day.
+pub mod pressing;
 // Reading this frame's pointer — what a click landed on at every rung, which
 // of the two panning gestures is in flight, and where the in-flight press is
 // kept between frames. Split out under R2 when the rulers landed; see its
