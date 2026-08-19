@@ -373,6 +373,12 @@ pub fn body(
 /// Trace slot for the panel's once-per-change summary.
 const PANEL_SLOT: &str = "pages-panel"; // ui-text-exempt: trace slot name, never displayed
 
+/// The prefix of the per-tile region names; the 0-based page index is appended.
+///
+/// Indexed by **page index**, not by position in the visible set, so a check
+/// that scrolls or reorders keeps naming the same sheet.
+const TILE_REGION_PREFIX: &str = "panel-pages-tile."; // ui-text-exempt: trace region name, never displayed
+
 /// **Where a drag in flight would land**, resolved during the layout pass.
 ///
 /// ## Why this exists at all, rather than the drag storing a gap
@@ -705,6 +711,26 @@ fn tile(
             );
         }
     }
+
+    // ★ Every visible tile publishes its rectangle, so a driven check can aim
+    // at a page rather than at a guess.
+    //
+    // Added 2026-08-18 with the drag-to-reorder gesture, and it closes a gap
+    // this panel had for its whole life: `panel-pages` and `panel-pages-grid`
+    // named the container and `panel-pages-current-tile` named exactly one
+    // tile, so **no check anywhere read this panel**. A drag needs two tiles —
+    // one to lift and one to land beside — and neither could be addressed.
+    //
+    // `ui_rect_visible` rather than `ui_rect`: this is inside a `ScrollArea`,
+    // and a tile scrolled out of view must not keep publishing a rectangle a
+    // check would then click on. `diag.rs`'s own header records the
+    // false-failure that rule exists for.
+    crate::diag::ui_rect_visible(
+        // ui-text-exempt: trace region name, never displayed
+        &format!("{TILE_REGION_PREFIX}{page_index}"),
+        rect,
+        ui.clip_rect(),
+    );
 
     // The current page's ring, outside the sheet so it cannot hide a hairline
     // of the picture. "Which page am I on" must be answerable at a glance,

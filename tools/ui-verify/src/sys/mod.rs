@@ -108,6 +108,29 @@ pub mod vk {
     /// modifier family, which nothing else here presses.
     pub const ARROW_DOWN: u16 = 0x28;
 
+    /// `D`, `T`, `A`, `I` and `L` — the five letters that spell **DETAIL**.
+    ///
+    /// ★ The closed-list rule again, and this is the first entry that exists to
+    /// **type a word** rather than to press a chord.
+    /// `checks::dimension_groups` names a new dimension group, and the name is
+    /// the one thing in that window a check must supply — the Add button is
+    /// greyed with an empty field, deliberately, so a check that cannot type
+    /// cannot reach the verb at all.
+    ///
+    /// "Detail" is chosen rather than a nonsense string because the check's
+    /// failure text quotes it, and an operator reading *"no group called
+    /// Detail appeared in the list"* is being told something about a drawing
+    /// they recognise. Added 2026-08-18.
+    pub const D: u16 = 0x44;
+    /// See [`D`].
+    pub const T: u16 = 0x54;
+    /// See [`D`].
+    pub const A: u16 = 0x41;
+    /// See [`D`].
+    pub const I: u16 = 0x49;
+    /// See [`D`].
+    pub const L: u16 = 0x4C;
+
     /// `2` — the digit, for the `Ctrl+2` mode chord.
     ///
     /// Present only as a **control probe**: `Ctrl+2` is bound to

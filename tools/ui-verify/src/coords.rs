@@ -481,6 +481,38 @@ impl WindowFrame {
         })
     }
 
+    /// A point **inside** a declared rectangle, given as fractions of its
+    /// width and height.
+    ///
+    /// `(0.5, 0.5)` is [`Self::declared_center`]; `(0.75, 0.5)` is
+    /// three-quarters across, vertically centred.
+    ///
+    /// # Why this exists rather than callers building a `WindowPoint`
+    ///
+    /// Because `WindowPoint`'s fields are private and deliberately so — this
+    /// module's rule is that a coordinate is produced by a conversion, never
+    /// assembled — and a check that needs to aim at *part* of a control was
+    /// otherwise stuck reaching for the centre.
+    ///
+    /// The case that forced it is real rather than hypothetical:
+    /// `checks::pages_drag` has to release the pointer over the **right half**
+    /// of a page tile, because the Pages panel resolves the nearer vertical
+    /// edge and the two halves mean two different landing boundaries. Aiming
+    /// at the centre would be aiming at the one place the answer is undefined.
+    ///
+    /// The fractions are **not** clamped. A caller asking for `1.5` means a
+    /// point outside the control and is entitled to it — that is how a check
+    /// aims *beside* a widget rather than at it — and silently correcting it
+    /// would produce a click at an edge the caller did not choose, which is
+    /// the class of failure that reads as the application misbehaving.
+    #[must_use]
+    pub fn declared_at(&self, r: LRect, fx: f32, fy: f32) -> ScreenPoint {
+        self.to_screen(WindowPoint {
+            x: r.min.x + (r.max.x - r.min.x) * fx,
+            y: r.min.y + (r.max.y - r.min.y) * fy,
+        })
+    }
+
     /// The client area as a desktop-pixel rectangle, for the screen grabber.
     #[must_use]
     pub fn client_pixels(&self) -> PixRect {

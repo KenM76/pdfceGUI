@@ -109,6 +109,9 @@
 //! both cases the check says in its own output which one it used.
 
 pub mod delete_key;
+/// The Manage-dimension-groups window: it opens, it creates a group, and the
+/// group comes back joinable.
+pub mod dimension_groups;
 pub mod driving;
 pub mod find_bar;
 pub mod legibility;
@@ -163,6 +166,9 @@ pub mod page_ops;
 /// which was correct while `pdfce-print` was unlinked and became a lock
 /// holding the defect in place the moment the manifest line landed. A green
 /// suite defended the absence of the feature. See the module header.
+/// Drag a page thumbnail to a new position, and see where it will land
+/// before letting go.
+pub mod pages_drag;
 pub mod print_dialog;
 pub mod print_paper;
 pub mod qat_icons;
@@ -390,6 +396,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // together — and because a calibration is worthless if the linear pick
         // it reuses is broken, so failing in that order reads as a diagnosis.
         Box::new(measure_calibrate::MeasureCalibratesByPickingTwoPoints),
+        // ★ The Manage-groups window, wired 2026-08-18 after being registered,
+        // drawn and inert for the whole life of this build. Beside the two
+        // measure checks because it is the third link in the same chain: a
+        // tool places a dimension, a window calibrates its group, and this one
+        // is where the group comes from.
+        Box::new(dimension_groups::DimensionGroupsWindowMakesAGroup),
         // ★ Directly after the markup checks, and the order is a **dependency**
         // rather than a preference: this one begins by arming Rectangle and
         // dragging, which is `markup_rectangle`'s and `markup_shapes`' whole
@@ -418,6 +430,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // in the process that deleted the page is a count the code under test
         // wrote about itself.
         Box::new(page_ops::PageOpsRoundTrip),
+        // ★ The FIRST check anywhere that drives the Pages PANEL rather than
+        // the Pages tab. `page_ops` above drives the ribbon and records why it
+        // does not touch the panel — the tile's context menu is an egui popup
+        // that declares no regions. The tiles themselves declare regions as of
+        // 2026-08-18, which is what made this possible.
+        Box::new(pages_drag::PagesDragShowsWhereItLands),
         // ★ Two ribbon clicks and one trace line — cheap, no capture, no
         // canvas gesture, no keystroke — so its position is chosen for what a
         // reader wants adjacent rather than for cost.
