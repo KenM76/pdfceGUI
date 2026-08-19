@@ -222,11 +222,26 @@ impl InsertImageDialog {
 
         if std::mem::take(&mut self.insert_requested) {
             let rect = self.rect_pt();
+            // ★ The PREVIEWED resolution is traced, and it is here for a driven
+            // check rather than for a human reading a log.
+            //
+            // `add_image`'s own disclosure carries the same number, from the
+            // same producer, and a harness comparing the two proves this window
+            // is still ASKING the engine rather than computing its own. The
+            // engine held up its half by deleting its copy of the formula so
+            // there is one derivation left; the shell can only hold up its half
+            // by making the equality observable.
+            //
+            // The failure it catches is specific and quiet: a re-derivation
+            // here would be low by exactly the letterbox ratio under `Contain`,
+            // which is the default, and both numbers would look perfectly
+            // reasonable.
+            let (dpi_x, _) = self.spec(rect).effective_dpi();
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed
                 format!(
                     "insert-image-requested page={} llx={:.2} lly={:.2} urx={:.2} ury={:.2} \
-                     fit={:?}",
+                     fit={:?} dpi={dpi_x:.0}",
                     self.page_index, rect.llx, rect.lly, rect.urx, rect.ury, self.fit
                 )
             });
@@ -249,6 +264,31 @@ impl InsertImageDialog {
     /// `dialogs::new_document::sheet_pt` makes for its own single derivation.
     fn rect_pt(&self) -> Rect {
         rect_pt(self.x_mm, self.y_mm, self.width_mm, self.height_mm)
+    }
+
+    /// The placement spec, built the one way.
+    ///
+    /// ★ The builder rather than a struct literal — `NewImage` is
+    /// `#[non_exhaustive]`, so a downstream crate cannot construct it
+    /// field-by-field, and the constructor is what keeps a field added upstream
+    /// from silently defaulting here.
+    ///
+    /// **One function, three readers**: the landing preview, the resolution
+    /// preview, and the trace the harness cross-checks against the outcome. The
+    /// apply arm builds it the same way, which is what makes `placed_rect()`
+    /// here and the rectangle written there the same answer rather than two —
+    /// and it is the same argument [`rect_pt`] makes about the millimetre
+    /// conversion, one layer up.
+    fn spec<'a>(&'a self, rect: Rect) -> NewImage<'a> {
+        let spec = NewImage::new(self.page_index, rect, &self.image);
+        match self.fit {
+            ImageFit::Stretch => spec.stretching(),
+            // `Contain` is the constructor's default, and the wildcard is
+            // forced by `#[non_exhaustive]` rather than chosen. A third fit
+            // mode would land here as Contain, which is the safe direction: it
+            // never distorts a picture nobody asked to distort.
+            _ => spec,
+        }
     }
 
     /// Whether the current box can be placed, and what is wrong if not.
@@ -328,15 +368,7 @@ impl InsertImageDialog {
         // ★ The landing, from the ENGINE's own arithmetic. Shown only when it
         // differs from the box, which under `Stretch` is never — a line
         // restating the two numbers above it would be noise.
-        // The builder rather than a struct literal — `NewImage` is
-        // `#[non_exhaustive]`. The preview and the apply arm therefore build
-        // the spec the same way, which is what makes `placed_rect()` here and
-        // the rectangle written there the same answer rather than two.
-        let spec = NewImage::new(self.page_index, self.rect_pt(), &self.image);
-        let spec = match self.fit {
-            ImageFit::Stretch => spec.stretching(),
-            _ => spec,
-        };
+        let spec = self.spec(self.rect_pt());
         let placed = spec.placed_rect();
         let asked = self.rect_pt();
         let differs = (placed.urx - placed.llx - (asked.urx - asked.llx)).abs() > 0.5

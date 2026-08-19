@@ -113,7 +113,13 @@ pub mod delete_key;
 /// group comes back joinable.
 pub mod dimension_groups;
 pub mod driving;
+/// Export to DXF: the file reaches disk, and its contents agree with the
+/// counts the shell reported.
+pub mod export_dxf;
 pub mod find_bar;
+/// Insert an image: the picture reaches the page, and the resolution the
+/// window promised is the one the document reports.
+pub mod insert_image;
 pub mod legibility;
 pub mod markup_rectangle;
 /// ★ The three Phase 6 markup kinds that are **not drag-shaped** — Freehand,
@@ -439,6 +445,15 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // that declares no regions. The tiles themselves declare regions as of
         // 2026-08-18, which is what made this possible.
         Box::new(pages_drag::PagesDragShowsWhereItLands),
+        // The DXF export, wired 2026-08-19 after being the FIRST entry in
+        // `reach`'s scaffold list. Beside the page checks because it is the
+        // other verb that writes a file the operator hands to somebody else.
+        Box::new(export_dxf::ExportDxfWritesThePagesGeometry),
+        // Insert an image, wired 2026-08-19. Its last assertion is the one
+        // that matters: the promised resolution and the reported one are the
+        // same number, which is the shell's half of a single-derivation
+        // guarantee `pdfce-core` holds up on its side with a test.
+        Box::new(insert_image::InsertImagePlacesAPicture),
         // The Properties panel's document half, wired 2026-08-19 after a
         // recorded blocker — "`pdfce-core` exposes no /Info accessor" — turned
         // out to have cleared without the prose moving. Beside the page checks
