@@ -119,6 +119,7 @@ mod dimension;
 /// Its header records that this module's own claim — *"needs a `/Info`
 /// accessor that `pdfce-core` does not expose"* — was true when written and
 /// false when read.
+pub mod geometry;
 pub mod info;
 /// ★★ Restyling a markup that is already on the page — colour, line width and
 /// opacity, through `EditSession::set_markup_style`.
@@ -216,7 +217,19 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // because it is the one that WRITES: the other two describe.
     let drew_markup = markup::section(ui, doc, actions);
     let drew_dimension = dimension::section(ui, doc, actions);
-    object_section(ui, doc, state, drew_dimension || drew_markup);
+    // ★ The geometry fields sit between the sections that WRITE and the
+    // section that describes, because that is what they are: the only editable
+    // thing about a selected *content* object, where the two above it are the
+    // only editable things about a selected *annotation*. Reading the panel top
+    // to bottom therefore goes "what you can change" then "what is true", which
+    // is the order `RIBBON_IA.md` §5.6 asks a properties surface to use.
+    let drew_geometry = geometry::section(ui, doc, state.geometry_mut(), actions);
+    object_section(
+        ui,
+        doc,
+        state,
+        drew_dimension || drew_markup || drew_geometry,
+    );
     ui.separator();
     info::section(ui, doc, state.properties_mut(), actions);
 }

@@ -200,19 +200,6 @@ pub mod read_mode;
 /// since S0, and what was missing was a `match` arm and a window.
 pub mod render_diagnostics;
 
-/// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
-/// and a line in the shortcuts reference, and **no dispatch arm** for the whole
-/// life of the project. Its whole behaviour is one `if` in the frame
-/// composition, which every unit test in the workspace is blind to.
-///
-/// Named `read_mode_chrome` rather than `read_mode` because that name is
-/// already taken by the check one line up, and the two are about genuinely
-/// different things: that one is `mode.read`'s **capability** gate (a click in
-/// Read must not select), this one is `view.read_mode`'s **chrome** toggle (the
-/// ribbon and the docks stop being drawn). `app::window` §1 carries the
-/// argument for why those are two commands rather than a duplicate.
-pub mod read_mode_chrome;
-pub mod redaction;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -226,6 +213,25 @@ pub mod redaction;
 ///
 /// Its header carries the six links and names the one that would fail silently
 /// and plausibly: a resize about the wrong anchor still resizes.
+/// ★ The **typed** route to a resize — the Properties panel's X/Y/W/H fields.
+/// Shares only its last link with `resize`: the four in between are a panel
+/// drawing, a draft surviving frames, and a button un-greying, and the third of
+/// those is invisible to every unit test because it is a property of the
+/// SEQUENCE of frames rather than of a function.
+pub mod geometry_fields;
+/// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
+/// and a line in the shortcuts reference, and **no dispatch arm** for the whole
+/// life of the project. Its whole behaviour is one `if` in the frame
+/// composition, which every unit test in the workspace is blind to.
+///
+/// Named `read_mode_chrome` rather than `read_mode` because that name is
+/// already taken by the check one line up, and the two are about genuinely
+/// different things: that one is `mode.read`'s **capability** gate (a click in
+/// Read must not select), this one is `view.read_mode`'s **chrome** toggle (the
+/// ribbon and the docks stop being drawn). `app::window` §1 carries the
+/// argument for why those are two commands rather than a duplicate.
+pub mod read_mode_chrome;
+pub mod redaction;
 pub mod resize;
 pub mod ribbon_captions;
 /// ★ `file.save_copy` — the command that was registered, drawn, on the
@@ -556,6 +562,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
         Box::new(resize::ResizeScalesAShape),
+        Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

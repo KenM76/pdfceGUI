@@ -737,6 +737,100 @@ pub const fn markup_dropped(dropped: pdfce_core::edit::DroppedProperty) -> &'sta
     }
 }
 
+// ===========================================================================
+// ★ The selected object's geometry — X, Y, W, H typed rather than dragged
+//
+// Every string here names a **PDF user-space point**, and none of them says
+// so more than once. The units live in one note under the heading rather than
+// as a suffix on four fields, because "40.00 pt" repeated four times is three
+// repetitions of a fact the operator learned from the first one, and a
+// properties panel is read top to bottom.
+// ===========================================================================
+
+/// The heading over the four geometry fields.
+///
+/// *"Position and size"* rather than *"Geometry"*: the second is the word a
+/// draughtsman uses for the shape of the thing, and this section changes where
+/// it is and how big it is. The standing rule in `text::commands` is that a
+/// label is the operator's vocabulary.
+#[must_use]
+pub const fn geometry_heading() -> &'static str {
+    "Position and size"
+}
+
+/// The units line under the heading.
+///
+/// ★ It names the corner as well as the unit, and that is the load-bearing
+/// half. PDF's Y axis points **up**, so a panel showing `Y` without saying
+/// which edge it measures is ambiguous in the one direction that matters — an
+/// operator who reads it as a top edge and types a smaller number to move the
+/// object up will watch it go down.
+#[must_use]
+pub const fn geometry_units_note() -> &'static str {
+    "Points, measured to the bottom-left corner. Y increases upward."
+}
+
+/// The X field's label.
+#[must_use]
+pub const fn geometry_x() -> &'static str {
+    "Left"
+}
+
+/// The Y field's label.
+///
+/// *"Bottom"* rather than *"Y"*, for the reason [`geometry_units_note`] gives:
+/// naming the edge makes the axis direction unmistakable at the point of use,
+/// not just in a note the operator may have scrolled past.
+#[must_use]
+pub const fn geometry_y() -> &'static str {
+    "Bottom"
+}
+
+/// The width field's label.
+#[must_use]
+pub const fn geometry_w() -> &'static str {
+    "Width"
+}
+
+/// The height field's label.
+#[must_use]
+pub const fn geometry_h() -> &'static str {
+    "Height"
+}
+
+/// The commit button.
+///
+/// One button for up to two commands, and it does not say how many — *"Apply"*
+/// is what the operator is doing; *"raise a move and a scale"* is what the
+/// program is doing, and `RIBBON_IA.md` §2's rule is that a control is named
+/// for the first.
+#[must_use]
+pub const fn geometry_apply() -> &'static str {
+    "Apply"
+}
+
+/// Why Apply is greyed when nothing was typed.
+///
+/// R9 reserves greying for *temporarily* unavailable and requires the reason on
+/// hover. This is the ordinary case — the section has just drawn, the fields
+/// hold the object's current numbers, and there is nothing to do until one of
+/// them changes.
+#[must_use]
+pub const fn geometry_nothing_typed() -> &'static str {
+    "Type a different number in one of the four fields first."
+}
+
+/// Why Apply is greyed when a typed extent would collapse the object.
+///
+/// ★ It says what the floor IS rather than only that one was hit, because
+/// *"too small"* leaves the operator guessing at a threshold, and the whole
+/// point of a typed field is that they can hit an exact number.
+#[must_use]
+pub const fn geometry_too_small() -> &'static str {
+    "Width and height must each be at least a quarter of a point — a smaller \
+     value would collapse the object onto a line."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -658,6 +658,15 @@ pub struct PanelsState {
     /// second file would be written into **that** file's metadata by the next
     /// focus change, silently, in a field nobody looks at twice.
     properties: properties::info::InfoDrafts,
+    /// The Properties panel's **geometry** draft — the four typed numbers, and
+    /// the `(page, object, epoch)` they were seeded from.
+    ///
+    /// Separate from `properties` above rather than a field inside it, because
+    /// the two have different lifetimes and different reset conditions: the
+    /// metadata drafts survive a selection change (they describe the document),
+    /// and this one must not (it describes one object). Merging them would make
+    /// one struct with two reset rules.
+    geometry: properties::geometry::GeometryDraft,
     /// The Bookmarks panel's half-typed title and its chosen parent.
     ///
     /// Here for [`Self::pages`]' reason: a panel body is handed `&OpenDoc`,
@@ -867,6 +876,11 @@ impl PanelsState {
     /// accessor, so the field stays private and no other panel can write it.
     pub fn properties_mut(&mut self) -> &mut properties::info::InfoDrafts {
         &mut self.properties
+    }
+
+    /// The Properties panel's geometry draft.
+    pub fn geometry_mut(&mut self) -> &mut properties::geometry::GeometryDraft {
+        &mut self.geometry
     }
 
     /// The Bookmarks panel's authoring state.

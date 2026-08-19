@@ -223,6 +223,25 @@ pub fn action(
     if nodes.is_empty() {
         return Err(Refusal::NoNodes);
     }
+    // ★★ The computed scale, on the trace channel, from the ONE place that
+    // computes it — so the gesture route and the typed route report the same
+    // fact in the same words. `resize-commit` below is the *gesture's* line and
+    // carries the grip, which the typed route has no equivalent of; this one is
+    // about the EDIT, and a driven check that asserts on it is asserting the
+    // thing both routes share rather than the thing one of them happens to log.
+    //
+    // It was added on the first driven run of the typed route, which failed
+    // reporting "Apply committed nothing" while the trace clearly showed the
+    // object's bounds changing from 317.87 to 358.00. The check was right about
+    // its oracle being absent and wrong about what that meant — a defect in the
+    // instrument, and exactly the shape `CONTINUE.md` §7 warns about.
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!(
+            "resize-scale sx={sx:.4} sy={sy:.4} ax={:.2} ay={:.2} object={object}",
+            anchor.x, anchor.y
+        )
+    });
     let moves: Vec<(usize, Point)> = nodes
         .into_iter()
         .map(|(index, p)| {
@@ -382,7 +401,7 @@ pub fn drag(
 /// One place, so a variant added to [`Refusal`] is a compile error in
 /// `crate::text::resizing` rather than a drag that silently does nothing —
 /// which is the failure `canvas::textedit`'s own history is about.
-fn decline(reason: Refusal) {
+pub(crate) fn decline(reason: Refusal) {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!("resize-declined reason={reason:?}")
