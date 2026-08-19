@@ -117,6 +117,16 @@ pub mod textannot;
 /// immediately — you cannot judge a theme from a radio label. So the draft
 /// lives on `PdfceApp` as `settings_draft`, and this module is a renderer with
 /// no state of its own.
+/// ★ The keyboard reference, **derived from the keymap that dispatches**.
+///
+/// Application-scoped, beside [`about`]: a keyboard reference is meaningful
+/// with nothing open, and is one of the two things a new operator reaches for
+/// before opening a file.
+///
+/// Its header carries why it holds no list — `DEFECTS.md` D5 is not fixed
+/// there, it is made unrepresentable.
+pub mod shortcuts;
+
 pub mod settings;
 
 use crate::app::state::{OpenDoc, Status};
@@ -216,6 +226,13 @@ pub struct DialogsState {
     /// actively harmful to close, because the document it is about to make is
     /// how the operator gets out of the empty state.
     new_document: Option<new_document::NewDocumentDialog>,
+
+    /// The keyboard reference, when one is open.
+    ///
+    /// **Application-scoped**, beside [`Self::about`] and for its reason: a
+    /// keyboard reference is meaningful with nothing open, and closing a
+    /// document must not close it.
+    shortcuts: Option<shortcuts::ShortcutsDialog>,
 
     /// The insert dialog, when one is open.
     ///
@@ -574,6 +591,8 @@ impl DialogsState {
         status: &Status,
         actions: &mut Vec<crate::app::actions::Action>,
         window: Option<isize>,
+        keymap: Option<&egui_shell::manifest::Keymap>,
+        registry: &egui_shell::CommandRegistry,
     ) {
         // Application-scoped first, so that an empty canvas cannot skip it.
         // Ordering is the whole guard here: putting this after the early
@@ -588,6 +607,17 @@ impl DialogsState {
         // it was needed.
         if self.new_document.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.new_document = None;
+        }
+        // Application-scoped, above the no-document guard with About and the
+        // sized-New window. A keyboard reference an operator opened before
+        // loading anything must not vanish because nothing is loaded.
+        if self
+            .shortcuts
+            .as_mut()
+            .map(|d| d.show(ctx, keymap, registry))
+            == Some(false)
+        {
+            self.shortcuts = None;
         }
 
         let Status::Open(doc) = status else {
@@ -676,6 +706,19 @@ impl DialogsState {
     /// rather than ceremonial: the window's scale suggestion is computed from
     /// the document's dimension model at construction, so there is nothing to
     /// build without one.
+    /// Open the keyboard reference.
+    ///
+    /// **The dispatch target for `file.shortcuts`.** No document guard, unlike
+    /// every other `open_*` here: the window lists key bindings, which exist
+    /// whether or not a file is open, and refusing it on an empty canvas would
+    /// hide it from exactly the operator most likely to want it.
+    pub fn open_shortcuts(&mut self) {
+        if self.shortcuts.is_some() {
+            return;
+        }
+        self.shortcuts = Some(shortcuts::ShortcutsDialog::open());
+    }
+
     pub fn open_export_dxf(&mut self, status: &Status) {
         if self.export_dxf.is_some() {
             return;

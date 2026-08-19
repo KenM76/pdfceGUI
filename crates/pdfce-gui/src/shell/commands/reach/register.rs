@@ -85,54 +85,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          values to a foreign format are different builds; the first shipped.",
     ),
     (
-        "file.shortcuts",
-        "Blocked on the same salvage, with a defect attached. The reference this would show \
-         lives in the old shell's 7,912-line `ui_text.rs`, and `SALVAGE.md`'s row for that \
-         file carries the instruction rather than a straight copy: “Fix `shortcuts_reference()` \
-         — it omits six live bindings (DEFECTS.md D5) — and derive it from the keyboard map \
-         so it cannot drift again.” Salvaging it unfixed would import D5.",
-    ),
-    // ===================================================================
-    // VIEW — the seven settings-shaped controls
-    //
-    // ★ These seven already have a register of their own, and it is the
-    // one place in this list where a reason for DRAWING the control was
-    // written before the control was drawn: `manifest::DIRECTED`, eight
-    // entries, each naming the value set and the default the operator
-    // specified when this shell was commissioned.
-    //
-    // Its argument, verbatim: "P3 exists so an operator is never shown a
-    // control that does nothing. These eight are settings rather than
-    // actions, every one of them has a specified default, and **a setting
-    // showing its default is not a stub**."
-    //
-    // ★ THE PREMISE OF THAT ARGUMENT IS NOT YET TRUE, and it is worth
-    // saying here rather than leaving for whoever wires the first one.
-    // None of the seven shows a value: they are registered as ordinary
-    // commands, drawn by `band::command_button` as ordinary buttons, and
-    // a press produces `command-unimplemented`. "A setting showing its
-    // default is not a stub" is a defence of a control that DISPLAYS
-    // something; a button that displays nothing and does nothing is not
-    // the thing being defended. The argument becomes true the day these
-    // render as value controls, and `DIRECTED`'s own closing sentence
-    // already says what to do if it does not: "the fix is deleting eight
-    // rows from one list".
-    //
-    // They are therefore cited to `DIRECTED` rather than marked ★ P3 —
-    // the decision to draw them is recorded, argued and the operator's —
-    // with the gap between the argument and the artefact stated at each.
-    // ===================================================================
-    // ===================================================================
-    // VIEW — the two that are not settings
-    //
-    // ★ It was four until 2026-08-15. `view.read_mode` and `view.fullscreen`
-    // were wired that day — see `app::window` — and their entries are gone
-    // rather than reworded, which is what `no_scaffolded_entry_is_stale`'s
-    // middle assertion exists to force. What is left is genuinely blocked
-    // (`show_points`, on an unsalvaged tool) and genuinely contested
-    // (`sidebar`, a taxonomy question).
-    // ===================================================================
-    (
         "view.show_points",
         "★ P3 — and the reason was found on 2026-08-15 rather than written: **there is nothing \
          for it to show.** Its own tooltip says what it governs — “the editable points of every \

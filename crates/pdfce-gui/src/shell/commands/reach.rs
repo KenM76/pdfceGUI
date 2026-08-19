@@ -307,6 +307,23 @@ const DISPATCH_SRC: &str = include_str!("../../app/dispatch.rs");
 /// control.
 const DISPATCH_PAGES_SRC: &str = include_str!("../../app/dispatch/pages.rs");
 
+/// The measure dispatcher, split out of `dispatch.rs` on 2026-08-19.
+///
+/// ★ **The second time, and [`DISPATCH_PAGES_SRC`]'s own doc predicted it**:
+/// *"a checker which reads ONE file is a checker with a shelf life: R2
+/// guarantees that any file it reads will eventually be split, so 'where is the
+/// routing table?' is a question with a growing answer."*
+///
+/// It failed closed again, and by name — six `measure.*` ids reported
+/// unreachable the moment the arms moved — which is the behaviour that
+/// paragraph argues for over a `bash` grep. A grep would have found the string
+/// `"measure.set_scale"` in either file and said nothing.
+///
+/// The prediction being right twice is worth more than the entry: **the next
+/// split will need a line here too**, and the failure that costs nothing to fix
+/// is this one rather than an operator pressing a dead control.
+const DISPATCH_MEASURE_SRC: &str = include_str!("../../app/dispatch/measure.rs");
+
 /// This module's parent, read for the `&'static str` constants that arm
 /// patterns may name.
 ///
@@ -743,9 +760,13 @@ mod tests {
         // argument its header makes for parsing over grepping.
         let split =
             read_arms(DISPATCH_PAGES_SRC, &consts).expect("the pages dispatcher must be readable");
-        arms.literals.extend(split.literals);
-        arms.guards.extend(split.guards);
-        arms.catch_all |= split.catch_all;
+        let measure_arms = read_arms(DISPATCH_MEASURE_SRC, &consts)
+            .expect("the measure dispatcher must be readable");
+        for part in [split, measure_arms] {
+            arms.literals.extend(part.literals);
+            arms.guards.extend(part.guards);
+            arms.catch_all |= part.catch_all;
+        }
         arms
     }
 
@@ -1188,7 +1209,7 @@ pub const FX_CONST: &str = "fx.constant";
         // it needed had shipped long before. An entry with no reason is not a
         // blocker; it is an entry nobody has looked at.
         assert_eq!(
-            total, 15,
+            total, 14,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

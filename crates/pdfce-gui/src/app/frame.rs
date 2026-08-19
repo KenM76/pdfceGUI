@@ -413,8 +413,20 @@ impl eframe::App for PdfceApp {
         // content it is modal over. It takes `&self.status` so it can close
         // itself when the document does — a print dialog outliving its
         // document would offer to print pages that are gone.
-        self.dialogs
-            .show(&ctx, &self.status, &mut actions, self.window);
+        // ★ The keymap and the registry are threaded in for ONE window: the
+        // keyboard reference derives every row from them rather than holding a
+        // list. That is `DEFECTS.md` D5 made unrepresentable — see
+        // `dialogs::shortcuts` — and it is why this call takes two arguments
+        // that no other dialog reads.
+        let keymap = self.shell.as_ref().and_then(|s| s.keymap.as_ref());
+        self.dialogs.show(
+            &ctx,
+            &self.status,
+            &mut actions,
+            self.window,
+            keymap,
+            &self.commands,
+        );
 
         // ★ The calibration round trip: dialog -> canvas gesture -> dialog.
         //

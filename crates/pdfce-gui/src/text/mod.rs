@@ -175,6 +175,15 @@ pub mod scale;
 /// readable by someone who has never opened the PDF standard, because the
 /// operator is being asked to make a judgement and a judgement cannot be made
 /// from a clause number.
+/// The six strings the keyboard reference shows — and **none of them is a
+/// shortcut**.
+///
+/// Its header carries the rule: a string here may *describe* the reference; it
+/// may not be *part* of it. Every chord and every command name comes from the
+/// live keymap and the registry, because `DEFECTS.md` D5 was a hand-maintained
+/// list that omitted six live bindings and that nothing exercised.
+pub mod shortcuts;
+
 pub mod settings;
 
 /// Every string the status bar shows. Consumed by `crate::app::status`.

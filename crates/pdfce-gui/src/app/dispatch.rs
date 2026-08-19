@@ -53,6 +53,13 @@
 /// import happens before the window, and why the refusal is passed through in
 /// the engine's own words.
 mod images;
+/// ★ Every `measure.*` command — the three tools, Finish, and the two windows.
+///
+/// A module rather than four arms because three of them resolve the **active
+/// authoring group** the same way, and that resolution was written twice here
+/// before the move. Its header carries why the fallback is traced rather than
+/// silent.
+mod measure;
 pub(crate) mod pages;
 
 use super::PdfceApp;
@@ -558,114 +565,13 @@ impl PdfceApp {
             // published predicate and either calls the one function or does
             // not. It does not work out *what* a markup is, and the trace
             // spelling matches the `mode.*` arm below, which already declines.
-            // ★ **The measure tools — one arm for all four.**
-            //
-            // The same shape as the markup arm below, and it declines in a mode
-            // that does not author dimensions for the same reasons — see there.
-            // Read grants neither; **Review grants this one and not that one**,
-            // which is why they are two capabilities rather than an "authoring"
-            // flag.
-            //
-            // **It arms a tool; it authors nothing.** A ce dimension is placed
-            // by clicks that `crate::canvas::measure` takes, and only the pick
-            // that completes one raises an `Action`.
-            // ★ **Finish** — the ribbon half of the radius/diameter tool's
-            // ending, and the one `measure.*` command that is not a tool.
-            //
-            // It must sit ahead of the arm below rather than inside it:
-            // `measure_for_command` maps ids to *kinds*, this id names no kind,
-            // and if it ever did, pressing Finish would toggle the tool off
-            // (`arm_measure`'s same-kind-retires rule) instead of committing.
-            //
-            // The arm routes and does not compute. Everything about what a
-            // finish *is* — whether there is a fit, which page it belongs to,
-            // which group it joins, emptying the pick set afterwards — lives in
-            // `canvas::measure::finish`, which is the same function the
-            // canvas's double-click ending reaches. One commit path, two
-            // entrances; a second derivation here is exactly how the two
-            // endings would come to author different dimensions.
-            //
-            // The capability check mirrors the tool arm below. It is
-            // unreachable through the shipped manifest — Read is shown File and
-            // View alone, and no chord binds a `measure.*` id — but a
-            // customized manifest can bind a chord to anything, and a mode that
-            // cannot author dimensions must not author one because the pick set
-            // predates the mode change.
-            //
-            // Both refusals are traced, and they are traced separately: "the
-            // mode says no" and "there was nothing to finish" are different
-            // facts, and a reader of a trace from a machine they cannot see
-            // should not have to guess which kind of nothing happened.
-            // ★ Set scale — the arm `shell::commands::reach` called *"the
-            // clearest statement of a missing arm in the crate"*.
-            //
-            // Gated on `author_measure` exactly as `measure.finish` is, and for
-            // the same reason: a mode that cannot author a dimension has no
-            // business recalibrating the group they live in, and the two
-            // refusals must be the same sentence or the mode gate reads as
-            // arbitrary.
-            //
-            // # ★ Which group, and why the fallback is traced
-            //
-            // The measure tool's active authoring group, when the tool has been
-            // entered this session. When it has not, there is no state in
-            // memory and the arm falls back to the default group — which is the
-            // right answer for an operator who has drawn nothing yet, and the
-            // WRONG one for anybody whose state was somehow lost. Both would
-            // look identical afterwards ("a group got a scale"), so the
-            // fallback says so in the trace rather than being silent.
-            "measure.set_scale" => {
-                if !self.capabilities().author_measure {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-author-measure")
-                    });
-                    return;
-                }
-                let group = crate::canvas::measure::active_group(ctx).unwrap_or_else(|| {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "scale-group-fallback reason=no-measure-state".to_owned()
-                    });
-                    pdfce_core::dimension::DEFAULT_GROUP_ID
-                });
-                self.dialogs.open_scale(&self.status, group);
-            }
-            // ★ **Manage dimension groups.** Registered, drawn on Measure ▸ Scale
-            // and inert for the whole life of this build until 2026-08-18 —
-            // the operator's *"I still can't get to edit dimension groups when
-            // I click on it."*
-            //
-            // Gated on `author_measure` for exactly the reason `measure.
-            // set_scale` above is, and the two must stay the same sentence: a
-            // mode that cannot author a ce dimension has no business creating
-            // the groups they live in, or recalibrating one, and two different
-            // refusals for one capability read as arbitrary.
-            //
-            // The group is resolved the same way too — the measure tool's
-            // active authoring group, with the same traced fallback — so the
-            // window opens on the group the operator is drawing into rather
-            // than on whichever is first in the model. Duplicating the
-            // resolution rather than factoring it out is deliberate at two
-            // call sites: the fallback's trace line names its own command, and
-            // a shared helper would have to be told which.
-            "measure.manage_groups" => {
-                if !self.capabilities().author_measure {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-author-measure")
-                    });
-                    return;
-                }
-                let group = crate::canvas::measure::active_group(ctx).unwrap_or_else(|| {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "dimension-groups-fallback reason=no-measure-state".to_owned()
-                    });
-                    pdfce_core::dimension::DEFAULT_GROUP_ID
-                });
-                self.dialogs.open_dimension_groups(&self.status, group);
-            }
+            // ★ **Every `measure.*` command**, routed. The arms are in
+            // `dispatch::measure`, beside `dispatch::pages` and
+            // `dispatch::images`, and for a reason those two do not share:
+            // three of the four resolve the **active authoring group** out of
+            // `egui::Memory` with the same traced fallback, and that resolution
+            // was written twice here before the move. One module, one function,
+            // one place for the fallback's trace to say which command asked.
             // ★ **A second ROUTE to `file.properties`, and deliberately not a
             // second implementation of it.**
             //
@@ -710,41 +616,26 @@ impl PdfceApp {
             // there is no mode in which it should be refused. Read mode
             // exporting a drawing is exactly what a reading stance is for.
             "file.export_dxf" => self.dialogs.open_export_dxf(&self.status),
+            // ★ **The keyboard reference.** Its scaffold entry did not merely
+            // say blocked — it carried the design, from `SALVAGE.md`: *"Fix
+            // `shortcuts_reference()` — it omits six live bindings
+            // (DEFECTS.md D5) — and derive it from the keyboard map so it
+            // cannot drift again."* Nothing was salvaged; the window holds no
+            // list.
+            //
+            // No document guard, unlike every other dialog on this tab: key
+            // bindings exist whether or not a file is open, and refusing this
+            // on an empty canvas would hide it from exactly the operator most
+            // likely to be looking for it.
+            "file.shortcuts" => self.dialogs.open_shortcuts(),
             "format.properties" => {
                 actions.push(crate::app::actions::Action::Command(
                     // ui-text-exempt: a registered command id, never displayed
                     "file.properties".to_owned(),
                 ));
             }
-            "measure.finish" => {
-                if !self.capabilities().author_measure {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-author-measure")
-                    });
-                } else if !crate::canvas::measure::finish(ctx, actions) {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        //
-                        // Reachable only by a chord or a customized manifest:
-                        // the ribbon control is greyed unless there is a
-                        // non-degenerate fit, by the same predicate `finish`
-                        // itself asks.
-                        format!("command-declined id={id} reason=no-circle-fit-to-finish")
-                    });
-                }
-            }
-            id if crate::shell::commands::measure_for_command(id).is_some() => {
-                if !self.capabilities().author_measure {
-                    crate::diag::trace(|| {
-                        format!(
-                            // ui-text-exempt: diagnostic trace, never displayed.
-                            "command-declined id={id} reason=mode-cannot-author-measure"
-                        )
-                    });
-                } else if let Some(kind) = crate::shell::commands::measure_for_command(id) {
-                    let _ = crate::canvas::tool::arm_measure(ctx, kind);
-                }
+            id if measure::handles(id) => {
+                measure::dispatch(self, ctx, id, actions);
             }
             // ★ **The three text-markup commands — one arm for all three.**
             //
