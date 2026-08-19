@@ -64,13 +64,6 @@ pub mod about;
 /// with the page currently on the canvas, with the room the status bar's one
 /// elided line does not have.
 pub mod diagnostics;
-/// ★ The Manage-dimension-groups window — where a drawing's ce-dimension
-/// groups are made, chosen and configured.
-///
-/// `measure.manage_groups` was registered, drawn on Measure ▸ Scale and inert
-/// for the whole life of this build; its own header records what the operator
-/// hit and which four of the six group verbs the engine actually ships.
-pub mod dimension_groups;
 /// ★ The Insert-image window — a picture placed on the page as content, by a
 /// rectangle in millimetres.
 ///
@@ -255,19 +248,6 @@ pub struct DialogsState {
     /// **Document-scoped**: it exports a page of the open file, and its scale
     /// suggestion is computed from that document's own dimension groups.
     export_dxf: Option<export_dxf::ExportDxfDialog>,
-
-    /// The Manage-dimension-groups window, when one is open.
-    ///
-    /// **Document-scoped**: a dimension group is a record in *this* document's
-    /// `/PieceInfo` sidecar, so a window listing them over a closed document
-    /// would be listing nothing.
-    ///
-    /// ★ It is the first dialog here that **asks its owner to open a sibling**.
-    /// Its *Set scale…* button cannot call [`Self::open_scale`] — both are
-    /// fields of this one struct and neither can reach the other from inside
-    /// its own `show` — so it parks a `GroupId` and [`Self::show`] drains it.
-    /// See `dimension_groups::DimensionGroupsDialog::scale_requested`.
-    dimension_groups: Option<dimension_groups::DimensionGroupsDialog>,
 }
 
 impl DialogsState {
@@ -646,30 +626,18 @@ impl DialogsState {
         if self.export_dxf.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.export_dxf = None;
         }
-        // ★ Drawn BEFORE the Set-scale window, and the order is load-bearing.
+        // ★ The Manage-dimension-groups WINDOW used to be drawn here, and the
+        // comment that stood in its place said the order was load-bearing —
+        // its *Set scale…* button parked a request drained on the next line.
         //
-        // Its *Set scale…* button parks a request that is drained immediately
-        // below, and `open_scale` builds a window `ScaleDialog::show` must then
-        // draw. Drawing this one second would leave the request sitting for a
-        // frame — invisible, but it would make the button feel like it missed.
-        if self
-            .dimension_groups
-            .as_mut()
-            .map(|d| d.show(ctx, doc, actions))
-            == Some(false)
-        {
-            self.dimension_groups = None;
-        }
-        // The hand-over. `open_scale` applies its own two guards at the one
-        // place a `ScaleDialog` is ever built, so a request arriving while one
-        // is already open leaves the operator's half-typed ratio alone.
-        if let Some(group) = self
-            .dimension_groups
-            .as_mut()
-            .and_then(dimension_groups::DimensionGroupsDialog::take_scale_request)
-        {
-            self.open_scale(status, group);
-        }
+        // It is a dock panel as of 2026-08-19 (`crate::panels::Panel::DimensionGroups`),
+        // because a window taller than the screen can push its own title bar
+        // off the desktop and the operator could not close it. **The hand-over
+        // survived the move and moved with it**: a panel body cannot reach
+        // `DialogsState` at all, so it still parks a `GroupId` — now on
+        // `crate::panels::PanelsState` — and `crate::app::PdfceApp::docks`
+        // drains it into [`Self::open_scale`] the moment the dock releases its
+        // borrows. Same one-shot, same guards, one layer out.
         // ★ Takes the action queue, unlike its four neighbours. See the field.
         // It does not take `doc`: the scale it sets belongs to a *group*, which
         // is document-scoped but not page-scoped, and the entry fields need
@@ -694,7 +662,6 @@ impl DialogsState {
         self.diagnostics = None;
         self.redact = None;
         self.scale = None;
-        self.dimension_groups = None;
         self.insert_image = None;
         self.export_dxf = None;
     }
@@ -746,31 +713,6 @@ impl DialogsState {
             return;
         }
         self.insert_image = insert_image::open_for(status, image, name);
-    }
-
-    /// Open the Manage-dimension-groups window for the document in `status`.
-    ///
-    /// **The dispatch target for the `measure.manage_groups` command**, and it
-    /// applies the same two guards [`Self::open_print`] documents.
-    ///
-    /// The already-open guard matters more here than the shape of the sentence
-    /// suggests: a second press would discard a half-typed group name and reset
-    /// which group's settings are on screen — the operator's own state, thrown
-    /// away by the control they pressed to look at it.
-    ///
-    /// `active` is the measure tool's authoring group, resolved by the
-    /// dispatcher exactly as `measure.set_scale` resolves it, so the window
-    /// opens on the group the operator is drawing into rather than on whichever
-    /// one happens to be first in the model.
-    pub fn open_dimension_groups(
-        &mut self,
-        status: &Status,
-        active: pdfce_core::dimension::GroupId,
-    ) {
-        if self.dimension_groups.is_some() {
-            return;
-        }
-        self.dimension_groups = dimension_groups::open_for(status, active);
     }
 }
 

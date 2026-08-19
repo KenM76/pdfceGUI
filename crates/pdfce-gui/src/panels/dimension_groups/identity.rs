@@ -1,8 +1,8 @@
-//! # `dialogs::dimension_groups::identity` — renaming a group, and removing one
+//! # `panels::dimension_groups::identity` — renaming a group, and removing one
 //!
 //! ## What this closes
 //!
-//! The two controls this window shipped **without**, on 2026-08-18, with a
+//! The two controls this surface shipped **without**, on 2026-08-18, with a
 //! sentence where they should have been:
 //!
 //! > *"A group cannot yet be renamed or removed — pdfce's editing engine has no
@@ -22,7 +22,7 @@
 //! > prompt different decisions from an operator, and only you can put that
 //! > question in front of them.
 //!
-//! So the window does. Pressing Delete on a populated group does not delete it
+//! So the panel does. Pressing Delete on a populated group does not delete it
 //! and does not refuse it: it **asks where the members should go**, and only
 //! then offers a button that will succeed.
 //!
@@ -63,7 +63,7 @@ pub const REGION_RENAME: &str = "dimension-groups.rename"; // ui-text-exempt: tr
 /// The region the Delete button publishes.
 pub const REGION_DELETE: &str = "dimension-groups.delete"; // ui-text-exempt: trace region name, never displayed
 
-impl super::DimensionGroupsDialog {
+impl super::DimensionGroupsUi {
     /// The selected group's name and its removal.
     pub(super) fn identity(
         &mut self,
@@ -202,7 +202,7 @@ impl super::DimensionGroupsDialog {
     ///
     /// ★ The selection move is not tidiness. `body` falls back to the default
     /// group when the selected one has gone, which is correct and arrives **one
-    /// frame late** — for that frame the lower half of the window would draw
+    /// frame late** — for that frame the lower half of the panel would draw
     /// against a group the document no longer has. Moving it here means the
     /// operator never sees the flicker, and the fallback stays as the guard it
     /// is for every path that is not this one.
@@ -224,7 +224,7 @@ impl super::DimensionGroupsDialog {
             group,
             policy,
         }));
-        self.selected = DEFAULT_GROUP_ID;
+        self.selected = Some(DEFAULT_GROUP_ID);
         self.rename = None;
         self.delete_destination = None;
     }

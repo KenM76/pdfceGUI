@@ -39,10 +39,26 @@
 
 use pdfce_core::dimension::{ArrowForm, DimStandard, ScaleState, Unit};
 
-/// The window's title.
+/// The heading over the rename and delete controls.
+///
+/// ★ Not "Name". The section carries **both** verbs that act on the group's
+/// identity, and a fold captioned "Name" would read as a text field — which is
+/// exactly what it looks like when folded shut, with Delete hidden inside it.
+/// A caption is a promise about what is under it and this one has to name the
+/// destructive half.
 #[must_use]
-pub const fn window_title() -> &'static str {
-    "Dimension groups"
+pub const fn identity_heading() -> &'static str {
+    "Rename or remove this group"
+}
+
+/// The heading over the scale phrase, the Set-scale button and the unit combo.
+///
+/// One caption for both, because `set_group_scale` takes the scale and the
+/// number format together: an operator changing the unit is calling the verb
+/// that also carries the scale, and two folds would hide that from them.
+#[must_use]
+pub const fn scale_heading() -> &'static str {
+    "Scale and unit"
 }
 
 /// The paragraph under the title.
@@ -485,12 +501,6 @@ pub const fn arrow_form_name(form: ArrowForm) -> &'static str {
         ArrowForm::Dot => "Dot",
         ArrowForm::None => "None",
     }
-}
-
-/// The window's close button.
-#[must_use]
-pub const fn close_button() -> &'static str {
-    "Close"
 }
 
 #[cfg(test)]

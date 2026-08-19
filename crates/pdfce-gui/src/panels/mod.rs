@@ -154,6 +154,7 @@ use egui_shell::HandlerToken;
 
 pub mod bookmarks;
 pub mod comments;
+pub mod dimension_groups;
 pub mod fonts;
 pub mod forms;
 pub mod layers;
@@ -246,6 +247,26 @@ pub enum Panel {
     /// that merely marks. See [`redact`]'s header for the whole argument,
     /// including why canvas drag-to-mark is not in this landing.
     Redact,
+    /// Where ce-dimension groups are made, chosen and configured.
+    ///
+    /// ★ **The only panel that was built as a window first and moved**, and
+    /// the move is the operator's, not a refactor: a window whose content is
+    /// taller than the screen can push its own title bar — and its only ✕ —
+    /// off the desktop, and he could not close it. See
+    /// [`dimension_groups`]'s header for the three findings packed into that
+    /// one report and for why a dock column removes the condition rather than
+    /// tuning it.
+    ///
+    /// Its command is `measure.manage_groups`, which is **not** a
+    /// `view.panel_*` id, and that is [`Self::Redact`]'s precedent applied
+    /// deliberately rather than an omission. A second id for one surface would
+    /// put this panel on a tab a mode without measure authoring is shown, and
+    /// the point of leaving it on Measure ▸ Scale is that the mode taxonomy
+    /// then does the gating with no capability flag of its own: `read` is not
+    /// shown the `measure` tab, so `read` cannot reach the panel, and Review
+    /// and Edit both can. The same argument, in the same words, is why there
+    /// is no `view.panel_redact`.
+    DimensionGroups,
 }
 
 impl Panel {
@@ -256,7 +277,7 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
@@ -267,6 +288,7 @@ impl Panel {
         Self::Pages,
         Self::Comments,
         Self::Redact,
+        Self::DimensionGroups,
     ];
 
     /// The ribbon command that shows this panel.
@@ -380,6 +402,13 @@ impl Panel {
             // [`Self::Forms`], which had to acquire a `view.` id precisely
             // because Read *should* reach it.
             Self::Redact => "edit.redact",
+            // ★ **The fifth panel whose command is not on View ▸ Panels.** It
+            // stays where `RIBBON_IA.md` put the control — Measure ▸ Scale —
+            // and the variant's own doc carries the argument. The command has
+            // been registered and drawn since the Measure tab was built; what
+            // changed on 2026-08-19 is that pressing it toggles a panel rather
+            // than opening a window.
+            Self::DimensionGroups => "measure.manage_groups",
         }
     }
 
@@ -471,6 +500,7 @@ impl Panel {
             Self::Pages => return pages::body(ui, doc, state, host, actions),
             Self::Comments => comments::body(ui, doc, state, actions),
             Self::Redact => redact::body(ui, doc, state, actions),
+            Self::DimensionGroups => dimension_groups::body(ui, doc, state, actions),
         }
         Vec::new()
     }
@@ -605,6 +635,21 @@ pub struct PanelsState {
     /// a second file names a different object there, and a bookmark would be
     /// filed under whatever happens to hold that number.
     bookmarks: bookmarks::add::BookmarksUi,
+    /// The dimension-groups panel's selected row, its half-typed names and its
+    /// pending *Set scale…* request.
+    ///
+    /// `pub(crate)` rather than private, and it is the only field here that is:
+    /// `crate::app::PdfceApp::docks` drains
+    /// [`dimension_groups::DimensionGroupsUi::take_scale_request`] after the
+    /// dock body closes. A panel cannot open a window from inside its own body
+    /// — it is handed `&OpenDoc` and `&mut PanelsState` and nothing else — so
+    /// the request has to leave through the state it is allowed to touch.
+    ///
+    /// ★ Reset with the document by [`Self::forget_document`], for the reason
+    /// [`Self::bookmarks`] gives and one of its own: a `GroupId` names a
+    /// different group in a different file, so a selection carried across would
+    /// point the appearance controls at somebody else's group.
+    pub(crate) dimension_groups: dimension_groups::DimensionGroupsUi,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -1012,6 +1057,7 @@ mod tests {
                 Panel::Pages => 7,
                 Panel::Comments => 8,
                 Panel::Redact => 9,
+                Panel::DimensionGroups => 10,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

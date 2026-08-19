@@ -364,6 +364,19 @@ fn spec(mode_id: &str) -> ModeSpec {
                 comments(),
                 Panel::Properties.command_id(),
                 Panel::Forms.command_id(),
+                // ★ Dimension groups, and Review gets it for the reason the
+                // mode taxonomy already settled: Review is shown the `measure`
+                // tab, so it may author a ce dimension, and a mode that can
+                // author one must be able to say which group it joins. The
+                // panel's command lives on that tab (`measure.manage_groups`),
+                // so this mode can reopen it after closing it — the trap
+                // `Panel::Forms` had to move off the Edit tab to escape.
+                //
+                // Last in the stack, like Redact in Edit's: a tabbed stack
+                // draws only its active tab, so a panel at the end is
+                // reachable in one click and invisible until asked for. Group
+                // setup is not what a reviewer opens Review to do.
+                Panel::DimensionGroups.command_id(),
             ]],
             left_width: NAVIGATOR_WIDTH,
             right_width: INSPECTOR_WIDTH,
@@ -413,6 +426,11 @@ fn spec(mode_id: &str) -> ModeSpec {
                     // `crate::panels::Panel::Forms` had to be moved off Edit to
                     // escape, arriving here from the other direction.
                     Panel::Redact.command_id(),
+                    // Dimension groups, after Redact, and the ordering is not
+                    // a ranking — it is arrival order within a stack whose
+                    // tabs are all "asked for, not offered". See Review's arm
+                    // for why this panel is mounted at all.
+                    Panel::DimensionGroups.command_id(),
                 ],
             ],
             left_width: NAVIGATOR_WIDTH,
@@ -533,9 +551,10 @@ mod tests {
             [
                 comments(),
                 Panel::Properties.command_id(),
-                Panel::Forms.command_id()
+                Panel::Forms.command_id(),
+                Panel::DimensionGroups.command_id(),
             ],
-            "Review adds Comments, Properties and Forms, and nothing else"
+            "Review's inspector side, in order, and nothing else"
         );
         // Objects stays out, and that is the line Forms had to be argued
         // across rather than waved across: Review mounts what the document
@@ -655,7 +674,8 @@ mod tests {
             [
                 comments(),
                 Panel::Properties.command_id(),
-                Panel::Forms.command_id()
+                Panel::Forms.command_id(),
+                Panel::DimensionGroups.command_id(),
             ],
             "every panel Review's default names now exists, so none is filtered"
         );

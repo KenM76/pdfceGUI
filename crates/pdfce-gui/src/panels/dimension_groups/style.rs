@@ -1,4 +1,4 @@
-//! # `dialogs::dimension_groups::style` — a group's appearance defaults, and
+//! # `panels::dimension_groups::style` — a group's appearance defaults, and
 //! the count that stops them being a surprise
 //!
 //! ## What this draws
@@ -122,11 +122,10 @@ const ARROW_LENGTH_RANGE: std::ops::RangeInclusive<f64> = 1.0..=30.0;
 /// paragraph is the record of that being a decision rather than an omission.
 pub fn show(ui: &mut Ui, model: &DimensionModel, group: &Group, actions: &mut Vec<Action>) {
     crate::diag::ui_rect(REGION, ui.max_rect());
-    // No `.strong()`: R84 / DEFECTS.md D11 — egui resolves it to the ACCENT-FILLED
-    // widget foreground, which on an ordinary window is pale text on pale
-    // ground. The hierarchy here is carried by layout and by the `weak()` lines
-    // underneath, which is what makes this the one plain label in its block.
-    ui.label(t::appearance_heading());
+    // ★ The heading itself is the FOLD's caption, not a label here — see
+    // `super::section`. Drawing it twice was the first draft and it read as a
+    // section inside a section. The hint stays: a fold caption is four words
+    // and the sentence under it is what says these are *defaults*.
     ui.label(t::appearance_hint());
     ui.add_space(4.0);
 

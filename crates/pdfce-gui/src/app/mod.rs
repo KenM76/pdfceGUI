@@ -864,8 +864,28 @@ impl PdfceApp {
                 },
             );
 
+        // ★ The Dimension-groups panel's *Set scale…* hand-over.
+        //
+        // Read here, not inside the body, and that is a consequence of the seam
+        // rather than a preference: a panel body is handed `&OpenDoc` and
+        // `&mut PanelsState` and **nothing else**, so it cannot see
+        // `DialogsState` and cannot open a window. It parks a `GroupId`
+        // instead; this is the first line that can see both halves, because the
+        // destructured borrows above end with the dock's closure.
+        //
+        // The same one-shot lived in `DialogsState::show` while that panel was
+        // a window — see `crate::dialogs`' note where the draw used to be. The
+        // guards did not move: `open_scale` still applies its own no-document
+        // and already-open checks at the one place a `ScaleDialog` is built, so
+        // a request arriving while one is open leaves a half-typed ratio alone.
+        let scale_request = self.panels.dimension_groups.take_scale_request();
+
         for token in tokens.into_iter().chain(tab_tokens) {
             self.dispatch_token(ui.ctx(), token, actions);
+        }
+
+        if let Some(group) = scale_request {
+            self.dialogs.open_scale(&self.status, group);
         }
 
         // ★ Bind the mode selector to the dock, and the dock to disk.

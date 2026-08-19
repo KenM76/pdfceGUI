@@ -152,11 +152,23 @@ pub(super) fn dispatch(app: &mut PdfceApp, ctx: &Context, id: &str, actions: &mu
                 });
                 return;
             }
-            // ★ One resolution, taking the id — see the module header for
-            // why two hand-written copies were the wrong answer even though
-            // each traced correctly.
-            let group = active_group(ctx, id);
-            app.dialogs.open_dimension_groups(&app.status, group);
+            // ★ **A panel toggle since 2026-08-19, not a window.**
+            //
+            // It opened `dialogs::dimension_groups` until then, and the
+            // operator's report is why it does not any more: *"the groups
+            // editor popup is too long for some screens so can't close it"*.
+            // A window whose content outgrows the screen can carry its own
+            // title bar — and its only ✕ — off the desktop.
+            // `crate::panels::dimension_groups`' header has the whole account.
+            //
+            // The authoring-group resolution that used to be here is **gone
+            // rather than moved**, and that is the interesting half. It existed
+            // so the window could open on the group the operator was drawing
+            // into; a panel is not constructed when it is shown, so it reads
+            // the authoring group itself, on every frame, and keeps following
+            // it until a row is picked. A one-shot seed computed at open time
+            // could not have done that.
+            app.toggle_panel(crate::panels::Panel::DimensionGroups);
         }
         "measure.finish" => {
             if !app.capabilities().author_measure {

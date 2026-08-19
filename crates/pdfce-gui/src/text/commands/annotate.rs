@@ -306,10 +306,22 @@ pub const fn measure_set_scale() -> CommandText {
 }
 
 /// `measure.manage_groups`
+///
+/// ★ **The trailing ellipsis was removed on 2026-08-19 and its removal is the
+/// label doing its job.** A `…` is a promise that the control opens something
+/// with a start and an end — a dialog you finish and dismiss. This one now
+/// toggles a dock panel (`crate::panels::Panel::DimensionGroups`), and a
+/// toggle whose label promises a dialog is a small lie told sixty times a day.
+///
+/// The label is also the **dock tab caption**, because
+/// `crate::app::PdfceApp::new` builds the panel registry from the command
+/// catalog — one string, so the tab and the ribbon control can never disagree
+/// about what the surface is called. "Manage dimension groups…" was a
+/// reasonable ribbon label and an unreadable tab; "Dimension groups" is both.
 #[must_use]
 pub const fn measure_manage_groups() -> CommandText {
     CommandText::new(
-        "Manage dimension groups…",
+        "Dimension groups",
         "Add, rename and remove dimension groups, and see the scale, number format and \
          drafting standard each one carries.",
     )

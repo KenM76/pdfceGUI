@@ -1,6 +1,28 @@
-//! `dimension_groups_window_makes_a_group` — the Manage-groups window opens, a
-//! group made in it reaches the document and comes back joinable, and the same
-//! group can then be renamed and removed.
+//! `dimension_groups_panel_makes_a_group` — the Dimension-groups **panel**
+//! opens, a group made in it reaches the document and comes back joinable, and
+//! the same group can then be renamed and removed.
+//!
+//! # ★ It drove a WINDOW until 2026-08-19, and the rewrite is the point
+//!
+//! The surface moved into the dock that day, because a window whose content
+//! outgrew the screen could push its own title bar — and its only ✕ — off the
+//! desktop, and the operator could not close it. `crate::checks` has no way to
+//! notice that from a passing check: every assertion below passed against the
+//! window on the run that shipped it.
+//!
+//! Two things about this check changed with the surface and both are worth
+//! naming, because they are what a driven check is *for*:
+//!
+//! 1. **It clicks fold headings now.** Five of the panel's six sections start
+//!    shut, so the regions this check aims at do not exist until a heading is
+//!    pressed. That is not a cost — it means the check proves the folds work,
+//!    which is half of what the operator asked for and the half a unit test
+//!    cannot see.
+//! 2. **It no longer asserts a window opened.** It asserts a panel *body*
+//!    region appeared, which is a weaker claim about layout and a stronger one
+//!    about reach: the panel is the last tab of a stack in Review's right dock,
+//!    so its region appearing proves the ribbon control raised a tab that was
+//!    behind another one.
 //!
 //! # The gap this closes
 //!
@@ -33,7 +55,7 @@
 //! # The assertion it would be easy to leave out
 //!
 //! The last one: **a second `draw_into` radio appears**. Asserting only the
-//! `add-dimension-group` trace line would pass on a build where the window
+//! `add-dimension-group` trace line would pass on a build where the panel
 //! writes to the document and lists nothing — which is the shape of every
 //! panel in this project's history that shipped with a body, a rail entry and
 //! no control anyone could click.
@@ -48,13 +70,13 @@
 //!
 //! Create, **rename**, **delete** — ending with the list exactly as long as it
 //! started. Each verb alone would show only that its arm exists; together they
-//! show that the window's three controls act on **the same group**.
+//! show that the panel's three controls act on **the same group**.
 //!
 //! That is the failure a per-row surface actually has and no single-verb
 //! assertion can see: a rename field bound to the *selected* row while Delete
 //! acts on the *authoring* row would let every individual step report success
 //! while the operator renamed one group and deleted another. The two are
-//! deliberately different things in this window — the radio chooses where the
+//! deliberately different things in this panel — the radio chooses where the
 //! next dimension goes, the name chooses whose settings are on screen — which
 //! is exactly what makes confusing them possible.
 //!
@@ -69,6 +91,7 @@ use crate::checks::driving::{
 };
 use crate::checks::{Check, CheckContext};
 use crate::error::{Error, Result};
+use crate::geom::LRect;
 use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
@@ -76,8 +99,15 @@ use crate::sys::vk;
 
 /// The mode whose tab list carries Measure.
 const MODE: &str = "review";
-/// The window's own region.
-const WINDOW: &str = "dialog:dimension-groups";
+/// The panel body's own region.
+///
+/// ★ Renamed from `dialog:dimension-groups` when the surface moved into the
+/// dock. The prefix is load-bearing in the trace — a reader scanning for what
+/// drew has to be able to tell a floating window from a docked body — so it
+/// moved with the surface rather than being kept for the harness's convenience.
+const PANEL: &str = "panel:dimension-groups";
+/// The prefix of the foldable sections' heading regions.
+const HEADING: &str = "dimension-groups.heading.";
 /// The new-group name field.
 const NAME_FIELD: &str = "dimension-groups.new_name";
 /// The Add button.
@@ -87,7 +117,7 @@ const DRAW_INTO: &str = "dimension-groups.draw_into.";
 /// The appearance-defaults block, which proves the lower half drew at all.
 const APPEARANCE: &str = "dimension-groups.appearance";
 /// The prefix of the per-row name regions — what selects a group for the lower
-/// half of the window.
+/// half of the panel.
 const ROW: &str = "dimension-groups.row.";
 /// The rename field.
 const RENAME: &str = "dimension-groups.rename";
@@ -119,16 +149,48 @@ const NAME_KEYS: [u16; 6] = [vk::D, vk::E, vk::T, vk::A, vk::I, vk::L];
 /// a button they took for a no-op, and nothing else in this check would notice.
 const RENAME_KEY: u16 = vk::L;
 
-/// See the module documentation.
-pub struct DimensionGroupsWindowMakesAGroup;
+/// Press one of the panel's fold headings, and wait for the frame that answers.
+///
+/// # ★ Why this exists, and why it returns `Option` rather than failing
+///
+/// Five of the panel's six sections start shut, so the regions this check aims
+/// at — the name field, the Add button, Rename, Delete, the appearance block —
+/// **do not exist** until their heading is pressed. That is the surface the
+/// operator asked for (*"each section should be able to fold up like the
+/// settings one"*) and it makes this check the only thing in the project that
+/// proves the folds open at all.
+///
+/// It returns the heading's own rect rather than a bare `bool` so a caller can
+/// press it a second time to shut the section again. Shutting matters more than
+/// it looks: the panel lives in a dock column, `declared` retires a region that
+/// stops being published, and a section left open pushes everything below it
+/// down the scroll region — where the next `declared_center` would aim at a
+/// point the operator cannot see. Closing what has been inspected is how this
+/// check stays inside the visible column without a single hard-coded height.
+///
+/// `None` means the heading is not on screen at all, which is a real failure
+/// and is reported by the caller in its own words — a fold whose heading cannot
+/// be found is a section that is unreachable, not a section that is shut.
+fn fold(session: &Session, driver: &Driver, ui_rect: &str, key: &str) -> Result<Option<LRect>> {
+    let trace = session.trace()?;
+    let Some(heading) = declared(&trace, ui_rect, &format!("{HEADING}{key}")) else {
+        return Ok(None);
+    };
+    driver.click_at(session.frame()?.declared_center(heading))?;
+    session.settle(16);
+    Ok(Some(heading))
+}
 
-impl Check for DimensionGroupsWindowMakesAGroup {
+/// See the module documentation.
+pub struct DimensionGroupsPanelMakesAGroup;
+
+impl Check for DimensionGroupsPanelMakesAGroup {
     fn name(&self) -> &'static str {
-        "dimension_groups_window_makes_a_group"
+        "dimension_groups_panel_makes_a_group"
     }
 
     fn defect(&self) -> &'static str {
-        "Measure > Manage dimension groups is drawn and does nothing — or it opens a window \
+        "Measure > Dimension groups is drawn and does nothing — or it opens a panel \
          that cannot create a group, or creates one the model never gives back, so a second \
          scale on one drawing is unreachable and every dimension lands in the default group \
          for ever"
@@ -215,7 +277,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         ));
     }
 
-    // --- 3: open the window ------------------------------------------------
+    // --- 3: show the panel -------------------------------------------------
     //
     // ★ Through `declared_or_in_overflow`, not `declared`. At the harness's
     // window width a band can legitimately fold controls into the overflow —
@@ -243,7 +305,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(18);
 
     let trace = session.trace()?;
-    if declared(&trace, ui_rect, WINDOW).is_none() {
+    if declared(&trace, ui_rect, PANEL).is_none() {
         // Distinguish "no arm" from "the arm declined", which is the same
         // diagnosis `page_ops::no_effect` draws and the one worth the lines: a
         // scaffolded command traces `command-unimplemented`, a gated one traces
@@ -269,12 +331,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         } else {
             format!(
                 "`measure.manage_groups` was clicked, traced neither a decline nor an \
-                 unimplemented line, and no `{WINDOW}` region appeared. The arm ran and built \
-                 no window."
+                 unimplemented line, and no `{PANEL}` region appeared. The arm ran and the \
+                 panel did not draw — and because the arm is a TOGGLE, the likeliest cause \
+                 is that the panel was already the active tab and the click shut it."
             )
         }));
     }
-    report.note("the Manage-groups window opened from Measure > Scale");
+    report.note("the Dimension-groups panel drew after Measure > Dimension groups");
 
     // --- 4: it drew a list, and the list has the default group in it -------
     // `live_names`, not `declared_names` — the three counts in this check
@@ -285,31 +348,72 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let before = live_names(&trace, ui_rect, DRAW_INTO);
     if before.is_empty() {
         return Ok(Some(format!(
-            "the window opened and declared no `{DRAW_INTO}*` region, so it drew no group \
-             rows at all. Every document has a default group, so an empty list is the window \
+            "the panel drew and declared no `{DRAW_INTO}*` region, so it listed no group \
+             rows at all. Every document has a default group, so an empty list is the panel \
              failing to read `dimension_model()` rather than a document with no groups."
         )));
     }
-    if declared(&trace, ui_rect, APPEARANCE).is_none() {
+    // ★ The appearance defaults are behind a fold that starts SHUT, so this
+    // step is two clicks and an assertion between them: open it, prove the
+    // longest section in the panel drew, shut it again so it cannot push the
+    // controls below out of the visible column.
+    //
+    // Shutting it is also the second half of the operator's ask. A fold that
+    // opens and will not close is a heading with a decoration on it.
+    let Some(appearance_heading) = fold(&session, &driver, ui_rect, "appearance")? else {
         return Ok(Some(format!(
-            "the window listed {} group row(s) and declared no `{APPEARANCE}` region, so the \
-             lower half — the drafting standard, the layer switch and the five appearance \
-             defaults — did not draw. A list with no settings under it is a picker, not a \
-             manager.",
+            "the panel listed {} group row(s) and declared no `{HEADING}appearance` region, \
+             so the appearance defaults have no heading to press and are unreachable. \
+             Headings declared: {}.",
+            before.len(),
+            list(&declared_names(&session.trace()?, ui_rect, HEADING))
+        )));
+    };
+    if declared(&session.trace()?, ui_rect, APPEARANCE).is_none() {
+        return Ok(Some(format!(
+            "the Appearance heading was pressed and no `{APPEARANCE}` region followed, so the \
+             fold did not open — or opened onto nothing. {} group row(s) were listed. A list \
+             with no settings reachable under it is a picker, not a manager.",
             before.len()
         )));
     }
+    driver.click_at(session.frame()?.declared_center(appearance_heading))?;
+    session.settle(16);
+    if declared(&session.trace()?, ui_rect, APPEARANCE).is_some() {
+        return Ok(Some(format!(
+            "the Appearance heading was pressed a second time and `{APPEARANCE}` is still \
+             declared, so the fold opens and does not shut. `declared` retires a region that \
+             stops being published, so this is a live region rather than a fossil — the \
+             section is genuinely still drawing."
+        )));
+    }
     report.note(format!(
-        "{} group row(s) listed, and the settings block drew: {}",
+        "{} group row(s) listed, and the appearance fold opened and shut again: {}",
         before.len(),
         list(&before)
     ));
 
-    // --- 5: type a name ----------------------------------------------------
+    // --- 5: open the Add fold, and type a name -----------------------------
+    //
+    // The Add controls sit directly under the LIST and above the selected
+    // group's settings, which is where the surface's own header argues they
+    // belong: adding is an action on the list, not on the selected group. That
+    // placement is also what keeps this step inside the visible column — the
+    // fold is three lines below a list with one row in it.
+    if fold(&session, &driver, ui_rect, "add")?.is_none() {
+        return Ok(Some(format!(
+            "the panel declares no `{HEADING}add` region, so there is no way to open the \
+             new-group controls and a document is stuck with the groups it already has. \
+             Headings declared: {}.",
+            list(&declared_names(&session.trace()?, ui_rect, HEADING))
+        )));
+    }
+    let trace = session.trace()?;
     let field = declared(&trace, ui_rect, NAME_FIELD).ok_or_else(|| {
         Error::new(format!(
-            "the window declared no `{NAME_FIELD}` region, so there is nothing to type a \
-             group name into and the Add button can never leave its greyed state."
+            "the Add-a-group fold was opened and declared no `{NAME_FIELD}` region, so there \
+             is nothing to type a group name into and the Add button can never leave its \
+             greyed state."
         ))
     })?;
     driver.click_at(session.frame()?.declared_center(field))?;
@@ -323,7 +427,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // --- 6: add it ---------------------------------------------------------
     let trace = session.trace()?;
     let add = declared(&trace, ui_rect, ADD)
-        .ok_or_else(|| Error::new(format!("the window declared no `{ADD}` region.")))?;
+        .ok_or_else(|| Error::new(format!("the panel declared no `{ADD}` region.")))?;
     let requested_before = trace.events("dimension-group-add").count();
     driver.click_at(session.frame()?.declared_center(add))?;
     session.settle(20);
@@ -363,7 +467,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         return Ok(Some(format!(
             "★ the group was WRITTEN and did not come back. `{APPLIED}` was traced, so \
              `EditSession::add_dimension_group` ran and the undo log has an entry — and the \
-             window still lists {} row(s), the same as before. A group the model does not \
+             panel still lists {} row(s), the same as before. A group the model does not \
              give back is a group nothing can ever draw a dimension into, and it is \
              indistinguishable from success at every earlier step. Rows: {}.",
             after.len(),
@@ -379,7 +483,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     //
     // ★ A ROUND TRIP, deliberately: create, rename, delete, ending with the
     // list exactly as long as it started. Each verb alone would only show that
-    // its arm exists; together they show that the window's three controls act
+    // its arm exists; together they show that the panel's three controls act
     // on the SAME group — which is the failure a per-row surface actually has,
     // and which no single-verb assertion can see.
     //
@@ -405,7 +509,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let Some(row) = declared(&trace, ui_rect, &format!("{ROW}{id}")) else {
         return Ok(Some(format!(
             "the new group has an authoring radio and NO `{ROW}{id}` region, so its name is \
-             not clickable and the lower half of the window can never be pointed at it. \
+             not clickable and the lower half of the panel can never be pointed at it. \
              Every setting below the list would be unreachable for this group."
         )));
     };
@@ -413,6 +517,19 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(14);
 
     // --- rename ------------------------------------------------------------
+    //
+    // Behind the one fold that is shut for a SAFETY reason rather than a length
+    // one: it carries the only two destructive verbs on the panel, and R9
+    // forbids greying a control that is genuinely available to make it feel
+    // safer. A fold is the honest equivalent — and it is this click.
+    if fold(&session, &driver, ui_rect, "identity")?.is_none() {
+        return Ok(Some(format!(
+            "the panel declares no `{HEADING}identity` region, so rename and delete have no \
+             heading to press and a group created by mistake is permanent. Headings \
+             declared: {}.",
+            list(&declared_names(&session.trace()?, ui_rect, HEADING))
+        )));
+    }
     let trace = session.trace()?;
     let Some(field) = declared(&trace, ui_rect, RENAME) else {
         return Ok(Some(format!(

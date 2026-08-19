@@ -419,7 +419,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // measure checks because it is the third link in the same chain: a
         // tool places a dimension, a window calibrates its group, and this one
         // is where the group comes from.
-        Box::new(dimension_groups::DimensionGroupsWindowMakesAGroup),
+        Box::new(dimension_groups::DimensionGroupsPanelMakesAGroup),
         // ★ Directly after the markup checks, and the order is a **dependency**
         // rather than a preference: this one begins by arming Rectangle and
         // dragging, which is `markup_rectangle`'s and `markup_shapes`' whole
