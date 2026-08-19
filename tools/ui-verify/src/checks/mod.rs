@@ -250,6 +250,11 @@ pub mod shortcuts;
 pub mod text_annot;
 pub mod text_annot_focus;
 pub mod text_edit;
+/// ★ The operator's own report, driven: Edit text on a REAL CAD sheet, aimed at a
+/// point the ENGINE says carries text. Its header carries why two passing text
+/// checks were not enough — both drive fixtures this repository generated to
+/// verify itself.
+pub mod text_edit_real;
 pub mod text_markup;
 /// The canvas text-selection sweep: the one feature whose entire behaviour is a
 /// drag and whose entire feedback is a translucent wash, so a screenshot cannot
@@ -558,6 +563,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(text_annot::TextAnnotPlacesAndAuthors),
         Box::new(text_annot_focus::TextAnnotTakesTheKeyboardUnclicked),
         Box::new(text_edit::TextEditPinsAnAlignedTail),
+        Box::new(text_edit_real::TextEditOnARealDrawing),
         // After both, because it is the only driving check that does not touch
         // the ribbon band at all — it clicks mode segments and the page — and
         // because it is the slowest: it searches for a point with content

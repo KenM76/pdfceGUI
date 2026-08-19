@@ -228,6 +228,14 @@ pub struct Draft {
 /// Every variant is a *sentence to show*, not a state to be silent in. That is
 /// the whole difference from the old shell, which set a boolean and stopped
 /// responding to the keyboard.
+///
+/// ★★ **`SpansRuns` was the third variant and is gone as of 2026-08-19.** It
+/// refused every click whose visual line was made of more than one show
+/// operator, which on a CAD sheet is nearly every click — see [`resolve_run`]
+/// for the measurement and for why the refusal was answering a question about
+/// the *line* when the operator was editing a *run*. The two that are left are
+/// both genuine absences of a thing to edit: no text under the pointer, and no
+/// readable text on the page at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
     /// The click landed on no text at all.
@@ -235,10 +243,6 @@ pub enum Refusal {
     /// The page's text could not be extracted (an image-only page, a damaged
     /// content stream).
     NoText,
-    /// ★ D4a. The caret's line is made of more than one show operator and the
-    /// operator's target spans the boundary. `pdfce-core` has no multi-run
-    /// request; this refuses by name rather than by going quiet.
-    SpansRuns,
 }
 
 /// Read the draft without creating one. `None` when nothing is being composed.
@@ -421,15 +425,45 @@ fn resolve_run(c: &Click<'_>) -> Result<Anchor, Refusal> {
     let pos = model
         .hit_test(f64::from(pdf.x), f64::from(pdf.y))
         .ok_or(Refusal::NoRun)?;
-    // ★ D4a's boundary, refused by name. `line_range_at` gives the caret's whole
-    // visual line; if its two ends sit in different runs, the thing the operator
-    // is looking at is not a thing `pdfce-core` can be asked to replace, and the
-    // honest answer is a sentence rather than a keyboard that stops working.
-    if let Some((from, to)) = model.line_range_at(pos)
-        && from.run != to.run
-    {
-        return Err(Refusal::SpansRuns);
-    }
+    // ★★★ **D4a's boundary used to REFUSE here, and refusing was the defect.**
+    //
+    // The old code read: *if the caret's visual line begins and ends in
+    // different runs, `return Err(Refusal::SpansRuns)`* — on the argument that
+    // "the thing the operator is looking at is not a thing `pdfce-core` can be
+    // asked to replace".
+    //
+    // **That argument was about the LINE. The operator is editing a RUN.**
+    // `EditSession::edit_text` replaces one show operator, which is exactly what
+    // a click resolves; whether the *neighbours* on that line are separate
+    // operators is a fact about what happens to **them**, not about whether this
+    // edit is possible. The engine has answered the neighbour question since
+    // before this shell existed — `FollowerDisposition::Pin` leaves every
+    // follower `Tm` untouched — and this module has been *choosing* between the
+    // two dispositions on every commit for days.
+    //
+    // ★ How expensive the refusal was, measured rather than guessed. A
+    // SolidWorks-exported drawing sheet writes text as one show operator per
+    // *cell*, so nearly every visual line on a title block or a parts table is
+    // multi-run. `tools/ui-verify`'s `text_edit_on_a_real_drawing` armed the
+    // caret on `SW41177.pdf` and clicked a point `pdfce-cli find-text` reported
+    // as carrying the word `PART`: **`text-edit-declined reason=SpansRuns`**.
+    //
+    // So on this operator's own documents the feature refused essentially every
+    // click, and his report — *"text editing on canvas still doesn't work"*,
+    // twice, weeks apart — was **exactly accurate**. Two passing driven checks
+    // said otherwise, and both drove fixtures this repository generated to
+    // verify itself: a 924-byte three-line file and blank paper.
+    //
+    // What the refusal was right about is kept, and it is the *disclosure*: the
+    // operator is editing one piece of something that looks like one line, and
+    // the other pieces will not move. That is now said — before the commit and
+    // after it — rather than used as a reason to do nothing. See
+    // [`disposition::Reason::SharesTheLine`], and `crate::text::textedit`.
+    //
+    // The line is re-derived at commit rather than carried on the `Anchor`, for
+    // the reason the `Anchor` docs already give: everything but the original
+    // text is a pure function of `(page_text, run)` and a copy would go stale
+    // when the page is rebuilt.
     let original = text
         .runs
         .get(pos.run)
@@ -437,6 +471,38 @@ fn resolve_run(c: &Click<'_>) -> Result<Anchor, Refusal> {
         .ok_or(Refusal::NoRun)?;
     if original.is_empty() {
         return Err(Refusal::NoRun);
+    }
+    // ★★ **Announced BEFORE the edit, not after it.**
+    //
+    // `MeasureState`'s derived-point rule in the operator's own vocabulary:
+    // *a derived point is pdfce's inference, so rule 4 requires it to be
+    // announced before it is picked, not after.* The same is true of a layout
+    // consequence — the operator is about to type into what looks like one line,
+    // and the pieces beside it will not move. Telling them at commit time is
+    // telling them after they have already chosen.
+    //
+    // It is a **note**, not a refusal: the caret is placed either way, and this
+    // returns `Ok`. `crate::text::textedit::pinned_tail_disclosure` says the
+    // same fact in the past tense when the edit lands, and both are wanted —
+    // one is a warning and one is a receipt.
+    if model
+        .line_range_at(pos)
+        .is_some_and(|(from, to)| from.run != to.run)
+    {
+        crate::app::actions::record_note(
+            c.doc.edit_epoch,
+            crate::text::textedit::shares_the_line_note().to_owned(),
+        );
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // ★ Named so a driven check can tell the two shapes apart. Until
+            // 2026-08-19 this case emitted `text-edit-declined reason=SpansRuns`
+            // and placed no caret; it now emits this and a caret, and a harness
+            // that could not distinguish "refused" from "allowed and disclosed"
+            // would pass against either.
+            format!("text-edit-shares-line run={}", pos.run)
+        });
     }
     Ok(Anchor::Run {
         run: pos.run,
@@ -596,6 +662,20 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
         [1.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0],
     );
     let mut finding = None;
+    // ★★ Whether the caret's visual line is made of more than one show
+    // operator, re-derived here rather than carried on the `Anchor`.
+    //
+    // The `Anchor` docs give the rule and it applies unchanged: everything but
+    // the original text is a pure function of `(page_text, run)`, and a copy
+    // taken when the operator clicked would go stale when the page is rebuilt.
+    //
+    // Defaults to `false`, which is the *permissive* direction — `Reflow` — and
+    // that is the honest default for the same reason the identity matrices below
+    // are: it is what a page whose provenance could not be read gets, and a
+    // shell that pinned on no evidence would be claiming to have measured
+    // something it never saw. The single-run case is also the overwhelmingly
+    // commoner one in ordinary prose documents.
+    let mut shares_the_line = false;
 
     // ★★ **This extraction is its own, and it is NOT `doc.page_text()`.**
     //
@@ -650,6 +730,16 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
                 request.pinned_span = Some(p.operator_span);
                 matrices = (p.text_matrix, p.ctm);
             }
+            // ★ The SAME model the caret's hit test used, with the same
+            // options — `BlockRecognitionOptions::default()` — because the
+            // question is *how did the thing the operator clicked get
+            // segmented*, and asking it of a differently-recognised model would
+            // answer about a different segmentation. The relaxed model below is
+            // for alignment detection, which is a different question about the
+            // same page.
+            if let Some((from, to)) = model.line_range_at(TextPosition::new(run, 0)) {
+                shares_the_line = from.run != to.run;
+            }
             let relaxed = EditableTextModel::recognize(&text, &reflow_recognition_options());
             finding = relaxed
                 .block_at(TextPosition::new(run, 0))
@@ -658,7 +748,7 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
         }
     }
 
-    let reason = disposition::choose(matrices.0, matrices.1, finding);
+    let reason = disposition::choose(matrices.0, matrices.1, shares_the_line, finding);
     Plan {
         request,
         options: disposition::options(reason),

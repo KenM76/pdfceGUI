@@ -177,6 +177,35 @@ pub enum Reason {
     /// The run's `Tm` or CTM is rotated or skewed, so a follower shift computed
     /// in user-space x would be in the wrong frame. `Pin`.
     Rotated,
+    /// ★★ The caret's **visual line is made of more than one show operator**,
+    /// so what looks like one line is several independently positioned pieces.
+    /// `Pin`.
+    ///
+    /// # Why this outranks the alignment rule
+    ///
+    /// Because on a multi-run line the "followers" are not a *tail of the same
+    /// sentence* — they are **separate pieces of the drawing**, each with its
+    /// own absolute `Tm`. A SolidWorks parts table writes one show operator per
+    /// cell; a title block writes one per field. Under `Reflow` the engine adds
+    /// `ΔA` to the `e` of every following absolute `Tm` in the text object, so
+    /// widening `PART` to `PARTS` would slide `DESCRIPTION` and `QTY` sideways
+    /// — **content the operator did not touch, moved by an edit that did not
+    /// mention it.**
+    ///
+    /// `LeftAligned`'s argument — *"the line is meant to grow to the right"* —
+    /// is true of a paragraph and false of a table row, and the alignment
+    /// detector cannot tell them apart because both are left-flush. So this
+    /// rung sits **above** it: a line made of separate pieces is not a line
+    /// that grows, whatever its alignment reads as.
+    ///
+    /// # ★ It is not a refusal, and it used to be
+    ///
+    /// `canvas::textedit::resolve_run` returned `Refusal::SpansRuns` for exactly
+    /// this shape until 2026-08-19, which refused nearly every click on a CAD
+    /// sheet. The measurement and the operator's report are in that function's
+    /// own comment. What survives of the refusal is its **disclosure**, which
+    /// was always the useful half — see `crate::text::textedit`.
+    SharesTheLine,
     /// The engine detected a non-left alignment whose tail is flush against
     /// something. `Pin`.
     Flush(BlockAlignment),
@@ -199,7 +228,7 @@ impl Reason {
     #[must_use]
     pub const fn disposition(self) -> FollowerDisposition {
         match self {
-            Self::Rotated | Self::Flush(_) => FollowerDisposition::Pin,
+            Self::Rotated | Self::SharesTheLine | Self::Flush(_) => FollowerDisposition::Pin,
             Self::LeftAligned | Self::AlignmentUndetectable => FollowerDisposition::Reflow,
         }
     }
@@ -258,11 +287,31 @@ pub fn is_upright(text_matrix: [f32; 6], ctm: [f32; 6]) -> bool {
 /// | upright | `Left`, detected | `Reflow` | the line is meant to grow right |
 /// | upright | single-line / ambiguous / `None` | `Reflow` | the engine's default, **disclosed as a fall-back** |
 #[must_use]
-pub fn choose(text_matrix: [f32; 6], ctm: [f32; 6], alignment: Option<Finding>) -> Reason {
+pub fn choose(
+    text_matrix: [f32; 6],
+    ctm: [f32; 6],
+    shares_the_line: bool,
+    alignment: Option<Finding>,
+) -> Reason {
     // Rung 1 — the correctness bound. See the header for why it outranks the
     // alignment rule rather than being folded in beside it.
     if !is_upright(text_matrix, ctm) {
         return Reason::Rotated;
+    }
+    // ★★ Rung 2 — the caret's line is several independently positioned pieces.
+    //
+    // Above alignment and below rotation, and both placements are arguments.
+    // Below rotation because rotation is the *correctness* bound — a follower
+    // shift computed in user-space x on a rotated baseline is wrong in a way
+    // that has nothing to do with how many pieces the line has, and a reader
+    // who sees `Rotated` should be told the sharper fact.
+    //
+    // Above alignment because the alignment detector cannot see this: a table
+    // row and a paragraph are both left-flush, and `LeftAligned`'s argument
+    // ("the line is meant to grow to the right") is true of one and false of the
+    // other. See `Reason::SharesTheLine`.
+    if shares_the_line {
+        return Reason::SharesTheLine;
     }
     // Rung 2 — the engine's finding, and only when it IS a finding.
     //
@@ -381,10 +430,10 @@ mod tests {
     /// document nobody re-opens.
     #[test]
     fn a_rotated_run_pins_regardless_of_alignment() {
-        assert_eq!(choose(ROTATED_90, UPRIGHT, None), Reason::Rotated);
-        assert_eq!(choose(UPRIGHT, ROTATED_90, None), Reason::Rotated);
+        assert_eq!(choose(ROTATED_90, UPRIGHT, false, None), Reason::Rotated);
+        assert_eq!(choose(UPRIGHT, ROTATED_90, false, None), Reason::Rotated);
         assert_eq!(
-            choose(ROTATED_90, UPRIGHT, None).disposition(),
+            choose(ROTATED_90, UPRIGHT, false, None).disposition(),
             FollowerDisposition::Pin
         );
     }
@@ -400,10 +449,61 @@ mod tests {
     /// than only the disposition.
     #[test]
     fn an_unresolvable_block_is_an_undetectable_alignment_and_not_a_left_one() {
-        let r = choose(UPRIGHT, UPRIGHT, None);
+        let r = choose(UPRIGHT, UPRIGHT, false, None);
         assert_eq!(r, Reason::AlignmentUndetectable);
         assert_ne!(r, Reason::LeftAligned);
         assert_eq!(r.disposition(), FollowerDisposition::Reflow);
+    }
+
+    /// ★★ **A line made of several pieces PINS, whatever its alignment reads
+    /// as** — and this is the assertion the whole 2026-08-19 fix rests on.
+    ///
+    /// The failure it forbids is concrete: a SolidWorks parts table writes one
+    /// show operator per cell, and every cell is left-flush, so the alignment
+    /// detector answers `Left` and `LeftAligned` reflows. Under `Reflow` the
+    /// engine adds `ΔA` to the `e` of every following absolute `Tm` in the text
+    /// object — so widening `PART` to `PARTS` slides `DESCRIPTION` and `QTY`
+    /// sideways. **Content the operator did not touch, moved by an edit that did
+    /// not mention it.**
+    ///
+    /// Written against a real left-aligned *detection* rather than against
+    /// `None`, because `None` would pass on a build where the rung sat below
+    /// alignment: `AlignmentUndetectable` also reflows, so only a positive
+    /// `Left` finding can prove the rung order.
+    #[test]
+    fn a_line_made_of_several_pieces_pins_over_a_left_alignment() {
+        let left = Some((BlockAlignment::Left, AlignmentSource::Detected));
+        assert_eq!(
+            choose(UPRIGHT, UPRIGHT, false, left),
+            Reason::LeftAligned,
+            "the control: without the multi-run fact this run reflows"
+        );
+        assert_eq!(
+            choose(UPRIGHT, UPRIGHT, true, left),
+            Reason::SharesTheLine,
+            "a left-aligned run on a multi-piece line must not reflow: that is a table row"
+        );
+        assert_eq!(
+            choose(UPRIGHT, UPRIGHT, true, left).disposition(),
+            FollowerDisposition::Pin
+        );
+    }
+
+    /// ★ **Rotation still outranks it**, which is the other half of the rung
+    /// order.
+    ///
+    /// Both pin, so the *disposition* cannot tell them apart — which is exactly
+    /// why `Reason` exists and why this asserts the reason. A reader who sees
+    /// `Rotated` is being told the sharper fact: a follower shift computed in
+    /// user-space x on a rotated baseline is wrong in a way that has nothing to
+    /// do with how many pieces the line has.
+    #[test]
+    fn rotation_outranks_the_multi_run_rung() {
+        assert_eq!(
+            choose(ROTATED_90, UPRIGHT, true, None),
+            Reason::Rotated,
+            "a rotated run on a multi-piece line must report the rotation, the sharper fact"
+        );
     }
 
     /// **`Reflow` is what the engine defaults to**, so the fall-back changes
@@ -414,7 +514,7 @@ mod tests {
     /// — still commits with exactly the options it used to.
     #[test]
     fn the_fallback_is_byte_identical_to_what_the_old_shell_passed() {
-        let fallback = options(choose(UPRIGHT, UPRIGHT, None));
+        let fallback = options(choose(UPRIGHT, UPRIGHT, false, None));
         assert_eq!(fallback.disposition, EditOptions::default().disposition);
     }
 

@@ -7,11 +7,15 @@
 //!
 //! ## Two things here are load-bearing rather than cosmetic
 //!
-//! **[`spans_runs`] is a refusal, not a status message.** `DEFECTS.md` D4a
-//! records that the old shell handled a cross-run selection by setting a flag
-//! that *"silently disables the whole typing loop"* — the operator pressed keys
-//! and nothing happened. A sentence is the entire difference between a limit and
-//! a bug, and this is that sentence.
+//! **★★ [`shares_the_line_note`] is a DISCLOSURE, and it was a refusal until
+//! 2026-08-19.** `DEFECTS.md` D4a records that the old shell handled a
+//! cross-run selection by setting a flag that *"silently disables the whole
+//! typing loop"* — the operator pressed keys and nothing happened. This shell
+//! replaced the silence with a sentence, which was the right first move and the
+//! wrong final one: **it still refused**, and on a CAD sheet, where a table row
+//! is one show operator per cell, it refused nearly every click. The operator
+//! reported text editing as not working twice, weeks apart, and was right both
+//! times. The refusal is gone; the sentence stayed and changed tense.
 //!
 //! **[`pinned_tail_disclosure`] is owed under rule 4.** When the follower
 //! disposition is `Pin`, the text after the edit does not make room, so a longer
@@ -40,22 +44,36 @@ pub const fn refusal(reason: Refusal) -> &'static str {
             "pdfce cannot read any text on this page. If it is a scan, run Tools > OCR first — \
              editing needs real text, not a picture of it."
         }
-        // ★ D4a, in words, on the surface, where the old shell went quiet.
-        Refusal::SpansRuns => spans_runs(),
     }
 }
 
-/// ★ The cross-run refusal — `DEFECTS.md` D4a, said out loud.
+/// ★★ The multi-run **disclosure** — what `spans_runs()` used to refuse.
 ///
-/// It names the limit, names the reason in the operator's terms rather than in
-/// PDF's, and gives them the next move. It does **not** say "one text run",
-/// because a run is not a thing anyone can see on a page; what they can see is
-/// that the line is made of separate pieces.
+/// Until 2026-08-19 this sentence's ancestor was a *refusal*: a click whose
+/// visual line was made of more than one show operator placed no caret at all,
+/// and the sentence told the operator to *"click directly on the word you want
+/// to change"* — advice that could not work, because the refusal was about the
+/// **line**, not about where on it they clicked.
+///
+/// On a SolidWorks sheet — one show operator per table cell, one per title-block
+/// field — that refused nearly every click. The operator reported the feature as
+/// not working twice, weeks apart, and **he was right both times**.
+///
+/// The refusal is gone and **the disclosure is the half that was always
+/// useful**. It says the same true thing in the same operator's terms — *a run
+/// is not a thing anyone can see on a page; what they can see is that the line
+/// is made of separate pieces* — and then says what pdfce is going to do about
+/// it instead of stopping.
+///
+/// Shown when the caret **lands**, not when the edit commits: rule 4's
+/// *"announced before it is picked, not after"*, applied to a layout
+/// consequence rather than to a geometric inference. The commit-time half is
+/// [`pinned_tail_disclosure`], which says the same fact in the past tense.
 #[must_use]
-pub const fn spans_runs() -> &'static str {
-    "This line is stored as several separate pieces of text, and pdfce edits one piece at a \
-     time. Click directly on the word you want to change. Editing a whole paragraph at once is \
-     not built yet."
+pub const fn shares_the_line_note() -> &'static str {
+    "This line is drawn as several separate pieces. You are editing the piece you clicked; the \
+     pieces beside it will stay exactly where they are, so a longer replacement may overlap \
+     them."
 }
 
 /// The disclosure appended when the edit pinned the text after it.
@@ -68,6 +86,12 @@ pub fn pinned_tail_disclosure(reason: Reason) -> String {
     let because = match reason {
         Reason::Rotated => {
             "this text is rotated, so moving what follows it sideways would move it the wrong way"
+        }
+        // ★ The commonest reason on this operator's documents by a wide margin,
+        // and the one whose wording matters most: he is looking at what appears
+        // to be one line and pdfce has just edited one piece of it.
+        Reason::SharesTheLine => {
+            "this line is drawn as several separate pieces and the others are not part of your edit"
         }
         Reason::Flush(BlockAlignment::Right) => "this text is right-aligned",
         Reason::Flush(BlockAlignment::Center) => "this text is centred",
@@ -102,7 +126,7 @@ mod tests {
     /// case was no sentence at all.
     #[test]
     fn every_refusal_says_something() {
-        for r in [Refusal::NoRun, Refusal::NoText, Refusal::SpansRuns] {
+        for r in [Refusal::NoRun, Refusal::NoText] {
             let s = refusal(r);
             assert!(s.len() > 40, "{r:?} needs a real sentence, got {s:?}");
             assert!(
@@ -112,16 +136,46 @@ mod tests {
         }
     }
 
-    /// **The cross-run refusal names the next move.** A refusal that does not
-    /// say what to do instead is a shrug with a capital letter — the catalog
-    /// header's own rule.
+    /// ★★ **The multi-run note says what pdfce WILL DO, not what it refuses.**
+    ///
+    /// Its ancestor asserted `s.contains("Click directly on the word")` — advice
+    /// that could not work, because the refusal was about the *line* and not
+    /// about where on it the operator clicked. The property that replaces it is
+    /// the one that matters now: the sentence must name **the consequence the
+    /// operator cannot otherwise see**, which is that the neighbouring pieces
+    /// will not move.
     #[test]
-    fn the_cross_run_refusal_tells_the_operator_what_to_do_instead() {
-        let s = spans_runs();
-        assert!(s.contains("Click directly on the word"));
+    fn the_multi_run_note_says_what_happens_rather_than_refusing() {
+        let s = shares_the_line_note();
+        assert!(
+            s.contains("stay exactly where they are"),
+            "the note must say what happens to the pieces the operator did NOT edit — that is \
+             the whole of what they cannot see: {s:?}"
+        );
+        assert!(
+            s.contains("overlap"),
+            "and it must name the cost, because a longer replacement growing into the next cell \
+             is the one thing this decision can produce that the operator would call a bug: {s:?}"
+        );
         // …and it does not use the word the engine uses, which names nothing
         // the operator can see on their page.
         assert!(!s.contains("run"), "'run' is a PDF term, not an operator's");
+    }
+
+    /// ★ **Sharing the line PINS**, and that is the property the whole fix
+    /// rests on.
+    ///
+    /// If this reason ever reflowed, editing one cell of a SolidWorks parts
+    /// table would slide every cell after it sideways — content the operator did
+    /// not touch, moved by an edit that did not mention it. Asserted here rather
+    /// than only in `disposition`'s own tests because this module is where the
+    /// sentence promising it lives, and a sentence and a behaviour that disagree
+    /// is worse than either alone.
+    #[test]
+    fn sharing_the_line_pins_the_neighbours() {
+        assert!(Reason::SharesTheLine.pins_the_tail());
+        let s = pinned_tail_disclosure(Reason::SharesTheLine);
+        assert!(s.contains("several separate pieces"), "{s:?}");
     }
 
     /// ★ **Each pinning reason gets its own explanation.**

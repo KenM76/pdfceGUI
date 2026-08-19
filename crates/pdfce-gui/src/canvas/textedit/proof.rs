@@ -181,12 +181,20 @@ fn rotated_run(session: &EditSession) -> (usize, [f32; 6], [f32; 6]) {
 fn reason_for(session: &EditSession, needle: &str) -> Reason {
     let text = extract(session);
     let (run, tm, ctm) = run_of(session, needle);
+    // ★ The multi-run test, derived exactly as `plan` derives it: the DEFAULT
+    // recognition, because the question is how the thing the operator clicked
+    // was segmented, and the relaxed model below answers a different question
+    // about the same page.
+    let model = EditableTextModel::recognize(&text, &BlockRecognitionOptions::default());
+    let shares = model
+        .line_range_at(TextPosition::new(run, 0))
+        .is_some_and(|(from, to)| from.run != to.run);
     let relaxed = EditableTextModel::recognize(&text, &reflow_recognition_options());
     let finding = relaxed
         .block_at(TextPosition::new(run, 0))
         .and_then(|b| ReflowEngine::new(&relaxed).detect_alignment(b).ok())
         .map(disposition::from_detection);
-    disposition::choose(tm, ctm, finding)
+    disposition::choose(tm, ctm, shares, finding)
 }
 
 /// Edit `find` to `replace` under `opts` and return the **appended** bytes — the
@@ -280,8 +288,13 @@ fn a_rotated_line_reaches_the_rotation_guard() {
     // this an assertion about the RUNG ORDER as well as about the guard: this
     // block's alignment is whatever the recogniser makes of fifteen one-glyph
     // runs, and the answer must be `Rotated` regardless of it.
+    // ★ `false` for the multi-run rung, deliberately, and it is the same kind of
+    // statement the real `finding` beside it makes: this asserts that ROTATION
+    // wins, so every rung below it must be given the value that would otherwise
+    // answer, and `true` here would let `SharesTheLine` claim the result and the
+    // test would pass while measuring the wrong rung.
     assert_eq!(
-        disposition::choose(tm, ctm, finding),
+        disposition::choose(tm, ctm, false, finding),
         Reason::Rotated,
         "a [0 1 -1 0 e f] text matrix must reach the rotation guard, and it must win over whatever the alignment detector said (it said {finding:?})"
     );
