@@ -1,7 +1,7 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised at `9da6e6e`.** For a session starting cold
-on `D:\Dev\pdfceGUI`.
+**Written 2026-08-18, last revised 2026-08-19 at `3cd4286`.** For a session
+starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
 record and is still authoritative for the standing rules, the phase order and
@@ -10,39 +10,42 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `d663fe4`
+## ★★★ State, as measured at `3cd4286`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
 it. It is here so you know roughly where you are, not so you can quote it.
 
-### ★★ Read this row first: three surfaces landed 2026-08-18 and NONE has been driven
+### ★★ Read this row first: SIX surfaces have landed and NONE has been driven
 
 R1 is the rule this project was founded on, and this is where it currently
-stands **unpaid**. All three are gate-clean and unit-tested; none has been
-exercised by a running window, because the harness drives the real desktop
-and needs the operator off the machine.
+stands **unpaid**. Everything below is gate-clean and unit-tested; none of it
+has been exercised by a running window, because the harness drives the real
+desktop and needs the operator off the machine.
 
-| surface | commit | its check |
+| surface | landed | its check |
 |---|---|---|
-| **Manage dimension groups** — the window, and the *Draw into* picker that `MeasureState::group` never had a writer for | `289957d` | `dimension_groups_window_makes_a_group` — **written, never run** |
-| **Drag a page, see where it lands** — an insertion caret, dimmed where the drop would change nothing | `df2b16f` | `pages_drag_shows_where_it_lands` — **written, never run** |
-| **The selected ce dimension's own settings** — eleven cascade properties, tolerance, radius ↔ diameter | `cd63749` | **none written.** It needs a document that already *contains* a ce dimension, which today means placing one first |
+| **Manage dimension groups** — the window, and the *Draw into* picker `MeasureState::group` never had a writer for | 08-18 | `dimension_groups_window_makes_a_group` — **written, never run** |
+| **Rename, delete and re-group** — requested 08-18, engine shipped 08-19, wired the same morning | 08-19 | the same check, extended to a **create → rename → delete round trip** |
+| **Drag a page, see where it lands** — an insertion caret, dimmed where the drop would change nothing | 08-18 | `pages_drag_shows_where_it_lands` — **written, never run** |
+| **The selected ce dimension's own settings** — eleven cascade properties, tolerance, radius ↔ diameter, and now a group picker | 08-18/19 | **none written.** It needs a document that already *contains* a ce dimension, which today means placing one first |
+| **The Properties panel's document half** — file, size, PDF version, pages, sheet size, encryption, and the four editable `/Info` fields | 08-19 | `properties_metadata_round_trips` — **written, never run** |
+| **Two-line dimensioning tells the truth** — the operator's parallel threshold, the refusal by name, the overridden angle | 08-19 | **none written** |
+| **The snap indicator has its colour** | 08-19 | unit-tested over every preset; a pixel oracle would be better |
 
 ```bash
-cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
-  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
+cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
 ```
 
 | | |
 |---|---|
-| **Measured at** | `d663fe4`, clean tree |
+| **Measured at** | `3cd4286`, clean tree |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"`. **Read `Cargo.lock`, not this row** — the engine repo moved four times during one session |
-| **Tests** | 1,367 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Tests** | 1,380 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | **33 checks declared, and the two newest have never been run.** The last full run was 31 passed · 0 failed · 2 skipped at `dac3b3f`, which was *before* three surfaces landed |
+| **`ui-verify`** | **34 checks declared, and the three newest have never been run.** The last full run was 31 passed · 0 failed · 2 skipped at `dac3b3f`, which was *before* everything in the table above |
 | **Latest build** | **rebuild it, with `--verify`.** The `D:\builds\` package at the time of writing was taken from a dirty tree *and* while the engine had moved, and `package-portable.py`'s own warning says so on the run. **About names its own build time and engine revision** — open it and read the Build block rather than trusting this row |
-| **Requests owed by pdfce** | **three open** — the insert / orphaned-widgets correctness report, plus two filed 2026-08-18 about ce-dimension **groups**: a group cannot be renamed or deleted, and a placed ce dimension cannot be moved between groups. The first carries a same-day addendum for the **unit**, which is the same hole and which the original request missed |
+| **Requests owed by pdfce** | **one open**, and only its second half — `insert_pages`' orphaned widgets. **Part 1 shipped**: `InsertOutcome { pages_inserted, orphaned_widgets }`, adopted here the same hour, so the disclosure names a count instead of hedging. Part 2 is four verbs (`add_outline_item`, adopt-a-widget, page labels, named destinations), filed as `Pass 103.0`–`103.3` and unstarted. ★ **Both ce-dimension group requests closed in under a day** — see `INDEX.md`, and read the reply's `set_dimension_group` section before touching that verb |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
 
