@@ -164,7 +164,7 @@
 //! | Rectangle · Ellipse · Arrow · Highlight | here, gestured by [`band`] |
 //! | ~~Polygon · PolyLine · Ink~~ | **Built 2026-08-14**, gestured by [`vertex`] and [`ink`] |
 //! | ~~Underline · StrikeOut · Squiggly~~ | **Built 2026-08-14**, in [`text`], and they are still not variants of [`MarkupKind`] — see below |
-//! | Revision cloud | Blocked on the engine — `/BE` is never written and `MarkupSpec` is `#[non_exhaustive]`. Filed in `D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\`. |
+//! | ~~Revision cloud~~ | **Built 2026-08-19.** Was *"blocked on the engine — `/BE` is never written"*, which stopped being true when `MarkupSpec::Cloud` shipped and nothing in this shell noticed for weeks. See [`MarkupKind::Cloud`]. |
 //! | Plain line | The engine has `MarkupSpec::Line` and this shell spends it on Arrow. A second command differing only in its `/LE` is a Style question, not a kind. |
 //! | Note · text box · sticky · stamp | Text-bearing, not geometric. A different gesture (place, then type) and a different spec type (`TextAnnotSpec`). |
 //!
@@ -312,6 +312,37 @@ pub enum MarkupKind {
     /// is why they share a gesture, a state and a commit path and differ only in
     /// [`spec`] and in whether [`vertex::preview`] draws the closing segment.
     Polygon,
+    /// A **revision cloud** — the same run of clicks as [`Self::Polygon`], with
+    /// the cloudy border effect on it. *"Click each corner; double-click the
+    /// last."*
+    ///
+    /// # ★ It is a `/Polygon` in the file, and that is the specification's doing
+    ///
+    /// There is no `/Cloud` subtype in ISO 32000. A revision cloud **is** a
+    /// polygon whose border is drawn cloudy — Table 181 declares `/BE` on
+    /// Polygon and PolyLine with the qualifier *"meaningful only for polygon
+    /// annotations"* — so `pdfce_core::annot_author::MarkupSpec::Cloud` writes
+    /// `/Subtype /Polygon` and differs from `MarkupSpec::Polygon` only by
+    /// `/BE << /S /C /I n >>` and by the baked appearance.
+    ///
+    /// Which is why this is a **seventh kind rather than a Style property of
+    /// the sixth**, and the decision is worth stating because the file format
+    /// argues the other way. `RIBBON_IA.md` §5.5 gives the revision cloud its
+    /// own row in Markup ▸ Shapes, and it is right: an operator drawing a
+    /// revision cloud is not drawing a polygon and then styling it, they are
+    /// reaching for the one tool this audience names first. A control an
+    /// AEC reviewer has to *discover* by styling something else is a control
+    /// they will conclude is missing — which is exactly what happened, three
+    /// times, in the operator's own words: *"still no revision cloud tool."*
+    ///
+    /// # What it shares with Polygon, and what it does not
+    ///
+    /// Everything except [`spec`]: the same [`vertex`] gesture, the same
+    /// three-vertex floor, the same two endings, the same closing segment in
+    /// the preview. [`Self::is_vertex`] answers `true` for it and every reader
+    /// of that predicate needed no change, which is the evidence that it is the
+    /// same gesture rather than a similar one.
+    Cloud,
     /// `/Ink` — a freehand stroke that follows the pointer. *"Press and draw."*
     ///
     /// Drag-shaped like the band kinds, and **not** describable by two points:
@@ -343,6 +374,7 @@ impl MarkupKind {
         MarkupKind::Arrow,
         MarkupKind::PolyLine,
         MarkupKind::Polygon,
+        MarkupKind::Cloud,
         MarkupKind::Ink,
         MarkupKind::Highlight,
     ];
@@ -376,8 +408,8 @@ impl MarkupKind {
         )
     }
 
-    /// Whether this kind is gestured by a **run of clicks** — PolyLine and
-    /// Polygon.
+    /// Whether this kind is gestured by a **run of clicks** — PolyLine,
+    /// Polygon and Cloud.
     ///
     /// Read by [`crate::canvas::gesture::press_kind`], which gives these two a
     /// live click and **no drag at all**, and by `canvas::interact`, which routes
@@ -387,7 +419,13 @@ impl MarkupKind {
     /// that placed a vertex and replaced the selection.
     #[must_use]
     pub fn is_vertex(self) -> bool {
-        matches!(self, Self::PolyLine | Self::Polygon)
+        // ★ Cloud joins here and NOWHERE ELSE in this impl, which is the
+        // property that made it a two-line change rather than a feature: every
+        // reader of this predicate — `gesture::press_kind`'s live click,
+        // `canvas::interact`'s routing away from the selection, `vertex`'s
+        // whole state machine — is asking "is this a run of clicks", and the
+        // cloud is one. The difference lives entirely in `spec`.
+        matches!(self, Self::PolyLine | Self::Polygon | Self::Cloud)
     }
 
     /// Whether this kind follows the pointer freehand — Ink, and only Ink.
@@ -555,6 +593,21 @@ pub enum Refusal {
     Mismatched,
 }
 
+/// The `/BE /I` intensity every revision cloud this shell authors carries.
+///
+/// `pdfce-core` accepts any finite value in `0.0..=2.0` and refuses the rest by
+/// name (`EditError::BorderEffectIntensityOutOfRange`), so this is a *choice*
+/// inside a legal range rather than the only value that works.
+///
+/// **1.0 because that is Acrobat's default cloud.** The standing tie-breaker
+/// for anything an operator will compare against the program they are replacing
+/// is to make it behave the way that program does; a reviewer drawing the same
+/// cloud in both must not be able to tell them apart by the size of the
+/// scallop. It is a `const` rather than a literal in [`spec`] so the day a
+/// Style control for it lands, the search for "what does this replace" finds
+/// one name and one paragraph.
+const CLOUD_INTENSITY: f64 = 1.0;
+
 /// Build the `pdfce-core` spec one markup gesture authors.
 ///
 /// **The single place a gesture becomes a `MarkupSpec`** — the property the
@@ -686,6 +739,41 @@ pub fn spec(kind: MarkupKind, geometry: &Geometry, pen: pen::Pen) -> Option<Mark
             interior: None,
             width,
         }),
+        // ★ **The revision cloud**, and the ONLY line in this module that
+        // distinguishes it from the arm above.
+        //
+        // `intensity` is the whole of the difference in the file. Table 167's
+        // `I` row is typed `number` and constrained *"in the range 0 to 2"* —
+        // a CONTINUOUS range, not the enumeration `{0, 1, 2}` it is routinely
+        // mis-read as; `pdfce-core`'s `MarkupSpec::Cloud` carries the evidence
+        // (the sibling `S` row in the same four-line table uses the standard's
+        // enumeration idiom, and `I` does not). So a shell may pick any value
+        // in the range and 1.0 is a choice rather than the only legal one.
+        //
+        // **1.0 is Acrobat's own default cloud**, which is the whole argument.
+        // The standing tie-breaker for anything an operator will compare
+        // against the program they are replacing is *make it work the way the
+        // other program does*, and a reviewer who draws a cloud in pdfce and a
+        // cloud in Acrobat over the same drawing must not be able to tell which
+        // is which by the size of the scallop.
+        //
+        // It is deliberately **not** exposed as a control. `markup.line_width`,
+        // `markup.fill` and `markup.opacity` are all in
+        // `crate::shell::manifest::PLANNED` for the same reason — Style sets the
+        // NEXT markup's properties and only colour has a control today — and a
+        // cloud-intensity slider arriving before a line-width one would be this
+        // shell offering the ninth-most-wanted property first.
+        (MarkupKind::Cloud, Geometry::Vertices(vertices)) => Some(MarkupSpec::Cloud {
+            vertices: vertices.clone(),
+            border: Some(color),
+            // No fill, for the reason every other arm here gives: a filled
+            // comment shape hides the drawing it is a comment about, and on a
+            // revision cloud that is the *revision* — the thing the cloud was
+            // drawn to draw attention to.
+            interior: None,
+            width,
+            intensity: CLOUD_INTENSITY,
+        }),
         (MarkupKind::Ink, Geometry::Strokes(strokes)) => Some(MarkupSpec::Ink {
             strokes: strokes.clone(),
             color,
@@ -769,7 +857,23 @@ pub fn action(
                 return Err(Refusal::NoExtent);
             }
         }
-        (Geometry::Vertices(points), MarkupKind::Polygon) => {
+        // ★ Polygon and Cloud share this arm, and sharing it is the assertion.
+        //
+        // A cloud IS a polygon in the file — `MarkupSpec::Cloud` writes
+        // `/Subtype /Polygon` and differs only by `/BE` — so a vertex run that
+        // is too short for one is too short for the other, by exactly the same
+        // argument. Two arms with the same body would be two places for that to
+        // stop being true.
+        //
+        // The engine agrees on the floor for the cloud and not for the polygon:
+        // `validate_geometry` refuses `vertices.len() < 3` for `Cloud`
+        // (Pass 82.1's *"a two-vertex cloud is a line pretending to be an
+        // area"*) and `< 2` for `Polygon`. So this arm is redundant for one
+        // kind and load-bearing for the other, and it is written once because
+        // the SHELL's reason — the module header's "stricter than the engine"
+        // note — is the same for both: a *gesture* that produced two vertices
+        // is an operator who double-clicked one click early.
+        (Geometry::Vertices(points), MarkupKind::Polygon | MarkupKind::Cloud) => {
             // Three, not two — the module header's "stricter than the engine"
             // note, and `Refusal::TooFewVertices`' own docs.
             if points.len() < 3 {
@@ -1045,14 +1149,25 @@ mod tests {
             spec_default_pen(MarkupKind::Polygon, &run),
             Some(MarkupSpec::Polygon { .. })
         ));
+        // ★ The cloud row is the one that could plausibly have been left out,
+        // and leaving it out is exactly the defect this test is for: a cloud IS
+        // a `/Polygon` in the file, so an arm that fell through to
+        // `MarkupSpec::Polygon` would author a legal annotation, render, save,
+        // reopen — and simply have no cloudy border. There is no error, no
+        // refusal and no trace line to notice; the only symptom is that the
+        // revision cloud tool draws polygons.
+        assert!(matches!(
+            spec_default_pen(MarkupKind::Cloud, &run),
+            Some(MarkupSpec::Cloud { .. })
+        ));
         assert!(matches!(
             spec_default_pen(MarkupKind::Ink, &ink),
             Some(MarkupSpec::Ink { .. })
         ));
         assert_eq!(
             MarkupKind::ALL.len(),
-            7,
-            "an eighth kind must be given a subtype here, not left to inherit one"
+            8,
+            "a ninth kind must be given a subtype here, not left to inherit one"
         );
     }
 

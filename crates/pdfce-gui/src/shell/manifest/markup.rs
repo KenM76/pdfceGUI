@@ -118,6 +118,15 @@ pub(super) fn tab() -> Tab {
                     command("markup.arrow"),
                     command("markup.polyline"),
                     command("markup.polygon"),
+                    // ★ Directly after Polygon, and that placement is the
+                    // teaching. A revision cloud IS a polygon with a cloudy
+                    // border — `/Subtype /Polygon` plus `/BE`, Table 181 — and
+                    // an operator who has just learned that Polygon is "click
+                    // each corner, double-click the last" needs to learn
+                    // nothing else to use this. Putting it at the end of the
+                    // band, after Freehand, would separate the pair that
+                    // explains each other.
+                    command("markup.cloud"),
                     command("markup.ink"),
                     command("markup.finish"),
                 ],

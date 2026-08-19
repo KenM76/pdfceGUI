@@ -123,6 +123,31 @@ pub const fn markup_polygon() -> CommandText {
     )
 }
 
+/// `markup.cloud`
+///
+/// ★ **"Revision cloud", not "Cloud".** The operator's own words, three times,
+/// were *"still no revision cloud tool"* — never "cloud" alone — and in AEC the
+/// two-word phrase is the term of art: it means *this area changed on this
+/// revision*, which a one-word "Cloud" beside "Polygon" and "Freehand" does not
+/// say. It is also the longest label in the Shapes band and that is accepted,
+/// because a band of one-word labels with a two-word outlier reads as the
+/// outlier being the specific one, which it is.
+///
+/// The tooltip repeats Polygon's gesture sentence almost verbatim, deliberately.
+/// The two tools take the identical run of clicks and the identical ending, and
+/// a reader who learns one has learned the other; wording it differently would
+/// imply a difference that does not exist. What it adds is the last clause —
+/// what makes it a cloud rather than a polygon is the border, which is the only
+/// thing that differs in the file too.
+#[must_use]
+pub const fn markup_cloud() -> CommandText {
+    CommandText::new(
+        "Revision cloud",
+        "Draw a closed shape with a cloudy border, to mark what changed. Click the button, then \
+         click each corner in turn and double-click the last one; the shape closes itself.",
+    )
+}
+
 /// `markup.ink`
 ///
 /// **Freehand, not Ink.** The type and the specification say `/Ink`

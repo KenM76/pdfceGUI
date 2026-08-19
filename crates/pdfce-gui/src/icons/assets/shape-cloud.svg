@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Revision cloud — generic scalloped closed loop, no trademark risk -->
+  <!-- ui-spec §3.3 "shapes family". NINE outward arcs on a closed loop, and
+       every part of that sentence is a decision:
+
+       * ARCS, not corners. This is the one glyph in the Shapes band whose
+         meaning is carried by its EDGE rather than by its outline — a revision
+         cloud is a /Polygon whose border is drawn cloudy (Table 181, /BE), so
+         the scallop IS the annotation. shape-polygon.svg beside it is the same
+         closed loop with straight edges, which is exactly the file-format
+         difference, and the pair therefore teaches itself the way
+         shape-polyline/shape-polygon already do.
+
+       * NINE, an odd count, and not eight. An even count places arcs
+         symmetrically about both axes and reads as a decorative rosette; an odd
+         one does not, and a revision cloud on a real drawing is a hand-drawn
+         mark rather than an ornament. Nine is also enough that the scallop
+         survives 16 px — at six the arcs flatten into a wobbly ellipse and the
+         glyph collides with shape-ellipse, which is the collision this band
+         cannot afford (ui-spec §2.1's ❌ grade: two members of one group
+         differing only by a small feature).
+
+       * OUTWARD (sweep-flag 1 on a clockwise loop). A cloud bulges out. Inward
+         arcs would read as a gear or a flower.
+
+       * Radius = 0.62 × chord, so each arc is a little more than a semicircle's
+         worth of bulge without the neighbouring arcs intersecting. Larger and
+         the lobes overlap into a blob; smaller and they flatten.
+
+       Unfilled, matching every other shape glyph and matching what `spec`
+       authors (`interior: None`). Stroke 2.5 like its siblings — the one glyph
+       in this directory with a 1-unit stroke is shape-highlight, whose hatch is
+       a texture rather than a contour. -->
+  <path d="M24.0 12.5A6.4 6.4 0 0 1 34.0 15.2A5.4 5.4 0 0 1 39.3 22.0A4.9 4.9 0 0 1 37.4 29.8A5.9 5.9 0 0 1 29.3 34.8A6.6 6.6 0 0 1 18.7 34.8A5.9 5.9 0 0 1 10.6 29.8A4.9 4.9 0 0 1 8.7 22.0A5.4 5.4 0 0 1 14.0 15.2A6.4 6.4 0 0 1 24.0 12.5Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

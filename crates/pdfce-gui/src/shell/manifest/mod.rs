@@ -756,11 +756,24 @@ pub const PLANNED: &[(&str, &str)] = &[
     // rows below got earlier the same day. The removal is recorded in
     // `manifest::markup`'s header instead, where a reader is looking at the band
     // that gained them.
-    (
-        "markup.cloud",
-        "N — revision clouds, and now the ONLY markup kind still absent for an ENGINE reason \
-         rather than a gesture one. The one this audience will miss first: AEC table stakes.",
-    ),
+    // ★★ `markup.cloud` was here and is now REGISTERED — 2026-08-19,
+    // `MarkupKind::Cloud`. Removed rather than annotated, because this list's
+    // contract is that everything in it is absent and a "planned" row for a
+    // shipped command is the drift the list exists to prevent.
+    //
+    // **Its reason is worth keeping where the removal is, because the reason
+    // was WRONG for weeks and nothing noticed.** It read: *"the ONLY markup
+    // kind still absent for an ENGINE reason rather than a gesture one."*
+    // `MarkupSpec::Cloud` shipped in `pdfce-core` — `annot_author.rs`,
+    // vertices/border/interior/width/intensity, with `EditError::TooFewVertices`
+    // beside it — and this entry went on asserting a blocker that no longer
+    // existed. The operator asked for the tool three times in that window.
+    //
+    // A PLANNED reason naming an EXTERNAL blocker is a claim about a repository
+    // this project does not control, and it decays silently. There is no gate
+    // for that and inventing one here would be inventing a dependency on
+    // `pdfce-core`'s internals; what there is instead is this paragraph, in the
+    // place the next person will look.
     // ★ `markup.underline`, `markup.strikeout` and `markup.squiggly` were here
     // and are now REGISTERED — Phase 6, 2026-08-14, on the text-selection
     // gesture that was their only blocker. Their entries are removed rather

@@ -260,6 +260,7 @@
                         Command("markup.arrow"),
                         Command("markup.polyline"),
                         Command("markup.polygon"),
+                        Command("markup.cloud"),
                         Command("markup.ink"),
                         Command("markup.finish"),
                     ],

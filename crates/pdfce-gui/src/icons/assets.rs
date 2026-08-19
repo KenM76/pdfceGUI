@@ -626,6 +626,11 @@ pub(super) const SETTINGS: &str = include_str!("assets/settings.svg");
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const SHAPE_ARROW: &str = include_str!("assets/shape-arrow.svg");
 
+/// `shape-cloud.svg` — the art for [`super::Icon::ShapeCloud`].
+///
+/// Authored for pdfce in the header §3 style contract — nine outward arcs on a closed loop; the asset records why nine, why odd, and why the scallop rather than the outline is what carries the meaning.
+pub(super) const SHAPE_CLOUD: &str = include_str!("assets/shape-cloud.svg");
+
 /// `shape-ellipse.svg` — the art for [`super::Icon::ShapeEllipse`].
 ///
 /// Authored for pdfce in the header §3 style contract.

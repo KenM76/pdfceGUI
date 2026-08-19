@@ -1026,8 +1026,8 @@ pub const fn edit_redo() -> CommandText {
 pub mod annotate;
 
 pub use annotate::{
-    markup_arrow, markup_comments, markup_ellipse, markup_finish, markup_highlight, markup_ink,
-    markup_polygon, markup_polyline, markup_rectangle, markup_squiggly, markup_stamp,
+    markup_arrow, markup_cloud, markup_comments, markup_ellipse, markup_finish, markup_highlight,
+    markup_ink, markup_polygon, markup_polyline, markup_rectangle, markup_squiggly, markup_stamp,
     markup_sticky_note, markup_strikeout, markup_text_box, markup_underline, measure_finish,
     measure_linear, measure_manage_groups, measure_radius_diameter, measure_set_scale,
     measure_two_line,
@@ -1259,6 +1259,7 @@ mod tests {
             markup_arrow(),
             markup_polyline(),
             markup_polygon(),
+            markup_cloud(),
             markup_ink(),
             markup_finish(),
             markup_highlight(),

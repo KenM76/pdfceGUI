@@ -214,6 +214,23 @@ pub enum Icon {
     /// ui-spec §2.1's ❌-grade risk: two members of one group differing only by a
     /// small feature).
     ShapePolygon,
+    /// Markup → Revision cloud — the same closed run of clicks with a cloudy
+    /// border.
+    ///
+    /// ★ The one glyph in this band whose meaning is carried by its **edge**
+    /// rather than by its outline, and that is the annotation's own doing: a
+    /// revision cloud is a `/Polygon` with `/BE << /S /C >>` on it (Table 181),
+    /// so the scallop *is* the difference. Drawn as the same closed loop as
+    /// [`Icon::ShapePolygon`] with its straight edges replaced by outward arcs
+    /// — which is exactly how the two annotations differ in the file, so the
+    /// pair teaches itself the way `ShapePolyline`/`ShapePolygon` already do.
+    ///
+    /// Nine arcs, an odd count. An even one is symmetric about both axes and
+    /// reads as a decorative rosette; a revision cloud on a real drawing is a
+    /// hand-made mark. Nine is also the floor at which the scallop survives
+    /// 16 px — fewer and the arcs flatten toward [`Icon::ShapeEllipse`], which
+    /// is the collision this band cannot afford.
+    ShapeCloud,
     /// Markup → Freehand — the `/Ink` annotation.
     ///
     /// One irregular flowing stroke spanning the whole tile, with round caps
@@ -573,6 +590,7 @@ impl Icon {
         Icon::ShapeArrow,
         Icon::ShapePolyline,
         Icon::ShapePolygon,
+        Icon::ShapeCloud,
         Icon::ShapeInk,
         Icon::ShapeHighlight,
         Icon::TextSelect,
@@ -667,6 +685,7 @@ impl Icon {
             Icon::ShapeArrow => assets::SHAPE_ARROW,
             Icon::ShapePolyline => assets::SHAPE_POLYLINE,
             Icon::ShapePolygon => assets::SHAPE_POLYGON,
+            Icon::ShapeCloud => assets::SHAPE_CLOUD,
             Icon::ShapeInk => assets::SHAPE_INK,
             Icon::ShapeHighlight => assets::SHAPE_HIGHLIGHT,
             Icon::TextSelect => assets::TEXT_SELECT,
@@ -768,6 +787,8 @@ impl Icon {
             Icon::ShapeArrow => "shape-arrow",
             Icon::ShapePolyline => "shape-polyline",
             Icon::ShapePolygon => "shape-polygon",
+            // ui-text-exempt: icon asset key, never displayed
+            Icon::ShapeCloud => "shape-cloud",
             Icon::ShapeInk => "shape-ink",
             Icon::ShapeHighlight => "shape-highlight",
             Icon::TextSelect => "text-select",
@@ -821,7 +842,7 @@ impl Icon {
     /// two copies of a mapping is exactly how a rename lands in one of them.
     /// [`Icon::name`] stays the single source of truth and this walks it.
     ///
-    /// The cost is 80 pointer-length comparisons with an early exit, for the
+    /// The cost is 81 pointer-length comparisons with an early exit, for the
     /// handful of icons a ribbon draws per frame — comfortably under a
     /// microsecond, against a frame budget of 16 ms. A `HashMap` would need
     /// a lazily-initialised static, would hash the key anyway, and would buy
@@ -870,7 +891,7 @@ mod tests {
         // twice shipped a paragraph that was quietly false.
         assert_eq!(
             Icon::ALL.len(),
-            80,
+            81,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

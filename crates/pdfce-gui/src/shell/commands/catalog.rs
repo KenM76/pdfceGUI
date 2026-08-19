@@ -898,6 +898,25 @@ pub(super) fn all() -> Vec<Command> {
         command("markup.polygon", t::markup_polygon(), 504)
             .with_icon("shape-polygon")
             .enabled_when("doc.pages"),
+        // ★ **Revision cloud**, registered 2026-08-19 — the operator's item 6,
+        // raised three times in his own words: *"still no revision cloud
+        // tool."*
+        //
+        // Token **507**, out of the band's own run, because 506 is
+        // `markup.finish` and tokens are never reused. The ORDER on the ribbon
+        // is the manifest's, not the token's, so this sits between Polygon and
+        // Freehand where it belongs — beside the tool it is a variant of.
+        //
+        // It was in `crate::shell::manifest::PLANNED` with the reason *"the
+        // ONLY markup kind still absent for an ENGINE reason rather than a
+        // gesture one"*, and that had quietly stopped being true:
+        // `MarkupSpec::Cloud` shipped in `pdfce-core` and nothing in this shell
+        // noticed for weeks. A PLANNED entry is a claim about the world and it
+        // decays; this one cost three weeks of the operator asking for a tool
+        // whose only blocker had already been removed.
+        command("markup.cloud", t::markup_cloud(), 507)
+            .with_icon("shape-cloud")
+            .enabled_when("doc.pages"),
         command("markup.ink", t::markup_ink(), 505)
             .with_icon("shape-ink")
             .enabled_when("doc.pages"),

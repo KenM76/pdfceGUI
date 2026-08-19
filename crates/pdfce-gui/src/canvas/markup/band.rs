@@ -279,13 +279,17 @@ pub fn draw_preview(
                 highlight_wash(kind, pen),
             );
         }
-        // ★ Not reachable, and spelled rather than wildcarded so an eighth kind
-        // has to be classified here rather than silently drawing nothing.
+        // ★ Not reachable, and spelled rather than wildcarded so a NINTH kind
+        // has to be classified here rather than silently drawing nothing. That
+        // is not a hypothetical any more: `MarkupKind::Cloud` landed on
+        // 2026-08-19 and this arm is one of exactly two places in the crate the
+        // compiler stopped it, which is what the spelling was for.
+        //
         // `drag` refuses a non-band kind at its first line, so no `Preview` can
-        // carry one; the three that land here draw their own previews, in the
+        // carry one; the four that land here draw their own previews, in the
         // module that owns their gesture, because neither a freehand trail nor a
         // vertex run is describable by two points.
-        MarkupKind::PolyLine | MarkupKind::Polygon | MarkupKind::Ink => {}
+        MarkupKind::PolyLine | MarkupKind::Polygon | MarkupKind::Cloud | MarkupKind::Ink => {}
     }
 }
 

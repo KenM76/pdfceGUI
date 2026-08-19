@@ -577,7 +577,20 @@ pub(in crate::canvas) fn preview(
             painter.line_segment([*a, *b], stroke);
         }
     }
-    if kind == MarkupKind::Polygon
+    // ★ Polygon AND Cloud close; PolyLine does not. The closing segment is the
+    // one thing the preview must say that the click run does not, because
+    // `/Polygon` closes back to `/Vertices[0]` by specification rather than by
+    // anything the operator did — see §1.2. A cloud is a `/Polygon` with `/BE`
+    // on it, so it closes by exactly the same clause.
+    //
+    // The preview draws the closing segment STRAIGHT for a cloud rather than
+    // scalloped, and that is deliberate rather than unfinished: this is a
+    // gesture overlay — the cursor — and R8b's rule is that a pre-commit
+    // affordance may show what is being built while APPLIED content must render
+    // exactly as saved content will. Approximating the border effect here would
+    // be a second rendering path for something the engine bakes an appearance
+    // for, and two paths drift. The scallop arrives when the annotation does.
+    if matches!(kind, MarkupKind::Polygon | MarkupKind::Cloud)
         && let (Some(first), Some(last)) = (screen.first(), screen.last())
         && screen.len() > 2
     {

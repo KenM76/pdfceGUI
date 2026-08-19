@@ -186,6 +186,13 @@ pub fn markup_command(kind: crate::canvas::markup::MarkupKind) -> &'static str {
         K::PolyLine => "markup.polyline",
         // ui-text-exempt: command ids, never displayed
         K::Polygon => "markup.polygon",
+        // ★ `markup.cloud`, registered 2026-08-19. It was in
+        // `crate::shell::manifest::PLANNED` with the reason *"the ONLY markup
+        // kind still absent for an ENGINE reason rather than a gesture one"* —
+        // and that had stopped being true: `MarkupSpec::Cloud` shipped in
+        // `pdfce-core` and nothing in this shell had noticed.
+        // ui-text-exempt: command ids, never displayed
+        K::Cloud => "markup.cloud",
         // ★ The id is `markup.ink` and the LABEL is "Freehand". The
         // specification's word and the operator's word differ here, and the two
         // vocabularies are kept apart deliberately — ids are the shell's, labels

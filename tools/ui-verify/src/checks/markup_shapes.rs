@@ -1,4 +1,4 @@
-//! `markup_freehand_and_vertex_kinds` — the three Phase 6 kinds that are not
+//! `markup_freehand_and_vertex_kinds` — the four kinds that are not
 //! drag-shaped, and the **one control in this application whose availability is
 //! decided by a gesture in progress**.
 //!
@@ -26,7 +26,7 @@
 //! [`crate::checks::markup_rectangle`] exists for the four-link version of the
 //! same chain.
 //!
-//! # The five phases, and why B measures rather than asserts
+//! # The six phases, and why B measures rather than asserts
 //!
 //! | Phase | State | Action | Expected |
 //! |---|---|---|---|
@@ -35,6 +35,15 @@
 //! | C | Polyline armed | three canvas clicks, then Finish | three `markup-vertex n=1,2,3`, then `markup-finish via=command`, `markup-commit kind=PolyLine vertices=3`, `add-markup` |
 //! | D | Polygon armed | **two** canvas clicks, then Finish | **no** invoke — two corners are a line drawn there and back |
 //! | E | …then a third click, Finish, and Finish again | one `markup-commit kind=Polygon vertices=3`, and the **second** press authors nothing |
+//! | F | **Revision cloud** armed | three clicks, then Finish | one `markup-commit kind=`**`Cloud`**` vertices=3` — and NOT `kind=Polygon` |
+//!
+//! ★ **Phase F asserts one field**, and one field is the whole of it. A revision
+//! cloud is a `/Polygon` with `/BE` on it, so a control that armed `Polygon`
+//! instead of `Cloud` would place three vertices, finish, author a legal
+//! annotation, render it and add an undo entry — every observable in phases C
+//! through E unchanged. The operator's only symptom is a revision cloud with no
+//! scallop, which reads as an engine rendering bug. `kind=` on `markup-commit`
+//! is the one place the distinction leaves the process.
 //!
 //! **Phase B is the only place in this project where the ink simplification can
 //! be measured against a real pointer.** `canvas::markup::ink` §3.3 quotes a
@@ -161,6 +170,18 @@ const INK: (&str, &str) = ("ribbon.item.markup.ink", "markup.ink");
 const POLYLINE: (&str, &str) = ("ribbon.item.markup.polyline", "markup.polyline");
 /// Polygon — the closed run, and the kind that needs one more corner.
 const POLYGON: (&str, &str) = ("ribbon.item.markup.polygon", "markup.polygon");
+/// Revision cloud — the closed run again, with `/BE` on the border.
+///
+/// ★ **The kind whose failure mode is silent**, which is why it is driven at
+/// all rather than left to the unit test that already asserts its subtype. A
+/// cloud IS a `/Polygon` in the file — `MarkupSpec::Cloud` writes `/Subtype
+/// /Polygon` and differs only by `/BE << /S /C /I n >>` — so a build whose
+/// ribbon control armed `Polygon` instead of `Cloud` would place vertices,
+/// finish, author a legal annotation and render it. The operator would get a
+/// polygon from the revision-cloud button, with no error, no refusal and no
+/// trace line to notice. Phase F reads the **kind** out of `markup-commit`,
+/// which is the one place that distinction is externally visible.
+const CLOUD: (&str, &str) = ("ribbon.item.markup.cloud", "markup.cloud");
 /// The ending, and the only control in this application gated on a gesture.
 const FINISH: (&str, &str) = ("ribbon.item.markup.finish", "markup.finish");
 
@@ -805,6 +826,91 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         FINISH.0
     ));
 
+    // ==================================================================
+    // PHASE F — ★ THE REVISION CLOUD, and the one thing that distinguishes
+    //           it from phase E
+    // ==================================================================
+    //
+    // The same three corners, the same ending, one different `kind=` in the
+    // commit line — and that is the whole assertion, because it is the whole
+    // difference. Everything else about this tool is `Polygon`'s: the gesture,
+    // the three-vertex floor, the closing segment in the preview,
+    // `MarkupKind::is_vertex`.
+    //
+    // Which is exactly why it is driven. The defect this phase exists to catch
+    // is a `markup.cloud` control that arms `MarkupKind::Polygon` — a one-token
+    // slip in `shell::commands::mapping`, in a `match` whose two arms are
+    // adjacent and nearly identical — and every other observable would be
+    // unchanged: three vertices placed, Finish live at three and dead at two,
+    // one annotation authored, one undo entry, a shape on the page. The
+    // operator's only symptom is that the revision cloud has no scallop, which
+    // reads as a rendering bug in the engine.
+    //
+    // The falsifier phase D established is **not** repeated. It is a property
+    // of `markup::action`'s Polygon-or-Cloud arm, which this kind now shares —
+    // the same function, the same guard, one match arm — so re-driving it would
+    // be measuring the same line of code a second time and calling it coverage.
+    if let Some(failure) = arm(&session, &driver, ui_rect, CLOUD, "Markup(Cloud)")? {
+        return Ok(Some(failure));
+    }
+    let placed = click_out(ctx, &session, &driver, page, &CORNERS)?;
+    if placed != 3 {
+        return Ok(Some(format!(
+            "A CLICK WITH REVISION CLOUD ARMED PLACED {placed} VERTEX/VERTICES OUT OF THREE. \
+             Polygon placed three from the same three corners one phase earlier, so the routing \
+             works for one closed-run kind and not the other — look for a `matches!` naming \
+             `Polygon` where `MarkupKind::is_vertex` was meant."
+        )));
+    }
+    let clouds_before = commits(&session.trace()?, "Cloud").len();
+    let polygons_before = commits(&session.trace()?, "Polygon").len();
+    let (failure, finished) = press_finish(&session, &driver, ui_rect, report)?;
+    if let Some(failure) = failure {
+        return Ok(Some(failure));
+    }
+    if !finished {
+        return Ok(Some(format!(
+            "`{}` IS DEAD WITH THREE REVISION-CLOUD CORNERS CLICKED OUT, though the same three \
+             made a polygon finishable in phase E. `markup::action` takes Polygon and Cloud \
+             through ONE arm with one three-vertex floor, so a difference here means the arm was \
+             split.",
+            FINISH.0
+        )));
+    }
+    let trace = session.trace()?;
+    let clouds = commits(&trace, "Cloud");
+    if clouds.len() != clouds_before + 1 {
+        // ★ The interesting failure, and the reason this phase exists. Read
+        // the POLYGON count before blaming the commit path: a control that
+        // armed the wrong kind authors an annotation perfectly well, it just
+        // authors the wrong one, and every other signal in the trace looks
+        // identical.
+        let polygons_now = commits(&trace, "Polygon").len();
+        return Ok(Some(if polygons_now > polygons_before {
+            format!(
+                "★ THE REVISION CLOUD AUTHORED A PLAIN POLYGON. Finish was pressed with three \
+                 cloud corners clicked out and the `{COMMIT_EVENT}` line says `kind=Polygon`: \
+                 the ribbon control is registered and reachable and it arms the WRONG \
+                 `MarkupKind`. `shell::commands::mapping::markup_command`'s Cloud and Polygon \
+                 arms are adjacent and nearly identical, and this is what a slip between them \
+                 costs — a legal annotation, a rendered shape, an undo entry, and no cloudy \
+                 border, which the operator will report as a rendering bug."
+            )
+        } else {
+            format!(
+                "FINISH WAS PRESSED WITH THREE REVISION-CLOUD CORNERS AND AUTHORED NO CLOUD. {}",
+                match trace.last(DECLINE_EVENT) {
+                    Some(l) => format!("The application traced `{}`.", l.raw),
+                    None => format!("There is no `{DECLINE_EVENT}` either."),
+                }
+            )
+        }));
+    }
+    report.note(format!(
+        "★ the revision cloud committed as its OWN kind rather than as a polygon: `{}`",
+        clouds.last().map_or("", |l| l.raw.as_str())
+    ));
+
     // --- the picture, saved as evidence rather than asserted on -------------
     //
     // `crate::capture`'s standing rule: every check that could look at pixels
@@ -819,8 +925,10 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         Ok(_) => {
             report.artifact(shot);
             report.note(
-                "the window carrying the freehand stroke, the polyline and the polygon is saved \
-                 beside the trace. Evidence, not the oracle",
+                "the window carrying the freehand stroke, the polyline, the polygon and the \
+                 revision cloud is saved beside the trace. Evidence, not the oracle — and note \
+                 that the cloud's scallop is the one thing in it a reader COULD check by eye, \
+                 because it is the only mark on the page whose border is not a straight line",
             );
         }
         Err(e) => {
@@ -917,7 +1025,7 @@ mod tests {
     /// a check that matches nothing passes vacuously.
     #[test]
     fn the_selectors_match_the_shells_own_spelling() {
-        for (region, id) in [INK, POLYLINE, POLYGON, FINISH] {
+        for (region, id) in [INK, POLYLINE, POLYGON, CLOUD, FINISH] {
             assert_eq!(region, format!("ribbon.item.{id}"));
             assert!(region.starts_with(ITEM_PREFIX), "{region}");
         }
@@ -928,7 +1036,7 @@ mod tests {
         assert_eq!(MODE, "review");
         // Finish must not be one of the three tools, or phase A would be
         // measuring a tool's availability rather than the gesture condition.
-        for (region, _) in [INK, POLYLINE, POLYGON] {
+        for (region, _) in [INK, POLYLINE, POLYGON, CLOUD] {
             assert_ne!(region, FINISH.0);
         }
     }
