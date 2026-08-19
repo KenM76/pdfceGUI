@@ -316,8 +316,14 @@ mod tests {
     /// meaningful without the other: a catalog can describe a setting nobody
     /// draws, and a dialog can draw one nobody described.
     ///
-    /// 13 answers to a silent standard, plus 5 preferences of the shell's own.
-    const SETTINGS_COUNT: usize = 18;
+    /// 14 answers to a silent standard, plus 5 preferences of the shell's own.
+    ///
+    /// ★ Was 13 + 5 until 2026-08-19, when `quad_point_order` acquired a
+    /// control. That setting had been honoured by the engine and offered
+    /// nowhere, which is the gap
+    /// `crate::dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window`
+    /// now refuses to compile past.
+    const SETTINGS_COUNT: usize = 19;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -375,6 +381,15 @@ mod tests {
                 trailing_eol_title(),
                 trailing_eol_silence(),
                 trailing_eol_radius(),
+            ),
+            // ★ The one setting in this window whose SILENCE line does not
+            // describe a silence. §12.5.6.10 states a corner order and almost
+            // no producer follows it, so the sentence says that instead — see
+            // `dialogs::settings::saving::quad_point_order`.
+            (
+                quad_order_title(),
+                quad_order_silence(),
+                quad_order_radius(),
             ),
             // ★ The four in the *Drawing the page* group — the shell's own
             // preferences rather than answers to a silent standard. They are

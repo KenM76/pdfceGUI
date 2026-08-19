@@ -307,3 +307,80 @@ pub const fn trailing_eol_none_label() -> &'static str {
 pub const fn trailing_eol_none_note() -> &'static str {
     "For a strict checker that objects to trailing bytes."
 }
+
+// ===========================================================================
+// Saving files — /QuadPoints corner order
+//
+// ★ The register's own WORST CASE, and the one setting in this window whose
+// effect nobody can ever see in pdfce.
+//
+// The other two settings in this group say "changes the bytes pdfce writes,
+// nothing visible" and mean it about a viewer's rendering. This one is
+// stronger than that: pdfce bakes a full appearance stream for every markup
+// annotation (R44), so pdfce's OWN rendering never consults /QuadPoints at
+// all. The order matters only to a third-party consumer that re-derives
+// geometry from it — and a wrong order there draws a bow-tie rather than a
+// rectangle.
+//
+// Which makes the disclosure the whole point of the control. An operator can
+// mark up a document, look at it, save it, reopen it, and be perfectly happy
+// while the file is producing bow-ties in a colleague's checker. There is no
+// symptom on this side of the handover.
+// ===========================================================================
+
+/// Quad-point order: what it is.
+#[must_use]
+pub const fn quad_order_title() -> &'static str {
+    "The corner order pdfce writes for highlights and other text markup"
+}
+
+/// Quad-point order: what the standard leaves open.
+///
+/// ★ It does NOT leave it open, and that is the honest and unusual thing to
+/// have to say in a window whose every other silence line means *the standard
+/// declines to choose*. Section 12.5.6.10 states an order and essentially no
+/// producer follows it, so pdfce is choosing between the clause and the world.
+/// Saying "the standard is silent" here would be a comfortable sentence and a
+/// false one.
+#[must_use]
+pub const fn quad_order_silence() -> &'static str {
+    "The standard states one order and almost no program follows it. Acrobat, \
+     PDFBox and pdf.js all write and expect a different one, so this is a choice \
+     between the wording and what the tools around you actually do."
+}
+
+/// Quad-point order: what changing it costs, and where the cost lands.
+#[must_use]
+pub const fn quad_order_radius() -> &'static str {
+    "Changes the bytes pdfce writes for new text markup. Nothing changes in \
+     pdfce, which draws these marks from their own stored appearance and never \
+     reads these numbers back."
+}
+
+/// The default.
+#[must_use]
+pub const fn quad_order_reading_label() -> &'static str {
+    "The order other programs use (pdfce's default)"
+}
+
+/// Why the default is the one that departs from the wording.
+#[must_use]
+pub const fn quad_order_reading_note() -> &'static str {
+    "Upper-left, upper-right, lower-left, lower-right. A markup annotation is \
+     read by whatever the person you send it to already has, and that is \
+     overwhelmingly one of the programs that expect this order."
+}
+
+/// The strict option.
+#[must_use]
+pub const fn quad_order_ccw_label() -> &'static str {
+    "The order the standard describes"
+}
+
+/// What choosing it will cost, said plainly.
+#[must_use]
+pub const fn quad_order_ccw_note() -> &'static str {
+    "Upper-left, upper-right, lower-right, lower-left — a counterclockwise walk. \
+     For output going to a conformance checker. Expect Acrobat to draw the \
+     marked area wrongly if it works the shape out from these numbers."
+}

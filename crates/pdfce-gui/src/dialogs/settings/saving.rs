@@ -1,9 +1,24 @@
-//! # `dialogs::settings::saving` — two settings nobody can see
+//! # `dialogs::settings::saving` — three settings nobody can see
 //!
-//! Both change the **bytes pdfce writes** and neither changes anything visible.
-//! That is stated in both radius lines in the same words, and it is the whole
-//! reason they are grouped together rather than filed with the settings whose
-//! effects an operator can look at.
+//! All three change the **bytes pdfce writes** and none of them changes
+//! anything visible. That is stated in all three radius lines in nearly the same
+//! words, and it is the whole reason they are grouped together rather than filed
+//! with the settings whose effects an operator can look at.
+//!
+//! ## ★ The third one is stronger than "nothing visible", and its wording says so
+//!
+//! [`xref_entry_eol`] and [`trailing_eol`] are invisible *in a viewer*.
+//! [`quad_point_order`] is invisible **in pdfce specifically**, and for a
+//! structural reason: pdfce bakes a full appearance stream for every markup
+//! annotation (R44), so its own renderer never reads `/QuadPoints` back. The
+//! order it writes there matters only to a third-party consumer that re-derives
+//! the marked geometry — and a wrong order draws a bow-tie rather than a
+//! rectangle, in somebody else's program, after the file has left.
+//!
+//! That is the failure mode a settings window is genuinely for. An operator can
+//! mark up a document, look at it, save, reopen, and be entirely satisfied while
+//! the file is wrong for the recipient. Nothing on this side of the handover can
+//! tell them.
 //!
 //! ## Why a setting nobody can see is worth having
 //!
@@ -18,7 +33,7 @@
 //! window says so rather than treating "nothing visible" as "nothing".
 
 use egui::Ui;
-use pdfce_core::settings::{TrailingEol, XrefEntryEol};
+use pdfce_core::settings::{QuadPointOrder, TrailingEol, XrefEntryEol};
 
 use super::{Draft, widgets};
 use crate::text::settings as t;
@@ -141,6 +156,63 @@ pub fn trailing_eol(ui: &mut Ui, draft: &mut Draft) {
         TrailingEol::None,
         t::trailing_eol_none_label(),
         Some(t::trailing_eol_none_note()),
+    );
+}
+
+/// Which corner order `/QuadPoints` gets — spec ambiguity `QP-A1`.
+///
+/// # ★ The one setting here where the standard is NOT silent
+///
+/// Every other setting in this window exists because the specification declines
+/// to have an opinion. This one exists because §12.5.6.10 **does** state an
+/// order and essentially no producer follows it: Acrobat, PDFBox and pdf.js all
+/// emit reading order, where the clause describes a counterclockwise walk that
+/// swaps the last two corners.
+///
+/// So the silence line cannot say "the standard is silent", and it does not.
+/// Writing the comfortable sentence would have been the easy thing and it would
+/// have been false — and false in the direction that matters, because an
+/// operator choosing the strict option deserves to know they are choosing
+/// against the tools rather than for the standard against nothing.
+///
+/// The ambiguity register calls this the **worst case in its table**, on two
+/// grounds worth keeping: it is a deliberate divergence from a `shall`-adjacent
+/// normative statement, and it is **invisible at runtime**. See this module's
+/// header for what "invisible" means here, which is more than it means for the
+/// two settings above.
+///
+/// # Why it is in *Saving files* rather than in a markup group
+///
+/// Because of the symptom that brings an operator here, which is this window's
+/// own filing rule (`super`'s header: *"an operator opens this window with a
+/// symptom"*). The symptom is **"the file I sent somebody looks wrong in their
+/// program"** — the same sentence that brings them to the two settings above
+/// it. It is not "my highlight looks wrong", because it never does.
+///
+/// A *Markup* group would file it by what it is about instead of by what it
+/// does, and would put it beside settings an operator changes while marking up.
+/// Nobody changes this while marking up. They change it once, when a recipient's
+/// checker complains.
+pub fn quad_point_order(ui: &mut Ui, draft: &mut Draft) {
+    widgets::header(
+        ui,
+        t::quad_order_title(),
+        t::quad_order_silence(),
+        t::quad_order_radius(),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.quad_point_order,
+        QuadPointOrder::ReadingOrder,
+        t::quad_order_reading_label(),
+        Some(t::quad_order_reading_note()),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.quad_point_order,
+        QuadPointOrder::Counterclockwise,
+        t::quad_order_ccw_label(),
+        Some(t::quad_order_ccw_note()),
     );
 }
 

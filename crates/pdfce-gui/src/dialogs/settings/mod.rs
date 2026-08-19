@@ -402,6 +402,13 @@ pub fn show(
                         saving::xref_entry_eol(ui, draft);
                         ui.add_space(10.0);
                         saving::trailing_eol(ui, draft);
+                        // ★ Third, and last, because it is the one an operator
+                        // is least likely to have come for. The two above are
+                        // about every file pdfce writes; this one is about
+                        // files that carry text markup, which not every
+                        // document does.
+                        ui.add_space(10.0);
+                        saving::quad_point_order(ui, draft);
                     });
                 });
 
@@ -448,6 +455,137 @@ mod tests {
     use super::*;
     use pdfce_core::pageops::SeparationPolicy;
     use pdfce_core::settings::CmykIntent;
+
+    /// ★★ **Every setting `pdfce-core` carries has a control in this window.**
+    ///
+    /// # What this replaces, and why it had to be rebuilt rather than moved
+    ///
+    /// The old shell carried
+    /// `settings_panel::tests::every_setting_the_store_carries_can_be_reached_from_this_window`,
+    /// which asserted exactly this. It fired on 2026-08-19 on a real gap — the
+    /// engine added `Settings::quad_point_order` and the window had no control
+    /// for it — and the `pdfce` session's note of that day warned that **the
+    /// gate disappears when the old crate is deleted**, taking the property with
+    /// it:
+    ///
+    /// > *"`NO_SURFACE.md` is a kept inventory; this is a build failure. They
+    /// > are not substitutes — one tells you what is missing when someone looks,
+    /// > the other refuses to compile when someone adds it."*
+    ///
+    /// It could not be copied across. The old test read the store's **source**
+    /// with `include_str!("../../pdfce-core/src/settings/mod.rs")` — a relative
+    /// path that only exists because both crates lived in one repository. In
+    /// this project `pdfce-core` is a **git dependency** and its source is not
+    /// on any path this crate can name. So the enumeration had to come from
+    /// somewhere else.
+    ///
+    /// # Where the list of settings comes from now, and why it is better
+    ///
+    /// From [`Settings::write_to_string`] — the engine's own settings-file
+    /// writer, at **runtime**, against the shipped default. Every setting the
+    /// store round-trips appears there as a `key = value` line, because that is
+    /// what the file is; a setting missing from it could not be persisted at
+    /// all, which is a different and larger defect the engine's own tests own.
+    ///
+    /// That is a stronger instrument than parsing a struct definition, and the
+    /// difference is not cosmetic:
+    ///
+    /// * it reads the **compiled dependency**, so it is answering about the
+    ///   engine this build actually links, not about a file on disk that may be
+    ///   from a different revision;
+    /// * it cannot be fooled by a field that is `pub` and not persisted, or by
+    ///   one persisted under a key that differs from its field name;
+    /// * it needs no path into another repository, which is what makes it
+    ///   survive the fold-in in either direction.
+    ///
+    /// # The crude half, kept crude deliberately
+    ///
+    /// Coverage is asserted by reading **this directory's own source** and
+    /// looking for `working.<key>`. That is a text search and it can be
+    /// defeated — by a control that names the field in a comment and never
+    /// binds it, say. It is kept anyway, because the alternative is a
+    /// hand-maintained list of which settings have controls, and a
+    /// hand-maintained list is exactly the thing that goes stale silently. A
+    /// crude check that fails when a setting is added beats an exact one that
+    /// nobody updates.
+    ///
+    /// **When this fails, the fix is a control, not an edit to this test.** The
+    /// failure message says which setting, and the group it belongs in is
+    /// decided by the symptom that brings an operator looking for it — see this
+    /// module's header.
+    #[test]
+    fn every_setting_the_store_carries_has_a_control_in_this_window() {
+        // The whole directory, because the controls are spread across seven
+        // files and a setting could legitimately land in any of them.
+        const SOURCES: &[&str] = &[
+            include_str!("mod.rs"),
+            include_str!("appearance.rs"),
+            include_str!("colour.rs"),
+            include_str!("display.rs"),
+            include_str!("images.rs"),
+            include_str!("measuring.rs"),
+            include_str!("pages.rs"),
+            include_str!("saving.rs"),
+            include_str!("text.rs"),
+            include_str!("widgets.rs"),
+        ];
+
+        let file = Settings::default().write_to_string();
+        let keys: Vec<&str> = file
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#') && !line.is_empty())
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, _)| key.trim())
+            .collect();
+
+        // A floor, so a change to the file format that stopped this parser
+        // finding anything reports ITSELF rather than reporting that every
+        // setting is covered. An instrument that can only return one answer
+        // cannot detect the thing it was added to detect.
+        assert!(
+            keys.len() >= 10,
+            "parsed {} key(s) out of the settings file — the PARSER is stale, not the window. \
+             `Settings::write_to_string` no longer emits `key = value` lines this test can read.",
+            keys.len()
+        );
+
+        for key in keys {
+            let needle = format!("working.{key}");
+            assert!(
+                SOURCES.iter().any(|src| src.contains(&needle)),
+                "`Settings::{key}` is honoured by the engine and has NO control in this \
+                 window, so an operator can only change it by hand-editing settings.txt — \
+                 which is not a user interface. Add one to whichever group matches the \
+                 SYMPTOM that would send somebody looking for it (see the module header), \
+                 rather than to whichever group is shortest."
+            );
+        }
+    }
+
+    /// The shell's own preferences are **not** covered by the sweep above, and
+    /// this records why rather than leaving the gap implied.
+    ///
+    /// [`crate::app::prefs::Prefs`] lives in a different file, is written by the
+    /// shell rather than by the engine, and reaches the window through
+    /// `draft.working_prefs` rather than `draft.working`. The sweep is
+    /// deliberately scoped to the ENGINE's store, because that is where the
+    /// asymmetry it exists to catch comes from: `pdfce-core` gains settings on
+    /// its own schedule and this project finds out by reading a note.
+    ///
+    /// A preference added to `Prefs` is added by this project, in the same
+    /// session that would add its control, so the failure mode is not the same
+    /// one. If that ever stops being true — if the shell's preferences start
+    /// arriving from elsewhere — this is the test to widen.
+    #[test]
+    fn the_sweep_is_scoped_to_the_engines_store_on_purpose() {
+        let draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
+        // Both halves exist and are distinct fields; the assertion is that this
+        // test's premise is still true, so its doc comment is not describing a
+        // structure that has since changed.
+        let _ = &draft.working;
+        let _ = &draft.working_prefs;
+    }
 
     /// Opening the window is not an edit.
     #[test]
