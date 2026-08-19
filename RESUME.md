@@ -1,6 +1,13 @@
 # RESUME — read this, then say "continue"
 
-**Written 2026-08-18, last revised 2026-08-19 at `3cd4286`.** For a session
+> ★★ **If the operator typed "continue" and nothing else, read**
+> **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next,
+> in order, and the two facts that are true and surprising. This file is the
+> long state document it points into.
+
+
+
+**Written 2026-08-18, last revised 2026-08-19 at `ae5d0d4`.** For a session
 starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
