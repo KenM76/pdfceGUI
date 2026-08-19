@@ -220,7 +220,7 @@ feature that has quietly been made their job.
 | the eleven-property style cascade has **no GUI surface in either shell** — `FEATURES.md` `core [x] cli [x] gui [ ]` | ✅ **built** — `panels::properties::dimension`, with the tier each value came from named beside it |
 | ce-dimension **tolerance** has no GUI surface | ✅ **built** — all seven forms, with the engine's own refusals shown verbatim |
 | a placed circular ce dimension cannot be switched between radius and diameter | ✅ **built** — the ui-spec called it *"a real, named usability gap"* |
-| ⛔ **rename / delete a group, or move a ce dimension between groups** | still open, and now **disclosed on screen** rather than merely filed. Two requests, 2026-08-18 |
+| ~~⛔ rename / delete a group, or move a ce dimension between groups~~ | ✅ **closed 2026-08-19, one day after filing.** All three verbs shipped, all three are wired. ★ The row is kept because of what the *reply* corrected: `Group::unit` was named in the request's addendum as a fourth hole and **is not one** — `set_group_scale` takes a whole `NumberFormat` — so of `Group`'s eight fields, `name` alone had ever lacked a route. A gap reported from reading a struct rather than following its verbs is the same class of error this file's §1 corrects three of |
 
 **The scale-entry seeds row above still stands** and is the interesting
 survivor: it is a *default*, which §2's own note names as the class worth

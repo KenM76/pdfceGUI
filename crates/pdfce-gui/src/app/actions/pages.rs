@@ -387,7 +387,20 @@ pub(super) fn insert_from_file(
     super::apply::vector_edit(doc, "insert-pages", landing, count, |session| {
         session
             .insert_pages(&view, pages, position)
-            .map(|arrived| vec![crate::text::pages::inserted(arrived, landing)])
+            // ★ `InsertOutcome`, not a `usize`, since 2026-08-19 — and the
+            // second field is the one this shell asked for. `orphaned_widgets`
+            // is EXACT rather than an upper bound (the engine's reply: no field
+            // in the target can be claiming a widget that just arrived, because
+            // `/AcroForm` is not merged and every object number is remapped), so
+            // the number goes in front of the operator unhedged and a zero drops
+            // the clause entirely.
+            .map(|outcome| {
+                vec![crate::text::pages::inserted(
+                    outcome.pages_inserted,
+                    outcome.orphaned_widgets,
+                    landing,
+                )]
+            })
     });
 
     // ★★ GO TO WHAT WAS INSERTED — the half that makes this a feature rather

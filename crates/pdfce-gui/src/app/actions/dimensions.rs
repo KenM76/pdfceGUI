@@ -64,6 +64,7 @@ use pdfce_core::dimension::{
     DimStandard, DimensionId, DimensionKind, GroupId, GroupStyle, NumberFormat, ScaleState,
     StyleOverrides, Unit,
 };
+use pdfce_core::edit::GroupDeletion;
 
 use crate::app::state::OpenDoc;
 
@@ -232,6 +233,129 @@ pub enum DimensionAction {
         /// an inch group in eighths, which is what a drafter expects without
         /// being asked twice.
         unit: Unit,
+    },
+
+    /// ★ **Rename a dimension group.**
+    ///
+    /// Raised by `crate::dialogs::dimension_groups`.
+    ///
+    /// # Why this is an edit at all, when nothing is redrawn
+    ///
+    /// Because the name is **in the document** — a field of the group record in
+    /// the `/PieceInfo` sidecar — and it travels with the file. It is not a
+    /// label this shell keeps for its own convenience.
+    ///
+    /// It is the one group verb that regenerates **nothing**: no member's
+    /// appearance depends on what its group is called, so
+    /// [`Self::regenerates_the_whole_group`] answers `false` and no raster is
+    /// invalidated. That is a decision rather than an omission — it is the only
+    /// group verb of which it is true, and a reader checking why the list has a
+    /// hole in it should find the reason here.
+    ///
+    /// # Why it took a request
+    ///
+    /// `Group::name` is a `pub String` on a snapshot, and `EditSession` had no
+    /// verb for it, so a mistyped group name was permanent for the life of the
+    /// document. Filed 2026-08-18, shipped 2026-08-19. The engine's reply
+    /// corrected the request's other half: of `Group`'s eight fields, **`name`
+    /// alone** had no session route — the unit is reachable through
+    /// `set_group_scale`, which takes a whole `NumberFormat`.
+    RenameGroup {
+        /// The group to rename.
+        group: GroupId,
+        /// The new name. Trimmed and non-empty by the time it gets here, for
+        /// [`Self::AddGroup`]'s reason: a blank row in a group picker is
+        /// indistinguishable from a broken one.
+        name: String,
+    },
+
+    /// ★ **Delete a dimension group**, answering the members question.
+    ///
+    /// Raised by `crate::dialogs::dimension_groups`.
+    ///
+    /// # ★ The policy is the whole design, and it is the ORPHAN question again
+    ///
+    /// A group with members cannot simply be removed, and the engine's answer
+    /// is the one it gave for `insert_pages`' orphaned widgets — **report and
+    /// refuse to guess**:
+    ///
+    /// | policy | what happens |
+    /// |---|---|
+    /// | [`GroupDeletion::Refuse`] | `EditError::DimensionGroupNotEmpty { id, members }` if it is populated. The **default** |
+    /// | `GroupDeletion::Reassign(dest)` | the members move to `dest` first, **re-measured** against its scale and format, then the group goes |
+    ///
+    /// The count is in the error because *"this group is not empty"* and
+    /// *"this group holds forty dimensions"* prompt different decisions from an
+    /// operator — and only a surface can put that question in front of them.
+    ///
+    /// **There is deliberately no delete-the-members policy.** Deleting a ce
+    /// dimension also removes its annotation from the page's `/Annots`, so
+    /// doing it inside this verb would be a second implementation of
+    /// `delete_dimension`'s removal; and calling `delete_dimension` in a loop
+    /// would produce one undo entry **per member**, so undoing a group deletion
+    /// would take forty presses and could stop halfway with the group already
+    /// gone. If this shell ever needs it, the engine has offered to factor
+    /// `delete_dimension`'s core out properly — which is a request, not a
+    /// workaround to write here.
+    ///
+    /// # ★ A refusal validates before mutating, and the dialog relies on it
+    ///
+    /// The engine's reply states it: *"a rejected deletion leaves the model
+    /// byte-identical. You can call it speculatively to populate a confirmation
+    /// dialog."* The dialog does not — it reads `member_count` from the model
+    /// it is already holding, which costs nothing and needs no round trip — but
+    /// the guarantee is what makes a Delete press safe to offer at all rather
+    /// than gated behind a count the surface might have got wrong.
+    DeleteGroup {
+        /// The group to remove.
+        group: GroupId,
+        /// What to do about its members.
+        policy: GroupDeletion,
+    },
+
+    /// ★ **Move a placed ce dimension to another group.**
+    ///
+    /// Raised by `crate::panels::properties::dimension`.
+    ///
+    /// # ★ This is NOT a field assignment, and the surface has to know that
+    ///
+    /// The single most important fact about this verb, and the engine spent a
+    /// section of its reply on it. A ce dimension's label is **derived from its
+    /// group** — the scale it is measured at, the precision and unit it is
+    /// formatted with, the standard it is drawn to. So the verb re-measures and
+    /// regenerates the baked `/AP`, `/Rect`, `/Contents`, `/Measure` and `/L`,
+    /// and **the number on the page changes**:
+    ///
+    /// ```text
+    /// before  "70.6 mm"   (a 1:1 millimetre group)
+    /// after   "2.00 m"     (a 1 cm-per-point metre group)
+    /// ```
+    ///
+    /// Same geometry. Different group. Different printed value, correctly.
+    ///
+    /// Two consequences for this shell, and both are honoured:
+    ///
+    /// 1. **It is disclosed before the operator commits**, because a dimension
+    ///    that silently changes what it reads is rule 4's sneaky case with a
+    ///    number attached. `crate::text::panels::dimension` carries the
+    ///    sentence.
+    /// 2. **Nothing reaches past this verb into `DimensionModel::dimension_mut`.**
+    ///    The engine's own first test for it asserted only that `d.group` had
+    ///    changed and undo put it back — and passed against an implementation
+    ///    that writes the field and does nothing else, which is exactly the
+    ///    wrong verb. That is the failure a shortcut here would ship.
+    ///
+    /// # Blast radius
+    ///
+    /// **One annotation**, so [`Self::regenerates_the_whole_group`] answers
+    /// `false`: neither the source group's remaining members nor the
+    /// destination's existing ones are touched. Only the mover is redrawn.
+    SetDimensionGroup {
+        /// The ce dimension to move.
+        dimension: DimensionId,
+        /// Where it goes. Carrying its scale, unit, number format, drafting
+        /// standard, layer and style tier — which is why the label changes.
+        group: GroupId,
     },
 
     /// ★ **Set a dimension group's drafting standard** — ANSI or ISO.
@@ -414,6 +538,20 @@ impl DimensionAction {
     /// [`Self::Commit`] is `false` even though it is the one that *creates* a
     /// member: authoring places a single annotation on a single page, and the
     /// group's other members are not redrawn by it.
+    ///
+    /// ★ Three of the 2026-08-19 verbs are `false` and each for its own reason,
+    /// which is why they are worth stating rather than leaving to the
+    /// `matches!`:
+    ///
+    /// - [`Self::RenameGroup`] regenerates **nothing at all** — no member's
+    ///   appearance depends on what its group is called.
+    /// - [`Self::SetDimensionGroup`] regenerates **exactly one** annotation.
+    ///   Its label changes, which is startling and is still one annotation.
+    /// - [`Self::DeleteGroup`] regenerates **as many as its policy moves**,
+    ///   which is zero under `Refuse` and every member under `Reassign`. That
+    ///   is a property of the *policy* rather than of the verb, and a predicate
+    ///   taking `&self` cannot see inside the variant honestly — so [`apply`]
+    ///   decides it there, at the one place the policy is in hand.
     #[must_use]
     pub const fn regenerates_the_whole_group(&self) -> bool {
         matches!(
@@ -490,6 +628,59 @@ pub(super) fn apply(doc: &mut OpenDoc, action: DimensionAction) {
         DimensionAction::AddGroup { name, unit } => {
             super::apply::vector_edit(doc, "add-dimension-group", 0, 1, |session| {
                 session.add_dimension_group(&name, unit).map(|_| Vec::new())
+            });
+        }
+        // ★ The one group verb that regenerates NOTHING. No member's
+        // appearance depends on what its group is called, so no raster is
+        // dropped and `regenerates_the_whole_group` says so.
+        DimensionAction::RenameGroup { group, name } => {
+            super::apply::vector_edit(doc, "rename-dimension-group", 0, 1, |session| {
+                session
+                    .rename_dimension_group(group, &name)
+                    .map(|()| Vec::new())
+            });
+        }
+        // ★ Routed through `delete_dimension_group_with` for BOTH policies,
+        // including `Refuse` — which is exactly what the no-argument
+        // `delete_dimension_group` does.
+        //
+        // One call site rather than two, because the difference between them is
+        // a value this variant already carries, and a `match` here would be a
+        // second place for the default policy to be decided. The engine's own
+        // pair exists for callers who have no policy to express; this one
+        // always does.
+        //
+        // The returned count is the number REASSIGNED, and it is deliberately
+        // dropped: the dialog computed the member count before pressing, from
+        // the model it was already holding, and that is the number it showed.
+        // Reporting a second count afterwards would be two answers to one
+        // question — the shape `set_group_style`'s return value already taught
+        // this module to refuse.
+        DimensionAction::DeleteGroup { group, policy } => {
+            // A reassignment moves members between groups, which re-measures
+            // and redraws each of them wherever it is. A refusal moves nothing.
+            // Deciding here rather than in `regenerates_the_whole_group` because
+            // it is a property of the POLICY, not of the verb — the predicate
+            // takes the variant and cannot see inside it.
+            if matches!(policy, GroupDeletion::Reassign(_)) {
+                doc.strip_rasters.clear();
+            }
+            super::apply::vector_edit(doc, "delete-dimension-group", 0, 1, |session| {
+                session
+                    .delete_dimension_group_with(group, policy)
+                    .map(|_| Vec::new())
+            });
+        }
+        // ★ One annotation redrawn, and its printed NUMBER changes — see the
+        // variant. The page it is on is not known here (a `DimensionId` names a
+        // sidecar record, not a page), so page `0` is passed with the note every
+        // document-scoped verb in this file passes it with, and the strip is
+        // deliberately NOT cleared: exactly one annotation moved.
+        DimensionAction::SetDimensionGroup { dimension, group } => {
+            super::apply::vector_edit(doc, "set-dimension-group", 0, 1, |session| {
+                session
+                    .set_dimension_group(dimension, group)
+                    .map(|()| Vec::new())
             });
         }
         DimensionAction::SetGroupStandard { group, standard } => {

@@ -67,13 +67,15 @@
 //!
 //! | | why |
 //! |---|---|
-//! | change the group | no engine verb; filed as `request_a_placed_ce_dimension_cannot_be_moved_to_another_group.md` |
+//! | ~~change the group~~ | ★ **closed 2026-08-19.** It was *"no engine verb; filed"* — filed on the 18th, shipped on the 19th, and it is a picker now. What it gained with the verb is a **disclosure**: `set_dimension_group` re-measures, so the number changes |
 //! | change the scale | **by refusal** — `StyleOverrides` has no scale field, asserted structurally, because a member measuring at a different scale from its group would print a number nothing on the page discloses |
 //! | drag the extension lines | the gap and overshoot are standard-derived, not per-ce-dimension fields; new core work, named in §C.11 item 3 |
 //!
-//! The first is disclosed in words. The second is not, deliberately: an absent
-//! control for a thing that is *correctly* group-scoped needs no apology, and
-//! the Set-scale window is where an operator looks for a scale anyway.
+//! The scale row is **not** disclosed in words, deliberately: an absent control
+//! for a thing that is *correctly* group-scoped needs no apology, and the
+//! Set-scale window is where an operator looks for a scale anyway. The group row
+//! needed one only while the capability was missing, and now needs a different
+//! one — about what the move does rather than about it being impossible.
 
 mod overrides;
 mod tolerance;
@@ -143,11 +145,41 @@ pub fn section(ui: &mut Ui, doc: &OpenDoc, actions: &mut Vec<Action>) -> bool {
     };
 
     // --- the facts ------------------------------------------------------
+    // ★ A PICKER, not a readout, as of 2026-08-19.
+    //
+    // It was a readout with a sentence saying the group *"cannot be changed
+    // afterwards"*, which was true and was filed the same day
+    // (`request_a_placed_ce_dimension_cannot_be_moved_to_another_group.md`).
+    // `EditSession::set_dimension_group` shipped the next morning.
+    //
+    // The disclosure under it is the one the engine went out of its way to make
+    // sure a shell would not miss: this verb **re-measures**, so the number the
+    // dimension prints may change. See the string.
+    let mut destination = record.group;
     ui.horizontal(|ui| {
         ui.label(t::group_label());
-        ui.label(&group.name);
+        egui::ComboBox::from_id_salt("dimension-group-move")
+            .selected_text(&group.name)
+            .show_ui(ui, |ui| {
+                for candidate in model.groups() {
+                    ui.selectable_value(&mut destination, candidate.id, &candidate.name);
+                }
+            });
     });
-    ui.weak(t::group_is_fixed());
+    ui.weak(t::group_move_changes_the_number());
+    if destination != record.group {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            format!(
+                "dimension-regroup id={} from={} to={}",
+                record.id.0, record.group.0, destination.0
+            )
+        });
+        actions.push(Action::Dimension(DimensionAction::SetDimensionGroup {
+            dimension: record.id,
+            group: destination,
+        }));
+    }
 
     // ★ The measurement comes from the model's own `display`, which is the
     // producer the `/AP` label is baked from — including the branch that sends

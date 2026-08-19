@@ -246,20 +246,116 @@ pub const fn set_scale_button() -> &'static str {
     "Set scale…"
 }
 
-/// The two things this window cannot do, and why — stated rather than omitted.
-///
-/// ★ **This is a disclosure, not an apology.** `EditSession` has no verb that
-/// renames or deletes a dimension group; both were filed on 2026-08-18 as
-/// `request_a_dimension_group_can_be_created_and_never_renamed_or_deleted.md`.
-/// Leaving the controls out with no explanation invites the operator to look
-/// for them, which costs them more than the sentence costs us — and the
-/// project's standing rule is that a deferral is a decision with a reason, not
-/// a boundary drawn where the sentence ended.
+/// The rename field's label.
 #[must_use]
-pub const fn cannot_rename_or_delete() -> &'static str {
-    "A group cannot yet be renamed or removed — pdfce's editing engine has no \
-     command for either, and doing it in the window alone would not reach the \
-     file. Both are requested. Until then, choose a name you can live with."
+pub const fn rename_label() -> &'static str {
+    "Name"
+}
+
+/// The button that commits a rename.
+#[must_use]
+pub const fn rename_button() -> &'static str {
+    "Rename"
+}
+
+/// The button that removes a group.
+#[must_use]
+pub const fn delete_button() -> &'static str {
+    "Delete group"
+}
+
+/// ★ Why the default group has no Delete.
+///
+/// R9 again, and the same shape as the layer switch above it: the engine
+/// refuses, so the control is **absent** rather than offered and declined. The
+/// sentence is what stops the omission reading as a bug.
+#[must_use]
+pub const fn delete_default_group() -> &'static str {
+    "The default group cannot be removed — it is where a dimension goes when no \
+     other group has been chosen."
+}
+
+/// ★ **A populated group is not deleted; the operator is asked.**
+///
+/// The engine refuses by default and puts the **count** in the refusal, and its
+/// reply says why in a line worth keeping: *"this group is not empty"* and
+/// *"this group holds forty dimensions"* prompt different decisions, and only a
+/// surface can put that question in front of an operator.
+///
+/// So this is the question, with the number in it. The two answers below are
+/// the only two the engine offers — and the third an operator might expect,
+/// *delete the dimensions too*, is deliberately absent from the engine and is
+/// therefore absent here. Saying so is [`delete_cannot_remove_members`]'s job.
+#[must_use]
+pub fn delete_needs_a_home(members: usize) -> String {
+    if members == 1 {
+        "This group holds 1 dimension. Choose where it should go before the \
+         group can be removed."
+            .to_owned()
+    } else {
+        format!(
+            "This group holds {members} dimensions. Choose where they should go \
+             before the group can be removed."
+        )
+    }
+}
+
+/// The label on the destination picker for a populated group's members.
+#[must_use]
+pub const fn delete_move_to() -> &'static str {
+    "Move them to"
+}
+
+/// ★ What moving members to another group DOES to them, said before it happens.
+///
+/// Not a warning — a fact, and the one an operator would otherwise discover by
+/// reading a drawing. A ce dimension's label is derived from its group's scale,
+/// unit and number format, so members arriving in a different group are
+/// **re-measured** and print different numbers. The engine's own measured
+/// example: `70.6 mm` in a 1:1 millimetre group becomes `2.00 m` in a metre
+/// group at 1 cm per point. Same geometry, different group, correctly different
+/// label.
+#[must_use]
+pub const fn delete_move_changes_labels() -> &'static str {
+    "They will be re-measured against the group they move to, so the numbers \
+     they print may change."
+}
+
+/// Why *delete the dimensions as well* is not on offer.
+///
+/// ★ Stated because it is the answer an operator may be reaching for, and its
+/// absence is a decision on the engine's side with a reason worth passing on
+/// rather than a gap. Deleting a ce dimension also removes its annotation from
+/// the page, so doing it inside the group verb would be a second implementation
+/// of that removal — and looping the existing one would make undoing a group
+/// deletion take one press per member and be able to stop halfway.
+#[must_use]
+pub const fn delete_cannot_remove_members() -> &'static str {
+    "pdfce will not delete the dimensions with the group. Select them on the \
+     page and delete them first if that is what you want."
+}
+
+/// The label on the group's unit control.
+#[must_use]
+pub const fn unit_label() -> &'static str {
+    "Unit"
+}
+
+/// ★ Why changing a group's unit is a bigger act than it looks.
+///
+/// It goes through `set_group_scale`, because a unit lives inside the group's
+/// `NumberFormat` and there is no narrower verb — the engine's reply called
+/// that *"a discoverability problem, not a missing capability"*, and this
+/// sentence is the discoverability half.
+///
+/// The consequence is real and is the reason the sentence exists: every member
+/// is re-formatted and its appearance regenerated, exactly as a recalibration
+/// does. An operator who expects a unit change to be cosmetic is expecting the
+/// wrong thing.
+#[must_use]
+pub const fn unit_hint() -> &'static str {
+    "Changing the unit re-writes every dimension in the group, the same as \
+     setting the scale does. The scale itself is not changed."
 }
 
 /// The heading over the appearance defaults.

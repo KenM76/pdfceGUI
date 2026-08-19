@@ -75,6 +75,14 @@
 //!   implementation of the hardest arithmetic in the feature — see
 //!   [`DimensionGroupsDialog::scale_requested`] for how the button hands over.
 
+/// ★ Renaming a group and removing one — the two controls this window shipped
+/// WITHOUT on 2026-08-18, with a sentence where they should have been.
+///
+/// Its header carries the interesting half: deleting a populated group is the
+/// **orphan question**, the engine refuses by default with the member count in
+/// the refusal, and putting that question in front of an operator is a thing
+/// only a surface can do.
+mod identity;
 mod style;
 
 use egui::Ui;
@@ -127,6 +135,22 @@ pub struct DimensionGroupsDialog {
     selected: GroupId,
     /// What has been typed into the new-group name field.
     new_name: String,
+    /// The rename draft for [`Self::selected`], and which group it is for.
+    ///
+    /// ★ The `GroupId` is held **with** the text, not inferred from
+    /// [`Self::selected`], and that is what stops a half-typed rename following
+    /// the operator to a different row. Selecting another group makes the pair
+    /// stale, [`Self::rename_draft_for`] notices, and the field re-seeds from
+    /// the group actually on screen — rather than offering to rename *this*
+    /// group to a name meant for the last one.
+    rename: Option<(GroupId, String)>,
+    /// Where a populated group's members would go if it were deleted.
+    ///
+    /// `None` until the operator presses Delete on a group that has members —
+    /// so the destination picker is **absent** rather than sitting under every
+    /// row, which is R9's rule and also the honest layout: it is a question
+    /// nobody has been asked yet.
+    delete_destination: Option<GroupId>,
     /// The unit the new group would start in.
     new_unit: Unit,
     /// Set by the *Set scale…* button, drained by [`super::DialogsState`].
@@ -155,6 +179,8 @@ impl DimensionGroupsDialog {
         Self {
             selected: active,
             new_name: String::new(),
+            rename: None,
+            delete_destination: None,
             // Millimetres, because it is `Unit::default()`'s neighbour in every
             // sense that matters here: this operator's drawings are metric, and
             // a unit is one combo away for anybody whose are not.
@@ -302,7 +328,6 @@ impl DimensionGroupsDialog {
                 }
             });
         ui.add_space(4.0);
-        ui.weak(t::cannot_rename_or_delete());
     }
 
     /// The selected group's settings: scale, standard, layer, appearance.
@@ -316,6 +341,10 @@ impl DimensionGroupsDialog {
             return;
         };
 
+        // --- identity: rename, and delete -------------------------------
+        self.identity(ui, model, group, actions);
+        ui.add_space(6.0);
+
         // --- scale ------------------------------------------------------
         ui.horizontal(|ui| {
             ui.label(t::scale_phrase(group.scale, group.format.unit));
@@ -323,6 +352,55 @@ impl DimensionGroupsDialog {
                 self.scale_requested = Some(group.id);
             }
         });
+
+        // --- unit -------------------------------------------------------
+        //
+        // ★ Through `set_group_scale`, because a unit lives inside the group's
+        // `NumberFormat` and there is no narrower verb. The engine's reply of
+        // 2026-08-19 called that *"a discoverability problem, not a missing
+        // capability"* and declined to add sugar for it on speculation, which
+        // is right — the path works, it is just not obvious, and making it
+        // obvious is a surface's job rather than an API's.
+        //
+        // The group's **scale is carried through unchanged**. That is the whole
+        // subtlety: `set_group_scale` takes both, so passing anything but the
+        // group's own `scale` here would silently recalibrate a drawing while
+        // the operator was changing a unit — a far larger act than the one they
+        // asked for, in a control that does not mention it.
+        ui.horizontal(|ui| {
+            ui.label(t::unit_label());
+            let mut unit = group.format.unit;
+            egui::ComboBox::from_id_salt("dimension-group-unit")
+                .selected_text(crate::text::scale::unit_name(unit))
+                .show_ui(ui, |ui| {
+                    for option in Unit::all() {
+                        ui.selectable_value(
+                            &mut unit,
+                            option,
+                            crate::text::scale::unit_name(option),
+                        );
+                    }
+                });
+            if unit != group.format.unit {
+                actions.push(Action::Dimension(DimensionAction::SetGroupScale {
+                    group: group.id,
+                    scale: group.scale,
+                    // ★ `default_format` rather than mutating the group's own
+                    // `unit` field in place, because a `NumberFormat` is a unit
+                    // AND how its fractional part is written — and those travel
+                    // together for a reason. Millimetres in eighths, or inches
+                    // to six decimal places, are formats nobody's drawing uses;
+                    // carrying the old fraction mode across a unit change is
+                    // how an operator gets one.
+                    //
+                    // The precision is per-ce-dimension overridable from the
+                    // properties panel for the drawing that genuinely wants it,
+                    // which is where that decision belongs.
+                    format: unit.default_format(),
+                }));
+            }
+        });
+        ui.weak(t::unit_hint());
         ui.add_space(6.0);
 
         // --- drafting standard ------------------------------------------

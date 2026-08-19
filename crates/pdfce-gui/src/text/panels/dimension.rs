@@ -78,17 +78,29 @@ pub const fn group_label() -> &'static str {
     "Group"
 }
 
-/// Why the group is a readout and not a control.
+/// ★ **What moving a ce dimension to another group DOES**, said before it is
+/// done.
 ///
-/// ★ A disclosure, not an apology, and the same discipline the Manage-groups
-/// window applies to rename and delete: the operator would otherwise look for
-/// the control, and the sentence costs less than the hunt.
+/// The one disclosure this control cannot ship without, and the engine spent a
+/// section of its reply making sure a shell would not miss it:
+/// `set_dimension_group` is **not a field assignment**. A ce dimension's label
+/// is derived from its group — the scale it is measured at, the unit and
+/// precision it is formatted with, the standard it is drawn to — so the verb
+/// re-measures and regenerates the appearance, and **the number on the page
+/// changes**.
+///
+/// The engine's own measured example, from the test that pins it: the same
+/// geometry reads `70.6 mm` in a 1:1 millimetre group and `2.00 m` in a metre
+/// group at 1 cm per point. Both are correct. An operator who expected a
+/// filing change and got a different number would be right to file a bug.
+///
+/// Worded as *"may change"* rather than *"will change"* because moving between
+/// two groups at the same scale and unit changes nothing, and that is the
+/// commoner case — an operator tidying which group a dimension belongs to.
 #[must_use]
-pub const fn group_is_fixed() -> &'static str {
-    "The group is chosen when a dimension is drawn and cannot be changed \
-     afterwards — pdfce's editing engine has no command for it. It is \
-     requested. Until then, the correction is to delete this one and re-draw \
-     it in the group you want."
+pub const fn group_move_changes_the_number() -> &'static str {
+    "Moving a dimension re-measures it against the group it joins, so the \
+     number it prints may change."
 }
 
 /// The label on the measured-value readout.

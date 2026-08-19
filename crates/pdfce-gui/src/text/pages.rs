@@ -441,7 +441,7 @@ pub const fn insert_dialog_title() -> &'static str {
 /// | structure | what happens |
 /// |---|---|
 /// | pages, content, resources, fonts | copied at fresh object numbers |
-/// | **form fields** | widgets **arrive**, `/AcroForm` does not — inert boxes |
+/// | **form fields** | widgets **arrive**, `/AcroForm` does not — inert boxes, and the engine now **counts** them exactly |
 /// | bookmarks, page labels, named destinations | genuinely absent |
 ///
 /// # Why the page number is 1-based
@@ -449,13 +449,55 @@ pub const fn insert_dialog_title() -> &'static str {
 /// *"after page 7"* is the sheet the operator was looking at, in the numbering
 /// the page box and the thumbnails use. A 0-based index here would be the only
 /// place in the application that counted differently.
+/// # ★ The orphan clause is now a NUMBER, and it is exact
+///
+/// This sentence used to hedge — *"**Any** form fields on those pages arrived
+/// as boxes…"* — because the shell had no way to know whether there were any,
+/// so a document with no form controls got a paragraph about form controls.
+///
+/// `EditSession::insert_pages` returns `InsertOutcome { pages_inserted,
+/// orphaned_widgets }` as of 2026-08-19, and the engine's reply is explicit
+/// that the count is **exact rather than an upper bound**: `/AcroForm` is
+/// document-level and is not merged, and the copy remaps every object number,
+/// so no field in the target can be claiming a widget that has just arrived.
+/// *"There is no case where a counted widget turns out to have an owner, and
+/// you can put the number in front of an operator without hedging it."*
+///
+/// So `orphans == 0` drops the clause entirely. That is not a cosmetic saving:
+/// a sentence about form controls on a drawing with none trains the operator
+/// to stop reading the sentence, and the drawings this application is for
+/// almost never have any.
+///
+/// # ★ And the clause is PERMANENT, which the wording has to survive
+///
+/// The engine over-ruled the framing this shell filed it under. It was
+/// proposed as *"the count now, carrying the definitions later"*, and the
+/// answer was that a field's widgets can be **split** across inserted and
+/// non-inserted pages — so a residue survives *any* merge and the count exists
+/// for ever. `Pass 102.1` will reduce the number and can never make it always
+/// zero.
+///
+/// The sentence is therefore worded as a fact about what arrived, not as an
+/// interim apology for a feature that is coming.
 #[must_use]
-pub fn inserted(count: usize, after_page_index: usize) -> String {
+pub fn inserted(count: usize, orphans: usize, after_page_index: usize) -> String {
     let after = after_page_index.saturating_add(1);
     let pages = if count == 1 { "page" } else { "pages" };
-    format!(
-        "Inserted {count} {pages} after page {after}. Bookmarks and page labels from that file did not come across. Any form fields on those pages arrived as boxes without their definitions, so they are drawn but cannot be filled."
-    )
+    let head = format!(
+        "Inserted {count} {pages} after page {after}. Bookmarks and page labels \
+         from that file did not come across."
+    );
+    match orphans {
+        0 => head,
+        1 => format!(
+            "{head} 1 form control came across without its definition — it is \
+             drawn but cannot be filled."
+        ),
+        n => format!(
+            "{head} {n} form controls came across without their definitions — \
+             they are drawn but cannot be filled."
+        ),
+    }
 }
 
 /// The chosen file could not be opened, and why.
@@ -606,4 +648,55 @@ pub fn insert_commit(count: usize) -> String {
 #[must_use]
 pub const fn insert_cancel() -> &'static str {
     "Cancel"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ★ **A document with no form controls gets no sentence about form
+    /// controls.**
+    ///
+    /// The clause used to be unconditional — *"**Any** form fields on those
+    /// pages arrived as boxes…"* — because the shell had no count and had to
+    /// hedge. `InsertOutcome::orphaned_widgets` arrived on 2026-08-19 and the
+    /// engine's reply says the number is **exact rather than an upper bound**,
+    /// so a zero can be believed.
+    ///
+    /// Worth a test rather than a glance, because the failure is silent in the
+    /// direction that matters: a paragraph about form controls on a drawing
+    /// that has none trains the operator to stop reading the sentence, and the
+    /// sheets this application is for almost never have any. The clause that
+    /// gets skipped is then the *bookmarks* one, which is always true.
+    #[test]
+    fn no_orphans_means_no_clause_about_them() {
+        let quiet = inserted(4, 0, 6);
+        assert!(!quiet.contains("form"), "a zero count must say nothing: {quiet}");
+        assert!(quiet.contains("Bookmarks"), "the always-true clause stays: {quiet}");
+        assert!(quiet.contains("after page 7"), "1-based, as everywhere: {quiet}");
+    }
+
+    /// A real count is stated, unhedged, and agrees in number.
+    ///
+    /// The singular is its own arm rather than an `(s)`: one orphaned control
+    /// is an ordinary case — a single signature field on a title sheet — and
+    /// *"1 form controls"* is the shape that makes an operator distrust the
+    /// number beside it.
+    #[test]
+    fn a_real_count_is_stated_without_hedging() {
+        let one = inserted(1, 1, 0);
+        assert!(one.contains("1 form control came across"), "{one}");
+        assert!(!one.contains("Any"), "the hedge is gone: {one}");
+
+        let many = inserted(2, 3, 0);
+        assert!(many.contains("3 form controls came across"), "{many}");
+        assert!(many.contains("their definitions"), "{many}");
+    }
+
+    /// The page count agrees in number too.
+    #[test]
+    fn one_page_is_a_page_and_two_are_pages() {
+        assert!(inserted(1, 0, 0).contains("Inserted 1 page after"));
+        assert!(inserted(2, 0, 0).contains("Inserted 2 pages after"));
+    }
 }
