@@ -176,6 +176,14 @@ pub mod menus;
 // *what happens when you drag it*.
 pub mod moving;
 pub mod overlay;
+/// ★ The application's own colour ROLES — `preview` and `dimension_selected` —
+/// built from the resolved theme's palette and published per frame.
+///
+/// `egui_shell::theme::Overlays` is a generic role map because **R7** forbids
+/// the shell learning what a ce dimension is; the roles are pdfce's, exactly as
+/// the ribbon manifest's command ids are. Its header carries the mapping
+/// argument and the distinctness test the shell says the application owes.
+pub mod overlays;
 // The ruler gutters, the 1-2-5 tick ladder they and the grid share, and what
 // unit the whole thing reads in. Its header carries the three decisions this
 // feature turns on: the unit, the space the grid lives in, and why the

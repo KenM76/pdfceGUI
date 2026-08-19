@@ -145,10 +145,6 @@ pub const SNAP_SCREEN_TOLERANCE_PX: f32 = 10.0;
 /// [`egui_shell::theme::Overlays::get`] returns `Option` for an unknown role, so
 /// a typo does not fail — it draws nothing, on whichever preset the typo was
 /// written under.
-#[allow(
-    dead_code,
-    reason = "names the theme role the Phase 7 measure tools in `canvas::measure` must tint the pre-commit indicator with; unused until that overlay pass exists" // ui-text-exempt: clippy lint justification, never displayed
-)]
 pub const SNAP_INDICATOR_ROLE: &str = "preview"; // ui-text-exempt: a theme role key, never displayed
 
 /// The overlay colour role a **committed** dimension is drawn with when
@@ -165,10 +161,6 @@ pub const SNAP_INDICATOR_ROLE: &str = "preview"; // ui-text-exempt: a theme role
 /// The measure hosting owes `Overlays::assert_distinct(&[…])` over both, once,
 /// per preset — that is the test `overlays.rs` says the application owes and the
 /// shell cannot write for it.
-#[allow(
-    dead_code,
-    reason = "the committed half of the preview-vs-committed pair; drawn by the Phase 7 measure tools in `canvas::measure` when a dimension is selected" // ui-text-exempt: clippy lint justification, never displayed
-)]
 pub const SNAP_COMMITTED_ROLE: &str = "dimension_selected"; // ui-text-exempt: a theme role key, never displayed
 
 /// The page-space snap tolerance for `zoom` (logical points per PDF user-space
@@ -406,19 +398,20 @@ pub fn snap_marker_shapes(at: Pos2, kind: SnapKind, color: Color32, size: f32) -
 /// on the preset where it happens."* Substituting a fallback here would undo
 /// that, one layer further from the palette.
 ///
-/// # ★ In this shell it currently returns `None`, always — and that is a finding
+/// # ★ It used to return `None` on every frame, and that WAS the finding
 ///
-/// `pdfce-gui` does **not** yet call [`egui_shell::theme::Overlays::install`]
-/// anywhere; the application-role map the shell provides is unused. Until the
-/// theme wiring publishes a set per frame beside `Theme::apply`, `Overlays::of`
-/// hands back an empty set and every role resolves to `None`. That is not a bug
-/// in this function — it is the honest signal the `Option` exists to carry, and
-/// the measure hosting will hit it on its first frame rather than after a
-/// preset switch nobody tests in.
-#[allow(
-    dead_code,
-    reason = "resolves the theme role for the Phase 7 measure tools in `canvas::measure`; unused until that overlay pass exists, and returning None until the application installs an `Overlays` set" // ui-text-exempt: clippy lint justification, never displayed
-)]
+/// This section read: *"`pdfce-gui` does **not** yet call
+/// `Overlays::install` anywhere; the application-role map the shell provides
+/// is unused."* True for a whole phase, during which the snap marker silently
+/// fell back to the selection stroke — the exact shape of failure the `Option`
+/// makes invisible, because nothing looks broken and the cue is simply not
+/// there.
+///
+/// `crate::canvas::overlays::install` now runs beside `Theme::apply` in
+/// `crate::app::frame`, so the role resolves. The `Option` stays, and stays
+/// meaningful: it is still the honest answer for a role a future preset forgets
+/// to define, and `overlays`' own test asserts that none of the roles this
+/// canvas reads is one of them, on every preset rather than on the default.
 #[must_use]
 pub fn snap_indicator_tint(ctx: &egui::Context) -> Option<Color32> {
     egui_shell::theme::Overlays::of(ctx).get(SNAP_INDICATOR_ROLE)

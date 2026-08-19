@@ -111,7 +111,20 @@ impl eframe::App for PdfceApp {
                 draft.working.theme.as_str()
             });
         let preset = egui_shell::theme::Preset::from_key(theme_token).unwrap_or_default();
-        egui_shell::theme::Theme::new(preset).apply(&ctx);
+        let theme = egui_shell::theme::Theme::new(preset);
+        theme.apply(&ctx);
+        // ★ Step 0a-bis — publish the application's own colour roles.
+        //
+        // Beside `apply` rather than in `configure_context`, for `apply`'s own
+        // reason: the operator can change the preset from the Settings window,
+        // and a one-time install would mean a restart to see the effect.
+        //
+        // `FEATURES.md` carried the absence of this call as a ⬜ row for a whole
+        // phase — `snap_indicator_tint` returned `None` on every frame and the
+        // snap marker silently fell back to the selection stroke, which is the
+        // shape of failure `Overlays::get`'s `Option` makes invisible: nothing
+        // looks broken, the cue is simply not there.
+        crate::canvas::overlays::install(&ctx, &theme);
 
         // ★ Step 0b — install the UI scale. The theme's twin, added 2026-08-17.
         //
