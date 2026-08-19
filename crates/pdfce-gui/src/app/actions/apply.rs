@@ -770,6 +770,37 @@ impl PdfceApp {
             // a different file, which is why its body is in `super::export`
             // rather than beside the mutations. See that module's header.
             Action::ExportDxf { page, options } => super::export::dxf(doc, page, &options),
+            // ★ One bookmark, one undo entry, and NO count reported.
+            //
+            // See the variant: `/Count` is two quantities and its sign is the
+            // open/closed flag, so a bookmark added under a collapsed ancestor
+            // leaves the document's total unchanged. A disclosure built by
+            // diffing it would say "0" for a correct save.
+            //
+            // The destination is an explicit page at `Fit`, which is the only
+            // form `add_outline_item` authors without refusing — named and
+            // remote destinations are refused by name, and `DestView::Unknown`
+            // is refused because the reader keeps an extension's fit NAME and
+            // discards its parameters, so re-emitting it would write a view
+            // that is not the one the source had.
+            Action::AddBookmark {
+                parent,
+                title,
+                page,
+            } => {
+                vector_edit(doc, "add-bookmark", page, 1, |session| {
+                    session
+                        .add_outline_item(
+                            parent,
+                            &title,
+                            Some(pdfce_core::outline::Destination::Page {
+                                page_index: page,
+                                view: pdfce_core::outline::DestView::Fit,
+                            }),
+                        )
+                        .map(|_| Vec::new())
+                });
+            }
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].

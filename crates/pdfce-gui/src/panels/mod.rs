@@ -595,6 +595,16 @@ pub struct PanelsState {
     /// second file would be written into **that** file's metadata by the next
     /// focus change, silently, in a field nobody looks at twice.
     properties: properties::info::InfoDrafts,
+    /// The Bookmarks panel's half-typed title and its chosen parent.
+    ///
+    /// Here for [`Self::pages`]' reason: a panel body is handed `&OpenDoc`,
+    /// shared, and a text field the operator types into is **their** state.
+    ///
+    /// ★ Reset with the document by [`Self::forget_document`], and the parent
+    /// is why that matters more than for a search term: an `ObjId` carried into
+    /// a second file names a different object there, and a bookmark would be
+    /// filed under whatever happens to hold that number.
+    bookmarks: bookmarks::add::BookmarksUi,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -779,6 +789,11 @@ impl PanelsState {
     /// accessor, so the field stays private and no other panel can write it.
     pub fn properties_mut(&mut self) -> &mut properties::info::InfoDrafts {
         &mut self.properties
+    }
+
+    /// The Bookmarks panel's authoring state.
+    pub fn bookmarks_mut(&mut self) -> &mut bookmarks::add::BookmarksUi {
+        &mut self.bookmarks
     }
 
     /// **The pages the operator has picked in the Pages panel.**

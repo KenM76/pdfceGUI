@@ -63,13 +63,23 @@
 //! the wrong row responding to a hover. The item's `ObjId` (`num`,
 //! `generation`) is unique across the document, so it cannot.
 
+/// ★ Writing a bookmark — the half this panel did not have until
+/// `EditSession::add_outline_item` shipped on 2026-08-19.
+///
+/// Its header carries the `/Count` trap the engine called *"the entire
+/// difficulty of the feature"*: a bookmark added under a **collapsed** parent
+/// does not change the document's total, so a surface reporting a diff reports
+/// zero for a correct save — and, more to the point for an operator, the
+/// bookmark is genuinely not visible until the parent is expanded.
+pub mod add;
+
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
 use crate::panels::PanelsState;
 use crate::text::panels as t;
 
 /// Draw the Bookmarks panel.
-pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions: &mut Vec<Action>) {
+pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>) {
     let outline = pdfce_core::outline::read_outline(&doc.session.view());
 
     let total = outline.diagnostics.items;
@@ -93,6 +103,11 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     }
     if outline.items.is_empty() {
         ui.label(t::bookmarks_empty());
+        // ★ NOT an early return any more. A document with no bookmarks is
+        // exactly the one an operator most wants to add the first one to, and
+        // returning here is what made this panel read-only-looking for its
+        // whole life — the sentence said "none" and offered nothing.
+        add::show(ui, doc, state.bookmarks_mut(), actions);
         return;
     }
     ui.separator();
@@ -101,11 +116,21 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // at its smallest: the click is recorded while the tree is being walked
     // and turned into an `Action` once the walk is over.
     let mut go: Option<usize> = None;
+    // ★ The clicked row is recorded as well as navigated to. A bookmark click
+    // means "take me there" first and always; making it ALSO mean "and this is
+    // the parent for the next one" is free, because both are true of the row
+    // the operator pointed at, and it saves a second selection gesture that
+    // would have to be taught.
+    let mut picked: Option<pdfce_core::object::ObjId> = None;
     egui::ScrollArea::vertical()
         .id_salt("bookmark-rows")
         .show(ui, |ui| {
-            rows(ui, &outline.items, &mut go);
+            rows(ui, &outline.items, &mut go, &mut picked);
         });
+    if let Some(id) = picked {
+        state.bookmarks_mut().select(id);
+    }
+    add::show(ui, doc, state.bookmarks_mut(), actions);
     if let Some(page) = go {
         actions.push(Action::GoToPage(page));
     }
@@ -115,7 +140,12 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
 ///
 /// Indentation carries the structure. See the module docs on why the indent
 /// is keyed by the item's object id rather than by its index.
-fn rows(ui: &mut egui::Ui, items: &[pdfce_core::outline::OutlineItem], go: &mut Option<usize>) {
+fn rows(
+    ui: &mut egui::Ui,
+    items: &[pdfce_core::outline::OutlineItem],
+    go: &mut Option<usize>,
+    picked: &mut Option<pdfce_core::object::ObjId>,
+) {
     use pdfce_core::outline::Destination;
     for it in items {
         // The page a click would reach, if any. Only a resolved page
@@ -160,15 +190,20 @@ fn rows(ui: &mut egui::Ui, items: &[pdfce_core::outline::OutlineItem], go: &mut 
                 resp.rect
             )
         });
-        if resp.clicked()
-            && let Some(p) = target
-        {
-            *go = Some(p);
+        if resp.clicked() {
+            // The id is recorded whether or not the row navigates. A heading
+            // with no destination is unclickable-looking and is still a
+            // perfectly good PARENT — indeed it is the likeliest one, since a
+            // heading is what an operator files things under.
+            *picked = Some(it.id);
+            if let Some(p) = target {
+                *go = Some(p);
+            }
         }
 
         if !it.children.is_empty() {
             ui.indent(("bookmark", it.id.num, it.id.generation), |ui| {
-                rows(ui, &it.children, go);
+                rows(ui, &it.children, go, picked);
             });
         }
     }

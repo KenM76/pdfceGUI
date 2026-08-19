@@ -546,6 +546,103 @@ pub fn bookmarks_count(total: usize) -> String {
 pub fn bookmarks_empty() -> &'static str {
     "This document has no bookmarks."
 }
+// ---------------------------------------------------------------------------
+// Bookmarks — writing one
+// ---------------------------------------------------------------------------
+
+/// The heading over the add-a-bookmark row.
+#[must_use]
+pub const fn bookmark_add_heading() -> &'static str {
+    "Add a bookmark"
+}
+
+/// Where a new bookmark will be filed, when a row has been clicked.
+#[must_use]
+pub fn bookmark_add_under(parent: &str) -> String {
+    format!("Under {parent}")
+}
+
+/// Where it will be filed when no row has been clicked.
+#[must_use]
+pub const fn bookmark_add_at_top() -> &'static str {
+    "At the top level"
+}
+
+/// The control that clears the chosen parent.
+#[must_use]
+pub const fn bookmark_add_to_top_button() -> &'static str {
+    "Move to top level"
+}
+
+/// How a parent is chosen.
+///
+/// ★ Says it out loud because the gesture is **overloaded on purpose**: a
+/// bookmark click navigates, and it also records the row as the parent for the
+/// next add. Both are true of the row the operator pointed at, which is what
+/// makes the overload honest — but an operator who was not told would file a
+/// bookmark under whichever heading they last used to jump somewhere.
+#[must_use]
+pub const fn bookmark_add_parent_hint() -> &'static str {
+    "Click a bookmark above to file the new one under it. Clicking also jumps \
+     there, as it always does."
+}
+
+/// The destination the new bookmark will point at.
+///
+/// Stated rather than chosen, and stated by **page number**, for the reason the
+/// Insert-from-file dialog gives for its own destination: the panel is beside a
+/// document the operator may have scrolled, and the number is what makes the
+/// choice checkable.
+#[must_use]
+pub fn bookmark_add_destination(page_number: usize) -> String {
+    format!("It will point at page {page_number}, the one on screen.")
+}
+
+/// ★★ **The `/Count` trap, turned into a sentence.**
+///
+/// The engine called it *"not a footnote … the entire difficulty of the
+/// feature"*: a bookmark added under a **collapsed** ancestor does not change
+/// the document's visible total, because it is not visible — §12.3.3 defines no
+/// `/Open` key, so the sign on `/Count` is the only carrier of open-or-closed.
+///
+/// Getting the count right is the low bar. The operator's actual problem is
+/// that they will add a bookmark, look at the panel, and **not see it** — and
+/// the panel will be correct. So this is said **before** the press, which is
+/// the same posture the ce-dimension group window takes about re-measuring on
+/// a move.
+///
+/// Worded as a fact about the parent, not as a warning about the action: the
+/// add will work perfectly.
+#[must_use]
+pub const fn bookmark_add_under_collapsed() -> &'static str {
+    "That bookmark is collapsed, so the new one will not appear until you \
+     expand it. It will still be in the file."
+}
+
+/// The title field's placeholder.
+#[must_use]
+pub const fn bookmark_add_title_hint() -> &'static str {
+    "What to call it"
+}
+
+/// The button that writes the bookmark.
+#[must_use]
+pub const fn bookmark_add_button() -> &'static str {
+    "Add"
+}
+
+/// Why the button is unavailable with an empty title.
+///
+/// ★ Greyed **with** an explanation rather than absent, unlike the Rename
+/// button in the groups window — and the difference is which control it is.
+/// That one is an alternative to a field that already shows the name; this one
+/// is the whole of the feature, and a row that vanished until you typed would
+/// leave an operator looking for where bookmarks are added.
+#[must_use]
+pub const fn bookmark_add_needs_a_title() -> &'static str {
+    "Type a name first. A bookmark with no title still appears in the list, as \
+     a blank row nothing distinguishes."
+}
 
 /// Disclosure when pdfce's own reader had to give up part-way.
 ///

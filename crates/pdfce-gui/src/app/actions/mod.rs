@@ -698,6 +698,43 @@ pub enum Action {
     /// individual edit would still be correct in the document and wrong only
     /// on screen.
     Page(pages::PageAction),
+    /// ★ **Add a bookmark to the document's outline.**
+    ///
+    /// Raised by `crate::panels::bookmarks::add` and by nothing else.
+    ///
+    /// # ★ Why nothing here counts anything
+    ///
+    /// `EditSession::add_outline_item` maintains `/Count`, and `/Count` is two
+    /// different quantities — visible items at every level on the root, visible
+    /// **descendants excluding itself** on an item, with the **sign carrying
+    /// the open/closed flag** because §12.3.3 defines no `/Open` key.
+    ///
+    /// The consequence the engine flagged as *"the entire difficulty of the
+    /// feature"*: **adding a bookmark under a collapsed ancestor does not
+    /// change the document's total**, because the new item is not visible. A
+    /// surface reporting *"added N"* by diffing the root count therefore
+    /// reports **zero for a correct save**.
+    ///
+    /// So this variant carries one bookmark, the apply arm adds one bookmark,
+    /// and the panel says one bookmark. There is no number to get wrong.
+    ///
+    /// # Why the parent is an `ObjId` and not a position
+    ///
+    /// Because a position is invalidated by the very edit this performs. The
+    /// engine hit that in its own CLI — *"the indices shift after every add …
+    /// I got this wrong myself while driving the command and nested something
+    /// two levels deeper than intended, and the output looked entirely
+    /// plausible."* `OutlineItem::id` exists for this.
+    ///
+    /// `None` is the top level, which is `add_outline_item`'s own spelling.
+    AddBookmark {
+        /// The item it goes under, or `None` for the top level.
+        parent: Option<pdfce_core::object::ObjId>,
+        /// The title. Trimmed and non-empty by the time it gets here.
+        title: String,
+        /// The 0-based page it points at — the one the operator is looking at.
+        page: usize,
+    },
     /// ★ **Write one page's vector geometry out as a DXF.**
     ///
     /// Raised by `crate::dialogs::export_dxf` and by nothing else.
