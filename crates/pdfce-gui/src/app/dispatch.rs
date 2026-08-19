@@ -52,7 +52,7 @@
 /// lines. Its header carries the two decisions worth questioning: why the
 /// import happens before the window, and why the refusal is passed through in
 /// the engine's own words.
-mod images;
+pub(crate) mod images;
 /// ★ Every `measure.*` command — the three tools, Finish, and the two windows.
 ///
 /// A module rather than four arms because three of them resolve the **active

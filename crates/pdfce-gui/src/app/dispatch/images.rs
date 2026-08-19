@@ -56,6 +56,23 @@ pub(super) fn insert(dialogs: &mut DialogsState, status: &Status) {
     let crate::app::files::Picked::Path(path) = crate::app::files::pick_image_source() else {
         return;
     };
+    insert_path(dialogs, status, &path);
+}
+
+/// Import the file at `path` and open the placement window.
+///
+/// # ★★ Why this is split out of [`insert`]
+///
+/// Because a **dropped** image has already answered the question `insert`'s
+/// first line asks. The picker and the import were one function until
+/// 2026-08-19, so drag-and-drop could not reuse the second half without opening
+/// a file dialog over a file the operator had already chosen — which is the
+/// shape of thing that gets built as a duplicate instead.
+///
+/// One import, one set of disclosures, one placement window, two doors. The
+/// alternative is two code paths that agree today and disagree the first time
+/// one of them learns something.
+pub(crate) fn insert_path(dialogs: &mut DialogsState, status: &Status, path: &std::path::Path) {
     // Read and import on this thread. A drawing's logo is a few
     // kilobytes and a site photograph is a few megabytes; the
     // decode is milliseconds either way, and a worker would need a
@@ -64,7 +81,7 @@ pub(super) fn insert(dialogs: &mut DialogsState, status: &Status) {
     // A SCAN at 600 dpi is the case that would justify it, and it
     // is the case to re-measure before building it rather than the
     // case to assume.
-    let outcome = std::fs::read(&path)
+    let outcome = std::fs::read(path)
         .map_err(|e| e.to_string())
         .and_then(|bytes| pdfce_core::image_import::import(&bytes).map_err(|e| e.to_string()));
     match outcome {

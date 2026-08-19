@@ -227,6 +227,34 @@ impl eframe::App for PdfceApp {
         };
         let mut actions = keyboard::collect(&ctx, page_count);
 
+        // ★★ Step 1 — **files dragged onto the window**, read before anything
+        // is drawn.
+        //
+        // `egui` reports drops on the CONTEXT, not on a widget: `RawInput`
+        // carries `dropped_files` for the whole window and nothing narrows it to
+        // a rect. So this is the only correct place for it — reading it inside
+        // the canvas would miss a drop on the ribbon or on a dock panel, and the
+        // operator would learn that the program accepts drops *sometimes*, which
+        // is worse than never.
+        //
+        // Nothing in this shell read that field at all until 2026-08-19. The
+        // operator's report — *"can't drag and drop a jpg file onto a new
+        // pdf"* — was entirely true, and it made a WORKING Insert-image button
+        // look broken, because both were tried in the same minute and only one
+        // of them told him anything.
+        if let Some(dropped_image) =
+            crate::app::dropped::take(&ctx, page_count.is_some(), &mut actions)
+        {
+            // The image goes straight into the placement window — the same one
+            // `edit.insert_image` opens, through the same import. See
+            // `dispatch::images::insert_path` for why that split exists.
+            crate::app::dispatch::images::insert_path(
+                &mut self.dialogs,
+                &self.status,
+                &dropped_image,
+            );
+        }
+
         // Step 1a — the chords the MANIFEST binds.
         //
         // ★ This is the second half of the one-owner-per-chord fix. The

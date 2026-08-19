@@ -48,7 +48,7 @@
 //! project's canonical example of a keyboard rule that was right in the test
 //! harness and wrong in the running window.
 
-use crate::checks::driving::{self, SHELL_DIAG_ENV, click_mode_segment};
+use crate::checks::driving::{SHELL_DIAG_ENV, click_mode_segment};
 use crate::checks::{Check, CheckContext};
 use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
 use crate::error::{Error, Result};

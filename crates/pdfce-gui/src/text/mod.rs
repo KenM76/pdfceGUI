@@ -94,6 +94,8 @@ pub mod diagnostics;
 /// not on screen — and doing it with a count that is computed before the edit
 /// rather than reported after it.
 pub mod dimension_groups;
+/// The three sentences a dragged-and-dropped file can answer with.
+pub mod dropped;
 /// What the measure tools say about what they INFERRED — the two-line
 /// gesture's refusals, the angle an override overrode, and an apex that is
 /// only real if the lines are extended.

@@ -128,8 +128,40 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         ))
     })?;
 
-    // --- 0: write the fixture ----------------------------------------------
-    let fixture = ctx.out("insert_image_fixture.png");
+    // --- 0: the fixture ------------------------------------------------------
+    //
+    // ★★ **A PNG this harness encodes, or a file named by `PDFCE_UIV_IMAGE`.**
+    //
+    // The env seam was added 2026-08-19, on the operator's report that *"the
+    // insert image button doesn't insert it either"* — for a **jpg** — while
+    // this check, which drives exactly that button, was passing.
+    //
+    // It was passing on a PNG the harness authors itself, and that is the same
+    // fixture trap that hid the text-editing defect for three weeks: *a check
+    // that drives a file the test tool authored tests the shape the test tool
+    // imagines.* `image_import` accepts PNG, JPEG, BMP and TIFF down four
+    // different decoders, and exactly one of them was ever exercised here.
+    //
+    // An environment variable rather than a CLI flag, because every other input
+    // this suite takes (`--pdf`, `--doc-point`) names the thing under test and
+    // this one names what the harness feeds it.
+    let supplied = std::env::var_os("PDFCE_UIV_IMAGE").map(std::path::PathBuf::from);
+    if let Some(path) = supplied.as_ref() {
+        if !path.exists() {
+            return Err(Error::new(format!(
+                "PDFCE_UIV_IMAGE names {} and there is no file there.",
+                path.display()
+            )));
+        }
+        report.note(format!(
+            "using the image at {} ({} bytes) instead of the built-in PNG",
+            path.display(),
+            std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+        ));
+    }
+    let fixture = supplied
+        .clone()
+        .unwrap_or_else(|| ctx.out("insert_image_fixture.png"));
     let pixels = fixture_pixels();
     let png = crate::png::encode_rgb(FIXTURE_W, FIXTURE_H, &pixels).ok_or_else(|| {
         Error::new(
@@ -138,16 +170,18 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              own precondition.",
         )
     })?;
-    std::fs::write(&fixture, &png).map_err(|e| {
-        Error::new(format!(
-            "cannot write the fixture image to {}: {e}",
-            fixture.display()
-        ))
-    })?;
-    report.note(format!(
-        "wrote a {FIXTURE_W}×{FIXTURE_H} fixture PNG, {} bytes",
-        png.len()
-    ));
+    if supplied.is_none() {
+        std::fs::write(&fixture, &png).map_err(|e| {
+            Error::new(format!(
+                "cannot write the fixture image to {}: {e}",
+                fixture.display()
+            ))
+        })?;
+        report.note(format!(
+            "wrote a {FIXTURE_W}×{FIXTURE_H} fixture PNG, {} bytes",
+            png.len()
+        ));
+    }
 
     let mut spec = LaunchSpec::new(&exe, ctx.out("insert_image.trace.txt"));
     spec.pdf = Some(pdf);

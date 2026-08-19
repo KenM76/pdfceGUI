@@ -205,6 +205,11 @@ pub mod render_diagnostics;
 /// selection box, so without a priority rule every attempt to shape a curve
 /// moves the whole object instead.
 pub mod bezier_handle;
+/// ★★ **Drag-and-drop**, driven through the one seam that can carry it — a drop
+/// originates in Explorer and cannot be synthesised by moving a mouse, so
+/// without `PDFCE_DIAG_DROP_PATH` this would be the single feature in the shell
+/// that R1 cannot reach.
+pub mod dropped_file;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -582,6 +587,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
         Box::new(tool_row::TheTextToolTypesOnOneClick),
         Box::new(tool_row::ThePointsToolShowsPointsOnOneClick),
+        Box::new(dropped_file::ADroppedImageReachesThePlacementWindow),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

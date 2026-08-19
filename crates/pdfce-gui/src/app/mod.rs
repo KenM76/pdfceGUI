@@ -75,6 +75,11 @@ pub mod dispatch;
 /// How a path gets from an operator — or from a scripted harness — to
 /// [`actions::Action::Open`]. The picker, the diagnostics seam that answers
 /// it without a human, and the dirty-document rule.
+/// ★ **Files dragged onto the window.** Nothing in this shell read
+/// `dropped_files` until 2026-08-19, so a dropped file did nothing, silently —
+/// and a drop that is ignored teaches an operator that the program does not
+/// accept drops, which is a conclusion they will not revisit.
+pub mod dropped;
 pub mod files;
 
 /// ★ The per-frame update — `eframe`'s entry point, and the one order the
