@@ -16,7 +16,7 @@ at a section of it.
 printed at that commit; the tree has moved since, and the numbers move with
 it. It is here so you know roughly where you are, not so you can quote it.
 
-### ★★ Read this row first: SIX surfaces have landed and NONE has been driven
+### ★★ Read this row first: NINE surfaces have landed and NONE has been driven
 
 R1 is the rule this project was founded on, and this is where it currently
 stands **unpaid**. Everything below is gate-clean and unit-tested; none of it
@@ -28,10 +28,12 @@ desktop and needs the operator off the machine.
 | **Manage dimension groups** — the window, and the *Draw into* picker `MeasureState::group` never had a writer for | 08-18 | `dimension_groups_window_makes_a_group` — **written, never run** |
 | **Rename, delete and re-group** — requested 08-18, engine shipped 08-19, wired the same morning | 08-19 | the same check, extended to a **create → rename → delete round trip** |
 | **Drag a page, see where it lands** — an insertion caret, dimmed where the drop would change nothing | 08-18 | `pages_drag_shows_where_it_lands` — **written, never run** |
-| **The selected ce dimension's own settings** — eleven cascade properties, tolerance, radius ↔ diameter, and now a group picker | 08-18/19 | **none written.** It needs a document that already *contains* a ce dimension, which today means placing one first |
-| **The Properties panel's document half** — file, size, PDF version, pages, sheet size, encryption, and the four editable `/Info` fields | 08-19 | `properties_metadata_round_trips` — **written, never run** |
+| **The selected ce dimension's own settings** — eleven cascade properties, tolerance, radius ↔ diameter, group picker | 08-18/19 | **none written.** It needs a document that already *contains* a ce dimension, which today means placing one first |
+| **The Properties panel's document half** — file, size, PDF version, pages, sheet size, encryption, four editable `/Info` fields | 08-19 | `properties_metadata_round_trips` — **written, never run** |
 | **Two-line dimensioning tells the truth** — the operator's parallel threshold, the refusal by name, the overridden angle | 08-19 | **none written** |
 | **The snap indicator has its colour** | 08-19 | unit-tested over every preset; a pixel oracle would be better |
+| **Insert an image** — placed by a rectangle in millimetres, with the resolution previewed | 08-19 | **none written** |
+| **Export to DXF** — at a scale inferred from the page's own dimension groups, or stated as unknown | 08-19 | **none written** |
 
 ```bash
 cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
