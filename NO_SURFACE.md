@@ -194,12 +194,40 @@ feature that has quietly been made their job.
 - Ruler fallback number format is `NumberFormat::decimal(Millimeter, 2)` —
   **precision 2 is hard-coded** at `canvas/rulers.rs:503`, even though the new
   scale dialog can set a format.
-- `canvas/rulers.rs:522-525` states *"the GUI has no group picker yet"*, so all
+- ~~`canvas/rulers.rs:522-525` states *"the GUI has no group picker yet"*, so all
   measure work lands in the default dimension group. `measure.manage_groups` is
-  still inert (§9).
+  still inert (§9).~~ ✅ **Closed 2026-08-18.** `dialogs::dimension_groups`'
+  *Draw into* column is the picker, and `canvas::measure::set_active_group` is
+  the write half `active_group` had been missing since the Phase 7 salvage.
+  ★ **The row understated it.** It read as *"the picker is not built yet"*,
+  which is a scheduling fact; the truth was that `MeasureState::group` was a
+  **documented field with no writer** — every dimension the shell had ever
+  authored went into the default group, and a second group created from the CLI
+  was joinable by nothing. That is the shape §1's three corrected rows already
+  warn about: a row here says a value is fixed, not why, and following the value
+  to the code that consumes it is what tells you which of three different
+  answers it needs.
 - Measure scale-entry seeds are `Default`-only: real-length unit **Meter**, ratio
   basis **Inch**, ratio 1:100 — `canvas/measure/scale.rs:152-157`. The dialog
   offers a unit combo, but the starting values are not preference-backed.
+
+### ★ What closed in the dimensioning rows on 2026-08-18, and the one that did not
+
+| the sweep said | now |
+|---|---|
+| no group picker; all measure work lands in the default group | ✅ **built** — and the finding underneath was worse than the row, see above |
+| `measure.manage_groups` inert (§5 row 17) | ✅ **wired** — the scaffold list is 17 entries, down from 18 |
+| the eleven-property style cascade has **no GUI surface in either shell** — `FEATURES.md` `core [x] cli [x] gui [ ]` | ✅ **built** — `panels::properties::dimension`, with the tier each value came from named beside it |
+| ce-dimension **tolerance** has no GUI surface | ✅ **built** — all seven forms, with the engine's own refusals shown verbatim |
+| a placed circular ce dimension cannot be switched between radius and diameter | ✅ **built** — the ui-spec called it *"a real, named usability gap"* |
+| ⛔ **rename / delete a group, or move a ce dimension between groups** | still open, and now **disclosed on screen** rather than merely filed. Two requests, 2026-08-18 |
+
+**The scale-entry seeds row above still stands** and is the interesting
+survivor: it is a *default*, which §2's own note names as the class worth
+scanning for — *"a hard-coded value an operator meets once is a preference
+nobody misses; a hard-coded value they have to correct by hand at every open is
+a feature that has quietly been made their job."* A drafter whose drawings are
+all 1:50 in millimetres re-picks the unit on every document.
 
 ---
 
