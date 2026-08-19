@@ -181,6 +181,123 @@ pub fn crosshair(pixels_per_point: f32) -> CustomCursorImage {
     image
 }
 
+/// The two-tone I-beam, cached per pixel size exactly as [`crosshair`] is.
+///
+/// # ★ Why an I-beam and not simply a smaller crosshair
+///
+/// Because the two answer different questions and the shape IS the answer. A
+/// crosshair says *"the point under the intersection is what you are picking"*;
+/// an I-beam says *"text flows this way, and the caret will land between two
+/// glyphs"*. Its serifs are not decoration — they are what makes a one-pixel
+/// vertical bar findable on a page of vertical strokes, which a CAD drawing is
+/// entirely made of.
+#[must_use]
+pub fn ibeam(pixels_per_point: f32) -> CustomCursorImage {
+    let scale = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+        pixels_per_point
+    } else {
+        1.0
+    };
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped into 1..=MAX_CURSOR_PX on the same line" // ui-text-exempt: lint justification, never displayed
+    )]
+    let size = ((LOGICAL_SIZE_PTS * scale).round() as u32).clamp(1, MAX_CURSOR_PX);
+
+    let cache = IBEAM_CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, img)) = cache.iter().find(|(key, _)| *key == size) {
+        return img.clone();
+    }
+    let img = render_ibeam(size, scale);
+    cache.push((size, img.clone()));
+    img
+}
+
+/// Cache for [`ibeam`], separate from the crosshair's.
+///
+/// Two caches rather than one keyed by shape: each holds at most a handful of
+/// sizes, and a shared one would need a compound key for no saving. The cost of
+/// getting a compound key wrong is handing back the wrong glyph.
+static IBEAM_CACHE: OnceLock<Mutex<Vec<(u32, CustomCursorImage)>>> = OnceLock::new();
+
+/// Draw the I-beam: a dark bar with serifs, haloed in light.
+///
+/// Halo first then core, for the reason [`render`] gives — drawing them the
+/// other way round leaves a light glyph with a dark outline, which is thinner
+/// in its dark part than its light one and reads as blurry.
+fn render_ibeam(size: u32, scale: f32) -> CustomCursorImage {
+    let mut rgba = vec![0u8; (size as usize) * (size as usize) * 4];
+    let px = |pts: f32| (pts * scale).round().max(1.0) as i32;
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "size is clamped to MAX_CURSOR_PX, far inside i32" // ui-text-exempt: lint justification, never displayed
+    )]
+    let n = size as i32;
+    let centre = n / 2;
+    let half_height = px(IBEAM_HEIGHT_PTS / 2.0).min(centre);
+    let serif = px(IBEAM_SERIF_PTS).min(centre - 1).max(1);
+    // Same asymmetry the crosshair uses and for the same reason: the dark core
+    // stays a hairline so the operator can see exactly which glyph boundary the
+    // caret will land on, and the light halo takes the extra pixels because its
+    // whole job is to be seen against whatever is underneath.
+    let core = px(IBEAM_CORE_PTS).max(1);
+    let halo = core + 2;
+
+    let mut put = |x: i32, y: i32, white: bool| {
+        if x < 0 || y < 0 || x >= n || y >= n {
+            return;
+        }
+        let at = ((y * n + x) as usize) * 4;
+        let value = if white { 0xFF } else { 0x00 };
+        rgba[at] = value;
+        rgba[at + 1] = value;
+        rgba[at + 2] = value;
+        rgba[at + 3] = 0xFF;
+    };
+    let mut bar = |width: i32, white: bool| {
+        let half = width / 2;
+        for y in (centre - half_height)..=(centre + half_height) {
+            for x in (centre - half)..=(centre + half) {
+                put(x, y, white);
+            }
+        }
+        // The serifs, top and bottom.
+        for dy in 0..width.max(1) {
+            for x in (centre - serif)..=(centre + serif) {
+                put(x, centre - half_height + dy, white);
+                put(x, centre + half_height - dy, white);
+            }
+        }
+    };
+    bar(halo, true);
+    bar(core, false);
+
+    CustomCursorImage {
+        rgba: Arc::from(rgba),
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "size is clamped to MAX_CURSOR_PX = 2048, inside u16" // ui-text-exempt: lint justification, never displayed
+        )]
+        size: [size as u16, size as u16],
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "centre is half of a value clamped to 2048" // ui-text-exempt: lint justification, never displayed
+        )]
+        hotspot: [centre as u16, centre as u16],
+    }
+}
+
+/// Total height of the I-beam, in logical points.
+const IBEAM_HEIGHT_PTS: f32 = 15.0;
+/// How far each serif reaches from the centre line.
+const IBEAM_SERIF_PTS: f32 = 3.0;
+/// Width of the dark core bar.
+const IBEAM_CORE_PTS: f32 = 1.0;
+
 /// Draw the glyph into a fresh buffer.
 ///
 /// # The order is load-bearing: halo first, then core
@@ -316,14 +433,77 @@ static LAST_APPLIED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32
 /// is not traced. The cursor is still cleared: [`crate::app::frame`] does that
 /// unconditionally and earlier, which is exactly why the clear lives there and
 /// not here.
-pub fn apply(ctx: &egui::Context, wanted: bool) {
+/// Which of pdfce's own cursors a frame wants, if any.
+///
+/// # ★★ The I-beam is here for the SAME reason the crosshair is, reported
+/// the same way, three weeks apart
+///
+/// 2026-08-18: *"the crosshairs when over the canvas are white making it hard
+/// to see them."* 2026-08-19: *"the I cursor turns white for text selection so
+/// I cant see it on a white background."*
+///
+/// One cause. `IDC_IBEAM` is a **monochrome** stock cursor exactly as
+/// `IDC_CROSS` is, coloured by the operator's pointer scheme, and a white
+/// I-beam over white paper is not a cursor. The fix that worked for the
+/// crosshair works here unchanged: stop asking the platform, supply a two-tone
+/// glyph with a dark core and a light halo.
+///
+/// ★ It is filed as a defect in this module rather than a new feature
+/// because the first fix should have been made here. The header already argued
+/// that the platform's monochrome cursors are unusable over a document, and
+/// then fixed exactly one of them — the one that had been reported. Every
+/// other `CursorIcon` this application asks for over the canvas has the same
+/// exposure, and the two that matter over *paper* are these two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    /// The picking crosshair, for an armed tool.
+    Crosshair,
+    /// The text I-beam, for selecting or editing text on the page.
+    Ibeam,
+}
+
+impl Shape {
+    /// The `egui` icon this replaces, so one call site can decide.
+    #[must_use]
+    pub const fn of(icon: egui::CursorIcon) -> Option<Self> {
+        match icon {
+            egui::CursorIcon::Crosshair => Some(Self::Crosshair),
+            egui::CursorIcon::Text => Some(Self::Ibeam),
+            _ => None,
+        }
+    }
+
+    /// The trace word, so a reader can tell the two apart.
+    const fn label(self) -> &'static str {
+        match self {
+            // ui-text-exempt: diagnostic trace values, never displayed
+            Self::Crosshair => "crosshair",
+            Self::Ibeam => "ibeam",
+        }
+    }
+}
+
+/// The bitmap for a shape at this scale, cached per `(shape, size)`.
+#[must_use]
+pub fn image(shape: Shape, pixels_per_point: f32) -> CustomCursorImage {
+    match shape {
+        Shape::Crosshair => crosshair(pixels_per_point),
+        Shape::Ibeam => ibeam(pixels_per_point),
+    }
+}
+
+pub fn apply(ctx: &egui::Context, wanted: Option<Shape>) {
     use std::sync::atomic::Ordering;
 
-    let size = if wanted {
-        let image = crosshair(ctx.pixels_per_point());
+    let size = if let Some(shape) = wanted {
+        let image = image(shape, ctx.pixels_per_point());
         let size = u32::from(image.size[0]);
         ctx.set_cursor_image(Some(image));
-        size
+        // The shape rides in the low bits beside the size so a change of
+        // SHAPE at one size is still a change — otherwise switching from
+        // crosshair to I-beam at the same scale would trace nothing, and the
+        // reader would see a cursor that never changed.
+        size * 2 + u32::from(shape == Shape::Ibeam)
     } else {
         // Deliberately does NOT clear: `crate::app::frame` has already done it
         // for this frame, before anything drew. Clearing again here would be a
@@ -333,20 +513,99 @@ pub fn apply(ctx: &egui::Context, wanted: bool) {
     };
 
     if LAST_APPLIED.swap(size, Ordering::Relaxed) != size {
-        crate::diag::trace(|| {
-            if size == 0 {
+        crate::diag::trace(move || match wanted {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            None => "cursor-custom off".to_owned(),
+            Some(shape) => format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "cursor-crosshair off".to_owned()
-            } else {
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                format!("cursor-crosshair on px={size}")
-            }
+                "cursor-custom on shape={} px={}",
+                shape.label(),
+                size / 2
+            ),
         });
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// ★★ The I-beam has a DARK core, which is the whole of the operator's
+    /// report.
+    ///
+    /// *"The I cursor turns white for text selection so I cant see it on a
+    /// white background."* Same defect as the crosshair's, three weeks apart,
+    /// same cause: `IDC_IBEAM` is a monochrome stock cursor coloured by the
+    /// operator's pointer scheme.
+    ///
+    /// So the assertion is not "it renders" — it is that the **centre pixel is
+    /// black**, because a light-cored glyph would satisfy every other test here
+    /// and reproduce the bug exactly.
+    #[test]
+    fn the_ibeam_core_is_dark_and_its_halo_is_light() {
+        let img = ibeam(1.0);
+        let n = usize::from(img.size[0]);
+        let at = |x: usize, y: usize| {
+            let i = (y * n + x) * 4;
+            (img.rgba[i], img.rgba[i + 3])
+        };
+        let c = n / 2;
+        assert_eq!(at(c, c), (0x00, 0xFF), "the core must be opaque black");
+        // One pixel out along the bar's width is halo — the core is a
+        // HAIRLINE by design, exactly as the crosshair's is, so the operator
+        // can see which glyph boundary the caret will land on.
+        assert_eq!(
+            at(c + 1, c),
+            (0xFF, 0xFF),
+            "the halo must be opaque white so the core is legible on dark ink too"
+        );
+        assert_eq!(
+            at(c + 2, c).1,
+            0x00,
+            "and the glyph must end there rather than smearing"
+        );
+    }
+
+    /// The glyph is taller than it is wide, which is what makes it an I-beam.
+    ///
+    /// A square two-tone blob would pass the colour test and be a worse
+    /// crosshair. The shape carries the meaning: text flows this way, and the
+    /// caret lands between two glyphs.
+    #[test]
+    fn the_ibeam_is_a_bar_and_not_a_blob() {
+        let img = ibeam(1.0);
+        let n = usize::from(img.size[0]);
+        let opaque = |x: usize, y: usize| img.rgba[(y * n + x) * 4 + 3] == 0xFF;
+        let c = n / 2;
+        let tall = (0..n).filter(|&y| opaque(c, y)).count();
+        let wide = (0..n).filter(|&x| opaque(x, c)).count();
+        assert!(
+            tall > wide * 2,
+            "an I-beam is a vertical bar: {tall} tall against {wide} wide"
+        );
+    }
+
+    /// The two shapes map from the two `egui` icons and nothing else does.
+    ///
+    /// ★ The negative half matters: every other `CursorIcon` this application
+    /// asks for is over CHROME, where the platform's stock cursor is correct
+    /// and a custom one would be wrong. Only the two drawn over the operator's
+    /// document need replacing.
+    #[test]
+    fn only_the_two_cursors_drawn_over_paper_are_replaced() {
+        assert_eq!(
+            Shape::of(egui::CursorIcon::Crosshair),
+            Some(Shape::Crosshair)
+        );
+        assert_eq!(Shape::of(egui::CursorIcon::Text), Some(Shape::Ibeam));
+        for stock in [
+            egui::CursorIcon::Default,
+            egui::CursorIcon::PointingHand,
+            egui::CursorIcon::ResizeVertical,
+            egui::CursorIcon::Grab,
+        ] {
+            assert_eq!(Shape::of(stock), None, "{stock:?} is chrome, not paper");
+        }
+    }
     use super::*;
 
     /// The four values `CustomCursorImage` promises about itself.

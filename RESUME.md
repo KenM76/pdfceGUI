@@ -347,9 +347,30 @@ worry about item 5. It's aware of that one now."*
    exists for reproducing an exact revision. The engine repo moved 8, then 12,
    then 4, then 6 commits ahead inside one afternoon, and a stale pin already
    cost eighteen missing images on the operator's own file.
-2. **Mirror the last two builds to OneDrive**, `pdfceGUI1` / `pdfceGUI2`, newest
-   replacing the older slot. Automated. `userdata/` is preserved across a
-   rotation, because the operator can run the exe straight out of a slot.
+2. ★★ **Publish EVERY build worth keeping to OneDrive**, alternating
+   `pdfceGUI1` / `pdfceGUI2`, newest replacing the older slot. Restated as a
+   standing rule by the operator on 2026-08-19.
+
+   ```bash
+   python tools/package-portable.py     # updates the engine, builds, mirrors, rotates
+   ```
+
+   The alternation is a property of the tool, not something to track: it picks
+   the older slot itself and preserves that slot's `userdata/`, because the
+   operator runs the exe straight out of OneDrive on this machine and others.
+
+   The obligation is the part that is not automated. **A build that exists only
+   in `target/release/` or `D:uilds\` has not reached the operator.** Run it
+   at the end of any session that landed working changes, and immediately after
+   any fix he might want to try — without asking, since it writes only to
+   `D:uilds\` and the OneDrive slot and never to a repository.
+
+   And **say which slot in the report**, together with which one holds the
+   previous build. The slot name carries no version information, so "packaged"
+   on its own leaves him opening folders to find out which is which. The reason
+   there are two slots at all is the project's own fallback property applied to
+   the day-to-day: the previous build stays intact beside the new one, to fall
+   back to and to compare against.
 3. **Put engine work through the channel**, and the other session picks it up in
    parallel.
 

@@ -72,6 +72,9 @@ pub fn set_cursor_position(_x: i32, _y: i32) -> Result<()> {
 pub fn mouse_button(_down: bool) {}
 
 /// No-op: there is no window to type into.
+/// Turn the mouse wheel. No-op off Windows.
+pub fn wheel(_notches: i32) {}
+
 pub fn key_stroke(_vk: u16) {}
 
 /// Does nothing.

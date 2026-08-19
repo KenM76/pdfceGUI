@@ -1481,7 +1481,7 @@ pub(super) fn interact(
     // application a screenshot cannot contain: Windows composites the pointer
     // separately, so `ui-verify`'s window capture returns an image with no
     // cursor in it at any price.
-    crate::canvas::cursor::apply(&ctx, icon == Some(egui::CursorIcon::Crosshair));
+    crate::canvas::cursor::apply(&ctx, icon.and_then(crate::canvas::cursor::Shape::of));
 
     let count = selection.len();
     // Back onto the document, by value. Moved rather than cloned: a marquee

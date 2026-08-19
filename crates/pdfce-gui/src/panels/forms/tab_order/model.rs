@@ -576,7 +576,30 @@ fn tabs_name<G: ObjectGraph + ?Sized>(graph: &G, id: ObjId) -> Option<TabsMode> 
 /// Comments panel's cost exactly, and its header's measurement applies:
 /// negligible beside a raster on anything this project measures against.
 #[must_use]
-pub fn collect<G: ObjectGraph + ?Sized>(graph: &G, slots: &[PageSlot], form: &AcroForm) -> Listing {
+pub fn collect<G: ObjectGraph + ?Sized>(
+    graph: &G,
+    slots: &[PageSlot],
+    form: Option<&AcroForm>,
+) -> Listing {
+    // ★★ `Option`, and `None` is the case this view matters MOST in.
+    //
+    // A document can carry `/Widget` annotations and **no `/AcroForm` at all**,
+    // and pdfce makes exactly that: `insert_pages` copies everything reachable
+    // from a page, `/Annots` reaches the widgets, and `/AcroForm` is a catalog
+    // entry that is never in the set being copied. Insert a form's pages into a
+    // CAD drawing and every widget that arrives is unclaimed, because there is
+    // nothing in the target that could claim one.
+    //
+    // Taking `&AcroForm` made that state unrepresentable here, so the panel
+    // returned early on it and this section — the one surface that lists those
+    // widgets and offers to register them — was unreachable in the only
+    // situation that produces them. Found by a driven run on 2026-08-19, and it
+    // is the second instance of that shape in one day: the Bookmarks panel had
+    // the same early return over an empty outline.
+    //
+    // With `None` the owner map is empty, every widget falls to `unclaimed`,
+    // and the rest of this function is unchanged. That is the correct answer
+    // rather than a special case.
     // Widget object id -> (field index, widget index within that field).
     //
     // Built once for the document rather than per page: a form with 400 fields
@@ -584,7 +607,8 @@ pub fn collect<G: ObjectGraph + ?Sized>(graph: &G, slots: &[PageSlot], form: &Ac
     // First listing wins — a widget claimed by two fields is malformed, and the
     // earlier field is the one `/Fields` declares first.
     let mut owner: HashMap<ObjId, (usize, usize)> = HashMap::new();
-    for (field_index, field) in form.fields.iter().enumerate() {
+    let fields: &[pdfce_core::forms::Field] = form.map_or(&[], |f| f.fields.as_slice());
+    for (field_index, field) in fields.iter().enumerate() {
         for (widget_index, widget) in field.widgets.iter().enumerate() {
             owner
                 .entry(widget.id)
@@ -594,7 +618,7 @@ pub fn collect<G: ObjectGraph + ?Sized>(graph: &G, slots: &[PageSlot], form: &Ac
 
     let mut listing = Listing {
         pages: Vec::with_capacity(slots.len()),
-        fields_without_widgets: form.fields.iter().filter(|f| f.widgets.is_empty()).count(),
+        fields_without_widgets: fields.iter().filter(|f| f.widgets.is_empty()).count(),
     };
 
     for (page_index, slot) in slots.iter().enumerate() {
@@ -656,7 +680,7 @@ pub fn collect<G: ObjectGraph + ?Sized>(graph: &G, slots: &[PageSlot], form: &Ac
                 });
                 continue;
             };
-            let field = &form.fields[field_index];
+            let field = &fields[field_index];
             page.rows.push(TabRow {
                 // 1-based, and among the WIDGETS — so it is the number an
                 // operator counts while tabbing.
@@ -721,7 +745,7 @@ mod tests {
         let slots = session.page_slots().expect("a page tree");
         let view = session.view();
         let form = pdfce_core::forms::parse_acroform(&view).unwrap_or_else(empty_form);
-        collect(&view, &slots, &form)
+        collect(&view, &slots, Some(&form))
     }
 
     // =======================================================================
@@ -1004,7 +1028,7 @@ mod tests {
         let slots = session.page_slots().expect("a page tree");
         let view = session.view();
         let form = pdfce_core::forms::parse_acroform(&view).expect("the fixture has a form");
-        let l = collect(&view, &slots, &form);
+        let l = collect(&view, &slots, Some(&form));
 
         assert!(l.total_rows() > 0, "a real form produced no rows at all");
         let names: std::collections::BTreeSet<&str> = form
@@ -1093,7 +1117,7 @@ mod tests {
             let slots = session.page_slots().expect("a page tree");
             let view = session.view();
             let form = pdfce_core::forms::parse_acroform(&view).expect("a form");
-            let l = collect(&view, &slots, &form);
+            let l = collect(&view, &slots, Some(&form));
 
             let widgetless: Vec<&str> = form
                 .fields
@@ -1217,7 +1241,7 @@ mod tests {
             inherited: pdfce_core::page_tree::InheritedRaw::default(),
         };
 
-        let l = collect(&graph, std::slice::from_ref(&slot), &form);
+        let l = collect(&graph, std::slice::from_ref(&slot), Some(&form));
         assert_eq!(
             l.total_rows(),
             1,
@@ -1233,6 +1257,79 @@ mod tests {
     /// counted separately.**
     ///
     /// Two different facts that a single "not listed" number would blur. An
+    /// ★★ A document with WIDGETS and NO `/AcroForm` lists every one of
+    /// them as unclaimed.
+    ///
+    /// The state pdfce manufactures and could not display. `insert_pages`
+    /// copies everything reachable from a page; `/Annots` reaches the widgets;
+    /// `/AcroForm` is a **catalog** entry and is never in the copied set. So a
+    /// form's pages inserted into a CAD drawing arrive as boxes that draw like
+    /// fields, swallow every keystroke, and belong to nothing at all.
+    ///
+    /// Before 2026-08-19 this was not merely untested — it was
+    /// **unrepresentable**: `collect` took `&AcroForm`, so the panel had to
+    /// return before reaching it, and the one section that lists these widgets
+    /// and offers to register them sat behind a guard the state cannot pass.
+    ///
+    /// Asserted at the model rather than through the panel because the model is
+    /// where the `Option` now lives; the panel's half is covered by the driven
+    /// check that inserts a form's pages and registers one of the orphans,
+    /// which is what found this.
+    #[test]
+    fn a_document_with_widgets_and_no_acroform_lists_them_all() {
+        let page_id = ObjId::new(1, 0);
+        let a = ObjId::new(8, 0);
+        let b = ObjId::new(9, 0);
+        let mut page_dict = Dict::new();
+        page_dict.insert(
+            pdfce_core::object::Name(b"Annots".to_vec()),
+            Object::Array(vec![Object::Reference(a), Object::Reference(b)]),
+        );
+        let widget = || {
+            let mut d = Dict::new();
+            d.insert(
+                pdfce_core::object::Name(b"Subtype".to_vec()),
+                Object::Name(pdfce_core::object::Name(b"Widget".to_vec())),
+            );
+            Object::Dict(d)
+        };
+        let graph = FakeGraph(HashMap::from([
+            (page_id, Object::Dict(page_dict)),
+            (a, widget()),
+            (b, widget()),
+        ]));
+        let slot = PageSlot {
+            id: page_id,
+            parent: None,
+            index_in_parent: 0,
+            ancestors: Vec::new(),
+            inherited: pdfce_core::page_tree::InheritedRaw::default(),
+        };
+
+        // `None` — the document has no `/AcroForm` at all.
+        let l = collect(&graph, std::slice::from_ref(&slot), None);
+        let page = &l.pages[0];
+        assert!(
+            page.rows.is_empty(),
+            "no field exists, so no row can name one"
+        );
+        assert_eq!(
+            page.unclaimed.len(),
+            2,
+            "every widget is unclaimed when there is no form to claim it"
+        );
+        assert_eq!(
+            page.widgets_seen(),
+            2,
+            "and they are still counted as widgets the page lists"
+        );
+        assert_eq!(
+            page.unclaimed[0].position, 1,
+            "positions still number from the top of the tab sequence"
+        );
+        assert_eq!(page.unclaimed[1].position, 2);
+    }
+
     /// unclaimed widget means the form's `/Fields` does not reach it — which is
     /// what an `inline_field_roots` entry looks like from this side. A
     /// non-widget annotation is a `/Link` or a note, which **is** in the tab
@@ -1270,7 +1367,7 @@ mod tests {
             inherited: pdfce_core::page_tree::InheritedRaw::default(),
         };
 
-        let l = collect(&graph, std::slice::from_ref(&slot), &empty_form());
+        let l = collect(&graph, std::slice::from_ref(&slot), Some(&empty_form()));
         let p = &l.pages[0];
         assert!(p.rows.is_empty(), "no field claims either annotation");
         assert_eq!(
@@ -1312,7 +1409,7 @@ mod tests {
             inherited: pdfce_core::page_tree::InheritedRaw::default(),
         };
 
-        let l = collect(&graph, std::slice::from_ref(&slot), &empty_form());
+        let l = collect(&graph, std::slice::from_ref(&slot), Some(&empty_form()));
         assert_eq!(l.pages[0].anonymous, 1);
         assert!(l.pages[0].unclaimed.is_empty());
         assert!(l.pages[0].rows.is_empty());

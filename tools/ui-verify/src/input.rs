@@ -227,6 +227,30 @@ impl Driver {
         Ok(())
     }
 
+    /// Scroll the pane under a point, then settle.
+    ///
+    /// Moves the pointer there first, because a wheel event goes to whatever is
+    /// under the cursor — scrolling "the panel" means putting the pointer in it.
+    ///
+    /// # ★ Why a check needs this, and what its absence looked like
+    ///
+    /// A dock panel is a few hundred points tall and a real document's content
+    /// is not, so a check that can only reach what is on screen at launch can
+    /// only verify the top of any list. Worse, it reports everything below the
+    /// fold as *"the control is drawn and inert"* — which is a **confident,
+    /// specific, wrong defect report about a control that works**, and this
+    /// harness produced three of those in one day before this existed.
+    ///
+    /// # Errors
+    ///
+    /// If the pointer cannot be moved.
+    pub fn scroll_at(&self, p: ScreenPoint, notches: i32) -> Result<()> {
+        self.move_to(p)?;
+        sys::wheel(notches);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
     /// Press and release a virtual key, in the target window.
     ///
     /// # Errors

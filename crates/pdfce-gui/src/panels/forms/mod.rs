@@ -194,14 +194,75 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // the base revision with every unsaved edit applied, which is the same
     // thing the canvas rasterizes.
     let view = doc.session.view();
-    let Some(form) = pdfce_core::forms::parse_acroform(&view) else {
-        ui.label(t::forms_no_acroform());
+    // ★★ NEITHER of these returns early any more, and the reason is the
+    // same one the Bookmarks panel's empty-outline return was removed for on
+    // the same day.
+    //
+    // A document with no `/AcroForm` can still carry `/Widget` annotations, and
+    // **pdfce makes exactly that**: `insert_pages` copies everything reachable
+    // from a page, `/Annots` reaches the widgets, `/AcroForm` is a catalog
+    // entry that is never in the copied set. Insert a form's pages into a CAD
+    // drawing and you get boxes that draw like fields, swallow every keystroke,
+    // and belong to nothing.
+    //
+    // The Tab-order section below is the one surface that lists those widgets
+    // and offers to register them. Returning here put it **behind a guard that
+    // the very state it exists for cannot pass** — the panel said "this
+    // document has no form" and offered nothing, in the one document that most
+    // needed the remedy.
+    //
+    // Found by a driven run, not by reading: the check that inserts a form's
+    // pages and then registers one of the orphans got as far as opening this
+    // panel and stopped. Both sentences are still shown, because both are true
+    // and an operator opening the panel on an ordinary drawing deserves to be
+    // told why it is empty. What has changed is that they are no longer the
+    // last thing the panel does.
+    let form = pdfce_core::forms::parse_acroform(&view);
+    let fillable = match &form {
+        None => {
+            ui.label(t::forms_no_acroform());
+            None
+        }
+        Some(f) if f.fields.is_empty() => {
+            ui.label(t::forms_empty_acroform());
+            None
+        }
+        Some(f) => Some(f),
+    };
+    let Some(form) = fillable else {
+        // No fields to fill, and possibly widgets to register. Everything
+        // between here and the Tab-order section is about filling, so it is
+        // skipped rather than drawn empty — R9: an unavailable capability
+        // renders nothing.
+        //
+        // ★★ WRAPPED IN A SCROLL AREA, which the filling path does not need
+        // and this path does.
+        //
+        // The dock gives a panel body a fixed rectangle and no scrolling of its
+        // own — `egui-shell`'s dock says so in as many words: *"any `ScrollArea`
+        // a panel body creates inherits this"*, meaning the body is expected to
+        // create one. On the filling path the field list's own scroll area is
+        // that mechanism and it takes the rest of the pane.
+        //
+        // This path has no field list, so nothing was scrolling and the
+        // Tab-order section's content simply ran past the bottom of the pane.
+        // A driven run measured the panel body at y=466..770 with the Register
+        // buttons laid out at y=773..797 — **outside the panel on both axes**,
+        // drawn, published, and unreachable at any pane size, because there was
+        // nothing to scroll.
+        //
+        // Fourth instance today of one shape: a control that must be reachable
+        // placed where the container cannot show it. The other three were fixed
+        // by moving the control; this one by giving the container the mechanism
+        // it was assumed to have.
+        egui::ScrollArea::vertical()
+            .id_salt("pdfce-forms-no-fields")
+            .show(ui, |ui| {
+                ui.separator();
+                tab_order::section(ui, doc, &view, form.as_ref(), actions);
+            });
         return;
     };
-    if form.fields.is_empty() {
-        ui.label(t::forms_empty_acroform());
-        return;
-    }
 
     // Asked ONCE, before any control is drawn, and applied to every one: a
     // certification signature forbids filling the whole DOCUMENT, not one
@@ -245,7 +306,7 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
         .flatten_refusal()
         .map(|_| t::forms_structural_certification_disabled_tooltip());
 
-    header(ui, &form, fill_refusal);
+    header(ui, form, fill_refusal);
     // ★ Directly under the header, above every control: what the LAST edit
     // decided on the operator's behalf, and which fields the page cannot be
     // clicked for. Both are answers to "why did that not happen where I
@@ -261,7 +322,7 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
 
     calculated_fields(ui, &view, fill_refusal, &mut edits);
     reset_section(ui, doc, fill_refusal, &mut edits);
-    whole_form_controls(ui, &form, fill_refusal, structural_refusal, &mut edits);
+    whole_form_controls(ui, form, fill_refusal, structural_refusal, &mut edits);
     ui.separator();
     // ★ THE SECOND LIST, and it answers a different question from the one
     // below it — see [`tab_order`]'s header.
@@ -282,9 +343,9 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // It takes `actions` directly rather than the `edits` vector, because the
     // only thing it can raise is `Action::GoToPage` — navigation, not a form
     // verb, and `FormEdit` has no variant that could carry it.
-    tab_order::section(ui, doc, &view, &form, actions);
+    tab_order::section(ui, doc, &view, Some(form), actions);
     ui.separator();
-    field_list(ui, doc, &form, fill_refusal, &mut edits);
+    field_list(ui, doc, form, fill_refusal, &mut edits);
 
     for e in edits {
         raise(actions, e);

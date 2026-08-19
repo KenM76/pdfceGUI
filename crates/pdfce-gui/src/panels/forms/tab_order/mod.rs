@@ -151,6 +151,9 @@ const MAX_LIST_HEIGHT: f32 = 260.0;
 /// the same failure `crate::canvas::forms` caps its `form-box` census for. The
 /// summary lines are never capped, so the *counts* stay provable even when the
 /// enumeration stops.
+/// The region the collapsing header publishes, so a driven check can open it.
+const REGION_HEADER: &str = "forms.tab_order.header"; // ui-text-exempt: trace region name, never displayed
+
 const MAX_TRACED_ROWS: usize = 200;
 
 /// Draw the Tab order section.
@@ -166,7 +169,7 @@ pub(super) fn section(
     ui: &mut egui::Ui,
     doc: &OpenDoc,
     view: &DocumentView<'_>,
-    form: &AcroForm,
+    form: Option<&AcroForm>,
     actions: &mut Vec<Action>,
 ) {
     // `page_slots` rather than `doc.pages`, because a slot carries the
@@ -190,7 +193,11 @@ pub(super) fn section(
     trace(&listing);
 
     let mut go: Option<usize> = None;
-    egui::CollapsingHeader::new(t::tab_order_heading())
+    // ★ The header publishes its own rectangle so a driven check can OPEN
+    // the section. It ships closed on purpose — the section is a diagnostic
+    // rather than the panel's main job — and a check that assumed it open would
+    // report the whole feature missing on a correct build.
+    let header = egui::CollapsingHeader::new(t::tab_order_heading())
         .id_salt("pdfce-forms-tab-order")
         .default_open(false)
         .show(ui, |ui| {
@@ -223,6 +230,28 @@ pub(super) fn section(
                 // as a broken section.
                 ui.label(t::tab_order_empty());
             }
+
+            // ★★ The remedy, ABOVE the scroll area and above the list.
+            //
+            // Every unclaimed widget in the document, gathered here rather than
+            // left inside the page block that counts it. The per-page sentence
+            // is a fact about that page and stays there; the *action* is about
+            // the document, and it has to be where the disclosure that sends
+            // the operator here points.
+            //
+            // See `register::rows` for what the driven run found: on a 37-sheet
+            // drawing with one inserted form page, rows drawn per page sat 36
+            // page-blocks down a scroll area, and a click on the published
+            // rectangle hit nothing at all.
+            let unclaimed_total: usize = listing.pages.iter().map(|p| p.unclaimed.len()).sum();
+            if unclaimed_total > 0 {
+                ui.separator();
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    t::tab_order_unclaimed(unclaimed_total),
+                );
+                register::rows(ui, doc, &listing, actions);
+            }
             ui.separator();
 
             egui::ScrollArea::vertical()
@@ -235,12 +264,13 @@ pub(super) fn section(
                         // hover — the collision `crate::panels::comments` keys
                         // its rows against.
                         ui.push_id(page.page_index, |ui| {
-                            page_block(ui, doc, page, &mut go, actions);
+                            page_block(ui, doc, page, &mut go);
                         });
                         ui.separator();
                     }
                 });
         });
+    crate::diag::ui_rect(REGION_HEADER, header.header_response.rect);
 
     if let Some(page) = go {
         actions.push(Action::GoToPage(page));
@@ -253,13 +283,7 @@ pub(super) fn section(
 /// A page with no widget on it is still drawn. Its `/Tabs` state is a fact about
 /// the document, and a gap in the page numbering would read as a bug in the
 /// view rather than as an empty page.
-fn page_block(
-    ui: &mut egui::Ui,
-    doc: &OpenDoc,
-    page: &PageTabs,
-    go: &mut Option<usize>,
-    actions: &mut Vec<Action>,
-) {
+fn page_block(ui: &mut egui::Ui, doc: &OpenDoc, page: &PageTabs, go: &mut Option<usize>) {
     // 1-based **only here**, where a human reads it. The index travels 0-based
     // to `Action::GoToPage`; see
     // [`tests::the_page_index_travels_zero_based_and_prints_one_based`].
@@ -357,14 +381,6 @@ fn page_block(
             ui.visuals().warn_fg_color,
             t::tab_order_unclaimed(page.unclaimed.len()),
         );
-        // ★ The remedy under the statement of the problem, in that order.
-        //
-        // The section's own rule is "every disclosure above the list", and this
-        // is the same rule applied one level down: an operator reads what is
-        // wrong, and the next thing under their eye is the thing that fixes it.
-        // Put the rows above the sentence and they are three unlabelled name
-        // boxes.
-        register::rows(ui, doc, page.page_index, &page.unclaimed, actions);
     }
     if page.anonymous > 0 {
         ui.colored_label(

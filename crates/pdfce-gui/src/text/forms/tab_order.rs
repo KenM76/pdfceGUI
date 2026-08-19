@@ -274,8 +274,8 @@ pub fn tab_order_unclaimed(count: usize) -> String {
 /// worth drawing at all rather than leaving the heading's count to stand: a
 /// count cannot be pressed, and it cannot be pointed at either.
 #[must_use]
-pub fn tab_order_unclaimed_row(position: usize) -> String {
-    format!("Box {position} in the tab order")
+pub fn tab_order_unclaimed_row(page_number: usize, position: usize) -> String {
+    format!("Page {page_number}, box {position} in the tab order")
 }
 
 /// The hint over the name box beside an unclaimed widget.
@@ -322,4 +322,100 @@ pub fn tab_order_other_annots(count: usize) -> String {
          tabbing as well. This list is form fields only, so the numbers above are their order \
          among the fields rather than among everything on the page."
     )
+}
+
+/// The Register button when pdfce knows what name it will use.
+///
+/// # ★ The name is in the FILE and not on screen, which is the whole point
+///
+/// A merged field-widget (SS12.7.3.1) carries its own `/T`. Registering it with
+/// a blank name box recovers that name — a string the operator has never seen,
+/// because nothing in the panel could show it: the widget belongs to no field,
+/// so no field row names it.
+///
+/// The engine put it exactly right when the preview shipped: *"Register as
+/// `Address`" is a decision; "Register" is a guess.*
+#[must_use]
+pub fn tab_order_register_as(name: &str) -> String {
+    format!("Register as \u{201c}{name}\u{201d}")
+}
+
+/// Hover on a Register control pdfce already knows would refuse, because the
+/// widget carries no name and none has been typed.
+///
+/// ★ Says what typing a name will **produce**, not that one is required. The
+/// distinction is the whole of it: this box was a bare kid, its name, field
+/// type, radio flags and value all lived in a dictionary that is not in this
+/// document, and a name typed here **creates a new field**. It does not recover
+/// the old one.
+#[must_use]
+pub const fn tab_order_register_needs_a_name() -> &'static str {
+    "This box carries no name of its own. Type one to make it a new, empty field — its original \
+     name and type are not in this file."
+}
+
+/// Hover on a Register control whose refusal is that the name is taken.
+///
+/// The short form of [`crate::text::status::adopt_declined_name_taken`], which
+/// is the sentence shown after a press. Both exist because they are read at
+/// different moments: this one while the operator is still typing, that one
+/// after they have committed to a name.
+#[must_use]
+pub const fn tab_order_register_name_taken() -> &'static str {
+    "Another field already uses that name. Two fields with one name are one field with two \
+     boxes, so pdfce needs a different one."
+}
+
+/// Hover on a Register control pdfce cannot pre-judge.
+///
+/// The catch-all for refusals this surface believes are unreachable. It says
+/// the control is unavailable and does not guess why — a wrong reason is worse
+/// than none, and by construction reaching here means the listing and the
+/// engine disagree about what this widget is, which is a fault to find in the
+/// trace rather than a chore to hand to an operator.
+#[must_use]
+pub const fn tab_order_register_unavailable() -> &'static str {
+    "pdfce cannot register this box, and the reason is not one this panel expects. The details \
+     are in the diagnostic trace."
+}
+
+/// Hover on a Register control that will succeed and produce a typeless field.
+///
+/// # ★★ The disclosure that would otherwise arrive too late
+///
+/// `/FT` is inheritable. A widget that was a field's kid could inherit its
+/// type; once it is registered as a **top-level** field there is nothing left
+/// above it, so it has no type at all and no viewer knows how to render or fill
+/// it.
+///
+/// The registration still succeeds. So without this the operator presses a
+/// button, is told it worked, and has a box that still cannot be filled — which
+/// is rule 4's case exactly: an inference they cannot see, owed a sentence
+/// precisely because nothing on the page looks wrong.
+///
+/// Said **before** the press now that `adopt_preview` makes it knowable.
+/// Telling somebody afterwards tells them their successful action did not do
+/// what they wanted.
+#[must_use]
+pub const fn tab_order_register_no_type() -> &'static str {
+    "This will register, and the field will still have no type — so no viewer will know how to \
+     fill it. The type lived in the field definition this box lost."
+}
+
+/// One unclaimed widget's line when pdfce already knows the name it would
+/// register under.
+///
+/// # ★ Why the name is here and not on the button
+///
+/// A label wraps to the pane width; a button does not. These rows live in a
+/// dock panel about 314 pt wide, and a button reading *"Register as
+/// CustomerName"* beside a name box is wider than that — it runs off the
+/// right-hand edge and takes the next row down with it.
+///
+/// What the pre-flight was asked for is that the name be **visible before the
+/// press**, not that it be printed on the control. On the line immediately
+/// above the button it is both visible and wrappable.
+#[must_use]
+pub fn tab_order_unclaimed_row_named(page_number: usize, position: usize, name: &str) -> String {
+    format!("Page {page_number}, box {position} — will register as \u{201c}{name}\u{201d}")
 }

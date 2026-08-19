@@ -5,3 +5,4 @@
 - [The pdfce specialist agents are not on this roster](project_pdfce_agent_roster_absent_here.md) — dispatching them fails here; do it inline or use general-purpose.
 - [Scope a request to the whole expected behaviour](feedback_scope_a_request_to_the_whole_expected_behaviour.md) — Ken expects what surrounds a request too; enumerating deferrals just moves the work onto him.
 - [The engine session runs in parallel](project_the_engine_session_runs_in_parallel_and_answers_within_the_hour.md) — it answers requests within minutes and dirties the read-only tree; that is not a violation.
+- [Always publish the latest build to OneDrive](feedback_always_publish_the_latest_build_to_onedrive.md) — `package-portable.py` after every keeper build; it alternates pdfceGUI1/2 itself, so the previous one survives.

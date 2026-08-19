@@ -234,6 +234,8 @@ pub mod settings_headings;
 /// Its header carries why no unit test can see that.
 pub mod about;
 pub mod add_text;
+/// Insert a form's pages to make orphaned widgets, then register one back.
+pub mod adopt_widget;
 /// A bookmark can be written into a document that has no outline.
 pub mod bookmark_add;
 pub mod chords;
@@ -543,6 +545,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // asserts on a trace rather than on pixels. It is also cheap.
         Box::new(shortcuts::ShortcutsReferenceIsLive),
         Box::new(bookmark_add::BookmarkCanBeWritten),
+        // Last of the three new ones and the most expensive: it drives Insert
+        // pages, the Forms panel and the Tab-order section in one session,
+        // because the shape it registers does not exist in any fixture — pdfce
+        // makes it. See that module's header.
+        Box::new(adopt_widget::AdoptWidgetPutsAFormControlBack),
         Box::new(add_text::AddTextTakesRealKeystrokes),
         Box::new(chords::EveryDeclaredChordDispatches),
         Box::new(text_annot::TextAnnotPlacesAndAuthors),

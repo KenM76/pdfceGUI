@@ -601,6 +601,11 @@ pub(super) fn insert_from_file(
                     outcome.pages_inserted,
                     outcome.orphaned_widgets,
                     outcome.orphaned_widgets_unrecoverable,
+                    crate::text::pages::Structures {
+                        outline_dropped: outcome.source_outline_dropped,
+                        labels_dropped: outcome.source_page_labels_dropped,
+                        labels_stale: outcome.page_labels_stale,
+                    },
                     landing,
                 )]
             })

@@ -58,6 +58,23 @@ impl LRect {
         Self { min, max }
     }
 
+    /// Does this rectangle wholly contain `other`?
+    ///
+    /// # ★ Wholly, not partly, and the difference is what a check means by it
+    ///
+    /// The question a driven check asks is *"can the operator click this?"*,
+    /// and a control half-outside its container is one whose visible half may
+    /// be the half without the label on it — or, in a scroll area, one whose
+    /// clipped remainder is what the click would land on. `intersects` would
+    /// answer yes for a button showing one pixel of its top edge.
+    #[must_use]
+    pub fn contains_rect(&self, other: Self) -> bool {
+        other.min.x >= self.min.x
+            && other.min.y >= self.min.y
+            && other.max.x <= self.max.x
+            && other.max.y <= self.max.y
+    }
+
     /// Width in logical points.
     #[must_use]
     pub fn width(&self) -> f32 {

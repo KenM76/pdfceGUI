@@ -479,6 +479,75 @@ pub const fn insert_dialog_title() -> &'static str {
 ///
 /// The sentence is therefore worded as a fact about what arrived, not as an
 /// interim apology for a feature that is coming.
+/// What an insert did to the two document-level structures that do not travel
+/// with a page.
+///
+/// # ★★ Three booleans, and there are three because the REMEDIES differ
+///
+/// The engine's ruling on the two label fields, adopted verbatim and extended
+/// to the third: *"a stale tree wants renumbering; a dropped one wants
+/// creating. A single 'page labels are wrong' message names neither, which is
+/// why I did not merge them."*
+///
+/// | field | what is true | what the operator would do about it |
+/// |---|---|---|
+/// | `outline_dropped` | the source file had bookmarks and they did not come | re-create them in the Bookmarks panel |
+/// | `labels_dropped` | the source file had its own page numbering and it did not come | accept this document's numbering, or author one |
+/// | `labels_stale` | **this** document's numbering now points at different sheets | renumber the ranges |
+///
+/// The third is the one worth having and the one this shell would never have
+/// asked for. The first two are about a file the operator has finished with;
+/// `labels_stale` is about the document **in front of them**, and it says the
+/// page numbers they are looking at have quietly stopped describing the pages
+/// they are on.
+///
+/// # ★ Why the outline case is a boolean and not "always"
+///
+/// Because it used to be "always", and that made it a **disclaimer rather than
+/// a disclosure**. The sentence said *"Bookmarks and page labels from that file
+/// did not come across"* on every insert, including a CAD drawing whose source
+/// had neither — a paragraph about two things that never existed, which is how
+/// an operator learns to stop reading the sentence that also carries the clause
+/// about form controls.
+///
+/// It was unconditional only because nothing reported the fact, not because it
+/// was always true. `source_outline_dropped` shipped on request the same day.
+///
+/// The engine's note on *why* bookmarks never came is kept here because it is
+/// what makes the remedy obvious: `/Outlines` is a **catalog** entry,
+/// unreachable from any page, so a copy that walks outward from the pages never
+/// sees it. They are not lost in transit — they were never in the set of
+/// objects being copied. Which is why carrying them means replaying the source
+/// outline through `add_outline_item`, i.e. exactly what the Bookmarks panel
+/// now does by hand.
+///
+/// # ★ Why pdfce deliberately does not match Acrobat on page labels
+///
+/// Carried in this type's own documentation, because the first review question
+/// about a *"pdfce wrote nothing"* disclosure is always *"what does Acrobat
+/// do?"* — and the answer being **something worse** is what nobody would guess.
+///
+/// Acrobat does neither of the two things anyone assumes. It does not carry the
+/// source's labels and it does not leave the inserted pages unlabelled: it
+/// **overwrites every inserted page with a static copy of the label on the page
+/// preceding the insertion point**. Not incrementing — the same string on all
+/// of them. The engine sourced three independent Adobe Community threads
+/// (2024-2025) in which a twelve-page chapter labelled `10-1`...`10-12`,
+/// inserted after a page labelled `9-45`, came out with **all twelve showing
+/// `9-45`**. Those threads are complaints about it.
+///
+/// So matching it would be matching a defect. This type is what makes *"pdfce
+/// wrote nothing"* a stated choice rather than a silence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Structures {
+    /// The source document had bookmarks, and they did not come across.
+    pub outline_dropped: bool,
+    /// The source document had page labels, and they did not come across.
+    pub labels_dropped: bool,
+    /// This document's own page-label ranges now describe different sheets.
+    pub labels_stale: bool,
+}
+
 /// # ★★ TWO numbers, because they are two different pieces of news
 ///
 /// `orphaned_widgets_unrecoverable` arrived hours after `orphaned_widgets`,
@@ -525,14 +594,45 @@ pub fn inserted(
     count: usize,
     orphans: usize,
     unrecoverable: usize,
+    structures: Structures,
     after_page_index: usize,
 ) -> String {
     let after = after_page_index.saturating_add(1);
     let pages = if count == 1 { "page" } else { "pages" };
-    let mut line = format!(
-        "Inserted {count} {pages} after page {after}. Bookmarks and page labels \
-         from that file did not come across."
-    );
+    let mut line = format!("Inserted {count} {pages} after page {after}.");
+    if structures.outline_dropped {
+        line.push_str(" That file's bookmarks did not come across.");
+    }
+    // ★ Two forms, because "Nor did..." needs something to follow.
+    //
+    // Found by the test beside this, not by reading: with `outline_dropped`
+    // false the sentence came out *"Inserted 1 page after page 1. Nor did its
+    // page numbering..."*, which is broken English and reads as a missing
+    // sentence rather than a deliberate one. A conditional clause written as a
+    // continuation is only correct in the branch its author had in mind.
+    if structures.labels_dropped {
+        if structures.outline_dropped {
+            line.push_str(" Nor did its page numbering");
+        } else {
+            line.push_str(" That file's page numbering did not come across either");
+        }
+        line.push_str(
+            " — the inserted sheets take whatever numbers this document already gives that \
+             position.",
+        );
+    }
+    // ★ LAST of the three, and about THIS document rather than the source.
+    //
+    // Ordered deliberately: the first two are facts about a file the operator
+    // has finished with, and this one is about the sheets in front of them. A
+    // sentence whose most actionable clause is first would be read and then
+    // abandoned at the part about a document nobody is looking at any more.
+    if structures.labels_stale {
+        line.push_str(
+            " This document numbers its own pages, and those numbers now describe different \
+             sheets than they did — the ranges were left exactly as they were.",
+        );
+    }
     // Saturating rather than a plain subtraction: the two numbers come from one
     // struct and the engine's contract is that the second counts a subset of the
     // first, but a disclosure is the last place to trust an invariant it can
@@ -549,15 +649,38 @@ pub fn inserted(
              Forms, Tab order lists them."
         )),
     }
+    // ★★ "N MORE" only works when something came before it.
+    //
+    // Found by a driven run, not by reading: on a source whose orphans are ALL
+    // unrecoverable the re-registering clause is skipped, and the sentence came
+    // out *"Inserted 2 pages after page 2. 3 more lost their field definitions
+    // entirely..."* — more than what? It reads as a sentence with one deleted
+    // in front of it.
+    //
+    // ★ This is the SECOND continuation-clause defect in this one function, and
+    // the first was fixed an hour earlier three clauses up ("Nor did its page
+    // numbering"). That is the lesson worth more than either fix: a conditional
+    // clause written as a continuation is only correct in the branch its author
+    // had in mind, and finding one is a reason to sweep the whole sentence
+    // rather than to patch the instance.
+    let led = orphans.saturating_sub(unrecoverable) > 0;
     match unrecoverable {
         0 => {}
-        1 => line.push_str(
-            " 1 more lost its field definition entirely; to get that one back, \
-             insert the pages again from the document they came from.",
+        1 if led => line.push_str(
+            " 1 more lost its field definition entirely; to get that one back, insert the \
+             pages again from the document they came from.",
         ),
+        1 => line.push_str(
+            " 1 form control lost its field definition entirely and cannot be registered here; \
+             to get it back, insert the pages again from the document it came from.",
+        ),
+        n if led => line.push_str(&format!(
+            " {n} more lost their field definitions entirely; to get those back, insert the \
+             pages again from the document they came from."
+        )),
         n => line.push_str(&format!(
-            " {n} more lost their field definitions entirely; to get those back, \
-             insert the pages again from the document they came from."
+            " {n} form controls lost their field definitions entirely and cannot be registered \
+             here; to get them back, insert the pages again from the document they came from."
         )),
     }
     line
@@ -733,18 +856,110 @@ mod tests {
     /// gets skipped is then the *bookmarks* one, which is always true.
     #[test]
     fn no_orphans_means_no_clause_about_them() {
-        let quiet = inserted(4, 0, 0, 6);
+        let quiet = inserted(4, 0, 0, Structures::default(), 6);
         assert!(
             !quiet.contains("form"),
             "a zero count must say nothing: {quiet}"
         );
         assert!(
-            quiet.contains("Bookmarks"),
-            "the always-true clause stays: {quiet}"
-        );
-        assert!(
             quiet.contains("after page 7"),
             "1-based, as everywhere: {quiet}"
+        );
+    }
+
+    /// ★★ A source that had nothing to lose is told nothing about losing it.
+    ///
+    /// The sentence used to end *"Bookmarks and page labels from that file did
+    /// not come across"* on **every** insert. On a CAD drawing whose source had
+    /// neither — which is most of them, in this application — that is a
+    /// paragraph about two things that never existed.
+    ///
+    /// It is worth a test rather than a glance because the cost is not the
+    /// wasted words. It is that the same sentence carries the clause about
+    /// orphaned form controls, which is *actionable*, and an operator who has
+    /// learned that this sentence is boilerplate stops reading the part that is
+    /// not.
+    ///
+    /// The clause was unconditional only because nothing reported the fact —
+    /// which is the difference between a disclosure and a disclaimer.
+    #[test]
+    fn a_source_with_no_structures_produces_no_clause_about_them() {
+        let bare = inserted(2, 0, 0, Structures::default(), 0);
+        assert_eq!(
+            bare, "Inserted 2 pages after page 1.",
+            "nothing may be claimed about structures the source did not have"
+        );
+    }
+
+    /// Each of the three structure facts says its own thing.
+    #[test]
+    fn each_structure_fact_has_its_own_sentence() {
+        let outline = inserted(
+            1,
+            0,
+            0,
+            Structures {
+                outline_dropped: true,
+                ..Structures::default()
+            },
+            0,
+        );
+        assert!(
+            outline.contains("bookmarks did not come across"),
+            "{outline}"
+        );
+        assert!(!outline.contains("numbering"), "{outline}");
+
+        let labels = inserted(
+            1,
+            0,
+            0,
+            Structures {
+                labels_dropped: true,
+                ..Structures::default()
+            },
+            0,
+        );
+        assert!(
+            labels.contains("page numbering did not come across either"),
+            "with no bookmark clause before it the labels clause must stand alone, not \
+             continue a sentence that was never written: {labels}"
+        );
+        assert!(!labels.contains("Nor did"), "{labels}");
+    }
+
+    /// ★★ The stale-label clause is about THIS document, and it is last.
+    ///
+    /// The one fact in this sentence that describes the sheets in front of the
+    /// operator rather than a file they have finished with: their own page
+    /// numbers have quietly stopped describing the pages they are on.
+    ///
+    /// Ordered last on purpose — a sentence whose most actionable clause comes
+    /// first is read and then abandoned at the part about a document nobody is
+    /// looking at any more. Asserted, because ordering is exactly the kind of
+    /// decision a later edit undoes without noticing.
+    #[test]
+    fn the_stale_clause_is_about_this_document_and_comes_last() {
+        let all = inserted(
+            1,
+            0,
+            0,
+            Structures {
+                outline_dropped: true,
+                labels_dropped: true,
+                labels_stale: true,
+            },
+            0,
+        );
+        let stale = all.find("This document numbers its own pages").expect(&all);
+        let dropped = all.find("Nor did its page numbering").expect(&all);
+        assert!(
+            stale > dropped,
+            "the clause about the open document must come after the ones about the source: {all}"
+        );
+        assert!(
+            all.contains("left exactly as they were"),
+            "it must say pdfce did NOT renumber, which is the choice: {all}"
         );
     }
 
@@ -760,12 +975,12 @@ mod tests {
     /// a correct description and nothing to do with it.
     #[test]
     fn a_real_count_is_stated_without_hedging() {
-        let one = inserted(1, 1, 0, 0);
+        let one = inserted(1, 1, 0, Structures::default(), 0);
         assert!(one.contains("1 form control needs re-registering"), "{one}");
         assert!(!one.contains("Any"), "the hedge is gone: {one}");
         assert!(one.contains("Tab order"), "the route is named: {one}");
 
-        let many = inserted(2, 3, 0, 0);
+        let many = inserted(2, 3, 0, Structures::default(), 0);
         assert!(
             many.contains("3 form controls need re-registering"),
             "{many}"
@@ -785,7 +1000,7 @@ mod tests {
     /// The measured case is the fixture: 13 orphans, 2 of them bare kids.
     #[test]
     fn the_recoverable_count_excludes_the_ones_that_cannot_be_recovered() {
-        let measured = inserted(1, 13, 2, 0);
+        let measured = inserted(1, 13, 2, Structures::default(), 0);
         assert!(
             measured.contains("11 form controls need re-registering"),
             "13 minus the 2 that cannot be: {measured}"
@@ -807,12 +1022,71 @@ mod tests {
     /// a sentence saying two of them are gone for good.
     #[test]
     fn all_unrecoverable_means_no_re_registering_clause() {
-        let all_lost = inserted(1, 2, 2, 0);
+        let all_lost = inserted(1, 2, 2, Structures::default(), 0);
         assert!(
             !all_lost.contains("re-registering"),
             "there is nothing to re-register: {all_lost}"
         );
-        assert!(all_lost.contains("2 more lost their"), "{all_lost}");
+        assert!(
+            all_lost.contains("2 form controls lost their field definitions"),
+            "{all_lost}"
+        );
+        assert!(
+            !all_lost.contains("more"),
+            "\"N more\" needs a clause before it, and there is none: {all_lost}"
+        );
+    }
+
+    /// ★★ The unrecoverable clause reads correctly with NOTHING before it.
+    ///
+    /// Found by a driven run rather than by reading. On a source whose orphans
+    /// are all bare kids the re-registering clause is skipped, and the sentence
+    /// came out *"Inserted 2 pages after page 2. **3 more** lost their field
+    /// definitions entirely…"* — more than what? It reads as a sentence with
+    /// one deleted in front of it, which is exactly how an operator concludes
+    /// the program is losing text.
+    ///
+    /// ★ It is the **second** continuation-clause defect in this one function.
+    /// The first — *"Nor did its page numbering"* with no bookmarks clause
+    /// before it — was fixed an hour earlier, three clauses up, and the sweep
+    /// that should have followed it did not happen. Both arms are now asserted
+    /// together so the next one cannot be fixed alone.
+    #[test]
+    fn every_conditional_clause_reads_alone_as_well_as_in_sequence() {
+        // Each clause as the ONLY one, which is the case a continuation breaks.
+        let only_unrecoverable = inserted(1, 3, 3, Structures::default(), 0);
+        let only_labels = inserted(
+            1,
+            0,
+            0,
+            Structures {
+                labels_dropped: true,
+                ..Structures::default()
+            },
+            0,
+        );
+        for line in [&only_unrecoverable, &only_labels] {
+            for continuation in [" more ", "Nor did", " either lost"] {
+                assert!(
+                    !line.contains(continuation),
+                    "{continuation:?} continues a clause that was not written: {line}"
+                );
+            }
+        }
+        // And in sequence, where the continuations ARE correct and shorter.
+        let both = inserted(
+            1,
+            5,
+            3,
+            Structures {
+                outline_dropped: true,
+                labels_dropped: true,
+                ..Structures::default()
+            },
+            0,
+        );
+        assert!(both.contains("3 more lost"), "{both}");
+        assert!(both.contains("Nor did"), "{both}");
     }
 
     /// A count larger than the total cannot panic.
@@ -823,15 +1097,15 @@ mod tests {
     /// panic on an arithmetic assumption about another crate's struct.
     #[test]
     fn an_impossible_pair_does_not_panic() {
-        let odd = inserted(1, 1, 4, 0);
+        let odd = inserted(1, 1, 4, Structures::default(), 0);
         assert!(!odd.contains("re-registering"), "{odd}");
-        assert!(odd.contains("4 more lost"), "{odd}");
+        assert!(odd.contains("4 form controls lost their"), "{odd}");
     }
 
     /// The page count agrees in number too.
     #[test]
     fn one_page_is_a_page_and_two_are_pages() {
-        assert!(inserted(1, 0, 0, 0).contains("Inserted 1 page after"));
-        assert!(inserted(2, 0, 0, 0).contains("Inserted 2 pages after"));
+        assert!(inserted(1, 0, 0, Structures::default(), 0).contains("Inserted 1 page after"));
+        assert!(inserted(2, 0, 0, Structures::default(), 0).contains("Inserted 2 pages after"));
     }
 }

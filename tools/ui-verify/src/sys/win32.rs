@@ -41,7 +41,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, keybd_event, mouse_event,
+    KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_WHEEL, keybd_event,
+    mouse_event,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId,
@@ -255,6 +256,30 @@ pub fn mouse_button(down: bool) {
 /// foreground window is not the one under test. A keystroke sent to the wrong
 /// window is not a failed keystroke; it is a keystroke into the operator's
 /// editor.
+/// Turn the mouse wheel at the pointer's current position.
+///
+/// `notches` is in wheel detents — positive scrolls **up** (away from the
+/// operator), negative down, which is the sign convention `WM_MOUSEWHEEL`
+/// itself uses.
+///
+/// # ★ Why the harness needs this at all
+///
+/// Because a dock panel is a few hundred points tall and a real document's
+/// content is not. A check that can only click what is on screen at launch can
+/// only ever verify the top of every list — and it reports everything below the
+/// fold as *"the control is drawn and inert"*, which is a **confident, wrong
+/// defect report about a control that works**. That failure was produced three
+/// times on 2026-08-19 before this existed.
+///
+/// `mouse_event` rather than `SendInput` for the same reason the button press
+/// uses it: no variable-length array to get the size of, and at the current
+/// pointer position the two are equivalent. `WHEEL_DELTA` is 120, the constant
+/// §the API defines one detent as.
+pub fn wheel(notches: i32) {
+    const WHEEL_DELTA: i32 = 120;
+    unsafe { mouse_event(MOUSEEVENTF_WHEEL, 0, 0, notches * WHEEL_DELTA, 0) };
+}
+
 pub fn key_stroke(vk: u16) {
     // SAFETY: no pointers; the scan-code argument is 0, which tells Windows to
     // derive it from the virtual key.
