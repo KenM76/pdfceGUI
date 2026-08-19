@@ -671,9 +671,18 @@ mod tests {
     #[test]
     fn no_orphans_means_no_clause_about_them() {
         let quiet = inserted(4, 0, 6);
-        assert!(!quiet.contains("form"), "a zero count must say nothing: {quiet}");
-        assert!(quiet.contains("Bookmarks"), "the always-true clause stays: {quiet}");
-        assert!(quiet.contains("after page 7"), "1-based, as everywhere: {quiet}");
+        assert!(
+            !quiet.contains("form"),
+            "a zero count must say nothing: {quiet}"
+        );
+        assert!(
+            quiet.contains("Bookmarks"),
+            "the always-true clause stays: {quiet}"
+        );
+        assert!(
+            quiet.contains("after page 7"),
+            "1-based, as everywhere: {quiet}"
+        );
     }
 
     /// A real count is stated, unhedged, and agrees in number.
