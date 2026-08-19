@@ -1,7 +1,8 @@
 # CONTINUE — start here, then keep going
 
-**Rewritten 2026-08-19 at `f06ee2d`, clean tree, gates 14/14, 1,431 tests.**
-**Newest portable build: `OneDrive\pdfceGUI2`.**
+**Rewritten 2026-08-19 at `880354c`, clean tree, gates 14/14, 1,452 tests.**
+**Newest portable build: `OneDrive\pdfceGUI1`.**
+**All six of the operator's standing complaints are closed. None is driven.**
 
 You are the `pdfce-gui-engineer`. This file is the entry point when the
 operator types **“continue”** and nothing else. Read it, read the three files
@@ -45,80 +46,106 @@ you or I think is more interesting.**
 | 1 | *“the I cursor turns white for text selection so I cant see it on a white background”* | ✅ **done**, `277a040`. Two-tone I-beam, same fix the crosshair got |
 | 2 | *“the measuring tools don't give me any indication of what is being selected … hover over a line or node”* | ✅ **done**, `ae5d0d4`. He confirmed he wants **both** entity and node |
 | 3 | *“the groups editor popup … too long for some screens so can't close it … should come up in the side bar and be scrollable and each section should be able to fold up like the settings one”* | ✅ **done**, `cbb3469`. `panels::dimension_groups`, six folds, five shut. **Not driven** — he was on the machine |
-| 4 | *“no side bar area showing what tool is active and its options”* | ⬜ **NEXT.** §3.2. Fixes #5 too |
-| 5 | *“no text editing or adding text on the canvas”* | ⚠ **they exist and he cannot find them** — see §4.1. #4 is the fix |
+| 4 | *“no side bar area showing what tool is active and its options”* | ✅ **done**, `d33d228`. `panels::tool`, own dock stack, first. **Not driven** |
+| 5 | *“no text editing or adding text on the canvas”* | ✅ **addressed by #4**, `d33d228`. They always existed; see §4.1. **Whether the fix works is the one thing driving must check** |
 | 6 | *“still no revision cloud tool”* | ✅ **done**, `c972dfd`. `MarkupKind::Cloud`, `/BE /I 1.0`, its own glyph, ribbon row after Polygon. **Not driven** |
 
 ---
 
 ## 3. What to do next, in order, without asking
 
-### 3.1 ✅ Dimension groups — done, `cbb3469`
+### 3.0 ★★ **DRIVE THE SUITE.** Everything below is second.
 
-`panels/dimension_groups/`, mounted in Review and Edit, six foldable sections
-of which **one** starts open. Its module header carries the fold policy and is
-worth reading before building any other panel: the rule is *what does an
-operator need to READ without asking*, not *what do they most often change* —
-and the second question is the trap that made this surface taller than his
-screen in the first place.
+**Six features shipped on 2026-08-19 and not one of them has been driven.**
+The operator was at the machine all day, so R1 — *verify by driving the binary,
+not by a passing test* — was suspended for a whole day's work. That is the
+largest verification debt this project has ever carried, and it is carrying it
+on the exact class of change R1 exists for: two new panels, a new dialog on the
+close path, a new markup kind, and a new ribbon row.
 
-`measure.manage_groups` is the panel's command, with **no** second
-`view.panel_*` id. Redact's precedent: one surface, one id, and the mode
-taxonomy does the gating for free.
+Ask first — it needs the machine. Then:
 
-⚠ **Not verified by driving.** `dimension_groups_panel_makes_a_group` was
-rewritten to press fold headings and to open-then-shut the Appearance section,
-and it compiles and has never been run.
+```bash
+cargo build --release -q -p pdfce-gui -p ui-verify
+cargo run --release -q -p ui-verify -- \
+  --exe target/release/pdfce-gui.exe \
+  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500
+```
 
-### 3.2 ⬜ A tool panel — what is armed, and its options — **NEXT**
+Three checks were **rewritten and never run**:
 
-The biggest single win left and it fixes two complaints at once (#4 and #5).
-There is still no surface anywhere that says which canvas tool is armed.
+| check | what changed |
+|---|---|
+| `dimension_groups_panel_makes_a_group` | drives a **panel**, presses fold headings, opens and shuts Appearance |
+| `markup_freehand_and_vertex_kinds` | phase F asserts `kind=Cloud` on `markup-commit` |
+| everything else in the right dock | the **Tool panel took the top stack in Review and Edit**, so every other panel's coordinates moved |
 
-- `crate::canvas::tool::CanvasTool` already knows.
-- `MODES_AND_PANELS.md` and `RIBBON_IA.md` are the spec — **do not improvise
-  the IA.**
-- `panels::dimension_groups` is now the worked example of a panel with folds;
-  copy its layout discipline, not its content.
-- Get a UX critique before designing it. The `pdfce-ui-specialist` agent is
-  **not on this session's roster** — dispatch `general-purpose` with the
-  specialist's framing instead.
+★ And the one check that does not exist yet is the one this day's work most
+needs. **A first-frame discoverability assertion**: launch, open the fixture,
+enter Edit, screenshot with **zero clicks**, assert the strings `Add text` and
+`Edit text` are on screen and inside the Tool panel's rect. That is the check
+that would have caught the defect the Tool panel was built for, and the one that
+proves it is fixed. A check asserting the panel *renders* would repeat the
+original failure exactly.
 
-★ The hard part is **the empty state**, which is what the application opens in
-and where the operator spends most of their time. An empty panel teaches people
-to close it; a panel of *“nothing selected”* placeholders breaks R9. Solve that
-first, not last.
+Second: arm `edit.text`, click blank paper, assert `Refusal::NoRun`'s sentence
+is on screen in the panel. It fails today for want of somewhere to put it, which
+is the whole point.
 
-### 3.3 ✅ Revision clouds — done, `c972dfd`
+★★ And read the trace before believing any red. §4.2 and §7.
 
-`MarkupKind::Cloud`, `markup.cloud` at token 507, `shape-cloud.svg`, ribbon row
-directly after Polygon. It joins `is_vertex` and nowhere else in that impl;
-`markup::action` takes Polygon and Cloud through one arm; the whole difference
-is `/BE /I 1.0` in `spec`, which is Acrobat's default cloud.
+### 3.1 ✅ Everything on the operator's list — done, none driven
 
-`markup_shapes` gained **phase F**, which asserts one field — `kind=Cloud` on
-`markup-commit`. A build whose control armed `Polygon` would pass every other
-assertion in that check.
+`cbb3469` dimension groups · `c972dfd` revision cloud · `d33d228` Tool panel ·
+plus the I-beam and the measure hover from the morning.
 
-⚠ **Not verified by driving.**
+### 3.2 ⬜ `pages.merge_into` — unblocked yesterday, wire it
 
-### 3.4 ⬜ Three things this session left on the floor, in order of size
+`EditSession::merge_document` shipped 2026-08-19: one undo entry, session
+intact, incremental save, fields arriving **fillable**, collisions **renamed**
+rather than refused. Verb 125, `docs/core-api/02-editing-and-saving.md`.
 
-1. **Run the driven suite.** Three checks changed today and none has been run:
-   `dimension_groups_panel_makes_a_group` (rewritten for the panel),
-   `markup_freehand_and_vertex_kinds` (phase F), and everything the new
-   Dimension-groups tab might have shifted in the dock for other panels'
-   coordinates. **Ask before driving — it needs the machine.**
-2. **A Format-tab surface for a selected markup.** `set_markup_style` shipped in
-   the engine and takes `/C`, `/IC`, `/BS /W`, `/CA` and `/LE`. This shell has
-   no surface for any of it. That is now the largest engine capability with no
-   route from this GUI.
-3. **`NO_SURFACE.md` §1c wants a sweep.** Every remaining blocker in that file
-   that names `pdfce-core` is a claim this project cannot re-check. Two were
-   found false in one session. Re-derive the rest, and rewrite each as a dated
-   citation.
+Two things to surface, both from the engine's own note:
 
----
+- **`fields_renamed > 0` must be disclosed.** A renamed field breaks any script,
+  FDF or calculation keyed on the old name, and the operator has no other way to
+  learn it happened.
+- **Not carried yet:** outlines, named destinations, page labels,
+  `/OCProperties`. They asked which matters most for a Merge UI and guessed
+  outlines. **Answer them** — it is a free choice about their schedule.
+
+★ And their standing ask, which is worth more than a feature request: *"if you
+have other buttons parked on `command-unimplemented` because an engine verb
+exists but is the wrong SHAPE for an editor, those are ours. Send them."*
+`SCAFFOLDED` has fourteen entries. Re-derive each one and send the shape
+problems.
+
+### 3.3 ⬜ The Format tab — the largest engine capability with no route here
+
+`set_markup_style` takes `/C`, `/IC`, `/BS /W`, `/CA` and `/LE` on a **placed**
+annotation. This shell has **zero call sites**. Both of the blockers
+`manifest/format.rs` recorded are discharged — the verb landed 2026-08-18 and
+annotations became selectable the same day — so what is left is building the
+tab, which is work rather than a block.
+
+`RIBBON_IA.md` §5.8 specifies twenty-four property editors and the tab currently
+carries two.
+
+### 3.4 ⬜ The disclosure gaps, in order of how badly they matter
+
+1. **`Document::recovery()` is never called** (`NO_SURFACE.md` §3b). A document
+   whose cross-reference table pdfce **rebuilt by scanning** opens with no
+   indication whatsoever. `last_wins_collisions` means two definitions of one
+   object existed and pdfce chose — the operator is looking at one of two
+   possible documents and has not been told there was a choice. Blocked on
+   nothing; the accessor and every field are `pub`.
+2. **11 of the engine's 65 render counters reach anyone** (§3c). Not "add 54
+   rows" — most are measurements. But `annotations_without_ap` means *a comment
+   is in the file and is not being drawn*, and on a drawing somebody is
+   reviewing that is worse than a colour being slightly off.
+3. **The pen has no surface in the Tool panel.** `Action::SetPen` is the route;
+   `panels::tool`'s header carries why a read-only swatch would be worse than
+   none.
 
 ## 4. Two things that are true and surprising
 
@@ -130,7 +157,22 @@ assertion in that check.
 
 So this is not a missing feature. It is a **discoverability defect**, which is
 this project's founding failure wearing different clothes, and I marked it
-green. §3.2 is the fix; do not “build text editing”.
+green. Do not “build text editing”.
+
+★ **`panels::tool` shipped as the fix on 2026-08-19 (`d33d228`) and nothing has
+confirmed it works.** It names both tools, in Edit, in the default arrangement,
+above the fold, with their chords and their ribbon tab — and the claim that this
+makes them *findable* is exactly the kind of claim this project has been wrong
+about before. §3.0's first-frame check is what would settle it.
+
+★★ And the likeliest **actual** cause is one layer down and is also unproven:
+`text::textedit::refusal` writes three good sentences, has three passing tests,
+and was aimed at a status row its own module says R128 forbids growing.
+`Refusal::SpansRuns` is 47 words. On a dense CAD sheet the first click lands
+where the operator *wants* text rather than where text *is*, so `NoRun` is the
+likely first outcome — and a decline nobody can read teaches somebody the
+feature does not exist. The Tool panel's third block is where those sentences
+now go. **That** is the thing to drive.
 
 ### 4.2 The suite is not deterministic
 
@@ -150,7 +192,7 @@ and window activation rather than the application.
 cargo update -p pdfce-core -p pdfce-render -p pdfce-print
 
 cargo fmt --all
-cargo test -q -p pdfce-gui                 # 1,432 at this commit
+cargo test -q -p pdfce-gui                 # 1,452 at this commit
 bash tools/gates/run-all.sh                # 14/14, all must pass
 
 # Drive it. Needs the operator off the machine — ASK, unless he has said go.
@@ -164,11 +206,17 @@ cargo run --release -q -p ui-verify -- \
 python tools/package-portable.py
 ```
 
+⚠ **`package-portable.py` re-resolves the git dependency.** It picked the engine
+up twice in one session, four commits apart each time. So the exe it publishes
+may not be linked against the `Cargo.lock` in the tree — **re-run the tests and
+the gates after packaging, then commit the lock**, because a lock that disagrees
+with the binary the operator is running is worse than one that moved unasked.
+
 `package-portable.py` alternates `OneDrive\pdfceGUI1` / `pdfceGUI2` itself and
 preserves each slot's `userdata/`. **Say which slot in your report** — the name
 carries no version. At this commit the newest is **`pdfceGUI1`**.
 
-44 checks are declared. `page_ops_round_trip` needs
+42 checks are declared. `page_ops_round_trip` needs
 `D:\Dev\pdfce\fixtures\synthetic\pageops\four-pages.pdf` (the standard fixture
 has 36 `/Rotate` entries and the evidence would be indistinguishable).
 
@@ -196,7 +244,9 @@ false on 2026-08-19 — `markup.cloud`'s PLANNED entry and `NO_SURFACE.md`'s
 opacity row — and the first cost the operator three weeks of asking for a tool
 whose only blocker had already shipped. Write every external blocker as a
 **dated citation**, never as a verdict, and re-derive before acting on one. It
-is one `grep`. `NO_SURFACE.md` §1c and `D:\devagust\` carry the whole
+is one `grep`. `NO_SURFACE.md` §1c and `D:\dev
+ag
+ust\` carry the whole
 argument.
 
 Open at this commit: everything from the insert-pages request is **shipped**
