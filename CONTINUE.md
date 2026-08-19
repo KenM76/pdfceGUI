@@ -1,6 +1,7 @@
 # CONTINUE — start here, then keep going
 
-**Written 2026-08-19 at `ae5d0d4`, clean tree, gates 14/14, 1,432 tests.**
+**Rewritten 2026-08-19 at `f06ee2d`, clean tree, gates 14/14, 1,431 tests.**
+**Newest portable build: `OneDrive\pdfceGUI2`.**
 
 You are the `pdfce-gui-engineer`. This file is the entry point when the
 operator types **“continue”** and nothing else. Read it, read the three files
@@ -43,53 +44,79 @@ you or I think is more interesting.**
 |---|---|---|
 | 1 | *“the I cursor turns white for text selection so I cant see it on a white background”* | ✅ **done**, `277a040`. Two-tone I-beam, same fix the crosshair got |
 | 2 | *“the measuring tools don't give me any indication of what is being selected … hover over a line or node”* | ✅ **done**, `ae5d0d4`. He confirmed he wants **both** entity and node |
-| 3 | *“the groups editor popup … too long for some screens so can't close it … should come up in the side bar and be scrollable and each section should be able to fold up like the settings one”* | ⬜ **NEXT.** The growth bug is fixed; the redesign is not |
-| 4 | *“no side bar area showing what tool is active and its options”* | ⬜ then this |
-| 5 | *“no text editing or adding text on the canvas”* | ⚠ **they exist and he cannot find them** — see §4 |
-| 6 | *“still no revision cloud tool”* | ⬜ engine has `MarkupSpec::Cloud`; the GUI command was never built |
+| 3 | *“the groups editor popup … too long for some screens so can't close it … should come up in the side bar and be scrollable and each section should be able to fold up like the settings one”* | ✅ **done**, `cbb3469`. `panels::dimension_groups`, six folds, five shut. **Not driven** — he was on the machine |
+| 4 | *“no side bar area showing what tool is active and its options”* | ⬜ **NEXT.** §3.2. Fixes #5 too |
+| 5 | *“no text editing or adding text on the canvas”* | ⚠ **they exist and he cannot find them** — see §4.1. #4 is the fix |
+| 6 | *“still no revision cloud tool”* | ✅ **done**, `c972dfd`. `MarkupKind::Cloud`, `/BE /I 1.0`, its own glyph, ribbon row after Polygon. **Not driven** |
 
 ---
 
 ## 3. What to do next, in order, without asking
 
-### 3.1 Dimension groups → a dock panel
+### 3.1 ✅ Dimension groups — done, `cbb3469`
 
-Move `crates/pdfce-gui/src/dialogs/dimension_groups/` to
-`crates/pdfce-gui/src/panels/dimension_groups/`. It must be a **dock panel**,
-scrollable, with **foldable sections** — the operator named
-`dialogs/settings/` as the model, so read how that one folds and copy it.
+`panels/dimension_groups/`, mounted in Review and Edit, six foldable sections
+of which **one** starts open. Its module header carries the fold policy and is
+worth reading before building any other panel: the rule is *what does an
+operator need to READ without asking*, not *what do they most often change* —
+and the second question is the trap that made this surface taller than his
+screen in the first place.
 
-Register a `view.panel_dimension_groups` command and drop the window entirely.
-`measure.manage_groups` should show the panel rather than open a dialog.
+`measure.manage_groups` is the panel's command, with **no** second
+`view.panel_*` id. Redact's precedent: one surface, one id, and the mode
+taxonomy does the gating for free.
 
-⚠ `tools/ui-verify/src/checks/dimension_groups.rs` drives the **window**. It
-will need rewriting to drive the panel; do that in the same commit, or the
-suite goes red for a reason that is not a defect.
+⚠ **Not verified by driving.** `dimension_groups_panel_makes_a_group` was
+rewritten to press fold headings and to open-then-shut the Appearance section,
+and it compiles and has never been run.
 
-★ The reason this is first: he cannot close the window on a short screen, so it
-is the only item on the list that **blocks him**.
+### 3.2 ⬜ A tool panel — what is armed, and its options — **NEXT**
 
-### 3.2 A tool panel — what is armed, and its options
+The biggest single win left and it fixes two complaints at once (#4 and #5).
+There is still no surface anywhere that says which canvas tool is armed.
 
-The biggest single win and it fixes three complaints at once (#4, #5, and
-half of #2). There is no surface anywhere that says which canvas tool is armed.
+- `crate::canvas::tool::CanvasTool` already knows.
+- `MODES_AND_PANELS.md` and `RIBBON_IA.md` are the spec — **do not improvise
+  the IA.**
+- `panels::dimension_groups` is now the worked example of a panel with folds;
+  copy its layout discipline, not its content.
+- Get a UX critique before designing it. The `pdfce-ui-specialist` agent is
+  **not on this session's roster** — dispatch `general-purpose` with the
+  specialist's framing instead.
 
-- `crate::canvas::tool::CanvasTool` already knows. `MODES_AND_PANELS.md` and
-  `RIBBON_IA.md` are the spec — **do not improvise the IA.**
-- Dispatch `pdfce-ui-specialist` before designing it. That is what it is for,
-  and this is exactly the kind of change it should see first.
+★ The hard part is **the empty state**, which is what the application opens in
+and where the operator spends most of their time. An empty panel teaches people
+to close it; a panel of *“nothing selected”* placeholders breaks R9. Solve that
+first, not last.
 
-### 3.3 Revision clouds
+### 3.3 ✅ Revision clouds — done, `c972dfd`
 
-`MarkupSpec::Cloud` and `EditError::TooFewVertices` are in `pdfce-core`. The
-GUI has **no `markup.cloud` command**. `markup.polygon` is the nearest
-neighbour — same list-driven gesture, same commit path — so this is a command
-in `shell/commands/catalog.rs`, a manifest entry beside the other shapes, an
-arm in the markup dispatcher, and a `MarkupSpec::Cloud` in the commit.
+`MarkupKind::Cloud`, `markup.cloud` at token 507, `shape-cloud.svg`, ribbon row
+directly after Polygon. It joins `is_vertex` and nowhere else in that impl;
+`markup::action` takes Polygon and Cloud through one arm; the whole difference
+is `/BE /I 1.0` in `spec`, which is Acrobat's default cloud.
 
-★ `RESUME.md` said *“Not ours: revision clouds”* on the strength of the
-operator saying *“don't worry about item 5, it's aware of that one now.”* He
-meant **the engine** was aware. That was my misreading and it cost three weeks.
+`markup_shapes` gained **phase F**, which asserts one field — `kind=Cloud` on
+`markup-commit`. A build whose control armed `Polygon` would pass every other
+assertion in that check.
+
+⚠ **Not verified by driving.**
+
+### 3.4 ⬜ Three things this session left on the floor, in order of size
+
+1. **Run the driven suite.** Three checks changed today and none has been run:
+   `dimension_groups_panel_makes_a_group` (rewritten for the panel),
+   `markup_freehand_and_vertex_kinds` (phase F), and everything the new
+   Dimension-groups tab might have shifted in the dock for other panels'
+   coordinates. **Ask before driving — it needs the machine.**
+2. **A Format-tab surface for a selected markup.** `set_markup_style` shipped in
+   the engine and takes `/C`, `/IC`, `/BS /W`, `/CA` and `/LE`. This shell has
+   no surface for any of it. That is now the largest engine capability with no
+   route from this GUI.
+3. **`NO_SURFACE.md` §1c wants a sweep.** Every remaining blocker in that file
+   that names `pdfce-core` is a claim this project cannot re-check. Two were
+   found false in one session. Re-derive the rest, and rewrite each as a dated
+   citation.
 
 ---
 
@@ -154,6 +181,23 @@ has 36 `/Rotate` entries and the evidence would be indistinguishable).
 `request_<topic>.md` goes out, `note_<topic>.md` answers, replies come back as
 `YYYY-MM-DD-*.md`. **One topic per file.** Read it at the start of every
 session — things land unprompted.
+
+★ **The `gui` column of `D:\Dev\pdfce\docs\FEATURES.md` is officially ours as
+of 2026-08-19** — `2026-08-19-the-gui-column-is-yours-now-officially.md`. It is
+now a report on *this* build, and the engine session has asked to be told when a
+row it ticked is not actually reachable here. It has adopted this project's
+ticking bar: *a row is ticked only when an operator can reach it in a real
+build.* And it wants ⛔ rows that are blocked on `pdfce-core` **filed as
+requests**, so a core gap is visible from their side rather than showing as an
+empty box.
+
+★★ **A blocker naming `D:\Dev\pdfce\` cannot fail a test here.** Two were found
+false on 2026-08-19 — `markup.cloud`'s PLANNED entry and `NO_SURFACE.md`'s
+opacity row — and the first cost the operator three weeks of asking for a tool
+whose only blocker had already shipped. Write every external blocker as a
+**dated citation**, never as a verdict, and re-derive before acting on one. It
+is one `grep`. `NO_SURFACE.md` §1c and `D:\devagust\` carry the whole
+argument.
 
 Open at this commit: everything from the insert-pages request is **shipped**
 except `Pass 102.1` (carry field definitions across `insert_pages`), which the
