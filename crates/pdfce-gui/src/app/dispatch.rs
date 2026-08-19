@@ -45,6 +45,14 @@
 //! panel.
 
 // The Pages tab's arms, split out under R2. See its header for the seam.
+/// ★ `edit.insert_image`'s four steps — pick, read, import, refuse or open.
+///
+/// A module rather than a match arm because it is a **sequence**, not a verb,
+/// and a ninety-line sequence inside a `match` is how this file crossed 1,500
+/// lines. Its header carries the two decisions worth questioning: why the
+/// import happens before the window, and why the refusal is passed through in
+/// the engine's own words.
+mod images;
 pub(crate) mod pages;
 
 use super::PdfceApp;
@@ -675,6 +683,21 @@ impl PdfceApp {
             // the thing I just clicked". `format.properties` is the second
             // question's button and the first question's command is what it
             // presses.
+            // ★ **Insert an image.** Its body is in `dispatch::images`, beside
+            // `dispatch::pages`, and for that module's reason: it is a
+            // *sequence* — pick, read, import, refuse or open — rather than a
+            // verb, and a ninety-line sequence inside a match arm is how this
+            // file crossed 1,500 lines.
+            "edit.insert_image" => {
+                if !self.capabilities().edit_content {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-edit-content")
+                    });
+                    return;
+                }
+                images::insert(&mut self.dialogs, &self.status);
+            }
             "format.properties" => {
                 actions.push(crate::app::actions::Action::Command(
                     // ui-text-exempt: a registered command id, never displayed

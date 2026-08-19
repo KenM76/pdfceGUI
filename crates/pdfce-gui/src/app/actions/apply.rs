@@ -373,6 +373,59 @@ impl PdfceApp {
             // them together would put a document-wide raster clear one careless
             // edit away from every markup placed on the canvas.
             Action::Dimension(action) => super::dimensions::apply(doc, action),
+            // ★ One image, one undo entry, and every disclosure it owes.
+            //
+            // The closure's return value IS the disclosure list — the funnel's
+            // own mechanism — and here it carries the three facts an operator
+            // cannot see at editing zoom: the effective resolution, whether the
+            // picture kept its shape, and whether pdfce re-encoded the source
+            // rather than storing the file's own bytes. A picture placed at
+            // 12 dpi and one placed at 300 look identical on screen and
+            // different on paper, which is why the number is stated every time
+            // rather than only when it is bad.
+            //
+            // ★ `recompressed` reaches the catalog through its own `Display`.
+            // Same call `text::images::import_failed` makes, for the same
+            // reason: the value is a SPECIFIC explanation — a colour model PDF
+            // has no space for, a filter pdfce cannot re-emit — and a catalog
+            // sentence would have to discard the half that is the whole answer.
+            Action::InsertImage {
+                page,
+                rect,
+                fit,
+                image,
+            } => {
+                vector_edit(doc, "add-image", page, 1, |session| {
+                    // ★ The builder, not a struct literal: `NewImage` is
+                    // `#[non_exhaustive]`, so a downstream crate cannot
+                    // construct it field-by-field — and the constructor is
+                    // what keeps a field added upstream from silently
+                    // defaulting here.
+                    let spec = pdfce_core::edit::NewImage::new(page, rect, &image);
+                    let spec = match fit {
+                        pdfce_core::edit::ImageFit::Stretch => spec.stretching(),
+                        // `Contain` is the constructor's own default, and the
+                        // wildcard is forced by `#[non_exhaustive]` rather than
+                        // chosen. A third fit mode pdfce gains would land here
+                        // as Contain, which is the safe direction: it never
+                        // distorts a picture the operator did not ask to
+                        // distort.
+                        _ => spec,
+                    };
+                    session.add_image(&spec).map(|outcome| {
+                        let d = &outcome.disclosures;
+                        crate::text::images::placement_disclosures(
+                            d.effective_dpi,
+                            d.below_screen_resolution,
+                            d.letterboxed,
+                            d.aspect_distorted,
+                            d.recompressed,
+                            d.source_bytes,
+                            d.stored_bytes,
+                        )
+                    })
+                });
+            }
             // ★ One dictionary entry, through the same four-step protocol as a
             // page rewrite — because the protocol is what makes an edit
             // undoable, epoch-bumping and cache-invalidating, and a shortcut
@@ -597,13 +650,6 @@ impl PdfceApp {
             // lives in `pages` beside rotate, delete, reorder and extract, and
             // this arm routes. See `pages::insert_from_file` for why it must
             // mutate the session rather than replace it.
-            Action::InsertPagesFromFile {
-                path,
-                pages,
-                position,
-            } => {
-                super::pages::insert_from_file(doc, &path, &pages, position);
-            }
             Action::CommitAddText { page, origin, text } => {
                 let req = pdfce_core::text_edit::AddTextRequest::new(page, origin, text);
                 vector_edit(doc, "add-text", page, 1, |session| {
@@ -707,101 +753,18 @@ impl PdfceApp {
             | Action::RemoveRedactionMark { .. } => {
                 super::redact::apply(doc, action);
             }
-            // ===============================================================
-            // ★ THE PAGE VERBS
+            // ★ Every page verb, routed. The bodies have lived in
+            // `super::pages` since page operations shipped; the ENUM and these
+            // arms joined them on 2026-08-19 under R2, when image placement
+            // pushed this file past 1,500 lines.
             //
-            // Four arms, each one call, because everything that could be a
-            // rule lives elsewhere: the operand list and the permutation in
-            // `crate::panels::pages::ops` (pure, unit-tested), the engine call
-            // and the disclosures in `super::pages`, and the four-step
-            // protocol in `vector_edit` — which now carries a fifth step that
-            // brings the page vector, the strip rasters, the canvas selection
-            // and the view back into agreement with the session.
-            //
-            // `page=` on the trace line is the FIRST operand rather than "the
-            // page", and `n=` is how many were named. There is no single page
-            // a multi-page verb is about; the first one is the honest answer
-            // and `n=` is the field that actually says what happened, exactly
-            // as `history_step`'s own docs argue for the undo case.
-            // ===============================================================
-            Action::RotatePages { pages, delta } => {
-                if !pages.is_empty() {
-                    let first = pages.first().copied().unwrap_or(0);
-                    vector_edit(doc, "rotate-pages", first, pages.len(), |session| {
-                        super::pages::rotate(session, &pages, delta)
-                    });
-                }
-            }
-            // ★ **The destructive one**, and the one that renumbers.
-            //
-            // Two things happen here that no other arm needs, and both are
-            // about a *position* ceasing to mean what it meant:
-            //
-            // 1. `vector_edit`'s resync clears the **canvas** selection and
-            //    clamps the view — see `super::pages::resync`;
-            // 2. the **Pages panel's** picks are cleared here, because they
-            //    live on `self.panels` rather than on the document and
-            //    `vector_edit` cannot reach them.
-            //
-            // The panel's own `retain_below` would drop the picks that fell
-            // off the end on the next frame, and that is NOT sufficient: the
-            // pages that were deleted are exactly the ones that were picked,
-            // so the survivors of a clamp would be picks pointing at sheets
-            // that have shuffled down into their indices. Clearing is both
-            // correct and provable — every picked sheet is gone.
-            //
-            // Guarded on the epoch rather than on a return value, so the
-            // clear happens only for an edit that actually applied: a refused
-            // delete (the engine refuses removing every page, §7.7.3.3) must
-            // leave the operator's selection exactly as they built it.
-            //
-            // **No confirmation dialog.** `crate::app::save::save_pending` is
-            // the one predicate this application consults before a destructive
-            // path and it is about a save being in flight, not about unsaved
-            // work; the engine records this as an undoable command; and
-            // nothing reaches disk — the operator's file is untouched until
-            // they choose to save a copy. A modal here would be the only one
-            // in the application and would be asking about the one destructive
-            // act that is already reversible in the session.
-            Action::DeletePages { pages } => {
-                if !pages.is_empty() {
-                    let first = pages.first().copied().unwrap_or(0);
-                    let before = doc.edit_epoch;
-                    vector_edit(doc, "delete-pages", first, pages.len(), |session| {
-                        super::pages::delete(session, &pages)
-                    });
-                    if doc.edit_epoch != before {
-                        self.panels.pages_mut().selection.clear();
-                    }
-                }
-            }
-            // ★ **The middle case**: every page survives, and every index
-            // means a different sheet.
-            //
-            // The canvas selection is cleared by the resync; the panel's picks
-            // are **remapped** rather than cleared, because the permutation
-            // states exactly where each picked sheet went. See
-            // `crate::panels::pages::select::PageSelection::remap` for why the
-            // two selections get different answers to the same edit — and for
-            // why clearing here would make the reorder arrows unusable twice
-            // in a row, which is the one gesture they exist for.
-            Action::ReorderPages { order } => {
-                if !order.is_empty() {
-                    let before = doc.edit_epoch;
-                    vector_edit(doc, "reorder-pages", 0, order.len(), |session| {
-                        super::pages::reorder(session, &order)
-                    });
-                    if doc.edit_epoch != before {
-                        let landed = crate::panels::pages::ops::inverse(&order);
-                        self.panels.pages_mut().selection.remap(&landed);
-                    }
-                }
-            }
-            // ★ The one page verb that goes nowhere near `vector_edit`: it
-            // changes no document, it opens a native save dialog, and it is an
-            // `Action` for `Action::SaveCopy`'s frame-timing reason and only
-            // that one. See `super::pages::extract`.
-            Action::ExtractPages { pages } => super::pages::extract(doc, &pages),
+            // The cut is along the seam that module's header already draws —
+            // *"a page index is a position, not an identity"* — and it is what
+            // took the panel-selection consequences with it: a delete clears
+            // the picks, a reorder remaps them, a rotation leaves them alone.
+            // Those three answers to one edit are the whole subject over there,
+            // and they were the only part of it living here.
+            Action::Page(action) => super::pages::apply(doc, &mut self.panels, action),
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].

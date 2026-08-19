@@ -71,6 +71,13 @@ pub mod diagnostics;
 /// for the whole life of this build; its own header records what the operator
 /// hit and which four of the six group verbs the engine actually ships.
 pub mod dimension_groups;
+/// ★ The Insert-image window — a picture placed on the page as content, by a
+/// rectangle in millimetres.
+///
+/// Its header carries the decision a reader will question first: why placement
+/// is numeric rather than a drag, and why a drag is a second **route** to the
+/// same action rather than the one that should have shipped.
+pub mod insert_image;
 pub mod insert_pages;
 pub mod new_document;
 pub mod ocr;
@@ -210,6 +217,14 @@ pub struct DialogsState {
     /// the reason the group exists — a dialog configuring an edit to a file
     /// that is no longer open is configuring nothing.
     insert_pages: Option<insert_pages::InsertPagesDialog>,
+
+    /// The Insert-image window, when one is open.
+    ///
+    /// **Document-scoped**: it places a picture on a page of the open file, and
+    /// it holds the imported bytes — so closing the document discards them,
+    /// which is the right answer rather than a loss, for [`Self::ocr`]'s reason
+    /// applied to an operand instead of to a result.
+    insert_image: Option<insert_image::InsertImageDialog>,
 
     /// The Manage-dimension-groups window, when one is open.
     ///
@@ -582,6 +597,9 @@ impl DialogsState {
         if self.insert_pages.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.insert_pages = None;
         }
+        if self.insert_image.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.insert_image = None;
+        }
         // ★ Drawn BEFORE the Set-scale window, and the order is load-bearing.
         //
         // Its *Set scale…* button parks a request that is drained immediately
@@ -631,6 +649,29 @@ impl DialogsState {
         self.redact = None;
         self.scale = None;
         self.dimension_groups = None;
+        self.insert_image = None;
+    }
+
+    /// Open the Insert-image window for an already-imported picture.
+    ///
+    /// **The dispatch target for the `edit.insert_image` command**, reached only
+    /// after the file has been chosen AND imported — see that arm for why the
+    /// import happens first.
+    ///
+    /// The already-open guard matters here the way it matters for OCR: a second
+    /// press would discard a placement the operator has typed and replace the
+    /// imported bytes with another file's, so the window they pressed the
+    /// shortcut to look at would come back describing a different picture.
+    pub fn open_insert_image(
+        &mut self,
+        status: &Status,
+        image: std::sync::Arc<pdfce_core::image_import::ImportedImage>,
+        name: String,
+    ) {
+        if self.insert_image.is_some() {
+            return;
+        }
+        self.insert_image = insert_image::open_for(status, image, name);
     }
 
     /// Open the Manage-dimension-groups window for the document in `status`.

@@ -101,13 +101,6 @@ pub mod files;
 pub mod find;
 /// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
 pub mod forms;
-/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
-///
-/// Small, and load-bearing out of proportion to its size: the controls are a
-/// colour swatch and a number, so the tooltip is the only place they can say
-/// what they are, and the only place an operator learns the setting applies to
-/// the **next** mark rather than to one already drawn.
-pub mod markup;
 /// What the measure tools say about what they INFERRED — the two-line
 /// gesture's refusals, the angle an override overrode, and an apex that is
 /// only real if the lines are extended.
@@ -115,6 +108,21 @@ pub mod markup;
 /// Its own header carries the reason it exists: `pdfce-core` gives that
 /// gesture three facts a shell is expected to surface, and this build
 /// surfaced none of them until 2026-08-19.
+/// Every word the Insert-image window shows, and the disclosures a placement
+/// owes afterwards.
+///
+/// Its hardest job is stated in its own header: a resolution is a property of
+/// the **placement**, not of the file, and every mistake it can report — a
+/// 2000 dpi photo in a 2-inch box, a 12 dpi logo across a page — looks perfect
+/// on screen at editing zoom and only shows up on the plot.
+pub mod images;
+/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
+///
+/// Small, and load-bearing out of proportion to its size: the controls are a
+/// colour swatch and a number, so the tooltip is the only place they can say
+/// what they are, and the only place an operator learns the setting applies to
+/// the **next** mark rather than to one already drawn.
+pub mod markup;
 pub mod measure;
 /// The copy the **context-menu** surface owns, as distinct from the copy
 /// its rows borrow from [`commands`]. Currently empty by construction; its

@@ -1181,10 +1181,14 @@ pub const FX_CONST: &str = "fx.constant";
         // Failing here means the allow-list changed, and the two directions
         // mean opposite things. An entry ADDED is a command drawn and left
         // unwired. An entry REMOVED is work that landed —
-        // `pages.insert_from_file` on 2026-08-18, and `measure.manage_groups`
-        // the same day, when `dialogs::dimension_groups` shipped.
+        // `pages.insert_from_file` on 2026-08-18, `measure.manage_groups`
+        // the same day, and `edit.insert_image` on 2026-08-19 — the last of
+        // which is the more interesting removal, because its recorded reason
+        // was *"No recorded reason for the missing arm"* while the engine verb
+        // it needed had shipped long before. An entry with no reason is not a
+        // blocker; it is an entry nobody has looked at.
         assert_eq!(
-            total, 17,
+            total, 16,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
@@ -1193,7 +1197,7 @@ pub const FX_CONST: &str = "fx.constant";
             // 2026-08-18 — a P3 breach retired, which is the direction this
             // count exists to make visible.
             p3,
-            7,
+            6,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

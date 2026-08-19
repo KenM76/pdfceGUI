@@ -125,6 +125,13 @@ use std::path::PathBuf;
 /// sharing one seam between two verbs would make a check that drives both
 /// impossible to write.
 const DIAG_INSERT_PATH: &str = "PDFCE_DIAG_INSERT_PATH"; // ui-text-exempt: an environment variable name, never displayed
+/// The seam that answers the **image** picker.
+///
+/// A third variable rather than a shared one, on the argument
+/// [`pick_insert_source`] spells out for the second: one seam answering two
+/// pickers makes a run that opens a PDF and inserts a picture unwritable, and
+/// a run meant to test one quietly test both. Three verbs, three seams.
+const DIAG_IMAGE_PATH: &str = "PDFCE_DIAG_IMAGE_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
 pub const DIAG_OPEN_PATH: &str = "PDFCE_DIAG_OPEN_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
@@ -323,6 +330,43 @@ fn native_pick() -> Picked {
 ///
 /// `PDFCE_DIAG_INSERT_PATH` is its own seam for its own verb. Same shape, same
 /// `from_env` parser, separate variable.
+/// Ask for a raster image to place on the page.
+///
+/// The third picker in this module and the first that is not asking for a PDF.
+/// The filter lists the four formats `pdfce-core` actually places — its own
+/// `SUPPORTED_FORMATS` constant — because a picker that offers every file and
+/// then refuses most of them has moved the refusal from a dialog the operator
+/// can dismiss to one they have to read.
+///
+/// The *all files* filter stays beneath it, as it does for the other two: a
+/// `.jpeg` that somebody saved as `.dat` is still a JPEG, `sniff` reads the
+/// bytes rather than the extension, and an operator who knows what their file
+/// is should not be blocked by its name.
+#[must_use]
+pub fn pick_image_source() -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_IMAGE_PATH)) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("image-picked source=env answer={answer:?}")
+        });
+        return answer;
+    }
+    let answer = rfd::FileDialog::new()
+        .set_title(crate::text::images::window_title())
+        .add_filter(
+            crate::text::files::filter_image(),
+            &["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
+        )
+        .add_filter(crate::text::files::filter_all(), &["*"])
+        .pick_file()
+        .map_or(Picked::Cancelled, Picked::Path);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("image-picked source=native answer={answer:?}")
+    });
+    answer
+}
+
 #[must_use]
 pub fn pick_insert_source() -> Picked {
     if let Some(answer) = from_env(std::env::var_os(DIAG_INSERT_PATH)) {

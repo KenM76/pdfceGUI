@@ -139,7 +139,7 @@ pub mod disclosure;
 /// that file's subject is the cancel–mutate–bump–invalidate protocol, and this
 /// one's is *a page index is a position, not an identity*. See its header for
 /// the table of what each kind of page edit invalidates.
-mod pages;
+pub mod pages;
 
 pub use disclosure::{EditDisclosure, last_edit_disclosure};
 // ★ Crate-visible rather than `pub`, and re-exported here rather than reached
@@ -292,57 +292,6 @@ pub enum Action {
         page: usize,
         /// The annotation, by stable object id.
         id: pdfce_core::object::ObjId,
-    },
-    /// **Insert another document's pages into this one, after the current page.**
-    ///
-    /// Raised by `pages.insert_from_file` once the picker has answered.
-    ///
-    /// # ★ Why this is an editing verb and not an open
-    ///
-    /// `pdfce_core::pageops::insert` also inserts pages, and returns the bytes
-    /// of a **new document**. Wiring that would have meant replacing
-    /// `OpenDoc::session` wholesale, which discards the undo stack — invisible
-    /// in any test that checks page counts, and visible the first time an
-    /// operator presses Ctrl+Z twice.
-    ///
-    /// So it was filed rather than shipped, and `pdfce-core` answered the same
-    /// day with `EditSession::insert_pages`: the missing member of the
-    /// `delete_pages` / `reorder_pages` / `rotate_pages` family. It records
-    /// **one** undoable command however many pages arrive, exactly as a reorder
-    /// does however many pages move.
-    ///
-    /// # What it does not carry, and why the operator is told
-    ///
-    /// The session verb copies each page and everything reachable from it —
-    /// content, resources, fonts, XObjects — at fresh object numbers. It does
-    /// **not** merge the source's document-level structures: outlines, the
-    /// AcroForm field tree, named destinations, page labels. That is the honest
-    /// cost of staying incremental, because a document-level merge rewrites
-    /// objects an incremental save exists in order not to touch.
-    ///
-    /// `crate::text::pages::inserted` says so, because an operator whose
-    /// bookmarks did not come across is entitled to know that before they go
-    /// looking for a bug.
-    InsertPagesFromFile {
-        /// The document to take pages from.
-        path: std::path::PathBuf,
-        /// Which of ITS pages, 0-based, **in the order the operator asked
-        /// for**.
-        ///
-        /// Order is carried rather than sorted, and duplicates are kept,
-        /// because the range grammar treats the text as a sequence: `3,1-2`
-        /// inserts source page 3 first, and `1,1` inserts a page twice. Both
-        /// are things an operator can only ask for in one gesture if this
-        /// field preserves them.
-        pages: Vec<usize>,
-        /// Where they land, in the engine's own vocabulary.
-        ///
-        /// ★ `pdfce_core::pageops::InsertPosition` directly rather than a
-        /// local enum mapped at the boundary. Four choices — `Start`, `End`,
-        /// `Before(n)`, `After(n)` — and a second spelling of them would be a
-        /// second place for "before" and "after" to drift, where the drift is
-        /// silent because both compile and both insert *somewhere*.
-        position: pdfce_core::pageops::InsertPosition,
     },
     New,
     /// **Make a new document at a chosen sheet size.**
@@ -616,119 +565,6 @@ pub enum Action {
     // raster keyed on a page index, the canvas selection's page identity and
     // the panel's own picks, all at once, and a missed one is a stale picture
     // or a verb aimed at the wrong sheet.
-    /// **Turn the operand pages by `delta` degrees**, as one undoable command.
-    ///
-    /// Raised by `pages.rotate_left` (−90) and `pages.rotate_right` (+90).
-    ///
-    /// # Why a delta rather than an absolute angle
-    ///
-    /// Because that is what the button means and what `EditSession::rotate_pages`
-    /// implements: a selection of pages at 0°, 90° and 180° turned right lands
-    /// at 90°, 180° and 270°, **not** all at 90°. The engine's own doc comment
-    /// confirms Acrobat persists the absolute result of exactly that
-    /// arithmetic. An absolute variant would be a different verb (*set the
-    /// rotation of these pages to N*), which no control in this build offers.
-    ///
-    /// # It changes no page's identity
-    ///
-    /// A rotation rewrites one `/Rotate` entry per page. Nothing is added,
-    /// removed or renumbered, so both selections survive it untouched — which
-    /// is why the apply arm's resync is about *pictures* (every cached raster
-    /// of a turned page is now wrong) and not about *indices*.
-    RotatePages {
-        /// 0-based page indices, ascending and unique.
-        pages: Vec<usize>,
-        /// A relative turn in degrees, a multiple of 90.
-        delta: i32,
-    },
-    /// **Remove the operand pages from the document**, as one undoable
-    /// command.
-    ///
-    /// Raised by `pages.delete` from the ribbon's Pages tab and from the page
-    /// tile's context menu.
-    ///
-    /// # ★ This is the one action in the enum that renumbers pages
-    ///
-    /// `HANDOFF.md` §10 states the rule for objects — *"Selection is an
-    /// identity — page, object, subpath, node — not a position"* — and this is
-    /// its page-level instance. After the removal, every index above the lowest
-    /// deleted page names a **different sheet**. Both selections in the
-    /// application are therefore invalid, in different ways, and the apply arm
-    /// deals with both:
-    ///
-    /// * the **page** selection named exactly the sheets that no longer exist,
-    ///   so it is cleared;
-    /// * the **canvas** selection names objects on a page *index*, and that
-    ///   index now resolves to another sheet's content, so it is cleared too.
-    ///
-    /// # It is destructive and, until undo lands, irreversible
-    ///
-    /// No confirmation dialog, deliberately, and the reasoning is at the apply
-    /// arm: `crate::app::save`'s `save_pending` is the one predicate this
-    /// application consults before a destructive path, the engine records the
-    /// removal as an undoable command already, and **nothing is written to
-    /// disk** — the operator's file on disk is untouched until they save a
-    /// copy, which is a separate deliberate act with its own dialog.
-    DeletePages {
-        /// 0-based page indices, ascending and unique.
-        pages: Vec<usize>,
-    },
-    /// **Put the document's pages in a new order**, as one undoable command.
-    ///
-    /// Raised by `pages.move_up` and `pages.move_down`, which differ only in
-    /// the permutation `crate::panels::pages::ops::move_order` computes.
-    ///
-    /// `order[i]` is the **current** 0-based index of the page that should end
-    /// up at position `i` — `EditSession::reorder_pages`' contract verbatim,
-    /// carried through unaltered so there is no second spelling of it to drift.
-    /// The engine refuses anything that is not a permutation of
-    /// `0..page_count`, and `move_order` builds one by construction.
-    ///
-    /// # ★ A reorder renumbers positions without destroying anything
-    ///
-    /// Which makes it the *middle* case between a move (nothing changes
-    /// identity) and a delete (identities cease to exist), and the two
-    /// selections get two different answers:
-    ///
-    /// * the **page** selection follows its sheets, through
-    ///   [`crate::panels::pages::select::PageSelection::remap`] — the
-    ///   permutation states exactly where each one went, so clearing would
-    ///   throw away information the edit had in hand and make the reorder
-    ///   arrows unusable twice in a row;
-    /// * the **canvas** selection is cleared, because its entries carry a page
-    ///   *index* and this crate cannot rewrite them —
-    ///   `crate::canvas::selection::SelectionState` exposes no mutator for the
-    ///   page of an entry, and inventing one would put a second page-remapping
-    ///   rule in the module that owns object identity. Clearing is the honest
-    ///   answer and it is stated rather than silent.
-    ReorderPages {
-        /// The new order, as `order[new_position] = current_index`.
-        order: Vec<usize>,
-    },
-    /// **Write the operand pages out as a new standalone document.**
-    ///
-    /// Raised by `pages.extract`. The one page verb that changes **no**
-    /// document: `pdfce_core::pageops::extract` returns the complete bytes of a
-    /// freestanding PDF and the open session is not touched, which is exactly
-    /// what the Review mode's stance requires — `crate::panels::pages`' header
-    /// quotes the operator: *"an extraction writes a different file."*
-    ///
-    /// # ★ Why it is an action at all, when it mutates nothing
-    ///
-    /// For [`Self::SaveCopy`]'s reason and only that one: it opens a **native
-    /// save dialog**, and `crate::app::files::pick_save_path` carries a
-    /// frame-timing requirement dispatch cannot honour — `PdfceApp::central`
-    /// dispatches the canvas's context-menu tokens from inside
-    /// `egui::CentralPanel::show`, and a modal opened mid-layout blocks the
-    /// frame it is being drawn in. The apply phase is always outside every
-    /// closure. The page tile's context menu is dispatched from a panel body
-    /// rather than the canvas, but the rule is the surface's, not the caller's.
-    ExtractPages {
-        /// 0-based page indices, ascending and unique. **Order is honoured** by
-        /// the engine, so this is simultaneously "extract these pages" and
-        /// "extract them in this order"; the panel produces them ascending.
-        pages: Vec<usize>,
-    },
     /// **Author one markup annotation on `page`**, from the drag that drew it.
     ///
     /// Raised by [`crate::canvas::markup::drag`] when a markup band is
@@ -837,6 +673,67 @@ pub enum Action {
     /// it in eight arms, and the day one of them got it wrong the symptom
     /// would be a stale number on a page the operator was not looking at.
     Dimension(dimensions::DimensionAction),
+    /// ★ **Everything the operator asks of the SET OF PAGES**, as one variant
+    /// carrying which.
+    ///
+    /// Five verbs — insert another document's pages, rotate, delete, reorder,
+    /// extract. They live in [`pages::PageAction`] rather than as five variants
+    /// here, and that type's own documentation gives the reasons.
+    ///
+    /// The short version is the one that matters at this level: **every one of
+    /// them can renumber the document**, and what each of them does to the
+    /// shell's *derived* state afterwards is different — a rotation preserves
+    /// both selections, a reorder remaps the panel's picks and clears the
+    /// canvas's, a delete clears both, an insert navigates. That rule is a
+    /// property of the family rather than of any one verb, and expressing it in
+    /// one place is what stops a sixth page verb being added with the wrong
+    /// invalidation and nothing noticing — because nothing would: every
+    /// individual edit would still be correct in the document and wrong only
+    /// on screen.
+    Page(pages::PageAction),
+    /// ★ **Place a raster image on the page.**
+    ///
+    /// Raised by `crate::dialogs::insert_image` and by nothing else.
+    ///
+    /// # Why the imported picture travels in the action
+    ///
+    /// Because it is the **operand**, and an `Action` is a complete statement
+    /// of intent resolvable after the frame that raised it. The dialog closes
+    /// on the same frame it commits, so nothing else would still be holding the
+    /// bytes by the time the queue drains.
+    ///
+    /// `Arc`, not the value: an `ImportedImage` owns the decoded or re-encoded
+    /// stream — megabytes for a scan — and moving a clone through the queue
+    /// would double the peak for no gain. The engine takes it by reference, so
+    /// the apply arm never copies it either.
+    ///
+    /// # Why the rectangle is in POINTS
+    ///
+    /// The dialog asks in millimetres, because that is what a drafter measures
+    /// in, and converts **once** — in one function that the validity check, the
+    /// landing preview and this field all read. Carrying millimetres here would
+    /// put a second conversion in the apply arm and give the window two chances
+    /// to disagree with the document about where the picture went.
+    ///
+    /// # What the apply arm owes afterwards
+    ///
+    /// `add_image` returns an `ImageAuthorOutcome` whose `disclosures` are
+    /// **all facts the operator cannot see at editing zoom**: the effective
+    /// resolution, whether the shape was preserved or stretched, and whether
+    /// pdfce re-encoded the source rather than storing its bytes. Every one of
+    /// them looks identical on screen and different on a plot, which makes them
+    /// rule 4's surviving half exactly. They are returned from `vector_edit`'s
+    /// closure, which is how they reach the status bar.
+    InsertImage {
+        /// The 0-based page it is placed on, frozen when the dialog opened.
+        page: usize,
+        /// The box, in PDF user space.
+        rect: pdfce_core::page_tree::Rect,
+        /// What happens when the box's shape differs from the picture's.
+        fit: pdfce_core::edit::ImageFit,
+        /// The imported picture. See above for why it is an `Arc`.
+        image: std::sync::Arc<pdfce_core::image_import::ImportedImage>,
+    },
     /// ★ **Set or clear one of the document's own information fields** —
     /// `/Title`, `/Author`, `/Subject`, `/Keywords`.
     ///

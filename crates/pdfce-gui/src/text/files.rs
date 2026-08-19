@@ -51,6 +51,19 @@ pub fn filter_pdf() -> &'static str {
     "PDF documents"
 }
 
+/// The picker filter for a raster image.
+///
+/// ★ Names the four formats rather than saying "images", because those four are
+/// what `pdfce-core` actually places and the picker is the last cheap place to
+/// say so. A filter reading *"Images"* that then refuses a GIF has moved the
+/// refusal from a dialog the operator can dismiss to one they have to read —
+/// and pdfce refuses GIF, WebP, HEIC and BigTIFF **by name**, which is a good
+/// message arriving at a bad moment.
+#[must_use]
+pub fn filter_image() -> &'static str {
+    "Images (PNG, JPEG, BMP, TIFF)"
+}
+
 /// The name of the dialog's everything filter.
 ///
 /// Offered because a PDF with the wrong extension is a real thing an operator

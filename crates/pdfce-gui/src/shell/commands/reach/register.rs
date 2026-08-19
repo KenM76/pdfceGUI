@@ -202,14 +202,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          one.",
     ),
     (
-        "edit.insert_image",
-        "★ P3 — NO RECORDED REASON for the missing arm. `manifest/edit.rs` argues only why \
-         the COMMAND should exist — “placing an image works today only by drag and drop, \
-         which is a gesture with no discoverable equivalent… A command is the affordance” — \
-         which is a description of the shell being replaced, and is an argument for a \
-         control that works.",
-    ),
-    (
         "edit.form_create_field",
         "Blocked on a different engine gate from the one filling passes. `panels/forms/rows.rs`: \
          these are “Edit ▸ Forms AUTHORING commands… they answer to core's STRUCTURAL \

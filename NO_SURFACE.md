@@ -402,7 +402,7 @@ the register.
 | 7 | `pages.merge_into` | ★ | :185 | `insert` returns a **new** document; wiring it discards the undo command log |
 | 8 | `pages.insert_from_file` | ★ | :193 | Twin of the above, same two blockers |
 | 9 | `edit.objects` | ★ | :203 | **No recorded reason anywhere** |
-| 10 | `edit.insert_image` | ★ | :211 | **No recorded reason** for the missing arm |
+| ~~10~~ | ~~`edit.insert_image`~~ | | | ✅ **built 2026-08-19.** ★ The row's own words — *"no recorded reason"* — turned out to be the finding: `EditSession::add_image` had shipped the whole time, so there was never a blocker, only an entry nobody had looked at. An entry with no reason is not deferred work; it is unexamined work, and this file's §5 now has two of the three left |
 | 11 | `edit.form_create_field` | | :219 | Core's **structural** certification gate, not the fill gate |
 | 12 | `edit.form_manage_fields` | | :226 | Same structural gate; its dialog does not exist |
 | 13 | `edit.form_flatten` | | :232 | Same gate, plus irreversible — needs a disclosure surface |

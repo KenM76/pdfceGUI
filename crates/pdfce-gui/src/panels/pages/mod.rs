@@ -133,6 +133,7 @@ pub mod thumbnails;
 use egui_shell::HandlerToken;
 
 use crate::app::actions::Action;
+use crate::app::actions::pages::PageAction;
 use crate::app::state::OpenDoc;
 use crate::panels::PanelsState;
 use crate::shell::menus::MenuHost;
@@ -543,7 +544,7 @@ fn settle_drag(
                     operands.len()
                 )
             });
-            actions.push(Action::ReorderPages { order });
+            actions.push(Action::Page(PageAction::ReorderPages { order }));
         }
         Err(refusal) => {
             crate::diag::trace(|| {

@@ -96,6 +96,200 @@ use crate::app::files::{self, Picked};
 use crate::app::state::OpenDoc;
 use crate::text::pages as t;
 
+/// Everything the operator can ask of the document's **set of pages**.
+///
+/// ## Why this is a sub-enum rather than five more variants on `Action`
+///
+/// The same three reasons [`super::dimensions::DimensionAction`] gives, and the
+/// first is again the one that decided it:
+///
+/// 1. **They share a rule the flat enum could not express.** Every verb here
+///    can **renumber** the document, and what each owes the shell's derived
+///    state afterwards is different: a rotation preserves both selections
+///    (nothing renumbers), a reorder remaps the Pages panel's picks and clears
+///    the canvas selection, a delete clears both, an insert navigates to what
+///    arrived. As five flat variants that rule is re-derived in five arms; as a
+///    family it lives here, where a sixth verb has to answer it.
+///
+///    The failure that guards against is specific and silent: a page verb with
+///    the wrong invalidation produces a **correct document** and a wrong
+///    screen, so nothing fails and the operator sees a selection pointing at a
+///    sheet that has moved.
+/// 2. **R2.** `super`'s enum crossed 1,500 lines when image placement landed,
+///    and the alternative to a seam is thinner prose — which the file-size
+///    gate's own header names as the incentive it refuses to create.
+/// 3. **The destination already existed.** This module has held the five
+///    verbs' *bodies* since page operations shipped, and `apply` already routed
+///    every one of them here. The enum was the only half still living
+///    elsewhere.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PageAction {
+    /// **Insert another document's pages into this one, after the current page.**
+    ///
+    /// Raised by `pages.insert_from_file` once the picker has answered.
+    ///
+    /// # ★ Why this is an editing verb and not an open
+    ///
+    /// `pdfce_core::pageops::insert` also inserts pages, and returns the bytes
+    /// of a **new document**. Wiring that would have meant replacing
+    /// `OpenDoc::session` wholesale, which discards the undo stack — invisible
+    /// in any test that checks page counts, and visible the first time an
+    /// operator presses Ctrl+Z twice.
+    ///
+    /// So it was filed rather than shipped, and `pdfce-core` answered the same
+    /// day with `EditSession::insert_pages`: the missing member of the
+    /// `delete_pages` / `reorder_pages` / `rotate_pages` family. It records
+    /// **one** undoable command however many pages arrive, exactly as a reorder
+    /// does however many pages move.
+    ///
+    /// # What it does not carry, and why the operator is told
+    ///
+    /// The session verb copies each page and everything reachable from it —
+    /// content, resources, fonts, XObjects — at fresh object numbers. It does
+    /// **not** merge the source's document-level structures: outlines, the
+    /// AcroForm field tree, named destinations, page labels. That is the honest
+    /// cost of staying incremental, because a document-level merge rewrites
+    /// objects an incremental save exists in order not to touch.
+    ///
+    /// `crate::text::pages::inserted` says so, because an operator whose
+    /// bookmarks did not come across is entitled to know that before they go
+    /// looking for a bug.
+    InsertPagesFromFile {
+        /// The document to take pages from.
+        path: std::path::PathBuf,
+        /// Which of ITS pages, 0-based, **in the order the operator asked
+        /// for**.
+        ///
+        /// Order is carried rather than sorted, and duplicates are kept,
+        /// because the range grammar treats the text as a sequence: `3,1-2`
+        /// inserts source page 3 first, and `1,1` inserts a page twice. Both
+        /// are things an operator can only ask for in one gesture if this
+        /// field preserves them.
+        pages: Vec<usize>,
+        /// Where they land, in the engine's own vocabulary.
+        ///
+        /// ★ `pdfce_core::pageops::InsertPosition` directly rather than a
+        /// local enum mapped at the boundary. Four choices — `Start`, `End`,
+        /// `Before(n)`, `After(n)` — and a second spelling of them would be a
+        /// second place for "before" and "after" to drift, where the drift is
+        /// silent because both compile and both insert *somewhere*.
+        position: pdfce_core::pageops::InsertPosition,
+    },
+    /// **Turn the operand pages by `delta` degrees**, as one undoable command.
+    ///
+    /// Raised by `pages.rotate_left` (−90) and `pages.rotate_right` (+90).
+    ///
+    /// # Why a delta rather than an absolute angle
+    ///
+    /// Because that is what the button means and what `EditSession::rotate_pages`
+    /// implements: a selection of pages at 0°, 90° and 180° turned right lands
+    /// at 90°, 180° and 270°, **not** all at 90°. The engine's own doc comment
+    /// confirms Acrobat persists the absolute result of exactly that
+    /// arithmetic. An absolute variant would be a different verb (*set the
+    /// rotation of these pages to N*), which no control in this build offers.
+    ///
+    /// # It changes no page's identity
+    ///
+    /// A rotation rewrites one `/Rotate` entry per page. Nothing is added,
+    /// removed or renumbered, so both selections survive it untouched — which
+    /// is why the apply arm's resync is about *pictures* (every cached raster
+    /// of a turned page is now wrong) and not about *indices*.
+    RotatePages {
+        /// 0-based page indices, ascending and unique.
+        pages: Vec<usize>,
+        /// A relative turn in degrees, a multiple of 90.
+        delta: i32,
+    },
+    /// **Remove the operand pages from the document**, as one undoable
+    /// command.
+    ///
+    /// Raised by `pages.delete` from the ribbon's Pages tab and from the page
+    /// tile's context menu.
+    ///
+    /// # ★ This is the one action in the enum that renumbers pages
+    ///
+    /// `HANDOFF.md` §10 states the rule for objects — *"Selection is an
+    /// identity — page, object, subpath, node — not a position"* — and this is
+    /// its page-level instance. After the removal, every index above the lowest
+    /// deleted page names a **different sheet**. Both selections in the
+    /// application are therefore invalid, in different ways, and the apply arm
+    /// deals with both:
+    ///
+    /// * the **page** selection named exactly the sheets that no longer exist,
+    ///   so it is cleared;
+    /// * the **canvas** selection names objects on a page *index*, and that
+    ///   index now resolves to another sheet's content, so it is cleared too.
+    ///
+    /// # It is destructive and, until undo lands, irreversible
+    ///
+    /// No confirmation dialog, deliberately, and the reasoning is at the apply
+    /// arm: `crate::app::save`'s `save_pending` is the one predicate this
+    /// application consults before a destructive path, the engine records the
+    /// removal as an undoable command already, and **nothing is written to
+    /// disk** — the operator's file on disk is untouched until they save a
+    /// copy, which is a separate deliberate act with its own dialog.
+    DeletePages {
+        /// 0-based page indices, ascending and unique.
+        pages: Vec<usize>,
+    },
+    /// **Put the document's pages in a new order**, as one undoable command.
+    ///
+    /// Raised by `pages.move_up` and `pages.move_down`, which differ only in
+    /// the permutation `crate::panels::pages::ops::move_order` computes.
+    ///
+    /// `order[i]` is the **current** 0-based index of the page that should end
+    /// up at position `i` — `EditSession::reorder_pages`' contract verbatim,
+    /// carried through unaltered so there is no second spelling of it to drift.
+    /// The engine refuses anything that is not a permutation of
+    /// `0..page_count`, and `move_order` builds one by construction.
+    ///
+    /// # ★ A reorder renumbers positions without destroying anything
+    ///
+    /// Which makes it the *middle* case between a move (nothing changes
+    /// identity) and a delete (identities cease to exist), and the two
+    /// selections get two different answers:
+    ///
+    /// * the **page** selection follows its sheets, through
+    ///   [`crate::panels::pages::select::PageSelection::remap`] — the
+    ///   permutation states exactly where each one went, so clearing would
+    ///   throw away information the edit had in hand and make the reorder
+    ///   arrows unusable twice in a row;
+    /// * the **canvas** selection is cleared, because its entries carry a page
+    ///   *index* and this crate cannot rewrite them —
+    ///   `crate::canvas::selection::SelectionState` exposes no mutator for the
+    ///   page of an entry, and inventing one would put a second page-remapping
+    ///   rule in the module that owns object identity. Clearing is the honest
+    ///   answer and it is stated rather than silent.
+    ReorderPages {
+        /// The new order, as `order[new_position] = current_index`.
+        order: Vec<usize>,
+    },
+    /// **Write the operand pages out as a new standalone document.**
+    ///
+    /// Raised by `pages.extract`. The one page verb that changes **no**
+    /// document: `pdfce_core::pageops::extract` returns the complete bytes of a
+    /// freestanding PDF and the open session is not touched, which is exactly
+    /// what the Review mode's stance requires — `crate::panels::pages`' header
+    /// quotes the operator: *"an extraction writes a different file."*
+    ///
+    /// # ★ Why it is an action at all, when it mutates nothing
+    ///
+    /// For [`Self::SaveCopy`]'s reason and only that one: it opens a **native
+    /// save dialog**, and `crate::app::files::pick_save_path` carries a
+    /// frame-timing requirement dispatch cannot honour — `PdfceApp::central`
+    /// dispatches the canvas's context-menu tokens from inside
+    /// `egui::CentralPanel::show`, and a modal opened mid-layout blocks the
+    /// frame it is being drawn in. The apply phase is always outside every
+    /// closure. The page tile's context menu is dispatched from a panel body
+    /// rather than the canvas, but the rule is the surface's, not the caller's.
+    ExtractPages {
+        /// 0-based page indices, ascending and unique. **Order is honoured** by
+        /// the engine, so this is simultaneously "extract these pages" and
+        /// "extract them in this order"; the panel produces them ascending.
+        pages: Vec<usize>,
+    },
+}
+
 /// **Bring everything stated in page indices back into agreement with the
 /// session.**
 ///
@@ -640,6 +834,148 @@ fn suggested_path(doc: &OpenDoc) -> PathBuf {
     source
         .parent()
         .map_or_else(|| PathBuf::from(&name), |dir| dir.join(&name))
+}
+
+/// Apply one page verb, and do the invalidation it owes the shell.
+///
+/// ## ★ Why this takes `panels` as well as `doc`
+///
+/// Because the answer to *"what does this edit do to what is on screen?"* is
+/// **different for each of the five**, and three of the answers are about the
+/// Pages panel's own picks, which live on [`crate::panels::PanelsState`] rather
+/// than on the document:
+///
+/// | verb | canvas selection | panel picks |
+/// |---|---|---|
+/// | rotate | kept — nothing renumbers | kept |
+/// | reorder | cleared by the resync | **remapped** through the permutation |
+/// | delete | cleared by the resync | **cleared** |
+/// | insert | — | — (the view navigates instead) |
+/// | extract | — | — (no document changes at all) |
+///
+/// `vector_edit` cannot reach `PanelsState`, so the choice has to be made by
+/// the caller of it — and making it *here*, beside the bodies, is what keeps
+/// the table above in one place instead of spread across five arms in the
+/// interpreter.
+///
+/// ## ★ Every guard is on the EPOCH, not on a return value
+///
+/// A refused delete — the engine refuses removing every page, §7.7.3.3 — must
+/// leave the operator's selection exactly as they built it. Testing whether
+/// the epoch moved is what distinguishes *"the edit applied"* from *"the verb
+/// was called"*, and it is the one signal that is true for every path including
+/// a session that could not be borrowed.
+pub(super) fn apply(
+    doc: &mut OpenDoc,
+    panels: &mut crate::panels::PanelsState,
+    action: PageAction,
+) {
+    match action {
+        // ===============================================================
+        // ★ THE PAGE VERBS
+        //
+        // Four arms, each one call, because everything that could be a
+        // rule lives elsewhere: the operand list and the permutation in
+        // `crate::panels::pages::ops` (pure, unit-tested), the engine call
+        // and the disclosures in `super::pages`, and the four-step
+        // protocol in `vector_edit` — which now carries a fifth step that
+        // brings the page vector, the strip rasters, the canvas selection
+        // and the view back into agreement with the session.
+        //
+        // `page=` on the trace line is the FIRST operand rather than "the
+        // page", and `n=` is how many were named. There is no single page
+        // a multi-page verb is about; the first one is the honest answer
+        // and `n=` is the field that actually says what happened, exactly
+        // as `history_step`'s own docs argue for the undo case.
+        // ===============================================================
+        PageAction::RotatePages { pages, delta } => {
+            if !pages.is_empty() {
+                let first = pages.first().copied().unwrap_or(0);
+                super::apply::vector_edit(doc, "rotate-pages", first, pages.len(), |session| {
+                    rotate(session, &pages, delta)
+                });
+            }
+        }
+        // ★ **The destructive one**, and the one that renumbers.
+        //
+        // Two things happen here that no other arm needs, and both are
+        // about a *position* ceasing to mean what it meant:
+        //
+        // 1. `vector_edit`'s resync clears the **canvas** selection and
+        //    clamps the view — see `super::pages::resync`;
+        // 2. the **Pages panel's** picks are cleared here, because they
+        //    live on `self.panels` rather than on the document and
+        //    `vector_edit` cannot reach them.
+        //
+        // The panel's own `retain_below` would drop the picks that fell
+        // off the end on the next frame, and that is NOT sufficient: the
+        // pages that were deleted are exactly the ones that were picked,
+        // so the survivors of a clamp would be picks pointing at sheets
+        // that have shuffled down into their indices. Clearing is both
+        // correct and provable — every picked sheet is gone.
+        //
+        // Guarded on the epoch rather than on a return value, so the
+        // clear happens only for an edit that actually applied: a refused
+        // delete (the engine refuses removing every page, §7.7.3.3) must
+        // leave the operator's selection exactly as they built it.
+        //
+        // **No confirmation dialog.** `crate::app::save::save_pending` is
+        // the one predicate this application consults before a destructive
+        // path and it is about a save being in flight, not about unsaved
+        // work; the engine records this as an undoable command; and
+        // nothing reaches disk — the operator's file is untouched until
+        // they choose to save a copy. A modal here would be the only one
+        // in the application and would be asking about the one destructive
+        // act that is already reversible in the session.
+        PageAction::DeletePages { pages } => {
+            if !pages.is_empty() {
+                let first = pages.first().copied().unwrap_or(0);
+                let before = doc.edit_epoch;
+                super::apply::vector_edit(doc, "delete-pages", first, pages.len(), |session| {
+                    delete(session, &pages)
+                });
+                if doc.edit_epoch != before {
+                    panels.pages_mut().selection.clear();
+                }
+            }
+        }
+        // ★ **The middle case**: every page survives, and every index
+        // means a different sheet.
+        //
+        // The canvas selection is cleared by the resync; the panel's picks
+        // are **remapped** rather than cleared, because the permutation
+        // states exactly where each picked sheet went. See
+        // `crate::panels::pages::select::PageSelection::remap` for why the
+        // two selections get different answers to the same edit — and for
+        // why clearing here would make the reorder arrows unusable twice
+        // in a row, which is the one gesture they exist for.
+        PageAction::ReorderPages { order } => {
+            if !order.is_empty() {
+                let before = doc.edit_epoch;
+                super::apply::vector_edit(doc, "reorder-pages", 0, order.len(), |session| {
+                    reorder(session, &order)
+                });
+                if doc.edit_epoch != before {
+                    let landed = crate::panels::pages::ops::inverse(&order);
+                    panels.pages_mut().selection.remap(&landed);
+                }
+            }
+        }
+        // ★ The one page verb that goes nowhere near `vector_edit`: it
+        // changes no document, it opens a native save dialog, and it is an
+        // `Action` for `Action::SaveCopy`'s frame-timing reason and only
+        // that one. See `super::pages::extract`.
+        // ★ The one verb that reads a SECOND document, and the only page
+        // action whose consequence is a navigation rather than an
+        // invalidation: `insert_from_file` goes to what it inserted, because
+        // an operator who inserts four sheets wants to see them.
+        PageAction::InsertPagesFromFile {
+            path,
+            pages,
+            position,
+        } => insert_from_file(doc, &path, &pages, position),
+        PageAction::ExtractPages { pages } => extract(doc, &pages),
+    }
 }
 
 #[cfg(test)]

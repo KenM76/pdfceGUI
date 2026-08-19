@@ -60,6 +60,7 @@
 use egui::Ui;
 
 use crate::app::actions::Action;
+use crate::app::actions::pages::PageAction;
 use crate::text::pages as t;
 
 /// The dialog body's published region, for `ui-verify`.
@@ -202,11 +203,11 @@ impl InsertPagesDialog {
                     self.position(),
                 )
             });
-            actions.push(Action::InsertPagesFromFile {
+            actions.push(Action::Page(PageAction::InsertPagesFromFile {
                 path: self.path.clone(),
                 pages,
                 position: self.position(),
-            });
+            }));
             return false;
         }
         open && !std::mem::take(&mut self.close_requested)

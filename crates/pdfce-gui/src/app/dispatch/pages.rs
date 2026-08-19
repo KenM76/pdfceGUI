@@ -26,6 +26,7 @@
 
 use crate::app::PdfceApp;
 use crate::app::actions::Action;
+use crate::app::actions::pages::PageAction;
 use crate::app::state::Status;
 
 /// Whether this file owns `id`.
@@ -106,17 +107,17 @@ pub(super) fn dispatch(app: &PdfceApp, id: &str, actions: &mut Vec<Action>) {
             // promises.
             let delta = if id == "pages.rotate_left" { -90 } else { 90 };
             if let Some(pages) = app.page_operands() {
-                actions.push(Action::RotatePages { pages, delta });
+                actions.push(Action::Page(PageAction::RotatePages { pages, delta }));
             }
         }
         "pages.delete" => {
             if let Some(pages) = app.page_operands() {
-                actions.push(Action::DeletePages { pages });
+                actions.push(Action::Page(PageAction::DeletePages { pages }));
             }
         }
         "pages.extract" => {
             if let Some(pages) = app.page_operands() {
-                actions.push(Action::ExtractPages { pages });
+                actions.push(Action::Page(PageAction::ExtractPages { pages }));
             }
         }
         // ★ **The two move verbs, and the one arm in this family that can
@@ -166,7 +167,7 @@ pub(super) fn dispatch(app: &PdfceApp, id: &str, actions: &mut Vec<Action>) {
                 _ => 0,
             };
             match move_order(&pages, count, direction) {
-                Ok(order) => actions.push(Action::ReorderPages { order }),
+                Ok(order) => actions.push(Action::Page(PageAction::ReorderPages { order })),
                 Err(reason) => crate::diag::trace(|| {
                     format!(
                         // ui-text-exempt: diagnostic trace, never displayed.
