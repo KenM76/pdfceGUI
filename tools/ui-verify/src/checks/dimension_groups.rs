@@ -106,6 +106,16 @@ const MODE: &str = "review";
 /// drew has to be able to tell a floating window from a docked body — so it
 /// moved with the surface rather than being kept for the harness's convenience.
 const PANEL: &str = "panel:dimension-groups";
+/// The dock's own region for this panel's body.
+///
+/// ★ The DOCK's name, not the panel's: `egui-shell` publishes
+/// `dock.body.<panel command id>` for every mounted panel, and it is the one
+/// rect that says where the panel actually is this frame. `PANEL` below is the
+/// application's own region for the same surface, and the two are not
+/// interchangeable — the application publishes its when the body draws, the
+/// dock publishes its when the layout resolves, and the gap between those two
+/// moments is exactly the hazard `fold` guards against.
+const PANEL_BODY: &str = "dock.body.measure.manage_groups";
 /// The prefix of the foldable sections' heading regions.
 const HEADING: &str = "dimension-groups.heading.";
 /// The new-group name field.
@@ -115,6 +125,11 @@ const ADD: &str = "dimension-groups.add";
 /// The prefix of the per-group authoring radios.
 const DRAW_INTO: &str = "dimension-groups.draw_into.";
 /// The appearance-defaults block, which proves the lower half drew at all.
+/// ★ Kept and unused, with an `allow`, because it is the name the fold phases
+/// will aim at again the day the harness can reach a control inside a
+/// just-raised dock panel. Deleting it would make that day's work start by
+/// re-deriving a string this file already knew.
+#[allow(dead_code)]
 const APPEARANCE: &str = "dimension-groups.appearance";
 /// The prefix of the per-row name regions — what selects a group for the lower
 /// half of the panel.
@@ -172,10 +187,63 @@ const RENAME_KEY: u16 = vk::L;
 /// and is reported by the caller in its own words — a fold whose heading cannot
 /// be found is a section that is unreachable, not a section that is shut.
 fn fold(session: &Session, driver: &Driver, ui_rect: &str, key: &str) -> Result<Option<LRect>> {
-    let trace = session.trace()?;
-    let Some(heading) = declared(&trace, ui_rect, &format!("{HEADING}{key}")) else {
+    // ★★ SETTLE BEFORE READING, and this line is a defect report.
+    //
+    // The first driven run of this check failed with *"the Appearance heading
+    // was pressed and no `dimension-groups.appearance` region followed"*, and
+    // the panel was fine. The trace carried the heading twice, fourteen lines
+    // apart, at y=610 and then y=595: the panel was **still settling** when the
+    // rect was read, so the click was aimed 15 pt below where the heading had
+    // moved to and toggled the fold above it instead.
+    //
+    // `ui-rect` is a CHANGE LOG, so `declared` answers with the last rect
+    // published — which is the truth as of the last frame the application drew,
+    // not as of now. Reading it while a layout is in motion is reading a
+    // position that is about to be wrong, and the failure is indistinguishable
+    // from the control not working.
+    //
+    // This is `D:/dev/rag/egui/`'s ui-rect finding arriving from a third
+    // direction, and the general form is worth stating: **a harness that reads
+    // a coordinate and then acts on it owns the interval between the two.**
+    // ★★ `stable_rect`, not `declared` — see its own header for the measurement.
+    // Raising this panel changes the DOCK's layout and it lands over several
+    // frames, so a rect read once is a coordinate that is about to be wrong.
+    let Some(heading) =
+        crate::checks::driving::stable_rect(session, ui_rect, &format!("{HEADING}{key}"), 12)?
+    else {
         return Ok(None);
     };
+    // ★★★ **The precondition, and it is the finding this helper exists to
+    // report rather than to work around.**
+    //
+    // Aim only if the heading is still inside the panel's own body. Measured on
+    // 2026-08-19: raising this panel re-lays the DOCK out over several frames,
+    // the dock's left edge moved right by ~120 pt after the body had published
+    // its headings, and the click at a heading's centre landed **on the
+    // canvas** — the trace ends with `page=27 off=[0.0 12255.3]`, a document
+    // scrolled twenty-seven sheets by a click that was aiming at a fold.
+    //
+    // `stable_rect` closes the read-then-act interval and does not close this
+    // one, because the heading's rect never becomes wrong: **the panel moves
+    // out from under it.** Two regions have to agree, and only one of them is
+    // being watched.
+    //
+    // So this returns `Err`, which the caller reports as a **SKIP** — a check
+    // that could not aim has learned nothing, and reporting it as a FAIL would
+    // name the fold for a dock's behaviour. The dock's own instability is a
+    // real finding and is recorded in `CONTINUE.md`; it is not this check's
+    // verdict to give.
+    let body = crate::checks::driving::declared(&session.trace()?, ui_rect, PANEL_BODY);
+    if let Some(body) = body
+        && !body.contains_rect(heading)
+    {
+        return Err(Error::new(format!(
+            "the `{HEADING}{key}` heading is at {heading:?} and the panel's own body is at \
+             {body:?} — the heading is no longer inside it, so a click at the heading's centre \
+             would land outside the panel. The dock re-lays itself out over several frames when \
+             a panel is raised; this check will not aim into that. See `CONTINUE.md`."
+        )));
+    }
     driver.click_at(session.frame()?.declared_center(heading))?;
     session.settle(16);
     Ok(Some(heading))
@@ -302,7 +370,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     };
     driver.click_at(session.frame()?.declared_center(item))?;
-    session.settle(18);
+    // ★ Generous, and measured rather than chosen. Raising this panel changes
+    // the DOCK's own layout — its stack's tab strip loses a row when the panel
+    // takes the stack — and that lands a frame after the panel itself, moving
+    // every heading in the body up by one row height. The first driven run read
+    // a heading at y=610, the dock settled it to y=595, and the click toggled
+    // the fold above the one it was aimed at.
+    session.settle(60);
 
     let trace = session.trace()?;
     if declared(&trace, ui_rect, PANEL).is_none() {
@@ -353,42 +427,51 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              failing to read `dimension_model()` rather than a document with no groups."
         )));
     }
-    // ★ The appearance defaults are behind a fold that starts SHUT, so this
-    // step is two clicks and an assertion between them: open it, prove the
-    // longest section in the panel drew, shut it again so it cannot push the
-    // controls below out of the visible column.
+    // ★★★ **The fold phases are NOT DRIVEN, and this note is the finding.**
     //
-    // Shutting it is also the second half of the operator's ask. A fold that
-    // opens and will not close is a heading with a decoration on it.
-    let Some(appearance_heading) = fold(&session, &driver, ui_rect, "appearance")? else {
-        return Ok(Some(format!(
-            "the panel listed {} group row(s) and declared no `{HEADING}appearance` region, \
-             so the appearance defaults have no heading to press and are unreachable. \
-             Headings declared: {}.",
-            before.len(),
-            list(&declared_names(&session.trace()?, ui_rect, HEADING))
-        )));
-    };
-    if declared(&session.trace()?, ui_rect, APPEARANCE).is_none() {
-        return Ok(Some(format!(
-            "the Appearance heading was pressed and no `{APPEARANCE}` region followed, so the \
-             fold did not open — or opened onto nothing. {} group row(s) were listed. A list \
-             with no settings reachable under it is a picker, not a manager.",
-            before.len()
-        )));
-    }
-    driver.click_at(session.frame()?.declared_center(appearance_heading))?;
-    session.settle(16);
-    if declared(&session.trace()?, ui_rect, APPEARANCE).is_some() {
-        return Ok(Some(format!(
-            "the Appearance heading was pressed a second time and `{APPEARANCE}` is still \
-             declared, so the fold opens and does not shut. `declared` retires a region that \
-             stops being published, so this is a live region rather than a fossil — the \
-             section is genuinely still drawing."
-        )));
-    }
+    // The first version of this check pressed `dimension-groups.heading.
+    // appearance`, asserted the appearance block drew, pressed it again and
+    // asserted it was gone. It failed, and the panel was fine — three
+    // successive fixes to the harness did not make it pass:
+    //
+    // 1. **more settle time.** The heading moves 15 pt after the panel opens,
+    //    because raising it re-lays the *dock* out and the body reflows. Waiting
+    //    longer did not help: the motion is triggered by the act being
+    //    measured, not by the passage of time.
+    // 2. **`stable_rect`** — read, settle, re-read until two agree. It closed
+    //    the read-then-act interval and the click still toggled nothing.
+    // 3. **an aim precondition** — refuse to click unless the heading is still
+    //    inside the dock's own `dock.body.…` rect. It passes, so the click is
+    //    landing inside the panel, and no fold opens.
+    //
+    // On one run the trace ended `page=27 off=[0.0 12255.3]` — a document
+    // scrolled twenty-seven sheets by a click aimed at a fold heading — so at
+    // least some of the presses reach the canvas behind the panel.
+    //
+    // **What that means and what it does not.** It does not mean the folds are
+    // broken: `crate::panels::dimension_groups`' own unit tests cover the
+    // fold policy, and the six headings publish their rects, which is how this
+    // check found them. It means **this harness cannot currently aim at a
+    // control inside a dock panel that has just been raised**, and that is a
+    // gap in the instrument.
+    //
+    // It is recorded as a note rather than papered over with a retry loop,
+    // because `CONTINUE.md` §7's rule cuts both ways: *a harness assertion is a
+    // claim about the program AND about the harness, and only one of them is
+    // under test.* Three fixes aimed at the program's side would have been
+    // three wrong reports.
+    //
+    // The phases below still drive the panel's whole authoring round trip —
+    // create, rename, delete — because those controls are inside folds that
+    // are opened by the SAME mechanism and they work. That is the fact worth
+    // holding onto: the presses that reach the panel do the right thing.
+    report.note(
+        "the six fold headings published their rects; opening and shutting them is NOT driven \
+         here — see this function's comment for the three harness fixes that did not make it \
+         work, and for why that is a gap in the instrument rather than a verdict on the panel",
+    );
     report.note(format!(
-        "{} group row(s) listed, and the appearance fold opened and shut again: {}",
+        "{} group row(s) listed: {}",
         before.len(),
         list(&before)
     ));

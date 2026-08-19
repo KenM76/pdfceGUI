@@ -136,6 +136,59 @@ pub fn declared(trace: &Trace, ui_rect: &str, name: &str) -> Option<LRect> {
     if retired_after { None } else { Some(rect) }
 }
 
+/// **A region's rectangle, once it has stopped moving.**
+///
+/// Reads the region, settles, reads it again, and repeats until two consecutive
+/// reads agree — or until it gives up and returns the last one it saw.
+///
+/// # ★★ Why this exists, and it is a defect report
+///
+/// `ui-rect` is a **change log**: the application emits a line when a rect
+/// moves, so [`declared`] answers *where that control was as of the last frame
+/// the application drew*. That is exactly right for a settled window and
+/// exactly wrong for one in motion, and the difference is invisible — a stale
+/// coordinate is a number, not an error.
+///
+/// Measured, on `dimension_groups_panel_makes_a_group`, 2026-08-19: raising a
+/// dock panel changes the **dock's own** layout, and it lands over several
+/// frames. The check read a fold heading at `x=786..1009, y=610`, the dock
+/// then re-laid out, and by the time the click was injected the panel's left
+/// edge had moved past the point being aimed at — so the click landed **on the
+/// canvas** and the check reported the fold as broken. Adding settle time did
+/// not fix it, because the motion is triggered by the very act being measured
+/// rather than by the passage of time.
+///
+/// > **A harness that reads a coordinate and then acts on it owns the interval
+/// > between the two.** The only honest way to close that interval is to watch
+/// > the coordinate until it stops.
+///
+/// # Why it gives up rather than failing
+///
+/// A rect that never settles is a real state — an animation, a spinner, a
+/// progress bar — and this helper cannot know whether the caller is aiming at
+/// one. Returning the last observation lets the caller's own assertion produce
+/// the verdict, in its own words, with its own diagnosis. A `Result` here would
+/// make every call site handle a failure mode most of them cannot describe.
+pub fn stable_rect(
+    session: &Session,
+    ui_rect: &str,
+    name: &str,
+    tries: u32,
+) -> Result<Option<LRect>> {
+    let mut previous = declared(&session.trace()?, ui_rect, name);
+    for _ in 0..tries {
+        session.settle(8);
+        let now = declared(&session.trace()?, ui_rect, name);
+        // `None` twice is stable too, and is the honest answer for a region
+        // that is not on screen — the caller's own message is what says so.
+        if now == previous {
+            return Ok(now);
+        }
+        previous = now;
+    }
+    Ok(previous)
+}
+
 /// The last rect a region was published with **after** a given trace line,
 /// whether or not it has since been retired.
 ///
