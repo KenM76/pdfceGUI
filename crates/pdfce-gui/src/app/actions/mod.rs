@@ -837,6 +837,55 @@ pub enum Action {
     /// it in eight arms, and the day one of them got it wrong the symptom
     /// would be a stale number on a page the operator was not looking at.
     Dimension(dimensions::DimensionAction),
+    /// ★ **Set or clear one of the document's own information fields** —
+    /// `/Title`, `/Author`, `/Subject`, `/Keywords`.
+    ///
+    /// Raised by `crate::panels::properties::info` and by nothing else.
+    ///
+    /// # Why `Option<String>` and not `String`
+    ///
+    /// Because `None` is a different edit, not an empty one.
+    /// `EditSession::set_info_field(field, None)` **removes the key** from the
+    /// `/Info` dictionary; `Some("")` writes an empty string object. A
+    /// document with no title and a document whose title is the empty string
+    /// are different files, and the first is what an operator means by
+    /// deleting the contents of a box.
+    ///
+    /// Collapsing the two — taking a `String` and treating empty as clear —
+    /// would work today and would make the distinction unrepresentable, which
+    /// is the shape `pdfce-core`'s own `Some(Tolerance::None)` vs `None` note
+    /// warns about one feature along.
+    ///
+    /// # Why it goes through the funnel when the edit is one dictionary entry
+    ///
+    /// Not for size — for **ordering and the undo log**. It is a document
+    /// change like any other, and the funnel is what makes it appear once in
+    /// the command log, bump the epoch once, and be undone by one `Ctrl+Z`.
+    ///
+    /// ★ And the epoch bump is load-bearing here in a way it is not elsewhere:
+    /// the panel re-seeds its text drafts whenever the epoch moves, which is
+    /// what makes `Ctrl+Z` visibly restore the old value in the box. Applying
+    /// this outside the funnel would leave the box holding a string the
+    /// document no longer has, and the next focus change would write it back —
+    /// an undo the panel silently reverses.
+    ///
+    /// # A no-op writes nothing, and that is the ENGINE's rule
+    ///
+    /// `set_info_field` records **zero** undo entries when a field is set to
+    /// the value it already has, or cleared when it is already absent
+    /// (`docs/core-api/02-editing-and-saving.md` §T-13). The surface guards it
+    /// too — see `panels::forms::rows::commit`, which this action's raiser
+    /// calls — so a no-op cannot normally reach here at all. Both guards are
+    /// deliberate: the engine's makes it safe, and the surface's is what stops
+    /// tabbing through a field from looking like an edit.
+    SetInfoField {
+        /// Which field. The engine's own enum, carried unchanged, so a field
+        /// added to `pdfce-core` reaches this variant without a translation
+        /// layer that could grow its own opinion.
+        field: pdfce_core::edit::InfoField,
+        /// The new value, or `None` to remove the key entirely.
+        value: Option<String>,
+    },
     /// ★ **Mark the text the operator has selected** — underline, strikeout or
     /// squiggly.
     ///

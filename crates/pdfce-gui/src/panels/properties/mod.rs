@@ -108,6 +108,18 @@
 /// canvas selection became a second claimant on it. Its own header carries the
 /// argument for broadening this panel's purpose rather than inventing a ninth.
 mod dimension;
+/// ★ The **document's own** title, author, subject and keywords — the half of
+/// this panel `file.properties`' tooltip has commissioned since S3.
+///
+/// `pub` rather than private, unlike [`dimension`], because
+/// `crate::panels::PanelsState` holds its draft state: a `TextEdit` needs a
+/// `&mut String` that survives the frame, and a panel body is handed
+/// `&OpenDoc`, shared.
+///
+/// Its header records that this module's own claim — *"needs a `/Info`
+/// accessor that `pdfce-core` does not expose"* — was true when written and
+/// false when read.
+pub mod info;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
@@ -163,18 +175,42 @@ pub fn font_embedded(
 }
 
 /// Draw the Properties panel.
+///
+/// ## ★ Three sections, transient first, and the ordering is the design
+///
+/// | section | subject | when |
+/// |---|---|---|
+/// | [`dimension`] | the **ce dimension** selected on the canvas | only while one is |
+/// | [`object_section`] | the **page object** focused in the Objects tree | only while one is |
+/// | [`info`] | **the file itself** — title, author, subject, keywords | always, with a document open |
+///
+/// Transient *"what I am looking at right now"* above persistent *"what this
+/// file is"*, which is the same top-first-bottom-persistent ordering the
+/// Objects/Properties split already establishes in spirit. It is load-bearing
+/// rather than tidy: an operator who has just clicked a ce dimension is looking
+/// at the top of this panel, and putting its properties under a metadata form
+/// would put them below the fold.
+///
+/// ## Why the middle section is a function and the other two are not inlined
+///
+/// Because it has two early returns — no focus, and a focus naming an object
+/// that has gone — and an early return in `body` would skip the metadata
+/// section underneath it. That was the bug this split exists to make
+/// unwritable: the section that is *always* shown must not be reachable only
+/// through the section that usually is not.
 pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>) {
-    // ★ The contextual section goes FIRST, and it is the reason this function
-    // takes an action queue at all.
-    //
-    // Transient "what I am looking at right now" content above persistent
-    // content is the ordering the Objects/Properties split already establishes
-    // in spirit, and here it is load-bearing rather than tidy: an operator who
-    // has just clicked a ce dimension on the canvas is looking at the top of
-    // this panel, and putting its properties under a possibly long object form
-    // would put them below the fold.
     let drew_dimension = dimension::section(ui, doc, actions);
+    object_section(ui, doc, state, drew_dimension);
+    ui.separator();
+    info::section(ui, doc, state.properties_mut(), actions);
+}
 
+/// The focused page object's read-only facts.
+///
+/// `drew_dimension` is passed rather than re-derived so this function knows
+/// whether the panel is already saying something — see the *nothing focused*
+/// arm.
+fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, drew_dimension: bool) {
     let Some(index) = state.focus() else {
         // ★ Silent when the section drew, because it is not true otherwise. A
         // ce dimension selected on the canvas with nothing focused in the

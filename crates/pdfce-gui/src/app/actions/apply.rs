@@ -373,6 +373,26 @@ impl PdfceApp {
             // them together would put a document-wide raster clear one careless
             // edit away from every markup placed on the canvas.
             Action::Dimension(action) => super::dimensions::apply(doc, action),
+            // ★ One dictionary entry, through the same four-step protocol as a
+            // page rewrite — because the protocol is what makes an edit
+            // undoable, epoch-bumping and cache-invalidating, and a shortcut
+            // for a "small" edit is how one edit ends up outside the log.
+            //
+            // Page `0` with a note, as every document-scoped verb here passes:
+            // `/Info` is in the trailer and belongs to no page. The page
+            // reaches `vector_edit` only for the trace line.
+            //
+            // ★ Nothing is invalidated beyond the epoch, deliberately. Document
+            // metadata is not drawn on any page, so clearing rasters would
+            // throw away every cached page to no purpose — the one arm in this
+            // file where the *absence* of an invalidation is the decision.
+            Action::SetInfoField { field, value } => {
+                vector_edit(doc, "set-info-field", 0, 1, |session| {
+                    session
+                        .set_info_field(field, value.as_deref())
+                        .map(|()| Vec::new())
+                });
+            }
             // ★ The `Option` is `markup::Refusal::Mismatched` arriving at the
             // only place it can: a kind holding another family's geometry.
             //

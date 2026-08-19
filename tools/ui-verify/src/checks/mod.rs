@@ -171,6 +171,9 @@ pub mod page_ops;
 pub mod pages_drag;
 pub mod print_dialog;
 pub mod print_paper;
+/// The Properties panel's document-metadata half: a title typed into it
+/// reaches the file, and an undo takes it back out of the box too.
+pub mod properties_metadata;
 pub mod qat_icons;
 pub mod read_mode;
 
@@ -436,6 +439,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // that declares no regions. The tiles themselves declare regions as of
         // 2026-08-18, which is what made this possible.
         Box::new(pages_drag::PagesDragShowsWhereItLands),
+        // The Properties panel's document half, wired 2026-08-19 after a
+        // recorded blocker — "`pdfce-core` exposes no /Info accessor" — turned
+        // out to have cleared without the prose moving. Beside the page checks
+        // because it is the other surface that edits the DOCUMENT rather than
+        // a page's content.
+        Box::new(properties_metadata::PropertiesMetadataRoundTrips),
         // ★ Two ribbon clicks and one trace line — cheap, no capture, no
         // canvas gesture, no keystroke — so its position is chosen for what a
         // reader wants adjacent rather than for cost.

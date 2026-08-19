@@ -583,6 +583,18 @@ pub struct PanelsState {
     /// never meant for, and on this feature a search authors marks over whatever
     /// it hits.
     redact: redact::RedactUi,
+    /// The Properties panel's half-typed document metadata.
+    ///
+    /// Here for [`Self::pages`]' reason and one of its own: a `TextEdit` needs
+    /// a `&mut String` that survives the frame, and a panel body is handed
+    /// `&OpenDoc`, shared. It is also the operator's own typing rather than a
+    /// derived cache — this module's header draws exactly that line.
+    ///
+    /// ★ Reset with the document by [`Self::forget_document`], and that matters
+    /// more here than for a search term: a half-typed `/Author` carried into a
+    /// second file would be written into **that** file's metadata by the next
+    /// focus change, silently, in a field nobody looks at twice.
+    properties: properties::info::InfoDrafts,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -758,6 +770,15 @@ impl PanelsState {
     /// ability to hold one borrow for the frame.
     pub fn redact_mut(&mut self) -> &mut redact::RedactUi {
         &mut self.redact
+    }
+
+    /// The Properties panel's document-metadata drafts.
+    ///
+    /// Same shape as [`Self::pages_mut`] and [`Self::redact_mut`]: the body is
+    /// handed `&mut PanelsState` and reaches its own state through an
+    /// accessor, so the field stays private and no other panel can write it.
+    pub fn properties_mut(&mut self) -> &mut properties::info::InfoDrafts {
+        &mut self.properties
     }
 
     /// **The pages the operator has picked in the Pages panel.**
