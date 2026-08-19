@@ -1,8 +1,12 @@
 # CONTINUE — start here, then keep going
 
-**Rewritten 2026-08-19 at `880354c`, clean tree, gates 14/14, 1,452 tests.**
-**Newest portable build: `OneDrive\pdfceGUI1`.**
-**All six of the operator's standing complaints are closed. None is driven.**
+**Rewritten 2026-08-19 (evening) at `95fdb54`, clean tree, gates 14/14,
+1,497 + 379 + 144 tests, 48 driven checks — 43 verified, 5 skipped for a stated
+reason, 0 failed.**
+**Newest portable build: `OneDrive\pdfceGUI2`.** (`pdfceGUI1` holds the previous.)
+**All six of the operator's standing complaints are closed AND driven.**
+**Phase 1 is complete but for the object clipboard. Phase 5 is complete but for
+live re-layout.**
 
 You are the `pdfce-gui-engineer`. This file is the entry point when the
 operator types **“continue”** and nothing else. Read it, read the three files
@@ -41,6 +45,14 @@ He raised these on 2026-08-19 with *“I bring them up over and over again and
 they are still not dealt with.”* He was right. **This list outranks anything
 you or I think is more interesting.**
 
+★ All six are closed **and driven** as of the evening of 2026-08-19. He raised
+three more the same day — *“text editing on canvas still doesn't work”*, *“no
+cloud revision tool either”*, *“increase cache to maximum for page view”* — and
+all three are closed too. The first was a **real defect the driven checks
+missed** because they drove fixtures this repository generates; the second was
+already built and he was on an older build; the third was a cache that held
+only the visible page set, which is a frame buffer with extra steps. §7.
+
 | # | His words | State |
 |---|---|---|
 | 1 | *“the I cursor turns white for text selection so I cant see it on a white background”* | ✅ **done**, `277a040`. Two-tone I-beam, same fix the crosshair got |
@@ -54,98 +66,104 @@ you or I think is more interesting.**
 
 ## 3. What to do next, in order, without asking
 
-### 3.0 ★★ **DRIVE THE SUITE.** Everything below is second.
+### 3.0 The verification debt is PAID. Do not re-open it.
 
-**Six features shipped on 2026-08-19 and not one of them has been driven.**
-The operator was at the machine all day, so R1 — *verify by driving the binary,
-not by a passing test* — was suspended for a whole day's work. That is the
-largest verification debt this project has ever carried, and it is carrying it
-on the exact class of change R1 exists for: two new panels, a new dialog on the
-close path, a new markup kind, and a new ribbon row.
-
-Ask first — it needs the machine. Then:
+The morning of 2026-08-19 carried six undriven features. The evening drove
+them, and found **eight defects doing it** — every one invisible to 1,497
+passing tests, and three of them in the harness rather than the program.
+`ui-verify` is 48 checks now. Run it before you believe anything:
 
 ```bash
-cargo build --release -q -p pdfce-gui -p ui-verify
+cargo update -p pdfce-core -p pdfce-render -p pdfce-print
+cargo build --release -q
 cargo run --release -q -p ui-verify -- \
   --exe target/release/pdfce-gui.exe \
   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500
 ```
 
-Three checks were **rewritten and never run**:
+Two checks need the **node fixture** rather than the real drawing, and skip
+honestly on `SW41177.pdf` because its paths are two-anchor lines:
 
-| check | what changed |
-|---|---|
-| `dimension_groups_panel_makes_a_group` | drives a **panel**, presses fold headings, opens and shuts Appearance |
-| `markup_freehand_and_vertex_kinds` | phase F asserts `kind=Cloud` on `markup-commit` |
-| everything else in the right dock | the **Tool panel took the top stack in Review and Edit**, so every other panel's coordinates moved |
+```bash
+python tools/gen-node-fixture.py     # if fixtures/polyline-nodes.pdf is absent
+cargo run --release -q -p ui-verify -- \
+  --exe target/release/pdfce-gui.exe \
+  --pdf fixtures/polyline-nodes.pdf --doc-point 0,200,320 \
+  --check multi_node_move_moves_every_picked_anchor \
+  --check bezier_handle_drag_changes_a_curve
+```
 
-★ And the one check that does not exist yet is the one this day's work most
-needs. **A first-frame discoverability assertion**: launch, open the fixture,
-enter Edit, screenshot with **zero clicks**, assert the strings `Add text` and
-`Edit text` are on screen and inside the Tool panel's rect. That is the check
-that would have caught the defect the Tool panel was built for, and the one that
-proves it is fixed. A check asserting the panel *renders* would repeat the
-original failure exactly.
+**One check is a permanent SKIP with a written reason**:
+`dimension_groups_panel_makes_a_group`'s fold phases. Three harness fixes did
+not make them work and each would have been a wrong report about the program.
+The account is in the function. Do not "fix" it by adding a retry loop.
 
-Second: arm `edit.text`, click blank paper, assert `Refusal::NoRun`'s sentence
-is on screen in the panel. It fails today for want of somewhere to put it, which
-is the whole point.
+### 3.1 ⛔ The object clipboard — the only Phase 1 row left, and it IS blocked
 
-★★ And read the trace before believing any red. §4.2 and §7.
+Cut, copy, paste, paste-in-place. Re-measured 2026-08-19: `grep "pub fn"` over
+`edit.rs` returns **157 verbs and none of them inserts content** — no `paste`,
+no `duplicate`, no `insert_object`, no `add_path`. `insert_pages` is a
+different subject.
 
-### 3.1 ✅ Everything on the operator's list — done, none driven
+**Do not file a request for it yet.** Nothing is measured about how the
+operator wants paste to behave (in place? at the pointer? across a document
+close?) and the request would be inventing the requirement. Watch him want it
+first. The note in the channel says exactly this, so the engine is not waiting.
 
-`cbb3469` dimension groups · `c972dfd` revision cloud · `d33d228` Tool panel ·
-plus the I-beam and the measure hover from the morning.
+### 3.2 ⬜ `pages.merge_into` — unblocked, still unwired
 
-### 3.2 ⬜ `pages.merge_into` — unblocked yesterday, wire it
+`EditSession::merge_document`: one undo entry, session intact, fields arriving
+**fillable**, collisions **renamed** rather than refused. Pass 106.1 (engine
+commit `af12b31`) added the **navigation carry — destinations first**, so the
+"not carried yet" list has shrunk; re-read `2026-08-19-merge-that-keeps-your-undo-log.md`
+and `464e306` before writing the disclosure sentence.
 
-`EditSession::merge_document` shipped 2026-08-19: one undo entry, session
-intact, incremental save, fields arriving **fillable**, collisions **renamed**
-rather than refused. Verb 125, `docs/core-api/02-editing-and-saving.md`.
+**`fields_renamed > 0` must be disclosed.** A renamed field breaks any script,
+FDF or calculation keyed on the old name, and there is no other way to learn it.
 
-Two things to surface, both from the engine's own note:
+### 3.3 ⬜ Re-derive the fourteen `SCAFFOLDED` entries
 
-- **`fields_renamed > 0` must be disclosed.** A renamed field breaks any script,
-  FDF or calculation keyed on the old name, and the operator has no other way to
-  learn it happened.
-- **Not carried yet:** outlines, named destinations, page labels,
-  `/OCProperties`. They asked which matters most for a Merge UI and guessed
-  outlines. **Answer them** — it is a free choice about their schedule.
+The engine's standing ask, worth more than a feature request: *"if you have
+buttons parked on `command-unimplemented` because a verb exists but is the
+wrong SHAPE for an editor, those are ours. Send them."*
 
-★ And their standing ask, which is worth more than a feature request: *"if you
-have other buttons parked on `command-unimplemented` because an engine verb
-exists but is the wrong SHAPE for an editor, those are ours. Send them."*
-`SCAFFOLDED` has fourteen entries. Re-derive each one and send the shape
-problems.
+★★ **And do it with `D:\dev\rag\rust\a_missing_verb_is_often_an_existing_verb_you_did_not_decompose_the_operation_into.md`
+open.** Three features shipped on 2026-08-19 whose recorded blockers were
+**never true** — resize ("no scale verb": true, and irrelevant, because
+`move_nodes` takes per-node deltas and a scale is a list of them), multi-run
+text editing (the guard was refusing a shared *line*, which `FollowerDisposition::Pin`
+had always handled), and Bézier handles (`move_handle` had shipped in Pass
+30.1). Each blocker was produced by grepping the API for a verb whose **name**
+matched the operation. Read the whole verb list and the **enums**; both misses
+lived in parameter types.
 
-### 3.3 ⬜ The Format tab — the largest engine capability with no route here
+### 3.4 ⬜ The Format tab — still the largest capability with no route here
 
-`set_markup_style` takes `/C`, `/IC`, `/BS /W`, `/CA` and `/LE` on a **placed**
-annotation. This shell has **zero call sites**. Both of the blockers
-`manifest/format.rs` recorded are discharged — the verb landed 2026-08-18 and
-annotations became selectable the same day — so what is left is building the
-tab, which is work rather than a block.
+`RIBBON_IA.md` §5.8 specifies twenty-four property editors; the tab carries
+two. Both recorded blockers are discharged.
 
-`RIBBON_IA.md` §5.8 specifies twenty-four property editors and the tab currently
-carries two.
+★ Note that **markup restyle landed in the Properties panel instead**
+(2026-08-19) — colour, line width, opacity through `set_markup_style`. That was
+a considered placement, not a shortcut: Properties already appears on a
+selection and already reads the annotation. Decide deliberately whether the
+Format tab duplicates it, replaces it, or takes only the rows Properties
+cannot carry.
 
-### 3.4 ⬜ The disclosure gaps, in order of how badly they matter
+### 3.5 ⬜ The disclosure gaps, in order of how badly they matter
 
 1. **`Document::recovery()` is never called** (`NO_SURFACE.md` §3b). A document
    whose cross-reference table pdfce **rebuilt by scanning** opens with no
-   indication whatsoever. `last_wins_collisions` means two definitions of one
-   object existed and pdfce chose — the operator is looking at one of two
-   possible documents and has not been told there was a choice. Blocked on
-   nothing; the accessor and every field are `pub`.
-2. **11 of the engine's 65 render counters reach anyone** (§3c). Not "add 54
-   rows" — most are measurements. But `annotations_without_ap` means *a comment
-   is in the file and is not being drawn*, and on a drawing somebody is
-   reviewing that is worse than a colour being slightly off.
-3. **The pen has no surface in the Tool panel.** `Action::SetPen` is the route;
-   `panels::tool`'s header carries why a read-only swatch would be worse than
-   none.
+   indication. `last_wins_collisions` means two definitions of one object
+   existed and pdfce chose — the operator is looking at one of two possible
+   documents and has not been told there was a choice. Blocked on nothing.
+2. **11 of the engine's 65 render counters reach anyone** (§3c).
+   `annotations_without_ap` means *a comment is in the file and is not being
+   drawn*, which on a drawing under review is worse than a wrong colour.
+3. **The markup pen has no surface in the Tool panel.** Note the text pen
+   solved the same problem a different way — `canvas::textedit::pen` lives in
+   `egui::Memory`, so a panel reaches it through `ui.ctx()` with no plumbing,
+   which is exactly what `panels::tool`'s header says the markup pen cannot do
+   because it is a field on `PdfceApp`. **Move it, do not plumb it.**
 
 ## 4. Two things that are true and surprising
 
@@ -275,7 +293,24 @@ defect reports about working code**:
 | the measure hover “was missing” at a computed point | the point landed 135 pt away on blank paper |
 | the highlight “never retires” over blank paper | a CAD sheet has a drawing border; the corner is not blank |
 
-Two rules fell out of that and both are now in the RAG:
+★★ **The evening of the same day did it again, in the other direction and
+three times over** — and the whole point is that these were harness faults
+pointing at working code:
+
+| the check said | the truth |
+|---|---|
+| “the width was scrubbed and Apply committed nothing” | the trace showed the object's bounds going 317.87 → 358.00 eleven lines later. The oracle was `resize-commit`, which only the *gesture* route writes |
+| “the Node rung was never entered” | `double_click_at` was two calls to a settling `click_at`, putting **390 ms** between the presses — past `egui`'s compiled-in 300 ms threshold |
+| “1 anchor selected” after a Shift-pick | descending re-scopes the anchor marks; the trace shows a published rect moving x=393.9 → x=336.4 **because of the harness's own double click**, so the second aim was at a place the anchor had left |
+
+Out of which: **a harness may hold a coordinate for exactly as long as it
+performs no act that could move it** — three distinct causes in one day, all
+producing confident wrong reports. And: **do not compute a coordinate the
+application could publish**; a harness that derives a widget position by
+arithmetic can be wrong in the same direction as the code under test. Both are
+in `D:\dev\rag\egui\`.
+
+Two rules fell out of the morning and both are now in the RAG:
 
 1. **A harness assertion is a claim about the program *and* about the harness,
    and only one of them is under test.**
