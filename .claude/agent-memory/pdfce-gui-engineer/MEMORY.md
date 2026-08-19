@@ -8,3 +8,4 @@
 - [Always publish the latest build to OneDrive](feedback_always_publish_the_latest_build_to_onedrive.md) — `package-portable.py` after every keeper build; it alternates pdfceGUI1/2 itself, so the previous one survives.
 - [Refresh FEATURES.md before every release](feedback_refresh_features_md_before_every_release.md) — re-measure against the build, then package; he reads it to know what he has.
 - [Never defer on an external blocker](feedback_never_defer_on_an_external_blocker.md) — decompose the operation into verbs that exist; three "blockers" were never real.
+- [Use the conventional interaction, never invent one](feedback_use_the_conventional_interaction_never_invent_one.md) — the convergence of the product class IS the spec; an invented model is a defect even when it works.

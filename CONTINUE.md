@@ -1,7 +1,7 @@
 # CONTINUE — start here, then keep going
 
-**Rewritten 2026-08-19 (evening) at `95fdb54`, clean tree, gates 14/14,
-1,497 + 379 + 144 tests, 48 driven checks — 43 verified, 5 skipped for a stated
+**Rewritten 2026-08-19 (late) at `c95ed91`, clean tree, gates 14/14,
+1,506 + 379 + 144 tests, 51 driven checks — 45 verified, 6 skipped for a stated
 reason, 0 failed.**
 **Newest portable build: `OneDrive\pdfceGUI2`.** (`pdfceGUI1` holds the previous.)
 **All six of the operator's standing complaints are closed AND driven.**
@@ -39,14 +39,54 @@ shipped inside a day on 2026-08-19.
 
 ---
 
+## 1b. ★★★ READ THIS BEFORE DESIGNING ANYTHING
+
+The most expensive finding of this project, and it arrived on 2026-08-19 after
+six features had shipped that day:
+
+> *"The selector should be predictable like other programs. It seems a lot of
+> ideas are getting invented instead of just using the LLM weighting that would
+> have produced the most common method expected."*
+
+He was reporting a canvas he could not edit text on, add text on, or move points
+on. **Every one of those features already worked.** What was invented was
+*reaching* them — four ribbon steps to type a character, a two-double-click
+descent to reach an anchor with nothing drawn saying a deeper level existed.
+
+Each decision behind that had a written justification and most were locally
+sound. **You do not catch this by reviewing the decision.** You catch it by
+noticing the result resembles no program the operator has used.
+
+So, standing, before any interaction is designed:
+
+1. **What do Illustrator, Inkscape, Acrobat, Word and the OLD shell do?** If
+   they agree, that is the answer. The convergence is the specification.
+2. **Two tells that the model is wrong rather than the docs thin:** the feature
+   works and nobody can find it; and *you are proud of the model*. Elegance in
+   an interaction is a warning sign — its value is almost entirely in how little
+   has to be learned.
+3. **A usability complaint that is cheap to fix is evidence the DESIGN was
+   wrong**, not the implementation. This one took hours because the machinery
+   was all there.
+
+Full write-up: `D:\dev\rag\egui\an_invented_interaction_model_is_a_defect_even_when_every_part_of_it_works.md`.
+
+---
+
 ## 2. The operator's own list, verbatim, and what is left of it
 
 He raised these on 2026-08-19 with *“I bring them up over and over again and
 they are still not dealt with.”* He was right. **This list outranks anything
 you or I think is more interesting.**
 
-★ All six are closed **and driven** as of the evening of 2026-08-19. He raised
-three more the same day — *“text editing on canvas still doesn't work”*, *“no
+★ All six are closed **and driven** as of 2026-08-19. He raised **nine** more
+that day and all nine are closed: the three below, plus *"can't select and edit
+end points"*, *"can't type when I click text"*, *"can't make new text where I
+click"*, *"standard copy/paste and cut aren't implemented"*, *"can't drag and
+drop a jpg"*, and *"the insert image button doesn't insert it either"* — the last
+of which was **false**, and is the finding in §1b's companion RAG entry: the
+button worked, and the silent drop failure beside it took its credibility. He
+raised three earlier the same day — *“text editing on canvas still doesn't work”*, *“no
 cloud revision tool either”*, *“increase cache to maximum for page view”* — and
 all three are closed too. The first was a **real defect the driven checks
 missed** because they drove fixtures this repository generates; the second was
@@ -68,10 +108,8 @@ only the visible page set, which is a frame buffer with extra steps. §7.
 
 ### 3.0 The verification debt is PAID. Do not re-open it.
 
-The morning of 2026-08-19 carried six undriven features. The evening drove
-them, and found **eight defects doing it** — every one invisible to 1,497
-passing tests, and three of them in the harness rather than the program.
-`ui-verify` is 48 checks now. Run it before you believe anything:
+51 driven checks; 45 verified and 6 skipped on the last full run. Run it before
+believing anything:
 
 ```bash
 cargo update -p pdfce-core -p pdfce-render -p pdfce-print
@@ -81,7 +119,7 @@ cargo run --release -q -p ui-verify -- \
   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500
 ```
 
-Two checks need the **node fixture** rather than the real drawing, and skip
+Two checks want the **node fixture** rather than the real drawing, and skip
 honestly on `SW41177.pdf` because its paths are two-anchor lines:
 
 ```bash
@@ -93,22 +131,39 @@ cargo run --release -q -p ui-verify -- \
   --check bezier_handle_drag_changes_a_curve
 ```
 
-**One check is a permanent SKIP with a written reason**:
-`dimension_groups_panel_makes_a_group`'s fold phases. Three harness fixes did
-not make them work and each would have been a wrong report about the program.
-The account is in the function. Do not "fix" it by adding a retry loop.
+★ **`PDFCE_UIV_IMAGE` points the two image checks at a real file** instead of a
+PNG the harness encodes itself. Use it — that seam exists because
+`insert_image_places_a_picture` passed for weeks on harness-authored PNGs while
+the operator was reporting **jpg**. Same fixture trap that hid the text-editing
+defect:
 
-### 3.1 ⛔ The object clipboard — the only Phase 1 row left, and it IS blocked
+```bash
+PDFCE_UIV_IMAGE=D:/Dev/temp/pdfce/fixture.jpg cargo run --release -q -p ui-verify -- \
+  --exe target/release/pdfce-gui.exe --pdf D:/Dev/temp/pdfce/SW41177.pdf \
+  --check insert_image_places_a_picture \
+  --check a_dropped_image_reaches_the_placement_window
+```
 
-Cut, copy, paste, paste-in-place. Re-measured 2026-08-19: `grep "pub fn"` over
-`edit.rs` returns **157 verbs and none of them inserts content** — no `paste`,
-no `duplicate`, no `insert_object`, no `add_path`. `insert_pages` is a
-different subject.
+**One phase is a permanent SKIP with a written reason**:
+`dimension_groups_panel_makes_a_group`'s folds. Three harness fixes did not make
+them work and each would have been a wrong report about the program. The account
+is in the function. Do not "fix" it with a retry loop.
 
-**Do not file a request for it yet.** Nothing is measured about how the
-operator wants paste to behave (in place? at the pointer? across a document
-close?) and the request would be inventing the requirement. Watch him want it
-first. The note in the channel says exactly this, so the engine is not waiting.
+### 3.1 🔨 The object clipboard — half built, and the other half is blocked
+
+Cut, copy and paste ship for **markup and comments** (`spec_from_dict` out,
+`add_markup` back). **Page content cannot be pasted** — 157 verbs in `edit.rs`
+and none inserts any, re-measured 2026-08-19.
+
+**Do not file a request for the content half yet.** Nothing is measured about
+how the operator wants it to behave and the request would be inventing the
+requirement. The note in the channel says exactly that, so the engine is not
+waiting.
+
+★ Worth re-reading before adding anything: `add_image` **exists**, so pasting an
+*image* may be expressible — what is missing is an accessor that reads one back
+out of a page. That is a small, well-shaped engine ask if the operator ever
+wants it.
 
 ### 3.2 ⬜ `pages.merge_into` — unblocked, still unwired
 
@@ -167,30 +222,45 @@ cannot carry.
 
 ## 4. Two things that are true and surprising
 
-### 4.1 Text on canvas EXISTS and he cannot find it
+### 4.1 ★★★ "It exists and he cannot find it" was the WRONG diagnosis, twice
 
-`edit.text` and `edit.add_text` are registered, on the Edit tab, bound to
-`Ctrl+E` and `Ctrl+Shift+E`, and **two driven checks pass on them**
-(`add_text_takes_real_keystrokes`, `text_edit_pins_an_aligned_tail`).
+This section used to read: *"`edit.text` and `edit.add_text` are registered, on
+the Edit tab, bound to `Ctrl+E`, and two driven checks pass on them. So this is
+not a missing feature. It is a **discoverability defect** … Do not 'build text
+editing'."*
 
-So this is not a missing feature. It is a **discoverability defect**, which is
-this project's founding failure wearing different clothes, and I marked it
-green. Do not “build text editing”.
+Every fact in that was true. **The conclusion was wrong**, and it was wrong in a
+way worth keeping the paragraph to demonstrate.
 
-★ **`panels::tool` shipped as the fix on 2026-08-19 (`d33d228`) and nothing has
-confirmed it works.** It names both tools, in Edit, in the default arrangement,
-above the fold, with their chords and their ribbon tab — and the claim that this
-makes them *findable* is exactly the kind of claim this project has been wrong
-about before. §3.0's first-frame check is what would settle it.
+Calling it a *discoverability* defect frames the remedy as **telling the
+operator where the feature is** — which is what the Tool panel did, on
+2026-08-19, listing both text tools with their chords and their ribbon tab. He
+came back the same day and said he still could not type.
 
-★★ And the likeliest **actual** cause is one layer down and is also unproven:
-`text::textedit::refusal` writes three good sentences, has three passing tests,
-and was aimed at a status row its own module says R128 forbids growing.
-`Refusal::SpansRuns` is 47 words. On a dense CAD sheet the first click lands
-where the operator *wants* text rather than where text *is*, so `NoRun` is the
-likely first outcome — and a decline nobody can read teaches somebody the
-feature does not exist. The Tool panel's third block is where those sentences
-now go. **That** is the thing to drive.
+The actual defect was that reaching the feature took **four steps** (Edit mode →
+Edit tab → *Edit text* → click) and that the I-beam he saw belonged to a
+*different* tool that sweeps text. No amount of signposting fixes a
+four-step-ritual; **the ritual is the defect**. The remedy was to delete it: one
+text tool, `T`, click to edit, click empty space to start new text.
+
+Two lessons, and the second is the reusable one:
+
+1. **"It works and nobody can find it" is never a documentation problem.** If a
+   panel has to explain how to reach something, the route is wrong.
+2. **A diagnosis that names a category also names a class of remedy.** Calling
+   this "discoverability" made a *labelling* fix feel like the answer for three
+   weeks. Naming it "the route is four steps and no other program's is" would
+   have produced the right fix on day one.
+
+Both are in `D:\dev\rag\egui\an_invented_interaction_model_is_a_defect_even_when_every_part_of_it_works.md`,
+and §1b is the short form.
+
+★ The related half that **was** real and is now fixed: `text::textedit::refusal`
+wrote good sentences aimed at a status row `R128` forbids growing, and
+`SpansRuns` — 47 words — fired on nearly every click on a CAD title block,
+because the guard was refusing a shared *line* rather than a genuine multi-run
+edit. That refusal is gone (the neighbours are pinned instead) and the remaining
+sentences have the Tool panel's third block to live in.
 
 ### 4.2 The suite is not deterministic
 
