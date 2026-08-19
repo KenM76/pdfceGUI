@@ -10,21 +10,39 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `9da6e6e`
+## ★★★ State, as measured at `d663fe4`
 
 **This table is a reading, not a status.** Every row is what a command
 printed at that commit; the tree has moved since, and the numbers move with
 it. It is here so you know roughly where you are, not so you can quote it.
 
+### ★★ Read this row first: three surfaces landed 2026-08-18 and NONE has been driven
+
+R1 is the rule this project was founded on, and this is where it currently
+stands **unpaid**. All three are gate-clean and unit-tested; none has been
+exercised by a running window, because the harness drives the real desktop
+and needs the operator off the machine.
+
+| surface | commit | its check |
+|---|---|---|
+| **Manage dimension groups** — the window, and the *Draw into* picker that `MeasureState::group` never had a writer for | `289957d` | `dimension_groups_window_makes_a_group` — **written, never run** |
+| **Drag a page, see where it lands** — an insertion caret, dimmed where the drop would change nothing | `df2b16f` | `pages_drag_shows_where_it_lands` — **written, never run** |
+| **The selected ce dimension's own settings** — eleven cascade properties, tolerance, radius ↔ diameter | `cd63749` | **none written.** It needs a document that already *contains* a ce dimension, which today means placing one first |
+
+```bash
+cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
+  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 > evidence/ui-verify-run.txt 2>&1
+```
+
 | | |
 |---|---|
-| **Measured at** | `9da6e6e`, clean tree |
-| **Engine** | `D:\Dev\pdfce` local `main`, locked at `e13f8ed`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"` |
-| **Tests** | 1,868 passing, 0 failing |
+| **Measured at** | `d663fe4`, clean tree |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as `git = "file:///D:/Dev/pdfce", branch = "main"`. **Read `Cargo.lock`, not this row** — the engine repo moved four times during one session |
+| **Tests** | 1,367 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | **31 passed · 0 failed · 2 skipped** — the first fully green run this project has had. Four checks are new. Both skips are honest and named |
-| **Latest build** | `D:\builds\pdfcegui-20260818-1754-6af5655-e5c7918\`, mirrored to `OneDrive\pdfceGUI2`. **About now names its own build time and the engine revision inside it** — open it and read the Build block rather than trusting this row |
-| **Requests owed by pdfce** | **one open** — `request_insert_pages_leaves_orphaned_widgets…`, filed 2026-08-18. A correctness report, not a feature |
+| **`ui-verify`** | **33 checks declared, and the two newest have never been run.** The last full run was 31 passed · 0 failed · 2 skipped at `dac3b3f`, which was *before* three surfaces landed |
+| **Latest build** | **rebuild it, with `--verify`.** The `D:\builds\` package at the time of writing was taken from a dirty tree *and* while the engine had moved, and `package-portable.py`'s own warning says so on the run. **About names its own build time and engine revision** — open it and read the Build block rather than trusting this row |
+| **Requests owed by pdfce** | **three open** — the insert / orphaned-widgets correctness report, plus two filed 2026-08-18 about ce-dimension **groups**: a group cannot be renamed or deleted, and a placed ce dimension cannot be moved between groups. The first carries a same-day addendum for the **unit**, which is the same hole and which the original request missed |
 
 ## ★★ The harness — last run 2026-08-18, and what it found
 
