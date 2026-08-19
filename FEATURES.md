@@ -24,10 +24,10 @@ the blocker named.
 | | |
 |---|---|
 | **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons, settings) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) · **Phase 5** (text editing incl. lines shared with other runs; aligned and rotated tails; new text with a font, size and colour; live re-layout blocked on the engine) · **Phase 1 complete but for the clipboard** (selection, move, resize by grip and by typed number, multi-node move, Bézier handles) · **Phase 6** (markup substrate, **eight kinds** including the revision cloud, text markup, Comments panel) · **Phase 7** (measure: Linear, Two-line, Radius/diameter, snapping, dimension groups) · **the mode gate** (Read is genuinely read-only, canvas *and* keyboard) |
-| **Tests** | 1,497 (GUI) + 379 (egui-shell) + 144 (ui-verify) passing, 0 failing · **48 driven checks**, of which 43 verified on the last full run against `SW41177.pdf` and 5 skipped for a stated reason |
+| **Tests** | 1,506 (GUI) + 379 (egui-shell) + 144 (ui-verify) passing, 0 failing · **51 driven checks**, of which 45 verified on the last full run against `SW41177.pdf` and 6 skipped for a stated reason |
 | **Gates** | 14 of 14 checks, 0 skipped — eight gate scripts, five of them carrying a self-test that catches its own planted violations, plus `fmt` and `clippy` |
 | **Source** | ~215,000 lines across three crates and the harness |
-| **Commands** | 98 registered · 77 declared-and-deferred (`PLANNED`) · **14 registered-but-inert** (`SCAFFOLDED`), five of which breach P3 by being drawn at all |
+| **Commands** | 103 registered · 74 declared-and-deferred (`PLANNED`) · **14 registered-but-inert** (`SCAFFOLDED`), five of which breach P3 by being drawn at all |
 | **Panels** | **12** — Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · **Tool** |
 | **Ribbon surface built** | ~55 % of `RIBBON_IA.md` §5 · 31 groups |
 
@@ -163,12 +163,75 @@ now written as a dated citation rather than as a verdict. See `NO_SURFACE.md`
 | ⬜ | **`pages.merge_into`** — unblocked 2026-08-19 by `EditSession::merge_document`: one undo entry, session intact, fields arriving fillable, collisions **renamed** rather than refused. Two things to surface when it is wired — `fields_renamed > 0` breaks any script, FDF or calculation keyed on the old name and the operator has no other way to learn it happened; and outlines, named destinations, page labels and `/OCProperties` are **not** carried yet |
 | ⬜ | **Scoped reset chooser** — reset currently applies `All`; the scoped variants need three commands and a split-button item kind |
 
+### ★★★ The selector was invented, and that was the real defect — 2026-08-19
+
+The operator, on week two:
+
+> *"How do I select and edit end points on the canvas? How do I edit text when
+> on the canvas? I get a box and the I cursor, but I can't type anything. How do
+> I make new text when I click on the canvas and expect to edit there? Same
+> problem. … Even though the old GUI was wonky and buggy it at least had these
+> features somewhat operational within the first week. … **The selector should
+> be predictable like other programs. It seems a lot of ideas are getting
+> invented instead of just using the LLM weighting that would have produced the
+> most common method expected.**"*
+
+He is right on every count, and the last sentence is the finding of the project
+so far. **Both features already worked. Reaching them was invented.**
+
+| to do this | the ritual, before 2026-08-19 |
+|---|---|
+| type one character | Edit mode → the Edit tab → *Edit text* → click the run. **Four steps.** |
+| move an end point | click the shape → double-click to descend to a subpath → double-click again to descend to a node — with **nothing drawn at any stage** saying a deeper rung existed |
+
+The I-beam he describes was the text tool **sweeping** text for copying; the
+tool that types was a different tool on a different tab. Neither ritual is
+discoverable and neither resembles any program he has used.
+
+**The fix is the one every editor settled on decades ago: the tool is the rung.**
+
+| | | |
+|---|---|---|
+| ✅ | **V — Select** | click a shape, drag to move, drag paper to marquee |
+| ✅ | **A — Points** | click a shape and **every point appears at once**; click one, Shift-click for more, drag to move; a point on a curve shows its Bézier handles |
+| ✅ | **T — Text** | click text to edit it, click empty space to start new text; drag still sweeps for copying |
+| ✅ | **H — Hand** | pan |
+
+Bare letters, because that is the layout Illustrator, Photoshop, InDesign,
+Figma, Affinity and Inkscape converged on, and this shell binds no bare letter
+to anything else. Safe because `canvas::keys` gates every keystroke on
+`text_edit_focused()` — `DEFECTS.md` D1's guard, the one place this project has
+already been burned and fixed.
+
+★ `SelectionState::click_direct` is the new entry point and is deliberately
+**not** a flag inside `click`: the two branch differently at every decision.
+The single line doing most of the work sets the **Part** rung on a click that
+names a subpath, because `draw_anchors` draws from that rung up — so entering it
+*is* showing them. ★ `textedit::click` was `resolve_run(click)?`, a bare `?`, so
+a click on blank paper refused and did nothing; `NoRun` now becomes an origin
+and one tool does both. Only `NoRun` falls through — an encrypted document is
+still reported, because that says *this cannot be done here* rather than *there
+is nothing here*.
+
+★★ **Two driven checks assert the COUNT**, which is the whole feature: one key,
+one click. A check that armed the tool from the ribbon and then clicked would
+pass on the old build too — the old build could do all of that, it just took
+four steps to get there.
+
+★ **Drag-and-drop**, reported in the same breath, did nothing at all — nothing
+read `dropped_files`. A PDF now opens, an image inserts through the same
+placement window the ribbon opens, and every refusal says what to do instead.
+**It made a working Insert-image button look broken**, because both were tried
+in the same minute and only one of them said anything: a silent failure does not
+just hide its own feature, it takes the credibility of everything tried beside
+it.
+
 ### Phase 1 remainder — making selection mean everything it should
 
 | | |
 |---|---|
 | ✅ | **★★ Resize — 2026-08-19, and the blocker was a category error.** This row read *"`EditSession` has the whole `move_*` family and no scale verb at all"*, which is true and was never the question. **`move_nodes` takes a list of per-node deltas, and a scale IS a list of per-node deltas** — `d = (p − pivot) × (s − 1)`, computed once per anchor from the grip's opposite corner. The engine has had the whole capability since the day it shipped the verb; what was missing was arithmetic in this shell. ★ **Three defects, all found by DRIVING it and none reachable by a test.** (1) The drag became a **marquee**: `hovered_grip` read the *current* pointer, and by the frame `egui` calls a press a drag the pointer is ~20 pt from an 8 pt grip — it now reads `press_origin`, which is what the operator aimed at. (2) It scaled about the **dragged** corner, because `Grip::anchor` is where the handle is drawn and a pivot is the opposite one; `Grip::pivot` is now its own method with a test relating the two. (3) Commit returned `NoObjectModel` — `Resize` was missing from `needs_targets`, so the gesture ran on a canvas that had never been asked for a target provider. ★ **Six refusals, each a sentence rather than a silence** — nothing selected, more than one object, not a path, no object model, a degenerate box, no nodes — on the same status row the text tools use, because *"that grip was declined and you could not read why"* is the defect shape this project keeps finding. **Text runs and annotations decline**: scaling a run by moving its nodes would move the glyph origins and leave the type size untouched, which is a shear, not a resize. **Line weights do not scale and it says so**, once, off-canvas — `/LW` is not a node |
-| ⛔ | **Object clipboard** — cut, copy, paste, paste-in-place. **The one Phase 1 row with a real engine blocker**, and it was re-measured on 2026-08-19 rather than inherited: `grep "pub fn"` over `edit.rs` returns 157 verbs and **none of them inserts content** — no `paste`, no `duplicate`, no `insert_object`, no `add_path`. `insert_pages` inserts whole pages, which is a different subject. Copy is expressible (the decomposition can be read), so what is missing is exactly the half that writes. Filed as a dated citation rather than a verdict, per `NO_SURFACE.md` §1c |
+| 🔨 | **Object clipboard — cut, copy and paste land 2026-08-19**, scoped to **markup and comments**, on the operator's report *"also the standard copy/paste and I didn't try cut so possibly that one too aren't implemented"*. ★ The scope is what the engine can express, measured rather than assumed: `annot_author::spec_from_dict` reads a markup out and `add_markup` writes one back, so the round trip is complete for the things this operator actually copies between sheets — clouds, notes, stamps, callouts. `Ctrl+X`/`Ctrl+C`/`Ctrl+V`, and `Ctrl+C` over swept **text** still copies text because `textsel` reads the key before the dispatcher sees it. A same-page paste offsets 10 pt so the copy is visible; a **cross-page** paste lands in place, because a cloud copied to sheet 12 belongs where it was on sheet 1. The spec translation is an **exhaustive match**, so a tenth `MarkupSpec` in the engine fails to *compile* here — a paste that silently stopped offsetting for one annotation kind would be a defect nobody reports. Edit ▸ Clipboard is back (32 groups); its 2026-08-14 deletion note ended *"the next author of an object clipboard needs the word — which is right here"*, and that is literally what happened. **`paste_in_place` stays absent and is now argued rather than pending**: it would differ from `Ctrl+V` only on the one page an operator would never want it on. ⛔ **Page content still cannot be pasted**, and it was re-measured on 2026-08-19 rather than inherited: `grep "pub fn"` over `edit.rs` returns 157 verbs and **none of them inserts content** — no `paste`, no `duplicate`, no `insert_object`, no `add_path`. `insert_pages` inserts whole pages, which is a different subject. Copy is expressible (the decomposition can be read), so what is missing is exactly the half that writes. Filed as a dated citation rather than a verdict, per `NO_SURFACE.md` §1c |
 | ✅ | **Restyling a placed markup — 2026-08-19.** Colour, line width and opacity, through `EditSession::set_markup_style`, on a **selected annotation**. ★ It landed in the **Properties panel** rather than the Format tab, and that is a considered placement rather than a shortcut: Properties is already the surface that appears when something is selected and already reads the annotation, so a second surface with the same trigger and the same subject would be two controls for one job. `MarkupStyle`'s fields are all `Option`, so **only what the operator touched is sent** and everything else is left alone — which matters because `StyleEdit::Clear` and "unchanged" are different edits and a struct of plain values cannot tell them apart. ★ **The reader's view of an annotation is not the author's** and this is where that bites: `annot::Annotation` carries `constant_alpha` but neither `/C` nor `/BS /W`, so the current colour and width are read back through `annot_author::spec_from_dict` — the author's view — and the opacity off the dict. CMYK stroke colours read back as **no swatch** rather than as a converted approximation, because showing a converted colour in a picker invites the operator to press Set and silently rewrite an ink they never touched |
 | ✅ | **★ Editable geometry — 2026-08-19**, and it landed the day after the grips out of the same machinery: a position change is `Action::MoveSelection` and a size change is `resizing::action`, so this surface computes two factors and a delta and contributes **no geometry of its own**. A properties panel that reimplemented *"make it 40 points wide"* would be a second scale with a second pivot convention and a second answer about line weights, and the two would drift silently. ★ **Why it is needed even though the grips work**: a grip cannot express *exactly 40.0*, and a drawing is full of *"the same as the one above it"*. It is also the only route for a **small** object — at fit-page zoom on an A1 sheet a 6 mm symbol is four pixels across and its eight grips overlap each other — and the only route that does not require a sub-pixel drag, which `MODES_AND_PANELS.md` §7 asks for by name. ★★ **An Apply button, not live commits**: a scrubbed spinner going 40 → 120 would raise eighty undo entries, which is `MoveNodes`' own argument about looping the singular verbs wearing a nicer face. The draft is stamped `(page, object, **edit epoch**)` and the epoch is the member that is easy to leave out — without it, *type W=40, Ctrl+Z something unrelated, press Apply* divides 40 by a width that no longer exists and the object ends a third size the operator never typed. Bounds come from the object's **anchors**, the same set `move_nodes` moves, so the number shown and the number acted on cannot disagree; a flat object scales only the axis it has, because `h_new / 0` is how a NaN reaches a content stream |
 | ⬜ | **Undo/redo** — the action funnel exists precisely so this is possible; the command log is not yet surfaced |
