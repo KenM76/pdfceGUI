@@ -336,6 +336,37 @@ impl PdfceApp {
             // is what its trace line reports as the operand size. That is the
             // honest figure for this edit — one object, many points — and it is
             // the number a reader comparing a trace against a drag would want.
+            // ★ A handle drag, and the only vector edit in this crate whose
+            // RETURN VALUE is a disclosure rather than a count.
+            //
+            // `move_handle` answers with a list of sentences that is empty
+            // unless a `v`/`y` segment had to be re-spelled as `c` — see the
+            // variant's own docs. The curve draws identically either way, so
+            // this is an inference the operator cannot see, which is exactly
+            // the case rule 4 says still owes an off-canvas report.
+            Action::MoveHandle {
+                page,
+                object,
+                node,
+                handle,
+                to,
+            } => {
+                // `said` is filled by the closure and read after it, because
+                // `vector_edit` owns the borrow of the session and the note has
+                // to be recorded against the epoch the edit produced — which
+                // does not exist until `vector_edit` has returned.
+                let mut said = Vec::new();
+                vector_edit(doc, "move-handle", page, 1, |session| {
+                    let out = session.move_handle(page, object, node, handle, to);
+                    if let Ok(disclosures) = &out {
+                        said.clone_from(disclosures);
+                    }
+                    out
+                });
+                for sentence in said {
+                    crate::app::actions::record_note(doc.edit_epoch, sentence);
+                }
+            }
             Action::MoveNodes {
                 page,
                 object,

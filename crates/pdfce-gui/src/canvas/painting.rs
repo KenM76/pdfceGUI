@@ -70,6 +70,16 @@ pub(super) struct Frame<'a> {
     pub marquee: Option<Rect>,
     /// The move ghost's canvas-space displacement, if a move would commit.
     pub ghost: Option<egui::Vec2>,
+    /// The handle being dragged, if one is — its anchor, its side and where it
+    /// now sits in canvas space.
+    ///
+    /// ★ Carried so the drawn handle follows the pointer during the drag. The
+    /// decomposition still holds its OLD position — nothing is committed until
+    /// the release — so a painter that read the model alone would draw the
+    /// handle sitting still while the operator dragged it, which is the "the
+    /// gesture does nothing" symptom this project keeps finding, in its most
+    /// literal form.
+    pub handle_drag: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)>,
     /// The resize ghost's grip and factors, if a resize would commit.
     pub resize_ghost: Option<(handles::Grip, (f32, f32))>,
     /// The markup band, if one would commit.
@@ -113,6 +123,7 @@ pub(super) fn draw(
         marquee,
         ghost,
         resize_ghost,
+        handle_drag,
         active_tool,
         pen,
         screen_pos,
@@ -195,7 +206,7 @@ pub(super) fn draw(
         );
     }
     overlay::draw_selection(&painter, ui.visuals(), map, selection);
-    draw_anchors(&painter, ui, doc, map, selection, page_index);
+    draw_anchors(&painter, ui, doc, map, selection, page_index, *handle_drag);
     if let Some(rect) = marquee {
         overlay::draw_marquee(&painter, ui.visuals(), map, rect);
     }
@@ -356,6 +367,7 @@ fn draw_anchors(
     map: &PageMapping,
     selection: &SelectionState,
     page_index: usize,
+    drag: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)>,
 ) {
     use crate::canvas::selection::SelectionLevel;
 
@@ -422,9 +434,28 @@ fn draw_anchors(
         .collect();
     drop(provider);
 
-    let selected = selection
+    let selected: std::collections::BTreeSet<usize> = selection
         .selected_nodes_on(page_index, entered.object)
         .into_iter()
         .collect();
     overlay::draw_anchors(painter, ui.visuals(), map, &points, &selected);
+
+    // ★★ The handles, and the in-flight one moved to the pointer.
+    //
+    // Read from the same provider borrow's data, converted the same way, and
+    // then OVERRIDDEN for the handle being dragged — because the decomposition
+    // still holds its pre-drag position and will until the release commits.
+    let Some(provider) = doc.page_objects() else {
+        return;
+    };
+    let mut handles = crate::canvas::handledrag::visible(selection, &provider, page, page_index);
+    drop(provider);
+    if let Some((node, side, at)) = drag {
+        for h in &mut handles {
+            if h.0 == node && h.1 == side {
+                h.2 = at;
+            }
+        }
+    }
+    overlay::draw_handles(painter, ui.visuals(), map, &handles, &points);
 }

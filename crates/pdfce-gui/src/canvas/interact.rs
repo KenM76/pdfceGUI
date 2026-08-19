@@ -419,9 +419,35 @@ pub(super) fn interact(
                 selection.level() == crate::canvas::selection::SelectionLevel::Object,
             )
         });
+    // ★★ The Bézier handles of every selected anchor, and the one under the
+    // press if there is one.
+    //
+    // Computed HERE, beside `hovered_grip`, and from `press_origin` for the
+    // identical reason that line gives: `egui` does not call an interaction a
+    // drag until the pointer has travelled a threshold, so by the frame it says
+    // so the pointer is already that far from where it went down. A handle is
+    // an eight-pixel target; reading the current pointer would miss it exactly
+    // as it missed the grips.
+    //
+    // The provider is asked for only at the Node rung — `visible` returns empty
+    // above it — so the ordinary case pays one `entered_object()` and one
+    // `subpath` check.
+    let visible_handles = doc
+        .page_objects()
+        .zip(doc.pages.get(page_index))
+        .map(|(provider, page)| {
+            crate::canvas::handledrag::visible(&selection, &provider, page, page_index)
+        })
+        .unwrap_or_default();
+    let hovered_handle = ctx
+        .input(|i| i.pointer.press_origin())
+        .or(screen_pos)
+        .and_then(|p| crate::canvas::handledrag::at(&visible_handles, map, p));
+
     let press_kind = gesture::press_kind(
         active_tool,
         hovered_grip,
+        hovered_handle,
         zoom::region_zoom_armed(&ctx),
         caps,
     );
@@ -555,6 +581,12 @@ pub(super) fn interact(
                 // it". The list was written when a resize committed nothing, so
                 // there was genuinely nothing for it to need.
                 | GestureOutcome::Resize { .. }
+                // ★ Same reason as `Resize`, and it was learned there: the
+                // commit needs the object model to refuse a stale index, and a
+                // gesture that ran on a canvas which never asked for a provider
+                // gets `None` and declines. The resize spent a whole driving
+                // session on exactly this.
+                | GestureOutcome::Handle { .. }
                 | GestureOutcome::Marquee {
                     phase: Phase::Complete,
                     intent: MarqueeIntent::Select,
@@ -576,6 +608,13 @@ pub(super) fn interact(
     // them into one `enum` would put a branch inside the paint loop for a value
     // that is `None` on every frame nobody is dragging.
     let mut resize_ghost: Option<(handles::Grip, (f32, f32))> = None;
+    // The handle being dragged, if one is: its anchor, its side and where it
+    // now sits in canvas space. A third preview slot beside `ghost` and
+    // `resize_ghost` for the reason those two are separate — three different
+    // shapes of preview, and folding them into one `enum` would put a branch in
+    // the paint loop for a value that is `None` on every frame nobody is
+    // dragging.
+    let mut handle_preview: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)> = None;
     let mut band = None;
     // The freehand trail, already simplified, in canvas space. A second
     // preview value beside `band` rather than a variant of it, because the two
@@ -1108,6 +1147,28 @@ pub(super) fn interact(
             )
             .map(|f| (grip, f));
         }
+        GestureOutcome::Handle {
+            node,
+            handle,
+            at,
+            phase,
+        } => {
+            handle_preview = crate::canvas::handledrag::drag(
+                crate::canvas::handledrag::Frame {
+                    node,
+                    handle,
+                    at,
+                    phase,
+                    page_index,
+                    map: Some(map),
+                    page: doc.pages.get(page_index),
+                },
+                &selection,
+                targets.as_deref(),
+                actions,
+            )
+            .map(|p| (node, handle, p));
+        }
         // `Cancelled` draws nothing, commits nothing, and its only remaining
         // effect is to keep Escape away from the ladder at step 6.
         GestureOutcome::Cancelled | GestureOutcome::Idle => {}
@@ -1282,6 +1343,7 @@ pub(super) fn interact(
             marquee,
             ghost,
             resize_ghost,
+            handle_drag: handle_preview,
             band,
             ink_trail,
             active_tool,

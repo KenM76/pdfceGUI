@@ -145,6 +145,11 @@ pub mod guides;
 // the canvas that reserves layout space, a grid is chrome over the page that
 // reserves none.
 pub mod grid;
+/// ★ Dragging a **Bézier handle** — the last Phase 1 row, and one `pdfce`'s
+/// own `gui` column ticked `[x]` while nothing here drew a handle at all.
+/// `EditSession::move_handle` had existed since Pass 30.1; what was missing was
+/// a way to see one and a way to grab one.
+pub mod handledrag;
 pub mod handles;
 // Reading this frame's pointer — what a click landed on at every rung, which
 // of the two panning gestures is in flight, and where the in-flight press is

@@ -372,6 +372,94 @@ pub fn draw_anchors(
     });
 }
 
+/// The diameter of a Bézier-handle mark, in screen pixels.
+///
+/// ★ Slightly larger than an anchor mark and **round** where anchors are
+/// square, which is the vector-editor idiom every tool this operator has used
+/// shares — Illustrator, Inkscape, Figma and the old shell all draw an on-curve
+/// point as a square and a control point as a circle. It is not decoration: the
+/// two are different kinds of thing and the shape is what says so at a glance,
+/// with no legend and no hover.
+pub const HANDLE_PX: f32 = 7.0;
+
+/// Paint the Bézier handles of the selected anchors, each tethered to its
+/// anchor.
+///
+/// # ★ Why the tether is not optional
+///
+/// A control point with no line back to the anchor it governs is an unexplained
+/// dot floating beside a curve — and on a path with two selected anchors, four
+/// such dots are ambiguous about which belongs to which. The tether is the only
+/// thing that says *this handle steers that point*, and every editor draws it
+/// for that reason.
+///
+/// It is drawn **thin and in the selection colour**, not dashed: a dashed line
+/// on a CAD drawing competes with the drawing's own dashed linework, which is
+/// the class of collision `DEFECTS.md` D12 records for the guide overlay.
+///
+/// # This is the CURSOR, not content
+///
+/// Rule 4's welcome list — "snap indicators, hover highlights, rubber-bands and
+/// selection handles are the cursor". These vanish when the rung is left and
+/// change nothing about how the page renders, so a screenshot of this canvas
+/// and one of the same document saved and reopened differ only in the cursor.
+pub fn draw_handles(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    handles: &[(usize, pdfce_core::vector::Handle, egui::Pos2)],
+    anchors: &[(usize, egui::Pos2)],
+) {
+    if handles.is_empty() {
+        return;
+    }
+    let colour = visuals.selection.stroke.color;
+    let stroke = Stroke::new(1.0, colour);
+    let radius = HANDLE_PX / 2.0;
+
+    for (n, (node, _side, canvas)) in handles.iter().enumerate() {
+        let at = mapping.to_screen(*canvas);
+        // The tether, drawn FIRST so the marks sit on top of it rather than
+        // being crossed by it.
+        if let Some((_, anchor)) = anchors.iter().find(|(i, _)| i == node) {
+            painter.line_segment([mapping.to_screen(*anchor), at], stroke);
+        }
+        // Hollow, always. A filled circle would read as "selected", and a
+        // handle is never selected — it is grabbed and released. The one thing
+        // a filled mark could mean here is a state this feature does not have.
+        painter.circle_stroke(at, radius, stroke);
+
+        if n < PUBLISHED_ANCHORS {
+            crate::diag::ui_rect(
+                handle_region(n),
+                Rect::from_center_size(at, egui::vec2(HANDLE_PX, HANDLE_PX)),
+            );
+        }
+    }
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("canvas-handles n={}", handles.len())
+    });
+}
+
+/// The region name for the `n`th drawn handle.
+///
+/// Same closed list and same reason as [`anchor_region`]: a region name is part
+/// of the application's published vocabulary, not a runtime string.
+#[must_use]
+pub fn handle_region(n: usize) -> &'static str {
+    // ui-text-exempt: diagnostic region names, never displayed.
+    const NAMES: [&str; PUBLISHED_ANCHORS] = [
+        "canvas.handle.0",
+        "canvas.handle.1",
+        "canvas.handle.2",
+        "canvas.handle.3",
+        "canvas.handle.4",
+        "canvas.handle.5",
+    ];
+    NAMES[n.min(PUBLISHED_ANCHORS - 1)]
+}
+
 /// How many drawn anchors publish a `ui-rect` region.
 ///
 /// Six: enough for a driven check to aim at one and find a neighbour, few

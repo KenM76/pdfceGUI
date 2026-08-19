@@ -113,6 +113,32 @@ pub enum GestureOutcome {
         /// Draw, or commit.
         phase: Phase,
     },
+    /// A **Bézier handle** drag.
+    ///
+    /// # ★ Why this carries the pointer's CANVAS POSITION and the others carry
+    /// a delta
+    ///
+    /// Because `EditSession::move_handle` takes the control point's **new
+    /// position**, not a displacement — and it takes it in PDF user space,
+    /// which means the conversion has to happen against the frame's own
+    /// mapping. A delta would make the caller reconstruct "where the handle
+    /// started" in order to add to it, and the only thing that knows where it
+    /// started is the decomposition the caller already has to ask for.
+    ///
+    /// So the outcome carries where the pointer *is*, the caller converts once,
+    /// and the handle ends up under the cursor — which is also what the
+    /// operator expects, and what a delta-based implementation gets subtly
+    /// wrong the moment the press was a pixel or two off the handle's centre.
+    Handle {
+        /// The anchor, object-scoped.
+        node: usize,
+        /// Arriving or leaving.
+        handle: pdfce_core::vector::Handle,
+        /// Where the pointer is now, in canvas space.
+        at: egui::Pos2,
+        /// Draw, or commit.
+        phase: Phase,
+    },
     /// A **text sweep**: the two raw endpoints of the drag, in canvas space.
     ///
     /// Raw and in drag order, for the reason [`Self::Markup`] states at length
@@ -217,6 +243,14 @@ impl Drag {
             },
             DragKind::Move => GestureOutcome::Move { delta, phase },
             DragKind::Resize(grip) => GestureOutcome::Resize { grip, delta, phase },
+            DragKind::Handle { node, handle } => GestureOutcome::Handle {
+                node,
+                handle,
+                // `latest`, not `origin + delta` — the same number by
+                // construction, and the one that says what it means.
+                at: self.latest,
+                phase,
+            },
             // Raw, and in that order: `origin` is where the press landed and
             // `latest` is where the pointer is. Passing them through
             // `Rect::from_two_pos` here — which is what the marquee above does

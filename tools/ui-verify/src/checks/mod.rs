@@ -200,6 +200,11 @@ pub mod read_mode;
 /// since S0, and what was missing was a `match` arm and a window.
 pub mod render_diagnostics;
 
+/// ★ The **Bézier handle** drag — the last Phase 1 row, and the one whose
+/// failure mode is a perfectly plausible gesture: a handle sits inside the
+/// selection box, so without a priority rule every attempt to shape a curve
+/// moves the whole object instead.
+pub mod bezier_handle;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -569,6 +574,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(resize::ResizeScalesAShape),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
+        Box::new(bezier_handle::BezierHandleDragChangesACurve),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

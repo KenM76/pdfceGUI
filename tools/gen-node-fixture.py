@@ -102,9 +102,15 @@ VERTICES = [
     (200, 320),
     (300, 200),
     (400, 320),
-    (500, 200),
-    (560, 300),
 ]
+
+#: Where the two cubic segments end.
+#:
+#: Not fed to :data:`VERTICES` - :func:`content_stream` spells the curves out,
+#: because a cubic carries two control points that a vertex list cannot express
+#: - but listed here so a reader sees the whole shape in one place. The path's
+#: anchors are ``VERTICES + CURVE_ENDS``, six in all.
+CURVE_ENDS = [(500, 320), (580, 320)]
 
 #: Line width, points.
 #:
@@ -116,16 +122,38 @@ LINE_WIDTH = 3
 
 
 def content_stream() -> bytes:
-    """The page's content: one stroked polyline.
+    """The page's content: one stroked path, part polyline and part curve.
 
-    ``m`` then a run of ``l``, then ``S``. No ``h`` (close), because a closed
-    subpath's last segment has no anchor of its own and the drawn marks would
-    then disagree with the visible shape at exactly one vertex — which is the
-    kind of off-by-one a driven check would report as a defect in the overlay.
+    ``m``, then straight ``l`` segments to the first few vertices, then **two
+    ``c`` (cubic Bezier) segments**, then ``S``. No ``h`` (close), because a
+    closed subpath's last segment has no anchor of its own and the drawn marks
+    would then disagree with the visible shape at exactly one vertex - which is
+    the kind of off-by-one a driven check would report as a defect in the
+    overlay.
+
+    * **The curved tail is why this fixture earns its keep twice over.** The
+    multi-node move needs anchors far apart, which the straight run gives it;
+    the Bezier handle drag needs anchors whose neighbouring segment is a CURVE,
+    because ``EditSession::move_handle`` refuses a straight one by name
+    (``NoHandleHere``) and this shell agrees by drawing no handle there. A
+    fixture of straight lines would make the handle check SKIP forever while
+    reporting nothing wrong - which is the worst outcome available, because it
+    reads as "not applicable" rather than as "untested".
+
+    ``v`` and ``y`` are deliberately NOT used. They omit a control point, so a
+    drag on one makes the engine re-spell the segment as ``c`` and return a
+    disclosure; that path deserves its own fixture and its own check, and mixing
+    it in here would make a passing run ambiguous about which path it took.
     """
     x0, y0 = VERTICES[0]
     ops = [f"{LINE_WIDTH} w", f"{x0} {y0} m"]
-    ops.extend(f"{x} {y} l" for x, y in VERTICES[1:])
+    for x, y in VERTICES[1:]:
+        ops.append(f"{x} {y} l")
+    # Two cubics off the last straight vertex. The control points are pulled
+    # sixty points off the chord, so a handle mark is nowhere near an anchor
+    # mark and a click aimed at one cannot land on the other.
+    ops.append("440 380 480 380 500 320 c")
+    ops.append("530 260 560 260 580 320 c")
     ops.append("S")
     return "\n".join(ops).encode("ascii")
 
@@ -191,7 +219,8 @@ def main() -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(build())
     print(f"wrote {target} ({target.stat().st_size} bytes)")
-    print(f"  one path, one subpath, {len(VERTICES)} anchors")
+    print(f"  one path, one subpath, {len(VERTICES) + len(CURVE_ENDS)} anchors")
+    print(f"  the last {len(CURVE_ENDS)} arrive on CURVES, so they carry Bezier handles")
     print(f"  aim --doc-point at 0,{VERTICES[1][0]},{VERTICES[1][1]}")
 
 

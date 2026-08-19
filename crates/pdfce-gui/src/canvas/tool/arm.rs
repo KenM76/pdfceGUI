@@ -91,6 +91,13 @@ pub fn cursor_for(
             }
             DragKind::Move => CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),
+            // ★ `Grabbing`, the same as a move, and deliberately NOT a bespoke
+            // icon. A handle drag IS a move — of a control point rather than of
+            // an object — and the operator learns one grammar: the closed hand
+            // means "you have hold of something and it follows the pointer".
+            // A distinct cursor would be teaching a distinction that changes
+            // nothing about what the gesture does.
+            DragKind::Handle { .. } => CursorIcon::Grabbing,
             // ★ The I-beam for a sweep that began under the MODE rule rather
             // than under an armed tool — and that distinction is now the whole
             // of what this arm is for.

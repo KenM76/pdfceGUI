@@ -545,6 +545,94 @@ impl ObjectModelProvider {
     /// reason (text and image objects are not node-editable, decision 011
     /// §2.1).
     #[must_use]
+    /// The **Bézier handles** of one anchor of one subpath, in PDF user space.
+    ///
+    /// Returns at most two: the control point governing the curve as it
+    /// *arrives* at the anchor and the one governing it as it *leaves*. Either
+    /// or both are absent when the neighbouring segment is a straight line or
+    /// there is no neighbouring segment at all — which is the ordinary case on
+    /// a CAD drawing, where almost every path is polygonal.
+    ///
+    /// # ★ Why this is per-ANCHOR and every other point accessor is per-subpath
+    ///
+    /// Because handles are only ever drawn for the anchors the operator has
+    /// selected, and that is not a cosmetic decision. A subpath's anchors are
+    /// its skeleton and are worth showing all at once; its handles are two per
+    /// anchor and are *inside* the shape, so drawing every one turns a curve
+    /// into a thicket and hides the outline the operator is working on. Every
+    /// vector editor draws them for the selection alone, and this accessor's
+    /// shape is what makes that the cheap path rather than a filter over a
+    /// list that was expensive to build.
+    ///
+    /// # ★★ How an anchor index maps onto segments, and the off-by-one in it
+    ///
+    /// `Subpath` is `start` plus a list of `segments`, and `anchors()` yields
+    /// `start` first and then each segment's end. So for object-scoped anchor
+    /// `k` **within this subpath** (0-based):
+    ///
+    /// - its **incoming** handle is `segments[k - 1].c2` — the second control
+    ///   point of the segment that ends *here*. Absent for `k == 0`, which has
+    ///   no segment before it.
+    /// - its **outgoing** handle is `segments[k].c1` — the first control point
+    ///   of the segment that starts *here*. Absent for the last anchor.
+    ///
+    /// Getting that backwards produces handles that are drawn on the wrong side
+    /// of the anchor and drag the wrong curve, which looks like a coordinate
+    /// bug rather than an indexing one. It is stated here because
+    /// `pdfce_core::vector::Handle`'s own doc comment states it, and the two
+    /// must agree: the `Handle` value returned here is passed straight to
+    /// `EditSession::move_handle`.
+    ///
+    /// A **closed** subpath's first anchor also has an incoming handle — from
+    /// the closing segment — and that is deliberately NOT returned. The closing
+    /// segment of an `h`-terminated subpath has no operands of its own in the
+    /// content stream, so there is nothing for `move_handle` to rewrite, and
+    /// offering a handle the engine will refuse is the "visible control,
+    /// silently inert" failure this project keeps finding.
+    pub fn node_handles(
+        &self,
+        index: usize,
+        subpath: usize,
+        node: usize,
+    ) -> Vec<(pdfce_core::vector::Handle, Point)> {
+        use pdfce_core::vector::{Handle, Segment};
+
+        let Some(VectorObject::Path(path)) = self.objects.objects.get(index) else {
+            return Vec::new();
+        };
+        let subpaths = path.page_subpaths();
+        // The object-scoped anchor index has to be brought back into the
+        // subpath's own space, using the SAME running offset
+        // `subpath_node_points` computes — see its comment for why the offset
+        // is the object-scoped index of the subpath's first anchor.
+        let mut offset = 0usize;
+        for (i, sp) in subpaths.iter().enumerate() {
+            let count = sp.anchors().count();
+            if i == subpath {
+                let Some(local) = node.checked_sub(offset).filter(|k| *k < count) else {
+                    // The anchor is not in this subpath. A selection that
+                    // out-ran a decomposition, refused rather than guessed at —
+                    // the same posture `canvas::moving`'s `NodeNotFound` takes.
+                    return Vec::new();
+                };
+                let mut out = Vec::with_capacity(2);
+                // Incoming: the second control point of the segment BEFORE it.
+                if let Some(Segment::Cubic { c2, .. }) =
+                    local.checked_sub(1).and_then(|j| sp.segments.get(j))
+                {
+                    out.push((Handle::Incoming, *c2));
+                }
+                // Outgoing: the first control point of the segment AFTER it.
+                if let Some(Segment::Cubic { c1, .. }) = sp.segments.get(local) {
+                    out.push((Handle::Outgoing, *c1));
+                }
+                return out;
+            }
+            offset += count;
+        }
+        Vec::new()
+    }
+
     pub fn subpath_node_points(&self, index: usize, subpath: usize) -> Vec<(usize, Point)> {
         let Some(VectorObject::Path(path)) = self.objects.objects.get(index) else {
             return Vec::new();
