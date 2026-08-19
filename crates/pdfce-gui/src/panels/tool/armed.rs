@@ -73,7 +73,94 @@ pub(super) fn block(
     ui.add_space(4.0);
     stage(ui, ctx, tool);
     ui.add_space(6.0);
+    options(ui, ctx, tool);
     put_down(ui, ctx);
+}
+
+/// Row 3 — the armed tool's options, for the tools that have any.
+///
+/// # ★ Exactly one family has options today, and the emptiness is the design
+///
+/// `super`'s header states it: the hand tool, the text sweep and **Edit text**
+/// have none at all, and a panel shaped around options would render nothing for
+/// them. This function is therefore mostly a `match` that does nothing, and
+/// that is the honest shape — the alternative is a heading with nothing under
+/// it, which is R9's placeholder.
+///
+/// **The markup pen is still absent**, and its absence is a plumbing fact
+/// rather than a design one: `canvas::markup::pen::Pen` is a field on
+/// `PdfceApp` and a panel body cannot reach it. `canvas::textedit::pen` lives
+/// in `egui::Memory` precisely so this one could be built today — see its
+/// header, which argues the difference.
+fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
+    // ★ **Add only, not Edit**, and the distinction is the point of the whole
+    // module. `TextEditKind::Add` writes a NEW run, so a face, a size and a
+    // colour are exactly what it needs. `TextEditKind::Edit` replaces the words
+    // inside a run that already has all three, and pdfce cannot restyle a run
+    // it did not write — showing these controls there would offer a change the
+    // commit silently discards.
+    if tool != CanvasTool::TextEdit(crate::canvas::textedit::TextEditKind::Add) {
+        return;
+    }
+    use crate::canvas::textedit::pen;
+    let mut current = pen::read(ctx);
+    let before = current;
+
+    ui.label(t::text_pen_heading());
+    crate::diag::ui_rect(super::REGION_TEXT_PEN, ui.min_rect());
+
+    ui.horizontal(|ui| {
+        ui.label(t::text_pen_font_label());
+        egui::ComboBox::from_id_salt("tool-text-pen-font")
+            .selected_text(t::text_pen_font_name(current.face))
+            .show_ui(ui, |ui| {
+                // ★ `pen::FACES`, not a hand-written list. Its own test asserts
+                // all fourteen are offered exactly once — a list that quietly
+                // held thirteen would be a face an operator could never reach,
+                // with no error anywhere.
+                for face in pen::FACES.iter().copied() {
+                    ui.selectable_value(&mut current.face, face, t::text_pen_font_name(face));
+                }
+            });
+    });
+    ui.horizontal(|ui| {
+        ui.label(t::text_pen_size_label());
+        ui.add(
+            egui::DragValue::new(&mut current.size_pt)
+                // The store's own bounds, not a local pair of literals — the
+                // rule `dialogs::settings`' sliders follow, and for the same
+                // reason: a control narrower than what the value accepts
+                // silently rewrites a setting the operator never touched.
+                .range(pen::MIN_SIZE_PT..=pen::MAX_SIZE_PT)
+                .speed(0.5)
+                .suffix(t::text_pen_size_suffix()),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label(t::text_pen_colour_label());
+        ui.color_edit_button_srgb(&mut current.colour);
+    });
+    ui.label(egui::RichText::new(t::text_pen_note()).small().weak());
+    ui.add_space(6.0);
+
+    // ★ Written back only when it CHANGED. `insert_temp` on every frame would
+    // be harmless and would also make the trace line below fire sixty times a
+    // second, which is the difference between a log a reader can use and one
+    // they cannot.
+    if current != before {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                "text-pen face={:?} size={:.1} rgb={},{},{}",
+                current.face,
+                current.size_pt,
+                current.colour[0],
+                current.colour[1],
+                current.colour[2]
+            )
+        });
+        pen::store(ctx, current);
+    }
 }
 
 /// Row 1 — what is armed, and where it came from.

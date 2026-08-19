@@ -152,6 +152,13 @@ pub mod export;
 /// Registering a form control the document draws but no field claims — one
 /// verb, whose refusal and disclosure wording is the substantial part.
 pub mod forms;
+/// ★ Stepping the command log, in both directions — `Direction`, its four
+/// per-direction answers, and `history_step`.
+///
+/// Split out of [`apply`] on 2026-08-19: that module answers *what does this
+/// verb do to the document*, and undo and redo describe **no edit at all** —
+/// they ask the session to replay one it has already recorded.
+mod history;
 /// The four page verbs' bodies, and the structural resync every edit owes.
 ///
 /// A sibling of [`apply`] rather than part of it, on rule R2's own reasoning:
@@ -1059,6 +1066,21 @@ pub enum Action {
         origin: (f64, f64),
         /// What the operator typed.
         text: String,
+        /// ★★ **The face, size and colour it is written in**, sampled from
+        /// `canvas::textedit::pen` at the moment the draft committed.
+        ///
+        /// Carried on the action rather than re-read in `apply`, and the rule
+        /// is the funnel's own: an `Action` is *what the operator asked for*,
+        /// and it is applied on a later frame. Re-reading the pen at apply time
+        /// would let a pen changed between the two frames rewrite an edit the
+        /// operator had already finished — the same hazard `DeleteSelection`'s
+        /// operand list travels for, one value smaller.
+        ///
+        /// It is the shell's own type rather than the engine's `NewTextFace` /
+        /// `NewTextColor` pair, because those are two values with one meaning
+        /// and `TextPen` resolves them at the boundary. See its docs for why
+        /// black is written `Black` and not `Rgb(0, 0, 0)`.
+        pen: crate::canvas::textedit::pen::TextPen,
     },
     /// Show or hide one optional-content group.
     ///

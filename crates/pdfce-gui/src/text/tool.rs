@@ -338,6 +338,94 @@ pub const fn manage_groups_button() -> &'static str {
 }
 
 // ===========================================================================
+// The text pen — what NEW page text is written in
+// ===========================================================================
+
+/// The heading over the Add-text options.
+///
+/// ★ Says **new text**, not "text", and the distinction is the whole reason
+/// these controls are in the Tool panel rather than on the Format tab: they
+/// decide what the *next* thing typed looks like, not what a run already on the
+/// page looks like. An operator who reads "Text" here and expects it to restyle
+/// the word they clicked has been misled by one word.
+#[must_use]
+pub const fn text_pen_heading() -> &'static str {
+    "New text"
+}
+
+/// The font combo's label.
+#[must_use]
+pub const fn text_pen_font_label() -> &'static str {
+    "Font"
+}
+
+/// One bundled face's name, as an operator would say it.
+///
+/// ★ *"Helvetica Bold"*, not `HelveticaBold` — the engine's identifier is a
+/// Rust variant and this is a font menu. The four Courier faces say
+/// *"Courier Oblique"* rather than *"Courier Italic"*, because oblique is what
+/// the Standard-14 set actually contains and a menu that renamed it would
+/// promise a true italic pdfce cannot write.
+#[must_use]
+pub const fn text_pen_font_name(face: pdfce_core::fontdata::Std14) -> &'static str {
+    use pdfce_core::fontdata::Std14 as F;
+    match face {
+        F::Helvetica => "Helvetica",
+        F::HelveticaBold => "Helvetica Bold",
+        F::HelveticaOblique => "Helvetica Oblique",
+        F::HelveticaBoldOblique => "Helvetica Bold Oblique",
+        F::TimesRoman => "Times Roman",
+        F::TimesBold => "Times Bold",
+        F::TimesItalic => "Times Italic",
+        F::TimesBoldItalic => "Times Bold Italic",
+        F::Courier => "Courier",
+        F::CourierBold => "Courier Bold",
+        F::CourierOblique => "Courier Oblique",
+        F::CourierBoldOblique => "Courier Bold Oblique",
+        F::Symbol => "Symbol",
+        F::ZapfDingbats => "Zapf Dingbats",
+        // ★ NO wildcard, and its absence is deliberate. `Std14` is not
+        // `#[non_exhaustive]` — checked, rather than assumed from its
+        // neighbours in that module, several of which are — so this match is
+        // exhaustive by the compiler's own count and a fifteenth face would be
+        // a build error here rather than a combo entry reading "Another
+        // bundled face". That is the stronger arrangement and it is available,
+        // so it is taken.
+    }
+}
+
+/// The size control's label.
+#[must_use]
+pub const fn text_pen_size_label() -> &'static str {
+    "Size"
+}
+
+/// The suffix on the size control.
+#[must_use]
+pub const fn text_pen_size_suffix() -> &'static str {
+    " pt"
+}
+
+/// The colour swatch's label.
+#[must_use]
+pub const fn text_pen_colour_label() -> &'static str {
+    "Colour"
+}
+
+/// ★ The sentence under the three controls.
+///
+/// It says what they DO NOT do, because that is the thing an operator will
+/// otherwise assume: these set the next run's appearance and change nothing
+/// already on the page. `Edit text` beside them replaces the words in a run and
+/// keeps its existing face — pdfce cannot restyle a placed run at all yet, and
+/// a control group that stayed silent about that would be read as offering it.
+#[must_use]
+pub const fn text_pen_note() -> &'static str {
+    "These apply to the next text you add. They do not change text already on \
+     the page — pdfce cannot restyle a run it did not write."
+}
+
+// ===========================================================================
 // Block C — what pdfce last inferred
 // ===========================================================================
 

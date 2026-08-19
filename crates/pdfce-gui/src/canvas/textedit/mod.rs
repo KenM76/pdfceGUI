@@ -114,6 +114,11 @@ mod proof;
 // The per-keystroke re-measure measurement `DEFECTS.md` D4b's fix would need,
 // and the reason it is not wired. `#[ignore]`d; run it and read the numbers.
 mod cost;
+/// ★★ The face, size and colour NEW page text is written in — the Phase 5 row
+/// that read *"choosing what those three controls are is a decision, not an
+/// omission"*. The decision is in that module's header, along with why it lives
+/// in `egui::Memory` where the markup pen does not.
+pub mod pen;
 
 use egui::{Pos2, Ui};
 use pdfce_core::text_edit::{
@@ -346,7 +351,7 @@ pub fn click(
     actions: &mut Vec<crate::app::actions::Action>,
 ) -> Result<(), Refusal> {
     if let Some(existing) = read(ctx) {
-        commit_into(&existing, actions);
+        commit_into(ctx, &existing, actions);
         abandon(ctx);
     }
     let anchor = match click.kind {
@@ -575,7 +580,7 @@ pub fn typing(
                     pressed: true,
                     ..
                 } => {
-                    commit_into(&draft, actions);
+                    commit_into(ctx, &draft, actions);
                     abandon(ctx);
                     return true;
                 }
@@ -595,7 +600,7 @@ pub fn typing(
 /// an operator who typed a character and deleted it again would put a no-op
 /// entry on the undo stack every time they clicked away — the old shell's own
 /// finding, and it matters more here because clicking out commits.
-fn commit_into(draft: &Draft, actions: &mut Vec<crate::app::actions::Action>) {
+fn commit_into(ctx: &egui::Context, draft: &Draft, actions: &mut Vec<crate::app::actions::Action>) {
     use crate::app::actions::Action;
     match &draft.anchor {
         Anchor::Run { run, original } if draft.text != *original && !draft.text.is_empty() => {
@@ -611,6 +616,10 @@ fn commit_into(draft: &Draft, actions: &mut Vec<crate::app::actions::Action>) {
                 page: draft.page,
                 origin: (*x, *y),
                 text: draft.text.clone(),
+                // ★ Sampled HERE, at the commit, not read in `apply`. See the
+                // variant's own docs: an action is what the operator asked for,
+                // and it is applied on a later frame.
+                pen: pen::read(ctx),
             });
         }
         _ => {}
@@ -918,7 +927,11 @@ mod tests {
             seeded: true,
         };
         let mut actions = Vec::new();
-        commit_into(&draft, &mut actions);
+        // ★ A bare `Context`, and it is the honest one for a pure-commit test:
+        // the pen it reads is whatever `TextPen::default()` is, which is the
+        // engine's own default, so these assertions are about the ACTION's
+        // shape and not about a pen nobody set.
+        commit_into(&egui::Context::default(), &draft, &mut actions);
         assert!(actions.is_empty(), "an unchanged draft is not an edit");
     }
 
@@ -941,7 +954,11 @@ mod tests {
             seeded: true,
         };
         let mut actions = Vec::new();
-        commit_into(&draft, &mut actions);
+        // ★ A bare `Context`, and it is the honest one for a pure-commit test:
+        // the pen it reads is whatever `TextPen::default()` is, which is the
+        // engine's own default, so these assertions are about the ACTION's
+        // shape and not about a pen nobody set.
+        commit_into(&egui::Context::default(), &draft, &mut actions);
         assert!(actions.is_empty());
     }
 
@@ -959,7 +976,11 @@ mod tests {
             seeded: true,
         };
         let mut actions = Vec::new();
-        commit_into(&draft, &mut actions);
+        // ★ A bare `Context`, and it is the honest one for a pure-commit test:
+        // the pen it reads is whatever `TextPen::default()` is, which is the
+        // engine's own default, so these assertions are about the ACTION's
+        // shape and not about a pen nobody set.
+        commit_into(&egui::Context::default(), &draft, &mut actions);
         assert_eq!(actions.len(), 1);
         assert_eq!(
             actions[0],
@@ -984,7 +1005,11 @@ mod tests {
             seeded: true,
         };
         let mut actions = Vec::new();
-        commit_into(&draft, &mut actions);
+        // ★ A bare `Context`, and it is the honest one for a pure-commit test:
+        // the pen it reads is whatever `TextPen::default()` is, which is the
+        // engine's own default, so these assertions are about the ACTION's
+        // shape and not about a pen nobody set.
+        commit_into(&egui::Context::default(), &draft, &mut actions);
         assert!(actions.is_empty());
     }
 

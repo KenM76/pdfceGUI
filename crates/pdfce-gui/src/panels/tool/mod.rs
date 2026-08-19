@@ -150,7 +150,9 @@ pub const REGION_POINTER: &str = "tool.pointer"; // ui-text-exempt: trace region
 /// The region Block B publishes.
 pub const REGION_TOOLS: &str = "tool.tools"; // ui-text-exempt: trace region name, never displayed
 /// The region the armed block publishes.
-pub const REGION_ARMED: &str = "tool.armed"; // ui-text-exempt: trace region name, never displayed
+pub const REGION_ARMED: &str = "tool.armed";
+/// The region the text pen's controls publish.
+pub const REGION_TEXT_PEN: &str = "tool.text_pen"; // ui-text-exempt: trace region name, never displayed
 /// The region Block C publishes.
 pub const REGION_DISCLOSURES: &str = "tool.disclosures"; // ui-text-exempt: trace region name, never displayed
 /// The prefix of one arming row's region; the command id is appended.
@@ -264,6 +266,7 @@ mod tests {
             super::REGION_POINTER,
             super::REGION_TOOLS,
             super::REGION_ARMED,
+            super::REGION_TEXT_PEN,
             super::REGION_DISCLOSURES,
             super::REGION_ROW_PREFIX,
         ];
