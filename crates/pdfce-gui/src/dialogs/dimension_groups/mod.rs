@@ -222,7 +222,32 @@ impl DimensionGroupsDialog {
         egui::Window::new(t::window_title())
             .collapsible(false)
             .resizable(true)
-            .default_width(520.0)
+            // ★★ `default_size`, NOT `default_width` — the fix for a window
+            // that GREW 38 pt every frame until its bottom controls were off
+            // the screen.
+            //
+            // A `Window` given no height sizes itself to its content. Its body
+            // here is a vertical `ScrollArea`, which asks for the height of
+            // everything inside it. So the window grew to fit the scroll area,
+            // which gave the scroll area more room, which made it ask for more
+            // — a feedback loop between a measured size and the thing being
+            // measured, which is `D:/dev/rag/egui/`'s R128 in a second place.
+            //
+            // It ran until the content ran out, and this window's content is
+            // taller than an 800 pt screen: the driven run caught
+            // `dimension-groups.new_name` laid out at y=958 and
+            // `dimension-groups.add` at y=1018 inside a dialog whose body ended
+            // at y=793. **The Add button was rendered below the bottom of the
+            // window and could not be clicked.**
+            //
+            // Every other dialog in this directory sets a `default_size` with a
+            // height and none of them has the defect. This one set a width
+            // alone, which reads as the same kind of statement and is not one.
+            .default_size([520.0, 560.0])
+            // A floor, for the reason `about` and `print` both record:
+            // `resizable` with no minimum lets the window be dragged down to a
+            // title bar, from which there is no obvious way back.
+            .min_height(260.0)
             // Screen-anchored, never page-anchored — the standing rule for
             // every dialog in this directory. An operator reading a list and
             // typing a name must not have it move when they scroll the drawing
@@ -258,15 +283,43 @@ impl DimensionGroupsDialog {
             self.selected = DEFAULT_GROUP_ID;
         }
 
+        // The house idiom, shared with `about`, `diagnostics`, `ocr` and
+        // `print`: the scroll area is capped at what is left after the footer,
+        // with a floor so the subtraction cannot go negative. `about`'s header
+        // carries the trap — a negative `max_height` is neither a compile error
+        // nor a panic, it is a scroll area that lays its content out into
+        // nothing and renders as an empty band.
+        //
+        // Belt and braces with the `default_size` above, deliberately. The size
+        // stops the window growing; this stops the content overflowing a window
+        // the operator has since dragged smaller.
+        const FOOTER_RESERVE: f32 = 44.0;
+        const LIST_FLOOR: f32 = 48.0;
         egui::ScrollArea::vertical()
             .id_salt("dimension-groups-scroll")
+            .max_height((ui.available_height() - FOOTER_RESERVE).max(LIST_FLOOR))
             .show(ui, |ui| {
                 self.group_list(ui, ctx, &model, active);
                 ui.separator();
                 self.selected_group(ui, &model, actions);
-                ui.separator();
-                self.add_group(ui, actions);
             });
+
+        // ★★ OUTSIDE the scroll area, and moved here after a driven run.
+        //
+        // It used to be the last thing inside it, under the selected group's
+        // whole settings block. The trace put `dimension-groups.add` at y=1114
+        // in a window whose body ended at y=676: reachable only by scrolling
+        // past every style, standard and layer control belonging to a group the
+        // operator was not trying to add to.
+        //
+        // Making it always visible is the better answer than making the window
+        // taller, and not only for reach. **Adding a group is an action on the
+        // LIST, not on the selected group**, and it had been sitting under a
+        // block that answers a different question. A control's position is a
+        // claim about what it acts on, and that one was making the wrong claim
+        // even when it was on screen.
+        ui.separator();
+        self.add_group(ui, actions);
 
         ui.separator();
         ui.horizontal(|ui| {

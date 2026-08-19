@@ -16,7 +16,41 @@ at a section of it.
 printed at that commit; the tree has moved since, and the numbers move with
 it. It is here so you know roughly where you are, not so you can quote it.
 
-### ★★ Read this row first: THIRTEEN surfaces have landed and NONE has been driven
+### ★★ Read this row first: EVERY surface has now been driven, and driving found four defects
+
+The operator handed over the machine on 2026-08-19 and R1's debt was paid.
+**38 checks, and every one of them has now passed in a driven run** — including
+the six that had been written and never executed, and one phase of
+`properties_metadata` that had SKIPPED on every run it ever made because it
+insisted on a keyboard chord the harness cannot deliver.
+
+Four defects came out of it, and **not one was visible to 1,417 passing tests**:
+
+| defect | how it presented |
+|---|---|
+| **A `Window` with a `default_width` and no HEIGHT around a `ScrollArea` grows ~38 pt every frame** | two dialogs walked off the screen; the Manage-groups Add button was laid out at y=1114 in a body ending at y=676 — drawn, positioned, unclickable |
+| **The Bookmarks authoring row sat after an unbounded scroll** | `add_outline_item`, wired that morning, was **unreachable on any document with a real outline** — the 122-bookmark fixture pushed the row 129 pt below the panel |
+| **A region published at the TOP of a `ScrollArea` closure over `ui.min_rect()`** | reported `0.0 pt high` for ever — an instrument that can only return one answer cannot detect what it was added to detect |
+| **The Manage-groups Add button was below its own settings block** | it acts on the LIST and was positioned under a different group's settings, so it made the wrong claim about what it acts on even when visible |
+
+★ And **three harness defects that produced confident, wrong failure reports
+about working code** — see `D:/dev/rag/egui/a_ui_rect_change_log_produces_confident_wrong_failures_in_BOTH_directions.md`.
+The drop caret was reported *"never published"* over a trace containing it.
+Read the trace before believing the check.
+
+⚠ **The suite is not deterministic.** The final full run had 35 passed · 1
+failed · 4 skipped; all three of the non-passes then passed in isolation, with
+messages pointing at pointer injection and window activation rather than at the
+application. Per-check runs are authoritative; a full-suite red needs the
+member re-run before it is believed.
+
+Two skips are legitimate and not defects: `ocr` (no models in this build) and
+`page_ops` on `SW41177.pdf` (the fixture carries 36 `/Rotate` entries, so the
+evidence would be indistinguishable from its own furniture — it PASSES against
+`D:\Dev\pdfceixtures\synthetic\pageopsour-pages.pdf`, proven by a
+second process reopening the saved copy).
+
+### The former status, kept because the table below is still the surface list
 
 R1 is the rule this project was founded on, and this is where it currently
 stands **unpaid**. Everything below is gate-clean and unit-tested; none of it

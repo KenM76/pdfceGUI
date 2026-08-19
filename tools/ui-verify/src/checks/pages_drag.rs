@@ -244,7 +244,21 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // drag still leaves its rectangle in the trace. Reading the rectangle —
     // rather than only its presence — is what rules out the two failures that
     // publish a region and draw nothing an operator could see.
-    let Some(caret) = declared(&trace, ui_rect, CARET) else {
+    //
+    // ★★ `declared_since`, NOT `declared`, and the difference is the whole
+    // assertion. This check FAILED on 2026-08-19 saying the caret was never
+    // published, over a trace that carried it four lines above the release:
+    // `declared` asks "is it on screen NOW", and a caret that exists only while
+    // the pointer is down is retired before the harness can look. Asking the
+    // present-tense question about a thing whose nature is to be gone is a
+    // guaranteed false negative — and it read as a missing feature, on the one
+    // feature the operator had asked for by name.
+    //
+    // The anchor is `started.lineno`, so a caret from an earlier gesture in the
+    // same run cannot satisfy it. See `driving::declared_since`.
+    let Some(caret) =
+        crate::checks::driving::declared_since(&trace, ui_rect, CARET, started.lineno)
+    else {
         return Ok(Some(format!(
             "the drag was sensed (`{DRAG_START}` was traced) and NO `{CARET}` region was ever \
              published, so nothing showed the operator where the page would land. The \

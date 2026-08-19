@@ -94,7 +94,23 @@ impl ShortcutsDialog {
         egui::Window::new(t::window_title())
             .collapsible(false)
             .resizable(true)
-            .default_width(420.0)
+            // ★ A HEIGHT as well as a width — see
+            // `crate::dialogs::dimension_groups`, which had the identical defect
+            // and was caught by a driven run rather than by a test.
+            //
+            // A window with no declared height sizes itself to its content, and
+            // this body is a vertical `ScrollArea` listing every bound chord.
+            // The scroll area asks for its full content height, the window
+            // grows to fit, the scroll area gets more room and asks for more.
+            // The list here is long enough to have run off the bottom of the
+            // screen, which would have put the last shortcuts where nothing
+            // could scroll to them.
+            //
+            // Fixed on the same pass as its twin rather than left for the check
+            // that would have found it, because the two are one defect with two
+            // instances and fixing one of them is how the other becomes folklore.
+            .default_size([420.0, 480.0])
+            .min_height(220.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .open(&mut open)
             .show(ctx, |ui| {
@@ -137,10 +153,15 @@ fn body(ui: &mut Ui, keymap: Option<&Keymap>, registry: &CommandRegistry) {
         return;
     }
 
+    // Capped and floored, the idiom five dialogs now share. See
+    // `crate::dialogs::about`'s header for why the floor is not optional: a
+    // negative `max_height` lays the rows out into nothing, silently.
+    const FOOTER_RESERVE: f32 = 40.0;
+    const LIST_FLOOR: f32 = 48.0;
     egui::ScrollArea::vertical()
         .id_salt("shortcuts-list")
+        .max_height((ui.available_height() - FOOTER_RESERVE).max(LIST_FLOOR))
         .show(ui, |ui| {
-            crate::diag::ui_rect(REGION_LIST, ui.min_rect());
             egui::Grid::new("shortcuts-grid")
                 .num_columns(2)
                 .striped(true)
@@ -154,6 +175,23 @@ fn body(ui: &mut Ui, keymap: Option<&Keymap>, registry: &CommandRegistry) {
                         ui.end_row();
                     }
                 });
+            // ★★ Published AFTER the grid, which is the fix for a region that
+            // always reported zero height.
+            //
+            // It used to be the first statement in this closure, over
+            // `ui.min_rect()` — and at that moment nothing had been laid out,
+            // so the rect was empty. A driven check asserting the list had
+            // drawn read `0.0 pt high with 20 commands folded into it` and
+            // reported the window as a title over an empty band. The window was
+            // fine; the instrumentation was measuring a `Ui` before its
+            // contents existed.
+            //
+            // Worth stating as a rule rather than a fix: **a region published
+            // at the top of a closure describes the closure's starting point,
+            // not its content.** A region that can only ever report zero cannot
+            // detect the thing it was added to detect, and it is worse than no
+            // region at all, because it produces a confident false failure.
+            crate::diag::ui_rect(REGION_LIST, ui.min_rect());
         });
 
     // ★ Traced so a driven check can assert the two numbers rather than the

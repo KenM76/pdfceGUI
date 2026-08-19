@@ -136,12 +136,88 @@ pub fn declared(trace: &Trace, ui_rect: &str, name: &str) -> Option<LRect> {
     if retired_after { None } else { Some(rect) }
 }
 
+/// The last rect a region was published with **after** a given trace line,
+/// whether or not it has since been retired.
+///
+/// # ★★ Why [`declared`] is the wrong question for a gesture-only overlay
+///
+/// `declared` asks *"is this on screen now?"*, and it is right to: a region
+/// retired after its last declaration is a fossil, and reading one produced a
+/// confident, detailed, entirely wrong layout-defect report once already.
+///
+/// But an overlay that exists **only while the pointer is down** — a drop
+/// caret, a rubber band, a snap indicator — is *guaranteed* to be retired by
+/// the time a check can look at it. The harness cannot read the trace mid-drag:
+/// `Driver::drag` presses, moves and releases before it returns. So `declared`
+/// answers `None` for a caret that drew perfectly, and the check reports the
+/// feature missing.
+///
+/// That is not hypothetical either. It is exactly what happened on
+/// 2026-08-19: `pages_drag_shows_where_it_lands` failed with *"NO
+/// `panel-pages-drop-caret` region was ever published"* while the trace
+/// carried `ui-rect name=panel-pages-drop-caret rect=[[258.0 239.1] - [262.0
+/// 331.9]]` four lines above the release. The indicator worked. The check was
+/// reading a change log as a snapshot in the other direction — asking for
+/// presence *now* about a thing whose whole nature is to be gone now.
+///
+/// # What this asks instead, and why the anchor is required rather than optional
+///
+/// *"Was it published during THIS gesture?"* The `after` line number is the
+/// gesture's own start event, so a caret left over from an earlier drag in the
+/// same run cannot satisfy it. Without that anchor this would be
+/// `last-rect-ignoring-retirement`, which is the fossil-reading bug wearing a
+/// helpful name — and it would pass on a build where the caret drew once at
+/// startup and never again.
+///
+/// `TraceLine::lineno` is the position in the file, so the two streams are
+/// directly comparable — the same property [`declared`] relies on.
+#[must_use]
+pub fn declared_since(trace: &Trace, ui_rect: &str, name: &str, after: usize) -> Option<LRect> {
+    trace
+        .events(ui_rect)
+        .filter(|l| l.lineno > after && l.get("name") == Some(name))
+        .filter_map(|l| l.get_rect("rect"))
+        .last()
+}
+
 /// The event the application emits for a region it has stopped drawing.
 ///
 /// Matched literally, like every other event name in this crate, so renaming
 /// it in `crate::diag` without changing it here silently returns [`declared`]
 /// to reading fossils.
 pub const UI_RECT_GONE_EVENT: &str = "ui-rect-gone";
+
+/// Every region name beginning with `prefix` that is **on screen now**.
+///
+/// # ★★ Why this exists beside [`declared_names`], which counts fossils
+///
+/// [`declared_names`]'s own documentation says *"used only for SKIP reasons"*,
+/// and it means it: it collects every name that has **ever** appeared, because
+/// an error message listing what the application *did* declare is more useful
+/// the more it lists. Retirement is irrelevant to that job.
+///
+/// It is exactly wrong for a **count**. The `ui-rect` channel is a change log,
+/// so a row that was deleted leaves its last declaration standing for ever, and
+/// counting names therefore counts rows that are gone.
+///
+/// That is not hypothetical. On 2026-08-19 the Manage-groups check reported
+/// *"the round trip did not close: 1 row before, 2 after the delete"* over a
+/// trace containing `dimension-group-delete id=1`, `delete-dimension-group
+/// epoch=3` **and** `ui-rect-gone name=dimension-groups.draw_into.1`. The
+/// delete had worked, at every level, and the check said it had not — a
+/// confident, specific, entirely wrong defect report about a feature that was
+/// correct, produced by a helper being used outside the job its own doc comment
+/// names.
+///
+/// So: **[`declared_names`] to say what was seen, this to say what is there.**
+/// If a check compares two numbers, it wants this one.
+#[must_use]
+pub fn live_names(trace: &Trace, ui_rect: &str, prefix: &str) -> Vec<String> {
+    declared_names(trace, ui_rect, prefix)
+        .into_iter()
+        .filter(|name| declared(trace, ui_rect, name).is_some())
+        .collect()
+}
 
 /// Every distinct region name the application declared beginning with
 /// `prefix`, in first-seen order.

@@ -234,11 +234,15 @@ pub mod settings_headings;
 /// Its header carries why no unit test can see that.
 pub mod about;
 pub mod add_text;
+/// A bookmark can be written into a document that has no outline.
+pub mod bookmark_add;
 pub mod chords;
 /// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
 /// operator could press chose one. Proved the only way a theme can be proved:
 /// two captures of one window, before and after the click.
 pub mod settings_theme;
+/// The keyboard reference lists every chord, and every chord names a command.
+pub mod shortcuts;
 pub mod text_annot;
 pub mod text_annot_focus;
 pub mod text_edit;
@@ -534,6 +538,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // onwards is that check's, and this one has the whole text-edit path
         // stacked in front of them.
         Box::new(about::AboutReportsTheBuild),
+        // Beside About because it is its neighbour in every way that matters to
+        // a run: it launches with NO document, it opens one window, and it
+        // asserts on a trace rather than on pixels. It is also cheap.
+        Box::new(shortcuts::ShortcutsReferenceIsLive),
+        Box::new(bookmark_add::BookmarkCanBeWritten),
         Box::new(add_text::AddTextTakesRealKeystrokes),
         Box::new(chords::EveryDeclaredChordDispatches),
         Box::new(text_annot::TextAnnotPlacesAndAuthors),

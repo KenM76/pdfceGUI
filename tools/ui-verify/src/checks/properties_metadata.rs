@@ -259,14 +259,36 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // --- 4: ★ undo takes it out of the BOX, not only out of the file -------
     let applied_before = trace.events(APPLIED).count();
     let committed_before = trace.events(COMMITTED).count();
-    driver.press_chord(&[vk::CONTROL], vk::Z)?;
+    // ★★ The QAT BUTTON, not `Ctrl+Z`, and the substitution is the fix for a
+    // permanent SKIP.
+    //
+    // Synthetic chords do not reach the target window from this session —
+    // `find_bar` and `page_ops` both record it, and `page_ops` puts the gap on
+    // its own record rather than implying coverage it does not have. So this
+    // phase skipped on every run it ever made, which means the assertion it
+    // exists for — *does an undo take the value out of the BOX, or only out of
+    // the file?* — has never once been made.
+    //
+    // Clicking the quick-access Undo is the same act. `undo_redo_round_trip`
+    // already proves the chord and the button reach one dispatcher, and this
+    // check is not about how the undo was raised: it is about what the PANEL
+    // does when one lands. A phase that skips for ever because it insisted on
+    // one of two equivalent routes is a phase that has quietly opted out.
+    //
+    // The chord stays as the fallback, so a build where the button vanishes
+    // still has somewhere to go before it gives up.
+    if let Some(rect) = declared(&trace, ui_rect, "ribbon.qat.edit.undo") {
+        driver.click_at(session.frame()?.declared_center(rect))?;
+    } else {
+        driver.press_chord(&[vk::CONTROL], vk::Z)?;
+    }
     session.settle(20);
     let trace = session.trace()?;
     if trace.last("undo").is_none() && trace.events(APPLIED).count() == applied_before {
         return Err(Error::new(
-            "Ctrl+Z produced no undo line, so the keystroke did not arrive and step 4 would be \
-             asserting nothing. Reported as SKIPPED rather than FAILED: this is the harness's \
-             keyboard, not the panel.",
+            "neither the quick-access Undo control nor Ctrl+Z produced an undo line, so step 4 \
+             would be asserting nothing. Reported as SKIPPED rather than FAILED: on this \
+             route that is the harness's input, not the panel.",
         ));
     }
 

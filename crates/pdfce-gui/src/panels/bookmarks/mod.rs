@@ -122,6 +122,37 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // the operator pointed at, and it saves a second selection gesture that
     // would have to be taught.
     let mut picked: Option<pdfce_core::object::ObjId> = None;
+    // ★★ The authoring row is drawn BEFORE the list, and that ordering is
+    // the fix for a feature that shipped unreachable.
+    //
+    // A driven run on a 122-bookmark drawing found the panel body occupying
+    // y=133..770 and this row laid out at y=899..923 — **below the bottom of
+    // the panel**, with no way to reach it. The row drew. It published its
+    // region. Every unit test passed. And `add_outline_item`, wired that
+    // morning, could not be used on any document with a real outline, which is
+    // every document somebody would want to add a bookmark to.
+    //
+    // The first attempt capped the list with a reserve, which moved the row
+    // from y=899 to y=769 in a panel ending at 770 — still overflowing, by less.
+    // That is the shape of a fix that is a **magic number**: it works at the
+    // pane height it was tuned against and fails quietly at every other one.
+    //
+    // Putting the row first removes the arithmetic entirely. Nothing follows
+    // the scroll area, so nothing can be pushed past the end of the panel, at
+    // any pane height, with any size of outline. The rule generalises and is
+    // worth stating: **a control that must always be reachable cannot be placed
+    // after an unbounded `ScrollArea`.** Reserve-and-hope is not a second
+    // option; it is the same defect with a tuning parameter.
+    //
+    // It also reads better, for the reason the Manage-groups window's Add
+    // button was moved on the same pass: this row acts on the LIST — it files
+    // the new bookmark under whichever row was last clicked — and a control's
+    // position is a claim about what it acts on. Above the list it is making
+    // that claim correctly, and the operator sees the destination before they
+    // scroll rather than after.
+    add::show(ui, doc, state.bookmarks_mut(), actions);
+    ui.separator();
+
     egui::ScrollArea::vertical()
         .id_salt("bookmark-rows")
         .show(ui, |ui| {
@@ -130,7 +161,6 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     if let Some(id) = picked {
         state.bookmarks_mut().select(id);
     }
-    add::show(ui, doc, state.bookmarks_mut(), actions);
     if let Some(page) = go {
         actions.push(Action::GoToPage(page));
     }

@@ -64,7 +64,8 @@
 //! named group.
 
 use crate::checks::driving::{
-    SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, declared_or_in_overflow, list, shell_trace,
+    SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, declared_or_in_overflow, list, live_names,
+    shell_trace,
 };
 use crate::checks::{Check, CheckContext};
 use crate::error::{Error, Result};
@@ -276,7 +277,12 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note("the Manage-groups window opened from Measure > Scale");
 
     // --- 4: it drew a list, and the list has the default group in it -------
-    let before = declared_names(&trace, ui_rect, DRAW_INTO);
+    // `live_names`, not `declared_names` — the three counts in this check
+    // compare row populations across an edit, and the `ui-rect` channel is a
+    // change log in which a deleted row's last rect stands for ever. See
+    // `driving::live_names`, whose doc records the false failure this check
+    // produced before the distinction existed.
+    let before = live_names(&trace, ui_rect, DRAW_INTO);
     if before.is_empty() {
         return Ok(Some(format!(
             "the window opened and declared no `{DRAW_INTO}*` region, so it drew no group \
@@ -352,7 +358,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note("the group reached the document through the action funnel");
 
     // --- 7: ★ and it comes BACK, with a radio on it ------------------------
-    let after = declared_names(&session.trace()?, ui_rect, DRAW_INTO);
+    let after = live_names(&session.trace()?, ui_rect, DRAW_INTO);
     if after.len() <= before.len() {
         return Ok(Some(format!(
             "★ the group was WRITTEN and did not come back. `{APPLIED}` was traced, so \
@@ -462,7 +468,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              and not a refusal."
         )));
     }
-    let finally = declared_names(&session.trace()?, ui_rect, DRAW_INTO);
+    let finally = live_names(&session.trace()?, ui_rect, DRAW_INTO);
     if finally.len() != before.len() {
         return Ok(Some(format!(
             "★ the round trip did not close: {} row(s) before, {} after the delete. Create, \

@@ -595,7 +595,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              rotation reached the file by finding `/Rotate 90` in the saved copy and NOT in the \
              source; on this document that evidence would be indistinguishable from the \
              fixture's own furniture. Point --pdf at a document with no page rotation — \
-             `D:\\Dev\\pdfce\\fixtures\\pageops\\four-pages.pdf` is the one this project uses.",
+             `D:\\Dev\\pdfce\\fixtures\\synthetic\\pageops\\four-pages.pdf` is the one this project uses.",
             pdf.display()
         )));
     }
