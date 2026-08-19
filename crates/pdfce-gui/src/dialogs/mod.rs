@@ -77,6 +77,13 @@ pub mod dimension_groups;
 /// Its header carries the decision a reader will question first: why placement
 /// is numeric rather than a drag, and why a drag is a second **route** to the
 /// same action rather than the one that should have shipped.
+/// ★ The Export-DXF window — the page's vector geometry, at a scale somebody
+/// can defend.
+///
+/// Its header carries the sentence the whole feature turns on, quoted from
+/// `pdfce-core`: every generic PDF-to-DXF converter exports at paper scale and
+/// says nothing, so a 1:2 detail arrives at half size **looking plausible**.
+pub mod export_dxf;
 pub mod insert_image;
 pub mod insert_pages;
 pub mod new_document;
@@ -225,6 +232,12 @@ pub struct DialogsState {
     /// which is the right answer rather than a loss, for [`Self::ocr`]'s reason
     /// applied to an operand instead of to a result.
     insert_image: Option<insert_image::InsertImageDialog>,
+
+    /// The Export-DXF window, when one is open.
+    ///
+    /// **Document-scoped**: it exports a page of the open file, and its scale
+    /// suggestion is computed from that document's own dimension groups.
+    export_dxf: Option<export_dxf::ExportDxfDialog>,
 
     /// The Manage-dimension-groups window, when one is open.
     ///
@@ -600,6 +613,9 @@ impl DialogsState {
         if self.insert_image.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.insert_image = None;
         }
+        if self.export_dxf.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.export_dxf = None;
+        }
         // ★ Drawn BEFORE the Set-scale window, and the order is load-bearing.
         //
         // Its *Set scale…* button parks a request that is drained immediately
@@ -650,6 +666,21 @@ impl DialogsState {
         self.scale = None;
         self.dimension_groups = None;
         self.insert_image = None;
+        self.export_dxf = None;
+    }
+
+    /// Open the Export-DXF window for the page on screen.
+    ///
+    /// **The dispatch target for the `file.export_dxf` command.** The two guards
+    /// [`Self::open_print`] documents apply, and the no-document one is real
+    /// rather than ceremonial: the window's scale suggestion is computed from
+    /// the document's dimension model at construction, so there is nothing to
+    /// build without one.
+    pub fn open_export_dxf(&mut self, status: &Status) {
+        if self.export_dxf.is_some() {
+            return;
+        }
+        self.export_dxf = export_dxf::open_for(status);
     }
 
     /// Open the Insert-image window for an already-imported picture.

@@ -92,15 +92,6 @@ pub mod diagnostics;
 /// not on screen — and doing it with a count that is computed before the edit
 /// rather than reported after it.
 pub mod dimension_groups;
-/// The copy the open/close/recent surface owns — the file dialog's title and
-/// filter names, and every string the Recent control draws. Consumed by
-/// `crate::app::files` and `crate::app::recent`.
-pub mod files;
-/// Every string the Find bar shows, plus the status bar's Find toggle.
-/// Consumed by `crate::find::bar` and `crate::app::status`.
-pub mod find;
-/// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
-pub mod forms;
 /// What the measure tools say about what they INFERRED — the two-line
 /// gesture's refusals, the angle an override overrode, and an apex that is
 /// only real if the lines are extended.
@@ -115,6 +106,21 @@ pub mod forms;
 /// the **placement**, not of the file, and every mistake it can report — a
 /// 2000 dpi photo in a 2-inch box, a 12 dpi logo across a page — looks perfect
 /// on screen at editing zoom and only shows up on the plot.
+/// Every word the Export-DXF window shows.
+///
+/// Its header carries the sentence the whole feature turns on, quoted from
+/// `pdfce-core`: every generic PDF-to-DXF converter exports at paper scale and
+/// says nothing, so a 1:2 detail arrives at half size **looking plausible**.
+pub mod export_dxf;
+/// The copy the open/close/recent surface owns — the file dialog's title and
+/// filter names, and every string the Recent control draws. Consumed by
+/// `crate::app::files` and `crate::app::recent`.
+pub mod files;
+/// Every string the Find bar shows, plus the status bar's Find toggle.
+/// Consumed by `crate::find::bar` and `crate::app::status`.
+pub mod find;
+/// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
+pub mod forms;
 pub mod images;
 /// Every word the Markup ▸ Style group shows — three tooltips and a unit.
 ///

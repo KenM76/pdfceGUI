@@ -78,15 +78,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // FILE
     // ===================================================================
     (
-        "file.export_dxf",
-        "★ P3 — NO RECORDED REASON ANYWHERE, and that is the entry. `RIBBON_IA.md` §5.1 \
-         marks the row G, meaning the capability exists in the shell this one replaces; \
-         neither `FEATURES.md`'s backlog, nor `manifest::PLANNED`, nor `manifest::DIRECTED`, \
-         nor any doc comment says why the control was drawn before the arm was written. The \
-         only comments at its registration are about which glyph it shares and which group \
-         it sits in. Scaffolded by omission rather than by decision.",
-    ),
-    (
         "file.export_form_data",
         "Blocked on a writer that does not exist. `FEATURES.md`'s Forms row: “fill ✅ (all \
          three modes since 2026-08-14); create field, flatten and FDF/XFDF/CSV still ⬜” — \

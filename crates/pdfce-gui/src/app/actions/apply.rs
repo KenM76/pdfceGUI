@@ -765,6 +765,11 @@ impl PdfceApp {
             // Those three answers to one edit are the whole subject over there,
             // and they were the only part of it living here.
             Action::Page(action) => super::pages::apply(doc, &mut self.panels, action),
+            // ★ An export changes NOTHING — no `vector_edit`, no undo entry,
+            // no epoch bump, no invalidation. It reads the open page and writes
+            // a different file, which is why its body is in `super::export`
+            // rather than beside the mutations. See that module's header.
+            Action::ExportDxf { page, options } => super::export::dxf(doc, page, &options),
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].

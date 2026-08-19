@@ -1188,7 +1188,7 @@ pub const FX_CONST: &str = "fx.constant";
         // it needed had shipped long before. An entry with no reason is not a
         // blocker; it is an entry nobody has looked at.
         assert_eq!(
-            total, 16,
+            total, 15,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
@@ -1197,7 +1197,7 @@ pub const FX_CONST: &str = "fx.constant";
             // 2026-08-18 — a P3 breach retired, which is the direction this
             // count exists to make visible.
             p3,
-            6,
+            5,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

@@ -698,6 +698,18 @@ impl PdfceApp {
                 }
                 images::insert(&mut self.dialogs, &self.status);
             }
+            // ★ **Export to DXF.** The FIRST entry in `reach`'s scaffold list
+            // and one of three whose recorded reason was *"No recorded reason
+            // anywhere. Scaffolded by omission, not by decision."* —
+            // `pdfce-core`'s `export::dxf` had shipped the whole time, and the
+            // old shell has the feature, so `FEATURES.md`'s `gui` column made
+            // it a REGRESSION rather than a gap.
+            //
+            // Gated on `doc.pages` through the registry rather than on a
+            // capability: an export reads the document and writes elsewhere, so
+            // there is no mode in which it should be refused. Read mode
+            // exporting a drawing is exactly what a reading stance is for.
+            "file.export_dxf" => self.dialogs.open_export_dxf(&self.status),
             "format.properties" => {
                 actions.push(crate::app::actions::Action::Command(
                     // ui-text-exempt: a registered command id, never displayed
