@@ -102,6 +102,36 @@ pub fn row_home(tab: &str, chord: Option<&str>) -> String {
 
 /// What the Hand tool does, in the tool list.
 #[must_use]
+pub const fn row_select() -> &'static str {
+    "Pick a shape, then drag it. The tool everything comes back to."
+}
+
+/// What the Points tool does, in the tool list.
+///
+/// ★ Leads with **seeing**, not with selecting, and that is the whole sentence:
+/// the operator's report was *"how do I get to SEE the end points of an object
+/// and select them"*, in that order, because you cannot pick a point you cannot
+/// find. A row reading "select and move individual points" would describe the
+/// same tool and answer a question he did not ask.
+#[must_use]
+pub const fn row_points() -> &'static str {
+    "Show a shape's points, then drag one to move it."
+}
+
+/// What the Text tool does, in the tool list.
+///
+/// ★★ **One row, where there were two**, and the sentence covers both halves in
+/// the order they are tried: click text to change it, click space to start
+/// some. `row_edit_text` and `row_add_text` said those two things separately,
+/// under two rows, for a distinction that no longer exists anywhere the
+/// operator can see — the click decides.
+#[must_use]
+pub const fn row_text() -> &'static str {
+    "Click words to change them, or click empty space to start new text."
+}
+
+/// See the module header.
+#[must_use]
 pub const fn row_hand() -> &'static str {
     "Move the paper without changing anything."
 }

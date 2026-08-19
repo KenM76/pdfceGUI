@@ -210,6 +210,12 @@ pub mod bezier_handle;
 /// without `PDFCE_DIAG_DROP_PATH` this would be the single feature in the shell
 /// that R1 cannot reach.
 pub mod dropped_file;
+/// ★★★ **Zero clicks.** The only check in this suite that drives no gesture: it
+/// opens a document, enters Edit, and asks what an operator SEES. Every other
+/// test of the tool list asks whether a named command is present — a question
+/// that stays green while the answer goes stale, because a list can be complete
+/// about yesterday's tools and silent about today's.
+pub mod first_frame;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -588,6 +594,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(tool_row::TheTextToolTypesOnOneClick),
         Box::new(tool_row::ThePointsToolShowsPointsOnOneClick),
         Box::new(dropped_file::ADroppedImageReachesThePlacementWindow),
+        Box::new(first_frame::TheFirstFrameNamesTheTools),
         Box::new(redaction::RedactionRemovesAndProvesIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it

@@ -540,6 +540,27 @@ impl WindowFrame {
         })
     }
 
+    /// The client area in **logical points**, which is the space `ui-rect`
+    /// publishes in.
+    ///
+    /// # ★ Why this is not [`Self::client_pixels`] divided by the scale
+    ///
+    /// It is, arithmetically — and the point of having it as its own accessor
+    /// is that a caller comparing a published rect against the window must not
+    /// have to remember which of the two spaces it is in. `ui-rect` carries
+    /// logical points; `client_pixels` carries desktop pixels; a check that
+    /// compared one against the other would pass or fail by the display's scale
+    /// factor, which is a property of the machine the suite happens to run on.
+    ///
+    /// Used by the "is it actually visible" assertions. **Drawn is not seen** —
+    /// a widget below the fold publishes a perfectly good rect.
+    #[must_use]
+    pub fn client_logical(&self) -> LRect {
+        let w = self.client_size.0 as f32 / self.scale;
+        let h = self.client_size.1 as f32 / self.scale;
+        LRect::new(crate::geom::Pt::new(0.0, 0.0), crate::geom::Pt::new(w, h))
+    }
+
     /// The client area as a desktop-pixel rectangle, for the screen grabber.
     #[must_use]
     pub fn client_pixels(&self) -> PixRect {

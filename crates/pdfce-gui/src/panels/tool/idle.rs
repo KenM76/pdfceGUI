@@ -136,46 +136,81 @@ pub(super) fn tools(
 /// `crate::dialogs::settings` makes about its own groups and the same one that
 /// puts Redact last in Edit's dock stack.
 ///
-/// **Edit text and Add text are third and fourth rather than last**, above
-/// Markup and Measure, and that placement is the whole reason this list exists:
-/// they are the two the operator reported as missing, and a row he has to
-/// scroll to is a row he does not read.
+/// ## ★★★ Rewritten 2026-08-19, and the version it replaces is the lesson
+///
+/// It used to open with **Hand** and **Select text**, then `edit.text` and
+/// `edit.add_text` as separate rows — and its own comment said that placement
+/// was *"the whole reason this list exists: they are the two the operator
+/// reported as missing"*.
+///
+/// The panel shipped. He came back the same day and still could not type,
+/// because the panel was **describing a four-step route** (Edit mode → the Edit
+/// tab → *Edit text* → click) rather than removing it, and because two rows for
+/// what an operator thinks of as one tool is a distinction only the
+/// implementation cares about.
+///
+/// ★ **And this function was nearly shipped stale a second time.** When the
+/// four pointer tools landed, this list still named the old six — so the panel
+/// whose entire job is to teach the tools would not have mentioned **Points**,
+/// which is the answer to *"how do I get to see the end points of an object"*.
+/// Caught by asking what a first frame shows, which is the check this list's
+/// correctness actually rests on.
+///
+/// ## The order, and why Select is first now
+///
+/// The **four pointer tools in palette order** — Select, Points, Text, Hand —
+/// then the two authoring families. That is the order every program in the
+/// class puts them in, so the operator's eye knows where to go before reading a
+/// label, and it is the order the View ▸ Navigate band now draws them in. The
+/// two lists agreeing is not decoration: this panel exists to *teach the
+/// ribbon*, and a panel that taught a different order would be teaching
+/// something false.
+///
+/// It reverses the old "navigation first, authoring second" argument, which was
+/// sound and is superseded: with a real tool row, membership of the row IS the
+/// grouping, and re-sorting inside it by harmlessness would break the one
+/// arrangement the operator already knows.
 fn rows(caps: Capabilities) -> Vec<Row> {
-    let mut rows = vec![
-        Row {
-            // ui-text-exempt: command id, never displayed
-            id: "view.tool_hand",
-            what: t::row_hand(),
-            tab: crate::text::ribbon::tab_view(),
-        },
-        Row {
-            // ui-text-exempt: command id, never displayed
-            id: "view.tool_text",
-            what: t::row_select_text(),
-            tab: crate::text::ribbon::tab_view(),
-        },
-    ];
-    // ★ The two text tools, and the ONE capability that gates them.
+    let mut rows = vec![Row {
+        // ui-text-exempt: command id, never displayed
+        id: "view.tool_select",
+        what: t::row_select(),
+        tab: crate::text::ribbon::tab_view(),
+    }];
+    // ★ **Points is gated on `edit_content` and the other three are not**, and
+    // that split is the same one `canvas::tool::arm::retire_forbidden` makes.
     //
-    // `edit_content` is `Capabilities::for_mode`'s answer for "is this mode
-    // shown the Edit tab", which is exactly the condition
-    // `canvas::tool::retire_forbidden` uses to disarm a `TextEdit` when the
-    // mode changes. Reading the same flag is what stops the panel offering a
-    // row that arms a tool the canvas immediately puts down again.
+    // Select, Text and Hand change nothing about the document — Text SWEEPS in
+    // a mode that cannot author, which is how Read copies. Points exists in
+    // order to drag an anchor, so a mode that refuses the drag must not offer
+    // the tool; a row that armed something the canvas immediately put down
+    // again is the "visible control, silently inert" defect with an extra step.
     if caps.edit_content {
         rows.push(Row {
             // ui-text-exempt: command id, never displayed
-            id: "edit.text",
-            what: t::row_edit_text(),
-            tab: crate::text::ribbon::tab_edit(),
-        });
-        rows.push(Row {
-            // ui-text-exempt: command id, never displayed
-            id: "edit.add_text",
-            what: t::row_add_text(),
-            tab: crate::text::ribbon::tab_edit(),
+            id: "view.tool_node",
+            what: t::row_points(),
+            tab: crate::text::ribbon::tab_view(),
         });
     }
+    rows.push(Row {
+        // ★ ONE text row, where there were two. `edit.text` and
+        // `edit.add_text` are both still registered and both still work — they
+        // are two doors into one room — but the *tool* is one tool, and the
+        // click decides whether it edits an existing run or starts a new one.
+        // Listing two rows here would restate a distinction that no longer
+        // exists anywhere the operator can see.
+        // ui-text-exempt: command id, never displayed
+        id: "view.tool_text",
+        what: t::row_text(),
+        tab: crate::text::ribbon::tab_view(),
+    });
+    rows.push(Row {
+        // ui-text-exempt: command id, never displayed
+        id: "view.tool_hand",
+        what: t::row_hand(),
+        tab: crate::text::ribbon::tab_view(),
+    });
     if caps.author_markup {
         rows.push(Row {
             // ★ The family row arms `markup.rectangle`, which is the kind an
@@ -295,43 +330,65 @@ mod tests {
         }
     }
 
-    /// ★★ **Every mode that can edit page content offers both text rows.**
+    /// ★★ **Every mode that can edit content names the text tool and the
+    /// points tool, near the top.**
     ///
-    /// The assertion this panel exists to make pass. The operator reported
-    /// `edit.text` and `edit.add_text` as missing while both were registered,
-    /// drawn and chord-bound, so the property that matters is not *"the
-    /// commands exist"* — it is *"a surface an operator sees without asking
-    /// names them"*.
+    /// The assertion this panel exists to make pass, **rewritten twice**, and
+    /// the rewrites are the record of two wrong answers to one complaint.
+    ///
+    /// It first asserted that `edit.text` and `edit.add_text` both appeared —
+    /// because the operator had reported them missing while both were
+    /// registered, drawn and chord-bound, so *"a surface an operator sees
+    /// without asking names them"* looked like the property that mattered. The
+    /// panel shipped naming both. **He came back the same day and still could
+    /// not type**, because naming a four-step route is not removing it.
+    ///
+    /// It now asserts the tool row: one **text** tool (the click decides
+    /// whether it edits or adds) and the **points** tool, which is the answer
+    /// to *"how do I get to see the end points of an object"* and which this
+    /// list would have shipped without had nobody asked what a first frame
+    /// shows.
+    ///
+    /// The position bound is kept, and kept tight, for its original reason: a
+    /// row an operator has to scroll to is a row they do not read.
     #[test]
-    fn a_mode_that_can_edit_text_says_so_without_being_asked() {
+    fn a_mode_that_can_edit_says_so_without_being_asked() {
         let ids: Vec<&str> = rows(Capabilities::FULL).iter().map(|r| r.id).collect();
-        assert!(ids.contains(&"edit.text"), "{ids:?}");
-        assert!(ids.contains(&"edit.add_text"), "{ids:?}");
-        // And they are near the top, not scrolled past. A row an operator has
-        // to scroll to is a row they do not read, which is the failure this
-        // whole panel is a fix for.
-        let first_text = ids
+        for wanted in ["view.tool_select", "view.tool_node", "view.tool_text"] {
+            assert!(ids.contains(&wanted), "{wanted} is missing from {ids:?}");
+        }
+        let text_at = ids
             .iter()
-            .position(|id| *id == "edit.text")
+            .position(|id| *id == "view.tool_text")
             .expect("present");
         assert!(
-            first_text < 4,
-            "the text tools are row {first_text} of {}, which is far enough down to be \
-             scrolled past in a short dock",
+            text_at < 4,
+            "the text tool is row {text_at} of {}, far enough down to be scrolled past in a \
+             short dock",
             ids.len()
         );
     }
 
-    /// A mode with no authoring capability offers only the two harmless tools.
+    /// A mode with no authoring capability offers only the harmless tools.
     ///
-    /// Read's list. Both change nothing about the document — the hand moves the
-    /// paper and the sweep writes to the clipboard, which is the operator's own
-    /// *copying is not authoring* ruling — so both are legitimate in a mode
-    /// whose stated point is that it authors nothing.
+    /// Read's list. None of the three changes the document: Select picks
+    /// (and in a mode that cannot select content, picks nothing), the hand
+    /// moves the paper, and the text tool **sweeps** rather than editing —
+    /// which is the operator's own *copying is not authoring* ruling and is how
+    /// Read copies at all.
+    ///
+    /// ★ **Points is the one that must be absent**, and it is the only tool in
+    /// the row that is: it exists in order to drag an anchor, so a mode that
+    /// refuses the drag must not offer the tool. Asserted as an exact list
+    /// rather than as `!contains` so that a fifth tool added carelessly to a
+    /// reading mode fails here rather than shipping.
     #[test]
     fn a_reading_mode_offers_nothing_that_writes() {
         let ids: Vec<&str> = rows(Capabilities::NONE).iter().map(|r| r.id).collect();
-        assert_eq!(ids, ["view.tool_hand", "view.tool_text"]);
+        assert_eq!(
+            ids,
+            ["view.tool_select", "view.tool_text", "view.tool_hand"]
+        );
     }
 
     /// Every row names a distinct command.

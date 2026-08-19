@@ -514,6 +514,40 @@ fn adopt(layout: &mut DockLayout, default: &DockLayout, new: &[PanelId]) -> Vec<
             let stack_ix = at.stack.min(column.stacks.len().saturating_sub(1));
             if let Some(stack) = column.stacks.get_mut(stack_ix) {
                 stack.tabs.push(id.clone());
+                // ★★★ **And it is RAISED, or the whole function is a no-op the
+                // trace reports as a success.**
+                //
+                // This line's absence was found on 2026-08-19 by the check that
+                // asks what a first frame shows. `stack.tabs.push` mounts the
+                // panel and leaves whatever was active still active, so on any
+                // profile older than the panel it arrives **behind another
+                // tab** — present in `layout.ron`, present in the tab strip,
+                // and invisible.
+                //
+                // For a panel whose whole purpose is discoverability that is
+                // identical to not shipping it. The **Tool panel** is exactly
+                // that panel: built to answer *"no side bar area showing what
+                // tool is active"*, adopted correctly into every upgraded
+                // layout, and never once seen by the operator who reported the
+                // gap — because he has run this build for two weeks and his
+                // layout predates it.
+                //
+                // ★ This function's own doc comment had already reasoned to the
+                // edge of it: *"a panel appended to the end of the first stack
+                // would land beside whatever happens to be there … the operator
+                // sees a tab bar grow by one and has no reason to think a
+                // feature arrived."* It then solved the placement half and left
+                // the visibility half, which is the harder half and the one an
+                // operator can actually perceive.
+                //
+                // **Once, on adoption — not every frame.** A panel that raised
+                // itself on every start would fight an operator who had
+                // deliberately tabbed it behind something else, which is a
+                // choice they are entitled to make about a panel they have
+                // already met. Adoption happens exactly once per panel per
+                // layout, which is precisely the moment "a feature arrived" is
+                // true.
+                stack.active = stack.tabs.len().saturating_sub(1);
                 added.push(id.clone());
                 continue;
             }
@@ -1106,5 +1140,48 @@ mod tests {
         let default = layout_for_build("read", &catalog);
         let expected: Vec<&str> = default.panels().map(PanelId::as_str).collect();
         assert_eq!(mounted, expected);
+    }
+
+    /// ★★★ **An adopted panel arrives VISIBLE, not merely mounted.**
+    ///
+    /// The regression test for the defect that made the Tool panel — built to
+    /// answer *"no side bar area showing what tool is active"* — invisible to
+    /// the operator who reported the gap, for its entire life, on the profile
+    /// he had been running for two weeks.
+    ///
+    /// `stack.tabs.push` mounted it and left whatever was active still active,
+    /// so it landed behind another tab: present in `layout.ron`, present in the
+    /// tab strip, and never seen. For a panel whose whole purpose is
+    /// discoverability that is identical to not shipping it.
+    ///
+    /// ★ Found by a driven check asking *what does a first frame show* — not by
+    /// any of the tests of `adopt`, every one of which asked whether the panel
+    /// was PRESENT. Presence was never in doubt.
+    #[test]
+    fn an_adopted_panel_is_raised_and_not_merely_mounted() {
+        let mut layout = DockLayout::default();
+        let occupant = PanelId::new("view.panel_pages");
+        let arrival = PanelId::new("view.panel_tool");
+        layout.left.columns.push(Column {
+            stacks: vec![Stack::new(occupant.clone())],
+            share: 1.0,
+        });
+        let mut default = DockLayout::default();
+        default.left.columns.push(Column {
+            stacks: vec![Stack::new(occupant.clone())],
+            share: 1.0,
+        });
+        default.left.columns[0].stacks[0].tabs.push(arrival.clone());
+
+        let added = adopt(&mut layout, &default, std::slice::from_ref(&arrival));
+        assert_eq!(added, vec![arrival.clone()]);
+
+        let stack = &layout.left.columns[0].stacks[0];
+        assert!(stack.tabs.contains(&arrival), "mounted");
+        assert_eq!(
+            stack.tabs.get(stack.active),
+            Some(&arrival),
+            "the arriving panel must be the one on screen"
+        );
     }
 }
