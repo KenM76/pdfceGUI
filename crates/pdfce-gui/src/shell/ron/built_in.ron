@@ -413,6 +413,7 @@
         "Ctrl+H": "view.read_mode",
         "Ctrl+N": "file.new",
         "Ctrl+O": "file.open",
+        "Ctrl+P": "file.print",
         "Ctrl+S": "file.save_copy",
         "Ctrl+Shift+C": "file.copy_page_text",
         "Ctrl+Shift+E": "edit.add_text",

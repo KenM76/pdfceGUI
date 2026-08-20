@@ -2,9 +2,23 @@
 
 **Updated 2026-08-20, clean tree, gates 14/14, 1,525 + 384 + 144 tests,
 56 driven checks — 50 verified, 6 skipped for a stated reason, 0 failed.**
-**All six of the operator's standing complaints are closed AND driven, and so
-is everything he asked for on 2026-08-19 and 2026-08-20 except one scope
-question — §0a.**
+**★★★ READ `OPERATOR_REQUESTS.md` FIRST. That file, not this one, is the
+truth about what the operator has asked for and what is actually done.**
+
+This header used to say *"all six of the operator's standing complaints are
+closed AND driven."* On 2026-08-20 he replied, about two of them:
+
+> *"Still no editing text on top of the canvas. Or editing text on a text box.
+> Where do you need to put these requests so they just get auto-repeated over
+> and over again so I don't have to keep requesting they be done over and over
+> again?"*
+
+He was right, and the sentence above was progress theatre of exactly the kind
+this role forbids. **A summary written by the person who did the work is not
+evidence that the work landed** — three separate features on this project have
+been trace-green, gate-green and broken on screen. `OPERATOR_REQUESTS.md` exists
+so that a row leaves the backlog when the OPERATOR says it works, and not
+before. Nothing in this file may contradict it.
 **Newest portable build: `OneDrive\pdfceGUI2`** (2026-08-20 06:03, `d2bc52f`).
 `pdfceGUI1` holds the previous (2026-08-19 17:44, `3be942c`).
 **Phase 1 is complete but for the object clipboard. Phase 5 is complete but for

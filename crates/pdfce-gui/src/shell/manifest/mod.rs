@@ -274,6 +274,22 @@ pub fn built_in() -> Shell {
         // the File band, so a layout that cannot spell it loses nothing.
         .with_binding("Ctrl+Alt+N", "file.new_from_template")
         .with_binding("Ctrl+O", "file.open")
+        // ★ **Ctrl+P**, 2026-08-20, on the operator's report: *"still no ctrl+c,
+        // ctrl+v, ctrl+x or ctrl+p shortcuts that were requested ages ago"*.
+        //
+        // The other three were bound and are not the whole of what he means (see
+        // `dispatch`'s clipboard arms - they reach markup and refuse page content,
+        // which is an engine gap filed on 2026-08-20). **This one was simply
+        // absent**, and it is the single most universal chord in any document
+        // application. It went unnoticed because Print has a ribbon control, a QAT
+        // slot and a menu row, so every surface that lists commands showed it and
+        // only the keyboard did not.
+        //
+        // The lesson is the file-size one in a different suit: a fact that is true
+        // in four places and false in the fifth is invisible to anything that
+        // checks one place. `keymap_offers_the_chords_a_document_application_must`
+        // is the gate, and it asserts the LIST rather than this line.
+        .with_binding("Ctrl+P", "file.print")
         .with_binding("Ctrl+S", "file.save_copy")
         .with_binding("Ctrl+Z", "edit.undo")
         .with_binding("Ctrl+Y", "edit.redo")
@@ -1171,11 +1187,60 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            31,
-            "thirty-one key bindings — the four pointer tools took V, A, T and H on 
+            32,
+            "thirty-two key bindings — the four pointer tools took V, A, T and H on 
              2026-08-19, and the document tabs took Ctrl+Tab, Ctrl+Shift+Tab and 
              Ctrl+W the same day. Both are the layout every program in this class uses"
         );
+    }
+
+    /// ★★ **The chords every document application has, asserted as a LIST.**
+    ///
+    /// Added 2026-08-20, on the operator: *"still no ctrl+c, ctrl+v, ctrl+x or
+    /// ctrl+p shortcuts that were requested ages ago."* Three of the four were
+    /// bound. `Ctrl+P` was not, and had not been since the manifest was
+    /// written.
+    ///
+    /// # Why the whole list, and not a line for the one that was missing
+    ///
+    /// Because the defect was never about Print. It was that **nothing
+    /// anywhere asked the question**, and a test naming `Ctrl+P` would leave
+    /// the question unasked for the next one. The count assertion above cannot
+    /// help: it says how MANY bindings there are, and a keymap with the wrong
+    /// thirty-two passes it exactly as well as the right thirty-two.
+    ///
+    /// These are the chords a person arriving from any other PDF or office
+    /// application will press without looking. Every one of them is muscle
+    /// memory, which means its absence is not experienced as a missing feature
+    /// - it is experienced as the application ignoring the keyboard.
+    ///
+    /// A command here that this build does not register is a failure of THIS
+    /// test rather than a silently dropped binding, which is the second half of
+    /// the same argument: `no_registered_command_is_orphaned` catches a binding
+    /// pointing nowhere, and this catches a chord that is simply not there.
+    #[test]
+    fn the_keymap_offers_the_chords_a_document_application_must() {
+        let shell = built_in();
+        let keymap = shell.keymap.as_ref().expect("a keymap");
+        for (chord, command) in [
+            ("Ctrl+N", "file.new"),
+            ("Ctrl+O", "file.open"),
+            ("Ctrl+S", "file.save_copy"),
+            ("Ctrl+P", "file.print"),
+            ("Ctrl+W", "file.close"),
+            ("Ctrl+Z", "edit.undo"),
+            ("Ctrl+Y", "edit.redo"),
+            ("Ctrl+X", "edit.cut"),
+            ("Ctrl+C", "edit.copy"),
+            ("Ctrl+V", "edit.paste"),
+            ("Ctrl+F", "edit.find"),
+        ] {
+            assert_eq!(
+                keymap.get(chord),
+                Some(command),
+                "{chord} must reach {command} - it is muscle memory, and its absence reads                  as the application ignoring the keyboard rather than as a missing feature"
+            );
+        }
     }
 
     /// The tabs are the seven of `RIBBON_IA.md` §4, in its order.

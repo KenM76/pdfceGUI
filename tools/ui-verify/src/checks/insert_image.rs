@@ -39,6 +39,7 @@
 //! identity, and the whole point of the last assertion is the case where the
 //! placed rectangle differs from the requested one.
 
+use crate::capture;
 use crate::checks::driving::{
     SHELL_DIAG_ENV, declared, declared_names, declared_or_in_overflow, list,
 };
@@ -58,6 +59,10 @@ const INSERT: &str = "insert-image.insert";
 /// The width spinner — the one numeric control a harness can move, named
 /// because the fit radios and the picture facts publish nothing aimable.
 const WIDTH: &str = "insert-image.width";
+/// The page itself, on the canvas. Step 6 compares this area before the
+/// Insert click and after it, which is the only assertion here that can see
+/// a successful edit that never reaches the screen.
+const PAGE: &str = "page";
 /// The trace the importer emits when the file was read.
 const IMPORTED: &str = "image-imported";
 /// The trace the window emits on commit, carrying the PREVIEWED resolution.
@@ -244,6 +249,19 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     driver.click_at(session.frame()?.declared_center(tab))?;
     session.settle(14);
 
+    // ★★ The page as it stands before ANY of this — one half of step 6.
+    //
+    // Taken here, and not later, because the only two moments in this check
+    // when no dialog is on screen are *before the ribbon item is clicked* and
+    // *after Insert is pressed*. A "before" taken while the placement window
+    // was up would differ from the "after" by the window itself, which is most
+    // of the sheet — so the comparison would pass on a document that never
+    // changed. It did, on 2026-08-20, for exactly one run before this moved.
+    let page_before = declared(&session.trace()?, ui_rect, PAGE)
+        .map(|r| session.frame().map(|f| f.logical_to_capture_pixels(r)))
+        .transpose()?;
+    let before = capture::window(&session).ok();
+
     // --- 2: pick, import, and open -----------------------------------------
     let Some(item) =
         declared_or_in_overflow(&session, &driver, ui_rect, "ribbon.item.edit.insert_image")?
@@ -395,6 +413,88 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "the window promised {previewed:.0} dpi and the document reported {reported:.0} — one \
          producer, two readings, same answer"
+    ));
+
+    // --- 6: ★★ THE PICTURE IS ACTUALLY ON THE PAGE -------------------------
+    //
+    // Every assertion above reads the TRACE, and on 2026-08-20 every one of
+    // them passed against the operator's own 4 MB JPEG while he was reporting
+    // *"I click insert and nothing happens"* — accurately. A trace can say the
+    // verb ran, the document changed and the epoch moved. It cannot say the
+    // canvas repainted, and "the edit landed and the view kept showing its
+    // cached raster" is, from the operator's chair, indistinguishable from a
+    // button that does nothing.
+    //
+    // What it caught: `EditSession::add_image` returns `Ok`, reports correct
+    // disclosures, and leaves a page whose `/Contents` `page_tree::pages` then
+    // refuses — so the shell keeps its pre-edit page vector and renders that.
+    // Filed as `request_add_image_corrupts_a_page_whose_contents_is_an_
+    // indirect_array.md`. Nothing else in this suite could have seen it.
+    //
+    // That is `D:/dev/rag/egui/`'s standing rule arrived at from a third
+    // independent direction: a layout, clipping or repaint defect has exactly
+    // one oracle, and it is a rendered screenshot.
+    //
+    // The threshold is deliberately loose — one pixel in five hundred. A
+    // picture seeded at its natural size covers most of the sheet, so a real
+    // insert moves an enormous fraction of it. What it must not be is zero, and
+    // zero is what an unrepainted canvas gives.
+    // ★ First, the sharp oracle, because it names the failure instead of
+    // measuring it. The Objects panel decomposes the page every frame and
+    // traces what it found. A picture that reached the page IS an image
+    // object; one that did not, is not — and this line says so in one integer,
+    // where the pixel comparison below can only say "something changed".
+    //
+    // Kept alongside the screenshot rather than instead of it. This assertion
+    // depends on the shell's own decomposition being right; the screenshot
+    // depends on nothing but the operator's eye. Two instruments that fail for
+    // different reasons is the whole argument for having both.
+    if let Some(objects) = trace.last("objects")
+        && let Some(images) = objects.get("images").and_then(|v| v.parse::<u32>().ok())
+        && images == 0
+    {
+        return Ok(Some(format!(
+            "★ the engine reported placing the picture — `{}` — and the page decomposes to \
+             ZERO image objects: `{}`. The verb returned success and the document does not \
+             contain what it says it added.",
+            applied.raw, objects.raw
+        )));
+    }
+
+    let after = capture::window(&session)?;
+    let shot = ctx.out("insert_image_after.png");
+    let _ = after.save_png(&shot);
+    report.artifact(&shot);
+    let Some((before, rect)) = before.zip(page_before) else {
+        report.note("the page could not be captured twice; the repaint is UNVERIFIED");
+        return Ok(None);
+    };
+    let (a, b) = (before.crop(rect), after.crop(rect));
+    if a.width() != b.width() || a.height() != b.height() {
+        report.note("the window resized between captures; the repaint is UNVERIFIED");
+        return Ok(None);
+    }
+    let total = u64::from(a.width()) * u64::from(a.height());
+    let mut differing = 0u64;
+    for y in 0..a.height() {
+        for x in 0..a.width() {
+            if a.pixel(x, y) != b.pixel(x, y) {
+                differing += 1;
+            }
+        }
+    }
+    if total > 0 && differing * 500 < total {
+        return Ok(Some(format!(
+            "★ the engine reported placing the picture — `{}` — and THE PAGE DID NOT CHANGE. \
+             {differing} of {total} pixels differ, under one in five hundred, and that count \
+             also includes the placement window disappearing. The edit reached the document \
+             and the view is still showing what it showed before. Screenshot: {}.",
+            applied.raw,
+            shot.display()
+        )));
+    }
+    report.note(format!(
+        "the page repainted: {differing} of {total} pixels in the page area changed"
     ));
     Ok(None)
 }
