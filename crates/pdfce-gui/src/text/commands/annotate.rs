@@ -304,6 +304,25 @@ pub const fn measure_perimeter() -> CommandText {
     )
 }
 
+/// `measure.length`
+///
+/// ★ The operator's ask of 2026-08-20: *"add a length tool that works like the
+/// perimeter tool without needing to close the profile."*
+///
+/// The label is `Length`, not `Path length` or `Open perimeter`: the operator
+/// asked for a *length tool*, and the word they used is the word to put on it.
+/// The description names what it is FOR - a run of something - because "click
+/// along and add it up" describes the gesture and not the reason.
+#[must_use]
+pub const fn measure_length() -> CommandText {
+    CommandText::new(
+        "Length",
+        "Click along a run - a pipe, a cable, a kerb line - to measure how far it goes, added \
+         up as one number. Double-click the last point to finish. Use Perimeter instead when \
+         the shape closes.",
+    )
+}
+
 /// `measure.two_line`
 #[must_use]
 pub const fn measure_two_line() -> CommandText {

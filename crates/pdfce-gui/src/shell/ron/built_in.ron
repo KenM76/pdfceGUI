@@ -330,6 +330,7 @@
                         Command("measure.linear"),
                         Command("measure.radius_diameter"),
                         Command("measure.perimeter"),
+                        Command("measure.length"),
                         Command("measure.two_line"),
                         Command("measure.finish"),
                     ],

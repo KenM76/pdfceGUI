@@ -328,6 +328,8 @@ pub fn measure_command(kind: crate::canvas::measure::MeasureKind) -> &'static st
         // ui-text-exempt: command ids, never displayed
         K::Perimeter => "measure.perimeter",
         // ui-text-exempt: command ids, never displayed
+        K::PathLength => "measure.length",
+        // ui-text-exempt: command ids, never displayed
         K::TwoLine => "measure.two_line",
         // ★ Armed from the Set-scale DIALOG, not from the ribbon, so it maps
         // to no command id at all.

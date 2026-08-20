@@ -381,6 +381,11 @@ pub const fn measure_instruction(kind: MeasureKind) -> &'static str {
         MeasureKind::Perimeter => {
             "Click around the shape. Click the first point again to close it, or double-click to finish an open path."
         }
+        // ★ Two endings, not three - and the sentence says so, because the
+        // difference between this tool and Perimeter IS the missing ending.
+        MeasureKind::PathLength => {
+            "Click along what you are measuring. Double-click the last point to finish."
+        }
         MeasureKind::TwoLine => "Click one line, then the other.",
         // ★ The calibration pick, which is armed from inside the Set-scale
         // window rather than from the Measure tab — it is deliberately absent

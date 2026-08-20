@@ -342,7 +342,20 @@ pub(super) fn click(st: &mut MeasureState, c: Click<'_>, actions: &mut Vec<Actio
         return;
     }
 
-    if closes_the_ring(st, canvas_point, picked, page, map) {
+    // ★★ **The Length tool never closes**, and the guard is here rather than
+    // inside `closes_the_ring` on purpose: that function answers a geometric
+    // question - *did this click land on the first vertex?* - and the answer is
+    // the same for both tools. What differs is what the click MEANS, which is a
+    // property of the armed tool and belongs at the decision, not inside the
+    // measurement.
+    //
+    // For the Length tool a click on the first vertex is an ordinary vertex. A
+    // path that returns to where it started is a perfectly ordinary path - a
+    // loop of cable is still cable - and swallowing that click would be the
+    // tool refusing a shape the operator drew.
+    if st.kind == super::MeasureKind::Perimeter
+        && closes_the_ring(st, canvas_point, picked, page, map)
+    {
         if !st.perimeter.close() {
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed in the UI

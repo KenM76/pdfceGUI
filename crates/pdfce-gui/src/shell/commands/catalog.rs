@@ -1169,6 +1169,13 @@ pub(super) fn all() -> Vec<Command> {
         command("measure.perimeter", t::measure_perimeter(), 604)
             .with_icon("measure")
             .enabled_when("doc.pages"),
+        // ★ **Length**, 2026-08-20 - the same gesture that never closes. It is
+        // a separate control rather than an option on Perimeter because
+        // "Perimeter" says CLOSED, and nobody measuring a pipe run would reach
+        // for it. See `MeasureKind::PathLength` for the argument.
+        command("measure.length", t::measure_length(), 605)
+            .with_icon("measure")
+            .enabled_when("doc.pages"),
         // Registered as part of Phase 7, moving out of `manifest::PLANNED`.
         //
         // It shares the `measure` glyph with Linear and Radius/diameter rather

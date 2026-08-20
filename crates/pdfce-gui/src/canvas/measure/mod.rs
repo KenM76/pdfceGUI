@@ -143,6 +143,36 @@ pub enum MeasureKind {
     /// untouched - which matters, because tracing a building outline means
     /// aiming at the corners of paths that are already on the page.
     Perimeter,
+    /// **Click along something; one number for how far it runs.** The
+    /// operator's ask of 2026-08-20: *"add a length tool that works like the
+    /// perimeter tool without needing to close the profile."*
+    ///
+    /// # ★ Why this is a second KIND and not a checkbox on Perimeter
+    ///
+    /// The machinery is identical — the same [`perimeter::PerimeterPick`], the
+    /// same snapped point picks, the same preview — and `closed` was already a
+    /// flag on the authored dimension. So a reasonable reading is that this
+    /// should be a toggle in Tool Options rather than a second control.
+    ///
+    /// It is a second control because **"Perimeter" says closed**, and an
+    /// operator measuring a pipe run, a cable route or a kerb line would never
+    /// reach for it. That is not a labelling problem a tooltip fixes: the
+    /// ribbon is a list of activities (P2), and *"how long is this run"* and
+    /// *"how far around is this shape"* are two activities that happen to share
+    /// an implementation. Hiding one inside the other's options makes it
+    /// findable only by somebody who already knows it is there.
+    ///
+    /// What it costs is one enum variant and one ribbon item. What it buys is
+    /// that both readings of the gesture are on the tab the operator is already
+    /// looking at.
+    ///
+    /// # The only behavioural difference
+    ///
+    /// It never closes. Clicking the first vertex again adds a vertex there,
+    /// like any other click, because a path that returns to its start is a
+    /// perfectly ordinary path — a loop of cable is still cable. Double-click
+    /// and `measure.finish` are its endings.
+    PathLength,
     /// Pick two lines on the page; the engine authors the dimension between
     /// them. The gesture pdfce's own ledger marks as shipped, whose caller was
     /// missing on this side — see `SALVAGE.md`'s correction of 2026-08-14.
@@ -202,8 +232,13 @@ impl MeasureKind {
     /// that cost: it matches **exhaustively** over the enum, so a new variant
     /// does not compile until it is either put in `ALL` or added to the
     /// excluded list with a reason.
-    pub const ALL: &'static [Self] =
-        &[Self::Linear, Self::Circular, Self::Perimeter, Self::TwoLine];
+    pub const ALL: &'static [Self] = &[
+        Self::Linear,
+        Self::Circular,
+        Self::Perimeter,
+        Self::PathLength,
+        Self::TwoLine,
+    ];
 
     /// The kinds that are deliberately **not** on the ribbon, with the surface
     /// that arms each one instead.
@@ -412,7 +447,9 @@ pub use circular::{finish as finish_circular, finishable as finishable_circular}
 pub fn finishable(ctx: &egui::Context) -> bool {
     match crate::canvas::tool::selected(ctx).measure_kind() {
         Some(MeasureKind::Circular) => finishable_circular(ctx),
-        Some(MeasureKind::Perimeter) => read(ctx).is_some_and(|st| st.perimeter.author().is_some()),
+        Some(MeasureKind::Perimeter | MeasureKind::PathLength) => {
+            read(ctx).is_some_and(|st| st.perimeter.author().is_some())
+        }
         // Every other kind has a fixed arity and finishes itself. Spelled as a
         // catch-all rather than enumerated because the property being asserted
         // is "this tool ends on its own", which is the default and which a new
@@ -435,7 +472,7 @@ pub fn finishable(ctx: &egui::Context) -> bool {
 pub fn finish(ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
     match crate::canvas::tool::selected(ctx).measure_kind() {
         Some(MeasureKind::Circular) => finish_circular(ctx, actions),
-        Some(MeasureKind::Perimeter) => {
+        Some(MeasureKind::Perimeter | MeasureKind::PathLength) => {
             let Some(mut st) = read(ctx) else {
                 return false;
             };
@@ -721,7 +758,7 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
         // because closing the ring is a CANVAS-space hit test against the first
         // vertex - same physical target size at every zoom. See
         // `perimeter::closes_the_ring`.
-        MeasureKind::Perimeter => {
+        MeasureKind::Perimeter | MeasureKind::PathLength => {
             perimeter::click(
                 &mut st,
                 perimeter::Click {
@@ -1130,7 +1167,7 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
         // closed: the operator has not closed it, and showing the closing
         // segment early would promise a shape one segment longer than the one
         // the next click commits.
-        MeasureKind::Perimeter => {
+        MeasureKind::Perimeter | MeasureKind::PathLength => {
             let Some(at) = hover.map(|h| h.at) else {
                 return;
             };
@@ -1412,6 +1449,7 @@ mod kind_tests {
                 MeasureKind::Linear
                 | MeasureKind::Circular
                 | MeasureKind::Perimeter
+                | MeasureKind::PathLength
                 | MeasureKind::TwoLine => "ribbon",
                 MeasureKind::Scale => "elsewhere",
             }
@@ -1441,7 +1479,7 @@ mod kind_tests {
         }
         assert_eq!(
             MeasureKind::ALL.len() + MeasureKind::ARMED_ELSEWHERE.len(),
-            5,
+            6,
             "a variant was added to the enum and to neither list, or counted twice"
         );
     }

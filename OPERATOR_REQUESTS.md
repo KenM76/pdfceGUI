@@ -117,11 +117,26 @@ work?" and nothing asked "does the thing everyone expects exist?".
 
 **Asked:** 2026-08-20 — *"add a length tool that works like the perimeter tool
 without needing to close the profile."*
-**Status:** OPEN.
+**Status:** **SHIPPED 2026-08-20 and DRIVEN.** Awaiting your verdict.
 
-The machinery already does open paths (double-click finishes one). What is
-missing is that it is *reachable as its own tool* — "Perimeter" says closed, so
-nobody measuring a pipe run or a cable route would think to reach for it.
+Measure ▸ **Length**, beside Perimeter. Same gesture, same snapping, same
+preview, same running total, same group scale — it just never closes. Clicking
+the first point again adds a point there, because a run of cable that loops back
+is still a run of cable. Double-click the last point to finish.
+
+It is a separate control rather than a checkbox on Perimeter because "Perimeter"
+says closed, and nobody measuring a pipe run would go looking inside it.
+
+Driven, in the same check as Perimeter and deliberately so: what is worth
+proving about Length is a *negative* relative to Perimeter — that the
+first-vertex click does **not** close it — and a negative is only meaningful
+beside the positive it differs from. Two separate checks would let the pair
+drift into being one tool.
+
+```
+★ the ring closed and the dimension reached the engine   (Perimeter)
+★ the Length tool took all 5 clicks as vertices          (Length)
+```
 
 ## O10 — Neither measuring tool previews while you trace
 

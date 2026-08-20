@@ -56,6 +56,17 @@ use crate::report::CheckReport;
 /// dimension, which Review permits — the same mode `measure_linear` drives in,
 /// deliberately, so a mode-gating change breaks both together.
 const MODE: &str = "review";
+/// ★ The **Length** tool's ribbon item — the same gesture that never closes.
+///
+/// Checked at the end of this run rather than in a second check, because the
+/// property worth asserting about it is a NEGATIVE one relative to Perimeter —
+/// *clicking the first vertex adds a vertex instead of closing* — and a
+/// negative is only meaningful beside the positive it differs from. Two checks
+/// would let the pair drift: Perimeter's could stop closing and Length's would
+/// still pass.
+const LENGTH_ITEM: &str = "ribbon.item.measure.length";
+/// The `Debug` spelling of `CanvasTool::Measure(MeasureKind::PathLength)`.
+const LENGTH_ARM: &str = "Measure(PathLength)";
 /// The Measure tab.
 const TAB: &str = "ribbon.tab.measure";
 /// The ribbon item that arms the tool.
@@ -359,5 +370,71 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             CORNERS.len()
         )));
     }
+    // --- 4: ★★ the LENGTH tool is the same gesture and does NOT close ------
+    //
+    // The operator, 2026-08-20: *"add a length tool that works like the
+    // perimeter tool without needing to close the profile."*
+    //
+    // Asserted here rather than in a check of its own, because what is worth
+    // proving about Length is a NEGATIVE relative to Perimeter — clicking the
+    // first vertex adds a vertex instead of closing — and a negative is only
+    // meaningful beside the positive it differs from. Two separate checks would
+    // let the pair drift apart: Perimeter's could stop closing and Length's
+    // would go on passing, which is the two tools silently becoming one.
+    let Some(item) = declared_or_in_overflow(&session, &driver, ui_rect, LENGTH_ITEM)? else {
+        return Ok(Some(format!(
+            "the Measure tab declares no `{LENGTH_ITEM}`. Perimeter is there and Length is not, so the open-path half of the gesture is unreachable — which is the operator's ask verbatim."
+        )));
+    };
+    driver.click_at(session.frame()?.declared_center(item))?;
+    session.settle(16);
+    if !session
+        .trace()?
+        .events(ARM_EVENT)
+        .any(|l| l.get("tool") == Some(LENGTH_ARM))
+    {
+        return Ok(Some(format!(
+            "the Length item was clicked and no `{ARM_EVENT} tool={LENGTH_ARM}` followed."
+        )));
+    }
+
+    let before = session.trace()?.events(VERTEX_EVENT).count();
+    // ★ The finish count BEFORE this section, and the reason it is needed is a
+    // harness defect this check produced on its first run: the Perimeter half
+    // above ends with a `close-ring` finish, so asking for the LAST finish line
+    // in the whole trace reported the Length tool as having closed when it had
+    // taken all five clicks correctly. A confident, specific, wrong accusation
+    // — the same shape as reading a refusal as an absence. Anything asserted
+    // about a second gesture in one process has to be scoped to lines that
+    // arrived after the first one ended.
+    let finishes_before = session.trace()?.events(FINISH_EVENT).count();
+    for screen in &aimed {
+        driver.click_at(*screen)?;
+        session.settle(10);
+    }
+    // …and now the click that WOULD close a perimeter.
+    driver.click_at(aimed[0])?;
+    session.settle(20);
+    let trace = session.trace()?;
+    let taken = trace.events(VERTEX_EVENT).count() - before;
+    if taken != CORNERS.len() + 1 {
+        return Ok(Some(format!(
+            "★ the Length tool took {taken} vertices from {} clicks. The last click landed on the first vertex, and for THIS tool that is an ordinary vertex — a path that returns to where it started is a perfectly ordinary path. Fewer means it closed the ring like Perimeter does, which is the one behaviour the operator asked it not to have.",
+            CORNERS.len() + 1
+        )));
+    }
+    if let Some(finish) = trace
+        .events(FINISH_EVENT)
+        .skip(finishes_before)
+        .find(|l| l.get("via") == Some("close-ring"))
+    {
+        return Ok(Some(format!(
+            "★ the Length tool CLOSED: `{}`. `perimeter::click` gates the ring on the armed kind being Perimeter, so that gate is gone or inverted.",
+            finish.raw
+        )));
+    }
+    report.note(format!(
+        "★ the Length tool took all {taken} clicks as vertices, so the first-vertex click did not close it"
+    ));
     Ok(None)
 }
