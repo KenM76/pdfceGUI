@@ -266,6 +266,11 @@ pub mod ribbon_captions;
 pub mod save_copy;
 pub mod save_in_place;
 pub mod settings_headings;
+/// ★ **Shift preserves aspect on a resize** — `ui-conventions/drag-moves.md`
+/// D5, found absent from every drag in this shell by the 2026-08-20 sweep.
+/// Proves the constraint by the DIFFERENCE between two drags in one process,
+/// because a single locked drag reporting equal factors proves nothing.
+pub mod shift_constrains;
 /// ★★ **The operator's own two gestures** — press T and type, press A and see
 /// the points. Both features existed before 2026-08-19; reaching them took four
 /// steps and three gestures respectively, neither discoverable and neither
@@ -622,6 +627,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
         Box::new(resize::ResizeScalesAShape),
+        Box::new(shift_constrains::ShiftConstrainsAResize),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
         Box::new(bezier_handle::BezierHandleDragChangesACurve),

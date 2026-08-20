@@ -75,8 +75,12 @@
 //! - D2 derived-from-commit: the preview is the position the release writes.
 //! - D3 escape-cancels: the gesture machine drops it before anything is written.
 //! - D4 one-undo-entry: `move_handle` is one engine command.
-//! - D5 modifiers-constrain: **GAP** — no Shift-to-axis, and no Alt to break or
-//!   restore a smooth node's symmetry, which is the Bézier-specific convention.
+//! - D5 modifiers-constrain: **Shift locks the handle to its ANCHOR's axis** —
+//!   not to the press's, which is what makes a clean horizontal or vertical
+//!   tangent and is why [`anchor`] exists. Applied by `canvas::interact`
+//!   through [`crate::canvas::constrain::reposition`]. Alt to break or restore
+//!   a smooth node's symmetry — the Bézier-specific half of this row — is still
+//!   absent and is recorded as a gap rather than waived.
 //! - D6 snapping: **GAP** — a handle does not snap.
 //! - D7 no-op-is-not-an-edit: **GAP** — a zero-travel release is not checked.
 //! - D8 grab-point: this variant carries the pointer's POSITION rather than a
@@ -246,6 +250,43 @@ pub fn drag(
         to: Point::new(f64::from(to.x), f64::from(to.y)),
     });
     None
+}
+
+/// **The on-curve anchor a handle belongs to, in canvas space.**
+///
+/// Only ever asked for by a *constrained* handle drag —
+/// [`crate::canvas::constrain::toward`] needs a point to measure the
+/// displacement from, and for a control point that point is its anchor rather
+/// than the press. A handle's whole meaning is its direction and distance from
+/// the on-curve point it serves, so locking it to the *press* row would lock a
+/// quantity nobody thinks in.
+///
+/// ★ It is a separate call, made only when Shift is down, because
+/// [`ObjectModelProvider::subpath_node_points`] allocates over every anchor of
+/// the subpath. Folding it into the unconstrained path would put that
+/// allocation on every frame of every handle drag for a value nothing reads —
+/// the same cost `canvas::moving::drag` is at pains to avoid, where one
+/// measured CAD export has 6,681 anchors.
+///
+/// Subpath-scoped rather than object-scoped for the same reason: the anchor is
+/// known to be on the entered subpath, and asking the object costs every other
+/// subpath's nodes as well.
+#[must_use]
+pub fn anchor(
+    selection: &SelectionState,
+    provider: &ObjectModelProvider,
+    page: &pdfce_core::page_tree::Page,
+    node: usize,
+) -> Option<Pos2> {
+    let entered = selection.entered_object()?;
+    let subpath = entered.subpath?;
+    let object = usize::try_from(entered.object.0).ok()?;
+    let point = provider
+        .subpath_node_points(object, subpath)
+        .into_iter()
+        .find(|(index, _)| *index == node)
+        .map(|(_, p)| p)?;
+    crate::viewer::pdf_space_to_canvas(egui::pos2(point.x as f32, point.y as f32), page)
 }
 
 /// The tether from an anchor to one of its handles, as a screen-space pair.

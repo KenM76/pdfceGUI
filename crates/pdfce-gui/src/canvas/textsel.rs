@@ -893,6 +893,57 @@ fn ordered(a: TextPosition, b: TextPosition) -> (TextPosition, TextPosition) {
     }
 }
 
+/// **Answer the text selection's own two chords, Ctrl+A and Ctrl+C.**
+///
+/// Moved here from `canvas::interact` on 2026-08-20 under R2, and it belongs
+/// here: every rule it enforces is a rule about *this* module, and the caller
+/// that used to hold them could not have got them right without knowing all of
+/// them.
+///
+/// ★ These two live apart from [`crate::canvas::keys::canvas_keys`] because
+/// both need the page's **extraction** — one to build a range over it, one to
+/// read a string out of a selection made against it — and `canvas_keys` is
+/// deliberately a document-free function that a headless `egui::Context` can
+/// drive end to end. Escape stays there, where its precedence question is
+/// answered.
+///
+/// ★ Gated on [`takes_the_press`], the same predicate the press is gated on, so
+/// a mode whose primary button does not select content does not answer Ctrl+A
+/// with a text selection the operator has no gesture to clear. §1.3 of this
+/// module's header records that the *other* half of Ctrl+A — select every
+/// object — is a known gap rather than an oversight.
+///
+/// ★★ **[`pending_key`] FIRST, and the ordering is the fix for a defect that
+/// shipped and that driving the binary caught.** The chord is read off
+/// `egui::InputState` — one map lookup — and the page's extraction is fetched
+/// **only** when one fired. The first version asked for the extraction in order
+/// to discover that no chord had been pressed, which built it on the first
+/// frame of every reading canvas: measured at **392 ms at open** on
+/// `ncored-benchmark-cad-drawing.pdf`, paid by an operator who had touched
+/// nothing. It is the same gate `canvas::interact` step 4 puts in front of
+/// `page_objects()`, for the same reason.
+pub fn keys(
+    ctx: &egui::Context,
+    doc: &crate::app::state::OpenDoc,
+    page_index: usize,
+    active_tool: crate::canvas::tool::CanvasTool,
+    caps: crate::app::modes::Capabilities,
+    selection: &mut Option<TextSelection>,
+) {
+    if let Some(key) = pending_key(ctx)
+        && takes_the_press(active_tool, caps)
+        && let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
+    {
+        let text_ctx = PageContext {
+            text: &page_text,
+            page,
+            index: page_index,
+            epoch: doc.edit_epoch,
+        };
+        apply_key(ctx, &text_ctx, key, selection);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

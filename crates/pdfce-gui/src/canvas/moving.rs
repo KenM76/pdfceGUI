@@ -95,8 +95,11 @@
 //!   before `Complete`.
 //! - D4 one-undo-entry: `move_objects` takes a slice, so a drag of forty objects
 //!   is one command and one Ctrl+Z.
-//! - D5 modifiers-constrain: **GAP** — no Shift-to-axis. Universal in this
-//!   product class and absent here.
+//! - D5 modifiers-constrain: **Shift locks the move to one axis**, applied by
+//!   `canvas::interact` to the delta *before* it reaches this module — so the
+//!   ghost and the commit read one filtered value and cannot disagree. The
+//!   arithmetic, the re-decide-every-frame rule and the announcement are
+//!   [`crate::canvas::constrain`].
 //! - D6 snapping: **GAP** — a content move does not snap to guides, the grid or
 //!   other geometry, while the measure tools snap to all three.
 //! - D7 no-op-is-not-an-edit: a zero-travel drag is deliberately still

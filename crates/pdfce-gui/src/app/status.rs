@@ -530,6 +530,28 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
             ui.separator();
         }
 
+        // ★ …and the same treatment for a CANVAS drag being constrained.
+        //
+        // `ui-conventions/drag-moves.md` D5's second clause: *the affordance
+        // shows the constraint while it is active*, whose stated failure mode
+        // is an operator who *"holds Shift, gets a result they did not expect,
+        // and cannot tell whether the modifier did anything"*. The ghost shows
+        // the object behaving; it cannot show that the KEY is why.
+        //
+        // Beside the page-drag caption rather than folded into it: they are the
+        // same species of line — a transient caption about a gesture in
+        // progress — and they cannot be live at once, because one drags pages
+        // in a list and the other drags geometry on a sheet.
+        //
+        // It retires itself (`canvas::constrain::caption` compares a frame
+        // stamp) so nothing here has to remember to clear it, and it cannot
+        // change the bar's height: one label on the pinned row, exactly as its
+        // neighbour.
+        if let Some(caption) = crate::canvas::constrain::caption(ui.ctx()) {
+            ui.label(caption);
+            ui.separator();
+        }
+
         // Left: the narrator, demoted behind a disclosure.
         notes::show(ui, doc);
 

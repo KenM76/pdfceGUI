@@ -118,8 +118,9 @@ use egui_shell::HandlerToken;
 use crate::app::actions::Action;
 use crate::app::modes::Capabilities;
 use crate::app::state::OpenDoc;
+use crate::canvas::clicking;
 use crate::canvas::gesture::{GestureOutcome, MarqueeIntent, Phase, PointerFrame};
-use crate::canvas::input::{load_gesture, probe, store_gesture};
+use crate::canvas::input::{load_gesture, store_gesture};
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::target::CanvasTargetProvider;
 use crate::canvas::tool::CanvasTool;
@@ -598,312 +599,25 @@ pub(super) fn interact(
             shift,
             double,
             triple,
-        } => {
-            // ★★ The annotation under the pointer, resolved BEFORE the ladder.
-            //
-            // Ahead of it rather than inside it because the arm that consumes
-            // this has to be an `if let` — a click that hits nothing must fall
-            // through and mean exactly what it meant before this feature
-            // existed. See that arm for the full reasoning.
-            //
-            // # The guard, and why each half of it
-            //
-            // **`CanvasTool::Select`** — nothing armed. With a pen, a caret or
-            // a measure tool armed the press belongs to that tool, which is
-            // this codebase's rule everywhere else, so an annotation
-            // underneath must not steal it.
-            //
-            // **`caps.author_markup`** — Review and Edit, not Read. Read is a
-            // reader: it may fill a form and sweep text and may not change the
-            // document, and selecting a stamp exists in order to act on it.
-            //
-            // # Cost
-            //
-            // One `/Annots` walk and one `/PieceInfo` read, **per click** —
-            // not per frame. Both are bounded by the number of annotations
-            // rather than by document size, and neither decomposes anything:
-            // an annotation's geometry is its `/Rect`, four numbers in a
-            // dictionary. A click on the 129,758-object benchmark sheet costs
-            // the same as a click on a blank page.
-            let annot_hit = if matches!(active_tool, crate::canvas::tool::CanvasTool::Select)
-                && caps.author_markup
-            {
-                crate::canvas::selection::annot::under_pointer(doc, page_index, point, map)
-            } else {
-                None
-            };
-            // A click that missed every annotation, in a mode that could have
-            // hit one, **deselects**. Clicking away is the gesture every
-            // operator tries first, and without this the outline would survive
-            // a click on blank paper — which reads as the selection being
-            // stuck rather than as the click having missed.
-            if annot_hit.is_none() && caps.author_markup {
-                selection.clear_annot();
-            }
-            // ★ A click is a measure pick, a **text** gesture, or a content
-            // selection — never two of them.
-            //
-            // The text branch asks `textsel::takes_the_press` again rather than
-            // inferring "the click must be text because the mode cannot select
-            // content": `press_kind` reports `click: true` for *two* different
-            // reasons, and inferring from the flag would be a second, quieter
-            // statement of the rule, free to disagree with the one that decided
-            // the drag. One function, two readers — the same shape
-            // `active_tool.measure_kind()` already has one line above.
-            // ★ …and the **caret** tool takes it before either, which is
-            // `press_kind`'s own rung order restated where the click is routed.
-            //
-            // It has to be restated rather than inferred, for the reason the
-            // paragraph below gives about the text branch: `press_kind` reports
-            // `click: true` for three different reasons now, and reading the flag
-            // would be a second, quieter statement of a rule that is already
-            // written. Asking `text_edit_kind()` again is asking the same
-            // question of the same value.
-            //
-            // A refusal is shown rather than swallowed. That is D4a's whole
-            // lesson: the old shell's answer to a caret it could not place was a
-            // boolean and a keyboard that stopped responding.
-            // ★★ **The Node tool takes the click before anything else**, and
-            // it is first because it is the most specific: the operator armed a
-            // tool whose entire subject is anchors, so a click means an anchor
-            // if one is there and "show me this shape's anchors" if not. See
-            // `SelectionState::click_direct`.
-            //
-            // `hit` here already carries the object, the nearest part AND the
-            // nearest node, because the probe that produced it is the one a
-            // double-click descent uses. That is why this needed no new query:
-            // the information the ladder made you perform two gestures to reach
-            // was in the very first click all along.
-            //
-            // ★ **The text tool's kind is decided by the CLICK, not by which
-            // ribbon command was pressed**, as of 2026-08-19. `CanvasTool::Text`
-            // in a mode that can author now places a caret; `textedit::click`
-            // falls back to a fresh origin when the point names no run. The
-            // operator's report is why:
-            //
-            // > *"How do I edit text when on the canvas? I get a box and the I
-            // > cursor, but I can't type anything. How do I make new text when I
-            // > click on the canvas and expect to edit there? Same problem."*
-            //
-            // He was getting the I-beam because the text tool SWEPT text, and
-            // the tool that types was a different tool reachable only through
-            // `Edit ▸ Content ▸ Edit text` — four steps of ritual before a
-            // character could be typed, and no surface anywhere saying so. One
-            // tool now, click decides, which is Illustrator, Word, Inkscape and
-            // every other program he has used.
-            let text_kind = active_tool.text_edit_kind().or_else(|| {
-                (active_tool.is_text() && caps.edit_content)
-                    .then_some(crate::canvas::textedit::TextEditKind::Edit)
-            });
-            if active_tool.is_node() && caps.edit_content {
-                let hit = targets
-                    .as_ref()
-                    .map(|t| probe(&**t, &selection, page_index, point, map))
-                    .unwrap_or_default();
-                selection.click_direct(page_index, hit, shift);
-                crate::diag::trace(|| {
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    format!(
-                        "canvas-selection via=node-tool mod={shift} sel={} level={:?} node={:?}",
-                        selection.len(),
-                        selection.level(),
-                        hit.node
-                    )
-                });
-            } else if let Some(kind) = text_kind {
-                match crate::canvas::textedit::click(
-                    &ctx,
-                    &crate::canvas::textedit::Click {
-                        doc,
-                        page_index,
-                        kind,
-                        canvas_point: point,
-                    },
-                    actions,
-                ) {
-                    Ok(()) => {}
-                    Err(refusal) => {
-                        crate::app::actions::record_note(
-                            doc.edit_epoch,
-                            crate::text::textedit::refusal(refusal).to_owned(),
-                        );
-                        crate::diag::trace(|| {
-                            // ui-text-exempt: diagnostic trace, never displayed.
-                            format!("text-edit-declined reason={refusal:?}")
-                        });
-                    }
-                }
-            // ★★ **AN ANNOTATION UNDER THE POINTER TAKES THE CLICK.**
-            //
-            // The arm that closes `FEATURES.md`'s *"the canvas selection cannot
-            // address an annotation"*, reported by the operator four ways:
-            // *"How do I edit a stamp I've applied?"*, *"I still can't get to
-            // edit dimension groups when I click on it."*
-            //
-            // # Why it sits HERE and not one arm earlier or later
-            //
-            // **Below every armed tool**, because this codebase's stated rule is
-            // *"the press belongs to whichever tool is armed"* — an operator who
-            // armed the caret, a pen or a measure tool asked for that gesture,
-            // and a stamp underneath must not steal it.
-            //
-            // **Above the text-selection fall-through**, which is the arm that
-            // was silently swallowing these clicks. `textsel::takes_the_press`
-            // is true for the plain Select tool whenever `edit_content` is
-            // false — i.e. in **Read and Review** — so in Review, the mode an
-            // operator is in *because* they are working on markup, every click
-            // on a stamp was being consumed as a text-selection click. Nothing
-            // was broken downstream; the click never got there.
-            //
-            // ★ **My first diagnosis of this was wrong and a test caught it.**
-            // I read `press_kind`'s `click: caps.edit_content || text` and
-            // concluded Review produced no click event at all. It produces one
-            // — `text` is true there for exactly the reason above — and
-            // `review_mode_places_markup_but_refuses_content` failed against
-            // the "fix", which is the second time this week a test has been the
-            // thing that noticed. The predicate was not too coarse; the
-            // ROUTING had no arm for annotations.
-            //
-            // # Why a miss falls through rather than swallowing the click
-            //
-            // Because this arm must be **additive**. A click that hits no
-            // annotation has to mean exactly what it meant before — text in
-            // Review, content in Edit — or adding annotation selection would
-            // have taken away text selection in the same stroke. `annot_hit`
-            // is therefore computed ahead of the ladder and this arm is an
-            // `if let`, so a miss is not a branch at all.
-            } else if let Some(hit) = annot_hit {
-                selection.select_annot(hit.clone());
-                crate::diag::trace(|| {
-                    format!(
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "annot-select page={} id={:?} kind={:?} subtype={} locked={} rect={:?}",
-                        hit.target.page,
-                        hit.target.id,
-                        hit.target.kind,
-                        hit.target.subtype,
-                        hit.target.locked,
-                        hit.outline,
-                    )
-                });
-            } else if textsel::takes_the_press(active_tool, caps) {
-                if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
-                {
-                    let text_ctx = textsel::PageContext {
-                        text: &page_text,
-                        page,
-                        index: page_index,
-                        epoch: doc.edit_epoch,
-                    };
-                    text_selection = textsel::click(
-                        &text_ctx,
-                        text_selection.as_ref(),
-                        point,
-                        shift,
-                        double,
-                        triple,
-                    );
-                    // `via=` names the gesture rather than the result, so a
-                    // harness can tell a double-click that happened to cover
-                    // one word from a sweep that did.
-                    let via = if triple {
-                        "line"
-                    } else if double {
-                        "word"
-                    } else if shift {
-                        "extend"
-                    } else {
-                        "clear"
-                    };
-                    trace::text_selection(page_index, text_selection.as_ref(), via);
-                }
-            // ★ A **vertex markup** click — PolyLine and Polygon, whose whole
-            // gesture is clicks.
-            //
-            // It sits beside the measure branch rather than inside the markup
-            // wiring further down, because the thing being routed is a *click*
-            // and this is the arm that routes clicks. The two are mutually
-            // exclusive by construction — one armed tool per frame — so the
-            // order between them is a statement rather than a tie-break, and
-            // `gesture::press_kind` has already given this press a live click
-            // and no drag, so there is no state in which one press both places a
-            // vertex and replaces the selection.
-            //
-            // Note what it does NOT need: a decomposition. A vertex lands where
-            // the operator clicked and hit-tests nothing, which is why
-            // `needs_targets` above grew no term for it — a polygon drawn over
-            // the 129,758-object benchmark sheet decomposes nothing.
-            } else if let Some(kind) = active_tool.markup_kind().filter(|k| k.is_vertex()) {
-                markup::vertex::click(
-                    pen,
-                    &ctx,
-                    kind,
-                    page_index,
-                    point,
-                    double,
-                    doc.current_page(),
-                    actions,
-                );
-            } else if let crate::canvas::tool::CanvasTool::TextAnnot(kind) = active_tool {
-                // ★ The STICKY's whole placing gesture: one click, one point.
-                //
-                // The dragged kinds reach the dialog through
-                // `GestureOutcome::TextAnnot` instead, so this arm is the
-                // sticky's alone — but it is written for the family rather than
-                // for the variant, and guarded by `is_dragged`, so a second
-                // click-placed kind added later takes this path without an
-                // edit and a kind that stops being click-placed leaves it.
-                //
-                // The rect is a small square around the point. A `/Text`
-                // marker is fixed-size and `NoZoom` — the format discards the
-                // rect's extent — so the size here is not a promise about what
-                // is drawn; what matters is the LOWER-LEFT corner, which is
-                // where the marker lands. `STICKY_PT` is documented at its
-                // definition for exactly that reason.
-                if !kind.is_dragged()
-                    && let Some(page) = doc.current_page()
-                    && let Some((at, _)) = markup::band::endpoints(point, point, page)
-                {
-                    actions.push(Action::BeginTextAnnot {
-                        page: page_index,
-                        kind,
-                        rect: pdfce_core::page_tree::Rect {
-                            llx: at.0,
-                            lly: at.1,
-                            urx: at.0 + crate::canvas::textannot::STICKY_PT,
-                            ury: at.1 + crate::canvas::textannot::STICKY_PT,
-                        },
-                    });
-                }
-            } else if let Some(kind) = active_tool.measure_kind() {
-                measure::click(
-                    measure::Pick {
-                        ctx: &ctx,
-                        doc,
-                        page_index,
-                        kind,
-                        canvas_point: point,
-                        // ★ The double-click travels to the pick rather than
-                        // being re-read there. It is the radius/diameter tool's
-                        // **ending** — the gesture has no natural one, so the
-                        // operator supplies it — and it is carried on the same
-                        // value as the click it belongs to for the reason every
-                        // other field is: one click, one complete statement.
-                        double,
-                        targets: targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
-                        map,
-                    },
-                    actions,
-                );
-            } else {
-                let hit = targets
-                    .as_ref()
-                    .map(|t| probe(&**t, &selection, page_index, point, map))
-                    .unwrap_or_default();
-                selection.click(page_index, hit, shift, double);
-                trace::selection_event(&selection, "click", double);
-            }
-        }
+        } => clicking::click(
+            clicking::Frame {
+                ctx: &ctx,
+                doc,
+                page_index,
+                map,
+                targets: targets.as_deref(),
+                active_tool,
+                caps,
+                pen,
+                point,
+                shift,
+                double,
+                triple,
+            },
+            &mut selection,
+            &mut text_selection,
+            actions,
+        ),
         GestureOutcome::Marquee {
             rect,
             shift,
@@ -954,6 +668,14 @@ pub(super) fn interact(
         // purpose: this arm is wiring, and the rules are unit-tested without a
         // window in `moving`.
         GestureOutcome::Move { delta, phase } => {
+            // ★★ SHIFT LOCKS THE MOVE TO ONE AXIS — once, above the fork
+            // below, so both verbs get the same constrained delta from one
+            // filter. `ui-conventions/drag-moves.md` D5.
+            //
+            // ★ `shift` is THIS FRAME's modifier, not the press-time flag the
+            // gesture machine carries. See `resizing::Frame::constrain` for why
+            // those are two different facts that happen to read one key.
+            let delta = crate::canvas::constrain::translate(&ctx, shift, delta);
             // ★★ Two different verbs share one gesture, and the selection
             // decides which.
             //
@@ -1167,6 +889,10 @@ pub(super) fn interact(
                     phase,
                     bounds: overlay::grip_box(map, &selection),
                     page_index,
+                    // ★ SHIFT PRESERVES ASPECT. Announced here and applied
+                    // inside the drag, because the factors are derived there
+                    // and the ghost it returns must be the pair it commits.
+                    constrain: crate::canvas::constrain::resize(&ctx, shift),
                     map: Some(map),
                     page: doc.current_page(),
                 },
@@ -1192,6 +918,9 @@ pub(super) fn interact(
             at,
             phase,
         } => {
+            // ★ SHIFT LOCKS A CORNER TO ONE AXIS, measured from the PRESS —
+            // so the grab point survives (`drag-moves` D8).
+            let at = crate::canvas::constrain::reposition(&ctx, shift, from, at);
             dimension_preview =
                 dimdrag::drag_vertex(index, from, at, phase, doc, &selection, actions);
         }
@@ -1201,6 +930,28 @@ pub(super) fn interact(
             at,
             phase,
         } => {
+            // ★★ SHIFT LOCKS A CONTROL POINT TO ITS ANCHOR'S AXIS — the
+            // reference point is the ANCHOR, not the press, and that is the one
+            // place the four constrained drags differ. A handle's meaning is
+            // the tangent it defines, so the line that matters runs through the
+            // on-curve point; Illustrator and Inkscape both lock it there.
+            //
+            // A `None` anchor leaves the drag UNCONSTRAINED rather than
+            // refusing it, and announces nothing — the operator asked to move a
+            // handle, and declining the whole gesture because a modifier could
+            // not be honoured is a worse answer than honouring the gesture
+            // without it. See `handledrag::anchor` for why it is looked up only
+            // when Shift is down.
+            let origin = shift
+                .then(|| doc.pages.get(page_index).zip(targets.as_deref()))
+                .flatten()
+                .and_then(|(page, provider)| {
+                    crate::canvas::handledrag::anchor(&selection, provider, page, node)
+                });
+            let at = match origin {
+                Some(origin) => crate::canvas::constrain::reposition(&ctx, true, origin, at),
+                None => at,
+            };
             handle_preview = crate::canvas::handledrag::drag(
                 crate::canvas::handledrag::Frame {
                     node,
@@ -1224,29 +975,20 @@ pub(super) fn interact(
 
     // ---- 5b. the right-click ---------------------------------------------
     //
-    // ★ The hit test is deliberately the OBJECT rung only — `hit_test`, not
-    // `probe`. `probe` also asks for the nearest part and node so that a
-    // double-click can descend, and a right-click never descends: it names a
-    // whole object, because the verbs a context menu offers act on whole
-    // objects. Asking for the deeper rungs here would pay for two extra
-    // provider queries on every right-click and then discard both.
-    //
-    // `screen_pos` rather than the gesture's own `pos`: the `PointerFrame`
-    // was consumed by the gesture machine above, and re-deriving the page
-    // point from the same `screen_pos` through the same `map` is the frame's
-    // ONE conversion applied twice, not a second conversion.
+    // The hit test is `menus`' own — see `menus::right_clicked_object` for why
+    // it is the object rung only and why it takes a screen position.
     //
     // `attach` is called on EVERY frame, not only on the frame of the click,
     // because `egui` draws an open popup until it is dismissed and a popup
     // only exists while something is attached to the response. On a frame
     // with no secondary click and nothing open it does nothing at all.
-    let right_clicked_object = if secondary_clicked {
-        targets.as_ref().and_then(|t| {
-            screen_pos.and_then(|p| t.hit_test(page_index, map.to_page(p), map.tolerance()))
-        })
-    } else {
-        None
-    };
+    let right_clicked_object = menus::right_clicked_object(
+        secondary_clicked,
+        targets.as_deref(),
+        screen_pos,
+        map,
+        page_index,
+    );
     let tokens = menus::attach(
         response,
         &mut selection,
@@ -1268,40 +1010,19 @@ pub(super) fn interact(
     // working in as well.
     // ---- 6a. the text selection's own two keys ---------------------------
     //
-    // Ctrl+A and Ctrl+C, before `canvas_keys` and separate from it. They are
-    // here rather than there because both need the page's **extraction** — one
-    // to build a range over it, one to read a string out of a selection made
-    // against it — and `canvas_keys` is deliberately a document-free function a
-    // headless `egui::Context` can drive end to end. Escape stays there, where
-    // its precedence question is answered.
-    //
-    // Gated on the same predicate the press is, so a mode whose primary button
-    // selects content does not also answer Ctrl+A with a text selection the
-    // operator has no gesture to clear. `canvas::textsel`'s header §1.3 records
-    // that the *other* half of Ctrl+A — select every object — is a known gap
-    // rather than an oversight.
-    //
-    // ★ `pending_key` FIRST, and the ordering is the fix for a defect this
-    // feature shipped and driving the binary caught. The chord is read off
-    // `egui::InputState` — one map lookup — and the page's extraction is fetched
-    // **only** when one fired. The first version asked for the extraction in
-    // order to discover that no chord had been pressed, which built it on the
-    // first frame of every reading canvas: measured at **392 ms at open** on
-    // `ncored-benchmark-cad-drawing.pdf`, paid by an operator who had touched
-    // nothing. See `textsel::pending_key`'s header. It is the same gate step 4
-    // above puts in front of `page_objects()`, for the same reason.
-    if let Some(key) = textsel::pending_key(&ctx)
-        && textsel::takes_the_press(active_tool, caps)
-        && let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
-    {
-        let text_ctx = textsel::PageContext {
-            text: &page_text,
-            page,
-            index: page_index,
-            epoch: doc.edit_epoch,
-        };
-        textsel::apply_key(&ctx, &text_ctx, key, &mut text_selection);
-    }
+    // Ctrl+A and Ctrl+C, before `canvas_keys` and separate from it. Every rule
+    // about them — why they are not in `canvas_keys`, why they are gated on the
+    // press predicate, and why the chord is read before the extraction is
+    // fetched — is in `textsel::keys`, with the 392 ms measurement that earned
+    // the last of them.
+    textsel::keys(
+        &ctx,
+        doc,
+        page_index,
+        active_tool,
+        caps,
+        &mut text_selection,
+    );
 
     keys::canvas_keys(
         &ctx,

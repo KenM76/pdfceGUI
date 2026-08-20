@@ -211,6 +211,45 @@ pub fn select_under_right_click(
     CanvasMenu::Object
 }
 
+/// **What a right-click landed on**, hit-tested at the object rung.
+///
+/// Moved here from `canvas::interact` on 2026-08-20 under R2, and it belongs
+/// here on its merits rather than only on line count: the *only* consumer of
+/// this answer is the context menu, and the two rules below are rules about
+/// what a menu means. A caller that had to know them in order to feed
+/// [`attach`] would be a caller that could get a menu wrong.
+///
+/// ★ **The OBJECT rung only** — `hit_test`, not `probe`. `probe` also asks for
+/// the nearest part and node so that a double-click can descend, and a
+/// right-click never descends: it names a whole object, because the verbs a
+/// context menu offers act on whole objects. Asking for the deeper rungs would
+/// pay for two extra provider queries on every right-click and discard both.
+///
+/// ★ It takes the frame's **screen** position and the frame's **one** mapping,
+/// rather than a page point. The `PointerFrame` has been consumed by the
+/// gesture machine by the time a menu is attached, so re-deriving the page
+/// point through the same `map` is the frame's one conversion applied twice —
+/// not a second conversion, which is the distinction `canvas::mapping`'s header
+/// insists on.
+///
+/// `None` when there was no secondary click this frame, when nothing was
+/// decomposed, or when the pointer is off the page.
+#[must_use]
+pub fn right_clicked_object(
+    secondary_clicked: bool,
+    targets: Option<&crate::panels::objects::provider::ObjectModelProvider>,
+    screen_pos: Option<egui::Pos2>,
+    map: &crate::canvas::mapping::PageMapping,
+    page: usize,
+) -> Option<TargetId> {
+    if !secondary_clicked {
+        return None;
+    }
+    let targets = targets?;
+    let at = screen_pos?;
+    targets.hit_test(page, map.to_page(at), map.tolerance())
+}
+
 /// Read, resolve and attach the canvas context menu for this frame.
 ///
 /// Called on **every** frame, not only on the frame of the click: `egui`

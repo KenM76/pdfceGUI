@@ -151,7 +151,18 @@ pub mod guides;
 /// ★ **Cut, copy and paste on the canvas** — the operator's report of
 /// 2026-08-19. Implements the row the engine can express (markup) and records
 /// the one it cannot (page content) as a dated citation rather than a promise.
+/// ★ **What a click MEANS** — the eight-rung ladder that decides whether a
+/// completed click places an anchor, a caret, a vertex, a sticky, a dimension
+/// pick, a text sweep, an annotation selection or a content selection. Split
+/// out of `interact` under R2 on 2026-08-20; its header carries the order and
+/// why each rung sits where it does.
+pub mod clicking;
 pub mod clipboard;
+/// ★ **What Shift does to a drag** - the axis lock and the aspect lock, written
+/// down once for the five drags that share them. `ui-conventions/drag-moves.md`
+/// D5, found absent from every one of them by the conventions sweep of
+/// 2026-08-20. Its header carries why one module rather than five call sites.
+pub mod constrain;
 /// A placement drag on a selected ce dimension - the operator's report of
 /// 2026-08-20, *"I need to be able to move the dimension after it has been laid
 /// down"*. Reaches `place_dimension`, never `move_dimension`; its header says

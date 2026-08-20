@@ -88,9 +88,12 @@
 //!   `Complete`.
 //! - D4 one-undo-entry: scaling a path is moving every one of its nodes, and
 //!   `move_nodes` takes a slice — one command.
-//! - D5 modifiers-constrain: **GAP, and the sharpest one in this file.**
-//!   Shift-preserves-aspect is *the* resize convention — every program in the
-//!   class has it — and it is absent. Alt-scales-about-centre likewise.
+//! - D5 modifiers-constrain: **Shift preserves aspect**, applied in [`drag`]
+//!   between [`factors`] and the ghost so the preview and the commit read one
+//!   value; the arithmetic and the reasoning are
+//!   [`crate::canvas::constrain::aspect`]. Announced on the status row while it
+//!   is live. Alt-scales-about-centre is still absent and is named as a
+//!   decision in that module's header, not an omission.
 //! - D6 snapping: **GAP** — a resize does not snap to guides, the grid or other
 //!   geometry.
 //! - D7 no-op-is-not-an-edit: **GAP** — a release with factors of exactly 1.0
@@ -313,6 +316,18 @@ pub struct Frame<'a> {
     pub bounds: Option<egui::Rect>,
     /// The page the drag is on.
     pub page_index: usize,
+    /// **Whether Shift is down THIS FRAME**, sampled live rather than at the
+    /// press.
+    ///
+    /// ★ Live, unlike `gesture::Drag::shift`, and the two are different facts
+    /// that happen to read the same key. That one asks *"what did this gesture
+    /// MEAN"* — extend the selection or replace it — and must be sampled at the
+    /// press, because the meaning of a gesture cannot change half-way through
+    /// it. This asks *"is the operator constraining right now"*, and every
+    /// program in the class lets that be picked up and put down mid-drag. An
+    /// operator who starts a free resize, sees it going crooked and grabs Shift
+    /// expects the shape to snap to proportion under their hand.
+    pub constrain: bool,
     /// The frame's screen ⟷ canvas mapping.
     pub map: Option<&'a PageMapping>,
     /// The page itself, for the canvas → PDF hop.
@@ -344,6 +359,7 @@ pub fn drag(
         phase,
         bounds,
         page_index,
+        constrain,
         map,
         page,
     } = frame;
@@ -360,7 +376,30 @@ pub fn drag(
         }
         return None;
     };
+    // ★★ The aspect lock is applied HERE — above the `InFlight` return, below
+    // the one place the factors are derived — so the ghost and the commit are
+    // the same pair of `f32`s and cannot disagree.
+    //
+    // Applying it in the caller would have been the smaller diff and is the
+    // trap: the caller sees `drag`'s return value (the ghost) but not the
+    // commit path inside it, so a constrained preview would have committed
+    // unconstrained factors. That is `drag-moves` D2 — *the preview is derived
+    // from what the release will commit* — and it is the failure this project
+    // has already met three times in coordinate space.
+    let (sx, sy) = if constrain {
+        crate::canvas::constrain::aspect(sx, sy)
+    } else {
+        (sx, sy)
+    };
     if phase == Phase::InFlight {
+        // ★ D5's second clause — *the constraint is announced* — is answered by
+        // the CALLER, not here. This module takes no `egui::Context` and that
+        // is deliberate: everything in it is a pure function of its `Frame`,
+        // which is what lets the whole resize be unit-tested without a window.
+        // The announcement needs a context, needs to know which of five drags
+        // is in flight, and cannot affect what commits — so it belongs where
+        // those three facts already are, in `canvas::interact`.
+        //
         // ★ The ghost is offered even for factors that will be REFUSED on
         // release, and that is deliberate: an operator dragging a corner past
         // the opposite one can see the shape collapsing, which is how they

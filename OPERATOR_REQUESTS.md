@@ -102,9 +102,28 @@ decided against.
 
 **Direct manipulation**
 
-1. **Shift does not preserve aspect on a resize.** *The* resize convention, in
-   every program in the class, absent here.
-2. Shift does not constrain a move, a handle drag or a dimension drag to an axis.
+1. ~~**Shift does not preserve aspect on a resize.**~~ — **SHIPPED
+   2026-08-20.** Hold Shift while dragging a corner and the shape keeps its
+   proportions; the status row says *"Shift: keeping its proportions"* so you
+   can tell the key did something. A side handle under Shift scales both axes,
+   which is what Figma and Slides do.
+2. ~~Shift does not constrain a move, a handle drag or a dimension drag to an
+   axis.~~ — **SHIPPED 2026-08-20**, all four drags. A move, a dimension label,
+   a perimeter corner and a Bézier handle each lock to whichever axis you have
+   travelled furthest along, re-decided every frame — so you can start off
+   crooked, commit to vertical mid-drag, and it follows. Let go of Shift and it
+   comes straight back to the free path.
+
+   ★ A Bézier handle locks to its **anchor's** axis rather than to where you
+   grabbed it, because a control point's meaning is the tangent it defines.
+   That is what Illustrator and Inkscape do and it is the one place the four
+   drags differ.
+
+   **Not built, and named rather than implied:** Alt to scale about the centre,
+   Alt to break a smooth node's symmetry, a 45° diagonal lock, and a dimension
+   label held to its *standoff* or its *slide* specifically rather than to a
+   page axis. Each is a decision recorded in `canvas::constrain`'s header, not
+   an omission.
 3. **A vertex drag does not snap**, while the tool that placed that vertex does
    — so you can pick a corner onto geometry and then be unable to put it back.
 4. Neither a move, a resize nor a handle drag snaps to guides, grid or geometry.

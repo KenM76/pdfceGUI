@@ -77,6 +77,9 @@ pub mod about;
 /// The four sentences the object clipboard can say when it cannot act.
 pub mod clipboard;
 pub mod commands;
+/// The three sentences a held Shift puts on the status row while it is
+/// constraining a drag. Consumed by [`crate::canvas::constrain::caption`].
+pub mod constrain;
 /// Every word the Render-diagnostics dialog adds around the findings — the
 /// title, the three measurements of the render itself, and the two states in
 /// which there is nothing to report. The findings themselves stay in

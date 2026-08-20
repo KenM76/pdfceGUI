@@ -117,10 +117,14 @@
 //!   an abandoned drag leaves the document untouched by construction.
 //! - D4 one-undo-entry: `place_dimension` and `move_dimension_vertex` are each
 //!   one engine command, so one gesture is one Ctrl+Z.
-//! - D5 modifiers-constrain: **GAP** — no Shift-to-constrain on either drag. A
-//!   label dragged with Shift should hold its standoff or its slide; a vertex
-//!   should constrain to an axis. Not built. Recorded as a gap rather than
-//!   waived, because it is wanted and absent rather than deliberately excluded.
+//! - D5 modifiers-constrain: **Shift locks both drags to one axis**, applied
+//!   by `canvas::interact` before either reaches this module —
+//!   [`crate::canvas::constrain::translate`] for the label, whose outcome is a
+//!   delta, and `reposition` for a vertex, whose outcome is a position and
+//!   which therefore filters the displacement from the press so the grab point
+//!   survives (D8). A label held to its *standoff* or its *slide* specifically —
+//!   the dimension-space pair rather than the page axes — is a further
+//!   refinement and is not built; recorded as a gap rather than claimed.
 //! - D6 snapping: **GAP** — a vertex drag does not snap, while the tool that
 //!   PLACED that vertex does. So an operator can pick a corner onto geometry and
 //!   then be unable to put it back. The sharpest of the gaps here.

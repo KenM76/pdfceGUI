@@ -73,10 +73,12 @@
 # Format: <path> <class>
 
 crates/pdfce-gui/src/canvas/selection/annot.rs      click-selects
+crates/pdfce-gui/src/canvas/clicking.rs             click-selects
 crates/pdfce-gui/src/canvas/dimdrag.rs              drag-moves
 crates/pdfce-gui/src/canvas/moving.rs               drag-moves
 crates/pdfce-gui/src/canvas/resizing.rs             drag-moves
 crates/pdfce-gui/src/canvas/handledrag.rs           drag-moves
+crates/pdfce-gui/src/canvas/constrain.rs            drag-moves
 crates/pdfce-gui/src/canvas/handles.rs              handles
 crates/pdfce-gui/src/canvas/textedit/mod.rs         text-caret
 crates/pdfce-gui/src/canvas/textedit/caret.rs       text-caret
