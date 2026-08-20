@@ -1186,9 +1186,14 @@ pub(super) fn interact(
         // release will commit. A ghosted outline would be the wrong picture
         // here for the same reason it is wrong for a label drag - moving one
         // corner stretches two segments rather than translating a box.
-        GestureOutcome::DimensionVertex { index, at, phase } => {
+        GestureOutcome::DimensionVertex {
+            index,
+            from,
+            at,
+            phase,
+        } => {
             dimension_preview =
-                dimdrag::drag_vertex(index, at, phase, doc, &selection, map, actions);
+                dimdrag::drag_vertex(index, from, at, phase, doc, &selection, actions);
         }
         GestureOutcome::Handle {
             node,

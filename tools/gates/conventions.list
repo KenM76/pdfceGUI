@@ -1,0 +1,85 @@
+# conventions.list — which interactive surfaces answer to which convention class.
+#
+# Read by tools/gates/check-conventions.sh. The classes and their rows are the
+# corpus at D:\dev\rag\ui-conventions\ — one file per gesture, each a numbered
+# list of rules that every program in this class already follows.
+#
+# ===========================================================================
+# WHAT THIS FILE IS FOR
+# ===========================================================================
+#
+# The operator, 2026-08-20, after a fortnight of reporting conventions one at a
+# time:
+#
+#   "I've never seen a program that doesn't live preview any change, and yet
+#    here I am having to ask for all the minute details as if you'd never been
+#    trained on it."
+#
+# The diagnosis is not missing knowledge. Asked directly, the answers come back
+# right. The failure is that nothing PROMPTS the question while the code is
+# being written — you are inside the local problem and the conventional
+# expectation is never retrieved.
+#
+# So this is the prompt. A surface listed here must state, in its source, which
+# rows of its class it satisfies and which it waives and why. The gate cannot
+# check BEHAVIOUR — no grep can tell whether a preview tracks the pointer — but
+# it can check that somebody consciously ANSWERED THE QUESTION, and it makes an
+# unanswered one visible. That is exactly what was missing.
+#
+# Two precedents from the same day, both of which paid immediately:
+#
+#   * `the_keymap_offers_the_chords_a_document_application_must` asserts the
+#     WHOLE LIST of universal chords rather than the one that was missing.
+#     Ctrl+P had been absent for a fortnight and nothing had ever asked.
+#   * `check-typing-guard.sh` found EIGHT further call sites the moment it first
+#     ran — two of them live bugs, one of which would have deleted the
+#     operator's selected object while he was mid-word.
+#
+# Neither was cleverness. Both were "write it down as a list and let a machine
+# check it".
+#
+# ===========================================================================
+# HOW A SURFACE DECLARES
+# ===========================================================================
+#
+# A comment block anywhere in the file, one line per row of its class:
+#
+#     // conventions: drag-moves
+#     // - D1 live-preview: the polyline follows the pointer, previewed from
+#     //   `dimension_preview_segments` — the same function a committed
+#     //   dimension is drawn from.
+#     // - D3 escape-cancels: WAIVED — the gesture machine owns Escape and
+#     //   abandons the pick; there is nothing for this module to do.
+#
+# Every row of the class must appear. `WAIVED` needs a reason on the same line
+# or the next — a bare waiver is the exemption without the argument, which is
+# how a checklist becomes theatre.
+#
+# ===========================================================================
+# ADDING A SURFACE
+# ===========================================================================
+#
+# When you build a new interactive surface, add it here. The gate cannot force
+# that — nothing can grep "is this interactive" reliably — so it is a review
+# obligation. What the gate CAN do, and does, is fail the moment a listed
+# surface stops answering, which is when a class gains a row.
+#
+# ★ EVERY OPERATOR REPORT BECOMES A ROW. That is the compounding mechanism: a
+# report currently costs an hour of their time and then evaporates. As a row it
+# costs the same hour once and is checked forever — and the question stops being
+# only "what do I fix" and becomes "which rule was I missing, and what else
+# violates it?"
+#
+# Format: <path> <class>
+
+crates/pdfce-gui/src/canvas/selection/annot.rs      click-selects
+crates/pdfce-gui/src/canvas/dimdrag.rs              drag-moves
+crates/pdfce-gui/src/canvas/moving.rs               drag-moves
+crates/pdfce-gui/src/canvas/resizing.rs             drag-moves
+crates/pdfce-gui/src/canvas/handledrag.rs           drag-moves
+crates/pdfce-gui/src/canvas/handles.rs              handles
+crates/pdfce-gui/src/canvas/textedit/mod.rs         text-caret
+crates/pdfce-gui/src/canvas/textedit/caret.rs       text-caret
+crates/pdfce-gui/src/dialogs/print/mod.rs           dialogs
+crates/pdfce-gui/src/dialogs/insert_image.rs        dialogs
+crates/pdfce-gui/src/dialogs/scale.rs               dialogs

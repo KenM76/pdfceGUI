@@ -149,6 +149,14 @@ pub enum GestureOutcome {
     DimensionVertex {
         /// Which vertex, sampled at the press.
         index: usize,
+        /// Where the press landed, in canvas space.
+        ///
+        /// ★ Carried so the GRAB POINT can be preserved (`drag-moves` D8).
+        /// Without it the only thing to do with `at` is assign it to the
+        /// vertex, which teleports the corner under the cursor on the first
+        /// frame — the operator grabbed a handle a few pixels off centre and
+        /// the shape jumps before they have moved.
+        from: egui::Pos2,
         /// Where the pointer is now, in canvas space.
         at: egui::Pos2,
         /// Draw, or commit.
@@ -260,6 +268,7 @@ impl Drag {
             DragKind::Resize(grip) => GestureOutcome::Resize { grip, delta, phase },
             DragKind::DimensionVertex { index } => GestureOutcome::DimensionVertex {
                 index,
+                from: self.origin,
                 at: self.latest,
                 phase,
             },

@@ -74,6 +74,33 @@
 //! welcomes explicitly. Nothing is drawn onto the applied content, and a
 //! screenshot of the page after a commit is a screenshot of the page as it will
 //! save.
+//!
+//! ## conventions: drag-moves
+//!
+//! Corpus: `ui-conventions/drag-moves.md`. A resize is a drag; the handle rows
+//! live in `ui-conventions/handles.md` and are answered by `canvas::handles`.
+//!
+//! - D1 live-preview: the resize ghost is drawn from the same scale factors the
+//!   release commits.
+//! - D2 derived-from-commit: `Some` only when a release would reach
+//!   `move_nodes` on real operands.
+//! - D3 escape-cancels: the gesture machine drops it; nothing is written before
+//!   `Complete`.
+//! - D4 one-undo-entry: scaling a path is moving every one of its nodes, and
+//!   `move_nodes` takes a slice — one command.
+//! - D5 modifiers-constrain: **GAP, and the sharpest one in this file.**
+//!   Shift-preserves-aspect is *the* resize convention — every program in the
+//!   class has it — and it is absent. Alt-scales-about-centre likewise.
+//! - D6 snapping: **GAP** — a resize does not snap to guides, the grid or other
+//!   geometry.
+//! - D7 no-op-is-not-an-edit: **GAP** — a release with factors of exactly 1.0
+//!   is not checked for here.
+//! - D8 grab-point: the pivot is the OPPOSITE corner, so the grabbed corner
+//!   tracks the pointer and the far one stays still. Using the anchor instead
+//!   would preview a shape growing away from the hand and commit one growing
+//!   towards it, so the object would jump by its own size on release.
+//! - D9 disclosure: WAIVED — a scale changes no measured value that pdfce
+//!   authored, and the new size is visible.
 
 use egui::Vec2;
 use pdfce_core::vector::Point;

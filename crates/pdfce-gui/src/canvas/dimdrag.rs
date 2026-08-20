@@ -97,6 +97,43 @@
 //!   the same segment function a committed dimension is previewed from.
 //! * **Undo granularity.** `place_dimension` is one command, so one drag is one
 //!   undo entry, decided by the engine.
+//!
+//! ## conventions: drag-moves
+//!
+//! The corpus is `ui-conventions/drag-moves.md`. Every row answered, because
+//! the unanswered ones are the ones the operator finds.
+//!
+//! - D1 live-preview: the dimension follows the pointer from the first frame,
+//!   drawn through `dimension_preview_segments` — the same function a committed
+//!   dimension is drawn from. **This row failed twice.** The label drag never
+//!   previewed (the arm was written and unreachable), and the vertex drag
+//!   converted screen→canvas twice, so it tracked at `1/zoom` and sat off by the
+//!   scroll origin. Both fixed 2026-08-20; see `drag_vertex`.
+//! - D2 derived-from-commit: `placed` returns the geometry AND the two scalars
+//!   the commit writes, so preview and commit are one calculation. A caller
+//!   cannot draw one placement and commit another without going out of its way.
+//! - D3 escape-cancels: WAIVED — the gesture machine owns Escape and drops the
+//!   drag before this module is reached. Nothing is written until `Complete`, so
+//!   an abandoned drag leaves the document untouched by construction.
+//! - D4 one-undo-entry: `place_dimension` and `move_dimension_vertex` are each
+//!   one engine command, so one gesture is one Ctrl+Z.
+//! - D5 modifiers-constrain: **GAP** — no Shift-to-constrain on either drag. A
+//!   label dragged with Shift should hold its standoff or its slide; a vertex
+//!   should constrain to an axis. Not built. Recorded as a gap rather than
+//!   waived, because it is wanted and absent rather than deliberately excluded.
+//! - D6 snapping: **GAP** — a vertex drag does not snap, while the tool that
+//!   PLACED that vertex does. So an operator can pick a corner onto geometry and
+//!   then be unable to put it back. The sharpest of the gaps here.
+//! - D7 no-op-is-not-an-edit: **GAP** — a zero-travel release still raises the
+//!   action. The engine may collapse it; this module does not check.
+//! - D8 grab-point: the vertex moves by the pointer's DELTA, so whatever part of
+//!   the handle was grabbed stays under the cursor. The label drag has always
+//!   been a delta, and its header carries the argument for why the absolute form
+//!   is right for authoring and wrong for moving.
+//! - D9 disclosure: `MoveVertex` re-measures and says so off-canvas, with the
+//!   label before and after — the "before" cannot be reconstructed once the
+//!   geometry that produced it is gone. `Place` writes fields the value function
+//!   does not read, so it has nothing to disclose and says nothing.
 
 use egui::{Rect, Vec2};
 use pdfce_core::dimension::{DimensionId, DimensionKind};
@@ -461,23 +498,49 @@ pub fn vertex_at(
 /// **⇒ Draw the preview. Always.**
 pub fn drag_vertex(
     index: usize,
+    from: egui::Pos2,
     at: egui::Pos2,
     phase: Phase,
     doc: &OpenDoc,
     selection: &SelectionState,
-    map: &PageMapping,
     actions: &mut Vec<Action>,
 ) -> Option<Vec<(Point, Point)>> {
     let (id, kind) = selected(doc, selection)?;
     let (points, closed) = kind.polyline()?;
     let page = doc.pages.get(doc.view.page_index)?;
     let old = *points.get(index)?;
-    // `to_page` is this mapping's name for screen -> CANVAS space; the second
-    // hop, canvas -> PDF user space, is `viewer`'s and is the only place the
-    // y-flip and /Rotate are applied. Two named hops rather than one function,
-    // which is `canvas::mapping`'s standing rule.
-    let canvas = map.to_page(at);
-    let new = crate::viewer::canvas_to_pdf_space(canvas, page)?;
+
+    // ★★★ `from` and `at` are ALREADY CANVAS SPACE — the gesture machine says
+    // so on the variant, and converting them again was the operator's bug of
+    // 2026-08-20:
+    //
+    // > *"as soon as I click one, the preview of the dragging of it is offset
+    // > from the mouse and moves at a different speed than my mouse movements,
+    // > so the distance from the pointer varies as you move it."*
+    //
+    // This read `map.to_page(at)` first — the SCREEN -> canvas hop — applied to
+    // a value that had already had it. So the corner tracked at `1/zoom` of the
+    // pointer's speed and sat off by the scroll origin. `canvas::handledrag`
+    // does the identical job correctly in one hop, eleven lines long, in the
+    // module next door.
+    //
+    // ★ This is the second instance in this codebase and both were written by
+    // somebody who had read the first one's post-mortem. `egui::Pos2` is screen,
+    // canvas AND page space, so the compiler cannot object. The durable fix is
+    // typed coordinates, not care — see `drag-moves` D1a.
+    //
+    // ★★ And the GRAB POINT is preserved (D8): the vertex moves by the
+    // pointer's DELTA, not to the pointer's position. Assigning the pointer
+    // straight to the vertex teleports the corner under the cursor on the first
+    // frame, so an operator who grabbed a handle three pixels off centre sees
+    // the shape jump before they have moved anything.
+    let grab = at - from;
+    let was = crate::viewer::pdf_space_to_canvas(
+        #[allow(clippy::cast_possible_truncation)]
+        egui::Pos2::new(old.x as f32, old.y as f32),
+        page,
+    )?;
+    let new = crate::viewer::canvas_to_pdf_space(was + grab, page)?;
 
     let mut moved: Vec<Point> = points.to_vec();
     #[allow(clippy::cast_lossless)]

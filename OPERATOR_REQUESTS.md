@@ -80,6 +80,74 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O14 — The conventions sweep, 2026-08-20: fourteen gaps, found by asking
+
+**Asked:** by you, as *"how can you learn from these other programs so that you
+can build the missing parts more effectively?"*
+**Status:** the mechanism is built. These are what it found on its first run.
+
+`D:/dev/rag/ui-conventions/` is a corpus of five gesture classes — what every
+program in the class already does, where the rule comes from, and the failure
+mode when it is absent. `tools/gates/check-conventions.sh` makes each
+interactive surface answer every row of its class, in its own source, and fails
+the build on an unanswered one. Eleven surfaces registered; all eleven now
+answer.
+
+It cannot check behaviour and does not pretend to. It checks that **the question
+was asked** — which is the whole of the problem, because every convention you
+have had to report was one nobody had asked about rather than one somebody
+decided against.
+
+### What it found. None of this was known before today.
+
+**Direct manipulation**
+
+1. **Shift does not preserve aspect on a resize.** *The* resize convention, in
+   every program in the class, absent here.
+2. Shift does not constrain a move, a handle drag or a dimension drag to an axis.
+3. **A vertex drag does not snap**, while the tool that placed that vertex does
+   — so you can pick a corner onto geometry and then be unable to put it back.
+4. Neither a move, a resize nor a handle drag snaps to guides, grid or geometry.
+5. **No rotate handle** anywhere. Blocked on the engine verb, which is accepted
+   and being built.
+6. **No right-click to add or remove a perimeter point**, though both engine
+   verbs and the preflight that greys the menu item already exist.
+7. A zero-travel release still raises an action in three of the four drag paths.
+
+**Selection**
+
+8. **Only ce dimensions hit-test their real shape.** A `/Square` with no interior
+   colour still claims its interior, so a large empty callout box is
+   un-clickable-through. The mechanism to fix it now exists — that subtype needs
+   a shape.
+
+**Text**
+
+9. **No live preview while typing** — your open complaint, and now a named row
+   rather than a bug I might forget again.
+10. Caret indices are characters, not grapheme clusters, so a combining mark or
+    an emoji takes two presses. `unicode-segmentation` is already in the tree.
+11. **No selection inside a draft** — no Shift+arrow, no Ctrl+A, no drag-select.
+
+**Dialogs**
+
+12. **No dialog is a real OS window** — your report. egui can already do it via
+    `show_viewport_immediate`; the in-viewport panel was the path of least
+    resistance and nothing pushed back.
+13. **Enter is not the affirmative default** in any dialog, and no button is
+    drawn as the default. Type in the last field, press Enter, nothing happens.
+14. No dialog remembers where you moved it; every one re-centres. Tab order and
+    modal focus-trapping are untested.
+
+### And two fixed on the spot, because writing the row exposed them
+
+- The vertex drag converted screen→canvas **twice**, so it tracked at `1/zoom`
+  and sat off by the scroll origin — *"the distance from the pointer varies as
+  you move it."* Fixed.
+- It also assigned the pointer straight to the vertex, so grabbing a handle
+  slightly off-centre teleported the corner under the cursor before you had
+  moved it. Now it moves by the delta and the grab point is preserved.
+
 ## O8 — **A Save button.** Not Save As. Save.
 
 **Asked:** 2026-08-20 — *"can I please have a save button like every other

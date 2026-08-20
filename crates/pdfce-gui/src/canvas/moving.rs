@@ -81,6 +81,32 @@
 //! [`ClickHit`](crate::canvas::selection::ClickHit). [`drag`] is the one
 //! function that touches the live provider, and it does nothing except gather
 //! those inputs, call the pure functions in order, and trace what happened.
+//!
+//! ## conventions: drag-moves
+//!
+//! Corpus: `ui-conventions/drag-moves.md`.
+//!
+//! - D1 live-preview: the ghost is drawn every in-flight frame, offset by the
+//!   canvas delta.
+//! - D2 derived-from-commit: `eligible` is consulted twice — once per frame to
+//!   decide whether a ghost may be drawn at all, once on release to build the
+//!   command — so the ghost appears if and only if the release would commit.
+//! - D3 escape-cancels: the gesture machine drops the drag; nothing is written
+//!   before `Complete`.
+//! - D4 one-undo-entry: `move_objects` takes a slice, so a drag of forty objects
+//!   is one command and one Ctrl+Z.
+//! - D5 modifiers-constrain: **GAP** — no Shift-to-axis. Universal in this
+//!   product class and absent here.
+//! - D6 snapping: **GAP** — a content move does not snap to guides, the grid or
+//!   other geometry, while the measure tools snap to all three.
+//! - D7 no-op-is-not-an-edit: a zero-travel drag is deliberately still
+//!   *eligible* (it names a real verb on real operands) and commits nothing —
+//!   the split is stated in `eligible`'s own docs and is what keeps the ghost
+//!   visible when the pointer passes back over the press point.
+//! - D8 grab-point: a delta, not an absolute position, so the grab is preserved.
+//! - D9 disclosure: WAIVED — a translation changes no measured value and the
+//!   operator can see where the objects went. There is nothing they cannot
+//!   reconstruct by looking.
 
 use egui::{Pos2, Vec2};
 use pdfce_core::page_tree::Page;

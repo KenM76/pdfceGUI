@@ -53,6 +53,38 @@
 //! resize handle would silently replace the selection the operator was trying
 //! to resize. Swallowing the gesture is the honest behaviour until the verb
 //! exists.
+//!
+//! ## conventions: handles
+//!
+//! Corpus: `ui-conventions/handles.md`.
+//!
+//! - H1 appear-on-selection: the eight grips are drawn when something is
+//!   selected at the Object rung, before any drag.
+//! - H2 standard-set: eight resize grips plus the body. **GAP: no rotate
+//!   handle**, because no engine verb rotates anything — filed 2026-08-20 and
+//!   accepted. When that lands, the handle above the top edge is the shape to
+//!   build, not a menu item.
+//! - H3 screen-sized: `GRIP_SIZE_PX` is in points and does not scale with zoom,
+//!   so a corner on a plan at 20 % is as grabbable as one at 400 %.
+//! - H4 target-not-smaller: `GRIP_GRAB_SLACK_PX` expands the live area beyond
+//!   the drawn square. Never the reverse.
+//! - H5 grips-outrank-body: checked first, because corner grips sit ON the
+//!   box's edge and half of each square overlaps the interior — if the body won,
+//!   each would be a half-size target on its outer half only.
+//! - H6 cursor-names-it: `Grip::cursor` gives each grip its diagonal or axis
+//!   arrow and the body a move cursor.
+//! - H7 painted-equals-grabbable: the same predicate decides both. **This row
+//!   exists because it failed on 2026-08-20**: a dimension's vertex handles were
+//!   painted from the selection and hit-tested behind a capability the mode did
+//!   not have, so they were visible and untouchable in the very mode that
+//!   authors dimensions.
+//! - H8 published: `SELECTION_OUTLINE_REGION` publishes the box every grip is
+//!   derived from, and `dimdrag::VERTEX_REGION` publishes each vertex handle
+//!   indexed — so a driven check aims at what the application says rather than
+//!   at a guess.
+//! - H9 vertex-editing: a perimeter ce dimension's corners are handles and drag
+//!   to reshape. **GAP: no right-click to add or remove a point**, though both
+//!   engine verbs and the preflight that greys the menu item already exist.
 
 use egui::{CursorIcon, Pos2, Rect, Vec2};
 

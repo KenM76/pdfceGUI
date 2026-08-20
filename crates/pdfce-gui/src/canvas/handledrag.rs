@@ -64,6 +64,30 @@
 //!   of an `h`-terminated subpath has no operands in the content stream, so
 //!   there is nothing for `move_handle` to rewrite. `ObjectModelProvider::
 //!   node_handles` does not return it, so no control is offered for it.
+//!
+//! ## conventions: drag-moves
+//!
+//! Corpus: `ui-conventions/drag-moves.md`.
+//!
+//! - D1 live-preview: the dragged handle follows the pointer, and the
+//!   decomposition still holds its old position — so without this the handle
+//!   would sit still while the operator dragged it.
+//! - D2 derived-from-commit: the preview is the position the release writes.
+//! - D3 escape-cancels: the gesture machine drops it before anything is written.
+//! - D4 one-undo-entry: `move_handle` is one engine command.
+//! - D5 modifiers-constrain: **GAP** — no Shift-to-axis, and no Alt to break or
+//!   restore a smooth node's symmetry, which is the Bézier-specific convention.
+//! - D6 snapping: **GAP** — a handle does not snap.
+//! - D7 no-op-is-not-an-edit: **GAP** — a zero-travel release is not checked.
+//! - D8 grab-point: this variant carries the pointer's POSITION rather than a
+//!   delta, and that is deliberate rather than an oversight of D8: a Bézier
+//!   handle is a small dot the operator grabs at its centre, so "the handle goes
+//!   where the pointer is" and "the handle moves by the delta" differ by at most
+//!   the grab slack. Stated so the difference from `dimdrag`'s vertex drag —
+//!   which DOES preserve the grab, because a vertex handle sits on a shape the
+//!   operator is aiming at — is a decision rather than an inconsistency.
+//! - D9 disclosure: WAIVED — moving a control point changes no measured value
+//!   pdfce authored.
 
 use egui::{Pos2, Vec2};
 use pdfce_core::vector::{Handle, Point};

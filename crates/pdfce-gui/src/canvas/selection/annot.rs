@@ -73,6 +73,33 @@
 //! the canvas with a stamp selected differs from a screenshot of the saved
 //! file only by the marching outline, which is where the pointer is and not
 //! what the document says.
+//!
+//! ## conventions: click-selects
+//!
+//! Corpus: `ui-conventions/click-selects.md`.
+//!
+//! - C1 shape-not-box: a candidate may carry its drawn segments, and where it
+//!   does they are what is tested. Added 2026-08-20 on the operator's report;
+//!   see [`hit`]'s header for the whole argument.
+//! - C2 unfilled-interior: **GAP** — only ce dimensions supply a shape today. A
+//!   `/Square` with no `/IC` still claims its interior, so a large empty callout
+//!   box remains un-clickable-through. The mechanism to fix it is already here:
+//!   give that subtype a shape.
+//! - C3 topmost-wins: `.rev()` over `/Annots`, which is paint order.
+//! - C4 tolerance: none for a rect — the engine bakes the pen half-width into
+//!   `/Rect` at authoring time, so a second one would double-count — and the
+//!   canvas click tolerance for a segment, which has no width at all. Both
+//!   stated at the call site.
+//! - C5 segment-not-line: `distance_to_segment` clamps to the ends. Without it a
+//!   short dimension line would claim a stripe across the sheet.
+//! - C6 miss-deselects: owned by `canvas::interact`, which clears the annotation
+//!   selection when a click in a mode that could have hit one did not.
+//! - C7 drawn-equals-live: the ink is the target and the `/Rect` is the outline
+//!   drawn AFTER selection, which is a different thing from a hover affordance —
+//!   nothing here is painted as targetable that is not. If annotation hover
+//!   highlighting is ever added it must highlight the shape, not the box.
+//! - C8 stated-precedence: `gesture::press_kind` holds the whole order in one
+//!   place, and an annotation click sits below every armed tool by construction.
 
 use std::collections::{BTreeMap, BTreeSet};
 

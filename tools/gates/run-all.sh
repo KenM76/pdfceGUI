@@ -138,6 +138,14 @@ run "check-file-size"    bash "$HERE/check-file-size.sh"
 run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
 run "check-shipped-assets" bash "$HERE/check-shipped-assets.sh"
 run "check-string-gaps"  bash "$HERE/check-string-gaps.sh"
+# ★ The two gates of 2026-08-20, both born of an operator report rather than of
+# a design. `check-typing-guard` keeps "is the operator typing?" a single
+# predicate, after the space bar was stolen by the pan tool for a fortnight;
+# `check-conventions` makes every interactive surface answer, row by row, the
+# conventions its gesture class carries - because every convention he had to
+# report was one nobody had ASKED about, not one somebody decided against.
+run "check-typing-guard" bash "$HERE/check-typing-guard.sh"
+run "check-conventions"  bash "$HERE/check-conventions.sh"
 
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #

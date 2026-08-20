@@ -468,12 +468,21 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // into the painter.
     driver.press(vk::V)?;
     session.settle(10);
-    // The middle of the square that was traced, which is inside the committed
-    // perimeter's /Rect — what an annotation click hit-tests against.
+    // ★★ ON THE INK, not in the middle of the ring.
+    //
+    // This aimed at the centre of the traced square until 2026-08-20 and the
+    // run reported UNVERIFIED — correctly. A click there now MISSES, because a
+    // dimension is hit-tested on its drawn segments rather than on its bounding
+    // box, so the empty middle of a perimeter belongs to whatever is behind it.
+    // That is the operator's own report, working.
+    //
+    // So the click goes to the midpoint of the first edge — between corners 0
+    // and 1 — which is ink. A check that kept aiming at the hole would have
+    // reported the selection as broken while it was behaving correctly.
     driver.click_at(frame.to_screen(mapping.doc_to_window(DocPoint::new(
         0,
-        0.45 * page.width_pt,
-        0.45 * page.height_pt,
+        f64::midpoint(CORNERS[0].0, CORNERS[1].0) * page.width_pt,
+        f64::midpoint(CORNERS[0].1, CORNERS[1].1) * page.height_pt,
     ))?))?;
     session.settle(18);
     let trace = session.trace()?;
