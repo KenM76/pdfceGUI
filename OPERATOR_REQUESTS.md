@@ -389,24 +389,75 @@ test. **NOT yet driven** — the harness was blocked by the on-screen keyboard.
 **No selection yet** — no Shift+arrow, no Ctrl+A, no drag-select inside a
 draft. That is a second feature and it is row **O7** rather than an implied gap.
 
-**(a) — the cause is found, and it is the engine.** Your text lives inside a
-form XObject; `pdfce-core` edits page-stream text only, which is a named
-non-goal of that cut. The shell was reading the byte span of a show operator
-and discarding the field that says *which content stream the span indexes*, so
-it pinned into the wrong buffer and the engine reported "text not found" about
-text that was plainly there.
+**(a) — ★★★ IT WORKS. 2026-08-20, and it is the 99 % case.**
 
-Measured on the benchmark drawing: **1,696 show operators of real drawing text
-inside the form, against 3,007 metadata glyphs in the page's own stream.** So
-on your documents this is the majority case, not an edge case — which is why it
-has read as "does nothing" every time.
+You can now click a label, a title-block field or a *pdf dimension* callout on
+a CAD sheet, get a caret, and retype it. That text lives inside what the format
+calls a form XObject — a block the drawing program placed — and until this
+evening pdfce could read it and not write it.
 
-Shipped today, and it is not a fix: the caret is now **refused before it takes
-a keystroke**, with a sentence on the status row. That converts a caret that
-silently ate your typing into an honest refusal. Filed as
-`request_text_inside_a_form_xobject_cannot_be_edited_and_the_error_blames_the_text.md`
-with three asks — a published "is this editable?" query, a distinct error for
-"the pin matched no operator", and the real one: editing inside form XObjects.
+Measured on your benchmark drawing, which is why this mattered more than
+anything else in the queue: **1,696 show operators of real drawing text inside
+the block, against 3,007 metadata glyphs in the page's own stream.** Your own
+words when you saw the split: *"I need that editing capability as it is 99% of
+the text I will want to edit."* The engine escalated the work ahead of the
+move/resize verbs on the strength of that sentence.
+
+### ★ One thing you need to know, and it is not a pdfce limitation
+
+**A drawing program may place ONE copy of a block and paint it on six sheets.**
+That is what the construct is *for* — the standard names a CAD system's
+standard component as the illustration — and nothing in the format binds a
+block to a page. So when you edit text inside a shared one, **it changes on
+every sheet it appears on**, because there is exactly one copy of those letters
+in the file.
+
+pdfce cannot make that not be true, so it tells you: after an edit that touched
+shared content, the status row says *"SHARED CONTENT: this text is drawn from
+shared content that appears in N place(s) on M page(s)"*. It is deliberately
+silent on the ordinary case — a warning that fires every time is one nobody
+reads, and this one is meant to make you stop.
+
+**Nothing is drawn on the page.** No badge, no tint, no flag. Your own finding
+about the old GUI's red-flagging stands.
+
+**Not built, and named rather than left implied:** you are told *after* the
+edit, not before you type. Telling you at the caret means asking the document
+how many places paint that block, which is a walk of the whole file — cheap
+once, not cheap on every click on text — so it needs a cache that does not
+exist yet. Undo puts it all back in one press in the meantime. Say the word and
+it moves up.
+
+### What it cost on this side, and why it was one deleted line
+
+The shell had a guard refusing the caret. When it was written, the request that
+went with it said:
+
+> *"my shell encodes a fact about your surgery's internals. The day form
+> editing lands, my guard silently keeps refusing until I notice and delete
+> it."*
+
+So the engine published a query — *"is this run editable?"* — and the shell
+asked it instead of modelling the answer. When the capability landed, the query
+started answering *yes*, a deprecation warning pointed at the single line to
+remove, and that was the whole job. A hand-rolled guard would have gone on
+refusing 99 % of your text until somebody noticed.
+
+★ **One thing added beyond deleting the guard.** The shell now names *which*
+buffer it measured when it commits, rather than letting the engine search. On
+your sheets the page's own stream holds 3,007 single-character operators, so
+letting a byte offset be tried there first is a dense field of near-misses —
+an edit that could succeed on the wrong glyph with no error anywhere.
+
+**Driven:** `text_edit_on_a_real_drawing` now asserts the commit named a form,
+and the old "this is an absent capability" skip has been **inverted** — if a
+build ever refuses with the old reason again, that check fails loudly.
+**NOT YET RUN.**
+
+What remains under this heading is the refusal for text that has no letters
+behind it at all — an `/ActualText` description the producer supplied instead
+of glyphs. That one is genuinely unreachable and always was, and it now says
+so in its own words rather than borrowing the form sentence.
 
 **(b) — not yet driven.** Nothing claimed.
 

@@ -87,6 +87,13 @@ const TOOL_EDIT: &str = "TextEdit(Edit)";
 /// `text-edit-caret page=… run=… len=…` — a click resolved a run.
 const CARET_EVENT: &str = "text-edit-caret";
 /// `text-edit-declined reason=…` — a click did not.
+/// `edit-text-target page=… run=… form=… invocations=… pages=…` — which content
+/// stream the commit aimed at, and how many places paint it.
+///
+/// Raised by the `edit_text` apply arm from the engine's own `EditReport`. It is
+/// the observable half of `Pass 119.0`: the prose disclosure goes to the status
+/// row for the operator, and this goes to the channel for a check.
+const TARGET_EVENT: &str = "edit-text-target";
 const DECLINED_EVENT: &str = "text-edit-declined";
 
 /// See the module documentation.
@@ -274,41 +281,37 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // working and refusing, and the question moves to whether the operator can
     // READ the refusal. `NoText` on a page `find-text` just matched on would be
     // the strangest of the three.
-    // ★★★ `InsideForm` IS NOT A DEFECT AND IS NOT A PASS — it is an absent
-    // capability, and this branch exists so the two stay distinguishable.
+    // ★★★ `InsideForm` WAS A SKIP FOR ONE DAY. IT IS NOW A FAILURE.
     //
-    // Added 2026-08-20. The shell now reads `GlyphProvenance::content_stream`
-    // and refuses the caret when the run is drawn from a form XObject, because
-    // `pdfce-core`'s text-edit surgery walks the page's content stream only —
-    // a named non-goal of that cut (`text_edit/edit.rs:79`). Filed as
-    // `request_text_inside_a_form_xobject_cannot_be_edited_and_the_error_
-    // blames_the_text.md`.
+    // On 2026-08-20 this branch reported SKIPPED with a long argument about why
+    // an absent capability is neither a pass nor a defect —
+    // `SHELL_FRAMEWORK.md` §5b's `CapabilityAbsent` applied to a driven check.
+    // It ended:
     //
-    // Reported as SKIPPED, and the wording matters more than usual:
+    // > *"The day the engine gains form editing, this branch stops being
+    // > reached and the check goes green on its own — there is nothing to
+    // > remember to delete."*
     //
-    // * **Not a PASS.** Text editing does not work on this document. Rendering
-    //   "the engine cannot do this" as green is the precise failure this
-    //   harness exists to remove, and the suite's own footer says so.
-    // * **Not a FAIL.** The shell did the right thing — it refused before
-    //   taking a keystroke, with a sentence the operator can read. Marking that
-    //   red would mean the only way to go green is to go back to swallowing
-    //   their typing.
+    // That day was **the same day**. `Pass 119.0` landed form-XObject text
+    // editing that evening, and the shell's refusal was deleted.
     //
-    // This is `SHELL_FRAMEWORK.md` §5b's `CapabilityAbsent` applied to a driven
-    // check rather than to a ribbon item: *"this build excludes that"* has to
-    // stay distinguishable from *"someone made a mistake"*. The day the engine
-    // gains form editing, this branch stops being reached and the check goes
-    // green on its own — there is nothing to remember to delete.
+    // ★ So the branch is kept and INVERTED, which is worth more than deleting
+    // it: a build that reports this reason again has reinstated a guard that
+    // refuses a caret on **99 % of the text on a CAD drawing** — the operator's
+    // own estimate, and the reason that Pass jumped the queue. That is a
+    // regression nobody would notice from a screenshot, because a refused caret
+    // and an un-armed tool look identical, and it is precisely what a
+    // reinstated `#[deprecated]` match arm would produce.
     if declined.as_deref() == Some("InsideForm") {
-        return Err(Error::new(format!(
-            "the text at this point is inside a FORM XOBJECT, and `pdfce-core` edits page-stream \
-             text only — a named non-goal of that cut (`text_edit/edit.rs:79`), filed as \
-             `request_text_inside_a_form_xobject_cannot_be_edited…`. The shell behaved \
-             correctly: it refused the caret BEFORE taking a keystroke and put a sentence on the \
-             status row, instead of accepting typing into a commit guaranteed to fail. This is \
-             NOT a pass — text editing does not work on this document. Measured on this file: \
-             1,696 show operators inside the form against 3,007 metadata glyphs in the page \
-             stream, so it is the majority case here. Trace: {}.",
+        return Ok(Some(format!(
+            "★ THE CARET WAS REFUSED WITH `InsideForm`, WHICH CANNOT HAPPEN IN A CORRECT BUILD. \
+             `Pass 119.0` (2026-08-20) made form-XObject text editable and \
+             `Editability::InsideForm` is `#[deprecated]` and never returned by the engine. A \
+             build reporting it has reinstated the shell-side guard that was deleted the same \
+             day — see `canvas::textedit::Refusal`, whose `InsideForm` variant's replacement \
+             carries the whole episode. On this document that guard refuses roughly 99 % of the \
+             text the operator wants to edit: 1,696 show operators inside the form against 3,007 \
+             metadata glyphs in the page stream. Trace: {}.",
             session.trace_path().display()
         )));
     }
@@ -410,6 +413,57 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note("★★ the edit reached the engine on the operator's own drawing");
+
+    // --- 7: ★★★ AND IT EDITED THE BUFFER THE CARET MEASURED --------------
+    //
+    // The assertion that makes step 6 mean something on THIS document. On a CAD
+    // sheet the text the operator clicks lives in a form XObject, and the shell
+    // pins a byte span into that form's decoded bytes. `EditTarget::Auto` — the
+    // engine's default — would offer that pin to the page's own stream first,
+    // and this page's stream holds 3,007 single-character show operators, so a
+    // stray match there is a dense field of near-misses rather than a
+    // theoretical collision. The result would be an edit that succeeded on the
+    // wrong glyph, silently.
+    //
+    // `canvas::textedit::plan` therefore names the target from the same
+    // provenance record it takes the pin from — the two fields are one fact —
+    // and `edit-text-target` is that decision, observable.
+    //
+    // ★ What is asserted is that the line EXISTS and carries a form, not a
+    // particular object number. Which object holds the title block is a fact
+    // about the fixture; that the edit went into a form at all, on a document
+    // whose editable text is inside one, is a fact about the build. A
+    // `form=none` here would mean the target collapsed to the page stream — the
+    // exact regression the explicit target exists to prevent.
+    let Some(target) = trace.last(TARGET_EVENT) else {
+        return Ok(Some(format!(
+            "the edit committed and no `{TARGET_EVENT}` line followed, so the shell did not \
+             report which content stream it aimed at. That line is raised from the `edit_text` \
+             arm's report; its absence means either the arm reverted or the engine's report no \
+             longer carries `form_object`. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    report.note(format!("★ the edit named its buffer: `{}`", target.raw));
+    // ★★ …and the shared-content fan-out, REPORTED rather than asserted.
+    //
+    // A form XObject may legally be painted from several pages, so an edit
+    // inside one can change every sheet it appears on — and the engine puts a
+    // "SHARED CONTENT: …" sentence in `report.disclosures` for exactly that,
+    // which this shell already carries to the status row.
+    //
+    // Whether THIS fixture's title block is shared is a fact about the fixture.
+    // Asserting a number here would make the check pass or fail on which
+    // drawing it was pointed at, which is the distinction this harness exists
+    // to keep. So it is recorded for a human to read, and the count is what
+    // makes the record worth having.
+    if let Some(n) = target.get("invocations") {
+        report.note(format!(
+            "the edited stream is painted in {n} place(s) in the document — if that is more than \
+             one, the operator changed every one of them, and the engine's SHARED CONTENT \
+             disclosure is on the status row saying so"
+        ));
+    }
     Ok(None)
 }
 

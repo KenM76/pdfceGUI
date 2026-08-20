@@ -44,27 +44,44 @@ pub const fn refusal(reason: Refusal) -> &'static str {
             "pdfce cannot read any text on this page. If it is a scan, run Tools > OCR first — \
              editing needs real text, not a picture of it."
         }
-        // ★★ The sentence for text pdfce can READ and cannot yet WRITE.
+        // ★★★ THIS SENTENCE USED TO SAY SOMETHING ELSE, AND IT WAS RETIRED ON
+        // 2026-08-20.
         //
-        // Three obligations, and the wording carries all three deliberately:
+        // It read: *"This text is inside a block placed by the program that
+        // made the drawing, and pdfce cannot edit inside one yet — only read
+        // it."* `Pass 119.0` made that text editable the same evening the
+        // sentence shipped, and on a CAD sheet it was **99 % of the text the
+        // operator wants to edit** — his own estimate, and the reason the
+        // engine escalated that Pass ahead of everything else.
         //
-        // 1. **It is not the operator's mistake.** They clicked on real text and
-        //    it is real text. Saying "there is no text where you clicked" — the
+        // The episode is kept in the comment rather than deleted with the
+        // string, because the durable lesson is the one about the guard: this
+        // shell asked `TextRun::editability()` instead of matching on
+        // provenance itself, so the day the capability landed the cost was one
+        // deleted arm that a `#[deprecated]` attribute pointed straight at.
+        //
+        // ★ What replaces it is a genuinely different fact and therefore needs
+        // genuinely different words. `/ActualText` is a producer-supplied
+        // replacement string standing in for a span of glyphs — a ligature
+        // written out, a logo given a name, a table cell given a reading. There
+        // is no show operator behind it, so there is nothing to edit *in
+        // place*: the text is not out of reach, there is nothing to reach for.
+        //
+        // The three obligations the old sentence carried still apply, and are
+        // why this one is shaped as it is:
+        //
+        // 1. **It is not the operator's mistake.** They clicked on real text
+        //    and it is real text. "There is no text where you clicked" — the
         //    nearest existing sentence — would be false, and would send them
-        //    clicking around the sheet looking for a spot that works.
-        // 2. **It says what is different about this text**, in words a person
-        //    who exports from CAD will recognise. "Form XObject" is not those
-        //    words; "a block placed by the program that made the drawing" is.
+        //    clicking round the sheet looking for a spot that works.
+        // 2. **It says what is different about this text**, in words someone
+        //    who has never heard of `/ActualText` can act on.
         // 3. **It says what they can do instead.** A refusal with no route is
-        //    half a sentence. Add text over the top is a real answer for a
-        //    label, and it is one they would otherwise have to discover.
-        //
-        // What it must not do is promise a date. The engine gap is filed and it
-        // is not this sentence's business to forecast it.
-        Refusal::InsideForm => {
-            "This text is inside a block placed by the program that made the drawing, and pdfce \
-             cannot edit inside one yet — only read it. Use Add text to put new text over it, or \
-             change it in the program the drawing came from."
+        //    half a sentence.
+        Refusal::NoAnchor => {
+            "This text was supplied as a description rather than drawn as letters, so there is \
+             nothing here to edit in place. Use Add text to put new text over it, or change it \
+             in the program the drawing came from."
         }
     }
 }

@@ -365,7 +365,39 @@ pub enum Refusal {
     /// on the benchmark drawing: 1,696 show operators of real drawing text
     /// inside the form, against 3,007 metadata glyphs in the page stream. Filed
     /// as an engine request the same day.
-    InsideForm,
+    ///
+    /// # ★★★ AND IT IS GONE, 2026-08-20 — `Pass 119.0` shipped form editing
+    ///
+    /// The variant above is **deleted**, not deprecated, and everything written
+    /// about it is kept because the *shape of the episode* is the durable part.
+    /// `Editability::InsideForm` is `#[deprecated]` in the engine and never
+    /// returned; `edit_text` resolves a target stream and reaches form content
+    /// as one undoable command.
+    ///
+    /// ★ **The reason this cost one deletion instead of an investigation** is
+    /// the argument this project made when it filed the request:
+    ///
+    /// > *"my shell encodes a fact about your surgery's internals. The day form
+    /// > editing lands, my guard silently keeps refusing until I notice and
+    /// > delete it — a workaround that outlives its bug, which is decision
+    /// > 058's exact failure mode."*
+    ///
+    /// The engine's answer was to publish `TextRun::editability()` so the shell
+    /// asked pdfce rather than modelling it. When the capability landed, the
+    /// predicate started answering `Editable` and **a `#[deprecated]` attribute
+    /// pointed at the one line to remove.** That is the whole value of not
+    /// hand-rolling a guard, demonstrated end to end inside two days.
+    ///
+    /// # What replaces it, and it is a genuinely different fact
+    ///
+    /// A run whose glyphs come from `/ActualText` covers **no show operators of
+    /// its own**, so there is nothing for the surgery to anchor on. That is not
+    /// "out of reach" — it is "there is nothing to reach for", and the engine
+    /// carries it as its own [`Editability::NoAnchor`] variant precisely so a
+    /// shell can say something different about it.
+    ///
+    /// [`Editability::NoAnchor`]: pdfce_core::text_extract::Editability::NoAnchor
+    NoAnchor,
 }
 
 /// ★★★ **Is the operator composing text ANYWHERE?** The one predicate, asked in
@@ -614,14 +646,15 @@ pub fn click(
     Ok(())
 }
 
-/// **Is `run` drawn from inside a form XObject?** `Some(true)` / `Some(false)`,
-/// or `None` when the question could not be asked.
+/// **Does `run` have no show operator of its own?** `Some(true)` /
+/// `Some(false)`, or `None` when the question could not be asked.
 ///
-/// A thin forward to [`crate::app::state::OpenDoc::run_is_inside_a_form`],
-/// which owns the extraction and the cache. It is worth a named function here
-/// anyway: this is the one place in the shell that encodes *"what pdfce-core
-/// can and cannot edit"*, and the day the engine gains form editing this is the
-/// function to delete rather than a condition to find.
+/// A thin forward to [`crate::app::state::OpenDoc::run_has_no_anchor`], which
+/// owns the extraction and the cache. It is worth a named function here anyway:
+/// this is the one place in the shell that asks *"can pdfce-core edit this
+/// run"*, so there is one line to change when the answer changes — which it
+/// did, on 2026-08-20, when form editing landed and this stopped being about
+/// forms at all.
 ///
 /// # Why the answer is cached one level down and not here
 ///
@@ -635,8 +668,8 @@ pub fn click(
 /// flakiness, which this project has been caught by before.
 ///
 /// `None` means **not measured**, never "yes". See `FormRunCache::flags`.
-fn inside_a_form(c: &Click<'_>, run: usize) -> Option<bool> {
-    c.doc.run_is_inside_a_form(run)
+fn has_no_anchor(c: &Click<'_>, run: usize) -> Option<bool> {
+    c.doc.run_has_no_anchor(run)
 }
 
 /// **Which character boundary a click landed on, inside `run`.**
@@ -810,28 +843,33 @@ fn resolve_run(c: &Click<'_>) -> Result<Anchor, Refusal> {
     // sentence reads *"text to edit ("p") was not found in an editable run"*
     // about text that is plainly there.
     //
-    // ★ Refusing rather than attempting, because the attempt CANNOT succeed:
-    // form-XObject content is a named non-goal of that cut of the engine
-    // (`pdfce-core/src/text_edit/edit.rs:79`). Placing a caret that will eat a
-    // sentence is this project's defining defect class, and one honest click of
-    // refusal is cheaper than a paragraph typed into nothing.
+    // ★★★ THE FORM REFUSAL IS GONE — `Pass 119.0`, 2026-08-20.
     //
-    // ★★ On a CAD sheet this is the COMMON case. Measured on the benchmark
-    // drawing: 1,696 show operators of real drawing text inside the form,
-    // against 3,007 metadata glyphs in the page's own stream. So this refusal
-    // will fire often, and that is the honest picture of what the engine can do
-    // today rather than a pessimistic guard.
+    // Everything above this line describes a limit the engine no longer has.
+    // It is kept because the mechanism it explains is still the mechanism, and
+    // because the next reader needs to know that `content_stream` is a field
+    // that MATTERS rather than one that used to.
     //
-    // The provenance is only populated when the extraction asked for it, which
-    // `app::cache`'s read-only pass deliberately does not — so `None` here means
-    // *"not measured"*, not *"page stream"*, and the caret is allowed. Refusing
-    // on an unmeasured answer would block editing everywhere on a guess.
-    if inside_a_form(c, pos.run) == Some(true) {
+    // What is left is the one case that is genuinely unreachable and always
+    // was: a run with **no show operator of its own**. An `/ActualText` run is
+    // derived text — the producer supplied a replacement string for a span of
+    // glyphs — so there is no operator for a pinned span to name. The engine
+    // reports that as its own `Editability` variant rather than folding it into
+    // "not editable", and the reason is worth keeping: this is not text that is
+    // out of reach, it is text that has nothing to reach for.
+    //
+    // The answer is only populated when the extraction asked for provenance,
+    // which `app::cache`'s read-only pass deliberately does not — so `None`
+    // here means *"not measured"*, never "yes", and the caret is allowed.
+    // Refusing on an unmeasured answer would block editing everywhere on a
+    // guess, which is the exact failure the engine made `Editability` an enum
+    // rather than a `bool` to prevent.
+    if has_no_anchor(c, pos.run) == Some(true) {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed.
-            format!("text-edit-declined reason=InsideForm run={}", pos.run)
+            format!("text-edit-declined reason=NoAnchor run={}", pos.run)
         });
-        return Err(Refusal::InsideForm);
+        return Err(Refusal::NoAnchor);
     }
 
     Ok(Anchor::Run {
@@ -1132,6 +1170,53 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
             if let Some(p) = model.provenance(gref) {
                 request.pinned_span = Some(p.operator_span);
                 matrices = (p.text_matrix, p.ctm);
+                // ★★★ NAME THE BUFFER THE PIN INDEXES. `Pass 119.0`, and this
+                // is the line that makes form editing SAFE rather than merely
+                // possible.
+                //
+                // `EditTarget::Auto` is the engine's default and is right for a
+                // caller that has only a search string: it tries the page's own
+                // `/Contents` first, then each form in `Do` order, and edits the
+                // first stream that matches.
+                //
+                // **It is the wrong default for a PINNED request.** A pin is a
+                // byte span into ONE decoded buffer, and `GlyphProvenance`
+                // carries the name of that buffer beside it — the two fields are
+                // one fact, and reading half of it is the defect this shell
+                // shipped in the first place (the span was pinned, the stream
+                // was discarded, and the engine reported "text not found" about
+                // text that was plainly there).
+                //
+                // Under `Auto`, a span that indexes a form's bytes is offered to
+                // the page's stream first. On this operator's own benchmark
+                // sheet that stream holds **3,007 single-character show
+                // operators**, so "an arbitrary offset happens to name a
+                // matching operator in the wrong buffer" is not a theoretical
+                // collision — it is a dense field of near-misses, and the result
+                // would be an edit that succeeded on the wrong glyph with no
+                // error anywhere.
+                //
+                // So: the shell knows exactly which stream it measured, and it
+                // says so. `Form { object }` is an error if the page does not
+                // paint that form, which is the answer we want — a loud refusal
+                // beats a widened search when the caller had a measurement.
+                request.target = match p.content_stream {
+                    pdfce_core::text_extract::ContentStreamRef::Page => {
+                        pdfce_core::text_edit::EditTarget::PageContents
+                    }
+                    pdfce_core::text_extract::ContentStreamRef::Form { object } => {
+                        pdfce_core::text_edit::EditTarget::Form { object }
+                    }
+                    // ★ `ContentStreamRef` is `#[non_exhaustive]`, so a buffer
+                    // kind added later lands here. `Auto` is the right fallback
+                    // and not merely the compiling one: it is the engine's own
+                    // default, it searches everywhere including whatever the new
+                    // kind is, and it degrades to the pre-`119.0` behaviour
+                    // rather than to a refusal. A `PageContents` fallback would
+                    // silently narrow the search for a stream nobody here has
+                    // heard of, which is the worse direction.
+                    _ => pdfce_core::text_edit::EditTarget::Auto,
+                };
             }
             // ★ The SAME model the caret's hit test used, with the same
             // options — `BlockRecognitionOptions::default()` — because the
@@ -1157,6 +1242,79 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
         options: disposition::options(reason),
         reason,
     }
+}
+
+/// **Which content stream the commit rewrote, and how many places paint it.**
+///
+/// # ★★★ Shared content, and why this is worth a named function
+///
+/// `Pass 119.0` made form-XObject text editable, and a form XObject may
+/// legally be painted **from several pages and several times on one page** —
+/// ISO 32000-1 §8.10.1 states that as the *purpose* of the feature, and names
+/// a CAD system's standard component as the illustration, which is this
+/// operator's title block exactly.
+///
+/// **No clause in either edition binds a form to a page.** That is a confirmed
+/// permanent negative result in pdfce's spec corpus (`FX-N1`), argued three
+/// independent ways. So editing text inside a shared form changes **every place
+/// it appears**, and there is nothing pdfce can do about that: there is exactly
+/// one stream holding those glyphs. The engine's words when it shipped this:
+///
+/// > *"A shell that ignores `form_invocations` is a shell that changes six
+/// > drawing sheets while showing one."*
+///
+/// # The operator's half is already handled, and is deliberately not re-worded
+///
+/// `pdfce-core` puts a `"SHARED CONTENT: …"` sentence into
+/// `EditReport::disclosures`, worded for direct display, and the `edit_text`
+/// apply arm has always carried that list to the status row. Re-wording it here
+/// would be a second account of one fact, free to drift from the engine's.
+///
+/// ★ It is **absent** on the ordinary single-paint case, by the engine's
+/// design and this project's own rule: a warning that fires every time is one
+/// nobody reads, and this one is meant to be startling. That is also why there
+/// is no badge, tint or flag drawn into the page — R8b rule 4 as narrowed by
+/// pdfce's decision 059. The disclosure is off-canvas or it is nowhere.
+///
+/// # What this adds is the machine-readable half
+///
+/// A driven check cannot assert on prose, and these three numbers are exactly
+/// what a wrong build gets wrong:
+///
+/// | field | what a wrong build reports |
+/// |---|---|
+/// | `form=` | `none` when the edit was meant for a form — the target collapsed to the page stream |
+/// | `invocations=` | `1` for a shared form, i.e. the fan-out was not asked for |
+/// | `pages=` | a count that disagrees with `invocations` on a form painted twice on one page |
+///
+/// The first is the regression that matters most on this operator's documents,
+/// because `EditTarget::Auto` offers a pinned span to the page's own stream
+/// first — and on the benchmark sheet that stream holds 3,007 single-character
+/// show operators, so a stray match there is a dense field of near-misses
+/// rather than a theoretical collision. See [`plan`], which names the target
+/// from the same provenance record it takes the pin from.
+///
+/// # What is NOT built, said so it is a decision
+///
+/// There is no **pre-commit** warning: an operator whose caret lands in a
+/// shared form is not told before they type. The engine publishes
+/// `text_edit::forms::invocation_map`, which answers the fan-out for every form
+/// in one document walk, so it is buildable — but one walk per click on text is
+/// not affordable uncached, and a cache keyed on the document rather than the
+/// page is a piece of work rather than a line. Recorded in
+/// `OPERATOR_REQUESTS.md` rather than left implied.
+pub fn trace_target(page: usize, run: usize, report: &pdfce_core::text_edit::EditReport) {
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!(
+            "edit-text-target page={page} run={run} form={} invocations={} pages={}",
+            report
+                .form_object
+                .map_or_else(|| "none".to_owned(), |o| o.to_string()),
+            report.form_invocations,
+            report.form_pages.len(),
+        )
+    });
 }
 
 // ===========================================================================

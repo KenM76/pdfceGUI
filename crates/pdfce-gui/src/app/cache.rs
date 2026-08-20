@@ -249,8 +249,18 @@ pub(in crate::app) struct PageTextCache {
 pub(in crate::app) struct FormRunCache {
     /// The `(page index, edit epoch)` the flags below describe.
     pub(in crate::app) built_for: Cell<Option<(usize, u64)>>,
-    /// One flag per run: `true` when that run is drawn from inside a form
-    /// XObject and therefore cannot be edited by this cut of the engine.
+    /// One flag per run: `true` when that run has **no show operator of its
+    /// own** and therefore nothing for the text surgery to anchor on.
+    ///
+    /// ★★ **This used to mean "inside a form XObject", and it stopped meaning
+    /// that on 2026-08-20** when `Pass 119.0` made form content editable. The
+    /// old reading refused a caret on 99 % of the text on a CAD drawing — the
+    /// operator's own estimate — so the change is recorded here rather than
+    /// left to be inferred from a renamed field.
+    ///
+    /// What is left is the case that was always unreachable: an `/ActualText`
+    /// run, where the producer supplied a replacement string for a span of
+    /// glyphs, so the run covers no operator a pinned span could name.
     ///
     /// `None` means the extraction did not run or provenance was unavailable -
     /// which the caller must read as **"not measured"**, never as "yes". A
@@ -448,17 +458,17 @@ impl OpenDoc {
         .ok()
     }
 
-    /// **Is `run` on the current page drawn from inside a form XObject?**
+    /// **Does `run` on the current page have no show operator to anchor on?**
     ///
     /// `Some(true)` / `Some(false)`, or `None` when the question could not be
     /// answered - see [`FormRunCache::flags`] for why `None` must never be read
-    /// as `true`.
+    /// as `true`, and for what this question used to be.
     ///
     /// The first call for a `(page, epoch)` pays one provenance-bearing
     /// extraction; every call after it is a vector index. See
     /// [`FormRunCache`] for the measurement that made the cache necessary.
     #[must_use]
-    pub fn run_is_inside_a_form(&self, run: usize) -> Option<bool> {
+    pub fn run_has_no_anchor(&self, run: usize) -> Option<bool> {
         self.ensure_form_runs();
         let flags = self.form_runs.flags.borrow();
         flags.as_ref()?.get(run).copied()
@@ -492,21 +502,29 @@ impl OpenDoc {
                 &opts,
             )
             .ok()?;
-            // ★★★ THE ENGINE'S OWN QUERY, since `Pass 118.0`.
+            // ★★★ THE ENGINE'S OWN QUERY, since `Pass 118.0` — and the whole
+            // point of it was proved on 2026-08-20.
             //
             // This matched on `GlyphProvenance::content_stream` by hand until
-            // 2026-08-20 — a shell encoding a fact about the surgery's
+            // that morning — a shell encoding a fact about the surgery's
             // internals, which is precisely the workaround this project's own
             // request warned would outlive its bug:
             //
             // > *"the day form editing lands, my guard silently keeps refusing
             // > until I notice and delete it."*
             //
-            // `TextRun::editability` shipped that afternoon and this is the
-            // deletion. It also answers a case the hand-rolled version could
-            // not see: `NoAnchor`, an `/ActualText` run covering no show
-            // operators, which has nothing for the surgery to anchor on and was
-            // being offered a caret.
+            // `TextRun::editability` shipped that afternoon. **`Pass 119.0`
+            // landed form editing that evening**, `editability()` began
+            // answering `Editable` for form content, and the entire cost to
+            // this shell was deleting one arm that a `#[deprecated]` attribute
+            // pointed straight at. The hand-rolled guard would have gone on
+            // refusing carets on 99 % of the text on a CAD drawing until
+            // somebody noticed.
+            //
+            // What is left is the case the hand-rolled version could not see at
+            // all: `NoAnchor`, an `/ActualText` run covering no show operators,
+            // which has nothing for the surgery to anchor on and was being
+            // offered a caret.
             //
             // ★ `Unknown` is NOT treated as "no". It is the state a caller
             // reaches by default — provenance not captured — and the engine
@@ -520,12 +538,7 @@ impl OpenDoc {
             Some(
                 text.runs
                     .iter()
-                    .map(|run| {
-                        matches!(
-                            run.editability(),
-                            Editability::InsideForm { .. } | Editability::NoAnchor
-                        )
-                    })
+                    .map(|run| matches!(run.editability(), Editability::NoAnchor))
                     .collect::<Vec<bool>>(),
             )
         });
@@ -538,7 +551,7 @@ impl OpenDoc {
             // is what makes the engine's boundary visible on a real document:
             // on the benchmark CAD sheet it is most of them.
             format!(
-                "form-runs page={} ms={} runs={} in_form={}",
+                "form-runs page={} ms={} runs={} no_anchor={}",
                 self.view.page_index,
                 started.elapsed().as_millis(),
                 built.as_ref().map_or(0, Vec::len),
