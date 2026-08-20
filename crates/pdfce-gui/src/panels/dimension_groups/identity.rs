@@ -81,7 +81,7 @@ impl super::DimensionGroupsUi {
         let draft = self.rename_draft_for(group);
         let mut typed = draft.clone();
         let mut commit = false;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(t::rename_label());
             let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(160.0));
             crate::diag::ui_rect(REGION_RENAME, response.rect);
@@ -167,7 +167,7 @@ impl super::DimensionGroupsUi {
         if destination == group.id {
             destination = DEFAULT_GROUP_ID;
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(t::delete_move_to());
             egui::ComboBox::from_id_salt("dimension-group-delete-destination")
                 .selected_text(

@@ -109,7 +109,7 @@ fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
     ui.label(t::text_pen_heading());
     crate::diag::ui_rect(super::REGION_TEXT_PEN, ui.min_rect());
 
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(t::text_pen_font_label());
         egui::ComboBox::from_id_salt("tool-text-pen-font")
             .selected_text(t::text_pen_font_name(current.face))
@@ -123,7 +123,7 @@ fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
                 }
             });
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(t::text_pen_size_label());
         ui.add(
             egui::DragValue::new(&mut current.size_pt)
@@ -136,7 +136,7 @@ fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
                 .suffix(t::text_pen_size_suffix()),
         );
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(t::text_pen_colour_label());
         ui.color_edit_button_srgb(&mut current.colour);
     });

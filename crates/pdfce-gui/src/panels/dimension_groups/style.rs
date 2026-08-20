@@ -279,7 +279,7 @@ fn property_row<T: Copy + PartialEq>(
     describe: impl FnOnce(T) -> String,
 ) {
     let (moving, total) = reach;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let mut set = slot.is_some();
         if ui.checkbox(&mut set, t::set_by_group()).changed() {
             *slot = if set { Some(factory) } else { None };

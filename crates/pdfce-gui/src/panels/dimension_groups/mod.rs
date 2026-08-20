@@ -169,6 +169,10 @@ use crate::text::dimension_groups as t;
 
 /// The region this dialog publishes for its body.
 pub const REGION_BODY: &str = "panel:dimension-groups"; // ui-text-exempt: trace region name, never displayed
+
+/// Trace slot for the once-per-change width report. See
+/// [`DimensionGroupsUi::overflow_x`].
+const OVERFLOW_SLOT: &str = "dimension-groups-width"; // ui-text-exempt: trace slot name, never displayed
 /// The region the *Add group* button publishes.
 pub const REGION_ADD: &str = "dimension-groups.add"; // ui-text-exempt: trace region name, never displayed
 /// The region the new-group name field publishes, so a driven check can type
@@ -245,6 +249,22 @@ pub const REGION_HEADING_PREFIX: &str = "dimension-groups.heading."; // ui-text-
 /// is drawing into"*, which is a better default than any `GroupId` because it
 /// keeps following them until they say otherwise.
 pub struct DimensionGroupsUi {
+    /// **How far the last frame's content ran past the dock column**, in
+    /// points. Zero or negative is the healthy state.
+    ///
+    /// ★ It exists because the defect it measures is **invisible**. A
+    /// `ScrollArea::vertical()` clips horizontally and offers no bar in that
+    /// axis, so a row wider than the column is simply cut off: no overflow
+    /// indicator, no scroll, nothing on screen to say a control is out there.
+    /// The operator's report on 2026-08-20 was *"part of the control is hidden
+    /// … there's no scroll bar to show the part that is missing"*, and there
+    /// was no number anywhere in the application that could have contradicted
+    /// a claim that the panel was fine.
+    ///
+    /// Read by [`tests::no_row_in_this_panel_outruns_a_narrow_dock`] and traced
+    /// once per change, so the same thing is checkable in a unit test and
+    /// visible in a driven run.
+    overflow_x: f32,
     /// The group whose settings the lower half of the panel is showing, or
     /// `None` to follow the authoring group.
     ///
@@ -310,6 +330,8 @@ impl Default for DimensionGroupsUi {
     /// decision visible instead of buried in a field initialiser.
     fn default() -> Self {
         Self {
+            // Nothing has been laid out yet, so nothing has overflowed.
+            overflow_x: 0.0,
             selected: None,
             new_name: String::new(),
             rename: None,
@@ -328,6 +350,13 @@ impl DimensionGroupsUi {
     /// knowledge of the dialog layer.
     pub fn take_scale_request(&mut self) -> Option<GroupId> {
         self.scale_requested.take()
+    }
+
+    /// How far the last frame's content ran past the column. See
+    /// [`Self::overflow_x`]; `NaN` until a frame has drawn.
+    #[cfg(test)]
+    pub(crate) const fn overflow_for_test(&self) -> f32 {
+        self.overflow_x
     }
 
     /// The whole panel body.
@@ -369,7 +398,32 @@ impl DimensionGroupsUi {
             self.selected = Some(DEFAULT_GROUP_ID);
         }
 
-        egui::ScrollArea::vertical()
+        // ★★ **The overflow measurement, and why a panel takes one.**
+        //
+        // Operator, 2026-08-20: *"the measuring tool group option changes the
+        // width of the side bar so that part of the control is hidden. there's
+        // no scroll bar to show the part that is missing."*
+        //
+        // He was right, and the mechanism is worth writing down because it is
+        // silent by construction. A `ScrollArea::vertical()` clips
+        // **horizontally** and offers no bar in that axis, so a row wider than
+        // the dock column does not overflow visibly, does not scroll, and does
+        // not report anything — it is simply cut off at the right edge. The
+        // control that ends up outside is unreachable and there is nothing on
+        // screen to say it exists.
+        //
+        // The row that did it: `"no scale set — showing raw page units"`
+        // followed by the **Set scale…** button, in a `ui.horizontal` — about
+        // 310 pt of content in a 250 pt column. The rows in this panel are
+        // `horizontal_wrapped` now, so the button drops to the next line
+        // instead of off the edge.
+        //
+        // Wrapping is the fix; this is the **falsifier**. `content_size.x`
+        // against the viewport's width is the one number that says whether it
+        // has regressed, it costs nothing, and without it the next long
+        // sentence added to a row here would reintroduce the defect in exactly
+        // the same invisible way.
+        let output = egui::ScrollArea::vertical()
             .id_salt("dimension-groups-scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -397,6 +451,19 @@ impl DimensionGroupsUi {
                 ui.separator();
                 self.selected_group(ui, &model, actions);
             });
+
+        // ★ How far the content ran past the column, if it did. `<= 0` is the
+        // healthy state and the only one this panel may ship in.
+        self.overflow_x = output.content_size.x - output.inner_rect.width();
+        crate::diag::trace_changed(OVERFLOW_SLOT, || {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "dimension-groups-width content={:.0} viewport={:.0} overflow={:.0}",
+                output.content_size.x,
+                output.inner_rect.width(),
+                self.overflow_x.max(0.0),
+            )
+        });
     }
 
     /// The list of groups: the authoring radio, the name, and the facts that
@@ -418,49 +485,72 @@ impl DimensionGroupsUi {
         ui.label(t::draw_into_hint());
         ui.add_space(4.0);
 
-        egui::Grid::new("dimension-groups-list")
-            .num_columns(4)
-            .striped(true)
-            .show(ui, |ui| {
-                ui.weak(t::draw_into_heading());
-                ui.label("");
-                ui.label("");
-                ui.label("");
-                ui.end_row();
+        // ★★ **A BLOCK PER GROUP, NOT A GRID ROW** — 2026-08-20, on the
+        // operator's report.
+        //
+        // This was a four-column `egui::Grid`: radio | name | member count |
+        // scale phrase. In a dock column that does not fit and cannot be made
+        // to. The scale phrase alone is a sentence —
+        // `"no scale set — showing raw page units"`, about 200 pt — and the
+        // row totalled some 390 pt against the navigator's ~250. A `Grid` does
+        // not wrap, a `ScrollArea::vertical()` offers no horizontal bar, so the
+        // right-hand columns were **cut off with nothing to say they existed**:
+        //
+        // > *"the measuring tool group option changes the width of the side bar
+        // > so that part of the control is hidden. there's no scroll bar to
+        // > show the part that is missing."*
+        //
+        // Two lines per group instead. The controls — the authoring radio and
+        // the row selector — go on the first line where they are always
+        // reachable; the *facts* that distinguish one group from another go on
+        // the second, small and weak, where they may wrap freely because
+        // nothing there is clickable.
+        //
+        // That ordering is the rule worth keeping: **in a narrow column, put
+        // what can be pressed on the line that cannot overflow, and what can
+        // only be read on the line that can.**
+        //
+        // `no_row_in_this_panel_outruns_a_narrow_dock` is the falsifier, and it
+        // failed at 209 pt against this grid before the change.
+        for group in model.groups() {
+            ui.horizontal_wrapped(|ui| {
+                let response = ui.radio(group.id == active, "");
+                crate::diag::ui_rect(
+                    // ui-text-exempt: trace region name, never displayed
+                    &format!("{REGION_DRAW_INTO_PREFIX}{}", group.id.0),
+                    response.rect,
+                );
+                if response.clicked() {
+                    crate::canvas::measure::set_active_group(ctx, group.id);
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed
+                        format!("dimension-authoring-group id={}", group.id.0)
+                    });
+                }
 
-                for group in model.groups() {
-                    let response = ui.radio(group.id == active, "");
-                    crate::diag::ui_rect(
-                        // ui-text-exempt: trace region name, never displayed
-                        &format!("{REGION_DRAW_INTO_PREFIX}{}", group.id.0),
-                        response.rect,
-                    );
-                    if response.clicked() {
-                        crate::canvas::measure::set_active_group(ctx, group.id);
-                        crate::diag::trace(|| {
-                            // ui-text-exempt: diagnostic trace, never displayed
-                            format!("dimension-authoring-group id={}", group.id.0)
-                        });
-                    }
-
-                    // The name doubles as the row selector for the lower half.
-                    // A separate "configure" button per row would be a second
-                    // control doing what clicking the row already means
-                    // everywhere else in this application.
-                    let row = ui.selectable_label(self.selected == Some(group.id), &group.name);
-                    crate::diag::ui_rect(
-                        // ui-text-exempt: trace region name, never displayed
-                        &format!("{REGION_ROW_PREFIX}{}", group.id.0),
-                        row.rect,
-                    );
-                    if row.clicked() {
-                        self.selected = Some(group.id);
-                    }
-                    ui.label(t::member_count(model.member_count(group.id)));
-                    ui.label(t::scale_phrase(group.scale, group.format.unit));
-                    ui.end_row();
+                // The name doubles as the row selector for the lower half. A
+                // separate "configure" button per row would be a second control
+                // doing what clicking the row already means everywhere else in
+                // this application.
+                let row = ui.selectable_label(self.selected == Some(group.id), &group.name);
+                crate::diag::ui_rect(
+                    // ui-text-exempt: trace region name, never displayed
+                    &format!("{REGION_ROW_PREFIX}{}", group.id.0),
+                    row.rect,
+                );
+                if row.clicked() {
+                    self.selected = Some(group.id);
                 }
             });
+            // The two facts that say *which group this is* when the names are
+            // `Plan` and `Detail` and they were set up an hour ago. Indented
+            // under the row they describe, and free to wrap — see above.
+            ui.indent(("dimension-group-facts", group.id.0), |ui| {
+                ui.small(t::member_count(model.member_count(group.id)));
+                ui.small(t::scale_phrase(group.scale, group.format.unit));
+            });
+            ui.add_space(2.0);
+        }
         ui.add_space(4.0);
     }
 
@@ -495,7 +585,7 @@ impl DimensionGroupsUi {
         // below — so an operator who changes one is standing in front of the
         // verb that governs the other whether the layout says so or not.
         section(ui, "scale", t::scale_heading(), true, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(t::scale_phrase(group.scale, group.format.unit));
                 if ui.button(t::set_scale_button()).clicked() {
                     self.scale_requested = Some(group.id);
@@ -516,7 +606,7 @@ impl DimensionGroupsUi {
             // group's own `scale` here would silently recalibrate a drawing while
             // the operator was changing a unit — a far larger act than the one they
             // asked for, in a control that does not mention it.
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(t::unit_label());
                 let mut unit = group.format.unit;
                 egui::ComboBox::from_id_salt("dimension-group-unit")
@@ -556,7 +646,7 @@ impl DimensionGroupsUi {
         section(ui, "standard", t::standard_heading(), false, |ui| {
             ui.label(t::standard_hint());
             let mut standard = group.standard;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for option in [DimStandard::Ansi, DimStandard::Iso] {
                     ui.radio_value(&mut standard, option, t::standard_name(option));
                 }
@@ -621,7 +711,7 @@ impl DimensionGroupsUi {
     /// closure that also needs `actions` — which is the borrow the compiler
     /// refuses.
     fn add_group_body(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(t::new_name_label());
             let response =
                 ui.add(egui::TextEdit::singleline(&mut self.new_name).desired_width(160.0));
@@ -736,4 +826,86 @@ pub fn body(
     actions: &mut Vec<Action>,
 ) {
     state.dimension_groups.show(ui, doc, actions);
+}
+
+#[cfg(test)]
+mod width_tests {
+    use super::body;
+    use eframe::egui;
+
+    /// **The dock column this panel is designed for**, in points.
+    ///
+    /// `crate::app::modes::defaults::NAVIGATOR_WIDTH` is 280; the panel gets
+    /// that less the dock's own margins and the scroll bar it reserves. 250 is
+    /// the number `panels::pages`' own column test uses for the same reason.
+    const NARROW: f32 = 250.0;
+
+    /// ★★ **No row in this panel outruns a narrow dock.**
+    ///
+    /// The operator, 2026-08-20: *"the measuring tool group option changes the
+    /// width of the side bar so that part of the control is hidden. there's no
+    /// scroll bar to show the part that is missing."*
+    ///
+    /// He was right, and the defect is **invisible by construction**, which is
+    /// why it needed a number rather than a look. A `ScrollArea::vertical()`
+    /// clips horizontally and offers no bar in that axis: a row wider than the
+    /// column is cut off at the right edge, does not scroll, and reports
+    /// nothing. The control that ends up outside is unreachable and there is
+    /// nothing on screen to say it exists.
+    ///
+    /// The row that did it was `"no scale set — showing raw page units"`
+    /// followed by the **Set scale…** button — about 310 pt of content in a
+    /// 250 pt column, in a `ui.horizontal`, which does not wrap. Every row in
+    /// this panel is `horizontal_wrapped` now.
+    ///
+    /// ## Why the assertion is on a measured overflow rather than on a
+    /// screenshot
+    ///
+    /// Because the panel can measure itself exactly — `content_size.x` against
+    /// the scroll viewport's width — and a number that the application
+    /// computes is a better oracle than a rendering a test has to interpret.
+    /// The screenshot rule (`D:/dev/rag/egui/`) is about *reachability*
+    /// defects a trace cannot see; this one the application can see, so it is
+    /// made to say so.
+    ///
+    /// ## What it does NOT prove
+    ///
+    /// That every control is legible, or that wrapping put things somewhere
+    /// sensible. It proves nothing is off the edge, which is the operator's
+    /// complaint exactly.
+    #[test]
+    fn no_row_in_this_panel_outruns_a_narrow_dock() {
+        let ctx = egui::Context::default();
+        let doc = crate::app::state::open_fixture(crate::app::state::FOUR_PAGES);
+        let mut state = crate::panels::PanelsState::default();
+        let mut actions = Vec::new();
+        let mut overflow = f32::NAN;
+
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(NARROW, 900.0),
+            )),
+            ..Default::default()
+        };
+        // Two passes. `CollapsingHeader` state, the scroll area's own size and
+        // the combo widths all settle on the second frame, and a one-frame
+        // measurement of an immediate-mode layout is a measurement of its
+        // first guess.
+        for _ in 0..2 {
+            let _ = ctx.run_ui(input.clone(), |ui| {
+                body(ui, &doc, &mut state, &mut actions);
+                overflow = state.dimension_groups.overflow_for_test();
+            });
+        }
+
+        assert!(
+            overflow.is_finite(),
+            "the panel never reported a width, so this test measured nothing"
+        );
+        assert!(
+            overflow <= 1.0,
+            "the panel laid out {overflow:.0} pt wider than its {NARROW:.0} pt column"
+        );
+    }
 }
