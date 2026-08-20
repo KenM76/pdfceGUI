@@ -207,6 +207,27 @@ pub enum Action {
     /// indistinguishable from a chord that never arrived, so — like
     /// [`Self::Find`] — this is answered above it, by name, on the trace.
     SaveCopy,
+
+    /// ★★★ **Save. In place. Over the file that was opened.**
+    ///
+    /// The operator, 2026-08-20: *"can I please have a save button like every
+    /// other program in existence has? We're on week two of this and just have
+    /// a save as button."*
+    ///
+    /// Matched beside [`Self::SaveCopy`] and above the document guard for the
+    /// identical reason: a keymap can reach `Ctrl+S` from any state, and a
+    /// silent drop with nothing open is indistinguishable from a chord that
+    /// never arrived.
+    ///
+    /// # Why it is a separate variant and not `SaveCopy` with a path
+    ///
+    /// Because they are different acts with different risks. Save-a-copy writes
+    /// a file that did not exist; Save-in-place is the only verb in this
+    /// application that can **destroy the operator's work**, which is why
+    /// `save::save_in_place` materialises the whole replacement in a temporary
+    /// beside the target and then renames. Folding them together would put that
+    /// distinction inside an `Option` and invite a caller to pass the wrong one.
+    Save,
     /// **Close the open document and return to [`Status::Empty`].**
     ///
     /// Raised by `file.close`, which is gated on `doc.open`, so the no-document

@@ -342,12 +342,41 @@ impl MeasureState {
         }
     }
 
-    /// Whether ANY tool has a discardable in-progress gesture (drives the
-    /// two-stage Escape's stage-1 vs. stage-2 choice — ui-spec §1.3).
+    /// Whether ANY tool has a discardable in-progress gesture.
+    ///
+    /// # ★★ This function is read by more than the Escape key, and forgetting
+    /// that shipped a tool with NO PREVIEW
+    ///
+    /// Its doc comment used to say only *"drives the two-stage Escape's
+    /// stage-1 vs. stage-2 choice — ui-spec §1.3"*, which is true and was not
+    /// the whole truth. `super::preview` opens with
+    ///
+    /// ```text
+    /// if !st.gesture_in_progress() { return; }
+    /// ```
+    ///
+    /// so a pick kind missing from this disjunction does not merely survive
+    /// Escape — **it draws nothing at all**. The perimeter tool shipped on
+    /// 2026-08-20 with a preview arm that was written, tested for its segments,
+    /// and unreachable, because this function had not learned the new field.
+    /// The operator reported it the same day: *"both these tools need a preview
+    /// just like the measure tool has."*
+    ///
+    /// It is the exact failure class this project keeps meeting — a feature
+    /// whose parts are all correct and whose *join* nobody observed — and the
+    /// reason it survived a driven check is that
+    /// `measure_perimeter_traces_and_closes` asserts on the TRACE. The picks
+    /// registered, the total rose, the ring closed. A preview is pixels, and no
+    /// trace line can carry it.
+    ///
+    /// `every_pick_kind_is_counted_as_a_gesture` below is the guard, and it is
+    /// deliberately shaped so a **new field** is what breaks it rather than a
+    /// new enum variant.
     #[must_use]
     pub fn gesture_in_progress(&self) -> bool {
         self.linear.in_progress()
             || self.circular.in_progress()
+            || self.perimeter.in_progress()
             || self.scale.in_progress()
             || self.two_lines.in_progress()
             || self.pending.is_some()
@@ -511,5 +540,61 @@ mod tests {
         assert_eq!(st.linear_pick_mode, LinearPickMode::TwoLines);
         assert_eq!(st.page_index, 3);
         assert!(!st.gesture_in_progress());
+    }
+    /// ★★ **Every pick machine is counted as a gesture in progress.**
+    ///
+    /// Added 2026-08-20, after the perimeter tool shipped with a preview that
+    /// was written, tested and **never drawn** — because
+    /// `MeasureState::gesture_in_progress` had not learned the new field and
+    /// `super::preview` returns early on it.
+    ///
+    /// # Why this is shaped as one sub-test per FIELD
+    ///
+    /// Because the thing that goes wrong is a field being added and a
+    /// disjunction not being extended, and no enum exhaustiveness check can see
+    /// that — `MeasureKind` was updated correctly in five places while this one
+    /// disjunction silently kept its old shape. The only way to catch it is to
+    /// drive each machine into a started state and assert the container
+    /// notices.
+    ///
+    /// A machine added without a line here fails nothing, which is the honest
+    /// limit of this test. What it does buy is that the *existing* five cannot
+    /// regress, and that a reader adding a sixth finds a list with an obvious
+    /// hole in it rather than a boolean expression to audit.
+    #[test]
+    fn every_pick_kind_is_counted_as_a_gesture() {
+        let fresh = MeasureState::new(0);
+        assert!(
+            !fresh.gesture_in_progress(),
+            "a fresh state has no gesture — the precondition every case below is measured against"
+        );
+
+        let mut st = MeasureState::new(0);
+        st.linear.commit_point(p(1.0, 1.0));
+        assert!(st.gesture_in_progress(), "linear: one point is a gesture");
+
+        let mut st = MeasureState::new(0);
+        st.perimeter.push(p(1.0, 1.0));
+        assert!(
+            st.gesture_in_progress(),
+            "★ perimeter: one vertex is a gesture. This is the case that shipped broken - the preview draws NOTHING when this is false, so the operator traces a shape and sees no line follow the pointer"
+        );
+
+        let mut st = MeasureState::new(0);
+        st.scale.line.commit_point(p(1.0, 1.0));
+        assert!(st.gesture_in_progress(), "scale: one point is a gesture");
+
+        let mut st = MeasureState::new(0);
+        st.pending = Some(DimensionKind::Linear {
+            a: p(0.0, 0.0),
+            b: p(1.0, 0.0),
+            constraint: pdfce_core::vector::AxisConstraint::Aligned,
+            offset: 0.0,
+            text_along: 0.0,
+        });
+        assert!(
+            st.gesture_in_progress(),
+            "a completed-but-unaccepted dimension is a gesture — Escape must reach it"
+        );
     }
 }

@@ -80,6 +80,94 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O8 — **A Save button.** Not Save As. Save.
+
+**Asked:** 2026-08-20 — *"can I please have a save button like every other
+program in existence has? We're on week two of this and just have a save as
+button."*
+**Status:** **SHIPPED 2026-08-20 and DRIVEN.** Awaiting your verdict.
+
+`Ctrl+S` saves over the file you opened. `Ctrl+Shift+S` is Save-a-copy. The
+quick-access toolbar's second slot is Save now, and it carries the disk glyph;
+Save-a-copy renders as text.
+
+It writes to a temporary beside your file and then renames, so a crash or a full
+disk in the middle leaves your original untouched rather than half-written. And
+because pdfce saves incrementally, the previous version of the document stays
+inside the file — nothing is thrown away by pressing it.
+
+Driven: `save_writes_over_the_file_you_opened` — the file grew 140,660 →
+141,423 bytes, no temporary was left behind, and it still reads as a page tree.
+
+★ The blocker that kept this out for a fortnight said *"in-place save is blocked
+on autosave and crash recovery"*. That was aimed at the wrong hazard: pdfce's
+incremental format already WAS the crash recovery. What was actually unsafe was
+the write, and that has a three-line answer nobody had written because nobody
+was asking. Third time in two days that a blocker turned out to be a question
+asked wrongly.
+
+There is no defence for how long it took. `Ctrl+S` is bound to `file.save_copy`, which asks where to
+put it, every time. Overwrite-in-place was written down as *"an operator scope
+decision"* and then sat there being nobody's problem — which is the same failure
+as `Ctrl+P` never being bound and the caret never having an index: **the basics
+were never audited as basics**, because every test asked "does the thing I built
+work?" and nothing asked "does the thing everyone expects exist?".
+
+## O9 — A **length** tool: the perimeter tool that never closes
+
+**Asked:** 2026-08-20 — *"add a length tool that works like the perimeter tool
+without needing to close the profile."*
+**Status:** OPEN.
+
+The machinery already does open paths (double-click finishes one). What is
+missing is that it is *reachable as its own tool* — "Perimeter" says closed, so
+nobody measuring a pipe run or a cable route would think to reach for it.
+
+## O10 — Neither measuring tool previews while you trace
+
+**Asked:** 2026-08-20 — *"both these tools need a preview just like the measure
+tool has."*
+**Status:** **FIXED 2026-08-20**, awaiting your verdict.
+
+The preview arm was written and unit-tested for its segments, and it was
+**unreachable**: `super::preview` returns early on
+`MeasureState::gesture_in_progress()`, and that function had not learned about
+the perimeter's pick. So the tool drew nothing at all while tracing.
+
+It is the failure class this project keeps meeting — every part correct, the
+*join* unobserved — and the driven check could not see it, because that check
+asserts on the trace and a preview is pixels. `every_pick_kind_is_counted_as_a_gesture`
+is now the guard.
+
+## O11 — Move, resize and rotate a placed image on the canvas
+
+**Asked:** 2026-08-20 — *"there was no way to reposition, resize, or rotate it
+on the screen. Can I please please please have that too?"*
+**Status:** OPEN.
+
+## O12 — Move text after placing it
+
+**Asked:** 2026-08-20 — *"can I please please please have the capability to move
+the text after?"*
+**Status:** OPEN. Same family as O11: direct manipulation of placed content.
+
+## O13 — Insert image does not appear until you save and reopen
+
+**Asked:** 2026-08-20 — *"I tried a new document and inserted an image. Nothing
+appeared on screen or in the tree, but after saving and reopening the image was
+there."*
+**Status:** OPEN, and this is **new evidence that splits O4 in two.**
+
+O4 is the engine corrupting `/Contents` when it is an indirect array — that one
+produces a file pdfce cannot reopen at all. Your new document reopened fine and
+had the image in it, so the write was correct and **the in-session view never
+updated**. That is a second, shell-side defect: the canvas and the object tree
+kept describing the pre-edit page.
+
+"Nothing on screen or in the tree" is the important half — the tree reads the
+decomposition, so both surfaces are downstream of one stale cache.
+
+
 ## O1 — Editing text on the canvas, and editing text in a text box
 
 **Asked:** repeatedly; restated 2026-08-20 — *"Still no editing text on top of

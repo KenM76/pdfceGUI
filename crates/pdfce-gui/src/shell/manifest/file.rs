@@ -163,7 +163,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "save",
                 ribbon::group_file_save(),
-                [command("file.save_copy")],
+                [command("file.save"), command("file.save_copy")],
             ),
             // ---------------------------------------------------------------
             // Export — writing this document out as something else.

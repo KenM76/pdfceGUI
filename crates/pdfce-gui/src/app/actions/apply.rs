@@ -182,6 +182,22 @@ impl PdfceApp {
             // session (`to_incremental_bytes(&self)`), so there is no worker to
             // cancel, no `Arc::get_mut` to fail, no epoch to bump and no texture
             // to drop — see `save`'s section 2.
+            // ★ Save-in-place. The `bool` is discarded for the same reason
+            // `SaveCopy`'s is - see the note in that arm. A blank document with
+            // no file behind it never reaches here: `dispatch` routes it to
+            // `file.save_copy` first, because *"where does this go?"* is a
+            // question only the operator can answer.
+            Action::Save => {
+                match &self.status {
+                    Status::Open(doc) => {
+                        let _ = crate::app::save::save_in_place(doc);
+                    }
+                    _ => crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed
+                        "save-declined reason=no-document".to_owned()
+                    }),
+                }
+            }
             Action::SaveCopy => {
                 match &self.status {
                     // ★ The `bool` is DISCARDED here, deliberately, and that is
@@ -297,6 +313,7 @@ impl PdfceApp {
             | Action::CloseDocument(_)
             | Action::CloseOtherDocuments(_)
             | Action::InsertPagesFromOpenDocument { .. }
+            | Action::Save
             | Action::SaveCopy
             | Action::Find(_) => {
                 // ui-text-exempt: a panic message, read from a stack trace by

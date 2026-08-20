@@ -179,7 +179,7 @@ pub fn built_in() -> Shell {
         // bar.* The other two appear nowhere else, which is why the QAT
         // being always visible is load-bearing rather than convenient.
         // -------------------------------------------------------------------
-        .with_qat(["file.open", "file.save_copy", "edit.undo", "edit.redo"])
+        .with_qat(["file.open", "file.save", "edit.undo", "edit.redo"])
         // -------------------------------------------------------------------
         // KEYMAP
         //
@@ -290,7 +290,12 @@ pub fn built_in() -> Shell {
         // checks one place. `keymap_offers_the_chords_a_document_application_must`
         // is the gate, and it asserts the LIST rather than this line.
         .with_binding("Ctrl+P", "file.print")
-        .with_binding("Ctrl+S", "file.save_copy")
+        // ★★★ **Ctrl+S is SAVE**, 2026-08-20. It was bound to Save-a-copy, so
+        // the most reflexive chord in computing opened a file dialog every
+        // time. Save-a-copy takes Ctrl+Shift+S, which is where every other
+        // program in this class puts Save-as.
+        .with_binding("Ctrl+S", "file.save")
+        .with_binding("Ctrl+Shift+S", "file.save_copy")
         .with_binding("Ctrl+Z", "edit.undo")
         .with_binding("Ctrl+Y", "edit.redo")
         .with_binding("Ctrl+Shift+Z", "edit.redo")
@@ -579,11 +584,23 @@ pub const PLANNED: &[(&str, &str)] = &[
     // `CUSTOM_BACKED`. Recorded as a comment rather than silently deleted
     // because "this used to be planned and is now built" is the one transition
     // this list exists to make legible.
-    (
-        "file.save",
-        "N — in-place save is blocked on autosave and crash recovery. Until then the Save \
-         group holds `Save a copy…` alone and this does not render at all, per P3.",
-    ),
+    // ★★★ **`file.save` BUILT 2026-08-20** — kept as a comment rather than
+    // silently deleted, for the reason this list states above: *"this used to be
+    // planned and is now built"* is the transition it exists to make legible.
+    // Its note read:
+    //
+    //   "N — in-place save is blocked on autosave and crash recovery."
+    //
+    // That was aimed at the wrong hazard, and it stood for a fortnight while the
+    // operator saved every document through a file picker. pdfce writes an
+    // INCREMENTAL UPDATE: the previous revision stays in the file, so the format
+    // already WAS the crash recovery the note was waiting for. What was
+    // genuinely unsafe was the WRITE — `fs::write` truncates and then streams —
+    // and that has a three-line answer (temporary beside the target, then
+    // rename) which nobody had written because nobody was asking.
+    //
+    // The lesson, third instance in two days: **a blocker is a measurement, and
+    // the question you measured is part of the measurement.**
     (
         "file.revert",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.
@@ -1186,8 +1203,8 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            32,
-            "thirty-two key bindings — the four pointer tools took V, A, T and H on 
+            33,
+            "thirty-three key bindings — the four pointer tools took V, A, T and H on 
              2026-08-19, and the document tabs took Ctrl+Tab, Ctrl+Shift+Tab and 
              Ctrl+W the same day. Both are the layout every program in this class uses"
         );
@@ -1224,7 +1241,8 @@ mod tests {
         for (chord, command) in [
             ("Ctrl+N", "file.new"),
             ("Ctrl+O", "file.open"),
-            ("Ctrl+S", "file.save_copy"),
+            ("Ctrl+S", "file.save"),
+            ("Ctrl+Shift+S", "file.save_copy"),
             ("Ctrl+P", "file.print"),
             ("Ctrl+W", "file.close"),
             ("Ctrl+Z", "edit.undo"),

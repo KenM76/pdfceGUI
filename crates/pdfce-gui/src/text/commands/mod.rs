@@ -215,6 +215,54 @@ pub const fn file_recent() -> CommandText {
     )
 }
 
+/// `file.save`
+///
+/// ★★★ **Save. In place. Added 2026-08-20, on the operator:** *"can I please
+/// have a save button like every other program in existence has? We're on week
+/// two of this and just have a save as button."*
+///
+/// # The argument that used to stand here, and why it does not
+///
+/// [`file_save_copy`]'s doc comment said, and still says of itself:
+///
+/// > *"A button labelled `Save` would promise in-place saving, which cannot
+/// > ship before autosave and crash recovery exist."*
+///
+/// That was a real position rather than an oversight, and it is **weaker than
+/// it looks, for a reason specific to this application**: pdfce writes an
+/// INCREMENTAL UPDATE. The new revision is appended; the previous one stays in
+/// the file, byte for byte, reachable through its own cross-reference table.
+/// An in-place save here does not overwrite the operator's document in the
+/// sense the objection assumed — **the format is the crash recovery**, and it
+/// was already shipping.
+///
+/// What remained genuinely unsafe was the WRITE, not the save: `fs::write`
+/// truncates and then streams, so a crash mid-write leaves a partial file where
+/// a whole one was. That is a solved problem, and `save::save_in_place` solves
+/// it — materialise the replacement in a temporary beside the target, then
+/// rename, which either happens or does not.
+///
+/// So the honest account is not *"the operator overruled a safety rule"*. It is
+/// that the rule was aimed at the wrong hazard, and the right hazard has a
+/// three-line answer that had not been written because nobody was asking the
+/// question. That is the same shape as `Ctrl+P` never being bound.
+///
+/// # The description names the incremental behaviour on purpose
+///
+/// Because an operator who has been told for a fortnight that pdfce *never*
+/// overwrites deserves to know exactly what changed, and because "the previous
+/// version stays inside the file" is the fact that makes pressing this button
+/// comfortable.
+#[must_use]
+pub const fn file_save() -> CommandText {
+    CommandText::new(
+        "Save",
+        "Save this document over the file you opened (Ctrl+S). The edits are appended as an \
+         update, so the previous version stays inside the file and nothing is thrown away. Use \
+         Save a copy to write somewhere else instead.",
+    )
+}
+
 /// `file.save_copy`
 ///
 /// The label is `Save a copy…`, not `Save`, and that is load-bearing:
@@ -226,7 +274,7 @@ pub const fn file_recent() -> CommandText {
 pub const fn file_save_copy() -> CommandText {
     CommandText::new(
         "Save a copy…",
-        "Write the document, including unsaved edits, to a file you choose (Ctrl+S). The \
+        "Write the document, including unsaved edits, to a file you choose (Ctrl+Shift+S). The \
          original is never overwritten unless you pick it, and the edits are appended as an \
          update so the previous version stays intact inside the file.",
     )

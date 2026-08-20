@@ -292,6 +292,19 @@ impl PdfceApp {
             // in. The apply phase is always outside every closure, so the picker
             // runs there. `Action::SaveCopy`'s own docs carry the full argument,
             // including why it needs no operand where `Action::Open` needs one.
+            // ★ Save-in-place, with the one case that must NOT be silent: a
+            // blank document created in this shell has a placeholder path and
+            // no file behind it, so saving over it would write somewhere the
+            // operator never chose. That routes to the picker instead - the
+            // same behaviour every other program has for a never-saved
+            // document, and the reason this is a branch rather than an arm.
+            "file.save" => actions.push(
+                if matches!(&self.status, Status::Open(d) if crate::app::save::has_a_file(d)) {
+                    Action::Save
+                } else {
+                    Action::SaveCopy
+                },
+            ),
             "file.save_copy" => actions.push(Action::SaveCopy),
             // ★ **Undo and redo.** Registered since the ribbon landed, on the
             // quick-access toolbar in **every** mode, bound to `Ctrl+Z`,

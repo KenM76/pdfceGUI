@@ -64,6 +64,7 @@
                     id: "save",
                     caption: "Save",
                     items: [
+                        Command("file.save"),
                         Command("file.save_copy"),
                     ],
                 ),
@@ -395,7 +396,7 @@
     ],
     qat: [
         "file.open",
-        "file.save_copy",
+        "file.save",
         "edit.undo",
         "edit.redo",
     ],
@@ -415,9 +416,10 @@
         "Ctrl+N": "file.new",
         "Ctrl+O": "file.open",
         "Ctrl+P": "file.print",
-        "Ctrl+S": "file.save_copy",
+        "Ctrl+S": "file.save",
         "Ctrl+Shift+C": "file.copy_page_text",
         "Ctrl+Shift+E": "edit.add_text",
+        "Ctrl+Shift+S": "file.save_copy",
         "Ctrl+Shift+Tab": "view.previous_document",
         "Ctrl+Shift+Z": "edit.redo",
         "Ctrl+Tab": "view.next_document",

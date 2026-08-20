@@ -266,9 +266,25 @@ pub(super) fn all() -> Vec<Command> {
         // the header — and the right one for a menu button whose label is a
         // word.
         command(FILE_RECENT, t::file_recent(), 102),
-        command("file.save_copy", t::file_save_copy(), 110)
+        // ★★★ **Save**, 2026-08-20. See `text::commands::file_save` for the
+        // argument that used to keep it out, and why that argument was aimed at
+        // the wrong hazard.
+        //
+        // It takes the `save` glyph, and Save-a-copy gives it up. Two adjacent
+        // controls sharing one key would read as one control drawn twice - this
+        // module's own convention - and of the two, the glyph belongs to the one
+        // an operator presses fifty times a day without reading the label.
+        // Save-a-copy renders as text, which is a real answer for a control
+        // whose whole meaning is in the words "a copy".
+        //
+        // `doc.open` rather than a modified-document condition: Save is live
+        // whenever there is a document, exactly as it is everywhere else. A
+        // Save that greys itself when there is nothing to save is a Save the
+        // operator has to think about.
+        command("file.save", t::file_save(), 111)
             .with_icon("save")
             .enabled_when("doc.open"),
+        command("file.save_copy", t::file_save_copy(), 110).enabled_when("doc.open"),
         // Both export verbs share `export`, and that is the header's
         // shared-key convention rather than an oversight: the glyph is the
         // download twin of `insert-pages`' upload art, reserved for exactly

@@ -264,6 +264,7 @@ pub mod ribbon_captions;
 /// whether the annotation is in it. Its header carries the three falsifying
 /// phases and the different wrong build each one catches.
 pub mod save_copy;
+pub mod save_in_place;
 pub mod settings_headings;
 /// ★★ **The operator's own two gestures** — press T and type, press A and see
 /// the points. Both features existed before 2026-08-19; reaching them took four
@@ -519,6 +520,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // the only one whose subject is a file on disk and a run that cannot
         // save should say so before it spends anything on a keystroke that may
         // never arrive.
+        Box::new(save_in_place::SaveWritesOverTheFileYouOpened),
         Box::new(save_copy::SaveCopyRoundTrip),
         // ★ Directly after it, and the order is a **dependency** rather than a
         // preference: this check ends by saving a copy and re-opening it, so a

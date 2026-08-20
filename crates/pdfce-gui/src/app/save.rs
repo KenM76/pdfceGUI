@@ -197,6 +197,7 @@ use crate::app::state::OpenDoc;
 /// both pure of any dialog and both are tested — and the join is proven by
 /// `tools/ui-verify`'s `save_copy_round_trip`, which answers the dialog through
 /// the seam and then re-opens the file that came out.
+///
 /// ★ **Returns whether a file was actually written**, added 2026-08-19.
 ///
 /// It returned `()` until then, and the reason it now answers is a caller that
@@ -232,6 +233,147 @@ pub fn save_copy(doc: &OpenDoc) -> bool {
             false
         }
     }
+}
+
+/// **Does the active document have a real file behind it?**
+///
+/// The question `file.save` asks before deciding between saving in place and
+/// opening the picker, and it is answered by **asking the file system**, not by
+/// inspecting the path.
+///
+/// # Why "does this file exist" and not "is this path absolute" or a flag
+///
+/// A blank document created in this shell is given a path like `Untitled 3.pdf`
+/// — a name with no directory, and no file anywhere. A document opened from
+/// disk has a path that names a file that is there. Those are the two cases,
+/// and *"is there a file at this path"* separates them exactly.
+///
+/// The alternatives are worse in specific ways. A `created_here: bool` flag is
+/// a second source of truth that has to be maintained through save-a-copy,
+/// re-open and the document-tab machinery, and the failure mode when it drifts
+/// is **writing over the wrong file**. "Is the path absolute" answers a
+/// different question and would treat a relative path to a real file as
+/// unsaved.
+///
+/// # The race, acknowledged rather than defended against
+///
+/// A file can be deleted between this check and the write. If that happens the
+/// rename in [`save_in_place`] creates the file, which is the same thing every
+/// other editor does and is the harmless direction: the operator gets their
+/// document back where they expect it. The dangerous direction - writing over
+/// something they did not choose - cannot be reached from here, because a path
+/// that names no file goes to the picker.
+#[must_use]
+pub fn has_a_file(doc: &OpenDoc) -> bool {
+    doc.path.is_file()
+}
+
+/// ★★★ **Save. In place. The one every other program has.**
+///
+/// The operator, 2026-08-20:
+///
+/// > *"can I please have a save button like every other program in existence
+/// > has? We're on week two of this and just have a save as button."*
+///
+/// There is no defence. `Ctrl+S` was bound to [`save_copy`], which asks where
+/// to put it every single time, and overwrite-in-place had been written down as
+/// *"an operator scope decision"* and then been nobody's problem. That is the
+/// same failure as `Ctrl+P` never being bound and the text caret never having
+/// an index: **the basics were never audited as basics**, because every test
+/// asked *"does the thing I built work?"* and nothing asked *"does the thing
+/// everyone expects exist?"*.
+///
+/// # ★★ It writes to a TEMPORARY FILE and renames, and that is not ceremony
+///
+/// `std::fs::write` truncates the target and then streams into it. Everything
+/// between those two acts is a window in which **the operator's only copy of
+/// the document is a partial file** - and the payload here is the whole PDF,
+/// which for a CAD sheet is megabytes and takes real time. A crash, a full
+/// disk, or a sync client holding a lock in that window destroys the original
+/// and leaves nothing to fall back to.
+///
+/// Save-as does not have this problem, because its target is a file that did
+/// not exist. Save-in-place is the one verb in this application that can
+/// destroy the operator's work, so:
+///
+/// 1. write the new bytes to `<name>.pdfce-tmp` beside the target,
+/// 2. `fs::rename` it over the target — which either happens or does not,
+/// 3. on any failure, remove the temporary and leave the original untouched.
+///
+/// This is the same lesson as the portable-build packager, which destroyed the
+/// fallback build **twice in one day** by clearing a directory before filling
+/// it, and whose message asserted nothing had been replaced both times. Written
+/// up in `D:/dev/rag/rust/`. The rule that came out of it applies here without
+/// modification: *never destroy the current good state until the replacement is
+/// fully materialised somewhere else on the same volume.*
+///
+/// The temporary sits **beside the target**, deliberately, not in the system
+/// temp directory: a rename across volumes is a copy, and a copy has the unsafe
+/// window back again.
+///
+/// # Why it returns the same `bool` as [`save_copy`]
+///
+/// So `crate::dialogs::unsaved`'s buttons can treat the two identically: the
+/// question that dialog is asking is *may I now destroy this document*, and
+/// only a successful write answers yes. See [`save_copy`]'s own note on why
+/// distinguishing the failure modes there would invite a caller to proceed on
+/// one of them.
+///
+/// # What it does NOT do
+///
+/// Fall back to Save-as. A document opened from a path always has one, and a
+/// blank document created in this shell is given a path when it is first saved
+/// — the dispatcher routes that case to [`save_copy`] before reaching here,
+/// because *"where does this go?"* is a question only the operator can answer
+/// and answering it silently is how a file lands in a folder nobody expected.
+pub fn save_in_place(doc: &OpenDoc) -> bool {
+    let target = doc.path.clone();
+    let temporary = target.with_extension("pdfce-tmp");
+
+    // Step 1 - materialise the whole replacement somewhere else on the same
+    // volume. A failure here has touched nothing the operator owns.
+    if let Err(error) = write_copy(doc, &temporary) {
+        let _ = std::fs::remove_file(&temporary);
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("save-in-place outcome=failed stage=write detail={error:?}")
+        });
+        // The operator-visible half, and the same sentence Save-a-copy uses: a
+        // write that produced no file and no sentence is indistinguishable from
+        // a control that does nothing.
+        crate::app::status::decline::record_save_failure();
+        return false;
+    }
+
+    // Step 2 - the atomic act. A rename either happens or does not; on Windows
+    // it fails outright if the target is open, which is precisely the guarantee
+    // a truncating write does not give.
+    if let Err(error) = std::fs::rename(&temporary, &target) {
+        let _ = std::fs::remove_file(&temporary);
+        crate::app::status::decline::record_save_failure();
+        let _ = error;
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // The stage is in the line because the two failures mean different
+            // things to whoever reads it: `write` means the bytes never
+            // materialised, `rename` means they did and the swap was refused -
+            // overwhelmingly "the file is open in another program".
+            "save-in-place outcome=failed stage=rename".to_owned()
+        });
+        return false;
+    }
+
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("save-in-place outcome=ok path={:?}", target)
+    });
+    // ★ A receipt, not a celebration. The operator pressed a button and the
+    // only observable change is that a marker disappeared from a tab - which is
+    // a change you have to already know about to notice. One line naming the
+    // file it went into, on the channel every other edit reports on.
+    crate::app::actions::record_note(doc.edit_epoch, crate::text::files::saved_in_place(&target));
+    true
 }
 
 /// Write the copy and record the outcome on both channels.

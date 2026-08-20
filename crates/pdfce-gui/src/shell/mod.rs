@@ -444,13 +444,20 @@ mod tests {
     /// Pinned because the QAT is the surface a returning operator's hands
     /// know without looking. Adding to it is a decision; drifting into it
     /// is not.
+    ///
+    /// ★ **`file.save_copy` became `file.save` on 2026-08-20**, and that is a
+    /// decision rather than a drift. `RIBBON_IA.md` §6's list is *open, save,
+    /// undo, redo* — the four every application in this class puts there — and
+    /// the second slot held Save-a-copy only because in-place save did not
+    /// exist. A quick-access Save that opens a file dialog is not the control
+    /// those hands are reaching for.
     #[test]
     fn the_qat_is_the_four_documented_commands() {
         let shell = manifest::built_in();
         let qat = shell.qat.as_ref().expect("the QAT is part of the manifest");
         assert_eq!(
             qat.ids(),
-            ["file.open", "file.save_copy", "edit.undo", "edit.redo"]
+            ["file.open", "file.save", "edit.undo", "edit.redo"]
         );
     }
 

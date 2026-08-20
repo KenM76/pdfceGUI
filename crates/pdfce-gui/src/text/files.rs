@@ -97,6 +97,36 @@ pub fn save_copy_dialog_title() -> &'static str {
     "Save a copy of this document"
 }
 
+/// The receipt for a completed Save-in-place, naming the file it went into.
+///
+/// # Why the file name is in it
+///
+/// Because with several documents open, *"Saved"* alone leaves the operator to
+/// infer which one - and the answer is "the active tab", which is a fact they
+/// have to reconstruct rather than read. The name is the whole of what makes
+/// this a receipt instead of an acknowledgement.
+///
+/// # Why there is a sentence at all
+///
+/// The only other observable effect of a successful save is that the unsaved
+/// marker disappears from the tab, which is a change you have to already be
+/// watching for to notice. A control whose success is invisible is
+/// indistinguishable from a control that does nothing - which is this project's
+/// defining defect class, and which the operator has now reported under four
+/// different names.
+///
+/// Just the file name, not the whole path: the path is on the tab's tooltip and
+/// in the Properties panel, and a status line that reads as a directory listing
+/// is one nobody reads.
+#[must_use]
+pub fn saved_in_place(path: &std::path::Path) -> String {
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+    format!("Saved {name}.")
+}
+
 /// The suffix `file.save_copy` appends to suggest a name for the copy.
 ///
 /// # ★ Why the suggestion is never the file that was opened
