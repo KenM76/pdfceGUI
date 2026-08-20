@@ -133,7 +133,7 @@ pub fn selected(doc: &OpenDoc, selection: &SelectionState) -> Option<(DimensionI
     if !matches!(record.kind, DimensionKind::Linear { .. }) {
         return None;
     }
-    Some((record.id, record.kind))
+    Some((record.id, record.kind.clone()))
 }
 
 /// The screen-space box a press must land in to mean *move this dimension*.

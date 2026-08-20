@@ -86,6 +86,40 @@ this was reporting *"THE COMMIT NEVER REACHED THE ENGINE"* — which was **false
 line produced a confident, specific, wrong accusation about working code. Fixed:
 a refusal is now asked about first and quoted verbatim.
 
+**(c) — the caret cannot be moved inside a run. FIXED 2026-08-20**, and it was
+worse than it looked: there was **no caret index at all**. The draft appended
+text and Backspace popped the last character, so the painter drew its line at
+the right edge of the run's box because that is the only position an
+append-only draft has.
+
+Now: a real caret. Click part-way into a run and it lands at that character
+(measured against the run's own glyph advances); Left, Right, Home, End,
+Ctrl+Left and Ctrl+Right move it; Delete eats forwards; typing and Backspace
+act at the caret. Unit-tested, including your `SHEET 1 OF 4` case as a named
+test. **NOT yet driven** — the harness was blocked by the on-screen keyboard.
+
+**No selection yet** — no Shift+arrow, no Ctrl+A, no drag-select inside a
+draft. That is a second feature and it is row **O7** rather than an implied gap.
+
+**(a) — the cause is found, and it is the engine.** Your text lives inside a
+form XObject; `pdfce-core` edits page-stream text only, which is a named
+non-goal of that cut. The shell was reading the byte span of a show operator
+and discarding the field that says *which content stream the span indexes*, so
+it pinned into the wrong buffer and the engine reported "text not found" about
+text that was plainly there.
+
+Measured on the benchmark drawing: **1,696 show operators of real drawing text
+inside the form, against 3,007 metadata glyphs in the page's own stream.** So
+on your documents this is the majority case, not an edge case — which is why it
+has read as "does nothing" every time.
+
+Shipped today, and it is not a fix: the caret is now **refused before it takes
+a keystroke**, with a sentence on the status row. That converts a caret that
+silently ate your typing into an honest refusal. Filed as
+`request_text_inside_a_form_xobject_cannot_be_edited_and_the_error_blames_the_text.md`
+with three asks — a published "is this editable?" query, a distinct error for
+"the pin matched no operator", and the real one: editing inside form XObjects.
+
 **(b) — not yet driven.** Nothing claimed.
 
 ## O2 — Cut / copy / paste of PAGE CONTENT (`Ctrl+X` / `Ctrl+C` / `Ctrl+V`)
@@ -114,13 +148,21 @@ and this row is not closed until the round trip works on a path.
 **Asked:** 2026-08-20 — click around to make a shape, sum the segment lengths
 into one dimension; right-click to add segments; drag the endpoints to adjust
 the shape; all the scaling options of the other dimension tools.
-**Status:** OPEN. Blocked on the engine, filed the same day:
-`request_there_is_no_polyline_dimension_kind_so_a_perimeter_cannot_be_measured.md`.
+**Status:** OPEN — **and no longer blocked.** Filed 2026-08-20; the engine
+shipped the whole thing the same day (commits `9940acf`, `ae06440`): a
+`Perimeter` kind carrying its vertices and an open/closed flag, verbs to move,
+insert and remove a vertex, and a preflight so a right-click menu can be greyed
+correctly rather than by guessing.
 
-`DimensionKind` has three variants (Linear, Circular, Angular), all fixed-arity,
-and no polyline. The pick machine, the preview, the right-click menu and the
-vertex handles are mine to build and I am not waiting on the engine for the
-design — but nothing can be committed to a document until the variant exists.
+The value goes through the same group path as every other dimension, so scale,
+unit, precision, drafting standard and layer come free. The label sits at the
+vertex centroid, so it drifts smoothly when you drag a corner instead of
+teleporting across the shape.
+
+**What is left is mine**: the pick machine (click around, double-click to end
+open, click the first vertex to close), the running preview and total, the
+right-click menu, and the vertex handles. Started — the preview function draws
+a perimeter today. Not yet an armed tool.
 
 ## O4 — Insert image does nothing
 
@@ -137,6 +179,14 @@ Eight-line repro and the exact bytes are in
 `request_add_image_corrupts_a_page_whose_contents_is_an_indirect_array.md`.
 Works on a page whose `/Contents` is a plain stream; fails on one whose
 `/Contents` is an array. That is the entire difference.
+
+## O7 — Selecting text inside a draft
+
+**Asked:** not by you. Recorded 2026-08-20 because it is the obvious next thing
+after the caret and I would rather name the gap than leave it implied.
+
+Shift+arrow, Ctrl+A, and dragging across a draft to select part of it, so that
+typing replaces the selection. Not started.
 
 ## O5 — Horizontal / vertical dimension constraint, from a drop-down
 

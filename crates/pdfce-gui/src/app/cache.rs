@@ -195,6 +195,70 @@ pub(in crate::app) struct PageTextCache {
     pub(in crate::app) text: RefCell<Option<Result<PageText, String>>>,
 }
 
+/// **Which of the current page's runs are drawn from inside a form XObject** -
+/// the editability answer, cached because the question is asked on every click
+/// that lands on text.
+///
+/// # ★★ Why this exists at all
+///
+/// `pdfce-core` edits text in the **page's own content stream** and not inside
+/// a `Do`-invoked form XObject - a named non-goal of that cut
+/// (`pdfce-core/src/text_edit/edit.rs:79`). The only published way to tell the
+/// two apart is `GlyphProvenance::content_stream`, and provenance is only
+/// populated when the extraction asked for it, which [`PageTextCache`]
+/// deliberately does not.
+///
+/// So answering *"can this run be edited?"* costs **a second extraction of the
+/// whole page, with provenance on**.
+///
+/// ★ **Measured on two documents, and the range is the point.** The operator
+/// pointed out - correctly - that testing on the densest sheet available makes
+/// everything look slow:
+///
+/// | document | runs | extraction |
+/// |---|---|---|
+/// | a 6-page scanned note | 0 | **1 ms** |
+/// | the benchmark CAD site plan, 129,758 objects | 4,655 | **336 ms** |
+///
+/// So this is not "text extraction is slow". It is *"text extraction is
+/// proportional to how much text is on the page, and on the documents this
+/// operator actually works on there is a great deal of it."* Both numbers are
+/// recorded because a single alarming one invites the wrong fix.
+///
+/// The cache is still the right answer, and the dense end is why: 336 ms
+/// inside the click handler froze the UI thread for a third of a second on
+/// every click that landed on text - a visible hitch on exactly the documents
+/// this application exists for, and one that made a driven check flake because
+/// the trace it was waiting on had not been written by the time the settle
+/// window closed. A performance defect presenting as harness flakiness is a
+/// shape this project has been caught by before.
+///
+/// # What is cached, and why it is a `Vec<bool>` rather than the extraction
+///
+/// The **answer**, not the evidence. A second `PageText` for a dense sheet is
+/// megabytes held for the life of the page; a bit per run is 4,655 bytes. The
+/// commit path still does its own provenance extraction, because it needs the
+/// byte spans rather than the verdict and a commit is a rare, already-expensive
+/// act.
+///
+/// Keyed on `(page index, edit epoch)` like every other cache here, so an edit
+/// invalidates it - which matters, because an edit can change how many runs a
+/// page has and a stale `Vec` indexed by run number would answer confidently
+/// about the wrong run.
+#[derive(Default)]
+pub(in crate::app) struct FormRunCache {
+    /// The `(page index, edit epoch)` the flags below describe.
+    pub(in crate::app) built_for: Cell<Option<(usize, u64)>>,
+    /// One flag per run: `true` when that run is drawn from inside a form
+    /// XObject and therefore cannot be edited by this cut of the engine.
+    ///
+    /// `None` means the extraction did not run or provenance was unavailable -
+    /// which the caller must read as **"not measured"**, never as "yes". A
+    /// refusal on an unmeasured answer would block text editing everywhere on
+    /// a guess, and would look exactly like the feature having been removed.
+    pub(in crate::app) flags: RefCell<Option<Vec<bool>>>,
+}
+
 /// The document's font inventory, held for as long as the document is open.
 ///
 /// Cached for the same reason [`PageObjectCache`] is, and the sweep is more
@@ -382,6 +446,90 @@ impl OpenDoc {
             slot.as_ref().and_then(|built| built.as_ref().ok())
         })
         .ok()
+    }
+
+    /// **Is `run` on the current page drawn from inside a form XObject?**
+    ///
+    /// `Some(true)` / `Some(false)`, or `None` when the question could not be
+    /// answered - see [`FormRunCache::flags`] for why `None` must never be read
+    /// as `true`.
+    ///
+    /// The first call for a `(page, epoch)` pays one provenance-bearing
+    /// extraction; every call after it is a vector index. See
+    /// [`FormRunCache`] for the measurement that made the cache necessary.
+    #[must_use]
+    pub fn run_is_inside_a_form(&self, run: usize) -> Option<bool> {
+        self.ensure_form_runs();
+        let flags = self.form_runs.flags.borrow();
+        flags.as_ref()?.get(run).copied()
+    }
+
+    /// Build [`Self::form_runs`] for the current `(page, epoch)` if it is not
+    /// already built. Idempotent, and cheap on every call after the first.
+    fn ensure_form_runs(&self) {
+        let key = (self.view.page_index, self.edit_epoch);
+        if self.form_runs.built_for.get() == Some(key) {
+            return;
+        }
+        // Set BEFORE the work, exactly as `ensure_page_text` does: a failed
+        // extraction is deterministic for these bytes, so re-attempting it
+        // sixty times a second would burn a third of a second per frame to
+        // learn the same thing.
+        self.form_runs.built_for.set(Some(key));
+        let started = Instant::now();
+        let built = self.current_page().and_then(|page| {
+            use crate::app::settings::SettingsExt;
+            // ★ The funnel's output MODIFIED, never `ExtractOptions::default()`
+            // - the same rule and the same reason as `ensure_page_text`. The run
+            // indices here must agree with the ones the canvas hit-tests and the
+            // ones the commit pins, and two extractions under two configurations
+            // segment differently.
+            let opts = self.settings.extract_options().with_provenance(true);
+            let text = pdfce_core::text_extract::extract_page_view(
+                &self.session.view(),
+                page,
+                self.view.page_index,
+                &opts,
+            )
+            .ok()?;
+            let model = pdfce_core::text_edit::EditableTextModel::recognize(
+                &text,
+                &pdfce_core::text_edit::BlockRecognitionOptions::default(),
+            );
+            Some(
+                (0..text.runs.len())
+                    .map(|run| {
+                        model
+                            .provenance(pdfce_core::text_edit::GlyphRef::new(run, 0))
+                            .is_some_and(|p| {
+                                matches!(
+                                    p.content_stream,
+                                    pdfce_core::text_extract::ContentStreamRef::Form { .. }
+                                )
+                            })
+                    })
+                    .collect::<Vec<bool>>(),
+            )
+        });
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            //
+            // ★ The count of these lines IS the measurement, as it is for
+            // `page-text` - one line per extraction, so a harness can tell a
+            // cache that works from one that does not. `in_form` beside `runs`
+            // is what makes the engine's boundary visible on a real document:
+            // on the benchmark CAD sheet it is most of them.
+            format!(
+                "form-runs page={} ms={} runs={} in_form={}",
+                self.view.page_index,
+                started.elapsed().as_millis(),
+                built.as_ref().map_or(0, Vec::len),
+                built
+                    .as_ref()
+                    .map_or(0, |f| f.iter().filter(|b| **b).count()),
+            )
+        });
+        *self.form_runs.flags.borrow_mut() = built;
     }
 
     /// ★ **Does this page carry any extractable text at all?**

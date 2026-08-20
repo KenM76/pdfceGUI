@@ -539,6 +539,9 @@ pub struct OpenDoc {
     /// see [`crate::app::cache`] for the cost measurement that made it a cache
     /// and for why it is per-page where a search is per-document.
     pub(super) page_text: PageTextCache,
+    /// Which runs on the current page are inside a form XObject, and therefore
+    /// cannot be edited by this cut of `pdfce-core`. See `FormRunCache`.
+    pub(super) form_runs: crate::app::cache::FormRunCache,
     /// **What text the operator has selected on the canvas**, if any.
     ///
     /// Beside [`Self::selection`] rather than inside it, and the separation is
@@ -679,6 +682,7 @@ impl OpenDoc {
             page_objects: PageObjectCache::default(),
             fonts: FontCache::default(),
             page_text: PageTextCache::default(),
+            form_runs: crate::app::cache::FormRunCache::default(),
             // Empty, like every other derived field here — see `selection`.
             text_selection: None,
             // What a reader shows. `pdfce_render::RenderOptions` defaults the

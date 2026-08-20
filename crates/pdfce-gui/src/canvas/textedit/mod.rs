@@ -106,6 +106,11 @@
 //!   `crate::text::textedit::pinned_tail_disclosure` for exactly this, which is
 //!   why the pin is never silent.
 
+/// The caret's own arithmetic - insert, delete, and the four movements -
+/// split out under R2 on 2026-08-20. Pure functions of a `&str` and an index,
+/// with no window in them; its header says why that is a seam and not a cut.
+pub mod caret;
+pub use caret::{backspace, delete_forward, insert, word_left, word_right};
 pub mod disposition;
 // The byte-level proof that the untouched tail did not move, with the old
 // shell's own `EditOptions::default()` run beside it as the falsifier.
@@ -220,6 +225,42 @@ pub struct Draft {
     pub anchor: Anchor,
     /// The operator's in-progress text.
     pub text: String,
+    /// ★★ **Where the caret sits inside [`Self::text`], as a CHARACTER index.**
+    ///
+    /// `0` is before the first character; `text.chars().count()` is after the
+    /// last. Every edit and every movement clamps into that range, so the
+    /// invariant `caret <= text.chars().count()` holds by construction and no
+    /// caller has to check it.
+    ///
+    /// # The defect this field is
+    ///
+    /// It did not exist until 2026-08-20. `insert` extended the end of the
+    /// string and `backspace` popped the last character, so the caret was not
+    /// merely fixed at the end - **there was no caret**, and the painter drew
+    /// its line at the right edge of the run's glyph box because that is the
+    /// only position an append-only draft has. The operator:
+    ///
+    /// > *"the cursor just sits at the end of a text line. It can't be moved to
+    /// > the center of an existing text block."*
+    ///
+    /// Exactly right, and it made editing existing page text almost useless: a
+    /// title-block cell reading `SHEET 1 OF 4` could only be changed by deleting
+    /// it back to `SHEET ` and retyping.
+    ///
+    /// # Why characters and not bytes
+    ///
+    /// Because every operation here is expressed in keystrokes, and one
+    /// keystroke is one `char`. A byte index would make Left-arrow over `e` -
+    /// two bytes - either move half a character or need a decode at every use.
+    /// `backspace` already worked in `char`s for the same reason (a byte
+    /// truncation of a multi-byte character is a panic in Rust, not mojibake),
+    /// so this is that decision applied consistently rather than a new one.
+    ///
+    /// The cost is that every operation is O(n) in the draft's length. A draft
+    /// is one show operator - a cell, a label, a line of a note - so n is tens
+    /// of characters, and the alternative is a byte index plus a boundary check
+    /// at every call site.
+    pub caret: usize,
     /// Whether the diagnostic seam has already been consumed for this draft, so
     /// a seam-supplied string is typed **once** rather than on every frame.
     ///
@@ -248,6 +289,45 @@ pub enum Refusal {
     /// The page's text could not be extracted (an image-only page, a damaged
     /// content stream).
     NoText,
+    /// ★★ **The run is real, readable, and inside a form XObject — which
+    /// `pdfce-core`'s text-edit surgery does not enter.** 2026-08-20.
+    ///
+    /// # Why this variant had to exist, and what it replaced
+    ///
+    /// Nothing. The click was accepted, a caret was placed, keystrokes were
+    /// taken, a plan was built, and the engine then refused the commit with
+    /// *"text to edit (\"p\") was not found in an editable run on the page"* —
+    /// **to the trace only**. The operator saw a caret that took their typing
+    /// and threw it away in silence. Their words:
+    ///
+    /// > *"Still no editing text on top of the canvas."*
+    ///
+    /// # The mechanism, because it is not obvious from either side
+    ///
+    /// `GlyphProvenance` carries two fields and the shell was reading one:
+    /// `operator_span` is a **byte span into a decoded content buffer**, and
+    /// `content_stream` names *which* buffer. For text drawn by the page's own
+    /// stream the two agree with what the edit surgery walks. For text inside a
+    /// `Do`-invoked form XObject the span indexes the FORM's bytes, and
+    /// `pdfce-core`'s `find_anchor` compares it against page-stream offsets —
+    /// where it can never match. Worse, a pinned request skips the text search
+    /// entirely, so the loop exhausts and reports `NoMatch(find)`, which blames
+    /// the operator's text for a failure of the pin.
+    ///
+    /// # Why refusing is better than trying
+    ///
+    /// Because the attempt **cannot** succeed — this is a named non-goal of
+    /// that cut of the engine (`pdfce-core/src/text_edit/edit.rs:79`) — and a
+    /// control that accepts input it will discard is this project's defining
+    /// defect class. An honest refusal at the click costs the operator one
+    /// click; the silent version cost them a sentence they had already typed
+    /// and the belief that the feature works.
+    ///
+    /// ★ **On a CAD sheet this is the common case, not an edge case.** Measured
+    /// on the benchmark drawing: 1,696 show operators of real drawing text
+    /// inside the form, against 3,007 metadata glyphs in the page stream. Filed
+    /// as an engine request the same day.
+    InsideForm,
 }
 
 /// Read the draft without creating one. `None` when nothing is being composed.
@@ -292,28 +372,6 @@ pub fn load(ctx: &egui::Context, page: usize, kind: TextEditKind) -> Option<Draf
     }
     abandon(ctx);
     None
-}
-
-/// **Insert `s` at the end of the draft.** The one mutation typing performs.
-///
-/// A free function over `&mut String` rather than a method, because it is the
-/// single point both the keyboard and the diagnostic seam pass through and a
-/// method would invite a second caller that skipped it. Control characters are
-/// dropped: `egui` delivers Enter and Escape as `Key` events, so a control
-/// character arriving in a `Text` event is something this shell has no meaning
-/// for, and putting it in a PDF show string would be authoring a byte the
-/// operator cannot see.
-pub fn insert(text: &mut String, s: &str) {
-    text.extend(s.chars().filter(|c| !c.is_control()));
-}
-
-/// **Remove the last character.** Backspace, and the whole of it.
-///
-/// By `char` and not by byte: a draft holding `é` must lose one keystroke's
-/// worth of text per Backspace, and truncating a byte would leave an invalid
-/// `String` — which in Rust is a panic rather than mojibake.
-pub fn backspace(text: &mut String) {
-    text.pop();
 }
 
 // ===========================================================================
@@ -418,6 +476,24 @@ pub fn click(
         Anchor::Run { original, .. } => original.clone(),
         Anchor::Origin { .. } => String::new(),
     };
+    // ★★ The caret lands WHERE THE CLICK LANDED, not at the end.
+    //
+    // `caret_index_at` measures the click's x against the run's own glyph
+    // advances - the same glyph boxes the caret is drawn from - so clicking
+    // between the `1` and the ` ` of `SHEET 1 OF 4` puts the caret between
+    // them. Before 2026-08-20 the draft had no caret index at all, so a click
+    // anywhere in a run behaved as a click at its end.
+    //
+    // Falls back to the end of the text, which is the old behaviour, when the
+    // run's glyphs cannot be read. That is the right fallback rather than the
+    // start: appending is the less destructive of the two if the operator
+    // types without looking.
+    let caret = match &anchor {
+        Anchor::Run { run, .. } => {
+            caret_index_at(click, *run).unwrap_or_else(|| text.chars().count())
+        }
+        Anchor::Origin { .. } => 0,
+    };
     store(
         ctx,
         Draft {
@@ -425,6 +501,7 @@ pub fn click(
             kind: click.kind,
             anchor,
             text,
+            caret,
             seeded: false,
         },
     );
@@ -453,6 +530,80 @@ pub fn click(
         )
     });
     Ok(())
+}
+
+/// **Is `run` drawn from inside a form XObject?** `Some(true)` / `Some(false)`,
+/// or `None` when the question could not be asked.
+///
+/// A thin forward to [`crate::app::state::OpenDoc::run_is_inside_a_form`],
+/// which owns the extraction and the cache. It is worth a named function here
+/// anyway: this is the one place in the shell that encodes *"what pdfce-core
+/// can and cannot edit"*, and the day the engine gains form editing this is the
+/// function to delete rather than a condition to find.
+///
+/// # Why the answer is cached one level down and not here
+///
+/// Because the only way to ask is a **second extraction of the whole page with
+/// provenance on** - `PageTextCache` deliberately leaves provenance off, since
+/// the canvas, the find bar and the text sweep do not need it and it costs.
+/// Measured on the benchmark CAD sheet: **336 ms**. Doing it inline froze the
+/// UI for a third of a second on every click that landed on text, and made a
+/// driven check flake because the trace had not been written by the time the
+/// settle window closed - a performance defect that presented as harness
+/// flakiness, which this project has been caught by before.
+///
+/// `None` means **not measured**, never "yes". See `FormRunCache::flags`.
+fn inside_a_form(c: &Click<'_>, run: usize) -> Option<bool> {
+    c.doc.run_is_inside_a_form(run)
+}
+
+/// **Which character boundary a click landed on, inside `run`.**
+///
+/// Returns a character index in `0..=glyphs.len()`, or `None` when the run or
+/// the page cannot be read.
+///
+/// # How it decides
+///
+/// Every glyph `pdfce-core` publishes carries its origin `x` and its `advance`,
+/// so a run's character boundaries are `x[0]`, `x[0]+adv[0]`, `x[1]+adv[1]`, …
+/// The click's x is compared against each glyph's MIDPOINT: past the midpoint
+/// means the caret belongs after that glyph. That is the rule every text field
+/// uses and it is what makes clicking "on" a character feel like clicking
+/// *near* the boundary the operator was aiming at, rather than requiring them
+/// to hit a one-pixel gap.
+///
+/// # Why the x axis alone
+///
+/// Because a run is one show operator, which is one baseline. The vertical
+/// question - *which line?* - was already answered by `resolve_run`'s hit test
+/// before this is called, and asking it again here with different arithmetic is
+/// how a caret comes to land on a different line from the one that was clicked.
+///
+/// ★ Rotated runs. The comparison is done in **PDF user space** against the
+/// glyph origins as published, which is the same space `resolve_run` works in.
+/// For a run rotated off the horizontal this compares the wrong axis and the
+/// caret will land at a boundary the operator did not aim at - it is still
+/// inside the run, and still better than always landing at the end, but it is
+/// not right. Fixing it properly means projecting the click onto the run's own
+/// baseline direction, which needs the text matrix rather than the glyph
+/// boxes. Recorded here rather than silently approximated.
+fn caret_index_at(c: &Click<'_>, run: usize) -> Option<usize> {
+    let page = c.doc.pages.get(c.page_index)?;
+    let pdf = crate::viewer::canvas_to_pdf_space(c.canvas_point, page)?;
+    let text = c.doc.page_text()?;
+    let glyphs = &text.runs.get(run)?.glyphs;
+    if glyphs.is_empty() {
+        return None;
+    }
+    let x = pdf.x;
+    let mut index = 0;
+    for g in glyphs {
+        if x < g.x + g.advance / 2.0 {
+            return Some(index);
+        }
+        index += 1;
+    }
+    Some(index)
 }
 
 /// Resolve a click on existing page text to the run it landed in.
@@ -553,6 +704,54 @@ fn resolve_run(c: &Click<'_>) -> Result<Anchor, Refusal> {
             format!("text-edit-shares-line run={}", pos.run)
         });
     }
+    // ★★★ **THE EDITABILITY CHECK, and it is the last thing before the caret.**
+    //
+    // Added 2026-08-20 on the operator's *"Still no editing text on top of the
+    // canvas."* Every stage of this module worked; the commit reached
+    // `pdfce-core` and was refused, **to the trace only**, so a caret took his
+    // keystrokes and discarded them in silence.
+    //
+    // The cause is one field this shell was not reading. `GlyphProvenance`
+    // carries a byte span AND the name of the buffer that span indexes:
+    //
+    // ```text
+    // pub content_stream: ContentStreamRef,   // Page, or Form { object }
+    // pub operator_span:  ByteSpan,           // …within THAT buffer
+    // ```
+    //
+    // `commit` pins the request with `operator_span` alone. For page-stream text
+    // that is right. For text drawn inside a `Do`-invoked form XObject the span
+    // indexes the FORM's decoded bytes, while the engine's `find_anchor` walks
+    // the PAGE's — so the pin matches nothing, and because a pinned request
+    // skips the text search entirely, the loop exhausts and returns
+    // `NoMatch(find)`. That error names the operator's text, which is why the
+    // sentence reads *"text to edit ("p") was not found in an editable run"*
+    // about text that is plainly there.
+    //
+    // ★ Refusing rather than attempting, because the attempt CANNOT succeed:
+    // form-XObject content is a named non-goal of that cut of the engine
+    // (`pdfce-core/src/text_edit/edit.rs:79`). Placing a caret that will eat a
+    // sentence is this project's defining defect class, and one honest click of
+    // refusal is cheaper than a paragraph typed into nothing.
+    //
+    // ★★ On a CAD sheet this is the COMMON case. Measured on the benchmark
+    // drawing: 1,696 show operators of real drawing text inside the form,
+    // against 3,007 metadata glyphs in the page's own stream. So this refusal
+    // will fire often, and that is the honest picture of what the engine can do
+    // today rather than a pessimistic guard.
+    //
+    // The provenance is only populated when the extraction asked for it, which
+    // `app::cache`'s read-only pass deliberately does not — so `None` here means
+    // *"not measured"*, not *"page stream"*, and the caret is allowed. Refusing
+    // on an unmeasured answer would block editing everywhere on a guess.
+    if inside_a_form(c, pos.run) == Some(true) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("text-edit-declined reason=InsideForm run={}", pos.run)
+        });
+        return Err(Refusal::InsideForm);
+    }
+
     Ok(Anchor::Run {
         run: pos.run,
         original,
@@ -593,7 +792,7 @@ pub fn typing(
             && !seed.is_empty()
         {
             draft.text.clear();
-            insert(&mut draft.text, &seed);
+            draft.caret = insert(&mut draft.text, 0, &seed);
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed.
                 format!("text-edit-seeded len={}", draft.text.chars().count())
@@ -604,7 +803,7 @@ pub fn typing(
         for ev in ui.input(|i| i.events.clone()) {
             match ev {
                 egui::Event::Text(t) if !t.is_empty() => {
-                    insert(&mut draft.text, &t);
+                    draft.caret = insert(&mut draft.text, draft.caret, &t);
                     changed = true;
                 }
                 egui::Event::Key {
@@ -612,7 +811,76 @@ pub fn typing(
                     pressed: true,
                     ..
                 } => {
-                    backspace(&mut draft.text);
+                    draft.caret = backspace(&mut draft.text, draft.caret);
+                    changed = true;
+                }
+                egui::Event::Key {
+                    key: egui::Key::Delete,
+                    pressed: true,
+                    ..
+                } => {
+                    draft.caret = delete_forward(&mut draft.text, draft.caret);
+                    changed = true;
+                }
+                // ★★ **Caret movement**, 2026-08-20, on the operator's report
+                // that *"the cursor just sits at the end of a text line. It
+                // can't be moved to the center of an existing text block."*
+                //
+                // These five arms are what makes the caret a caret. Before
+                // them the draft had no position at all: text was appended and
+                // Backspace popped, so changing `SHEET 1 OF 4` to `SHEET 2 OF
+                // 4` meant deleting back to `SHEET ` and retyping the rest.
+                //
+                // ★ `changed` is set for a pure movement, and that is
+                // deliberate rather than sloppy. It is the flag that decides
+                // whether the draft is written back to `egui::Memory`, and a
+                // moved caret IS a changed draft - without this the arrow keys
+                // would appear to work for one frame and then snap back on the
+                // next load. It does NOT put anything on the undo stack:
+                // `commit_into` compares the TEXT with the original, so a draft
+                // whose caret moved and whose characters did not still pushes
+                // no action.
+                egui::Event::Key {
+                    key: egui::Key::ArrowLeft,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => {
+                    draft.caret = if modifiers.command {
+                        word_left(&draft.text, draft.caret)
+                    } else {
+                        draft.caret.saturating_sub(1)
+                    };
+                    changed = true;
+                }
+                egui::Event::Key {
+                    key: egui::Key::ArrowRight,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => {
+                    let end = draft.text.chars().count();
+                    draft.caret = if modifiers.command {
+                        word_right(&draft.text, draft.caret)
+                    } else {
+                        (draft.caret + 1).min(end)
+                    };
+                    changed = true;
+                }
+                egui::Event::Key {
+                    key: egui::Key::Home,
+                    pressed: true,
+                    ..
+                } => {
+                    draft.caret = 0;
+                    changed = true;
+                }
+                egui::Event::Key {
+                    key: egui::Key::End,
+                    pressed: true,
+                    ..
+                } => {
+                    draft.caret = draft.text.chars().count();
                     changed = true;
                 }
                 // ★ Enter commits, and the condition is the Accept control's
@@ -882,11 +1150,73 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
         egui::StrokeKind::Outside,
     );
     if on {
+        // ★★ The caret is drawn AT THE CARET, 2026-08-20.
+        //
+        // This used to be `screen.right_top()..right_bottom()` - the right edge
+        // of the whole run's box - and that was not a drawing choice. An
+        // append-only draft has no other position to draw, and the operator
+        // read the result exactly as it was: *"the cursor just sits at the end
+        // of a text line."*
+        //
+        // `caret_x` answers `None` when the position cannot be derived, and the
+        // right edge is then the honest fallback: it is where the next typed
+        // character will appear if the caret is at the end, which is the
+        // overwhelmingly common case for a draft the glyphs cannot describe.
+        let x = caret_x(p.doc, &draft, page, p.map).unwrap_or(screen.right());
         painter.line_segment(
-            [screen.right_top(), screen.right_bottom()],
+            [
+                egui::Pos2::new(x, screen.top()),
+                egui::Pos2::new(x, screen.bottom()),
+            ],
             egui::Stroke::new(1.5, theme.palette.accent),
         );
     }
+}
+
+/// **The caret's x in SCREEN space**, or `None` when it cannot be derived.
+///
+/// # The approximation, stated rather than hidden
+///
+/// The glyph metrics on the page describe the run **as it was**, and the draft
+/// is not laid out until it is committed - nothing measures the operator's
+/// in-progress string against the font until `EditSession::edit_text` runs. So:
+///
+/// * while `caret <= glyphs.len()`, the position is **exact** - it is a real
+///   glyph boundary read from the page.
+/// * beyond that, the operator has typed more characters than the run had, and
+///   the position is **extrapolated** by repeating the last glyph's advance.
+///
+/// The second case is an estimate and can drift on a proportional font. It is
+/// a pre-commit affordance - the cursor, in rule 4's own words - and it
+/// disappears the moment the edit is applied, so nothing the operator keeps is
+/// derived from it. Drawing nothing there would be worse: a caret that vanishes
+/// as soon as you type past the end of the old text reads as the editor giving
+/// up.
+fn caret_x(
+    doc: &OpenDoc,
+    draft: &Draft,
+    page: &pdfce_core::page_tree::Page,
+    map: &crate::canvas::mapping::PageMapping,
+) -> Option<f32> {
+    let Anchor::Run { run, .. } = &draft.anchor else {
+        return None;
+    };
+    let text = doc.page_text()?;
+    let glyphs = &text.runs.get(*run)?.glyphs;
+    let last = glyphs.last()?;
+    let (x, y) = if draft.caret == 0 {
+        let first = glyphs.first()?;
+        (first.x, first.y)
+    } else if let Some(g) = glyphs.get(draft.caret - 1) {
+        (g.x + g.advance, g.y)
+    } else {
+        // Past the end of the original run - extrapolate, and say so above.
+        #[allow(clippy::cast_precision_loss)]
+        let extra = (draft.caret - glyphs.len()) as f32;
+        (last.x + last.advance * (1.0 + extra), last.y)
+    };
+    let canvas = crate::viewer::pdf_space_to_canvas(Pos2::new(x, y), page)?;
+    Some(map.to_screen(canvas).x)
 }
 
 /// The draft's box in **canvas** space, or `None` when it cannot be derived.
@@ -931,28 +1261,6 @@ fn caret_box(
 mod tests {
     use super::*;
 
-    /// **Typing appends; Backspace removes one character, not one byte.**
-    #[test]
-    fn the_draft_edits_by_character_and_not_by_byte() {
-        let mut s = String::new();
-        insert(&mut s, "café");
-        assert_eq!(s, "café");
-        backspace(&mut s);
-        assert_eq!(s, "caf", "a multi-byte char must go in one Backspace");
-    }
-
-    /// **Control characters never reach the draft.**
-    ///
-    /// Enter and Escape arrive as `Key` events and mean something; a control
-    /// byte arriving as text means nothing this shell can author, and putting it
-    /// in a show string would write a glyph the operator cannot see.
-    #[test]
-    fn a_control_character_is_not_typed_into_the_page() {
-        let mut s = String::new();
-        insert(&mut s, "a\u{1b}b\u{7}c");
-        assert_eq!(s, "abc");
-    }
-
     /// ★ **A draft equal to what it replaces is not a write.**
     ///
     /// The no-op guard, and it is load-bearing because clicking away commits: an
@@ -968,6 +1276,7 @@ mod tests {
                 original: "TITLE".to_owned(),
             },
             text: "TITLE".to_owned(),
+            caret: 0,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -995,6 +1304,7 @@ mod tests {
                 original: "A".to_owned(),
             },
             text: String::new(),
+            caret: 0,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1017,6 +1327,7 @@ mod tests {
                 original: "REV A".to_owned(),
             },
             text: "REV B".to_owned(),
+            caret: 0,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1046,6 +1357,7 @@ mod tests {
             kind: TextEditKind::Add,
             anchor: Anchor::Origin { x: 10.0, y: 20.0 },
             text: String::new(),
+            caret: 0,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1082,6 +1394,7 @@ mod tests {
                 kind: TextEditKind::Add,
                 anchor: Anchor::Origin { x: 10.0, y: 10.0 },
                 text: String::new(),
+                caret: 0,
                 seeded: true,
             },
         );

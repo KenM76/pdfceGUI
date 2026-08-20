@@ -44,6 +44,28 @@ pub const fn refusal(reason: Refusal) -> &'static str {
             "pdfce cannot read any text on this page. If it is a scan, run Tools > OCR first — \
              editing needs real text, not a picture of it."
         }
+        // ★★ The sentence for text pdfce can READ and cannot yet WRITE.
+        //
+        // Three obligations, and the wording carries all three deliberately:
+        //
+        // 1. **It is not the operator's mistake.** They clicked on real text and
+        //    it is real text. Saying "there is no text where you clicked" — the
+        //    nearest existing sentence — would be false, and would send them
+        //    clicking around the sheet looking for a spot that works.
+        // 2. **It says what is different about this text**, in words a person
+        //    who exports from CAD will recognise. "Form XObject" is not those
+        //    words; "a block placed by the program that made the drawing" is.
+        // 3. **It says what they can do instead.** A refusal with no route is
+        //    half a sentence. Add text over the top is a real answer for a
+        //    label, and it is one they would otherwise have to discover.
+        //
+        // What it must not do is promise a date. The engine gap is filed and it
+        // is not this sentence's business to forecast it.
+        Refusal::InsideForm => {
+            "This text is inside a block placed by the program that made the drawing, and pdfce \
+             cannot edit inside one yet — only read it. Use Add text to put new text over it, or \
+             change it in the program the drawing came from."
+        }
     }
 }
 

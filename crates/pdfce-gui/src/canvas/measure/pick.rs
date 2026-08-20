@@ -578,6 +578,37 @@ const ARC_PREVIEW_STEPS: usize = 24;
 /// on screen and the circle in the file are one derivation, not two that agree.
 #[must_use]
 pub fn dimension_preview_segments(kind: &DimensionKind) -> Vec<(Point, Point)> {
+    // ★★ The PERIMETER arm, 2026-08-20, and it is the shortest in this
+    // function for a reason worth stating: **a perimeter's notation is its own
+    // shape.**
+    //
+    // Every other kind here draws something that is not the geometry — a
+    // dimension line standing off the drawing with witness lines reaching back
+    // to it, an arc across a wedge, a fitted circle nobody drew. A perimeter's
+    // drawn geometry IS the measured geometry, so there is nothing to derive:
+    // the segments are the picks, plus the closing one when the operator said
+    // closed.
+    //
+    // The engine draws it the same way and says why: no terminators (two arrows
+    // would assert "the distance BETWEEN these points" when the number is the
+    // distance ALONG a path, and a closed shape has no ends to put them on), no
+    // witness lines, no ANSI break for the label. Each absence is a decision,
+    // and this preview matching them is what makes it a preview rather than an
+    // illustration.
+    if let Some((points, closed)) = kind.polyline() {
+        let mut segments: Vec<(Point, Point)> = points.windows(2).map(|w| (w[0], w[1])).collect();
+        // ★ The closing segment is supplied HERE, and that is the hazard the
+        // spec corpus names by name: a `/Polygon`'s `/Vertices` does not repeat
+        // the first point, so a routine that forgets to close it draws — and
+        // measures — a shape one segment short of what the operator picked.
+        if closed
+            && points.len() > 2
+            && let (Some(first), Some(last)) = (points.first(), points.last())
+        {
+            segments.push((*last, *first));
+        }
+        return segments;
+    }
     match *kind {
         DimensionKind::Linear { .. } => kind
             .linear_geometry()
@@ -585,6 +616,9 @@ pub fn dimension_preview_segments(kind: &DimensionKind) -> Vec<(Point, Point)> {
                 vec![(dim_a, dim_b), (ext_a, dim_a), (ext_b, dim_b)]
             })
             .unwrap_or_default(),
+        // Handled above, before the match, because it is the one kind whose
+        // preview is its own geometry rather than a derivation from it.
+        DimensionKind::Perimeter { .. } => Vec::new(),
         DimensionKind::Angular {
             apex,
             dir_a,

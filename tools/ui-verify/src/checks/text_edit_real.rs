@@ -274,6 +274,44 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // working and refusing, and the question moves to whether the operator can
     // READ the refusal. `NoText` on a page `find-text` just matched on would be
     // the strangest of the three.
+    // ★★★ `InsideForm` IS NOT A DEFECT AND IS NOT A PASS — it is an absent
+    // capability, and this branch exists so the two stay distinguishable.
+    //
+    // Added 2026-08-20. The shell now reads `GlyphProvenance::content_stream`
+    // and refuses the caret when the run is drawn from a form XObject, because
+    // `pdfce-core`'s text-edit surgery walks the page's content stream only —
+    // a named non-goal of that cut (`text_edit/edit.rs:79`). Filed as
+    // `request_text_inside_a_form_xobject_cannot_be_edited_and_the_error_
+    // blames_the_text.md`.
+    //
+    // Reported as SKIPPED, and the wording matters more than usual:
+    //
+    // * **Not a PASS.** Text editing does not work on this document. Rendering
+    //   "the engine cannot do this" as green is the precise failure this
+    //   harness exists to remove, and the suite's own footer says so.
+    // * **Not a FAIL.** The shell did the right thing — it refused before
+    //   taking a keystroke, with a sentence the operator can read. Marking that
+    //   red would mean the only way to go green is to go back to swallowing
+    //   their typing.
+    //
+    // This is `SHELL_FRAMEWORK.md` §5b's `CapabilityAbsent` applied to a driven
+    // check rather than to a ribbon item: *"this build excludes that"* has to
+    // stay distinguishable from *"someone made a mistake"*. The day the engine
+    // gains form editing, this branch stops being reached and the check goes
+    // green on its own — there is nothing to remember to delete.
+    if declined.as_deref() == Some("InsideForm") {
+        return Err(Error::new(format!(
+            "the text at this point is inside a FORM XOBJECT, and `pdfce-core` edits page-stream \
+             text only — a named non-goal of that cut (`text_edit/edit.rs:79`), filed as \
+             `request_text_inside_a_form_xobject_cannot_be_edited…`. The shell behaved \
+             correctly: it refused the caret BEFORE taking a keystroke and put a sentence on the \
+             status row, instead of accepting typing into a commit guaranteed to fail. This is \
+             NOT a pass — text editing does not work on this document. Measured on this file: \
+             1,696 show operators inside the form against 3,007 metadata glyphs in the page \
+             stream, so it is the majority case here. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
     let Some(line) = caret else {
         return Ok(Some(decline_message(&session, declined.as_deref())));
     };
