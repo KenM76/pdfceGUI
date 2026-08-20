@@ -69,7 +69,21 @@ const TILE: &str = "panel-pages-tile.";
 /// The insertion caret's region.
 const CARET: &str = "panel-pages-drop-caret";
 /// The trace events the gesture emits.
-const DRAG_START: &str = "pages-drag-start";
+///
+/// ★ `page-drag-start`, **singular**, since 2026-08-20 — and the rename is not
+/// cosmetic. The drag used to be the Pages panel's own and was traced by it;
+/// it now lives in `crate::pagedrag`, shared with the page view and with the
+/// document tab strip, because a drag that crosses documents cannot be owned
+/// by the panel it started in. So it is *a page drag*, not *the pages panel's
+/// drag*.
+///
+/// This check went red on the rename and reported *"the tile does not sense a
+/// drag"* over a build whose trace carried the line two names away — a
+/// confident, specific, entirely wrong defect report about working code, which
+/// is `CONTINUE.md` §7's whole subject. A harness constant naming an
+/// application event is a **coupling**, and it decays silently in exactly one
+/// direction: absence reads as failure.
+const DRAG_START: &str = "page-drag-start";
 /// See [`DRAG_START`].
 const DRAG_RELEASE: &str = "pages-drag-release";
 /// The label `vector_edit` traces when `reorder_pages` succeeded.

@@ -241,21 +241,42 @@ pub fn body(
     if !pages.selection.is_empty() {
         ui.label(t::pages_selected(pages.selection.len()));
     }
-    // ★ The words half of the drop indicator. The caret says *where*
-    // graphically and this says it in a page number, because a hairline
-    // between two near-identical drawing sheets is precise and not checkable —
-    // the same conclusion, in the same vocabulary, the Insert-from-file dialog
-    // reached for its destination radios.
+    // ★★★ **THE DRAG CAPTION IS NOT DRAWN HERE, AND THAT IS A MEASURED
+    // DEFECT RATHER THAN A PREFERENCE.**
     //
-    // ★★ Since 2026-08-19 the sentence comes from `crate::pagedrag::caption`
-    // rather than from this panel's own fields, because a drag can now START
-    // in another document: it has to be able to say *"copy 2 sheets from
-    // SW41177.pdf to before page 3"*, and only the drag itself knows where the
-    // sheets came from. The panel's job is to have somewhere to put the
-    // sentence, and it still is.
-    if let Some(caption) = crate::pagedrag::caption(ui.ctx()) {
-        ui.label(caption);
-    }
+    // It was, for one day. A label above the grid saying where the drop would
+    // land is the obvious place to put it — this panel's own `drag_landing`
+    // sentence lived here from the day the reorder drag shipped, and the words
+    // belong beside the caret they describe.
+    //
+    // It **moves the grid under the pointer while the drag is in flight.**
+    // Driven, 2026-08-20, `pages_drag_shows_where_it_lands`, from the trace:
+    //
+    // ```text
+    // before the drag   panel-pages-tile.1 rect=[[132 251.1] - [260 333.9]]
+    // mid-drag          panel-pages-tile.1 rect=[[132 300.1] - [260 382.9]]   +49
+    // mid-drag          panel-pages-tile.1 rect=[[132 285.1] - [260 367.9]]   +34
+    // after the release panel-pages-tile.1 rect=[[132 251.1] - [260 333.9]]
+    // ```
+    //
+    // Forty-nine points, then thirty-four, then back — because the caption is a
+    // wrapping label in a 260 pt panel and **its own height depends on its own
+    // wording**, which changes as the pointer moves between gaps and as Shift
+    // goes down. So the sheet the operator is aiming at slides out from under
+    // them, by a distance that is a function of the sentence describing what
+    // they are aiming at.
+    //
+    // That is R128's feedback loop in a third place (`bottom_panel_height_...`
+    // in the egui RAG is the first; the dimension-groups window was the
+    // second), and the rule it yields is more general than R128's own wording:
+    // **a surface may not change size in response to a gesture that is aimed
+    // at it.**
+    //
+    // The status bar carries the sentence instead. It has a fixed height by
+    // construction (`app::status`'s `exact_size` plus its own `set_min_height`,
+    // both for R128), it is on screen in every mode including Read, and it is
+    // where rule 4 puts off-canvas disclosure anyway. Nothing was lost by the
+    // move except the defect.
 
     // The previews control. Read from the cache and written straight back, so
     // "is the box ticked" and "will anything be drawn" are one expression
