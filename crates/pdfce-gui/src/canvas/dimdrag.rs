@@ -339,6 +339,182 @@ pub fn drag(
     Some(super::measure::pick::dimension_preview_segments(&moved))
 }
 
+// ===========================================================================
+// Vertex editing — the perimeter's corners
+// ===========================================================================
+
+/// The screen-space size of a vertex handle, in points.
+///
+/// The same 7 pt the Bézier handles use (`canvas::handles::GRIP_SIZE_PX`'s
+/// neighbourhood), because they are the same affordance to a hand: a small
+/// square you grab. Zoom-invariant — it is a screen-space control, so it does
+/// not grow with magnification, and a corner on a plan at 20 % is as grabbable
+/// as one at 400 %.
+pub const VERTEX_HANDLE_PT: f32 = 7.0;
+
+/// The trace region prefix each vertex handle is published under, suffixed with
+/// its index — `canvas.dimension-vertex.0`, `.1`, …
+///
+/// Published by the painter so a driven check can aim at a corner. See its call
+/// site for why a harness must never guess this.
+pub const VERTEX_REGION: &str = "canvas.dimension-vertex"; // ui-text-exempt: trace region name
+
+/// How much slack a press gets around a vertex handle, in points.
+///
+/// The drawn square is the promise; this is the target. They differ because a
+/// 7 pt square is a hard thing to hit with a mouse on a dense drawing, and the
+/// standing convention here — stated at `handles::grip_at` — is that a grip's
+/// live area may exceed its drawn one, never the reverse. A target smaller than
+/// its picture is the operator missing something they can see.
+const VERTEX_GRAB_SLACK_PT: f32 = 3.0;
+
+/// **Every vertex of the selected perimeter, in CANVAS space**, in index order.
+///
+/// Empty for every other selection and for every other dimension kind, which is
+/// what makes both the painter and the hit test one call with no branch of
+/// their own.
+#[must_use]
+pub fn vertices(doc: &OpenDoc, selection: &SelectionState) -> Vec<egui::Pos2> {
+    let Some((_, kind)) = selected(doc, selection) else {
+        return Vec::new();
+    };
+    let Some((points, _)) = kind.polyline() else {
+        return Vec::new();
+    };
+    let Some(page) = doc.pages.get(doc.view.page_index) else {
+        return Vec::new();
+    };
+    points
+        .iter()
+        .filter_map(|p| {
+            #[allow(clippy::cast_possible_truncation)]
+            let as_pos = egui::Pos2::new(p.x as f32, p.y as f32);
+            crate::viewer::pdf_space_to_canvas(as_pos, page)
+        })
+        .collect()
+}
+
+/// **Which vertex a press at `screen` landed on**, if any.
+///
+/// # ★ The comparison is in SCREEN space, and that is the whole of why this
+/// function converts rather than the caller
+///
+/// A handle is a screen-space affordance of a fixed size. Comparing in canvas
+/// or page space would make the target shrink as the operator zooms out —
+/// exactly when a plan's corners are closest together and precision matters
+/// most — and balloon as they zoom in, so that at 800 % a press anywhere near a
+/// corner would grab it. The conversion has to happen on the side of the
+/// boundary where the tolerance is meaningful, and that is here.
+///
+/// # Ties go to the LAST vertex, deliberately
+///
+/// Two coincident vertices are legal — [`super::measure::perimeter`] does not
+/// de-duplicate, on the argument that a repeated point is invisible rather than
+/// wrong. If the operator has made one and wants it gone, the one they can
+/// reach is the one they can drag away, and the later index is the one they
+/// just placed.
+#[must_use]
+pub fn vertex_at(
+    doc: &OpenDoc,
+    map: &PageMapping,
+    selection: &SelectionState,
+    screen: egui::Pos2,
+) -> Option<usize> {
+    let tolerance = VERTEX_HANDLE_PT / 2.0 + VERTEX_GRAB_SLACK_PT;
+    vertices(doc, selection)
+        .into_iter()
+        .enumerate()
+        .rfind(|(_, canvas)| map.to_screen(*canvas).distance(screen) <= tolerance)
+        .map(|(index, _)| index)
+}
+
+/// Advance one frame of a **vertex** drag.
+///
+/// Returns the page-space segments the shape would be drawn as if the operator
+/// released now, or `None` when the drag reaches no verb.
+///
+/// # ★★ This one RE-MEASURES, and that is the difference from every other
+/// gesture in this module
+///
+/// [`drag`] writes `offset` and `text_along` — two fields the value function
+/// does not read — so no label drag can alter the printed number. This one
+/// moves a corner of the measured shape, so it changes the number **by
+/// design**. The engine says so plainly: `move_dimension_vertex` is *"the first
+/// ce-dimension verb that deliberately changes what a ce dimension measures"*.
+///
+/// The consequence for this shell is a disclosure obligation the label drag does
+/// not have. `VertexOutcome` carries `previous_label` and `label` precisely
+/// because **the old value cannot be reconstructed afterwards** — the geometry
+/// it came from is gone — and a status line reading `12.40 m → 13.85 m` is a
+/// disclosure where one reading `13.85 m` is just the number the operator can
+/// already see on the page.
+///
+/// # No guard, no probe, no first-move check — the engine ruled on it
+///
+/// I asked whether the verb could refuse mid-drag, so that the preview could be
+/// withheld. The answer was that it cannot, and it was a ruling rather than an
+/// omission: a self-intersecting polyline has a perfectly well-defined total
+/// length (a figure-eight is a real fence run), and a zero-length segment
+/// contributes 0.0 and disappears the moment the vertex moves again. Every
+/// remaining refusal is structural and knowable before the drag begins.
+///
+/// **⇒ Draw the preview. Always.**
+pub fn drag_vertex(
+    index: usize,
+    at: egui::Pos2,
+    phase: Phase,
+    doc: &OpenDoc,
+    selection: &SelectionState,
+    map: &PageMapping,
+    actions: &mut Vec<Action>,
+) -> Option<Vec<(Point, Point)>> {
+    let (id, kind) = selected(doc, selection)?;
+    let (points, closed) = kind.polyline()?;
+    let page = doc.pages.get(doc.view.page_index)?;
+    let old = *points.get(index)?;
+    // `to_page` is this mapping's name for screen -> CANVAS space; the second
+    // hop, canvas -> PDF user space, is `viewer`'s and is the only place the
+    // y-flip and /Rotate are applied. Two named hops rather than one function,
+    // which is `canvas::mapping`'s standing rule.
+    let canvas = map.to_page(at);
+    let new = crate::viewer::canvas_to_pdf_space(canvas, page)?;
+
+    let mut moved: Vec<Point> = points.to_vec();
+    #[allow(clippy::cast_lossless)]
+    let target = Point::new(f64::from(new.x), f64::from(new.y));
+    *moved.get_mut(index)? = target;
+
+    if phase == Phase::Complete {
+        let (dx, dy) = (target.x - old.x, target.y - old.y);
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!(
+                "dimension-vertex id={} index={index} dx={dx:.2} dy={dy:.2}",
+                id.0
+            )
+        });
+        actions.push(Action::Dimension(DimensionAction::MoveVertex {
+            dimension: id,
+            index,
+            dx,
+            dy,
+        }));
+        return None;
+    }
+
+    // The preview, through the same segment function a committed perimeter is
+    // drawn from — this module's standing rule, and `measure::pick` supplies
+    // the closing segment for a ring rather than this call site guessing at it.
+    Some(super::measure::pick::dimension_preview_segments(
+        &DimensionKind::Perimeter {
+            points: moved,
+            closed,
+            offset: 0.0,
+            text_along: 0.0,
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -139,6 +139,21 @@ pub enum GestureOutcome {
         /// Draw, or commit.
         phase: Phase,
     },
+    /// A **perimeter ce dimension's vertex** being dragged.
+    ///
+    /// Carries the pointer's canvas position rather than a delta, for the
+    /// reason [`Self::Handle`] gives for the same choice: the commit needs the
+    /// page-space point the corner is going TO, and deriving it from a delta
+    /// would mean adding it to a stored origin that the gesture machine already
+    /// has and would then have to hand over anyway.
+    DimensionVertex {
+        /// Which vertex, sampled at the press.
+        index: usize,
+        /// Where the pointer is now, in canvas space.
+        at: egui::Pos2,
+        /// Draw, or commit.
+        phase: Phase,
+    },
     /// A **text sweep**: the two raw endpoints of the drag, in canvas space.
     ///
     /// Raw and in drag order, for the reason [`Self::Markup`] states at length
@@ -243,6 +258,11 @@ impl Drag {
             },
             DragKind::Move => GestureOutcome::Move { delta, phase },
             DragKind::Resize(grip) => GestureOutcome::Resize { grip, delta, phase },
+            DragKind::DimensionVertex { index } => GestureOutcome::DimensionVertex {
+                index,
+                at: self.latest,
+                phase,
+            },
             DragKind::Handle { node, handle } => GestureOutcome::Handle {
                 node,
                 handle,

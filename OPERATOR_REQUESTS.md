@@ -363,10 +363,26 @@ canvas units. The first vertex is stored where the *snap* put it, so the closing
 click was being measured against a target that had already moved — and it was
 being measured with the click tolerance instead of the snap tolerance. Fixed.
 
-**Still open in this row, and it is the rest of your ask:** right-click to add a
-segment, right-click to remove a vertex, and dragging the endpoints to adjust
-the shape. All four engine verbs exist. That is editing a *committed* dimension
-rather than authoring one, so it goes beside the dimension-drag work.
+**Dragging the endpoints SHIPPED 2026-08-20 and is driven.** Select a perimeter
+and its corners get handles; drag one and the shape follows, previewed as you
+go. The status row reports what it cost you:
+
+```
+That corner changed the measurement: 621.45 pt is now 1226.84 pt.
+```
+
+Both numbers, because you can see the new one and cannot see the old one — the
+geometry it came from is gone. Silent when the number did not move, so the line
+means something when it appears.
+
+You can also drag a perimeter's **number** now, the same way as a linear
+dimension's — and more freely, because a perimeter's label is anchored in page
+axes rather than to an axis, so it lands where you drop it instead of being
+flattened onto a line.
+
+**Still open in this row:** right-click a segment to add a point, right-click a
+point to remove one. Both engine verbs exist, and so does the preflight that
+tells a menu whether to grey the item, so this is shell work only.
 
 ## O4 — Insert image does nothing
 

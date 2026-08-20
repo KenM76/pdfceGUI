@@ -135,6 +135,39 @@ pub fn two_line_reading(
     }
 }
 
+/// ★★ **The disclosure a dragged perimeter vertex owes**: what the dimension
+/// read before, and what it reads now.
+///
+/// # Why BOTH numbers, when one of them is on the page
+///
+/// Because the operator can see the new one and cannot see the old one — the
+/// geometry it was measured from no longer exists. A line reading `13.85 m`
+/// tells them nothing they did not already have; `12.40 m → 13.85 m` tells them
+/// what their drag cost, which is the only fact here they cannot recover.
+///
+/// The engine carries `previous_label` on `VertexOutcome` for exactly this, and
+/// it is the reason this sentence can exist at all: nothing on this side could
+/// reconstruct it afterwards.
+///
+/// # Why it is off-canvas, and why that is the RULE rather than a preference
+///
+/// Rule 4, as narrowed by decision 059: the reshaped dimension and its new
+/// label render **exactly as they will render after Save** — no tint, no badge,
+/// no "recently changed" marking on the page. The change is stated here, on the
+/// status row, where it does not become a second rendering path for the same
+/// content. Two rendering paths drift; a sentence does not.
+///
+/// # And why it is silent when the number did not move
+///
+/// The caller drops this when `previous == current`. A corner dragged along its
+/// own segment changes the shape and not the length, and reporting `13.85 m →
+/// 13.85 m` would train the operator to ignore the one line that matters when
+/// it does move.
+#[must_use]
+pub fn vertex_remeasured(previous: &str, current: &str) -> String {
+    format!("That corner changed the measurement: {previous} is now {current}.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

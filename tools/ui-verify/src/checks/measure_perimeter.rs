@@ -51,6 +51,7 @@ use crate::error::{Error, Result};
 use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
+use crate::sys::vk;
 
 /// The mode the tool is offered in. Measuring reads the page and authors a ce
 /// dimension, which Review permits — the same mode `measure_linear` drives in,
@@ -81,6 +82,10 @@ const VERTEX_EVENT: &str = "measure-perimeter-vertex";
 const FINISH_EVENT: &str = "measure-finish";
 /// `add-dimension …` — the engine accepted it and the document changed.
 const COMMIT_EVENT: &str = "add-dimension";
+/// The prefix each vertex handle is published under, suffixed with its index.
+const VERTEX_REGION: &str = "canvas.dimension-vertex";
+/// `move-dimension-vertex …` — the engine accepted a reshaped corner.
+const VERTEX_COMMIT: &str = "move-dimension-vertex";
 
 /// The four corners, as fractions of the page box.
 ///
@@ -435,6 +440,85 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note(format!(
         "★ the Length tool took all {taken} clicks as vertices, so the first-vertex click did not close it"
+    ));
+    // --- 5: ★★ SELECT THE SHAPE AND DRAG A CORNER --------------------------
+    //
+    // The rest of the operator's ask: *"I want to be able to edit the endpoints
+    // of the lines to adjust the shape."*
+    //
+    // Two links no unit test can cross:
+    //
+    // 1. **the handles are grabbable WHERE THEY ARE DRAWN.** The hit test and
+    //    the painter each convert page → canvas → screen independently. If they
+    //    disagree, the operator sees a handle and cannot grab it — "visible
+    //    control, silently inert" in its purest form, and the failure this
+    //    project keeps meeting.
+    // 2. **the release RE-MEASURES.** This is the first ce-dimension verb that
+    //    deliberately changes what a dimension measures, so a drag that moved
+    //    the shape and left the number alone would be the worst outcome
+    //    available: a drawing whose caption disagrees with its own geometry.
+    // ★ PUT THE TOOL DOWN FIRST. With a measure tool armed a click on the page
+    // is a PICK, not a selection — `gesture::press_kind`'s highest rung — so
+    // the shape would never become selected and the handles would never be
+    // asked for. `V` is the select tool's chord.
+    //
+    // This cost one UNVERIFIED run to notice, and the check reported it as
+    // UNVERIFIED rather than as "the handles are not drawn", which is the
+    // distinction that made it a two-minute fix instead of an investigation
+    // into the painter.
+    driver.press(vk::V)?;
+    session.settle(10);
+    // The middle of the square that was traced, which is inside the committed
+    // perimeter's /Rect — what an annotation click hit-tests against.
+    driver.click_at(frame.to_screen(mapping.doc_to_window(DocPoint::new(
+        0,
+        0.45 * page.width_pt,
+        0.45 * page.height_pt,
+    ))?))?;
+    session.settle(18);
+    let trace = session.trace()?;
+    let Some(handle) = declared(&trace, ui_rect, &format!("{VERTEX_REGION}.0")) else {
+        report.note(format!(
+            "clicking the finished shape declared no `{VERTEX_REGION}.0`. Either the click did not select the dimension, or the handles are not drawn. The corner drag is UNVERIFIED. Regions seen: {}.",
+            list(&crate::checks::driving::declared_names(
+                &trace,
+                ui_rect,
+                VERTEX_REGION
+            ))
+        ));
+        return Ok(None);
+    };
+    report.note("the selected perimeter published its vertex handles");
+
+    let frame = session.frame()?;
+    let from = frame.declared_center(handle);
+    // ★ The destination is a DOCUMENT point, converted the same way the four
+    // corners were, rather than "the handle plus ninety pixels". Two reasons:
+    // it survives a zoom change between runs, and it states where the corner is
+    // going in the units the assertion is about. A pixel offset would be a
+    // magic number whose only meaning is "far enough".
+    //
+    // Well outside the traced square, so the new perimeter cannot coincide with
+    // the old one by arithmetic accident.
+    let to = frame.to_screen(mapping.doc_to_window(DocPoint::new(
+        0,
+        0.12 * page.width_pt,
+        0.12 * page.height_pt,
+    ))?);
+    let before = session.trace()?.events(VERTEX_COMMIT).count();
+    driver.drag(from, to)?;
+    session.settle(30);
+
+    let trace = session.trace()?;
+    if trace.events(VERTEX_COMMIT).count() <= before {
+        return Ok(Some(format!(
+            "★ a corner handle was published at {handle:?}, the drag started on it, and no `{VERTEX_COMMIT}` line followed. The handle is drawn and inert — either `dimdrag::vertex_at` and the painter disagree about where it is, or the press did not classify as `DragKind::DimensionVertex`. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "★ the corner drag reached the engine: `{}`",
+        trace.last(VERTEX_COMMIT).expect("just counted one").raw
     ));
     Ok(None)
 }

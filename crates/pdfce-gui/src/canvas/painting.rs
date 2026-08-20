@@ -271,6 +271,58 @@ pub(super) fn draw(
             factors,
         );
     }
+    // ★★ THE PERIMETER'S VERTEX HANDLES.
+    //
+    // Drawn whenever a perimeter ce dimension is selected, and drawn BEFORE the
+    // drag rather than only during it - because a handle that appears once you
+    // are already dragging is a handle nobody discovers. The operator asked to
+    // *"edit the endpoints of the lines to adjust the shape"*, and a shape whose
+    // corners are not marked gives them nothing to aim at.
+    //
+    // ★ The one rule that matters here is `dimdrag::vertex_at`'s: the drawn
+    // square is the promise and the live target is slightly larger. Never the
+    // reverse - a target smaller than its picture is the operator missing
+    // something they can plainly see, which is `handles::grip_at`'s standing
+    // convention and the reason both numbers live next to each other in one
+    // module rather than one here and one there.
+    //
+    // Note this is NOT content marking. Rule 4 forbids styling applied content
+    // as provisional; a selection handle is the cursor, and it is drawn for the
+    // selected object only, and it disappears the moment the selection does.
+    for (index, centre) in crate::canvas::dimdrag::vertices(doc, selection)
+        .into_iter()
+        .enumerate()
+    {
+        let screen = map.to_screen(centre);
+        let handle = egui::Rect::from_center_size(
+            screen,
+            egui::Vec2::splat(crate::canvas::dimdrag::VERTEX_HANDLE_PT),
+        );
+        // ★★ PUBLISHED, so a driven check can AIM at a corner.
+        //
+        // The same argument `SELECTION_OUTLINE_REGION` makes: where a handle is
+        // sits at the end of a page -> canvas -> screen conversion, and it is a
+        // fact only the application knows. A harness that guessed "somewhere
+        // near the corner I clicked" would land on the page instead, which
+        // starts a marquee - and the check would then pass while exercising a
+        // completely different gesture.
+        //
+        // Indexed, because *which* corner moved is the whole assertion: a drag
+        // that reshapes the wrong vertex is a defect that looks exactly like a
+        // working one until you compare the geometry.
+        crate::diag::ui_rect(
+            &format!("{}.{index}", crate::canvas::dimdrag::VERTEX_REGION),
+            handle,
+        );
+        painter.rect_filled(handle, 0.0, ui.visuals().extreme_bg_color);
+        painter.rect_stroke(
+            handle,
+            0.0,
+            egui::Stroke::new(1.0, ui.visuals().selection.stroke.color),
+            egui::StrokeKind::Middle,
+        );
+    }
+
     // ★ The ce-dimension placement preview, on the same layer and under the
     // same honesty contract as the two ghosts above: it is `Some` only when
     // `dimdrag::drag` has established that a release would commit, and it is

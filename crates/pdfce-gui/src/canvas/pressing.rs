@@ -163,10 +163,35 @@ pub fn look(
 
     let handle = origin.and_then(|p| handledrag::at(&visible_handles, map, p));
 
+    // ★★ What a press on a selected ce dimension landed on — a corner handle,
+    // its body, or nothing.
+    //
+    // Sampled here with the other two hit tests so that a press has one meaning
+    // decided in one place (this module's header), and resolved to a VALUE
+    // rather than left as two booleans, so `gesture::press_kind` stays free of
+    // geometry.
+    //
+    // ★ A corner outranks the body, and it must: a handle sits ON the shape, so
+    // every press that hits a handle also hits the body. Of the two readings,
+    // the one the operator aimed at is the small square they can see.
+    //
+    // Cheap to ask — it answers `None` immediately unless an annotation is
+    // selected and its sidecar record is a draggable kind.
+    let dimension = origin.and_then(|p| {
+        dimdrag::vertex_at(doc, map, selection, p)
+            .map(gesture::DimensionPress::Vertex)
+            .or_else(|| {
+                dimension_box
+                    .filter(|b| b.contains(p))
+                    .map(|_| gesture::DimensionPress::Body)
+            })
+    });
+
     let meaning = gesture::press_kind(
         active_tool,
         grip,
         handle,
+        dimension,
         zoom::region_zoom_armed(ctx),
         caps,
     );

@@ -1180,6 +1180,20 @@ pub(super) fn interact(
             )
             .map(|f| (grip, f));
         }
+        // ★ A perimeter's corner. Routed beside the Bézier handle it is
+        // modelled on, and to a different verb - `move_dimension_vertex` rather
+        // than `move_handle` - which is the whole reason they are two drag
+        // kinds rather than one with a flag in it.
+        //
+        // It reuses `dimension_preview` because the picture is the same shape:
+        // page-space segments of a polyline redrawn from the geometry the
+        // release will commit. A ghosted outline would be the wrong picture
+        // here for the same reason it is wrong for a label drag - moving one
+        // corner stretches two segments rather than translating a box.
+        GestureOutcome::DimensionVertex { index, at, phase } => {
+            dimension_preview =
+                dimdrag::drag_vertex(index, at, phase, doc, &selection, map, actions);
+        }
         GestureOutcome::Handle {
             node,
             handle,

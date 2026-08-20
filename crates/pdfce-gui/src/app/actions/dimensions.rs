@@ -383,6 +383,42 @@ pub enum DimensionAction {
     /// **One annotation**, redrawn where it now sits, so
     /// [`Self::regenerates_the_whole_group`] answers `false`. Nothing else in
     /// the group moves and no value is re-measured.
+    /// ★★ **Move one vertex of a perimeter ce dimension**, re-measuring it.
+    ///
+    /// Raised by `crate::canvas::dimdrag::drag_vertex` on the release of a
+    /// corner drag. The operator's ask of 2026-08-20: *"I want to be able to
+    /// edit the endpoints of the lines to adjust the shape."*
+    ///
+    /// # ★ This one CHANGES THE NUMBER, and it is the first that does
+    ///
+    /// [`Self::Place`] writes fields the value function does not read, so no
+    /// label drag can alter what a dimension prints. `SetDimensionGroup`
+    /// re-measures under a different scale. This moves a corner of the measured
+    /// shape itself, and the engine names it: *"the first ce-dimension verb that
+    /// deliberately changes what a ce dimension measures."*
+    ///
+    /// So it owes a disclosure the others do not, and the engine hands over the
+    /// material for it — `VertexOutcome` carries `previous_label` beside
+    /// `label`, because **the old value cannot be reconstructed afterwards**:
+    /// the geometry it came from is gone. A status line reading `12.40 m →
+    /// 13.85 m` is a disclosure; one reading `13.85 m` is just the number
+    /// already visible on the page.
+    ///
+    /// # Blast radius
+    ///
+    /// **One annotation**, redrawn with its new shape and its new label, so
+    /// [`Self::regenerates_the_whole_group`] answers `false`.
+    MoveVertex {
+        /// The perimeter to reshape.
+        dimension: DimensionId,
+        /// Which vertex, by index into its points.
+        index: usize,
+        /// How far it moves, page space, points.
+        dx: f64,
+        /// See [`Self::MoveVertex::dx`].
+        dy: f64,
+    },
+
     Place {
         /// The ce dimension to place.
         dimension: DimensionId,
@@ -725,6 +761,37 @@ pub(super) fn apply(doc: &mut OpenDoc, action: DimensionAction) {
         // disclose. The page is not known here (a `DimensionId` names a sidecar
         // record, not a page), so page `0` is passed with the note every
         // document-scoped verb in this file passes it with.
+        // ★★ The one dimension verb that RE-MEASURES, so it is the one that
+        // owes a disclosure. `VertexOutcome` carries the label before and
+        // after, because the old value cannot be reconstructed once the
+        // geometry it came from is gone - and "12.40 m -> 13.85 m" is a
+        // disclosure where "13.85 m" is just the number already on the page.
+        DimensionAction::MoveVertex {
+            dimension,
+            index,
+            dx,
+            dy,
+        } => {
+            super::apply::vector_edit(doc, "move-dimension-vertex", 0, 1, |session| {
+                session
+                    .move_dimension_vertex(dimension, index, dx, dy)
+                    .map(|outcome| {
+                        // Nothing to say when the number did not move - a
+                        // corner dragged along its own segment changes the
+                        // shape and not the length, and reporting "13.85 m ->
+                        // 13.85 m" would train the operator to ignore the line
+                        // that matters.
+                        if outcome.label == outcome.previous_label {
+                            Vec::new()
+                        } else {
+                            vec![crate::text::measure::vertex_remeasured(
+                                &outcome.previous_label,
+                                &outcome.label,
+                            )]
+                        }
+                    })
+            });
+        }
         DimensionAction::Place {
             dimension,
             offset,
