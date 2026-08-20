@@ -463,6 +463,32 @@ pub(super) fn canvas_keys(
         });
     }
 
+    // ★★★ …and ANY OTHER ARMED TOOL, last on this rung — 2026-08-20, on the
+    // operator: *"Escape should get me out of a tool."*
+    //
+    // The two calls above covered a pen and a measure tool. They left the
+    // caret, the node tool, the text tool and the hand, so the answer to *"how
+    // do I stop doing this?"* depended on which tool had been picked. The
+    // convention has no exceptions: Escape returns you to the pointer.
+    //
+    // Below the two specific calls rather than replacing them, because they
+    // trace distinct outcomes that driven checks read — and a general disarm
+    // that swallowed those would make a harness unable to tell which tool went
+    // down. It reports its own outcome for the same reason.
+    let tool_disarmed = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && !markup_disarmed
+        && !measure_disarmed
+        && crate::canvas::tool::disarm_any(ctx);
+    if tool_disarmed {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-escape outcome=DisarmedTool".to_owned()
+        });
+    }
+
     // Claimant 4.
     let disarmed = escape_available
         && !guide_cancelled
@@ -470,6 +496,11 @@ pub(super) fn canvas_keys(
         && !vertex_abandoned
         && !markup_disarmed
         && !measure_disarmed
+        // …and not if the general tool disarm above already spent this press.
+        // Decision 025's L1: ONE PRESS, ONE EFFECT. Without this line an
+        // operator with the node tool armed and a region zoom pending would
+        // lose both to a single Escape and have no way to keep either.
+        && !tool_disarmed
         && zoom::disarm_region_zoom(ctx);
     if disarmed {
         crate::diag::trace(|| {
@@ -478,13 +509,14 @@ pub(super) fn canvas_keys(
         });
     }
 
-    // Claimant 5, and only if none of the four above took the key.
+    // Claimant 5, and only if none of the rungs above took the key.
     if escape_available
         && !guide_cancelled
         && !measure_abandoned
         && !vertex_abandoned
         && !markup_disarmed
         && !measure_disarmed
+        && !tool_disarmed
         && !disarmed
     {
         // ★ Rung 5's two occupants, and they cannot both be here — see the

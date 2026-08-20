@@ -344,6 +344,7 @@ mod tests {
             rotate,
             contents: Vec::new(),
             contents_unresolved: 0,
+            contents_flattened: 0,
         }
     }
 

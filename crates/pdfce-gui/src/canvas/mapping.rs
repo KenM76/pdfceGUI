@@ -334,6 +334,7 @@ mod tests {
             rotate,
             contents: Vec::new(),
             contents_unresolved: 0,
+            contents_flattened: 0,
         }
     }
 
@@ -585,6 +586,7 @@ mod tests {
                 rotate: 0,
                 contents: Vec::new(),
                 contents_unresolved: 0,
+                contents_flattened: 0,
             })
             .collect();
         let zoom = 1.5_f32;

@@ -402,6 +402,53 @@ pub fn disarm_markup(ctx: &egui::Context) -> bool {
     true
 }
 
+/// ★★★ **Put down whatever is armed**, and report whether anything was.
+///
+/// The operator, 2026-08-20: *"Escape should get me out of a tool."*
+///
+/// # Why this exists when `disarm_markup` and `disarm_measure` already did
+///
+/// Because between them they covered **two** of the seven tools. Escape put
+/// down a pen and a measure tool and did nothing at all for the caret, the node
+/// tool, the text tool or the hand — so the answer to *"how do I stop doing
+/// this?"* depended on which tool you had picked, which is not something an
+/// operator should have to know.
+///
+/// The convention is universal and has no exceptions worth carving: **Escape
+/// returns you to the pointer.** Every drawing program, every CAD package,
+/// every vector editor.
+///
+/// # It is the LAST rung of the tool group, not the first
+///
+/// A tool with a gesture in flight spends the first Escape on the gesture and
+/// stays armed — an operator correcting a mistyped character must not also be
+/// putting the pen down. `canvas::keys`' ladder enforces that ordering and this
+/// function is only reached once every in-flight claimant has declined.
+///
+/// So the sequence an operator experiences is the one they expect from
+/// everywhere else: **Escape abandons what you are doing; Escape again puts the
+/// tool down; Escape again backs out of the selection.**
+///
+/// # Why it does not touch a SPACE-held hand
+///
+/// Because that hand is not armed — `resolve` composes it over the selected
+/// tool for as long as the bar is down, and `selected` reports what the
+/// operator actually chose. Retiring it here would be retiring something they
+/// have not picked, and it would come straight back on the next frame anyway.
+pub fn disarm_any(ctx: &egui::Context) -> bool {
+    if selected(ctx) == CanvasTool::Select {
+        return false;
+    }
+    select(ctx, CanvasTool::Select);
+    // The caret is not part of `CanvasTool`, and a draft that outlived its tool
+    // would take keystrokes with nothing to commit them to. `abandon` is a
+    // no-op when there is none — and by the time this rung is reached the
+    // ladder has already spent an Escape on any draft that WAS in flight, so
+    // this cannot swallow one.
+    crate::canvas::textedit::abandon(ctx);
+    true
+}
+
 /// **Retire an armed tool the mode being entered does not permit**, and report
 /// whether there was one.
 ///
