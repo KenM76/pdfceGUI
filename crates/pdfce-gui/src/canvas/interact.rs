@@ -130,8 +130,8 @@ use crate::shell::menus::MenuHost;
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
 use super::{
-    CANVAS_MARGIN, handles, keys, markup, measure, menus, moving, overlay, strip, textsel, tool,
-    trace, zoom,
+    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, menus, moving, overlay, strip, textsel,
+    tool, trace, zoom,
 };
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
@@ -564,6 +564,15 @@ pub(super) fn interact(
     // the paint loop for a value that is `None` on every frame nobody is
     // dragging.
     let mut handle_preview: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)> = None;
+    // A ce dimension being dragged to a new placement, as the PAGE-SPACE
+    // segments it would be drawn as on release. A fourth preview slot for the
+    // same reason as the three above, and one more of its own: this one is not
+    // an outline of an existing shape at all - it is the dimension redrawn from
+    // its own geometry, because moving a dimension line stretches its extension
+    // lines rather than translating a box. A ghost offset by a delta would draw
+    // the wrong picture entirely.
+    let mut dimension_preview: Option<Vec<(pdfce_core::vector::Point, pdfce_core::vector::Point)>> =
+        None;
     let mut band = None;
     // The freehand trail, already simplified, in canvas space. A second
     // preview value beside `band` rather than a variant of it, because the two
@@ -949,15 +958,43 @@ pub(super) fn interact(
         // purpose: this arm is wiring, and the rules are unit-tested without a
         // window in `moving`.
         GestureOutcome::Move { delta, phase } => {
-            ghost = moving::drag(
-                delta,
-                phase,
-                &selection,
-                page_index,
-                targets.as_deref(),
-                doc.current_page(),
-                actions,
-            );
+            // ★★ Two different verbs share one gesture, and the selection
+            // decides which.
+            //
+            // A content move reaches `move_objects` / `move_nodes`; a ce
+            // dimension reaches `place_dimension`, which changes only where the
+            // dimension is DRAWN and cannot alter the number it prints. They
+            // are the same gesture to the operator - press inside the thing,
+            // drag it - and that is why they share `DragKind::Move` rather than
+            // getting a mode or a modifier. See `canvas::dimdrag`'s header for
+            // why placement, and not translation, is what dragging a dimension
+            // means.
+            //
+            // Mutually exclusive by construction: `dimdrag` answers only for an
+            // annotation selection and `moving::eligible` only for content, so
+            // the `else` is a statement of that rather than a precedence.
+            if selection.annot().is_some() {
+                dimension_preview = dimdrag::drag(
+                    dimdrag::Frame {
+                        delta,
+                        phase,
+                        page: doc.current_page(),
+                    },
+                    doc,
+                    &selection,
+                    actions,
+                );
+            } else {
+                ghost = moving::drag(
+                    delta,
+                    phase,
+                    &selection,
+                    page_index,
+                    targets.as_deref(),
+                    doc.current_page(),
+                    actions,
+                );
+            }
         }
         // ★ The markup band. `markup::drag` owns every rule — the canvas→page
         // conversion, the degenerate-drag refusal, which endpoints stay raw —
@@ -1340,6 +1377,7 @@ pub(super) fn interact(
             ghost,
             resize_ghost,
             handle_drag: handle_preview,
+            dimension_preview: dimension_preview.as_deref(),
             band,
             ink_trail,
             active_tool,

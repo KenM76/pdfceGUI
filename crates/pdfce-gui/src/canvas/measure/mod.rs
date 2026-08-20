@@ -56,7 +56,7 @@ pub(in crate::canvas) mod resolve;
 
 use resolve::snapped;
 pub(in crate::canvas) use resolve::{Resolved, resolve_hover};
-mod pick;
+pub(super) mod pick;
 pub mod scale;
 pub mod state;
 
@@ -1063,7 +1063,11 @@ const SNAP_MARKER_PT: f32 = 6.0;
 /// outlines. There is no third conversion here and no arithmetic; if there
 /// were, it would be the second place in `canvas/` that divides by zoom, which
 /// `crate::canvas::mapping`'s header forbids.
-fn page_to_screen(p: Point, page: &pdfce_core::page_tree::Page, map: &PageMapping) -> Option<Pos2> {
+pub(in crate::canvas) fn page_to_screen(
+    p: Point,
+    page: &pdfce_core::page_tree::Page,
+    map: &PageMapping,
+) -> Option<Pos2> {
     let canvas = viewer::pdf_space_to_canvas(Pos2::new(p.x as f32, p.y as f32), page)?;
     Some(map.to_screen(canvas))
 }

@@ -152,6 +152,11 @@ pub mod guides;
 /// 2026-08-19. Implements the row the engine can express (markup) and records
 /// the one it cannot (page content) as a dated citation rather than a promise.
 pub mod clipboard;
+/// A placement drag on a selected ce dimension - the operator's report of
+/// 2026-08-20, *"I need to be able to move the dimension after it has been laid
+/// down"*. Reaches `place_dimension`, never `move_dimension`; its header says
+/// why that distinction is the whole design.
+pub mod dimdrag;
 pub mod grid;
 pub mod handledrag;
 pub mod handles;

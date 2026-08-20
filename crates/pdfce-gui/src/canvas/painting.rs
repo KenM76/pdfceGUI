@@ -82,6 +82,19 @@ pub(super) struct Frame<'a> {
     pub handle_drag: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)>,
     /// The resize ghost's grip and factors, if a resize would commit.
     pub resize_ghost: Option<(handles::Grip, (f32, f32))>,
+    /// A ce dimension being dragged to a new placement, as the **page-space**
+    /// segments it would be drawn as on release.
+    ///
+    /// ★ Page space, not canvas space, and that is the one thing to know about
+    /// this field. Every other preview here is a screen or canvas figure that
+    /// the gesture computed directly. This one is produced by
+    /// `measure::pick::dimension_preview_segments` - the *same* function a
+    /// committed dimension is previewed from - which works in the document's
+    /// own coordinates, and it has to, because the geometry it derives (where
+    /// the dimension line runs, where each extension line reaches from) is
+    /// defined in the page. Projecting happens once, at the painter, through
+    /// the same two-hop bridge `canvas::measure` uses.
+    pub dimension_preview: Option<&'a [(pdfce_core::vector::Point, pdfce_core::vector::Point)]>,
     /// The markup band, if one would commit.
     pub band: Option<markup::band::Preview>,
     /// The freehand trail, already simplified, in canvas space.
@@ -257,6 +270,31 @@ pub(super) fn draw(
             grip.pivot(bounds),
             factors,
         );
+    }
+    // ★ The ce-dimension placement preview, on the same layer and under the
+    // same honesty contract as the two ghosts above: it is `Some` only when
+    // `dimdrag::drag` has established that a release would commit, and it is
+    // derived from the SAME placement the commit writes - literally the same
+    // pair of `f64`s. So the operator cannot be shown one standoff and given
+    // another.
+    //
+    // Drawn in the selection stroke rather than a colour of its own. The
+    // dimension being dragged is the selected object, this is that object
+    // following the pointer, and a third colour on the canvas would be a fourth
+    // thing to learn for no information gained.
+    if let Some(segments) = f.dimension_preview
+        && let Some(page) = doc.pages.get(page_index)
+    {
+        let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
+        for (a, b) in segments {
+            let (Some(sa), Some(sb)) = (
+                crate::canvas::measure::page_to_screen(*a, page, map),
+                crate::canvas::measure::page_to_screen(*b, page, map),
+            ) else {
+                continue;
+            };
+            painter.line_segment([sa, sb], stroke);
+        }
     }
     // Last, and over everything: the band IS the cursor for as long as it
     // exists, and a guide or an outline drawn over the shape being authored

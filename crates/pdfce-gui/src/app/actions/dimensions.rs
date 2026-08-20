@@ -358,6 +358,42 @@ pub enum DimensionAction {
         group: GroupId,
     },
 
+    /// ★ **Place a ce dimension** - where its line stands off the geometry, and
+    /// where its number sits along that line.
+    ///
+    /// Raised by `crate::canvas::dimdrag` on the release of a drag, and by
+    /// nothing else. There is no panel control for these two numbers and that
+    /// is deliberate: they are a position, and a position is set by putting it
+    /// somewhere, not by typing two scalars whose frame the operator would have
+    /// to hold in their head.
+    ///
+    /// # Why this and not `move_dimension`
+    ///
+    /// `place_dimension` writes two fields the value function does not read, so
+    /// it is **value-preserving by construction**: no drag, however far, can
+    /// change the number the dimension prints. `move_dimension` translates the
+    /// measured points as well - the distance survives a rigid motion, but the
+    /// dimension leaves the feature it was measuring, which is not what an
+    /// operator dragging a dimension line means. The engine's own doc comment
+    /// settles it: *"This, not `move_dimension`, is what dragging a dimension
+    /// does."* See `canvas::dimdrag`'s header for the table.
+    ///
+    /// # Blast radius
+    ///
+    /// **One annotation**, redrawn where it now sits, so
+    /// [`Self::regenerates_the_whole_group`] answers `false`. Nothing else in
+    /// the group moves and no value is re-measured.
+    Place {
+        /// The ce dimension to place.
+        dimension: DimensionId,
+        /// Standoff perpendicular to the measured axis, in points, signed
+        /// along the canonical normal `DimensionKind::axis_frame` returns.
+        offset: f64,
+        /// Position of the value text along the dimension line, in points,
+        /// measured from its midpoint.
+        text_along: f64,
+    },
+
     /// ★ **Set a dimension group's drafting standard** — ANSI or ISO.
     ///
     /// Raised by `crate::dialogs::dimension_groups`.
@@ -680,6 +716,23 @@ pub(super) fn apply(doc: &mut OpenDoc, action: DimensionAction) {
             super::apply::vector_edit(doc, "set-dimension-group", 0, 1, |session| {
                 session
                     .set_dimension_group(dimension, group)
+                    .map(|()| Vec::new())
+            });
+        }
+        // ★ One annotation redrawn, in place. No value is re-measured -
+        // `place_dimension` writes two fields the value function does not read
+        // - so unlike `SetDimensionGroup` above there is not even a number to
+        // disclose. The page is not known here (a `DimensionId` names a sidecar
+        // record, not a page), so page `0` is passed with the note every
+        // document-scoped verb in this file passes it with.
+        DimensionAction::Place {
+            dimension,
+            offset,
+            text_along,
+        } => {
+            super::apply::vector_edit(doc, "place-dimension", 0, 1, |session| {
+                session
+                    .place_dimension(dimension, offset, text_along)
                     .map(|()| Vec::new())
             });
         }

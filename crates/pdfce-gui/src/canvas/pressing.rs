@@ -54,7 +54,7 @@ use crate::canvas::handles::Grip;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::canvas::tool::CanvasTool;
-use crate::canvas::{handledrag, handles, overlay, zoom};
+use crate::canvas::{dimdrag, handledrag, handles, overlay, zoom};
 
 /// Everything the frame learned by looking at where a press would land.
 ///
@@ -113,12 +113,27 @@ pub fn look(
     // Object rung stopped them CLAIMING that press; this is the other half,
     // which makes the move claim it. The operator's version of the pair is
     // *"I can drag the middle points and not the end ones"*.
-    let grip_box = overlay::grip_box(map, selection).map(|b| {
-        if at_object_rung {
-            b
-        } else {
-            b.expand(overlay::ANCHOR_PX)
-        }
+    // ★★ A selected ce dimension supplies its OWN move box, and it comes
+    // first.
+    //
+    // `overlay::grip_box` derives its answer from the selection's cached
+    // content outlines, which `select_annot` clears - an annotation is not
+    // content and has nothing decomposed to cache. So over a selected dimension
+    // it answers `None`, the press fell through to a marquee, and pressing on
+    // the dimension REPLACED the selection the operator was trying to drag.
+    // That is the operator's report of 2026-08-20 in its mechanical form.
+    //
+    // `dimdrag::grab_box` is `Some` only for a dimension a placement drag can
+    // actually finish, so no gesture is ever started that could not commit.
+    let dimension_box = dimdrag::grab_box(doc, map, selection);
+    let grip_box = dimension_box.or_else(|| {
+        overlay::grip_box(map, selection).map(|b| {
+            if at_object_rung {
+                b
+            } else {
+                b.expand(overlay::ANCHOR_PX)
+            }
+        })
     });
 
     let origin = ctx.input(|i| i.pointer.press_origin()).or(screen_pos);
@@ -128,7 +143,13 @@ pub fn look(
         // the second was found by driving: the subject is wrong at an inner rung
         // (the operator said *this point*, not *this whole shape*), and the
         // corner grips physically cover the corner ANCHORS.
-        handles::grip_at(bounds, p, at_object_rung)
+        //
+        // ★ And never over a dimension. A ce dimension has no scale verb, so
+        // offering resize grips on one would be eight visible controls that
+        // silently do nothing - and worse than inert, because each grip would
+        // CLAIM the press and stop the corners of the box from moving the
+        // dimension. The whole box is the move target.
+        handles::grip_at(bounds, p, at_object_rung && dimension_box.is_none())
     });
 
     // The provider is asked for only at an inner rung — `handledrag::visible`
