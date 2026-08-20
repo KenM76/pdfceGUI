@@ -689,8 +689,8 @@ pub use annotate::{
     markup_arrow, markup_cloud, markup_comments, markup_ellipse, markup_finish, markup_highlight,
     markup_ink, markup_polygon, markup_polyline, markup_rectangle, markup_squiggly, markup_stamp,
     markup_sticky_note, markup_strikeout, markup_text_box, markup_underline, measure_finish,
-    measure_linear, measure_manage_groups, measure_radius_diameter, measure_set_scale,
-    measure_two_line,
+    measure_linear, measure_manage_groups, measure_perimeter, measure_radius_diameter,
+    measure_set_scale, measure_two_line,
 };
 
 // ===========================================================================
@@ -931,6 +931,7 @@ mod tests {
             markup_stamp(),
             markup_comments(),
             measure_linear(),
+            measure_perimeter(),
             measure_radius_diameter(),
             // `measure_two_line` was registered on 2026-08-14 and was not
             // added here, so for one day the label-uniqueness and

@@ -328,6 +328,7 @@
                     items: [
                         Command("measure.linear"),
                         Command("measure.radius_diameter"),
+                        Command("measure.perimeter"),
                         Command("measure.two_line"),
                         Command("measure.finish"),
                     ],

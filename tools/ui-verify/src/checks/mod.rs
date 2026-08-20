@@ -141,6 +141,7 @@ pub mod measure_calibrate;
 /// Hovering with a measure tool armed says which line and which node.
 pub mod measure_hover;
 pub mod measure_linear;
+pub mod measure_perimeter;
 /// ★ File ▸ New — the first command that makes a document out of **compiled-in
 /// bytes** rather than out of a file the operator named, and the only check in
 /// the suite whose subject is a page that is *supposed* to be blank. That is
@@ -489,6 +490,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // run in which the ribbon-click channel is broken should report that as
         // `markup_rectangle`'s failure first.
         Box::new(markup_style::MarkupStyleGroupIsDrawn),
+        Box::new(measure_perimeter::MeasurePerimeterTracesAndCloses),
         Box::new(measure_linear::MeasureLinearPlacesADimension),
         // Straight after the linear tool, because it is the same gesture with a
         // different ending and a reader scanning the suite should meet them

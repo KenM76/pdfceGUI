@@ -105,6 +105,10 @@ pub struct MeasureState {
     pub linear: LinearPick,
     /// The circular best-fit pick-set (`CanvasTool::MeasureCircular`).
     pub circular: CircularPick,
+    /// The perimeter trace (`MeasureKind::Perimeter`) - the vertices picked so
+    /// far and whether the operator has closed the ring. See
+    /// `super::perimeter`.
+    pub perimeter: super::perimeter::PerimeterPick,
     /// The scale-dimension pick + dialog (`CanvasTool::MeasureScale`).
     pub scale: ScalePick,
     /// Which geometry the linear tool's picks target (`Pass 68.0`).
@@ -206,6 +210,7 @@ impl MeasureState {
             derived_promoted: None,
             linear: LinearPick::new(),
             circular: CircularPick::new(),
+            perimeter: super::perimeter::PerimeterPick::default(),
             scale: ScalePick::new(),
             two_lines: TwoLinePick::new(),
             pending: None,

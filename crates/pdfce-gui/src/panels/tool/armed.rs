@@ -63,6 +63,7 @@ use crate::text::tool as t;
 pub(super) fn block(
     ui: &mut Ui,
     ctx: &egui::Context,
+    doc: &crate::app::state::OpenDoc,
     tool: CanvasTool,
     host: Option<&MenuHost<'_>>,
 ) {
@@ -71,7 +72,7 @@ pub(super) fn block(
 
     identity(ui, tool, host);
     ui.add_space(4.0);
-    stage(ui, ctx, tool);
+    stage(ui, ctx, doc, tool);
     ui.add_space(6.0);
     options(ui, ctx, tool);
     put_down(ui, ctx);
@@ -195,7 +196,7 @@ fn identity(ui: &mut Ui, tool: CanvasTool, host: Option<&MenuHost<'_>>) {
 /// and the controls below it must not move when the line's *content* changes —
 /// so the instruction and the live stage share it rather than the stage
 /// appearing beneath the instruction.
-fn stage(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
+fn stage(ui: &mut Ui, ctx: &egui::Context, doc: &crate::app::state::OpenDoc, tool: CanvasTool) {
     let text = match tool {
         CanvasTool::Select => return,
         CanvasTool::Node => {
@@ -256,9 +257,75 @@ fn stage(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
                 _ => t::text_edit_instruction(kind).to_owned(),
             }
         }
+        // ★★ The perimeter tool reports its RUNNING TOTAL, and it is the one
+        // measure tool that has to.
+        //
+        // Every other gesture here has a fixed arity, so the operator can see
+        // how far through it they are by counting their own clicks. A perimeter
+        // has no arity: after eight vertices around a building footprint there
+        // is nothing on screen that says what has been measured so far, and the
+        // operator asked for this number by name - *"it adds the distance of
+        // all the segments together"*.
+        //
+        // ★ Formatted through the AUTHORING GROUP's scale and number format,
+        // never as raw points. The whole of what he asked for is that this tool
+        // behaves *"the same as the other dimensioning tools"*, and a live
+        // readout in points beside a committed dimension in metres would be two
+        // numbers for one measurement. `format_measurement` is the engine's own
+        // function - the same one the committed label goes through - so the
+        // running total and the final label cannot disagree about scale, unit,
+        // precision or decimal marker.
+        //
+        // The RAW-page-units case is not hidden: `format_measurement` reports
+        // it, and the group panel already discloses "no scale set". Showing
+        // "735.37 pt" while tracing is honest, and it is exactly what the
+        // committed dimension will print.
+        CanvasTool::Measure(crate::canvas::measure::MeasureKind::Perimeter) => {
+            perimeter_stage(ctx, doc)
+        }
         CanvasTool::Measure(kind) => t::measure_instruction(kind).to_owned(),
     };
     ui.label(egui::RichText::new(text).small());
+}
+
+/// The perimeter tool's live sentence: the instruction before the first click,
+/// the running total after it.
+///
+/// # Why the total is formatted through the group rather than shown in points
+///
+/// Because the operator's whole ask was that this tool behave *"the same as the
+/// other dimensioning tools"*, and the other tools' output is read against the
+/// group's scale. A live readout in points beside a committed dimension in
+/// metres would be two numbers for one measurement, and the operator would have
+/// to know which was which.
+///
+/// [`pdfce_core::dimension::format_measurement`] is the ENGINE's own function -
+/// the same one the committed label goes through - so the running total and the
+/// final label cannot disagree about scale, unit, precision, fraction style or
+/// decimal marker. Re-deriving any of that here would be a second formatter,
+/// which is the failure `dialogs::insert_image` records at length.
+///
+/// Falls back to the instruction when the group cannot be read. That is the
+/// honest answer rather than a number in the wrong units: a total whose scale
+/// is unknown is not a total.
+fn perimeter_stage(ctx: &egui::Context, doc: &crate::app::state::OpenDoc) -> String {
+    let Some(st) = crate::canvas::measure::read(ctx) else {
+        return t::measure_instruction(crate::canvas::measure::MeasureKind::Perimeter).to_owned();
+    };
+    let picked = st.perimeter.points().len();
+    if picked == 0 {
+        return t::measure_instruction(crate::canvas::measure::MeasureKind::Perimeter).to_owned();
+    }
+    let model = doc.session.dimension_model();
+    let Some(group) = model.group(st.group) else {
+        return t::measure_instruction(crate::canvas::measure::MeasureKind::Perimeter).to_owned();
+    };
+    let shown = pdfce_core::dimension::format_measurement(
+        st.perimeter.length_points(),
+        group.scale,
+        group.format,
+    );
+    t::measure_perimeter_live(picked, &shown.text)
 }
 
 /// Row 4 — put the tool down.

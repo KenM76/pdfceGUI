@@ -195,10 +195,33 @@ unit, precision, drafting standard and layer come free. The label sits at the
 vertex centroid, so it drifts smoothly when you drag a corner instead of
 teleporting across the shape.
 
-**What is left is mine**: the pick machine (click around, double-click to end
-open, click the first vertex to close), the running preview and total, the
-right-click menu, and the vertex handles. Started — the preview function draws
-a perimeter today. Not yet an armed tool.
+**SHIPPED 2026-08-20 and DRIVEN.** Measure ▸ Perimeter arms a tool; click
+around the shape; the polyline previews as you go with a rubber band to the
+cursor; the Tool panel shows the running total in the group's own units;
+clicking the first point closes the ring and commits; double-click finishes an
+open path; `measure.finish` on the ribbon does the same.
+
+It is a real dimension in a real group, so the scale, unit, number format,
+drafting standard, layer and style cascade all apply exactly as they do to a
+linear dimension — which is the half you asked about specifically.
+
+Driven on the benchmark sheet by `measure_perimeter_traces_and_closes`:
+
+```
+Measure ▸ Perimeter armed the tool
+four vertices taken; running total: -0.0 → 378.8 → 655.8 → 1023.6
+★ the ring closed and the dimension reached the engine: add-dimension page=0 n=1
+```
+
+The first driven run FAILED, correctly: the ring would not close, by eight
+canvas units. The first vertex is stored where the *snap* put it, so the closing
+click was being measured against a target that had already moved — and it was
+being measured with the click tolerance instead of the snap tolerance. Fixed.
+
+**Still open in this row, and it is the rest of your ask:** right-click to add a
+segment, right-click to remove a vertex, and dragging the endpoints to adjust
+the shape. All four engine verbs exist. That is editing a *committed* dimension
+rather than authoring one, so it goes beside the dimension-drag work.
 
 ## O4 — Insert image does nothing
 

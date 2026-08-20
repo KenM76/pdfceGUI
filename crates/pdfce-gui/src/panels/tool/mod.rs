@@ -199,7 +199,7 @@ pub fn body(ui: &mut Ui, doc: &OpenDoc, host: Option<&MenuHost<'_>>, actions: &m
                 idle::tools(ui, &ctx, host, actions);
             } else {
                 ui.separator();
-                armed::block(ui, &ctx, armed, host);
+                armed::block(ui, &ctx, doc, armed, host);
             }
 
             // ★ Block C LAST, and it is the one block that may render nothing.

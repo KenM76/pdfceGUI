@@ -905,7 +905,6 @@ pub const PLANNED: &[(&str, &str)] = &[
         "N — the whole Measure ▸ Quantity group is unbuilt, so the GROUP is absent too.",
     ),
     // ui-text-exempt: developer note about an ABSENT command; never rendered.
-    ("measure.perimeter", "N — as `measure.distance`."),
     (
         "measure.area",
         // ui-text-exempt: developer note about an ABSENT command; never rendered.

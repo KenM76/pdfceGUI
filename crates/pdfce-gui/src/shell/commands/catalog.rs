@@ -1143,6 +1143,16 @@ pub(super) fn all() -> Vec<Command> {
         command("measure.radius_diameter", t::measure_radius_diameter(), 601)
             .with_icon("measure")
             .enabled_when("doc.pages"),
+        // ★ **Perimeter** - the operator's ask of 2026-08-20.
+        //
+        // Shares the `measure` glyph with its three neighbours for the reason
+        // the note below gives about Two-line: all four place a dimension, and
+        // what differs is what they measure FROM. Four near-identical rulers
+        // would make the group harder to read, not easier, and the label is
+        // where the distinction belongs.
+        command("measure.perimeter", t::measure_perimeter(), 604)
+            .with_icon("measure")
+            .enabled_when("doc.pages"),
         // Registered as part of Phase 7, moving out of `manifest::PLANNED`.
         //
         // It shares the `measure` glyph with Linear and Radius/diameter rather

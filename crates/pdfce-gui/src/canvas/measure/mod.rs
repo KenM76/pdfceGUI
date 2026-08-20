@@ -56,6 +56,12 @@ pub(in crate::canvas) mod resolve;
 
 use resolve::snapped;
 pub(in crate::canvas) use resolve::{Resolved, resolve_hover};
+/// The perimeter tool - click around a shape, one number for the whole way
+/// round. A hybrid of the two tools beside it: point picks with snapping like
+/// `Linear`, an open-ended gesture like `Circular`, plus an ending of its own
+/// (click the first vertex to close the ring). Its header says why.
+pub mod perimeter;
+
 pub(super) mod pick;
 pub mod scale;
 pub mod state;
@@ -123,6 +129,20 @@ pub enum MeasureKind {
     /// it would arm a destructive control over a set the operator assembled for
     /// a completely different purpose.
     Circular,
+    /// **Click around a shape; one number for the whole way round.** The
+    /// operator's ask of 2026-08-20, and the tool `canvas::measure::perimeter`
+    /// implements.
+    ///
+    /// Three endings rather than the usual one or two, and each is a different
+    /// sentence the operator might mean: a **double-click** ends it as an open
+    /// path (a pipe run, a cable route), a click on the **first vertex** closes
+    /// it into a ring (a footprint, a fence line), and `measure.finish` ends it
+    /// open for a pick that is awkward to double-click on.
+    ///
+    /// Its picks are POINTS, so it shares `Linear`'s snap machinery
+    /// untouched - which matters, because tracing a building outline means
+    /// aiming at the corners of paths that are already on the page.
+    Perimeter,
     /// Pick two lines on the page; the engine authors the dimension between
     /// them. The gesture pdfce's own ledger marks as shipped, whose caller was
     /// missing on this side — see `SALVAGE.md`'s correction of 2026-08-14.
@@ -182,7 +202,8 @@ impl MeasureKind {
     /// that cost: it matches **exhaustively** over the enum, so a new variant
     /// does not compile until it is either put in `ALL` or added to the
     /// excluded list with a reason.
-    pub const ALL: &'static [Self] = &[Self::Linear, Self::Circular, Self::TwoLine];
+    pub const ALL: &'static [Self] =
+        &[Self::Linear, Self::Circular, Self::Perimeter, Self::TwoLine];
 
     /// The kinds that are deliberately **not** on the ribbon, with the surface
     /// that arms each one instead.
@@ -359,7 +380,7 @@ pub fn set_active_group(ctx: &egui::Context, group: pdfce_core::dimension::Group
     store(ctx, st);
 }
 
-fn read(ctx: &egui::Context) -> Option<MeasureState> {
+pub fn read(ctx: &egui::Context) -> Option<MeasureState> {
     ctx.data_mut(|d| d.get_temp::<MeasureState>(egui::Id::new(MEASURE_MEMORY_KEY)))
 }
 /// The radius/diameter tool's two public entrances, re-exported so that every
@@ -371,7 +392,70 @@ fn read(ctx: &egui::Context) -> Option<MeasureState> {
 /// is that tool's subject alone; they are named here because a dispatcher
 /// reaching two modules deep for one verb is a dispatcher that knows more about
 /// the canvas than it should.
-pub use circular::{finish, finishable};
+pub use circular::{finish as finish_circular, finishable as finishable_circular};
+
+/// **Is there a gesture waiting for `measure.finish`?** - the application state
+/// behind the `measure.finishable` condition, over every open-ended tool.
+///
+/// # Why this is one function rather than one per tool
+///
+/// Because `measure.finish` is ONE command. The ribbon shows one control, the
+/// operator presses it once, and it has to mean *"end whatever I am in the
+/// middle of"* - so the question *"is there something to end?"* has to be asked
+/// the same way. Two `enabled_when` conditions on one command would be a
+/// control that is live for one tool and dead for another with nothing on
+/// screen saying which.
+///
+/// Added 2026-08-20 with the perimeter tool, which is the second open-ended
+/// gesture on this tab and the reason the singular form stopped working.
+#[must_use]
+pub fn finishable(ctx: &egui::Context) -> bool {
+    match crate::canvas::tool::selected(ctx).measure_kind() {
+        Some(MeasureKind::Circular) => finishable_circular(ctx),
+        Some(MeasureKind::Perimeter) => read(ctx).is_some_and(|st| st.perimeter.author().is_some()),
+        // Every other kind has a fixed arity and finishes itself. Spelled as a
+        // catch-all rather than enumerated because the property being asserted
+        // is "this tool ends on its own", which is the default and which a new
+        // fixed-arity tool inherits correctly.
+        _ => false,
+    }
+}
+
+/// **The `measure.finish` command's whole effect**, reporting whether it did
+/// anything.
+///
+/// Routes to the armed tool's own commit path - never to a second one. Each
+/// tool has exactly one function that builds its `DimensionKind`, and this is
+/// the door the ribbon knocks on rather than a third place that could author a
+/// slightly different shape.
+///
+/// Returns `false` when there is nothing to finish, so the dispatcher can say
+/// which kind of nothing happened rather than tracing a success it did not
+/// have.
+pub fn finish(ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+    match crate::canvas::tool::selected(ctx).measure_kind() {
+        Some(MeasureKind::Circular) => finish_circular(ctx, actions),
+        Some(MeasureKind::Perimeter) => {
+            let Some(mut st) = read(ctx) else {
+                return false;
+            };
+            let page_index = st.page_index;
+            if !perimeter::commit(&mut st, page_index, actions) {
+                return false;
+            }
+            store(ctx, st);
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI.
+                //
+                // Which of the three endings asked for the commit - a fact no
+                // screenshot can carry and the engine cannot know.
+                format!("measure-finish via=command kind=perimeter page={page_index}")
+            });
+            true
+        }
+        _ => false,
+    }
+}
 
 /// **Abandon a pick in progress**, reporting whether there was one.
 ///
@@ -625,6 +709,31 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
                     disclosures: Vec::new(),
                 }));
             }
+        }
+        // ★ The perimeter tool takes its point HERE, after the snap
+        // machinery above has run - unlike `Circular`, which is taken before
+        // it. That is the whole reason this tool is a hybrid: its picks are
+        // POINTS, so an operator tracing a building footprint gets the same
+        // corner snapping they get from the linear tool, and none of that had
+        // to be written twice.
+        //
+        // `canvas_point` and `page` are passed alongside the resolved point
+        // because closing the ring is a CANVAS-space hit test against the first
+        // vertex - same physical target size at every zoom. See
+        // `perimeter::closes_the_ring`.
+        MeasureKind::Perimeter => {
+            perimeter::click(
+                &mut st,
+                perimeter::Click {
+                    page_index,
+                    picked: p,
+                    canvas_point,
+                    double,
+                    page,
+                    map,
+                },
+                actions,
+            );
         }
         // Taken above, before the point resolution this arm is unreachable
         // from. Spelled rather than wildcarded so that a fifth kind added to
@@ -1011,6 +1120,25 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
             .author()
             .map(|kind| pick::dimension_preview_segments(&kind))
             .unwrap_or_default(),
+        // ★ The perimeter, drawn through the SAME segment function a committed
+        // one is drawn from - the standing rule in this module, and the whole
+        // of what makes a preview a preview rather than an illustration.
+        //
+        // `preview` appends the pointer as a provisional last vertex, so the
+        // rubber band runs from the last committed pick to the cursor and says
+        // *"this click would add this segment"*. It is deliberately never drawn
+        // closed: the operator has not closed it, and showing the closing
+        // segment early would promise a shape one segment longer than the one
+        // the next click commits.
+        MeasureKind::Perimeter => {
+            let Some(at) = hover.map(|h| h.at) else {
+                return;
+            };
+            st.perimeter
+                .preview(at)
+                .map(|kind| pick::dimension_preview_segments(&kind))
+                .unwrap_or_default()
+        }
         // A two-line pick has nothing to preview against the pointer: what it
         // has picked is a *line already on the page*, which the page is already
         // drawing. Highlighting the picked line is the affordance it wants, and
@@ -1281,7 +1409,10 @@ mod kind_tests {
         // No wildcard. This is the assertion; the body is bookkeeping.
         fn classify(k: MeasureKind) -> &'static str {
             match k {
-                MeasureKind::Linear | MeasureKind::Circular | MeasureKind::TwoLine => "ribbon",
+                MeasureKind::Linear
+                | MeasureKind::Circular
+                | MeasureKind::Perimeter
+                | MeasureKind::TwoLine => "ribbon",
                 MeasureKind::Scale => "elsewhere",
             }
         }
@@ -1310,7 +1441,7 @@ mod kind_tests {
         }
         assert_eq!(
             MeasureKind::ALL.len() + MeasureKind::ARMED_ELSEWHERE.len(),
-            4,
+            5,
             "a variant was added to the enum and to neither list, or counted twice"
         );
     }

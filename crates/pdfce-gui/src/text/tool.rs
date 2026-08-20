@@ -342,6 +342,29 @@ pub const fn refusal_heading() -> &'static str {
     "That click was declined"
 }
 
+/// The perimeter tool's LIVE sentence - vertices so far, and the running total
+/// in the authoring group's own units.
+///
+/// # Why the count is in it as well as the length
+///
+/// Because the two answer different worries. The length says *"this is what I
+/// have measured"*; the count says *"this is how much of the shape I have
+/// traced"*, which is the one an operator loses track of on a footprint with
+/// twenty corners - and the one that tells them whether a click registered at
+/// all. A tool with no fixed arity has nothing else on screen that says so.
+///
+/// The length is formatted by the caller through the engine's own
+/// `format_measurement`, so this function never sees a number it could round
+/// differently from the committed label.
+///
+/// A verb rather than a bare pair of numbers: this replaces the instruction
+/// once tracing starts, and a line reading only "4 - 12.40 m" gives an operator
+/// who has looked away nothing to reattach to.
+#[must_use]
+pub fn measure_perimeter_live(vertices: usize, length: &str) -> String {
+    format!("{vertices} points so far, {length} around. Click the first point to close it.")
+}
+
 /// One measure kind's instruction, before any pick.
 #[must_use]
 pub const fn measure_instruction(kind: MeasureKind) -> &'static str {
@@ -351,6 +374,13 @@ pub const fn measure_instruction(kind: MeasureKind) -> &'static str {
                                 dimension line should sit."
         }
         MeasureKind::Circular => "Click three or more points around the arc, then finish it.",
+        // ★ All three endings, in one sentence, in the order an operator meets
+        // them. A tool with three ways to stop needs to say so before the first
+        // click - discovering the closing convention by accident works, and
+        // discovering it AFTER tracing thirty vertices the wrong way does not.
+        MeasureKind::Perimeter => {
+            "Click around the shape. Click the first point again to close it, or double-click to finish an open path."
+        }
         MeasureKind::TwoLine => "Click one line, then the other.",
         // ★ The calibration pick, which is armed from inside the Set-scale
         // window rather than from the Measure tab — it is deliberately absent

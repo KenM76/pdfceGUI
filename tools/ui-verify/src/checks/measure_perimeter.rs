@@ -1,0 +1,345 @@
+//! `measure_perimeter_traces_and_closes` — the perimeter tool arms, takes
+//! vertices, closes on the first one, and the dimension reaches the engine.
+//!
+//! # Why this check exists at all, given `measure_linear` already passes
+//!
+//! Because the perimeter tool is the first gesture on this tab with **no fixed
+//! arity**, and every link that differs from the linear tool is a link no
+//! existing check crosses:
+//!
+//! | # | link | new here? |
+//! |---|---|---|
+//! | 1 | the ribbon item arms `Measure(Perimeter)` | new command, new variant |
+//! | 2 | a click becomes a **vertex** rather than one of three fixed picks | new |
+//! | 3 | the running total accumulates across an unbounded run | new |
+//! | 4 | a click on the **first vertex** closes the ring | new — no other tool has this ending |
+//! | 5 | closing **commits**, and the engine accepts it | the same `add_dimension` the others reach |
+//!
+//! Links 2–4 are the ones that cannot be unit-tested: `PerimeterPick` can be
+//! driven from a test without a window and is, but *whether a click on the page
+//! reaches it* and *whether the ring test converts screen pixels to the right
+//! vertex* are properties of call sites and of a coordinate conversion, and
+//! both are only observable in a running process.
+//!
+//! # ★ The assertion that matters most is the CLOSING one
+//!
+//! `closes_the_ring` compares the click against the first vertex **in canvas
+//! space**, which means it crosses the page→canvas bridge — the conversion
+//! `canvas::mapping`'s header calls *the classic silent defect*, because the
+//! canvas is Y-down from the page's top-left with `/Rotate` applied and every
+//! point pdfce publishes is Y-up from the un-rotated CropBox.
+//!
+//! Get it wrong and the ring never closes: the operator clicks the first corner
+//! of a footprint they have just traced and gets a fifth vertex on top of it.
+//! No unit test can see that, because the arithmetic is individually correct on
+//! both sides and it is the *caller* that mixes two spaces of the same type.
+//!
+//! # What this check does NOT assert, and where that is recorded
+//!
+//! **That the number is scaled.** The value goes through `Group` by
+//! construction — it is a `DimensionKind`, so `format_measurement` handles it
+//! with the same code path every other dimension uses, and the engine pins that
+//! with its own tests. Asserting it here would need the fixture to carry a
+//! calibrated group, which is a second gesture (Set scale) inside a check about
+//! a first one. The tool-panel running total is formatted through the same
+//! function and is the surface where a scale defect would show.
+
+use crate::checks::driving::{SHELL_DIAG_ENV, declared, declared_or_in_overflow, list};
+use crate::checks::{Check, CheckContext};
+use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
+use crate::error::{Error, Result};
+use crate::input::Driver;
+use crate::launch::{LaunchSpec, Session};
+use crate::report::CheckReport;
+
+/// The mode the tool is offered in. Measuring reads the page and authors a ce
+/// dimension, which Review permits — the same mode `measure_linear` drives in,
+/// deliberately, so a mode-gating change breaks both together.
+const MODE: &str = "review";
+/// The Measure tab.
+const TAB: &str = "ribbon.tab.measure";
+/// The ribbon item that arms the tool.
+const ITEM: &str = "ribbon.item.measure.perimeter";
+/// `measure-tool tool=…` — the canvas reporting what armed.
+const ARM_EVENT: &str = "measure-tool";
+/// The `Debug` spelling of `CanvasTool::Measure(MeasureKind::Perimeter)`.
+const ARM_VALUE: &str = "Measure(Perimeter)";
+/// `measure-perimeter-vertex n=… length_pt=…` — one line per vertex taken.
+const VERTEX_EVENT: &str = "measure-perimeter-vertex";
+/// `measure-finish via=… kind=perimeter page=…` — the gesture ended.
+const FINISH_EVENT: &str = "measure-finish";
+/// `add-dimension …` — the engine accepted it and the document changed.
+const COMMIT_EVENT: &str = "add-dimension";
+
+/// The four corners, as fractions of the page box.
+///
+/// A rectangle rather than an irregular shape, because the total is then
+/// arithmetic a reader can check by hand from the page size printed in the
+/// report — and a check whose expected value cannot be verified by eye is a
+/// check that can be wrong in the same direction as the code.
+const CORNERS: [(f64, f64); 4] = [(0.30, 0.30), (0.60, 0.30), (0.60, 0.60), (0.30, 0.60)];
+
+/// See the module documentation.
+pub struct MeasurePerimeterTracesAndCloses;
+
+impl Check for MeasurePerimeterTracesAndCloses {
+    fn name(&self) -> &'static str {
+        "measure_perimeter_traces_and_closes"
+    }
+
+    fn defect(&self) -> &'static str {
+        "the Perimeter tool is on the ribbon and arms nothing, clicks on the page do not become \
+         vertices, the running total does not accumulate, or clicking the first vertex fails to \
+         close the ring — which leaves an operator who has just traced a footprint unable to \
+         finish it, and is invisible to every unit test because the ring test crosses the \
+         page-to-canvas bridge and both sides of it are individually correct"
+    }
+
+    fn run(&self, ctx: &CheckContext) -> CheckReport {
+        let mut report = CheckReport::new(self.name(), self.defect());
+        match drive(ctx, &mut report) {
+            Ok(Some(failure)) => report.fail(failure),
+            Ok(None) => report.pass(),
+            Err(skip) => report.skip(skip.to_string()),
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>> {
+    let exe = ctx.resolve_exe().ok_or_else(|| {
+        Error::new(format!(
+            "no binary to drive. Pass --exe, or build the profile's default at {}.",
+            ctx.profile.default_exe
+        ))
+    })?;
+    let pdf = ctx
+        .pdf
+        .clone()
+        .ok_or_else(|| Error::new("no fixture document. Pass --pdf."))?;
+    if !ctx.allow_input {
+        return Err(Error::new(
+            "input is disabled (--no-input). This check clicks a mode segment, a ribbon tab, a \
+             ribbon control and five points on the page. Reported as SKIPPED rather than passed: \
+             a check that did not run has learned nothing.",
+        ));
+    }
+    let ui_rect = ctx.profile.vocab.ui_rect_event.ok_or_else(|| {
+        Error::new(format!(
+            "the `{}` profile declares no ui-rect trace event.",
+            ctx.profile.name
+        ))
+    })?;
+    let page: PageGeometry = match ctx.page_size {
+        Some((w, h)) => PageGeometry {
+            width_pt: w,
+            height_pt: h,
+        },
+        None => crate::fixture::page_geometry(&pdf).ok_or_else(|| {
+            Error::new(format!(
+                "cannot read a page size from {}. The harness needs the page box to turn this check's four corner fractions into points, and the page height to flip PDF y                  (up) into window y (down). Pass --page-size WxH.",
+                pdf.display()
+            ))
+        })?,
+    };
+
+    let mut spec = LaunchSpec::new(&exe, ctx.out("measure_perimeter.trace.txt"));
+    spec.pdf = Some(pdf.clone());
+    spec.env.push((
+        ctx.profile.diag_env.0.to_owned(),
+        ctx.profile.diag_env.1.to_owned(),
+    ));
+    spec.env
+        .push((SHELL_DIAG_ENV.0.to_owned(), SHELL_DIAG_ENV.1.to_owned()));
+    spec.allow_stale = ctx.allow_stale;
+    spec.source_root = ctx.source_root.clone();
+    let session = Session::launch(&spec, ctx.profile.trace_prefix)?;
+    report.note(format!(
+        "launched {} as pid {}",
+        exe.display(),
+        session.pid()
+    ));
+    report.artifact(session.trace_path().to_path_buf());
+    session.settle(40);
+
+    let driver = Driver::new(session.window());
+
+    // --- 1: the mode, then the tab, then the tool -------------------------
+    crate::checks::driving::click_mode_segment(&session, &driver, ui_rect, MODE)?;
+    let trace = session.trace()?;
+    let Some(tab) = declared(&trace, ui_rect, TAB) else {
+        return Ok(Some(format!(
+            "the `{MODE}` mode declares no `{TAB}` region, so the Measure tab is not offered and \
+             no tool on it can be reached."
+        )));
+    };
+    driver.click_at(session.frame()?.declared_center(tab))?;
+    session.settle(14);
+
+    let Some(item) = declared_or_in_overflow(&session, &driver, ui_rect, ITEM)? else {
+        return Ok(Some(format!(
+            "the Measure tab declares no `{ITEM}`, on the band or in the overflow. Items \
+             declared: {}.",
+            list(&crate::checks::driving::declared_names(
+                &session.trace()?,
+                ui_rect,
+                "ribbon.item.measure."
+            ))
+        )));
+    };
+    driver.click_at(session.frame()?.declared_center(item))?;
+    session.settle(16);
+
+    let trace = session.trace()?;
+    if !trace
+        .events(ARM_EVENT)
+        .any(|l| l.get("tool") == Some(ARM_VALUE))
+    {
+        return Ok(Some(format!(
+            "the Perimeter item was clicked and no `{ARM_EVENT} tool={ARM_VALUE}` followed — the \
+             ribbon control is drawn and reachable and the canvas tool did not arm. Either \
+             `shell::commands::measure_for_command` does not map `measure.perimeter`, or \
+             `canvas::tool::arm_measure` was not reached."
+        )));
+    }
+    report.note("Measure ▸ Perimeter armed the tool");
+
+    // --- 2: four vertices --------------------------------------------------
+    let canvas_page = trace
+        .last("canvas")
+        .and_then(|l| l.get("page"))
+        .and_then(|v| v.parse::<usize>().ok());
+    if canvas_page != Some(0) {
+        return Err(Error::new(
+            "the canvas is not showing page 1, so the page geometry this check computed does not \
+             describe what is on screen. Aiming anyway would produce a confidently-wrong click.",
+        ));
+    }
+    let mapping = CanvasMapping::from_trace(&trace, &ctx.profile.vocab, page, 0)?;
+    let frame = session.frame()?;
+    let mut aimed = Vec::with_capacity(CORNERS.len());
+    for (fx, fy) in CORNERS {
+        let point = DocPoint::new(0, fx * page.width_pt, fy * page.height_pt);
+        aimed.push(frame.to_screen(mapping.doc_to_window(point)?));
+    }
+
+    let mut lengths: Vec<f64> = Vec::new();
+    for (n, screen) in aimed.iter().enumerate() {
+        driver.click_at(*screen)?;
+        session.settle(12);
+        let trace = session.trace()?;
+        let taken = trace.events(VERTEX_EVENT).count();
+        if taken != n + 1 {
+            return Ok(Some(format!(
+                "click {} of {} produced {taken} `{VERTEX_EVENT}` line(s) in total, not {}. A \
+                 click that becomes no vertex means `canvas::measure::click`'s Perimeter arm was \
+                 not reached — the gesture machine swallowed the press, the click landed outside \
+                 the page rect, or the point resolution declined it.",
+                n + 1,
+                CORNERS.len(),
+                n + 1
+            )));
+        }
+        let line = trace.events(VERTEX_EVENT).last().expect("just counted one");
+        let Some(length) = line.get("length_pt").and_then(|v| v.parse::<f64>().ok()) else {
+            return Err(Error::new(format!(
+                "the `{VERTEX_EVENT}` line carries no readable `length_pt=`: `{}`",
+                line.raw
+            )));
+        };
+        lengths.push(length);
+    }
+    report.note(format!(
+        "four vertices taken; running total after each: {}",
+        lengths
+            .iter()
+            .map(|v| format!("{v:.1}"))
+            .collect::<Vec<_>>()
+            .join(" → ")
+    ));
+
+    // ★ The total must RISE with every vertex after the first. A total that
+    // stayed still would mean the vertex was recorded and the length function
+    // is not summing it; a total that fell would mean the vertex list is being
+    // replaced rather than appended. Both look identical on screen — the
+    // polyline is drawn from the same list either way — which is why this is
+    // asserted on the number rather than on the picture.
+    if lengths.first() != Some(&0.0) {
+        return Ok(Some(format!(
+            "the FIRST vertex reported a running total of {:.2} pt, not 0. One point is no \
+             segments, so anything but zero means `length_points` is measuring something that is \
+             not there.",
+            lengths[0]
+        )));
+    }
+    for pair in lengths.windows(2) {
+        if pair[1] <= pair[0] {
+            return Ok(Some(format!(
+                "the running total did not rise: {:.2} → {:.2} pt. Every vertex after the first \
+                 adds a segment, so a total that stalls means the vertex reached the pick and the \
+                 sum did not, and a total that falls means the list is being replaced rather than \
+                 appended. Totals: {lengths:?}.",
+                pair[0], pair[1]
+            )));
+        }
+    }
+
+    // --- 3: ★★ click the first vertex again — the ring closes and commits --
+    let before_commits = session.trace()?.events(COMMIT_EVENT).count();
+    driver.click_at(aimed[0])?;
+    session.settle(30);
+    let trace = session.trace()?;
+
+    let Some(finish) = trace.last(FINISH_EVENT) else {
+        let taken = trace.events(VERTEX_EVENT).count();
+        return Ok(Some(format!(
+            "clicking the first vertex again did NOT close the ring: no `{FINISH_EVENT}` line, \
+             and the vertex count is now {taken} (it was {}). ★ This is the defect this check \
+             exists for. `perimeter::closes_the_ring` compares the click against the first vertex \
+             in CANVAS space, which crosses the page-to-canvas bridge — Y-down from the page's \
+             top-left with /Rotate applied, against Y-up from the un-rotated CropBox. Get it \
+             wrong and the operator clicks the corner they started at and gets a fifth vertex on \
+             top of it. Trace: {}.",
+            CORNERS.len(),
+            session.trace_path().display()
+        )));
+    };
+    if finish.get("via") != Some("close-ring") {
+        return Ok(Some(format!(
+            "the gesture finished, but not by closing: `{}`. A click on the first vertex must \
+             close the ring — `via=double-click` here would mean the click was read as the second \
+             of a pair, and `via=command` cannot happen without a ribbon press.",
+            finish.raw
+        )));
+    }
+
+    let commits = trace.events(COMMIT_EVENT).count();
+    if commits <= before_commits {
+        return Ok(Some(format!(
+            "the ring closed and no `{COMMIT_EVENT}` line followed, so `Action::CommitDimension` \
+             was raised and the engine did not accept it — or it was never raised. \
+             `perimeter::commit` refuses below three vertices, and four were taken. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    let committed = trace.last(COMMIT_EVENT).expect("just counted one");
+    report.note(format!(
+        "★ the ring closed and the dimension reached the engine: `{}`",
+        committed.raw
+    ));
+
+    // ★ And the pick is EMPTIED. A second Finish must not author the same shape
+    // again from a set the operator believes they have spent — the same rule
+    // `circular::commit` states, and the one place a three-ending tool could
+    // most easily get it wrong.
+    let after = session.trace()?.events(VERTEX_EVENT).count();
+    if after != CORNERS.len() {
+        return Ok(Some(format!(
+            "after the commit the tool has traced {after} vertices in total, not {}. The commit \
+             must EMPTY the pick, so a stray extra line here means the closing click also landed \
+             as a vertex.",
+            CORNERS.len()
+        )));
+    }
+    Ok(None)
+}

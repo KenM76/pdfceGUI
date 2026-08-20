@@ -285,6 +285,25 @@ pub const fn measure_radius_diameter() -> CommandText {
     )
 }
 
+/// `measure.perimeter`
+///
+/// ★ The description names all three endings, because a tool with three ways
+/// to stop has to say so before the first click. Discovering the closing
+/// convention by accident works; discovering it after tracing thirty vertices
+/// the wrong way does not.
+///
+/// It also names what the number IS - the whole way round, added up - because
+/// the operator asked for exactly that ("it adds the distance of all the
+/// segments together for the dimension display") and a label reading only
+/// "Perimeter" leaves an open path looking like the wrong tool for a pipe run.
+#[must_use]
+pub const fn measure_perimeter() -> CommandText {
+    CommandText::new(
+        "Perimeter",
+        "Click around a shape to measure the whole way round, added up as one number. Click the first point again to close it, or double-click to finish an open path. The result is read against the current dimension group's scale, like every other dimension.",
+    )
+}
+
 /// `measure.two_line`
 #[must_use]
 pub const fn measure_two_line() -> CommandText {
