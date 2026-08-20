@@ -123,6 +123,36 @@ and report the two dates. That is the cheap check nobody was doing, and it is
 the only reason either failure was noticed. Filed in `D:/dev/rag/rust/` as
 `a_rotate_two_slots_deploy_that_clears_before_it_copies_destroys_the_fallback_it_exists_to_provide.md`.
 
+### ⚠⚠⚠ 2026-08-20 — THE HARNESS SPENT AN AFTERNOON ACCUSING WORKING CODE
+
+Read this before believing any driven failure on this machine.
+
+Every ribbon-**tab** click failed, intermittently, over builds in which the
+ribbon works — including the pre-multi-document build, which is what ruled the
+application out. The culprit was **`osk.exe`, the Windows on-screen keyboard**,
+docked at `(-5,0)-(746,266)` and lying across the tab row.
+
+`SetForegroundWindow` succeeding means the target has **focus**. It says nothing
+about what is **drawn over** it. And the harness *summons* the thing that covers
+it — synthetic keystrokes raise the OSK — so a suite that types anywhere creates
+the condition that breaks its own later clicks. It cannot be closed: `taskkill`,
+`CloseMainWindow` and `ShowWindow(SW_HIDE)` are all refused by UIPI.
+
+Four hypotheses were tried and discarded first. What settled it was **capturing
+the window and looking**. That is the standing rule, arrived at again:
+
+> A reachability or layout defect has exactly one oracle, and it is a rendered
+> screenshot. A trace can say a region was declared; it cannot say whether a
+> click could reach it.
+
+Now guarded three ways — `Driver::confirm_uncovered` (WindowFromPoint before
+every click, refusing rather than missing), `raise_and_confirm` on every pointer
+method rather than only the keyboard ones, and a **known window origin** that
+also kills the launch cascade. Full finding in `D:/dev/rag/egui/`.
+
+**If a driven check reports a control as unresponsive, check for a floating
+window first.** The guard will now say so, but only for the exact point clicked.
+
 ### The map, for reading the new code
 
 | file | subject |
