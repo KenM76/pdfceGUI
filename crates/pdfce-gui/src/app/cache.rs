@@ -492,21 +492,39 @@ impl OpenDoc {
                 &opts,
             )
             .ok()?;
-            let model = pdfce_core::text_edit::EditableTextModel::recognize(
-                &text,
-                &pdfce_core::text_edit::BlockRecognitionOptions::default(),
-            );
+            // ★★★ THE ENGINE'S OWN QUERY, since `Pass 118.0`.
+            //
+            // This matched on `GlyphProvenance::content_stream` by hand until
+            // 2026-08-20 — a shell encoding a fact about the surgery's
+            // internals, which is precisely the workaround this project's own
+            // request warned would outlive its bug:
+            //
+            // > *"the day form editing lands, my guard silently keeps refusing
+            // > until I notice and delete it."*
+            //
+            // `TextRun::editability` shipped that afternoon and this is the
+            // deletion. It also answers a case the hand-rolled version could
+            // not see: `NoAnchor`, an `/ActualText` run covering no show
+            // operators, which has nothing for the surgery to anchor on and was
+            // being offered a caret.
+            //
+            // ★ `Unknown` is NOT treated as "no". It is the state a caller
+            // reaches by default — provenance not captured — and the engine
+            // made the type an enum rather than a `bool` specifically so it
+            // cannot be confused with a measured refusal. We asked with
+            // provenance on, so `Unknown` here means something went wrong with
+            // the ask rather than with the run, and refusing every caret on it
+            // would block text editing document-wide for a reason nobody
+            // measured.
+            use pdfce_core::text_extract::Editability;
             Some(
-                (0..text.runs.len())
+                text.runs
+                    .iter()
                     .map(|run| {
-                        model
-                            .provenance(pdfce_core::text_edit::GlyphRef::new(run, 0))
-                            .is_some_and(|p| {
-                                matches!(
-                                    p.content_stream,
-                                    pdfce_core::text_extract::ContentStreamRef::Form { .. }
-                                )
-                            })
+                        matches!(
+                            run.editability(),
+                            Editability::InsideForm { .. } | Editability::NoAnchor
+                        )
                     })
                     .collect::<Vec<bool>>(),
             )

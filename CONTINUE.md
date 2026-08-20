@@ -1,598 +1,218 @@
-# CONTINUE — start here, then keep going
+# CONTINUE — handoff, 2026-08-20 evening
 
-**Updated 2026-08-20, clean tree, gates 14/14, 1,525 + 384 + 144 tests,
-56 driven checks — 50 verified, 6 skipped for a stated reason, 0 failed.**
-**★★★ READ `OPERATOR_REQUESTS.md` FIRST. That file, not this one, is the
-truth about what the operator has asked for and what is actually done.**
+**Clean tree. 16/16 gates. 1,549 + 385 + 10 tests. 60 driven checks.**
+**Newest build: `OneDrive\pdfceGUI2`, 2026-08-20 17:26.**
+`pdfceGUI1` holds 2026-08-19 17:44 — **the fallback is a day old**, because that
+slot has been locked by OneDrive all day and the packager correctly refuses to
+touch it. Not a fault; worth knowing.
 
-This header used to say *"all six of the operator's standing complaints are
-closed AND driven."* On 2026-08-20 he replied, about two of them:
+34 commits today. The previous edition of this file is at
+`.tmpwork/continue-old.md` if any detail is wanted back.
 
-> *"Still no editing text on top of the canvas. Or editing text on a text box.
-> Where do you need to put these requests so they just get auto-repeated over
+---
+
+## 0. ★★★ READ THESE TWO FILES BEFORE ANYTHING ELSE
+
+### `OPERATOR_REQUESTS.md` — the backlog, and the only truth about it
+
+Created today because the operator asked, in effect, where his requests were
+going:
+
+> *"Where do you need to put these requests so they just get auto-repeated over
 > and over again so I don't have to keep requesting they be done over and over
-> again?"*
+> again, or can you finally do them?"*
 
-He was right, and the sentence above was progress theatre of exactly the kind
-this role forbids. **A summary written by the person who did the work is not
-evidence that the work landed** — three separate features on this project have
-been trace-green, gate-green and broken on screen. `OPERATOR_REQUESTS.md` exists
-so that a row leaves the backlog when the OPERATOR says it works, and not
-before. Nothing in this file may contradict it.
-**Newest portable build: `OneDrive\pdfceGUI2`** (2026-08-20 06:03, `d2bc52f`).
-`pdfceGUI1` holds the previous (2026-08-19 17:44, `3be942c`).
-**Phase 1 is complete but for the object clipboard. Phase 5 is complete but for
-live re-layout.**
+A request made in conversation lives exactly as long as the conversation. He had
+been carrying the backlog in his head because nothing else was.
+
+**The five rules, and they are not negotiable:**
+
+1. Every ask goes in that file **the moment it is made**, before any work.
+2. **Only he closes a row.** Built + gated + driven moves it to *Shipped —
+   awaiting your verdict*. It leaves the file when he says it works.
+3. A status is **evidence or the words NOT VERIFIED**. "Done" is not a status.
+4. A blocked row names the request file in the engine channel.
+5. Nothing is silently rescoped. Half an ask leaves the row open, saying which
+   half.
+
+14 open rows, 5 awaiting his verdict.
+
+### `D:\dev\rag\ui-conventions\` — and the gate behind it
+
+Built today, on his question: *"how can you learn from these other programs so
+that you can build the missing parts more effectively?"*
+
+The honest diagnosis is that **this was never missing knowledge**. Asked
+directly *"what happens when you click inside an unfilled rectangle in a drawing
+program?"* the answer comes back right every time. Nothing PROMPTS the question
+while the code is being written.
+
+Five gesture classes — `click-selects`, `drag-moves`, `handles`, `text-caret`,
+`dialogs` — each a numbered list of rules carrying **where it comes from** and
+**the failure mode when it is absent**, in his words where we have them.
+
+`tools/gates/check-conventions.sh` makes every registered surface answer every
+row of its class in its own source. **It cannot check behaviour and does not
+pretend to** — it checks the question was asked, which is the whole of the
+problem. It found **fourteen gaps on its first run**; they are row O14.
+
+**When a new operator report arrives, the question is not only "what do I fix"
+but "which rule was I missing, and what else violates it?"**
+
+★ The highest-yield source turned out to be **a mature framework's API surface
+read as a specification.** Qt documents `QGraphicsItem::shape()` as *"the
+default returns `boundingRect()`; reimplement for a more accurate shape."* That
+one sentence is a bug that shipped this morning.
 
 ---
 
-## 0a. ★★★ THE MULTI-DOCUMENT WORK, AND THE ONE QUESTION LEFT OPEN
+## 1. What to do next, in his stated order
 
-The operator asked for **several PDFs open at once, pages dragged between
-them**, then — the same day — for **Shift to move rather than copy**,
-**rearrangeable tabs**, and **dragging a tab off into a new window**.
+He approved this list. Items 1–3 are **not blocked by anything**.
 
-All of it is built and driven except the last, which is a scope question rather
-than a piece of work. **Full suite: 50 verified, 0 failed, 6 skipped for stated
-reasons.**
+1. **Shift preserves aspect on a resize** — `drag-moves` D5, and *the* resize
+   convention. `move_nodes` takes a slice, so it is different scale factors, not
+   a new verb. Also Shift-to-axis on the move, handle and dimension drags.
+2. **Snapping on a vertex drag** — `drag-moves` D6. The tool that PLACED the
+   vertex snaps; the drag that moves it does not, so an operator can pick a
+   corner onto geometry and then be unable to put it back.
+3. **Dialogs as real OS windows** — `dialogs` G1, via
+   `show_viewport_immediate`. Start with Print. Plus **Enter as the affirmative
+   default** (G4), which no dialog has.
+   - ★ He asked whether this loses our custom options. **It does not.** G1 is
+     about the *container*; G2 (use the OS's own dialog) is about the
+     *contents*, and for Print we deliberately do not — that dialog carries
+     print-comments, the DPI cap, tray-by-size and pdfce's own sizing model,
+     none of which `PrintDlgEx` can express. Driver settings already open the
+     **native** properties sheet owned by our HWND. That split is correct and
+     stays.
 
-```text
-two_documents_get_two_tabs                       PASS
-document_tabs_can_be_rearranged                  PASS
-a_page_dragged_between_documents_is_copied       PASS
-a_shift_drag_between_documents_moves_the_pages   PASS
-pages_drag_shows_where_it_lands                  PASS   (broke, and was fixed — see below)
-```
+Then the rest of O14: unfilled-shape hit testing (only ce dimensions carry a
+shape today), grapheme clusters in the caret, selection inside a draft, dialogs
+remembering their position.
 
-### ⛔ The open question: what does dragging a tab OFF the strip mean?
+---
 
-**Do not answer this by picking one.** `CONTINUE.md` §1b makes the convergence
-of the product class the specification, and here there is none:
+## 2. Blocked on the engine — all filed, none forgotten
 
-| | what it does |
+`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\` — **read it every session;
+empty means nothing is owed.** 6 open requests, 2 replies awaiting proper
+reading.
+
+| what | state |
 |---|---|
-| Chrome, Firefox, VS Code | the document **moves** to a new, fully functional window |
-| Acrobat `Window ▸ New Window`, Bluebeam's split | a **second view**; the document stays where it was |
+| **`transform_objects`** — move / resize / rotate an image or text | Accepted in full. `Pass 112.0` shipped only the `Matrix` foundation (`scale`, `rotate`, `about`, `is_invertible`). **`113.0` is the verb and is NOT built** — the reply says plainly *"Nothing is unblocked yet."* 43 object×operation gaps are filed after the operator widened the scope himself. The whole shell side is built and waiting. |
+| **Object clipboard** | Filed today, whole rather than the convenient subset, on his instruction: *"I might want all cases so we shouldn't be restrictive in our ask."* ★ Key finding: `EditSession::import_object` (`edit.rs:19367`) already does cross-document graph copying with id remapping and stream re-staging — so the ask is *expose it at object granularity*, not *build a copy engine*. |
+| **Text inside a form XObject** | Asks 1 and 2 shipped (`Pass 118.0`) and are **already consumed**: `TextRun::editability()` replaced the shell's hand-rolled guard today. Ask 3 — editing inside forms — is `Pass 119.0`, not built. On a CAD sheet this is the MAJORITY of text: 1,696 show operators inside the form against 3,007 metadata glyphs in the page stream. |
 
-The costs differ by an order of magnitude:
+**Two replies in `open/` still need reading properly** —
+`2026-08-20-transform-scoped-*` and `2026-08-20-two-of-your-three-shipped-*`.
+The second records a defect the engine found while writing it (§2) that has only
+been skimmed here.
 
-- **A second view** — canvas, page list, status bar; the document stays in the
-  strip — is about a day. `egui::Context::show_viewport_immediate` takes
-  `FnMut(&mut Ui, ViewportClass)`, so it can capture `&mut self` and the
-  existing composition code works unchanged inside it. It also delivers the
-  *original* request from another direction: two page lists on screen at once.
-- **A full move** needs a `Workspace` extraction — every window owning its own
-  `ribbon`, `dock`, `modes`, `panels` and `find` — because a document that has
-  left the strip must still be editable, and all five are application-scoped
-  today. The visible failure of *not* doing it is a second window whose View tab
-  changes the first window's.
-
-Building the wrong one is worse than building neither: a window the document
-cannot be edited in is a trap, and a second view that pretends to be a move is a
-lie about where the operator's work is.
-
-### ★★ Two defects the driven run found that no unit test could
-
-Both are in `D:/dev/rag/egui/` and both will be re-created by anybody who does
-not read them.
-
-1. **`Response::hovered()` is false on every widget except the one being
-   dragged.** egui locks interaction to the pressed widget, so a hover built
-   from a `Response` is false in exactly the one situation a spring-loaded drop
-   target exists for. The tab was visibly under the pointer and nothing
-   happened. Resolve hover **geometrically** —
-   `state_a_gesture_must_outlive_...` and the tab strip's own comment.
-
-2. **A surface may not change size in response to a gesture aimed at it.** The
-   drag caption was a wrapping label above the page grid; its height depends on
-   its own wording, and its wording changes as the pointer moves. The row being
-   aimed at moved +49 pt, then +34 pt, mid-drag. It presents as a hit-testing
-   bug and sends you to the gap arithmetic, which is correct.
-   `a_surface_may_not_change_size_in_response_to_a_gesture_aimed_at_it.md`.
-
-And one about the harness, which cost a wrong defect report:
-**a harness constant naming an application trace event decays in one direction
-only** — absence reads as failure, so a rename produces a confident accusation
-against working code.
-
-### ⚠ Three things this work did NOT do
-
-1. **Quitting with unsaved documents still asks nothing.** Unguarded before
-   this; now unguarded across *N* documents. `PendingIntent::Open` / `::New` /
-   `::NewSized` are deliberately left unconstructed — they are the shape a quit
-   guard would use.
-2. **A parked document keeps its page texture and strip cache.** Deliberate —
-   877 ms per full-page render on the benchmark drawing — and unbounded. If it
-   ever needs bounding, bound *how many parked documents keep rasters*.
-3. **The reorder caret publishes no `ui_rect`**, so a caret drawn at the wrong
-   x would pass `document_tabs_can_be_rearranged`. Worth closing the day
-   anything about the strip's geometry changes.
-
-### ⚠⚠ And `package-portable.py` destroyed the fallback build TWICE
-
-Both times while publishing this work, and the second time was **after a fix**.
-
-1. It mirrored by `rmtree(target)` **then** `copytree(...)`, so a failure in
-   between left the slot empty — and printed *"only the OneDrive copy did not
-   happen"*, which was false.
-2. The repair was *stage, then clear, then rename*. It failed again on the very
-   next run, identically: **`rmtree` is itself non-atomic.** It walks
-   depth-first and deletes as it goes, so a lock on one file leaves everything
-   it had already removed removed. Moving the clear later in the sequence
-   bought nothing, and the message was confidently wrong a second time.
-
-★ The lock is **OneDrive's own sync client**, which opens files it is
-uploading. On a synced folder that hazard is permanent, so the deploy has to be
-safe against it rather than lucky.
-
-The real fix, now in place: **nothing is ever deleted in place.** Copy into
-`.slot-incoming`, `os.rename` the slot to `.slot-outgoing`, `os.rename` the
-staging in, then delete the old one. A directory rename either happens or does
-not — on Windows it fails outright if anything inside is open, which is exactly
-the guarantee that was missing. The only `rmtree` left runs against a directory
-nothing points at.
-
-★★ **Check both slots after packaging** — `head -4` each `BUILD-INFO.txt` —
-and report the two dates. That is the cheap check nobody was doing, and it is
-the only reason either failure was noticed. Filed in `D:/dev/rag/rust/` as
-`a_rotate_two_slots_deploy_that_clears_before_it_copies_destroys_the_fallback_it_exists_to_provide.md`.
-
-### ⚠⚠⚠ 2026-08-20 — THE HARNESS SPENT AN AFTERNOON ACCUSING WORKING CODE
-
-Read this before believing any driven failure on this machine.
-
-Every ribbon-**tab** click failed, intermittently, over builds in which the
-ribbon works — including the pre-multi-document build, which is what ruled the
-application out. The culprit was **`osk.exe`, the Windows on-screen keyboard**,
-docked at `(-5,0)-(746,266)` and lying across the tab row.
-
-`SetForegroundWindow` succeeding means the target has **focus**. It says nothing
-about what is **drawn over** it. And the harness *summons* the thing that covers
-it — synthetic keystrokes raise the OSK — so a suite that types anywhere creates
-the condition that breaks its own later clicks. It cannot be closed: `taskkill`,
-`CloseMainWindow` and `ShowWindow(SW_HIDE)` are all refused by UIPI.
-
-Four hypotheses were tried and discarded first. What settled it was **capturing
-the window and looking**. That is the standing rule, arrived at again:
-
-> A reachability or layout defect has exactly one oracle, and it is a rendered
-> screenshot. A trace can say a region was declared; it cannot say whether a
-> click could reach it.
-
-Now guarded three ways — `Driver::confirm_uncovered` (WindowFromPoint before
-every click, refusing rather than missing), `raise_and_confirm` on every pointer
-method rather than only the keyboard ones, and a **known window origin** that
-also kills the launch cascade. Full finding in `D:/dev/rag/egui/`.
-
-**If a driven check reports a control as unresponsive, check for a floating
-window first.** The guard will now say so, but only for the exact point clicked.
-
-### The map, for reading the new code
-
-| file | subject |
-|---|---|
-| `app/documents.rs` | the tab arithmetic — one active `Status` plus `parked`, and why it is not `Vec<Status>` |
-| `app/doctabs.rs` | the strip, and the **spring-loaded** tab that makes a cross-document drag possible |
-| `egui-shell/src/tabstrip/` | the reusable strip. Knows nothing about documents; refuses to (R7) |
-| `pagedrag.rs` | the drag in flight, in `egui::Memory` — because switching documents resets `PanelsState` |
-| `canvas/pagedrop.rs` | the caret between two sheets on the page view, and the release |
-| `app/actions/crossdoc.rs` | the only edit that reads two documents at once, and why it is a **copy** |
-
-### ⚠ Two things this change did NOT do, and one it made worse
-
-1. **Quitting with unsaved documents still asks nothing.** It was already
-   unguarded before this; it is now unguarded across *N* documents instead of
-   one. `PendingIntent::Open` / `::New` / `::NewSized` are now unconstructed —
-   they are the shape a quit guard would use, and are deliberately left in
-   place rather than deleted for that reason.
-2. **Document tabs cannot be reordered by dragging.** Every tabbed application
-   allows it and nobody asked; it is the obvious next thing an operator will
-   try.
-3. **A parked document keeps its page texture and its strip cache.** Deliberate
-   — `BENCHMARK.md` measures 877 ms for one full-page render of the benchmark
-   drawing, so dropping them would make every tab switch a visible stall. It is
-   memory spent on purpose and it is unbounded; if it ever needs bounding,
-   bound *how many parked documents keep rasters*, not *whether they do*.
+Closed and archived today: the `add_image` `/Contents` corruption, and the
+polyline dimension kind. Both have rows in `INDEX.md`.
 
 ---
 
-You are the `pdfce-gui-engineer`. This file is the entry point when the
-operator types **“continue”** and nothing else. Read it, read the three files
-in §1, then start at the top of §3 without asking which item to do.
+## 3. Standing rules this day earned, the hard way
+
+- **A trace can say the verb ran. It cannot say the screen changed.** Three
+  features were trace-green, gate-green and broken on screen. Every layout,
+  repaint or clipping defect has exactly one oracle: a rendered screenshot. Put
+  a capture on the failure branch of anything that draws.
+- **A check asserting on an ABSENT line must first ask what else happened.**
+  `edit-text-refused` is not `edit-text`, so a refusal satisfied a test for "no
+  commit" and produced a confident, specific, wrong accusation about working
+  code. And anything asserted about a *second* gesture in one process must be
+  scoped to lines that arrived after the first one ended.
+- **Two derivations of one position agree at first and separate under use.**
+  Three instances now: the snap marker off by the scroll origin, the vertex drag
+  tracking at `1/zoom`, and the caret measured from document metrics against
+  text drawn in another font. `egui::Pos2` is screen, canvas AND page space.
+  **The durable fix is typed coordinates — `euclid`, already in the dependency
+  tree, MIT/Apache, no new licence — not care.**
+- **A blocker is a measurement, and the question you measured is part of it.**
+  Three times: *"no verb inserts content"* (markup could round-trip; shipped
+  that evening); *"no polyline kind"* (one request away); *"in-place save is
+  blocked on crash recovery"* (pdfce writes incrementally — the format already
+  WAS the recovery; what was unsafe was the write, a three-line fix nobody had
+  made because nobody was asking).
+- **A predicate with two claimants must exist exactly once.**
+  `text_edit_focused()` cannot see the canvas caret. It cost the Delete key,
+  then the space bar — and the sweep found Delete mid-word would have deleted
+  the selected *object*. `check-typing-guard.sh` now fails the build on a second
+  copy.
+- **A comment justifying a shortcut that enumerates its test cases is naming
+  the specification of when it is safe.** *"a markup, a move, a form fill"* were
+  exactly the three cases where a stale page vector happened to be right.
 
 ---
 
-## 0. The one rule that governs everything
+## 4. Environment gotchas
 
-> **`D:\Dev\pdfce\` is READ-ONLY.**
-
-Read it constantly — it is the engine and the salvage source. Write to it
-never. If the shell needs something `pdfce-core` does not have, **file it in
-the request channel** (§6) and carry on with something else. A parallel session
-works that repo and answers within the hour; four requests were filed and four
-shipped inside a day on 2026-08-19.
-
----
-
-## 1. Read these before touching anything
-
-| File | Why |
-|---|---|
-| `RESUME.md` | The long state document: every surface, every check, the harness's history and its false failures. **§“Standing operator instructions” is not optional.** |
-| `.claude/agents/pdfce-gui-engineer.md` | The role: R1–R9, the rules that produced every design decision here |
-| `D:\dev\rag\egui\index.md` | Empirical findings from this codebase. Four of them were written on 2026-08-19 and **three describe defects you will otherwise re-create** |
-
-`D:\Dev\pdfce\docs\core-api\index.md` before calling any engine verb.
-`D:\Dev\pdfce\docs\FEATURES.md`'s `gui` column is the acceptance criteria.
+- **`osk.exe` — the on-screen keyboard — covers the ribbon and swallows
+  synthetic clicks.** UIPI-protected: `taskkill`, `CloseMainWindow` and
+  `ShowWindow` are all refused. The harness places windows at `(780, 40)` to
+  clear it and refuses rather than mis-clicking. **A driven failure on this
+  machine is a harness question before it is an application one.**
+- **`ui-verify` takes the real cursor and keyboard.** He says when he is at the
+  PC — he said *"I'm working on the pc"* mid-session today, and everything after
+  that was headless until he said otherwise. **Ask, or verify headlessly.**
+- **`python tools/package-portable.py` after every keeper build**, then read the
+  build stamp out of **both** slots and print the two dates. It destroyed the
+  fallback twice on 2026-08-20 before the atomic-rename fix, and reported
+  success both times.
+- **`cargo update -p pdfce-core -p pdfce-render -p pdfce-print` before every
+  build.** The engine ships several times a day.
+- `.tmpwork/edit.py` (git-ignored) is the CRLF-safe edit helper. Python
+  heredocs mangle backslash-newline; use it or write to a file first.
+- **Never `git checkout --` a dirty file.** It destroyed uncommitted work twice.
 
 ---
 
-## 1b. ★★★ READ THIS BEFORE DESIGNING ANYTHING
+## 5. What shipped today, for context
 
-The most expensive finding of this project, and it arrived on 2026-08-19 after
-six features had shipped that day:
+Multi-document tabs with page drag between them · Shift-to-move · tab reorder
+and a right-click menu · imperial sheet sizes · the dimension-group panel
+overflow · **dimension drag with live preview** · **perimeter tool** · **length
+tool** · **vertex editing with a re-measure disclosure** · **Save (Ctrl+S), in
+place, temp-then-rename** · **Ctrl+P** · **a real text caret** (there had been
+no index at all) · **the space bar** · **live text preview** · **Escape puts any
+tool down** · **panel collapse tabs with a rail back** · dimension hit-testing
+on ink rather than bounding box · insert-image fixed on both sides.
 
-> *"The selector should be predictable like other programs. It seems a lot of
-> ideas are getting invented instead of just using the LLM weighting that would
-> have produced the most common method expected."*
-
-He was reporting a canvas he could not edit text on, add text on, or move points
-on. **Every one of those features already worked.** What was invented was
-*reaching* them — four ribbon steps to type a character, a two-double-click
-descent to reach an anchor with nothing drawn saying a deeper level existed.
-
-Each decision behind that had a written justification and most were locally
-sound. **You do not catch this by reviewing the decision.** You catch it by
-noticing the result resembles no program the operator has used.
-
-So, standing, before any interaction is designed:
-
-1. **What do Illustrator, Inkscape, Acrobat, Word and the OLD shell do?** If
-   they agree, that is the answer. The convergence is the specification.
-2. **Two tells that the model is wrong rather than the docs thin:** the feature
-   works and nobody can find it; and *you are proud of the model*. Elegance in
-   an interaction is a warning sign — its value is almost entirely in how little
-   has to be learned.
-3. **A usability complaint that is cheap to fix is evidence the DESIGN was
-   wrong**, not the implementation. This one took hours because the machinery
-   was all there.
-
-Full write-up: `D:\dev\rag\egui\an_invented_interaction_model_is_a_defect_even_when_every_part_of_it_works.md`.
+Three new gates: `check-typing-guard`, `check-conventions`, and the list-shaped
+keymap test that asserts every chord a document application must have.
 
 ---
 
-## 2. The operator's own list, verbatim, and what is left of it
-
-He raised these on 2026-08-19 with *“I bring them up over and over again and
-they are still not dealt with.”* He was right. **This list outranks anything
-you or I think is more interesting.**
-
-★ All six are closed **and driven** as of 2026-08-19. He raised **nine** more
-that day and all nine are closed: the three below, plus *"can't select and edit
-end points"*, *"can't type when I click text"*, *"can't make new text where I
-click"*, *"standard copy/paste and cut aren't implemented"*, *"can't drag and
-drop a jpg"*, and *"the insert image button doesn't insert it either"* — the last
-of which was **false**, and is the finding in §1b's companion RAG entry: the
-button worked, and the silent drop failure beside it took its credibility. He
-raised three earlier the same day — *“text editing on canvas still doesn't work”*, *“no
-cloud revision tool either”*, *“increase cache to maximum for page view”* — and
-all three are closed too. The first was a **real defect the driven checks
-missed** because they drove fixtures this repository generates; the second was
-already built and he was on an older build; the third was a cache that held
-only the visible page set, which is a frame buffer with extra steps. §7.
-
-| # | His words | State |
-|---|---|---|
-| 1 | *“the I cursor turns white for text selection so I cant see it on a white background”* | ✅ **done**, `277a040`. Two-tone I-beam, same fix the crosshair got |
-| 2 | *“the measuring tools don't give me any indication of what is being selected … hover over a line or node”* | ✅ **done**, `ae5d0d4`. He confirmed he wants **both** entity and node |
-| 3 | *“the groups editor popup … too long for some screens so can't close it … should come up in the side bar and be scrollable and each section should be able to fold up like the settings one”* | ✅ **done**, `cbb3469`. `panels::dimension_groups`, six folds, five shut. **Not driven** — he was on the machine |
-| 4 | *“no side bar area showing what tool is active and its options”* | ✅ **done**, `d33d228`. `panels::tool`, own dock stack, first. **Not driven** |
-| 5 | *“no text editing or adding text on the canvas”* | ✅ **addressed by #4**, `d33d228`. They always existed; see §4.1. **Whether the fix works is the one thing driving must check** |
-| 6 | *“still no revision cloud tool”* | ✅ **done**, `c972dfd`. `MarkupKind::Cloud`, `/BE /I 1.0`, its own glyph, ribbon row after Polygon. **Not driven** |
-
----
-
-## 3. What to do next, in order, without asking
-
-### 3.0 The verification debt is PAID. Do not re-open it.
-
-51 driven checks; 45 verified and 6 skipped on the last full run. Run it before
-believing anything:
-
-```bash
-cargo update -p pdfce-core -p pdfce-render -p pdfce-print
-cargo build --release -q
-cargo run --release -q -p ui-verify -- \
-  --exe target/release/pdfce-gui.exe \
-  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500
-```
-
-Two checks want the **node fixture** rather than the real drawing, and skip
-honestly on `SW41177.pdf` because its paths are two-anchor lines:
-
-```bash
-python tools/gen-node-fixture.py     # if fixtures/polyline-nodes.pdf is absent
-cargo run --release -q -p ui-verify -- \
-  --exe target/release/pdfce-gui.exe \
-  --pdf fixtures/polyline-nodes.pdf --doc-point 0,200,320 \
-  --check multi_node_move_moves_every_picked_anchor \
-  --check bezier_handle_drag_changes_a_curve
-```
-
-★ **`PDFCE_UIV_IMAGE` points the two image checks at a real file** instead of a
-PNG the harness encodes itself. Use it — that seam exists because
-`insert_image_places_a_picture` passed for weeks on harness-authored PNGs while
-the operator was reporting **jpg**. Same fixture trap that hid the text-editing
-defect:
-
-```bash
-PDFCE_UIV_IMAGE=D:/Dev/temp/pdfce/fixture.jpg cargo run --release -q -p ui-verify -- \
-  --exe target/release/pdfce-gui.exe --pdf D:/Dev/temp/pdfce/SW41177.pdf \
-  --check insert_image_places_a_picture \
-  --check a_dropped_image_reaches_the_placement_window
-```
-
-**One phase is a permanent SKIP with a written reason**:
-`dimension_groups_panel_makes_a_group`'s folds. Three harness fixes did not make
-them work and each would have been a wrong report about the program. The account
-is in the function. Do not "fix" it with a retry loop.
-
-### 3.1 🔨 The object clipboard — half built, and the other half is blocked
-
-Cut, copy and paste ship for **markup and comments** (`spec_from_dict` out,
-`add_markup` back). **Page content cannot be pasted** — 157 verbs in `edit.rs`
-and none inserts any, re-measured 2026-08-19.
-
-**Do not file a request for the content half yet.** Nothing is measured about
-how the operator wants it to behave and the request would be inventing the
-requirement. The note in the channel says exactly that, so the engine is not
-waiting.
-
-★ Worth re-reading before adding anything: `add_image` **exists**, so pasting an
-*image* may be expressible — what is missing is an accessor that reads one back
-out of a page. That is a small, well-shaped engine ask if the operator ever
-wants it.
-
-### 3.2 ⬜ `pages.merge_into` — unblocked, still unwired
-
-`EditSession::merge_document`: one undo entry, session intact, fields arriving
-**fillable**, collisions **renamed** rather than refused. Pass 106.1 (engine
-commit `af12b31`) added the **navigation carry — destinations first**, so the
-"not carried yet" list has shrunk; re-read `2026-08-19-merge-that-keeps-your-undo-log.md`
-and `464e306` before writing the disclosure sentence.
-
-**`fields_renamed > 0` must be disclosed.** A renamed field breaks any script,
-FDF or calculation keyed on the old name, and there is no other way to learn it.
-
-### 3.3 ⬜ Re-derive the fourteen `SCAFFOLDED` entries
-
-The engine's standing ask, worth more than a feature request: *"if you have
-buttons parked on `command-unimplemented` because a verb exists but is the
-wrong SHAPE for an editor, those are ours. Send them."*
-
-★★ **And do it with `D:\dev\rag\rust\a_missing_verb_is_often_an_existing_verb_you_did_not_decompose_the_operation_into.md`
-open.** Three features shipped on 2026-08-19 whose recorded blockers were
-**never true** — resize ("no scale verb": true, and irrelevant, because
-`move_nodes` takes per-node deltas and a scale is a list of them), multi-run
-text editing (the guard was refusing a shared *line*, which `FollowerDisposition::Pin`
-had always handled), and Bézier handles (`move_handle` had shipped in Pass
-30.1). Each blocker was produced by grepping the API for a verb whose **name**
-matched the operation. Read the whole verb list and the **enums**; both misses
-lived in parameter types.
-
-### 3.4 ⬜ The Format tab — still the largest capability with no route here
-
-`RIBBON_IA.md` §5.8 specifies twenty-four property editors; the tab carries
-two. Both recorded blockers are discharged.
-
-★ Note that **markup restyle landed in the Properties panel instead**
-(2026-08-19) — colour, line width, opacity through `set_markup_style`. That was
-a considered placement, not a shortcut: Properties already appears on a
-selection and already reads the annotation. Decide deliberately whether the
-Format tab duplicates it, replaces it, or takes only the rows Properties
-cannot carry.
-
-### 3.5 ⬜ The disclosure gaps, in order of how badly they matter
-
-1. **`Document::recovery()` is never called** (`NO_SURFACE.md` §3b). A document
-   whose cross-reference table pdfce **rebuilt by scanning** opens with no
-   indication. `last_wins_collisions` means two definitions of one object
-   existed and pdfce chose — the operator is looking at one of two possible
-   documents and has not been told there was a choice. Blocked on nothing.
-2. **11 of the engine's 65 render counters reach anyone** (§3c).
-   `annotations_without_ap` means *a comment is in the file and is not being
-   drawn*, which on a drawing under review is worse than a wrong colour.
-3. **The markup pen has no surface in the Tool panel.** Note the text pen
-   solved the same problem a different way — `canvas::textedit::pen` lives in
-   `egui::Memory`, so a panel reaches it through `ui.ctx()` with no plumbing,
-   which is exactly what `panels::tool`'s header says the markup pen cannot do
-   because it is a field on `PdfceApp`. **Move it, do not plumb it.**
-
-## 4. Two things that are true and surprising
-
-### 4.1 ★★★ "It exists and he cannot find it" was the WRONG diagnosis, twice
-
-This section used to read: *"`edit.text` and `edit.add_text` are registered, on
-the Edit tab, bound to `Ctrl+E`, and two driven checks pass on them. So this is
-not a missing feature. It is a **discoverability defect** … Do not 'build text
-editing'."*
-
-Every fact in that was true. **The conclusion was wrong**, and it was wrong in a
-way worth keeping the paragraph to demonstrate.
-
-Calling it a *discoverability* defect frames the remedy as **telling the
-operator where the feature is** — which is what the Tool panel did, on
-2026-08-19, listing both text tools with their chords and their ribbon tab. He
-came back the same day and said he still could not type.
-
-The actual defect was that reaching the feature took **four steps** (Edit mode →
-Edit tab → *Edit text* → click) and that the I-beam he saw belonged to a
-*different* tool that sweeps text. No amount of signposting fixes a
-four-step-ritual; **the ritual is the defect**. The remedy was to delete it: one
-text tool, `T`, click to edit, click empty space to start new text.
-
-Two lessons, and the second is the reusable one:
-
-1. **"It works and nobody can find it" is never a documentation problem.** If a
-   panel has to explain how to reach something, the route is wrong.
-2. **A diagnosis that names a category also names a class of remedy.** Calling
-   this "discoverability" made a *labelling* fix feel like the answer for three
-   weeks. Naming it "the route is four steps and no other program's is" would
-   have produced the right fix on day one.
-
-Both are in `D:\dev\rag\egui\an_invented_interaction_model_is_a_defect_even_when_every_part_of_it_works.md`,
-and §1b is the short form.
-
-★ The related half that **was** real and is now fixed: `text::textedit::refusal`
-wrote good sentences aimed at a status row `R128` forbids growing, and
-`SpansRuns` — 47 words — fired on nearly every click on a CAD title block,
-because the guard was refusing a shared *line* rather than a genuine multi-run
-edit. That refusal is gone (the neighbours are pinned instead) and the remaining
-sentences have the Tool panel's third block to live in.
-
-### 4.2 The suite is not deterministic
-
-The last full run was 35 passed · 1 failed · 4 skipped, and **all three
-non-passes passed in isolation**, with messages pointing at pointer injection
-and window activation rather than the application.
-
-> **A full-suite red is not a defect report until the member has been re-run
-> alone.**
-
----
-
-## 5. How to work
-
-```bash
-# ALWAYS first — the engine repo moves several times a day
-cargo update -p pdfce-core -p pdfce-render -p pdfce-print
-
-cargo fmt --all
-cargo test -q -p pdfce-gui                 # 1,452 at this commit
-bash tools/gates/run-all.sh                # 14/14, all must pass
-
-# Drive it. Needs the operator off the machine — ASK, unless he has said go.
-cargo build --release -q -p pdfce-gui -p ui-verify
-cargo run --release -q -p ui-verify -- \
-  --exe target/release/pdfce-gui.exe \
-  --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,300,500 \
-  --check <name>                            # `--check`, NOT `--only`
-
-# And publish. Standing rule, restated by the operator 2026-08-19.
-python tools/package-portable.py
-```
-
-⚠ **`package-portable.py` re-resolves the git dependency.** It picked the engine
-up twice in one session, four commits apart each time. So the exe it publishes
-may not be linked against the `Cargo.lock` in the tree — **re-run the tests and
-the gates after packaging, then commit the lock**, because a lock that disagrees
-with the binary the operator is running is worse than one that moved unasked.
-
-`package-portable.py` alternates `OneDrive\pdfceGUI1` / `pdfceGUI2` itself and
-preserves each slot's `userdata/`. **Say which slot in your report** — the name
-carries no version. At this commit the newest is **`pdfceGUI1`**.
-
-42 checks are declared. `page_ops_round_trip` needs
-`D:\Dev\pdfce\fixtures\synthetic\pageops\four-pages.pdf` (the standard fixture
-has 36 `/Rotate` entries and the evidence would be indistinguishable).
-
----
-
-## 6. The request channel
-
-`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\`
-
-`request_<topic>.md` goes out, `note_<topic>.md` answers, replies come back as
-`YYYY-MM-DD-*.md`. **One topic per file.** Read it at the start of every
-session — things land unprompted.
-
-★ **The `gui` column of `D:\Dev\pdfce\docs\FEATURES.md` is officially ours as
-of 2026-08-19** — `2026-08-19-the-gui-column-is-yours-now-officially.md`. It is
-now a report on *this* build, and the engine session has asked to be told when a
-row it ticked is not actually reachable here. It has adopted this project's
-ticking bar: *a row is ticked only when an operator can reach it in a real
-build.* And it wants ⛔ rows that are blocked on `pdfce-core` **filed as
-requests**, so a core gap is visible from their side rather than showing as an
-empty box.
-
-★★ **A blocker naming `D:\Dev\pdfce\` cannot fail a test here.** Two were found
-false on 2026-08-19 — `markup.cloud`'s PLANNED entry and `NO_SURFACE.md`'s
-opacity row — and the first cost the operator three weeks of asking for a tool
-whose only blocker had already shipped. Write every external blocker as a
-**dated citation**, never as a verdict, and re-derive before acting on one. It
-is one `grep`. `NO_SURFACE.md` §1c and `D:\dev
-ag
-ust\` carry the whole
-argument.
-
-Open at this commit: everything from the insert-pages request is **shipped**
-except `Pass 102.1` (carry field definitions across `insert_pages`), which the
-engine will start unless told otherwise. It reduces `orphaned_widgets` and can
-never zero it, so the Register rows are permanent.
-
-★ **Report every workaround, even successful ones** (pdfce decision 058). A
-workaround is a finding about where the crate boundary sits.
-
----
-
-## 7. ★★ The lesson of 2026-08-19, which cost a day
-
-**Read the trace before believing the check.**
-
-Driving the binary found four application defects that 1,432 passing tests
-could not see. It also produced **five confident, specific, entirely wrong
-defect reports about working code**:
-
-| the check said | the truth |
-|---|---|
-| the drop caret was “never published” | its rectangle was in the trace four lines above the release — a gesture overlay is always retired before an out-of-process harness can look |
-| “1 row before, 2 after the delete” | the delete worked; the counting helper collects every name ever seen, and its own doc said *“used only for SKIP reasons”* |
-| the shortcuts list was “0.0 pt high” | a region published as the first statement in a `ScrollArea` closure, over `ui.min_rect()`, before anything was laid out |
-| the measure hover “was missing” at a computed point | the point landed 135 pt away on blank paper |
-| the highlight “never retires” over blank paper | a CAD sheet has a drawing border; the corner is not blank |
-
-★★ **The evening of the same day did it again, in the other direction and
-three times over** — and the whole point is that these were harness faults
-pointing at working code:
-
-| the check said | the truth |
-|---|---|
-| “the width was scrubbed and Apply committed nothing” | the trace showed the object's bounds going 317.87 → 358.00 eleven lines later. The oracle was `resize-commit`, which only the *gesture* route writes |
-| “the Node rung was never entered” | `double_click_at` was two calls to a settling `click_at`, putting **390 ms** between the presses — past `egui`'s compiled-in 300 ms threshold |
-| “1 anchor selected” after a Shift-pick | descending re-scopes the anchor marks; the trace shows a published rect moving x=393.9 → x=336.4 **because of the harness's own double click**, so the second aim was at a place the anchor had left |
-
-Out of which: **a harness may hold a coordinate for exactly as long as it
-performs no act that could move it** — three distinct causes in one day, all
-producing confident wrong reports. And: **do not compute a coordinate the
-application could publish**; a harness that derives a widget position by
-arithmetic can be wrong in the same direction as the code under test. Both are
-in `D:\dev\rag\egui\`.
-
-Two rules fell out of the morning and both are now in the RAG:
-
-1. **A harness assertion is a claim about the program *and* about the harness,
-   and only one of them is under test.**
-2. **An instrument that can only return one answer cannot detect the thing it
-   was added to detect.** Put diagnostics at the *entry* of a function with
-   early returns, naming each gate — one at the bottom emits nothing and tells
-   you only that the function did not finish.
-
-And the application-side pattern, which recurred **four times in one day**:
-
-> **A control that must be reachable cannot be placed after an unbounded
-> `ScrollArea`, and reserve-and-hope is the same defect with a tuning
-> parameter.**
-
-Bookmarks' authoring row, the Manage-groups Add button, the Register rows and
-the Forms panel's whole body were each unreachable in the exact state that
-needed them. Grep for `ScrollArea::vertical()` and check what follows it.
-
----
-
-## 8. Session shutdown
-
-1. `RESUME.md` and this file reflect **reality**, not intent.
-2. Findings go to `D:\dev\rag\egui\` or `D:\dev\rag\rust\` — write the lesson,
-   do not ask whether to.
-3. Anything needing a change in `D:\Dev\pdfce\` is a hand-off, never applied.
-4. Package and say which slot.
+## 6. The operator's standing criticism — keep it in view
+
+> *"it shouldn't take multiple 3 hour sessions each day to figure out how to get
+> a cursor to move and edit text on it, or get shortcuts to work for basic
+> functions."*
+
+> *"I've never seen a program that doesn't live preview any change, and yet here
+> I am having to ask for all the minute details as if you'd never been trained
+> on it."*
+
+He is right. The largest bucket of this fortnight's defects is **conventions
+nobody audited** — not engine gaps and not hard problems. The conventions corpus
+and its gate are the structural answer; use them **before** building an
+interaction, not after he reports it.
+
+He also asked whether egui is the wrong tool. The honest answer, recorded so it
+is not re-litigated from scratch: egui has **no scene graph**, and four of nine
+defects this session were things an item model would have handed us — `shape()`
+hit-testing, an editable text item, transform handles, OS-window dialogs. It is
+still a defensible choice, switching now would cost months, and the decision
+turns on a question only he can answer: **is pdfce-gui a product to sell and
+maintain for years, or the tool he uses to drive pdfce-core?** Qt (LGPL-3.0 or
+commercial) is the answer to the first; finishing egui is the answer to the
+second. Typed coordinates and a small scene/item layer help either way and are
+portable to Qt if it ever happens.
+
+And when he reports something, **believe him and go find it.** Every report this
+fortnight was precise and correct, including the two that sounded at first like
+misunderstandings.
