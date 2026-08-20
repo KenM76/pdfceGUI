@@ -158,13 +158,30 @@ is now the guard.
 
 **Asked:** 2026-08-20 — *"there was no way to reposition, resize, or rotate it
 on the screen. Can I please please please have that too?"*
-**Status:** OPEN.
+**Status:** OPEN. **Blocked on the engine, filed 2026-08-20**:
+`request_no_verb_transforms_a_non_path_object_so_a_placed_image_cannot_be_moved.md`.
+
+`EditSession::move_objects` — the verb the canvas drag already reaches — is
+**path-only**, by name and on purpose. There is no verb anywhere in the engine
+that moves, scales or rotates an image or a text object.
+
+**O11 and O12 are one gap**, and I asked for it as one verb rather than three.
+In a content stream a placed image and a placed text run are the same shape —
+an object emitted under a transformation matrix — so move, resize and rotate
+are all "pre-multiply that matrix", and building them separately would give me
+two call sites for one gesture.
+
+Everything on my side is already built and waiting: the selection model, the
+eight grips, the ghost preview. `canvas::resizing` computes the scale factors
+from a grip drag today and commits them for paths only. That is exactly the
+hole.
 
 ## O12 — Move text after placing it
 
 **Asked:** 2026-08-20 — *"can I please please please have the capability to move
 the text after?"*
-**Status:** OPEN. Same family as O11: direct manipulation of placed content.
+**Status:** OPEN, and it is **the same gap as O11** — filed together, one verb.
+See that row.
 
 ## O13 — Insert image does not appear until you save and reopen
 
