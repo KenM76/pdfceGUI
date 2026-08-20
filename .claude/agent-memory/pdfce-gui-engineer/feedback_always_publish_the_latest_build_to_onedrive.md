@@ -40,6 +40,22 @@ Two things that make the report useful rather than noise:
 - if the build is one he asked for specifically, say what changed in it, since
   the slot name carries no version information.
 
+**★ Check the slot afterwards, and do not trust the tool's own report on a
+failure.** Until 2026-08-20 the mirror cleared the target slot *before* it
+copied, so a failure in between left the slot **empty** — and it printed *"the
+build is fine; only the OneDrive copy did not happen"*, which was false. It
+fired on 2026-08-20: `pdfceGUI1` was locked, and Ken's fallback build was
+destroyed by the tool whose whole purpose is to preserve it. Restored by hand
+from `D:\builds\`.
+
+The tool now stages into a sibling, then clears, then renames, in three
+separate `try` blocks so its message can say which step failed and what the
+slot therefore holds. The finding is in `D:\dev\rag\rust\` as
+`a_rotate_two_slots_deploy_that_clears_before_it_copies_destroys_the_fallback_it_exists_to_provide.md`.
+Still: after packaging, `head -4` the `BUILD-INFO.txt` in **both** slots and
+report the two dates. That is the cheap check that the fallback property
+actually holds, and it is the one nobody did.
+
 Related: [[feedback_update_engine_before_every_build]] — `cargo update -p
 pdfce-core -p pdfce-render -p pdfce-print` comes first, or the package carries
 a stale engine.

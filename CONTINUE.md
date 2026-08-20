@@ -27,7 +27,13 @@ go-ahead. So the two checks written for it — `two_documents_get_two_tabs` and
 Report it in those words. The queue:
 
 ```bash
-cargo run --release -q -p ui-verify --   --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf   --second-pdf D:/Dev/pdfce/fixtures/synthetic/pageops/four-pages.pdf   --doc-point 0,300,500   --check two_documents_get_two_tabs   --check a_page_dragged_between_documents_is_copied
+cargo run --release -q -p ui-verify -- \
+  --exe target/release/pdfce-gui.exe \
+  --pdf D:/Dev/temp/pdfce/SW41177.pdf \
+  --second-pdf D:/Dev/pdfce/fixtures/synthetic/pageops/four-pages.pdf \
+  --doc-point 0,300,500 \
+  --check two_documents_get_two_tabs \
+  --check a_page_dragged_between_documents_is_copied
 ```
 
 `--second-pdf` must be a **different file** from `--pdf`; both checks SKIP with
@@ -42,12 +48,38 @@ a failure anywhere in between left the slot **empty** — and the handler printe
 *"only the OneDrive copy did not happen"*, which was false. It happened on this
 build: `pdfceGUI1` was locked, the clear partly succeeded, the copy raised
 `WinError 32`, and the operator's fallback build was gone. It was restored by
-hand from `D:uilds\`.
+hand from `D:/builds/`.
 
 Fixed the same day: **stage into a sibling, then clear, then rename**, in three
 separate `try` blocks so the message can say which step failed and what the
-slot therefore holds. The finding is in `D:\devagust\` as
+slot therefore holds. The finding is in `D:/dev/rag/rust/` as
 `a_rotate_two_slots_deploy_that_clears_before_it_copies_destroys_the_fallback_it_exists_to_provide.md`.
+
+### ★ What IS verified, precisely, without taking the desktop
+
+`PDFCE_DIAG_VIEWPORT=-4000,-4000,1400,900` gives a **real, laid-out,
+off-screen, non-focus-stealing** window (`D:/dev/rag/egui/offscreen_viewport_position_beats_with_visible_false_for_headless_gui.md`),
+so a smoke launch costs the operator nothing. Run on this build:
+
+```
+open ok pages=36 path="D:/Dev/temp/pdfce/SW41177.pdf"
+window-title "SW41177.pdf — pdfce"
+ui-rect name=doc-tabs   rect=[[8.0 111.3] - [1392.0 135.3]]
+ui-rect name=doc-tab.0  rect=[[8.0 111.3] - [116.6 133.3]]
+doc-tabs open=1 active=0 drawn=1 hidden=0
+shell commands=105 planned=74 directed=1
+canvas … pages=36 … display=continuous visible=2 drawn=2
+```
+
+So: **the strip is composed on a real frame, spans the window, and its one tab
+has 108 × 22 pt of clickable extent.** That rules out the whole family of
+failures this project keeps finding — a surface that is registered and never
+drawn, or drawn at zero height, or clipped out of its pane.
+
+It rules out **nothing about the gestures**. Whether a click on that rectangle
+switches document, whether a tab springs open under a drag, and whether a page
+crosses between documents are all unverified, and the two checks that would
+say have never run.
 
 ### The map, for reading the new code
 

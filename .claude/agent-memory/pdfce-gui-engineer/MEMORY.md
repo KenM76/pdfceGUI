@@ -9,3 +9,5 @@
 - [Refresh FEATURES.md before every release](feedback_refresh_features_md_before_every_release.md) — re-measure against the build, then package; he reads it to know what he has.
 - [Never defer on an external blocker](feedback_never_defer_on_an_external_blocker.md) — decompose the operation into verbs that exist; three "blockers" were never real.
 - [Use the conventional interaction, never invent one](feedback_use_the_conventional_interaction_never_invent_one.md) — the convergence of the product class IS the spec; an invented model is a defect even when it works.
+- [pdfce is multi-document since 2026-08-20](project_pdfce_is_multi_document_since_2026_08_20.md) — the active doc is still `PdfceApp::status`; don't modernise it into `documents[active]`.
+- [Smoke-launch offscreen when the desktop is blocked](feedback_smoke_launch_offscreen_when_the_desktop_is_blocked.md) — `PDFCE_DIAG_VIEWPORT` proves a surface is drawn without touching the pointer.
