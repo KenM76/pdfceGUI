@@ -1238,7 +1238,7 @@ mod tests {
             assert_eq!(
                 keymap.get(chord),
                 Some(command),
-                "{chord} must reach {command} - it is muscle memory, and its absence reads                  as the application ignoring the keyboard rather than as a missing feature"
+                "{chord} must reach {command} - muscle memory, and its absence reads as the application ignoring the keyboard"
             );
         }
     }
