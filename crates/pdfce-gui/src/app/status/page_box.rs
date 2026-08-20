@@ -620,6 +620,11 @@ mod tests {
         let _ = ctx.run_ui(input, |ui| {
             let ctx = ui.ctx();
             wants_keyboard = ctx.egui_wants_keyboard_input();
+            // typing-guard-exempt: a TEST asserting the harness actually reached
+            // the focused state. Reading the raw egui answer is the point - a
+            // test that asked `composing()` could not tell a focused widget from
+            // a canvas draft, and the thing being proved is that the widget half
+            // is reachable at all. D1 shipped because its test could not reach it.
             text_focused = ctx.text_edit_focused();
             keyboard_actions = crate::app::keyboard::collect(ctx, Some(4));
             show(

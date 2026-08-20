@@ -560,10 +560,25 @@ pub fn arm_text_edit(ctx: &egui::Context, kind: TextEditKind) -> CanvasTool {
 
 /// Whether the space bar is down **and the canvas is entitled to it**.
 ///
-/// See the module docs on the text-field guard.
+/// # ★★★ It asks `textedit::composing`, and asking anything narrower was a
+/// # defect the operator hit within a day of text editing working
+///
+/// This read `!ctx.text_edit_focused()`, which is true for an operator typing
+/// into the **canvas caret** — that caret is deliberately not an
+/// `egui::TextEdit`, so egui reports no focused text field for somebody who is
+/// visibly mid-word. The space bar is this tool's modifier, so the canvas took
+/// it and panned the paper. **Text editing could not type a space.**
+///
+/// > *"I can edit text now, but there is no live preview of that either, and it
+/// > doesn't accept spaces. Like how?"* — 2026-08-20
+///
+/// `app::keyboard` had the right predicate, written out with a paragraph
+/// explaining the second claimant, and this call site had a different one. One
+/// truth, two copies, one of them wrong — which is why the predicate now exists
+/// exactly once and a gate refuses a second.
 #[must_use]
 pub fn space_held(ctx: &egui::Context) -> bool {
-    !ctx.text_edit_focused() && ctx.input(|i| i.key_down(Key::Space))
+    !crate::canvas::textedit::composing(ctx) && ctx.input(|i| i.key_down(Key::Space))
 }
 
 /// What the primary button means on this frame — [`resolve`] applied to the

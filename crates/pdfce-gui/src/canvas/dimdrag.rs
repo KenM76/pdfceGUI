@@ -515,6 +515,76 @@ pub fn drag_vertex(
     ))
 }
 
+/// **Every ce dimension's drawn ink on the current page**, in canvas space,
+/// keyed by its annotation id.
+///
+/// # Why this exists: a bounding box is not a shape
+///
+/// A click selects what is under the cursor, not what merely encompasses it.
+/// A ce dimension's `/Rect` is the box around two witness lines, a dimension
+/// line, two arrowheads and a label — mostly empty air for anything but a
+/// perfectly horizontal one, and for a perimeter traced round a building it is
+/// the entire footprint. Hit-testing that box meant the operator could not
+/// select the drawing underneath their own dimensions.
+///
+/// ★ The segments come from `measure::pick::dimension_preview_segments` — **the
+/// same function the dimension is previewed and drawn from**. That is this
+/// module's standing rule applied to hit testing: what is clickable and what is
+/// visible are one derivation, so they cannot drift apart. A second "where is
+/// the ink" calculation would be a second thing to keep right.
+///
+/// # What it costs, and why it is per-click rather than cached
+///
+/// One pass over the sidecar's dimension records, projecting each one's
+/// segments. A heavily dimensioned sheet carries tens of these, not thousands —
+/// the 129,758 objects on the benchmark drawing are page CONTENT, and none of
+/// them is here. It runs on a click, not on a frame.
+///
+/// The label is deliberately NOT included. It is drawn by `pdfce-render` from
+/// the appearance stream and this shell does not know its box; a dimension is
+/// selected by its lines, which is the part an operator points at. If that
+/// proves too strict in use, the fix is to ask the engine for the label's box
+/// rather than to guess one here.
+#[must_use]
+pub fn annot_shapes(
+    doc: &OpenDoc,
+    ce_dimensions: &std::collections::BTreeSet<pdfce_core::object::ObjId>,
+) -> std::collections::BTreeMap<pdfce_core::object::ObjId, Vec<(egui::Pos2, egui::Pos2)>> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(page) = doc.pages.get(doc.view.page_index) else {
+        return out;
+    };
+    let model = doc.session.dimension_model();
+    for record in model.dimensions() {
+        let Some(annot) = record.annot else { continue };
+        if !ce_dimensions.contains(&annot) {
+            continue;
+        }
+        let segments: Vec<(egui::Pos2, egui::Pos2)> =
+            super::measure::pick::dimension_preview_segments(&record.kind)
+                .into_iter()
+                .filter_map(|(a, b)| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let to_canvas = |p: Point| {
+                        crate::viewer::pdf_space_to_canvas(
+                            egui::Pos2::new(p.x as f32, p.y as f32),
+                            page,
+                        )
+                    };
+                    Some((to_canvas(a)?, to_canvas(b)?))
+                })
+                .collect();
+        // Empty means "this kind reports no segments" — a circular dimension
+        // today. Left OUT of the map rather than inserted empty, so the caller
+        // falls back to the rectangle: an annotation nothing can claim is
+        // unselectable, which is worse than one that claims too much.
+        if !segments.is_empty() {
+            out.insert(annot, segments);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

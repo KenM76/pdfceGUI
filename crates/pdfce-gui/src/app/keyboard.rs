@@ -276,7 +276,7 @@ pub fn collect(ctx: &Context, page_count: Option<usize>) -> Vec<Action> {
     // Asked as "is a draft in flight" rather than "is a caret tool armed",
     // because an armed tool that has not been clicked yet owns no keystrokes —
     // the page keys must keep working right up until the caret is placed.
-    let typing = ctx.text_edit_focused() || crate::canvas::textedit::read(ctx).is_some();
+    let typing = crate::canvas::textedit::composing(ctx);
 
     let (modifiers, pressed) = ctx.input(|i| {
         (
@@ -397,7 +397,7 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
     // Asked as *"is a draft in flight"* rather than *"is a caret tool armed"*,
     // because an armed tool that has not been clicked yet owns no keystrokes —
     // the page keys must keep working right up until the caret is placed.
-    if ctx.text_edit_focused() || crate::canvas::textedit::read(ctx).is_some() {
+    if crate::canvas::textedit::composing(ctx) {
         return Vec::new();
     }
 
@@ -552,6 +552,11 @@ mod tests {
         let _ = ctx.run_ui(key_press(Key::PageDown, Modifiers::NONE), |ui| {
             let ctx = ui.ctx();
             wants_keyboard = ctx.egui_wants_keyboard_input();
+            // typing-guard-exempt: a TEST asserting the harness actually reached
+            // the focused state. Reading the raw egui answer is the point - a
+            // test that asked `composing()` could not tell a focused widget from
+            // a canvas draft, and the thing being proved is that the widget half
+            // is reachable at all. D1 shipped because its test could not reach it.
             text_focused = ctx.text_edit_focused();
             actions = collect(ctx, Some(5));
         });
@@ -844,6 +849,11 @@ mod tests {
         let _ = ctx.run_ui(key_press(Key::Z, Modifiers::COMMAND), |ui| {
             let mut text = String::new();
             ui.add(egui::TextEdit::singleline(&mut text).id(id));
+            // typing-guard-exempt: a TEST asserting the harness actually reached
+            // the focused state. Reading the raw egui answer is the point - a
+            // test that asked `composing()` could not tell a focused widget from
+            // a canvas draft, and the thing being proved is that the widget half
+            // is reachable at all. D1 shipped because its test could not reach it.
             focused = ui.ctx().text_edit_focused();
             ids = commands(ui.ctx(), Some(&keymap));
         });

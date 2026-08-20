@@ -92,7 +92,14 @@ pub enum TextKey {
 /// script.
 #[must_use]
 pub fn pending_key(ui_ctx: &egui::Context) -> Option<TextKey> {
-    if ui_ctx.text_edit_focused() {
+    // ★★ A canvas draft claims these chords too, 2026-08-20 — widened from
+    // `text_edit_focused()`, which is false for an operator typing on the page.
+    //
+    // Ctrl+C mid-word must not copy the page's text selection: the operator is
+    // composing, and the selection they made before the caret landed is not
+    // what those two keys mean any more. Same reasoning as the space bar, which
+    // was taken by the hand tool for the same reason on the same day.
+    if crate::canvas::textedit::composing(ui_ctx) {
         return None;
     }
     ui_ctx.input(|i| {
@@ -256,6 +263,11 @@ mod tests {
         let mut found = Some(TextKey::SelectAll);
         let _ = ctx.run_ui(input, |ui| {
             ui.add(egui::TextEdit::singleline(&mut buffer));
+            // typing-guard-exempt: a TEST asserting the harness actually reached
+            // the focused state. Reading the raw egui answer is the point - a
+            // test that asked `composing()` could not tell a focused widget from
+            // a canvas draft, and the thing being proved is that the widget half
+            // is reachable at all. D1 shipped because its test could not reach it.
             typing = ui.ctx().text_edit_focused();
             found = pending_key(ui.ctx());
         });

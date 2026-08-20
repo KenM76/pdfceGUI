@@ -312,7 +312,22 @@ pub(super) fn canvas_keys(
     let form_abandoned = crate::canvas::forms::escape_spent(ctx);
 
     // ★ D1: `text_edit_focused()`, NEVER `egui_wants_keyboard_input()`.
+    //
+    // ★★ And deliberately NOT `textedit::composing` here, which is the wider
+    // predicate this project otherwise insists on. A canvas draft must still
+    // reach rung 4 of the Escape ladder below — that rung is what ABANDONS the
+    // draft, and a draft in flight is exactly the state in which Escape has the
+    // most to do. Widening this guard would make Escape stop working for the
+    // one gesture that needs it most.
+    //
+    // Delete is the key that must yield to a draft, and it is guarded on its
+    // own branch further down rather than at this door. See there.
+    //
+    // typing-guard-exempt: this asks whether a WIDGET holds the keyboard, so
+    // that Escape can still reach the rung that abandons a canvas draft.
     if ctx.text_edit_focused() {
+        // typing-guard-exempt: Escape must reach the draft-abandon rung below;
+        // Delete yields to a draft on its own branch. See the note above.
         return;
     }
     let (escape, delete, tab) = ctx.input(|i| {
@@ -492,6 +507,32 @@ pub(super) fn canvas_keys(
     }
 
     if !delete {
+        return;
+    }
+
+    // ★★★ **A CANVAS DRAFT TAKES DELETE AND BACKSPACE**, 2026-08-20.
+    //
+    // Above every rung below it, and it has to be: with a caret on the page the
+    // operator is typing, and Delete means "eat the character in front of me".
+    // Reaching the rungs below would delete the SELECTED OBJECT instead —
+    // silently, destructively, while they were mid-word — which is defect D1's
+    // family in its worst form. D1 lost a keystroke; this would lose a drawing.
+    //
+    // ★ Note where the guard is, and why it is not at this function's entry.
+    // The entry test is deliberately `text_edit_focused()` alone, because
+    // **Escape must still reach rung 4**, which is what abandons the draft. A
+    // draft in flight is precisely the state in which Escape has the most to
+    // do. So the two keys diverge here rather than at the door: Escape belongs
+    // to the ladder, Delete belongs to whoever is composing.
+    //
+    // `canvas::textedit::typing` has already consumed the key this frame — it
+    // runs from `canvas::interact` before this — so this is a guard against
+    // double handling rather than the thing that makes Delete work in a draft.
+    if crate::canvas::textedit::composing(ctx) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-delete-declined reason=composing-text".to_owned()
+        });
         return;
     }
 
@@ -888,6 +929,11 @@ mod tests {
         let mut typing = false;
         let _ = ctx.run_ui(key(Key::Delete), |ui| {
             ui.add(egui::TextEdit::singleline(&mut buffer));
+            // typing-guard-exempt: a TEST asserting the harness actually reached
+            // the focused state. Reading the raw egui answer is the point - a
+            // test that asked `composing()` could not tell a focused widget from
+            // a canvas draft, and the thing being proved is that the widget half
+            // is reachable at all. D1 shipped because its test could not reach it.
             typing = ui.ctx().text_edit_focused();
             canvas_keys(
                 ui.ctx(),

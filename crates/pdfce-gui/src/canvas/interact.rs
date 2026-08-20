@@ -338,6 +338,9 @@ pub(super) fn interact(
     // Escape is read whatever the tool is: a hand-tool frame still has to be
     // able to abandon a drag the previous tool left in flight, and it is still
     // the ladder's key when there is no drag. See this function's header.
+    // typing-guard-exempt: this is `does a WIDGET hold Escape`, not `is anybody
+    // composing`. A canvas draft must still let Escape reach the gesture ladder,
+    // which is what abandons the draft — see `canvas::keys`' entry guard.
     let cancel = !ctx.text_edit_focused() && ctx.input(|i| i.key_pressed(Key::Escape));
     let frame = if active_tool.pans_with_primary() {
         PointerFrame {
@@ -625,14 +628,7 @@ pub(super) fn interact(
             let annot_hit = if matches!(active_tool, crate::canvas::tool::CanvasTool::Select)
                 && caps.author_markup
             {
-                doc.pages.get(page_index).and_then(|page| {
-                    let ce = crate::panels::comments::model::ce_dimension_annots(&doc.session);
-                    let view = doc.session.view();
-                    let candidates = crate::canvas::selection::annot::selectable_on(
-                        &view, page, page_index, &ce,
-                    );
-                    crate::canvas::selection::annot::hit(&candidates, point)
-                })
+                crate::canvas::selection::annot::under_pointer(doc, page_index, point, map)
             } else {
                 None
             };
@@ -1405,6 +1401,10 @@ pub(super) fn interact(
     );
 
     if active_tool.text_edit_kind().is_some() {
+        // typing-guard-exempt: SELF-REFERENTIAL. This asks whether a widget is
+        // stealing the keyboard FROM the canvas draft, and the draft is the
+        // thing asking — `composing()` here would include the draft itself and
+        // be permanently false, so the caret would never take a keystroke.
         let owns_keyboard = !ctx.text_edit_focused();
         let _ = crate::canvas::textedit::typing(ui, &ctx, owns_keyboard, actions);
         // ★ Evidence for *"it doesn't type anything in the box when I type and

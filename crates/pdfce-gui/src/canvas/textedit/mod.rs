@@ -330,6 +330,50 @@ pub enum Refusal {
     InsideForm,
 }
 
+/// ★★★ **Is the operator composing text ANYWHERE?** The one predicate, asked in
+/// one place.
+///
+/// # This function exists because the answer was written twice and one copy was
+/// # wrong
+///
+/// Two claimants have to be asked about, because this shell composes text in
+/// two different places:
+///
+/// 1. [`egui::Context::text_edit_focused`] — a real `egui::TextEdit`: a form
+///    field, the page-number box, a dialog's box, the Find bar. **D1's
+///    predicate**, never `egui_wants_keyboard_input()`, for the reason
+///    `app::keyboard::collect` gives at length.
+/// 2. **A canvas text draft** — the caret this shell paints on the page, which
+///    is deliberately *not* a `TextEdit` (this module's header says why: the
+///    caret sits in PDF space at the glyphs' own scale, which a floating widget
+///    cannot do). **egui therefore reports no focused text field for an
+///    operator who is visibly mid-word.**
+///
+/// `app::keyboard` asked both. `canvas::tool::arm::space_held` asked only the
+/// first — and the space bar is the hand tool's modifier, so **an operator
+/// typing on the canvas could not type a space.** They got a pan instead. The
+/// operator, 2026-08-20: *"it doesn't accept spaces. Like how?"*
+///
+/// That is **defect D1 one rung along**: D1 was `egui_wants_keyboard_input()`
+/// where `text_edit_focused()` was meant; this is `text_edit_focused()` where
+/// *"anybody is composing"* was meant. Same shape, same invisibility to a
+/// harness that builds a bare `Context` with no draft in it, same silent loss
+/// of a key the operator is plainly pressing.
+///
+/// The lesson is not "be careful". It is that **a predicate with two claimants
+/// must exist once**, and `tools/gates/check-typing-guard.sh` now fails the
+/// build on any bare `text_edit_focused()` outside this function.
+///
+/// # Why "is a draft in flight" and not "is a caret tool armed"
+///
+/// An armed tool that has not been clicked yet owns no keystrokes — the page
+/// keys must keep working right up until the caret is placed. Carried over from
+/// `app::keyboard`, where it was already right.
+#[must_use]
+pub fn composing(ctx: &egui::Context) -> bool {
+    ctx.text_edit_focused() || read(ctx).is_some()
+}
+
 /// Read the draft without creating one. `None` when nothing is being composed.
 #[must_use]
 pub fn read(ctx: &egui::Context) -> Option<Draft> {

@@ -582,6 +582,11 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 /// A failure report that only says "Delete did nothing" sends the reader to
 /// the deletion code, which is correct and has been correct throughout. Naming
 /// the actual guard saves that trip — and the fix really is one line.
+// typing-guard-exempt: PROSE, not a call. This names the predicate inside a
+// multi-line failure message, and the gate cannot see that a continuation
+// line belongs to a string rather than to code - a limitation worth having
+// over the alternative, which is a gate that tries to parse Rust in bash and
+// gets it subtly wrong in the direction of letting a real call through.
 const D1_DIAGNOSIS: &str = "This is the D1 signature. Look at the keyboard guard, not at the \
      deletion code: the canvas requests egui focus on click, and a guard written as \
      `ctx.egui_wants_keyboard_input()` means 'any widget has focus', not 'a text field has \
