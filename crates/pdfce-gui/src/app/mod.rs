@@ -131,6 +131,18 @@ pub mod save;
 /// `syn` check that no other file may bypass them.
 pub mod settings;
 
+/// **More than one document open at once** — the tab arithmetic behind the
+/// document strip, and what switching between documents forgets.
+///
+/// The operator's request of 2026-08-19. See that module's header for why the
+/// active document stayed on its own field rather than becoming
+/// `documents[active]`, and for the invariant that makes `Status::Empty` mean
+/// "no documents" rather than "one empty document".
+pub mod documents;
+
+/// The **document tab strip** — the surface `documents` is drawn on.
+pub mod doctabs;
+
 /// The host half of the Settings window — what pressing Save, Cancel or
 /// Restore defaults actually does, and the order the four consequences of a
 /// Save happen in.
@@ -138,11 +150,19 @@ pub mod settings_window;
 
 pub mod state;
 pub mod status;
+
+/// **The three regions the application draws** — the ribbon band, the docks
+/// and the central area.
+///
+/// Split out on 2026-08-20 along the seam this file's own header had already
+/// drawn in prose. See that module's header; the one-line version is that
+/// `mod.rs` answers *what is the application and how is it built* and
+/// `surfaces.rs` answers *what does it draw*.
+pub mod surfaces;
 /// Read mode and full screen — the two View ▸ Window verbs that change the
 /// shape of the application rather than anything about the document.
 pub mod window;
 
-use actions::Action;
 use state::Status;
 
 /// Named region: the whole central panel, in window logical points.
@@ -191,8 +211,34 @@ const DOCK_SLOT: &str = "dock"; // ui-text-exempt: trace slot name, never displa
 ///
 /// `new()` is the constructor. It is the only one.
 pub struct PdfceApp {
-    /// What, if anything, is open.
+    /// What, if anything, is open — **the document the operator is looking
+    /// at**, when several are open.
+    ///
+    /// Unchanged in meaning by the multi-document work of 2026-08-19, and
+    /// deliberately so: every panel, the canvas, the status bar and the
+    /// condition set read this one field and none of them had to learn that
+    /// other documents exist. [`documents`]' header carries the argument for
+    /// keeping it a field rather than folding it into a vector.
     pub status: Status,
+
+    /// **The other open documents**, in tab order with the active one removed.
+    ///
+    /// Empty for the whole life of a single-document session, which is what
+    /// makes the encoding free when it is not being used.
+    ///
+    /// The invariant, stated once and asserted by
+    /// [`PdfceApp::document_count`]: *if this is non-empty, [`Self::status`] is
+    /// not [`Status::Empty`]*. Nothing outside [`documents`] may write it —
+    /// the two functions there that flatten and rebuild the pair are the only
+    /// code that knows the encoding.
+    pub parked: Vec<Status>,
+
+    /// **Which tab position [`Self::status`] occupies.**
+    ///
+    /// `0` whenever nothing is open, and always `< document_count()`
+    /// otherwise. It is a position in the operator's strip, not an index into
+    /// [`Self::parked`] — see [`documents`] §1 for the picture.
+    pub active_slot: usize,
 
     /// The shell definition — tabs, groups, modes, QAT, keymap — as data.
     ///
@@ -265,6 +311,20 @@ pub struct PdfceApp {
     /// successful open — and read by the `recent_files` ribbon item and by
     /// the `file.recent` dispatch arm.
     pub recent: crate::app::recent::RecentFiles,
+
+    /// **The window title as it was last set**, so it is set again only when
+    /// it changes.
+    ///
+    /// A viewport command is a message to the windowing system; sending one
+    /// sixty times a second to assert a string that has not moved is waste
+    /// that shows up as work on the platform's own thread rather than in this
+    /// process's profile, which makes it the kind of waste nobody finds. One
+    /// `String` comparison per frame is the price of not doing that.
+    ///
+    /// Empty at start-up, which is not a title anything sets — so the first
+    /// frame always sends one, and the static title from the viewport builder
+    /// is replaced by the derived one immediately.
+    pub last_window_title: String,
 
     /// **How many documents `file.new` has made this session.**
     ///
@@ -635,6 +695,12 @@ impl PdfceApp {
 
         Self {
             status: Status::default(),
+            // Nothing is parked because nothing is open. `document_count()`
+            // reads this pair as "no documents at all" rather than "one empty
+            // document", which is what keeps the tab strip off the screen
+            // until there is something to put in it.
+            parked: Vec::new(),
+            active_slot: 0,
             shell,
             commands,
             ribbon,
@@ -648,6 +714,8 @@ impl PdfceApp {
             // field's own note on why yesterday's numbering is of no use to
             // anybody.
             created_documents: 0,
+            // Not a title anything sets, so the first frame always sends one.
+            last_window_title: String::new(),
             recent_choice: None,
             panels: crate::panels::PanelsState::default(),
             find: crate::find::FindState::default(),
@@ -671,276 +739,6 @@ impl PdfceApp {
             },
         }
     }
-
-    /// Draw the ribbon and translate what the operator invoked.
-    ///
-    /// # ★ The one custom item, and why it is not a command
-    ///
-    /// `Item::Custom` is `egui-shell`'s extension point for a control that is
-    /// not a button — its own doc names *"a split button with a gallery"* —
-    /// and the Recent menu is one: a `Command` item can only render as a
-    /// button, and a button cannot ask *which* of ten documents. The renderer
-    /// therefore draws and reports, nothing else: the path is parked in
-    /// [`Self::recent_choice`] and the `file.recent` token is returned, so the
-    /// command goes through [`Self::dispatch_command`] exactly as a ribbon
-    /// click does. See [`crate::app::recent::menu`] for the control itself and
-    /// [`crate::shell::manifest::CUSTOM_BACKED`] for why the command is on no
-    /// tab. An unknown `kind` draws **nothing** and returns `None`, which is
-    /// why the manifest's unbuilt `colour_swatch` leaves a gap rather than a
-    /// mystery widget.
-    fn ribbon_band(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
-        let Some(shell) = self.shell.as_ref() else {
-            return;
-        };
-        let conditions = self.conditions(ui.ctx());
-
-        // The rect sink. Every group caption and mode segment publishes its
-        // rect under a stable name, which is what lets `ui-verify` assert
-        // legibility on the frame the rect was measured on instead of
-        // hard-coding fractions that go stale the first time a panel moves
-        // (`PROJECT_PLAN.md` §4.2 prerequisite 1).
-        let mut report_rect = |name: &str, rect: egui::Rect| {
-            crate::diag::ui_rect(name, rect);
-        };
-
-        // Resolved before the closure, because inside it `self` is not
-        // reachable: the closure borrows `self.recent` mutably while
-        // `&self.commands` is handed to the ribbon. `Option` rather than an
-        // expectation — a build whose registry has no `file.recent` draws no
-        // menu instead of panicking in the paint loop.
-        let recent_token = self
-            .commands
-            .get(crate::shell::commands::FILE_RECENT)
-            .map(|c| c.handler);
-        let recent = &mut self.recent;
-        let mut chosen: Option<std::path::PathBuf> = None;
-        // ★ The pen, borrowed for the closure. `Pen` is `Copy`, so the
-        // closure takes a `&mut` to the field rather than a copy — a copy would
-        // let the operator move a slider and have the change discarded when the
-        // frame ended, which is the shape of bug that produces "the control
-        // does nothing" reports.
-        let pen = &mut self.pen;
-        let mut custom = |ui: &mut egui::Ui, item: &egui_shell::ribbon::CustomItem<'_>| {
-            // ★ The Markup ▸ Style controls. They return `None` — no handler
-            // token — because they invoke no command: they edit the pen the
-            // next gesture will use, which is application state with no undo
-            // log to order against. `None` is what tells the ribbon nothing was
-            // invoked, which is true.
-            if item.kind == crate::shell::manifest::COLOUR_SWATCH {
-                crate::canvas::markup::swatch::show(ui, pen);
-                return None;
-            }
-            if item.kind != crate::shell::manifest::RECENT_FILES {
-                return None;
-            }
-            // A build whose registry has no `file.recent` draws no menu at
-            // all, rather than a menu whose choice nothing could act on. Same
-            // posture as `R8`: a capability that is not compiled in renders
-            // nothing.
-            let token = recent_token?;
-            let picked = crate::app::recent::menu(ui, recent, std::time::Instant::now())?;
-            chosen = Some(picked);
-            Some(token)
-        };
-
-        // ★ The icon painter, and what supplying it actually changes.
-        //
-        // `egui_shell::ribbon::qat`'s `shows_label` draws a control icon-only
-        // only when three things hold: the command names an icon, it has a
-        // tooltip to be that icon's accessible name, and **the application
-        // supplied a painter**. The third clause exists because an earlier
-        // build registered icon keys, supplied no painter, and produced a row
-        // of blank boxes.
-        //
-        // So until this line the whole ribbon fell back to text buttons —
-        // which is exactly what the first packaged build did, and the trace
-        // said so plainly: `ribbon.qat.file.open` was 73 pt wide where an
-        // icon-only control is about 18. The icons had landed, the painter
-        // existed and was tested, and nothing drew a glyph, because the one
-        // line that connects them was never written.
-        //
-        // A plain `fn` item satisfies the `FnMut` bound, so there is no
-        // closure and no captured state — which is the property worth
-        // keeping: a painter with no state cannot be the thing that goes
-        // stale.
-        let mut icons = crate::icons::paint_ribbon_icon;
-
-        let tokens = egui::Panel::top("ribbon")
-            .show(ui, |ui| {
-                egui_shell::ribbon::Ribbon::new()
-                    .with_conditions(&conditions)
-                    .reporting_rects_to(&mut report_rect)
-                    .with_custom_items(&mut custom)
-                    .with_icon_painter(&mut icons)
-                    .render(ui, shell, &self.commands, &mut self.ribbon)
-            })
-            .inner;
-
-        // Park the operand BEFORE dispatching the token that consumes it.
-        // Reversing these two lines would make the `file.recent` arm find an
-        // empty slot and fall back to the newest entry — which is a defined
-        // behaviour, and therefore a defect with no symptom except that the
-        // operator's third choice opened their first.
-        if chosen.is_some() {
-            self.recent_choice = chosen;
-        }
-
-        for token in tokens {
-            self.dispatch_token(ui.ctx(), token, actions);
-        }
-    }
-
-    /// Draw the left and right docks and their panel bodies.
-    ///
-    /// The dock knows nothing about PDFs — it is handed opaque
-    /// [`egui_shell::dock::PanelId`]s and hands them back, and this closure
-    /// is the single place a `PanelId` becomes a `crate::panels::Panel`.
-    /// One dispatcher, exactly as the ribbon has one: an id that does not
-    /// resolve draws its own explanation rather than an empty pane, because
-    /// an empty pane is indistinguishable from a panel that had nothing to
-    /// say.
-    fn docks(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
-        // Borrows split before the closure: the body needs `status` and
-        // `panels` while `show` holds `dock` mutably, and the closure
-        // cannot reach through `self` for them.
-        // Conditions are computed before the destructure, because building
-        // them needs `&self` and the destructure takes it apart.
-        let conditions = self.conditions(ui.ctx());
-
-        let Self {
-            status,
-            shell,
-            commands,
-            panel_registry,
-            dock,
-            panels,
-            ..
-        } = self;
-        let doc = match status {
-            Status::Open(doc) => Some(&**doc),
-            _ => None,
-        };
-
-        // The right-click host. `None` if the manifest failed to validate —
-        // in which case there is no ribbon either, and a context menu
-        // offering commands the ribbon cannot show would be the only route
-        // to them, which is worse than none.
-        let host = shell
-            .as_ref()
-            .map(|s| crate::shell::menus::MenuHost::new(s, commands, &conditions));
-
-        let mut report_rect = |name: &str, rect: egui::Rect| {
-            crate::diag::ui_rect(name, rect);
-        };
-
-        // Tokens collected inside the dock body and dispatched after it, for
-        // the same reason actions are applied after the frame: the closure
-        // holds borrows the dispatcher needs back.
-        let mut tokens = Vec::new();
-        // A second `Vec`, and it has to be: `tokens` is already captured
-        // mutably by the body closure below, so the tab-menu handler cannot
-        // also borrow it.
-        let mut tab_tokens = Vec::new();
-        let mut tab_menu = |tab: &mut egui_shell::dock::TabMenu<'_>| {
-            // The dock hands out the tab's `Response`; what a right-click on
-            // it offers is the application's business, which is the whole
-            // point of the seam. Supplying a handler also takes the dock's
-            // built-in Close off that tab — deliberately, because two menus
-            // on one `Response` are two writers of one popup id.
-            tab_tokens.extend(
-                host.iter()
-                    .flat_map(|h| h.attach(tab.response(), crate::shell::menus::DOCK_TAB)),
-            );
-        };
-        let report = egui_shell::dock::Dock::new()
-            .with_registry(panel_registry)
-            .with_tab_menu(&mut tab_menu)
-            .reporting_rects_to(&mut report_rect)
-            .show(
-                ui,
-                dock,
-                |panel_id, ui| match crate::panels::Panel::from_command_id(panel_id.as_str()) {
-                    Some(panel) => {
-                        tokens.extend(panel.show(ui, doc, panels, host.as_ref(), actions));
-                    }
-                    None => {
-                        ui.label(crate::text::panels::panel_unknown());
-                    }
-                },
-            );
-
-        // ★ The Dimension-groups panel's *Set scale…* hand-over.
-        //
-        // Read here, not inside the body, and that is a consequence of the seam
-        // rather than a preference: a panel body is handed `&OpenDoc` and
-        // `&mut PanelsState` and **nothing else**, so it cannot see
-        // `DialogsState` and cannot open a window. It parks a `GroupId`
-        // instead; this is the first line that can see both halves, because the
-        // destructured borrows above end with the dock's closure.
-        //
-        // The same one-shot lived in `DialogsState::show` while that panel was
-        // a window — see `crate::dialogs`' note where the draw used to be. The
-        // guards did not move: `open_scale` still applies its own no-document
-        // and already-open checks at the one place a `ScaleDialog` is built, so
-        // a request arriving while one is open leaves a half-typed ratio alone.
-        let scale_request = self.panels.dimension_groups.take_scale_request();
-
-        for token in tokens.into_iter().chain(tab_tokens) {
-            self.dispatch_token(ui.ctx(), token, actions);
-        }
-
-        if let Some(group) = scale_request {
-            self.dialogs.open_scale(&self.status, group);
-        }
-
-        // ★ Bind the mode selector to the dock, and the dock to disk.
-        //
-        // Two questions, deliberately in this order.
-        //
-        // 1. **Did the operator change mode?** Then the arrangement they are
-        //    leaving is recorded and the one they are entering is applied.
-        //    Compared against `modes`' own idea of the active mode rather
-        //    than a flag, because the ribbon owns the selector and there is
-        //    no event: it is drawn, the operator clicks, and the two differ
-        //    on the next frame.
-        // 2. **Did they rearrange it?** `layout_changed` is the dock's own
-        //    report of a splitter drag, a tab move or a close — not a
-        //    comparison this function has to re-derive.
-        //
-        // A third — *is a write due?* — used to be here and is now in
-        // `Self::ui`, so read mode cannot hide a pending write with the dock.
-        //
-        // The order of 1 and 2 is load-bearing: recording after a mode change
-        // would file the outgoing arrangement under the incoming mode.
-        if let Some(mode) = self.ribbon.mode().map(str::to_owned)
-            && self.modes.active() != Some(mode.as_str())
-        {
-            self.modes.on_mode_changed(
-                &mode,
-                &mut self.dock,
-                &mut self.layout,
-                &self.panel_registry,
-            );
-            self.on_mode_capabilities_changed(ui.ctx());
-        }
-        if report.layout_changed {
-            let arrangement = self.dock.layout().clone();
-            self.modes.record_layout(&arrangement, &mut self.layout);
-        }
-
-        // What the dock actually drew, not what the layout asked for. The
-        // two differ whenever a saved layout names a panel this build does
-        // not have, and the difference is the thing worth tracing.
-        crate::diag::trace_changed(DOCK_SLOT, || {
-            format!(
-                // ui-text-exempt: diagnostic trace, never displayed.
-                "dock panels={} overflowed={} changed={}",
-                report.panels_drawn.len(),
-                report.panels_overflowed,
-                report.layout_changed,
-            )
-        });
-    }
 }
 
 /// One-time egui configuration that must happen before the first frame.
@@ -960,97 +758,15 @@ pub fn configure_context(ctx: &egui::Context) {
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
 }
 
-impl PdfceApp {
-    /// The central area: the canvas when a document is open, and an
-    /// explanation when one is not.
-    ///
-    /// Each non-open state renders **one sentence and nothing else**. There
-    /// is deliberately no "Open…" button, no retry, and no password field:
-    /// S0 opens the file named on the command line and has no other way to
-    /// open anything, so a control here would either not exist or not work.
-    /// Saying plainly what happened, and what the operator can do about it
-    /// outside the application, is the honest version of that.
-    fn central(&mut self, ui: &mut egui::Ui, actions: &mut Vec<actions::Action>) {
-        // The status message's own rect, for whichever non-open arm draws
-        // one. Declared through `ui_rect` so a legibility check measures the
-        // text the application actually laid out rather than a fraction of
-        // the window written into the harness — see `crate::diag::ui_rect`.
-        //
-        // `.inner.rect` and not `.response.rect`: `centered_and_justified`
-        // returns the JUSTIFIED CONTAINER as its response, which is the whole
-        // available area, while the label is drawn centred inside it.
-        // Reporting the container would name a region that is mostly empty
-        // background, and a contrast measurement over it would be dominated
-        // by pixels the sentence never touched — a real measurement of the
-        // wrong thing, which is the failure mode this whole mechanism exists
-        // to prevent.
-        // Built before the `&mut self.status` borrow, because the host reads
-        // the shell and the registry that live beside it.
-        let conditions = self.conditions(ui.ctx());
-        let host = self
-            .shell
-            .as_ref()
-            .map(|s| crate::shell::menus::MenuHost::new(s, &self.commands, &conditions));
-
-        // The canvas is drawn first and dispatched second, in two statements
-        // rather than one match arm, because `dispatch_token` needs `&self` —
-        // `format.delete` reads the selection off the open document — and the
-        // arm holds `&mut self.status`. Letting the borrow end at the `if let`
-        // is the whole reason this is not simply the first arm below.
-        // ★ Two disjoint field borrows, and they have to be taken through
-        // `self` in one expression: the canvas needs `&mut` on the open
-        // document (it writes the three documented bookkeeping fields) and
-        // `&` on the find state (it reads the hits to draw them). Binding
-        // either one first and then reaching for the other through `self`
-        // would be a second borrow of the whole struct.
-        // Sampled before the `&mut self.status` borrow, and by value: it reads
-        // `self.shell` and `self.ribbon`, both of which are disjoint from the
-        // document but not provably so through a single `self`.
-        let caps = self.capabilities();
-        let pen = self.pen;
-        let find = &self.find;
-        if let Status::Open(doc) = &mut self.status {
-            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, caps, pen, actions);
-            // Dispatched here rather than inside `show`: the canvas reports
-            // intent and the application decides, which is the same seam the
-            // ribbon and the dock already use.
-            for token in tokens {
-                self.dispatch_token(ui.ctx(), token, actions);
-            }
-            return;
-        }
-
-        let message = match &self.status {
-            // ui-text-exempt: a panic message, read from a stack trace by
-            // whoever broke the two-statement structure above. Never rendered.
-            Status::Open(_) => unreachable!("handled above, before the borrow ended"),
-            Status::Empty => {
-                ui.centered_and_justified(|ui| ui.label(crate::text::canvas_no_document()))
-            }
-            Status::Failed { path, message } => {
-                let text = crate::text::open_failed(path, message);
-                ui.centered_and_justified(|ui| ui.colored_label(ui.visuals().error_fg_color, text))
-            }
-            Status::Unsupported { path, message } => {
-                // Deliberately NOT `error_fg_color`. "pdfce cannot do this
-                // yet" is not an error in the operator's document, and
-                // painting it red would say it was — the same conflation the
-                // three-way status split exists to avoid.
-                let text = crate::text::open_unsupported(path, message);
-                ui.centered_and_justified(|ui| ui.label(text))
-            }
-            Status::NeedsPassword { path } => {
-                let text = crate::text::open_needs_password(path);
-                ui.centered_and_justified(|ui| ui.label(text))
-            }
-        };
-        crate::diag::ui_rect(REGION_STATUS_MESSAGE, message.inner.rect);
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    // ★ Named here rather than at the top of the module: `Action` is used only
+    // by these tests since the three drawing surfaces moved to
+    // `crate::app::surfaces` on 2026-08-20, and a `use` at module scope that
+    // only the test module needs is a `use` that fails the workspace's
+    // `-D warnings` clippy gate in a release build.
+    use crate::app::actions::Action;
     use crate::canvas::selection::{ClickHit, SelectionLevel};
     use crate::canvas::target::TargetId;
     use crate::panels::objects::test_support::engine_fixture;

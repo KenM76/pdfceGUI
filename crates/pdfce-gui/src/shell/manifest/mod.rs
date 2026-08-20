@@ -312,6 +312,23 @@ pub fn built_in() -> Shell {
         .with_binding("H", "view.tool_hand")
         .with_binding("Ctrl+E", "edit.text")
         .with_binding("Ctrl+Shift+E", "edit.add_text")
+        // ★★ **The document chords**, 2026-08-19 with the tab strip.
+        //
+        // `Ctrl+Tab` / `Ctrl+Shift+Tab` to cycle and `Ctrl+W` to close: the
+        // three every tabbed application on this desktop has bound, and
+        // therefore the three an operator will try first.
+        //
+        // ★ `Ctrl+Tab` is safe to bind here and a bare `Tab` would not be.
+        // egui's own focus system claims `Tab` — `Memory` matches
+        // `Key::Tab if !modifiers.any()` for the next widget and
+        // `modifiers.shift_only()` for the previous — so both of these carry a
+        // modifier combination egui's focus walker deliberately ignores. A
+        // binding on bare Tab would move focus AND fire the command, which is
+        // the kind of double meaning that reads as a random control gaining
+        // focus every time you switch document.
+        .with_binding("Ctrl+Tab", "view.next_document")
+        .with_binding("Ctrl+Shift+Tab", "view.previous_document")
+        .with_binding("Ctrl+W", "file.close")
         // ★ Was bound to `edit.copy_page_text` until 2026-08-14. The COMMAND
         // moved to File ▸ Export and the chord followed it here, in the same
         // edit, because this keymap is the only place a chord is bound to a
@@ -1154,8 +1171,10 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            28,
-            "twenty-eight key bindings — the four pointer tools took V, A, T and H on \n             2026-08-19, which is the layout every program in this class uses"
+            31,
+            "thirty-one key bindings — the four pointer tools took V, A, T and H on 
+             2026-08-19, and the document tabs took Ctrl+Tab, Ctrl+Shift+Tab and 
+             Ctrl+W the same day. Both are the layout every program in this class uses"
         );
     }
 
@@ -1267,7 +1286,13 @@ mod tests {
         let ids: Vec<&str> = window.items().iter().filter_map(Item::command_id).collect();
         assert_eq!(
             ids,
-            ["view.read_mode", "view.fullscreen", "view.reset_layout",]
+            [
+                "view.previous_document",
+                "view.next_document",
+                "view.read_mode",
+                "view.fullscreen",
+                "view.reset_layout",
+            ]
         );
     }
 

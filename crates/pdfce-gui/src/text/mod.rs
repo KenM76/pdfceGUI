@@ -95,6 +95,9 @@ pub mod diagnostics;
 /// rather than reported after it.
 pub mod dimension_groups;
 /// The three sentences a dragged-and-dropped file can answer with.
+/// **The document tab strip, and the page drag between documents.** What a tab
+/// says, and what a drag says it is about to do.
+pub mod doctabs;
 pub mod dropped;
 /// What the measure tools say about what they INFERRED — the two-line
 /// gesture's refusals, the angle an override overrode, and an apex that is

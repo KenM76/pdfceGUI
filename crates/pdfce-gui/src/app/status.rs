@@ -498,6 +498,38 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
             return;
         };
 
+        // ★★ **First on the left while a page drag is in flight**, ahead of
+        // everything else the bar has to say.
+        //
+        // Rule 4's disclosure half for the drag: the caret drawn into the page
+        // list and the page view says *where* graphically, and this says the
+        // same thing in page numbers and document names, off-canvas. A
+        // hairline between two near-identical drawing sheets is precise and
+        // not checkable — `panels::pages` reached that conclusion first, for
+        // its own caret, and a drag that can now cross documents needs the
+        // sentence more, not less, because *which document* is a fact no caret
+        // can carry.
+        //
+        // ★ It also has to be here rather than only in the Pages panel,
+        // because the panel can be **closed**. A drop onto the page view is a
+        // complete gesture on its own — press in one document's page list,
+        // spring a tab, release on the sheet — and the operator can perform
+        // most of it with no page list on screen at all.
+        //
+        // First rather than last: a transient sentence about a gesture in
+        // progress outranks four disclosures about things that have already
+        // happened, and the left half of this bar yields right-to-left when it
+        // runs out of room (see the cluster below), so a line added later
+        // would be the one that got squeezed.
+        //
+        // Costs one `egui::Memory` lookup per frame when nothing is being
+        // dragged, which is every frame but the handful the operator is
+        // carrying something.
+        if let Some(caption) = crate::pagedrag::caption(ui.ctx()) {
+            ui.label(caption);
+            ui.separator();
+        }
+
         // Left: the narrator, demoted behind a disclosure.
         notes::show(ui, doc);
 

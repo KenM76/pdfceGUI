@@ -87,6 +87,15 @@ impl PdfceApp {
     /// is how a control comes to be enabled by one rule and drawn by another.
     pub(super) fn conditions(&self, ctx: &egui::Context) -> egui_shell::commands::ConditionSet {
         let mut set = egui_shell::commands::ConditionSet::new();
+        // ★ **More than one document is open**, and therefore something to
+        // switch to. Set OUTSIDE the `Status::Open` arm below, deliberately: a
+        // tab whose file failed to open is still a tab
+        // (`crate::app::documents` §2), and an operator sitting on a damaged
+        // file with three good ones behind it needs Ctrl+Tab to work more than
+        // anybody.
+        if self.document_count() > 1 {
+            set.set("docs.multiple");
+        }
         if let Status::Open(doc) = &self.status {
             set.set("doc.open");
             if !doc.pages.is_empty() {

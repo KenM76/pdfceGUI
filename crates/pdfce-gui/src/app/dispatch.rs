@@ -224,6 +224,15 @@ impl PdfceApp {
             // anyway, because a customized keymap can reach any command from
             // any state.
             "file.close" => actions.push(Action::Close),
+            // ★ Applied here rather than raised as an `Action`, which is the
+            // same call `crate::app::doctabs` makes for a tab click and for
+            // the same reason: switching documents destroys nothing, asks
+            // nobody, and is a control the operator is watching. The funnel
+            // exists to give one choke point to the things that change a
+            // document; this changes *which* document, which is the question
+            // the funnel is downstream of.
+            "view.next_document" => self.cycle_document(true),
+            "view.previous_document" => self.cycle_document(false),
             // ★ **Save a copy.** Registered, on the quick-access toolbar, bound
             // to `Ctrl+S`, printing "(Ctrl+S)" in its own tooltip — and until
             // 2026-08-14 it had **no arm**, so it traced `command-unimplemented`

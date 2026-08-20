@@ -82,6 +82,14 @@ pub mod ocr;
 // The dock's panel bodies — Bookmarks, Layers, Signatures, Fonts, Objects and
 // the properties panel. See PANELS' own header for the reachability contract
 // every one of them has to satisfy.
+/// **A page drag in flight** — the state four surfaces share while the
+/// operator is carrying pages from one document's page list to another's, or
+/// onto the page view.
+///
+/// In `egui::Memory` rather than on `PdfceApp` because switching documents
+/// resets the panels' state, and switching documents is exactly what a
+/// cross-document drag has to do on its way. See the module header.
+pub mod pagedrag;
 pub mod panels;
 // Redaction: the apply pipeline and its absence proof, salvaged whole from the
 // old shell — the ONE place that proof exists anywhere, `pdfce-core` included.

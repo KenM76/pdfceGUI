@@ -281,6 +281,15 @@ pub mod tool_row;
 /// ★ The three markup kinds that carry WORDS, and the one property that
 /// separates them from the seven geometric ones: the RELEASE MUST NOT AUTHOR.
 /// Its header carries why no unit test can see that.
+/// **Opening a second PDF adds a tab, and the tab switches to it** — the
+/// registration half of the multi-document work of 2026-08-20, which no unit
+/// test can observe.
+pub mod document_tabs;
+
+/// **A page dragged out of one open document and into another**, through a
+/// spring-loaded tab — the operator's request of 2026-08-19, end to end.
+pub mod page_drag_between_documents;
+
 pub mod about;
 pub mod add_text;
 /// Insert a form's pages to make orphaned widgets, then register one back.
@@ -339,6 +348,17 @@ pub struct CheckContext {
     pub exe: Option<PathBuf>,
     /// The document to open.
     pub pdf: Option<PathBuf>,
+    /// **A second, DIFFERENT document**, for the checks that need two open at
+    /// once.
+    ///
+    /// It must not be the same file as [`Self::pdf`]. `crate::app::documents`
+    /// §3 makes pdfce activate the tab a path is already open in rather than
+    /// open a duplicate — deliberately, because two `EditSession`s over one
+    /// file would be two undo stacks and a save from either would discard the
+    /// other's work. So passing the same path twice would make a multi-document
+    /// check assert the opposite of what it is for, and the checks that need
+    /// this SKIP rather than fall back to [`Self::pdf`].
+    pub second_pdf: Option<PathBuf>,
     /// An already-captured image to assert against instead of driving the
     /// application — the offline mode for pixel checks. Its purpose is
     /// falsification against a dated artefact; see
@@ -603,6 +623,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `save_copy` failed should be read first: every link from Ctrl+S
         // onwards is that check's, and this one has the whole text-edit path
         // stacked in front of them.
+        // ★ The multi-document pair, 2026-08-20. Both SKIP without
+        // `--second-pdf`, and the SKIP reason says why the same file cannot be
+        // passed twice.
+        Box::new(document_tabs::TwoDocumentsGetTwoTabs),
+        Box::new(page_drag_between_documents::PageDraggedBetweenDocumentsIsCopied),
         Box::new(about::AboutReportsTheBuild),
         // Beside About because it is its neighbour in every way that matters to
         // a run: it launches with NO document, it opens one window, and it

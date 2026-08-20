@@ -118,13 +118,23 @@ pub const REGION_CANCEL: &str = "unsaved.cancel"; // ui-text-exempt: trace regio
 /// makes it a *pending* intent.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PendingIntent {
-    /// `Action::Close`.
+    /// `Action::Close`, and `Action::CloseDocument` once it has brought the
+    /// tab it is closing to the front.
+    ///
+    /// ★ **The only variant anything constructs, since 2026-08-20.** The three
+    /// below are unreachable — see the note under this enum.
     Close,
     /// `Action::Open(path)`.
+    ///
+    /// ⚠ **Never constructed today.** See the note under this enum.
     Open(std::path::PathBuf),
     /// `Action::New`.
+    ///
+    /// ⚠ **Never constructed today.** See the note under this enum.
     New,
     /// `Action::NewSized`, with its page box in points.
+    ///
+    /// ⚠ **Never constructed today.** See the note under this enum.
     NewSized {
         /// Page width in points.
         width_pt: f64,
@@ -132,6 +142,32 @@ pub enum PendingIntent {
         height_pt: f64,
     },
 }
+
+// ---------------------------------------------------------------------------
+// ★★ THREE OF THE FOUR VARIANTS ARE CURRENTLY UNCONSTRUCTED, AND THAT IS
+//    RECORDED RATHER THAN DELETED.
+//
+// Until 2026-08-20, Open, New and NewSized each REPLACED the open document, so
+// each asked this question first. Since the document tab strip landed they
+// park what is open and add a tab: nothing is discarded, so there is nothing
+// to ask about — and asking anyway would put a sentence in front of the
+// operator that is **false**, which is how a confirmation gets dismissed
+// unread. `crate::app::actions::document`'s header carries the full argument
+// and the table of which arms still guard.
+//
+// They are kept, with their sentences, for one specific reason that is a real
+// gap rather than a hedge: **pdfce still asks nothing when the window is
+// closed with unsaved edits.** That was true before this change and is now
+// true across N documents instead of one. A quit guard is exactly this
+// machinery with a fourth intent, and the three sentences here — *"Open
+// another document?"*, *"Make a new document?"* — are the shape the fourth
+// would take.
+//
+// If a quit guard lands and does not use them, delete them then. An enum arm
+// nothing can reach is dead code wearing a design pattern, and this crate's
+// standing preference is to make unreachable states unrepresentable — the
+// exception is bought here by a named, dated, still-open gap.
+// ---------------------------------------------------------------------------
 
 impl PendingIntent {
     /// The sentence naming what is about to happen to the open document.

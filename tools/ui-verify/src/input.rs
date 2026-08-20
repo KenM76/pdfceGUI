@@ -233,6 +233,80 @@ impl Driver {
         Ok(())
     }
 
+    /// **Drag through a waypoint, resting on it.**
+    ///
+    /// The gesture a **spring-loaded** target needs: press here, walk to
+    /// there, *stay* long enough for the application's dwell timer to fire,
+    /// then walk on and release. Windows Explorer's folders, every browser's
+    /// tabs and pdfce's document tab strip all work this way, and none of them
+    /// can be driven by [`Self::drag`] — which walks straight through and never
+    /// rests anywhere.
+    ///
+    /// `dwell` is how long the pointer sits on `via`. It must exceed the
+    /// application's own threshold with room to spare: the check that uses this
+    /// passes twice `crate::pdfce::SPRING_DWELL`, because a dwell measured
+    /// against a *frame clock* on a machine that is also rasterizing a CAD
+    /// sheet is not a dwell measured against a stopwatch.
+    ///
+    /// ★ The pointer is **moved slightly** during the dwell rather than being
+    /// held perfectly still, in the same place, for a second. A stationary
+    /// pointer generates no input, and an application that only repaints on
+    /// input would never run the frame its own timer fires on. pdfce asks for a
+    /// repaint while a spring is armed precisely so this is not required — but
+    /// a harness that depended on that would be testing the repaint request
+    /// rather than the spring, and would report a false failure the day the
+    /// request moved.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::drag`].
+    pub fn drag_via(
+        &self,
+        from: ScreenPoint,
+        via: ScreenPoint,
+        dwell: std::time::Duration,
+        to: ScreenPoint,
+    ) -> Result<()> {
+        self.raise();
+        sys::set_cursor_position(from.x(), from.y())?;
+        std::thread::sleep(MOVE_SETTLE);
+        sys::mouse_button(true);
+        std::thread::sleep(CLICK_HOLD);
+        self.walk(from, via)?;
+        // The dwell, as a handful of one-pixel jiggles rather than one sleep.
+        let ticks = 8;
+        let per = dwell / ticks;
+        for i in 0..ticks {
+            let nudge = i32::from(i % 2 == 0);
+            sys::set_cursor_position(via.x() + nudge, via.y())?;
+            std::thread::sleep(per);
+        }
+        self.walk(via, to)?;
+        sys::mouse_button(false);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
+    /// Walk the pointer from `a` to `b` in [`DRAG_STEPS`] increments, with the
+    /// button in whatever state the caller left it.
+    ///
+    /// Extracted from [`Self::drag`] when [`Self::drag_via`] needed the same
+    /// walk twice. The arithmetic is unchanged and the reason for it is
+    /// unchanged: integers, because the endpoints are whole pixels and an
+    /// intermediate point should be one a real mouse could produce.
+    fn walk(&self, a: ScreenPoint, b: ScreenPoint) -> Result<()> {
+        for step in 1..=DRAG_STEPS {
+            let lerp = |from: i32, to: i32| -> i32 {
+                let n = i64::from(DRAG_STEPS);
+                let (wide_a, wide_b) = (i64::from(from), i64::from(to));
+                i32::try_from(wide_a + (wide_b - wide_a) * i64::from(step) / n).unwrap_or(to)
+            };
+            sys::set_cursor_position(lerp(a.x(), b.x()), lerp(a.y(), b.y()))?;
+            std::thread::sleep(DRAG_STEP_SETTLE);
+        }
+        Ok(())
+    }
+
     /// Click twice in the same place, fast enough for the application to read
     /// it as a double click.
     ///

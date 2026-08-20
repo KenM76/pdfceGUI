@@ -198,6 +198,15 @@ pub mod overlay;
 /// the ribbon manifest's command ids are. Its header carries the mapping
 /// argument and the distinctness test the shell says the application owes.
 pub mod overlays;
+
+/// **Dropping pages onto the page view** — the caret between two sheets, and
+/// the release that inserts or reorders there.
+///
+/// The operator's request of 2026-08-19: *"…or onto the canvas to add pages
+/// and insert them in between the pages we've dragged to"*. The drag itself
+/// lives in [`crate::pagedrag`], which is what lets a gesture that began in a
+/// panel — possibly in another document — end here.
+pub mod pagedrop;
 /// ★ Everything the canvas draws, once everything is decided — lifted out of
 /// [`interact`] when that file crossed R2's ceiling. Its header carries the
 /// layer order and the argument for each position in it.
@@ -716,6 +725,21 @@ fn show_in(
         doc.view.page_index = page;
         doc.tracked_page = page;
     }
+
+    // ★ **A page drag from somewhere else, landing here.**
+    //
+    // Here rather than inside the scroll-area closure, because that is the
+    // first point at which every visible page's *screen* rectangle is known —
+    // and the caret has to be drawn over the pages rather than under them,
+    // which in an immediate-mode painter is a matter of call order.
+    //
+    // It reads no `Response`, which is the point: the press that started this
+    // drag happened in a panel — possibly on another document's page list —
+    // so no widget on this canvas has ever seen it. See `canvas::pagedrop`.
+    //
+    // Costs one `egui::Memory` lookup on a frame with no drag in flight, which
+    // is every frame but the handful the operator is carrying something.
+    pagedrop::offer(ui, doc, &drawn, scroll_output.inner_rect, actions);
 
     // The page being acted on: whatever the pointer acted on, else the current
     // page. Its response and its rect are what everything below reads, which is

@@ -75,17 +75,25 @@
 //! and cannot capture state that makes a command's availability depend on
 //! *when* it was registered.
 //!
-//! Six conditions are used, and the whole vocabulary is listed here
+//! Seven conditions are used, and the whole vocabulary is listed here
 //! because every one of them is a promise the application has to keep:
 //!
 //! | Condition | True when | Used by |
 //! |---|---|---|
 //! | *(none)* | always | commands with no precondition: Open, Settings, the batch tools, the window and render settings |
+//! | `docs.multiple` | **more than one document is open** | Next / Previous document |
 //! | `doc.open` | a document is open | document-level commands — close, save a copy, properties, print |
 //! | `doc.pages` | …and it has at least one page | everything that acts on a page |
 //! | `undo.available` / `redo.available` | the corresponding stack is non-empty | Undo, Redo |
 //! | `selection.any` | something is selected | the contextual Format tab and its Delete |
 //! | `selection.bounds` | …and it still resolves to a box on the page shown | Zoom to selection |
+//!
+//! `docs.multiple` is deliberately **not** a refinement of `doc.open`, and it
+//! is published outside that arm. A tab whose file failed to open is still a
+//! tab (`crate::app::documents` §2), so an operator can be sitting on a
+//! damaged file — `doc.open` false — with three good documents behind it, and
+//! that is the moment they most need a way back to one of them. Nesting the
+//! condition would grey the only route out of a failed open.
 //!
 //! `selection.bounds` is separate from `selection.any` for the same shape
 //! of reason, one level down. A selection here is an **identity** — page,
@@ -211,7 +219,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 103);
+        assert_eq!(registry().len(), 105);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -258,7 +266,7 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 93, "commands naming an icon");
+        assert_eq!(named, 95, "commands naming an icon");
         assert_eq!(
             refused, 10,
             "commands with no icon, each argued at its registration"
@@ -333,6 +341,10 @@ mod tests {
     #[test]
     fn every_predicate_names_a_documented_condition() {
         const KNOWN: &[&str] = &[
+            // ★ NOT nested inside `doc.open` where it is published, and the
+            // header says why: the one state that needs it most is a failed
+            // open with other documents behind it.
+            "docs.multiple",
             "doc.open",
             "doc.pages",
             "undo.available",

@@ -33,13 +33,13 @@ use crate::viewer;
 /// one, because pressing on a page is how the operator moves to it under a
 /// continuous mode — see [`show`]. The response of exactly one of them becomes
 /// the frame's interaction response.
-pub(super) struct DrawnPage {
+pub(crate) struct DrawnPage {
     /// The 0-based page index.
-    pub(super) page: usize,
+    pub(crate) page: usize,
     /// Its rect on screen, in window logical points.
-    pub(super) rect: Rect,
+    pub(crate) rect: Rect,
     /// Its own sensing widget.
-    pub(super) response: egui::Response,
+    pub(crate) response: egui::Response,
     /// Whether a raster was painted into it, as opposed to a state sentence.
     ///
     /// Recorded here rather than re-derived for the trace, because the caches

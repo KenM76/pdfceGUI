@@ -62,6 +62,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     let mut profile_name = profile::PDFCE_GUI.name.to_owned();
     let mut exe: Option<PathBuf> = None;
     let mut pdf: Option<PathBuf> = None;
+    let mut second_pdf: Option<PathBuf> = None;
     let mut image: Option<PathBuf> = None;
     let mut out_dir = PathBuf::from("target/ui-verify");
     let mut selected: Vec<String> = Vec::new();
@@ -85,6 +86,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             "--profile" => profile_name = value("--profile")?,
             "--exe" => exe = Some(PathBuf::from(value("--exe")?)),
             "--pdf" => pdf = Some(PathBuf::from(value("--pdf")?)),
+            "--second-pdf" => second_pdf = Some(PathBuf::from(value("--second-pdf")?)),
             "--image" => image = Some(PathBuf::from(value("--image")?)),
             "--out" => out_dir = PathBuf::from(value("--out")?),
             "--check" => selected.push(value("--check")?),
@@ -126,6 +128,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         profile,
         exe,
         pdf,
+        second_pdf,
         image,
         out_dir,
         contrast_threshold: threshold,
@@ -241,6 +244,9 @@ OPTIONS
   --profile NAME     target profile (default: pdfce-gui). --list shows them.
   --exe PATH         the binary to drive. Defaults to the profile's.
   --pdf PATH         the fixture document to open.
+  --second-pdf PATH  a SECOND, different document, for the multi-document
+                     checks. Must not be the same file as --pdf: opening a
+                     path that is already open activates its tab by design.
   --doc-point P,X,Y  where a driving check aims, in PDF user space (origin
                      bottom-left). NO DEFAULT, on purpose: a guessed point
                      produces a click on empty page, which is symptom-identical

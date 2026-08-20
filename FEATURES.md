@@ -24,12 +24,53 @@ the blocker named.
 | | |
 |---|---|
 | **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons, settings) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) · **Phase 5** (text editing incl. lines shared with other runs; aligned and rotated tails; new text with a font, size and colour; live re-layout blocked on the engine) · **Phase 1 complete but for the clipboard** (selection, move, resize by grip and by typed number, multi-node move, Bézier handles) · **Phase 6** (markup substrate, **eight kinds** including the revision cloud, text markup, Comments panel) · **Phase 7** (measure: Linear, Two-line, Radius/diameter, snapping, dimension groups) · **the mode gate** (Read is genuinely read-only, canvas *and* keyboard) |
-| **Tests** | 1,506 (GUI) + 379 (egui-shell) + 144 (ui-verify) passing, 0 failing · **51 driven checks**, of which 45 verified on the last full run against `SW41177.pdf` and 6 skipped for a stated reason |
+| **Tests** | 1,523 (GUI) + 384 (egui-shell) + 144 (ui-verify) passing, 0 failing · **53 driven checks**, of which 45 verified on the last full run against `SW41177.pdf` and 6 skipped for a stated reason. ⚠ **The two newest have never been run** — see the 2026-08-20 section below |
 | **Gates** | 14 of 14 checks, 0 skipped — eight gate scripts, five of them carrying a self-test that catches its own planted violations, plus `fmt` and `clippy` |
 | **Source** | ~215,000 lines across three crates and the harness |
-| **Commands** | 103 registered · 74 declared-and-deferred (`PLANNED`) · **14 registered-but-inert** (`SCAFFOLDED`), five of which breach P3 by being drawn at all |
+| **Commands** | 105 registered · 74 declared-and-deferred (`PLANNED`) · **14 registered-but-inert** (`SCAFFOLDED`), five of which breach P3 by being drawn at all |
 | **Panels** | **12** — Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · **Tool** |
 | **Ribbon surface built** | ~55 % of `RIBBON_IA.md` §5 · 31 groups |
+
+---
+
+## ★★ What landed on 2026-08-20 — **several documents at once**, and pages
+## dragged between them
+
+The operator's request, verbatim:
+
+> *"make it so we can open multiple PDFs at once and drag and drop pages from
+> one thumbnail image sidebar to another or onto the canvas to add pages and
+> insert them in between the pages we've dragged to on the canvas or the
+> thumbnail preview area."*
+
+| | |
+|---|---|
+| **Several documents open** | ✅ a **document tab strip** under the ribbon — labels, an unsaved `*` marker, a ✕, middle-click to close, `Ctrl+Tab` / `Ctrl+Shift+Tab` to cycle, `Ctrl+W` to close, an overflow menu past the width. Opening a file that is already open activates its tab instead of opening it twice |
+| **Drag a page between documents** | ✅ press a thumbnail, rest on the other document's **tab** until it springs open, drop at a caret between two sheets. The drag survives the document switch because it lives in `egui::Memory` rather than on the panel that started it |
+| **Drop onto the page view** | ✅ the same gesture, released on the canvas, with a horizontal caret in the gap between two sheets — every display mode, including single page |
+| **It is a COPY, and it says so** | ✅ *"Copy 2 sheets from SW41177.pdf to before page 3."* on the status row before the button is released. A cross-document move would be two commands on two undo stacks with no single `Ctrl+Z` able to reverse it |
+| **★ Open and New stopped destroying work** | ✅ and by **removing** a guard rather than adding one. They no longer replace the open document, so the unsaved-edits prompt in front of them would have been stating something false — and a confirmation that says something untrue is how an operator learns to dismiss confirmations unread |
+| **Live window title** | ✅ `SW41177.pdf — 3 documents open — pdfce`, so Alt-Tab and the taskbar say what you left open |
+
+### ⚠ Not driven — say so in those words
+
+`two_documents_get_two_tabs` and `a_page_dragged_between_documents_is_copied`
+are **written and have never been executed.** The harness takes the operator's
+pointer, keyboard and display, and the go-ahead for that has not been given.
+Everything above passed `cargo test`, `cargo clippy` and all fourteen gates,
+and this project was founded on a commit that said *"analysis-confirmed, NOT
+empirically verified"* and was treated as done anyway. It is not done.
+
+The queue, when the machine is free:
+
+```bash
+cargo run --release -q -p ui-verify --   --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf   --second-pdf D:/Dev/pdfce/fixtures/synthetic/pageops/four-pages.pdf   --doc-point 0,300,500   --check two_documents_get_two_tabs   --check a_page_dragged_between_documents_is_copied
+```
+
+★ `--second-pdf` must be a **different file**. Opening a path that is already
+open activates its tab by design, so passing the same one twice would make both
+checks assert the opposite of what they are for; they SKIP with that sentence
+rather than falling back.
 
 ---
 

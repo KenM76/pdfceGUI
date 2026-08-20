@@ -350,6 +350,20 @@ pub(super) fn tab() -> Tab {
                 "window",
                 ribbon::group_view_window(),
                 [
+                    // ★ **Which document am I looking at** comes first, before
+                    // the two verbs that change the shape of the window.
+                    //
+                    // `RIBBON_IA.md` §3 gives this group the question *"what
+                    // shape is the application in?"*, and "which of my open
+                    // documents is in front of me" is the first and largest
+                    // answer to it — larger than read mode and larger than
+                    // full screen, because it changes what is on the page
+                    // rather than what is around it.
+                    //
+                    // Previous before Next, in reading order, as every
+                    // navigation pair in this manifest is.
+                    command("view.previous_document"),
+                    command("view.next_document"),
                     command("view.read_mode"),
                     command("view.fullscreen"),
                     command("view.reset_layout"),

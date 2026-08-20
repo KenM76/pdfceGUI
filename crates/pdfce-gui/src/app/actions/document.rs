@@ -1,5 +1,5 @@
-//! # `app::actions::document` — the four actions that replace the open
-//! document, and the two guards all four share
+//! # `app::actions::document` — the actions that decide WHICH document is on
+//! screen, and the two guards the destructive ones share
 //!
 //! ## Why this is a file of its own
 //!
@@ -17,9 +17,36 @@
 //! below can be wrong about a page, and these can be wrong about an afternoon's
 //! work.
 //!
+//! ## ★★ 2026-08-19: three of the five arms stopped needing the guards, and
+//! that is the point of the change rather than a relaxation of it
+//!
+//! There are now **five** arms here, and they split two-three:
+//!
+//! | arm | discards a document? | guards |
+//! |---|---|---|
+//! | `apply_open` | **no** — it adds a tab | none |
+//! | `apply_new` | **no** | none |
+//! | `apply_new_sized` | **no** | none |
+//! | `apply_close` | yes — the one on screen | both |
+//! | `apply_close_document` | yes — the one whose tab was clicked | both |
+//!
+//! Before the document tabs, Open and New *replaced* what was open, and the
+//! guard on them was the most valuable one in the file — see `apply_open`,
+//! which keeps the old argument verbatim because it was right. Now they park
+//! the open document and add a tab, so the question they used to ask —
+//! *"your unsaved edits will be lost"* — would be **false**, and a
+//! confirmation that says something untrue is how an operator learns to
+//! dismiss confirmations unread.
+//!
+//! So the protection did not weaken; it moved to where the loss now happens.
+//! And the loss now happens in **two** places rather than one, which is
+//! exactly what
+//! [`tests::every_action_that_discards_a_document_asks_about_unsaved_edits`]
+//! is shaped to notice.
+//!
 //! ## ★ The two guards, in order, and why the order is not interchangeable
 //!
-//! All four arms ask the same two questions in the same sequence:
+//! Both closing arms ask the same two questions in the same sequence:
 //!
 //! | # | question | answer | why first / second |
 //! |---|---|---|---|
@@ -41,10 +68,10 @@
 //!
 //! ## ★★ The defect this file's shape closes
 //!
-//! Guard 2 did not exist until 2026-08-19. Every one of these four arms
-//! destroyed every edit made since the file was opened, silently, with no
-//! prompt and no undo — while `file.close`'s shipped tooltip promised the
-//! operator *"You are asked what to do about unsaved edits first."*
+//! Guard 2 did not exist until 2026-08-19. Every one of the four arms that
+//! then existed destroyed every edit made since the file was opened, silently,
+//! with no prompt and no undo — while `file.close`'s shipped tooltip promised
+//! the operator *"You are asked what to do about unsaved edits first."*
 //!
 //! It was found by an audit against `pdfce`'s capability register, not by a
 //! test and not by use, and the reason it survived so long is worth keeping:
@@ -53,87 +80,71 @@
 //! `Action::Close` saw a guard, saw a doc comment explaining the guard, and had
 //! no reason to ask whether it was the guard the tooltip was describing.
 //!
-//! Putting all four arms in one file with the guard table above is the
+//! Putting every such arm in one file with the guard table above is the
 //! structural half of not repeating that. The other half is
-//! [`tests::every_document_replacing_action_asks_about_unsaved_edits`], which
-//! fails when a fifth one arrives without it.
+//! [`tests::every_action_that_discards_a_document_asks_about_unsaved_edits`],
+//! which fails when a sixth one arrives without the guards — and which had to
+//! be rewritten when the count moved, because its first form counted *arms*
+//! and the property was never about the count.
 
 use crate::app::PdfceApp;
 use crate::dialogs::unsaved::PendingIntent;
 
 impl PdfceApp {
-    /// `Action::Open` — replace the open document with the one at `path`.
+    /// `Action::Open` — open the document at `path`, **in a tab of its own**.
     ///
     /// With nothing open this is the **ordinary** case: it is how an operator
     /// gets their first document after launching with no argument. That is why
     /// this arm is matched before `apply`'s document guard rather than being
     /// subject to it.
     ///
-    /// ★ **The arm that needed the unsaved-edits question most**, and it is
-    /// worth saying why it is not Close. An operator who has marked up a
-    /// drawing and then opens the next one has destroyed exactly as much work
-    /// as one who pressed Close — and is far more likely to do it, because
-    /// opening the next file is what you do all day, whereas closing a document
-    /// deliberately is something you do at the end of one.
+    /// ★★ **This arm used to ask about unsaved edits and no longer does, and
+    /// the change is the whole point of the multi-document work.**
+    ///
+    /// What it used to say, kept because the reasoning was correct for the
+    /// application it was written about:
+    ///
+    /// > ★ **The arm that needed the unsaved-edits question most**, and it is
+    /// > worth saying why it is not Close. An operator who has marked up a
+    /// > drawing and then opens the next one has destroyed exactly as much
+    /// > work as one who pressed Close — and is far more likely to do it,
+    /// > because opening the next file is what you do all day, whereas closing
+    /// > a document deliberately is something you do at the end of one.
+    ///
+    /// Every word of that was true while an Open **replaced** the document.
+    /// Since 2026-08-19 it does not: `open_path` parks what was open and adds
+    /// a tab. Nothing is discarded, so there is nothing to ask about — and
+    /// asking anyway would be worse than useless, because the question
+    /// *"Open another document? Your unsaved edits will be lost."* would be
+    /// **false**.
+    ///
+    /// The protection the old guard gave is not lost. It moved to where the
+    /// loss now actually happens, which is a close — and there are two of
+    /// those.
+    ///
+    /// The `save_pending` guard went with it, for the same reason: it means
+    /// *this document's bytes are mid-write*, and opening a different document
+    /// does not touch them.
     pub(super) fn apply_open(&mut self, path: std::path::PathBuf) {
-        if self.save_pending() {
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                format!("open-declined path={path:?} reason=save-pending")
-            });
-            return;
-        }
-        if self
-            .dialogs
-            .ask_unsaved(&self.status, PendingIntent::Open(path.clone()))
-        {
-            return;
-        }
         self.open_path(path);
     }
 
-    /// `Action::New` — replace the open document with a blank one.
+    /// `Action::New` — a blank document, in a tab of its own.
+    ///
+    /// Unguarded since 2026-08-19, for [`Self::apply_open`]'s reason: it adds
+    /// a document rather than replacing one.
     pub(super) fn apply_new(&mut self) {
-        if self.save_pending() {
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "new-declined reason=save-pending".to_owned()
-            });
-            return;
-        }
-        if self.dialogs.ask_unsaved(&self.status, PendingIntent::New) {
-            return;
-        }
         self.new_document();
     }
 
-    /// `Action::NewSized` — the same replacement, with a page box the operator
-    /// chose.
+    /// `Action::NewSized` — the same, with a page box the operator chose.
     ///
-    /// ★ Beside the plain New and behind the **same two guards**, spelled out
-    /// rather than shared, and adjacent rather than merged. Not a copy: the
-    /// same arm shape, deliberately next to its twin, so that a change to what
-    /// either guard means cannot be applied to one New and missed on the other.
-    /// A shared helper would remove the duplication and would also remove the
-    /// two `trace` lines that name which New declined — and a trace that cannot
-    /// say which of two commands ran is a trace that cannot diagnose either.
+    /// ★ Beside the plain New, and unguarded with it since 2026-08-19. The two
+    /// used to be *"the same arm shape, deliberately next to its twin, so that
+    /// a change to what either guard means cannot be applied to one New and
+    /// missed on the other"* — and the guards are now gone from both, which is
+    /// that same property arrived at by subtraction.
     pub(super) fn apply_new_sized(&mut self, width_pt: f64, height_pt: f64) {
-        if self.save_pending() {
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "new-sized-declined reason=save-pending".to_owned()
-            });
-            return;
-        }
-        if self.dialogs.ask_unsaved(
-            &self.status,
-            PendingIntent::NewSized {
-                width_pt,
-                height_pt,
-            },
-        ) {
-            return;
-        }
         // The lower-left corner is the origin: a new page has nothing to offset
         // from, and `Action::NewSized`'s own docs say why the action carries a
         // size rather than a rectangle.
@@ -160,84 +171,154 @@ impl PdfceApp {
         }
         self.close_document();
     }
+
+    /// `Action::CloseDocument` — close the tab at `slot`, which may not be the
+    /// one on screen.
+    ///
+    /// The fifth arm, and it asks the same two questions in the same order as
+    /// [`Self::apply_close`]. What it adds is one step between them, and that
+    /// step is the reason it is a separate function rather than a parameter:
+    ///
+    /// > A **modified** background tab is brought to the front *before* the
+    /// > question is asked.
+    ///
+    /// Because the question is *"you have unsaved edits — save a copy, close
+    /// without saving, or cancel?"*, and an operator being asked that about a
+    /// document they cannot see has no way to decide: they would be answering
+    /// about whatever is on screen. Word and VS Code both switch to the tab
+    /// they are about to prompt over, and this does the same.
+    ///
+    /// A **clean** background tab closes where it stands. Switching to it
+    /// first would be a visible jolt — the canvas re-rendering another
+    /// document for one frame — in service of a question that is not going to
+    /// be asked.
+    ///
+    /// That ordering is also what makes the resume correct without a new
+    /// [`PendingIntent`]: by the time the dialog is up, the document being
+    /// asked about *is* the active one, so `PendingIntent::Close` resuming
+    /// through `close_document` closes exactly what the operator was looking
+    /// at. A `PendingIntent::CloseSlot(n)` would carry a slot number across a
+    /// dialog, and slots renumber when a tab closes.
+    pub(super) fn apply_close_document(&mut self, slot: usize) {
+        if self.save_pending() {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("close-document-declined slot={slot} reason=save-pending")
+            });
+            return;
+        }
+        let modified = matches!(
+            self.slot(slot),
+            Some(crate::app::state::Status::Open(doc)) if doc.session.is_modified()
+        );
+        if !modified {
+            self.close_slot(slot);
+            return;
+        }
+        self.activate_slot(slot);
+        if self.dialogs.ask_unsaved(&self.status, PendingIntent::Close) {
+            return;
+        }
+        self.close_document();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    /// ★★ **Every action that replaces the open document asks about unsaved
-    /// edits.**
+    /// ★★ **Every action here that DISCARDS a document asks about unsaved
+    /// edits, in the right order.**
     ///
-    /// The gate that would have caught the 2026-08-19 defect, written as the
-    /// module header promises: *the test that will fail when a fifth one
-    /// arrives without it.*
+    /// The gate that would have caught the 2026-08-19 defect, and the shape it
+    /// had to be rewritten into on the same day.
     ///
-    /// # Why it reads the source rather than driving the four functions
+    /// # ★★ Why it was rewritten, which is the more useful half
+    ///
+    /// Its first form asserted *"there are exactly four arms in this file and
+    /// all four call `ask_unsaved`"*. The count was load-bearing — it was the
+    /// floor that stopped a rename making the loop iterate zero times and
+    /// report success.
+    ///
+    /// Then the document tabs landed and **three of the arms stopped
+    /// discarding anything**, while a fifth arrived that does. The old test
+    /// failed, correctly, and the tempting repair was to move `4` to `5`. That
+    /// repair would have been wrong in the direction this project keeps
+    /// finding: it would have demanded a guard on `apply_open`, whose guard is
+    /// now a *false statement to the operator*, and the test would have
+    /// enforced a lie.
+    ///
+    /// The property was never "how many arms are there". It is **an arm that
+    /// can destroy a document must ask first**. So that is what is asserted:
+    /// any body naming a close verb must also name both guards, in order. The
+    /// counts remain as floors — an instrument that cannot fail detects
+    /// nothing — but they are floors on *both* populations now, so neither
+    /// "no arms were found" nor "no destructive arms were found" can pass
+    /// silently.
+    ///
+    /// # Why it reads the source rather than driving the functions
     ///
     /// Driving them is not possible in a unit test and the reason is the point:
-    /// three of the four end in `open_path` / `new_document` /
-    /// `new_document_sized`, which build real `EditSession`s, and the one that
-    /// does not — `apply_close` — would pass this test trivially by having no
-    /// document to ask about. A behavioural test here would exercise the
-    /// **absence** of the guard's precondition rather than the presence of the
-    /// guard.
+    /// three of the five end in `open_path` / `new_document` /
+    /// `new_document_sized`, which build real `EditSession`s, and the two that
+    /// do not would pass trivially by having no document to ask about. A
+    /// behavioural test here would exercise the **absence** of the guard's
+    /// precondition rather than the presence of the guard.
     ///
-    /// So it asserts the structural property directly: **each of the four
-    /// functions in this file names `ask_unsaved`.** Crude, and deliberately so
-    /// — the same trade this project made for the settings-coverage gate. A
-    /// crude check that fails when the guard is dropped beats an exact one that
-    /// cannot run.
-    ///
-    /// The floor assertion is not optional: without it, a rename of these
-    /// functions makes the loop iterate zero times and the test reports full
-    /// coverage. `CONTINUE.md` §7 — *an instrument that can only return one
-    /// answer cannot detect the thing it was added to detect.*
+    /// Crude, and deliberately so — the same trade this project made for the
+    /// settings-coverage gate. A crude check that fails when the guard is
+    /// dropped beats an exact one that cannot run.
     #[test]
-    fn every_document_replacing_action_asks_about_unsaved_edits() {
+    fn every_action_that_discards_a_document_asks_about_unsaved_edits() {
         const SRC: &str = include_str!("document.rs");
-        // The four function bodies, split on their own signatures. `[1..]`
-        // drops everything before the first, which is the module header.
+        // The function bodies, split on their own signatures. `skip(1)` drops
+        // everything before the first, which is the module header.
+        //
         // ★★ The marker is ASSEMBLED from two pieces rather than written as one
         // literal, and this test's first two drafts are why.
         //
-        // The scan looks for the four function signatures. Writing that
-        // signature out as a single string — here, or in a comment explaining
-        // why not to — puts a fifth copy of it into the very file being
-        // scanned, and the split finds five bodies instead of four. Both drafts
-        // did it: the first in the `split` call, the second in the comment
-        // warning about the first.
+        // The scan looks for the function signatures. Writing that signature
+        // out as a single string — here, or in a comment explaining why not to
+        // — puts an extra copy of it into the very file being scanned, and the
+        // split finds one body too many. Both drafts did it: the first in the
+        // `split` call, the second in the comment warning about the first.
         //
         // Funny, and the shape is not. **The instrument was counting itself**,
         // and the spurious body would have contained `ask_unsaved` and
         // `save_pending` — they appear in the assertion messages — so it would
-        // have passed every check below. Without the arity assertion above,
-        // this test would have reported success while measuring one thing that
-        // was not code, which is `CONTINUE.md` §7's rule arriving from a
-        // direction nobody predicted: a source-scanning test is part of its own
-        // corpus, and the floor assertion is what noticed.
+        // have passed every check below. `CONTINUE.md` §7's rule arriving from
+        // a direction nobody predicted: a source-scanning test is part of its
+        // own corpus, and the floor assertion is what noticed.
         let marker = format!("    pub(super) {}", "fn apply_");
         let bodies: Vec<&str> = SRC.split(marker.as_str()).skip(1).collect();
-        assert_eq!(
-            bodies.len(),
-            4,
-            "expected four document-replacing arms in this file and found {}. \
-             If a fifth landed, it needs both guards and this number needs to move; \
-             if the naming convention changed, this test has stopped measuring anything.",
+        assert!(
+            bodies.len() >= 5,
+            "found {} arms; the scan has stopped measuring anything",
             bodies.len()
         );
-        for body in bodies {
+
+        // ★ The two verbs that actually destroy a document. Assembled the same
+        // way and for the same reason: spelled as one literal each, they would
+        // appear in this test's own body and make every arm look destructive.
+        let closes_a_document = |body: &str| {
+            let whole = format!("close_{}", "document();");
+            let one = format!("close_{}", "slot(");
+            body.contains(whole.as_str()) || body.contains(one.as_str())
+        };
+
+        let destructive: Vec<&&str> = bodies.iter().filter(|b| closes_a_document(b)).collect();
+        assert!(
+            destructive.len() >= 2,
+            "no arm was found to close a document; the scan is measuring nothing"
+        );
+
+        for body in destructive {
             let name = body.split('(').next().unwrap_or("<unnamed>");
             assert!(
                 body.contains("ask_unsaved"),
-                "`apply_{name}` replaces the open document and never calls \
-                 `ask_unsaved`. Until 2026-08-19 all four were like that, and all four \
-                 destroyed every edit made since the file was opened, silently, while \
-                 `file.close`'s tooltip promised otherwise."
+                "`apply_{name}` closes a document without asking about unsaved edits"
             );
             assert!(
                 body.contains("save_pending"),
-                "`apply_{name}` replaces the open document and never checks \
-                 `save_pending`. A save in flight must decline outright — it is the \
-                 guard the operator cannot answer."
+                "`apply_{name}` closes a document without checking `save_pending`"
             );
             // ★ And in that order. Reversed, the operator would be asked a
             // question whose answer cannot be honoured: they press *Close
@@ -247,9 +328,7 @@ mod tests {
             let ask = body.find("ask_unsaved");
             assert!(
                 pending < ask,
-                "`apply_{name}` asks about unsaved edits before checking whether a save \
-                 is in flight. See this module's guard table: only one of the two has an \
-                 answer the operator can give."
+                "`apply_{name}` asks about unsaved edits before checking `save_pending`"
             );
         }
     }

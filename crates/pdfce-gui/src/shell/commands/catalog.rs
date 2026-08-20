@@ -770,6 +770,25 @@ pub(super) fn all() -> Vec<Command> {
         // behaviour is the thing the operator objected to. It goes back on the
         // list the day something wants to float unasked, and not before.
         command("view.reset_layout", t::view_reset_layout(), 254).with_icon("reset-layout"),
+        // ★ **The two document-switching verbs**, registered 2026-08-19 with
+        // the document tab strip.
+        //
+        // `enabled_when("docs.multiple")` and not `doc.open`: with one document
+        // open there is nothing to switch to, and R9 reserves greying for
+        // *temporarily* unavailable — which this is, exactly. Opening a second
+        // document arms both, and the hover says what they would do.
+        //
+        // They exist as commands rather than as bare keyboard handling because
+        // `R8` allows no other way for the shell to learn a capability is
+        // present: the chords in the manifest resolve against this registry,
+        // so a build without them would have Ctrl+Tab bound to nothing rather
+        // than bound to something that silently does nothing.
+        command("view.next_document", t::view_next_document(), 255)
+            .with_icon("chevron-right")
+            .enabled_when("docs.multiple"),
+        command("view.previous_document", t::view_previous_document(), 256)
+            .with_icon("chevron-left")
+            .enabled_when("docs.multiple"),
         // ===================================================================
         // PAGES — tokens 300-399
         //

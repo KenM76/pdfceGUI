@@ -1,12 +1,66 @@
 # CONTINUE — start here, then keep going
 
-**Rewritten 2026-08-19 (late) at `c95ed91`, clean tree, gates 14/14,
-1,506 + 379 + 144 tests, 51 driven checks — 45 verified, 6 skipped for a stated
-reason, 0 failed.**
-**Newest portable build: `OneDrive\pdfceGUI2`.** (`pdfceGUI1` holds the previous.)
+**Updated 2026-08-20, clean tree, gates 14/14, 1,523 + 384 + 144 tests,
+53 driven checks — 45 verified, 6 skipped for a stated reason, 0 failed, and
+★ **two written that have NEVER BEEN RUN**.**
 **All six of the operator's standing complaints are closed AND driven.**
 **Phase 1 is complete but for the object clipboard. Phase 5 is complete but for
 live re-layout.**
+
+---
+
+## 0a. ★★★ WHAT LANDED ON 2026-08-20, AND THE ONE THING IT STILL OWES
+
+The operator asked for **several PDFs open at once, and pages dragged between
+them**. It is built: a document tab strip, spring-loaded tabs, a page drag that
+survives the document switch, a drop caret on the page view, and a
+cross-document insert that says *copy* before the button is released.
+
+**It has not been driven.** The harness takes the pointer, the keyboard and the
+display, and `feedback_ui_verify_competes_for_the_machine` says that needs a
+go-ahead. So the two checks written for it — `two_documents_get_two_tabs` and
+`a_page_dragged_between_documents_is_copied` — exist and have never executed.
+
+★ **This is the exact state this project was founded to stop treating as done.**
+Report it in those words. The queue:
+
+```bash
+cargo run --release -q -p ui-verify --   --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf   --second-pdf D:/Dev/pdfce/fixtures/synthetic/pageops/four-pages.pdf   --doc-point 0,300,500   --check two_documents_get_two_tabs   --check a_page_dragged_between_documents_is_copied
+```
+
+`--second-pdf` must be a **different file** from `--pdf`; both checks SKIP with
+that sentence rather than falling back, because opening an already-open path
+activates its tab by design and passing one file twice would make them assert
+the opposite of what they are for.
+
+### The map, for reading the new code
+
+| file | subject |
+|---|---|
+| `app/documents.rs` | the tab arithmetic — one active `Status` plus `parked`, and why it is not `Vec<Status>` |
+| `app/doctabs.rs` | the strip, and the **spring-loaded** tab that makes a cross-document drag possible |
+| `egui-shell/src/tabstrip/` | the reusable strip. Knows nothing about documents; refuses to (R7) |
+| `pagedrag.rs` | the drag in flight, in `egui::Memory` — because switching documents resets `PanelsState` |
+| `canvas/pagedrop.rs` | the caret between two sheets on the page view, and the release |
+| `app/actions/crossdoc.rs` | the only edit that reads two documents at once, and why it is a **copy** |
+
+### ⚠ Two things this change did NOT do, and one it made worse
+
+1. **Quitting with unsaved documents still asks nothing.** It was already
+   unguarded before this; it is now unguarded across *N* documents instead of
+   one. `PendingIntent::Open` / `::New` / `::NewSized` are now unconstructed —
+   they are the shape a quit guard would use, and are deliberately left in
+   place rather than deleted for that reason.
+2. **Document tabs cannot be reordered by dragging.** Every tabbed application
+   allows it and nobody asked; it is the obvious next thing an operator will
+   try.
+3. **A parked document keeps its page texture and its strip cache.** Deliberate
+   — `BENCHMARK.md` measures 877 ms for one full-page render of the benchmark
+   drawing, so dropping them would make every tab switch a visible stall. It is
+   memory spent on purpose and it is unbounded; if it ever needs bounding,
+   bound *how many parked documents keep rasters*, not *whether they do*.
+
+---
 
 You are the `pdfce-gui-engineer`. This file is the entry point when the
 operator types **“continue”** and nothing else. Read it, read the three files

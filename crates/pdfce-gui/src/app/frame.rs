@@ -220,6 +220,57 @@ impl eframe::App for PdfceApp {
         // application supplies its own crosshair at all.
         ctx.set_cursor_image(None);
 
+        // ★ Step 0d — **publish which document every surface is drawing**,
+        // before any of them draws.
+        //
+        // One writer, at a known point in the frame, before anything reads —
+        // which is the property that makes `crate::pagedrag::ActiveDocument`
+        // safe to keep in the context rather than thread through three
+        // signatures. `egui_shell::theme::Theme::of` is the precedent and the
+        // same shape.
+        //
+        // Cleared when nothing is open, rather than left stale: a page drag
+        // that outlived its document would otherwise name a slot that is no
+        // longer there.
+        match &self.status {
+            Status::Empty => crate::pagedrag::clear_active(&ctx),
+            _ => {
+                let label = self
+                    .active_path()
+                    .map(|p| crate::text::doctabs::tab_label(p, false))
+                    .unwrap_or_default();
+                crate::pagedrag::publish_active(&ctx, self.active_slot, label);
+            }
+        }
+
+        // ★ Step 0e — rotate the page drag's landing slots, before any
+        // surface can write one.
+        //
+        // `crate::pagedrag::begin_frame` is the single owner of the clear, and
+        // its docs carry the argument: two surfaces can resolve a landing and
+        // neither is in a position to clear the other's, so the clear cannot
+        // belong to a surface at all.
+        crate::pagedrag::begin_frame(&ctx);
+
+        // ★ Step 0f — **the window title**, from what is open.
+        //
+        // The only surface that reaches an operator who is not looking at the
+        // application: Alt-Tab, the taskbar and the accessibility window list
+        // all read it, and none of them can see the tab strip. See
+        // `crate::text::doctabs::window_title` for the three forms and for why
+        // the count is in it.
+        //
+        // Sent only when it changes — see `last_window_title`.
+        let title = crate::text::doctabs::window_title(self.active_path(), self.document_count());
+        if title != self.last_window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("window-title {title:?}")
+            });
+            self.last_window_title = title;
+        }
+
         // Step 1 — keyboard, before any widget can consume a key.
         let page_count = match &self.status {
             Status::Open(doc) => Some(doc.pages.len()),
@@ -326,6 +377,38 @@ impl eframe::App for PdfceApp {
         let chrome = window::draws_chrome(&ctx);
         if chrome {
             self.ribbon_band(ui, &mut actions);
+        }
+
+        // ★ Step 1b¹ — the DOCUMENT TAB STRIP, under the ribbon and over
+        // everything else.
+        //
+        // Composition order, not preference, and the same rule the ribbon and
+        // the status bar are placed by: a full-width bar must be added before
+        // any side panel or it starts at the dock's edge instead of spanning
+        // the window.
+        //
+        // `exact_size`, never `default_height`, for the reason the status bar
+        // carries at greater length: a chrome surface whose height follows its
+        // content, sitting above a viewport that fits a page to itself, is a
+        // measured feedback loop (R128). The strip's height is a constant in
+        // `egui_shell` and this is where that constant is honoured.
+        //
+        // Behind `chrome` with the ribbon and the docks. Read mode's stated
+        // purpose is the largest possible page, and an operator who has asked
+        // for that has not asked to keep a tab strip — `Ctrl+Tab` still
+        // switches documents, exactly as every other command still works from
+        // the keymap while its button is hidden.
+        //
+        // Drawn even with ONE document open. Chrome, VS Code and Acrobat all
+        // do, and the alternative costs the feature its discoverability: an
+        // operator who has never seen a tab has no reason to believe a second
+        // document is possible. `app::doctabs` §2 carries the argument.
+        if chrome && self.document_count() > 0 {
+            egui::Panel::top("document-tabs")
+                .exact_size(egui_shell::tabstrip::STRIP_HEIGHT)
+                .show(ui, |ui| {
+                    self.document_tabs(ui, &mut actions);
+                });
         }
 
         // Step 1b² — the status bar, before the docks.

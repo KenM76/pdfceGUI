@@ -212,6 +212,17 @@ pub fn body(
     let pixels_per_point = ui.ctx().pixels_per_point();
     let page_count = doc.pages.len();
     let current = doc.view.page_index;
+    // **Which document this panel is drawing**, as a tab position and a label.
+    //
+    // A panel is handed a `&OpenDoc` and no idea which tab it belongs to, so
+    // the answer comes from the context — see `crate::pagedrag::ActiveDocument`
+    // for why that is published rather than threaded, and for the
+    // `Theme::of` precedent it follows.
+    //
+    // `unwrap_or_default()` is slot 0 with no label, which is what a unit test
+    // that calls this body directly gets. It is never what a running
+    // application gets: the frame publishes it before any surface draws.
+    let here = crate::pagedrag::active(ui.ctx()).unwrap_or_default();
     let pages = state.pages_mut();
 
     // Everything that must be true before a tile is drawn, in one place:
@@ -235,15 +246,15 @@ pub fn body(
     // between two near-identical drawing sheets is precise and not checkable —
     // the same conclusion, in the same vocabulary, the Insert-from-file dialog
     // reached for its destination radios.
-    if pages.drag.is_some()
-        && let Some((gap, lands)) = pages.drag_landing
-    {
-        let moving = ops::operands(pages.selection.pages(), current, page_count).len();
-        ui.label(if lands {
-            t::drag_landing(moving, gap, page_count)
-        } else {
-            t::drag_lands_nowhere().to_owned()
-        });
+    //
+    // ★★ Since 2026-08-19 the sentence comes from `crate::pagedrag::caption`
+    // rather than from this panel's own fields, because a drag can now START
+    // in another document: it has to be able to say *"copy 2 sheets from
+    // SW41177.pdf to before page 3"*, and only the drag itself knows where the
+    // sheets came from. The panel's job is to have somewhere to put the
+    // sentence, and it still is.
+    if let Some(caption) = crate::pagedrag::caption(ui.ctx()) {
+        ui.label(caption);
     }
 
     // The previews control. Read from the cache and written straight back, so
@@ -287,6 +298,7 @@ pub fn body(
                 pages,
                 current,
                 host,
+                &here,
                 &mut visible,
                 &mut go,
                 &mut tokens,
@@ -315,8 +327,29 @@ pub fn body(
     // Recorded BEFORE the settle, which consumes the drag: the header reads it
     // on the next frame, and a drag that has just ended must leave nothing for
     // it to read.
-    pages.drag_landing = drop.map(|d| (d.gap, d.lands));
-    settle_drag(ui, doc, pages, drop.as_ref(), actions);
+    // Publish where the drop would go, for the caption on the NEXT frame —
+    // `DropLanding`'s own docs carry the one-frame argument, which is
+    // `PagesUi::drag_landing`'s verbatim and unchanged by the move into
+    // memory: a gap has no position until the rows have been placed, and the
+    // rows are placed below the header.
+    //
+    // Written only when this panel actually resolved one. Not clearing it
+    // otherwise is deliberate and is the whole reason the slot is rotated once
+    // per frame instead: a panel can say *"the pointer is not over one of my
+    // tiles"*, and cannot say whether it is over the page view instead. See
+    // `crate::pagedrag::landing_shown_key`.
+    if let Some(d) = drop {
+        crate::pagedrag::set_landing(
+            ui.ctx(),
+            crate::pagedrag::DropLanding {
+                target_slot: here.slot,
+                gap: d.gap,
+                page_count,
+                lands: d.lands,
+            },
+        );
+    }
+    settle_drag(ui, doc, pages, drop.as_ref(), &here, actions);
 
     // The two named regions a pixel check aims at. The panel's own rect comes
     // from the `Ui` rather than from a response, because the body is a column
@@ -501,11 +534,12 @@ fn settle_drag(
     doc: &OpenDoc,
     pages: &mut PagesUi,
     drop: Option<&DropTarget>,
+    here: &crate::pagedrag::ActiveDocument,
     actions: &mut Vec<Action>,
 ) {
-    if pages.drag.is_none() {
+    let Some(drag) = crate::pagedrag::current(ui.ctx()) else {
         return;
-    }
+    };
     // The cursor says the panel is carrying something. Set every frame of the
     // drag rather than once at the start: egui resolves the cursor per frame
     // from whatever asked most recently, so a request made at `drag_started`
@@ -517,16 +551,13 @@ fn settle_drag(
     {
         return;
     }
-    pages.drag = None;
-    // The caption is read from this on the NEXT frame, and the drag is over —
-    // clearing it here rather than letting the next layout pass fail to resolve
-    // one is what stops a landing sentence outliving the gesture that produced
-    // it by a frame. Cheap, and the alternative is a flicker nobody can
-    // reproduce on demand.
-    pages.drag_landing = None;
+    // ★ Ends the drag AND clears the landing, in one call, which is what stops
+    // a landing sentence outliving the gesture that produced it by a frame.
+    // See `pagedrag::end`.
+    crate::pagedrag::end(ui.ctx());
+    let _ = &pages;
 
     let page_count = doc.pages.len();
-    let operands = ops::operands(pages.selection.pages(), doc.view.page_index, page_count);
     let Some(target) = drop else {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed
@@ -534,14 +565,44 @@ fn settle_drag(
         });
         return;
     };
-    match ops::drop_order(&operands, page_count, target.gap) {
+
+    // ★★ **The branch that makes this two features.**
+    //
+    // Released in the document the pages came from, this is the reorder it has
+    // always been — one `reorder_pages`, one undo entry, nothing copied.
+    //
+    // Released anywhere else, it is a **copy into this document**, and the
+    // source is left exactly as it was. `crate::app::actions::crossdoc` §2
+    // carries the reason it is a copy rather than a move, which is that a move
+    // would be two commands on two undo stacks and no single Ctrl+Z could
+    // reverse it.
+    if drag.source_slot != here.slot {
+        let position = crate::pagedrag::insert_position(target.gap, page_count);
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed
+                "pages-drag-release from-slot={} gap={} moving={} copied=1",
+                drag.source_slot,
+                target.gap,
+                drag.pages.len(),
+            )
+        });
+        actions.push(Action::InsertPagesFromOpenDocument {
+            source_slot: drag.source_slot,
+            pages: drag.pages,
+            position,
+        });
+        return;
+    }
+
+    match ops::drop_order(&drag.pages, page_count, target.gap) {
         Ok(order) => {
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed
                 format!(
                     "pages-drag-release gap={} moving={} reordered=1",
                     target.gap,
-                    operands.len()
+                    drag.pages.len()
                 )
             });
             actions.push(Action::Page(PageAction::ReorderPages { order }));
@@ -552,7 +613,7 @@ fn settle_drag(
                 format!(
                     "pages-drag-release gap={} moving={} reordered=0 refusal={refusal:?}",
                     target.gap,
-                    operands.len()
+                    drag.pages.len()
                 )
             });
         }
@@ -588,6 +649,7 @@ fn grid_rows(
     pages: &mut PagesUi,
     current: usize,
     host: Option<&MenuHost<'_>>,
+    here: &crate::pagedrag::ActiveDocument,
     visible: &mut Vec<usize>,
     go: &mut Option<usize>,
     tokens: &mut Vec<HandlerToken>,
@@ -629,7 +691,7 @@ fn grid_rows(
                 );
                 let rect = egui::Rect::from_min_size(origin, egui::vec2(tile_width, height));
                 tile(
-                    ui, doc, pages, page_index, current, rect, host, go, tokens, drop,
+                    ui, doc, pages, page_index, current, rect, host, here, go, tokens, drop,
                 );
             }
         }
@@ -651,6 +713,7 @@ fn tile(
     current: usize,
     rect: egui::Rect,
     host: Option<&MenuHost<'_>>,
+    here: &crate::pagedrag::ActiveDocument,
     go: &mut Option<usize>,
     tokens: &mut Vec<HandlerToken>,
     drop: &mut Option<DropTarget>,
@@ -788,21 +851,30 @@ fn tile(
     // one replaces.
     if response.drag_started_by(egui::PointerButton::Primary) {
         pages.selection.right_click(page_index);
-        pages.drag = Some(page_index);
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed
-            format!(
-                "pages-drag-start page={} carrying={}",
-                page_index + 1,
-                pages.selection.len()
-            )
-        });
+        // ★★ The operand set is CAPTURED HERE, not resolved at release —
+        // reversing what this panel's own reorder drag used to do, and
+        // `crate::pagedrag`'s header carries the argument.
+        //
+        // The one-line form: a drag that crosses into another document
+        // springs a tab open on the way, and activating a tab clears this
+        // panel's selection. Resolving at release would resolve against the
+        // *target's* selection, or against nothing at all.
+        let carrying = ops::operands(pages.selection.pages(), current, doc.pages.len());
+        crate::pagedrag::begin(
+            ui.ctx(),
+            crate::pagedrag::PageDrag {
+                source_slot: here.slot,
+                origin: page_index,
+                source_label: here.label.clone(),
+                pages: carrying,
+            },
+        );
     }
 
     // While a drag is in flight, every tile the pointer is over offers itself
     // as a landing boundary. The nearer vertical edge wins, which is what makes
     // a caret feel like it snaps to a gap rather than to a tile.
-    if pages.drag.is_some()
+    if let Some(drag) = crate::pagedrag::current(ui.ctx())
         && let Some(pointer) = ui.ctx().pointer_latest_pos()
         && rect.expand(SELECTION_MAT_PTS).contains(pointer)
     {
@@ -818,7 +890,28 @@ fn tile(
                 egui::pos2(caret_x, rect.top() - SELECTION_MAT_PTS),
                 egui::pos2(caret_x, rect.bottom() + SELECTION_MAT_PTS),
             ),
-            lands: !ops::drag_is_a_no_op(pages.selection.pages(), gap),
+            // ★ Two different questions, because a drop from ELSEWHERE is a
+            // different verb from a drop from here.
+            //
+            // Within one document the drag is a reorder, and a reorder onto a
+            // boundary inside its own operand run moves nothing —
+            // `ops::drag_is_a_no_op` is the one place that rule lives.
+            //
+            // From another document it is a copy, and a copy always lands:
+            // every gap is a legal place to put a sheet that is not there yet,
+            // including the boundaries either side of a page that happens to
+            // share an index with one of the operands. Asking the no-op
+            // question of a cross-document drag would dim the caret over
+            // exactly the pages the operator was aiming between.
+            //
+            // ★ The set is built from the drag's own captured operands rather
+            // than from `pages.selection`, which is what this line used to
+            // read. They agree today — a drag starts by selecting the tile it
+            // began on — and they would stop agreeing the moment a drag could
+            // cross a document, because activating another tab clears the
+            // selection and the caret would go dim over every gap.
+            lands: drag.source_slot != here.slot
+                || !ops::drag_is_a_no_op(&drag.pages.iter().copied().collect(), gap),
         });
     }
 
@@ -941,38 +1034,6 @@ pub struct PagesUi {
     pub selection: select::PageSelection,
     /// The pictures, and the policy that fills them.
     pub cache: thumbnails::ThumbnailCache,
-    /// The page a drag-to-reorder was started on, while one is in flight.
-    ///
-    /// ★ **A field rather than `egui::Memory`**, unlike `canvas::guides`' drag
-    /// — and the difference is not style. A guide drag has no struct to live
-    /// in: the canvas is a function. This panel already owns inter-frame state
-    /// here, and the drag has to be cleared by the same code that clears the
-    /// selection when a document closes, which is a method on this type.
-    ///
-    /// It holds the **origin**, not the operand set. The operands are
-    /// `ops::operands(&selection, current, page_count)` — resolved at release
-    /// rather than captured at press, so a drag reflects the selection as it
-    /// stands. There is no way to change the selection mid-drag today, and
-    /// capturing it would be a second copy that could disagree the day there
-    /// is.
-    pub drag: Option<usize>,
-    /// The landing the **previous** frame resolved, for the sentence in the
-    /// header. `None` when no drag is in flight, or when the pointer was over
-    /// no tile.
-    ///
-    /// ★ **One frame late, deliberately, and the precedent is
-    /// `MeasureState::derived_pointer`**, which carries the same trade in the
-    /// same words: *"the pane draws before the pass that computes it, so it
-    /// shows the previous frame's pointer. On a value that follows the mouse,
-    /// one frame is invisible; deriving it in the pane instead is impossible,
-    /// since the canvas transform lives with the canvas."*
-    ///
-    /// Here the transform is the grid layout: a gap has no position until the
-    /// rows have been placed, and the rows are placed below the header. The
-    /// alternative — putting the sentence under the grid — would drop it off
-    /// the bottom of a scrolled panel exactly when the operator is dragging
-    /// toward the end of a long document.
-    pub drag_landing: Option<(usize, bool)>,
 }
 
 impl std::fmt::Debug for PagesUi {
@@ -980,8 +1041,6 @@ impl std::fmt::Debug for PagesUi {
         f.debug_struct("PagesUi")
             .field("selection", &self.selection.len())
             .field("cache", &self.cache)
-            .field("drag", &self.drag)
-            .field("drag_landing", &self.drag_landing)
             .finish()
     }
 }

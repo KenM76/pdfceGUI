@@ -137,6 +137,24 @@ impl PdfceApp {
                 self.apply_close();
                 return;
             }
+            // ★ Beside the four above rather than below the document guard,
+            // and for a third reason again: this arm needs `&mut self`, not
+            // `&mut OpenDoc`. It reads a **parked** document's session while
+            // it writes the active one's, which is a borrow the guard below
+            // cannot express — everything past it has already narrowed `self`
+            // to one document.
+            Action::CloseDocument(slot) => {
+                self.apply_close_document(slot);
+                return;
+            }
+            Action::InsertPagesFromOpenDocument {
+                source_slot,
+                pages,
+                position,
+            } => {
+                self.apply_insert_from_open_document(source_slot, &pages, position);
+                return;
+            }
             // ★ Save a copy — matched here for the guard's own reason rather
             // than for a borrow one, and it is the third kind of case this
             // pre-guard block holds.
@@ -271,6 +289,8 @@ impl PdfceApp {
             | Action::New
             | Action::NewSized { .. }
             | Action::Close
+            | Action::CloseDocument(_)
+            | Action::InsertPagesFromOpenDocument { .. }
             | Action::SaveCopy
             | Action::Find(_) => {
                 // ui-text-exempt: a panic message, read from a stack trace by

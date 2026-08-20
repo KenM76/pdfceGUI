@@ -264,13 +264,31 @@ impl PdfceApp {
     pub(crate) fn adopt_settings(&mut self) {
         let settings = self.settings.clone();
         let prefs = self.prefs.clone();
-        if let crate::app::state::Status::Open(doc) = &mut self.status {
-            doc.settings = settings;
+        // ★ **Every open document, not only the one on screen** — 2026-08-19,
+        // with the document tabs.
+        //
+        // The snapshot-plus-caches argument above is a property of an
+        // `OpenDoc`, not of the active one: a parked document keeps its page
+        // texture and its strip cache (`crate::app::documents` §4 says why),
+        // so a parked document left un-adopted would be a cached picture drawn
+        // under the operator's *previous* colour answers, revealed the moment
+        // they clicked its tab. That is the same "a control that reads back
+        // what you set and does not do it" failure this function exists to
+        // prevent, delayed by one click and therefore harder to attribute.
+        //
+        // Written as one closure over `status` and every parked slot rather
+        // than as two copies of the body, so a fourth thing to invalidate
+        // cannot be added to one and missed on the other.
+        let adopt_one = |status: &mut crate::app::state::Status| {
+            let crate::app::state::Status::Open(doc) = status else {
+                return;
+            };
+            doc.settings = settings.clone();
             // The shell's own preferences ride along, because `render_quality`
             // is baked into a cached texture exactly as the engine's five
             // rendering settings are. Two stores, one snapshot point, one
             // invalidation — see `OpenDoc::prefs`.
-            doc.prefs = prefs;
+            doc.prefs = prefs.clone();
             // Rasters: the current page and every strip entry.
             doc.page_texture = None;
             doc.strip_rasters.clear();
@@ -280,6 +298,10 @@ impl PdfceApp {
             // merely differently-spaced, it can be missing content that a
             // find or a redaction-by-pattern would then fail to see.
             doc.invalidate_derived_text();
+        };
+        adopt_one(&mut self.status);
+        for parked in &mut self.parked {
+            adopt_one(parked);
         }
     }
 }

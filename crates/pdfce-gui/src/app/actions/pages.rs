@@ -546,10 +546,33 @@ pub(super) fn insert_from_file(
             return;
         }
     };
+    insert_from_view(doc, &source.view(), pages, position);
+}
+
+/// **The half of an insert that does not care where the source came from.**
+///
+/// Split out of [`insert_from_file`] on 2026-08-19, when a page dragged from
+/// one open document into another became a second way to reach exactly this
+/// engine call. The two callers differ in one thing — where the
+/// `DocumentView` comes from, a file on disk or a parked `EditSession` — and
+/// everything after that point is identical: the same verb, the same
+/// disclosure, the same navigation to what arrived.
+///
+/// Sharing it is not merely tidy. `crate::text::pages::inserted` reports six
+/// facts about what did and did not come across (orphaned widgets, of which
+/// some are unrecoverable; a dropped outline; dropped page labels; stale page
+/// labels), and a second copy of that reporting would be a second place for it
+/// to fall behind what the engine actually returns.
+pub(super) fn insert_from_view(
+    doc: &mut OpenDoc,
+    view: &pdfce_core::view::DocumentView<'_>,
+    pages: &[usize],
+    position: pdfce_core::pageops::InsertPosition,
+) {
     if pages.is_empty() {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("insert-pages-refused path={path:?} reason=no-pages")
+            "insert-pages-refused reason=no-pages".to_owned()
         });
         super::record_note(
             doc.edit_epoch,
@@ -557,7 +580,6 @@ pub(super) fn insert_from_file(
         );
         return;
     }
-    let view = source.view();
     let count = pages.len();
 
     // ★ Where the first inserted sheet will land, computed BEFORE the edit.
@@ -580,7 +602,7 @@ pub(super) fn insert_from_file(
 
     super::apply::vector_edit(doc, "insert-pages", landing, count, |session| {
         session
-            .insert_pages(&view, pages, position)
+            .insert_pages(view, pages, position)
             // ★ `InsertOutcome`, not a `usize`, since 2026-08-19 — and the
             // second field is the one this shell asked for. `orphaned_widgets`
             // is EXACT rather than an upper bound (the engine's reply: no field

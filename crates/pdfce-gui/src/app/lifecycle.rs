@@ -60,7 +60,23 @@ impl PdfceApp {
     /// by *structured* error data, never by inspecting a message. See the
     /// module docs on the three-way failure distinction.
     pub fn open_path(&mut self, path: PathBuf) {
-        self.status = match Document::load(&path) {
+        // ★ **Already open? Show that tab instead of opening it twice.**
+        //
+        // `crate::app::documents` §3 carries the argument, and it is a
+        // correctness one rather than a convenience: two tabs over one path
+        // would be two `EditSession`s with two undo stacks, and a save from
+        // either would silently discard the other's work.
+        if let Some(slot) = self.slot_of_path(&path) {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "open-already-open slot={slot} path={path:?}"
+                )
+            });
+            self.activate_slot(slot);
+            return;
+        }
+        let incoming = match Document::load(&path) {
             Ok(doc) => match pdfce_core::page_tree::pages(&doc) {
                 Ok(pages) => {
                     Status::Open(Box::new(OpenDoc::new(path, EditSession::new(doc), pages)))
@@ -87,10 +103,17 @@ impl PdfceApp {
                 message: err.to_string(),
             },
         };
+        // ★ A **new tab**, since 2026-08-19, rather than a replacement.
+        //
+        // Note what did not have to change: `adopt` below is unchanged and
+        // still runs on exactly the same schedule, because `park_and_adopt`
+        // leaves the incoming document in `self.status` — which is what every
+        // statement in `adopt` reads.
+        self.park_and_adopt(incoming);
         self.adopt();
     }
 
-    /// **Make a blank document and show it, replacing whatever is open.**
+    /// **Make a blank document and show it, in a tab of its own.**
     ///
     /// The `file.new` half of this module, and the third member of the family
     /// whose other two are [`Self::open_path`] and [`Self::close_document`].
@@ -189,7 +212,7 @@ impl PdfceApp {
             )
         });
 
-        self.status = match made {
+        let incoming = match made {
             Ok((doc, pages)) => Status::Open(Box::new(OpenDoc::created(
                 name,
                 EditSession::new(doc),
@@ -200,6 +223,11 @@ impl PdfceApp {
                 message,
             },
         };
+        // A created document is a new tab exactly as an opened one is —
+        // `park_and_adopt`, then the unchanged `adopt` tail. There is no
+        // already-open check here for the reason `documents` §3 gives: a
+        // created document's path is a *name*, and the counter never repeats.
+        self.park_and_adopt(incoming);
         self.adopt();
     }
 
@@ -473,23 +501,26 @@ impl PdfceApp {
     /// [`crate::app::persistence`] exists to make true across restarts, let
     /// alone across a close.
     pub fn close_document(&mut self) {
-        // Traced before the drop, because after it there is nothing left to
-        // say which document this was — and "closed" with no name is a line
-        // that cannot be matched against the `open` line that preceded it.
-        crate::diag::trace(|| match &self.status {
-            Status::Open(doc) => format!("close path={:?} pages={}", doc.path, doc.pages.len()),
-            Status::Empty => "close nothing-open".to_owned(),
-            Status::Failed { path, .. }
-            | Status::Unsupported { path, .. }
-            | Status::NeedsPassword { path } => format!("close unopened path={path:?}"),
-        });
-        self.status = Status::Empty;
-        self.panels.forget_document();
-        // The hit list describes a document that is no longer open. See
-        // `open_path` for the argument; the two sites are deliberately
-        // symmetric.
-        self.find.forget_document();
-        crate::diag::reset_change_gates();
+        if self.document_count() == 0 {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            crate::diag::trace(|| "close nothing-open".to_owned());
+            return;
+        }
+        // ★ **Closes the ACTIVE TAB**, since 2026-08-19, rather than emptying
+        // the application.
+        //
+        // The forgetting this function used to do inline — the panels' view
+        // state, the find hits, the de-duplicated trace slots — moved to
+        // `crate::app::documents::PdfceApp::close_slot`, because switching to
+        // another document has to forget exactly the same three things and two
+        // copies of that list is how one of them comes to be missed. That
+        // module's §4 carries the table and the reason each entry is on it.
+        //
+        // Everything this function's own docs say about what closing must
+        // *not* forget — the recent list, the dock arrangement, the mode — is
+        // still true and still true for the same reasons, and is now also true
+        // of the documents that stay open.
+        self.close_slot(self.active_slot);
     }
 
     /// **Resume what the operator asked for, once they have said what to do
