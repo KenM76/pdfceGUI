@@ -328,9 +328,45 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(30);
 
     let trace = session.trace()?;
+
+    // ★★ A REFUSAL IS ASKED ABOUT FIRST, AND THE REASON IS WHY.
+    //
+    // Until 2026-08-20 this check tested only for the ABSENCE of a commit line
+    // and, on finding none, reported *"THE COMMIT NEVER REACHED THE ENGINE."*
+    // On the operator's own drawing that sentence was **false**: the commit
+    // reached the engine perfectly and the engine REFUSED it —
+    //
+    //   edit-text-refused page=0 n=1
+    //     detail=text to edit ("p") was not found in an editable run on the page
+    //
+    // — and `edit-text-refused` is not `edit-text`, so the old condition
+    // matched and produced a confident, specific, wrong diagnosis about the
+    // shell. That cost an investigation into a call path that was working.
+    //
+    // The rule this encodes: **a check that asserts on the absence of a line
+    // must first ask whether a DIFFERENT line explains the absence.** "I did
+    // not see what I expected" and "I saw the opposite" are different findings,
+    // and reporting the second as the first sends the reader to the wrong
+    // half of the system. The refusal detail is quoted verbatim because the
+    // engine's sentence is the whole of the diagnosis and any paraphrase here
+    // would be a second account of it that could drift.
+    if let Some(refused) = trace.last("edit-text-refused") {
+        return Ok(Some(format!(
+            "the caret took keystrokes, the commit REACHED the engine, and the engine refused \
+             it: `{}`. The shell half of this works — a caret was placed on run {}, characters \
+             were typed and the plan was built. This is a `pdfce-core` verdict and belongs in a \
+             request, not in the shell. Trace: {}.",
+            refused.raw,
+            line.get("run").unwrap_or("?"),
+            session.trace_path().display()
+        )));
+    }
     if trace.last("edit-text").is_none() && trace.last("text-edit-commit").is_none() {
         return Ok(Some(format!(
-            "THE CARET TOOK KEYSTROKES AND THE COMMIT NEVER REACHED THE ENGINE. A caret was placed on run {}, two characters were typed and Enter was pressed, and neither an `edit-text` nor a `text-edit-commit` line followed. ★ This is the state the operator would describe exactly as he described the refusal — the tool responds and the page does not change. Trace: {}.",
+            "the caret took keystrokes and NO commit was raised at all. A caret was placed on \
+             run {}, characters were typed and Enter was pressed, and no `edit-text`, \
+             `text-edit-commit` or `edit-text-refused` line followed — so the shell built no \
+             plan. Trace: {}.",
             line.get("run").unwrap_or("?"),
             session.trace_path().display()
         )));

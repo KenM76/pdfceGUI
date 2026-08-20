@@ -59,8 +59,34 @@ why it keeps coming back:
   annotation, or a text object this shell authored: double-click it, get a
   caret in it, retype.
 
-Neither is confirmed working. Both need driving before anything is said about
-them, and the finding goes in this row.
+**(a) — driven 2026-08-20 on your own CAD drawing. It is reproduced, and it is
+not the shell.** `text_edit_on_a_real_drawing`:
+
+```
+text-edit-caret kind=Edit page=0 run=44 len=1     ← the caret lands on real text
+text-edit-typing draft=true text_events=1 len=2   ← keystrokes reach the draft
+text-edit-typing draft=true text_events=1 len=3
+text-edit-plan page=0 run=44 disposition=Pin reason=Rotated pinned=true
+edit-text-refused page=0 n=1
+  detail=text to edit ("p") was not found in an editable run on the page
+```
+
+So the tool arms, the caret lands on the right run, the typing arrives, the plan
+is built and the commit reaches the engine — **and `pdfce-core` refuses it.**
+From your chair that is precisely "the tool responds and the page does not
+change".
+
+Root cause under investigation 2026-08-20. It will be either an engine gap (a
+request, filed) or a wrong call on my side (a fix). Either way this row records
+the answer.
+
+★ And a second defect found in the process, on my side: the driven check for
+this was reporting *"THE COMMIT NEVER REACHED THE ENGINE"* — which was **false**.
+`edit-text-refused` is not `edit-text`, so a check asserting on the absence of a
+line produced a confident, specific, wrong accusation about working code. Fixed:
+a refusal is now asked about first and quoted verbatim.
+
+**(b) — not yet driven.** Nothing claimed.
 
 ## O2 — Cut / copy / paste of PAGE CONTENT (`Ctrl+X` / `Ctrl+C` / `Ctrl+V`)
 
