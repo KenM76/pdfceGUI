@@ -24,10 +24,10 @@ the blocker named.
 | | |
 |---|---|
 | **Stages complete** | S0 skeleton · S1 `ui-verify` · S2 ribbon · S3 panels + dock · S4 selection · **S5 salvage** (print, forms, icons, settings) · **Phase 3** (navigation, Find, thumbnails, rulers, grid, guides) · **Phase 4** (page display modes) · **Phase 5** (text editing incl. lines shared with other runs; aligned and rotated tails; new text with a font, size and colour; live re-layout blocked on the engine) · **Phase 1 complete but for the clipboard** (selection, move, resize by grip and by typed number, multi-node move, Bézier handles) · **Phase 6** (markup substrate, **eight kinds** including the revision cloud, text markup, Comments panel) · **Phase 7** (measure: Linear, Two-line, Radius/diameter, snapping, dimension groups) · **the mode gate** (Read is genuinely read-only, canvas *and* keyboard) |
-| **Tests** | 1,523 (GUI) + 384 (egui-shell) + 144 (ui-verify) passing, 0 failing · **53 driven checks**, of which 45 verified on the last full run against `SW41177.pdf` and 6 skipped for a stated reason. ⚠ **The two newest have never been run** — see the 2026-08-20 section below |
+| **Tests** | 1,525 (GUI) + 384 (egui-shell) + 144 (ui-verify) passing, 0 failing · **56 driven checks**, of which **50 verified** on the last full run and 6 skipped for a stated reason, **0 failed** |
 | **Gates** | 14 of 14 checks, 0 skipped — eight gate scripts, five of them carrying a self-test that catches its own planted violations, plus `fmt` and `clippy` |
 | **Source** | ~215,000 lines across three crates and the harness |
-| **Commands** | 105 registered · 74 declared-and-deferred (`PLANNED`) · **14 registered-but-inert** (`SCAFFOLDED`), five of which breach P3 by being drawn at all |
+| **Commands** | 106 registered · 74 declared-and-deferred (`PLANNED`) · **14 registered-but-inert** (`SCAFFOLDED`), five of which breach P3 by being drawn at all |
 | **Panels** | **12** — Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · **Tool** |
 | **Ribbon surface built** | ~55 % of `RIBBON_IA.md` §5 · 31 groups |
 
@@ -52,25 +52,61 @@ The operator's request, verbatim:
 | **★ Open and New stopped destroying work** | ✅ and by **removing** a guard rather than adding one. They no longer replace the open document, so the unsaved-edits prompt in front of them would have been stating something false — and a confirmation that says something untrue is how an operator learns to dismiss confirmations unread |
 | **Live window title** | ✅ `SW41177.pdf — 3 documents open — pdfce`, so Alt-Tab and the taskbar say what you left open |
 
-### ⚠ Not driven — say so in those words
+### And what the operator asked for on the second pass, same day
 
-`two_documents_get_two_tabs` and `a_page_dragged_between_documents_is_copied`
-are **written and have never been executed.** The harness takes the operator's
-pointer, keyboard and display, and the go-ahead for that has not been given.
-Everything above passed `cargo test`, `cargo clippy` and all fourteen gates,
-and this project was founded on a commit that said *"analysis-confirmed, NOT
-empirically verified"* and was treated as done anyway. It is not done.
+| | |
+|---|---|
+| **Shift makes it a move** | ✅ Windows' own drag modifier — Ctrl copies, Shift moves — sampled at the **release** as Explorer does, so the caption follows the key under your hand. The source's pages go only if the target's insert actually happened, and if the removal is the half that fails it says so, with the remedy |
+| **Tabs rearrange by dragging** | ✅ a caret marks the boundary, resolved by neighbours' centres. **The document on screen does not change** — the active document follows its own tab through the permutation, swept across all 80 combinations |
+| **Right-click on a tab** | ✅ Close, and Close others. Close is `file.close` itself with the tab as its operand, not a second command — two gates refused the second command and were right |
+| **Drag a tab off into a new window** | ⛔ **not built** — it is a scope question with two different conventional answers. See below |
 
-The queue, when the machine is free:
+### ✅ Driven — 50 verified, 0 failed, 6 skipped
 
-```bash
-cargo run --release -q -p ui-verify --   --exe target/release/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf   --second-pdf D:/Dev/pdfce/fixtures/synthetic/pageops/four-pages.pdf   --doc-point 0,300,500   --check two_documents_get_two_tabs   --check a_page_dragged_between_documents_is_copied
+All four multi-document checks pass against the real binary:
+
+```text
+two_documents_get_two_tabs                       PASS
+document_tabs_can_be_rearranged                  PASS   document-reorder from=0 gap=2 to=1 active=0
+a_page_dragged_between_documents_is_copied       PASS   copied=1 take=0 · 36 → 37 · source untouched
+a_shift_drag_between_documents_moves_the_pages   PASS   copied=1 take=1 · 36 → 37 · page-move-took removed=1
 ```
 
-★ `--second-pdf` must be a **different file**. Opening a path that is already
-open activates its tab by design, so passing the same one twice would make both
-checks assert the opposite of what they are for; they SKIP with that sentence
-rather than falling back.
+The run also found two things a green `cargo test` could not, both recorded in
+`D:/dev/rag/egui/`:
+
+- **the drag caption moved the grid under the pointer** — a wrapping label above
+  a drop target, whose height depends on its own wording, moved the aimed-at row
+  by 49 pt and then 34 pt mid-gesture. Moved to the status bar, which has a fixed
+  height by construction;
+- **`Response::hovered()` is false on every widget but the dragged one**, so the
+  spring-loaded tab could never fire. Resolved geometrically now.
+
+### ⛔ Dragging a tab off the strip into a new window — the one open question
+
+Not built, and not because it is hard to *start*. The two applications an
+operator would compare it to **disagree about what it means**:
+
+| | what dragging a tab off does |
+|---|---|
+| **Chrome, Firefox, VS Code** | the document **moves** to a new window, fully functional |
+| **Acrobat `Window ▸ New Window`**, Bluebeam's split | a **second view** opens; the document stays where it was |
+
+`CONTINUE.md` §1b makes the convergence of the product class the specification.
+Here there is no convergence, so it is a scope decision — and the two cost very
+different things:
+
+- **a second view** (canvas + page list + status bar, document stays in the
+  strip) is roughly a day, and it delivers the *original* request from another
+  direction: two page lists visible at once to drag between;
+- **a full move** needs every window to own its ribbon state, dock arrangement,
+  mode and panel state — a `Workspace` extraction — because a document that has
+  left the strip must still be editable, and today all of that is
+  application-scoped.
+
+Building the wrong one is worse than building neither: a window the document
+cannot be edited in is a trap, and a second view that pretends to be a move is
+a lie about where the operator's work is.
 
 ---
 

@@ -875,22 +875,55 @@ def mirror(out: Path) -> None:
     # build has removed the only property it was built to provide, silently, at
     # the moment a build is most likely to be wrong.
     #
-    # So: copy into a staging sibling first, and only then clear and rename.
-    # Each of the three steps fails safely, and they fail differently:
+    # ★★★ AND `rmtree` IS NOT ATOMIC EITHER, WHICH THE FIRST FIX MISSED.
+    #
+    # The first repair, earlier the same day, was *stage then clear then copy* —
+    # and it failed again, in the same way, on the very next run:
+    #
+    #     mirror FAILED - [WinError 32] … pdfceGUI1
+    #       pdfceGUI1 is locked by another process … It still holds the
+    #       previous build; nothing was replaced.
+    #
+    # `pdfceGUI1` was empty afterwards. `shutil.rmtree` walks depth-first and
+    # deletes as it goes, so a lock on **one file** leaves everything it had
+    # already removed removed. Moving the clear later in the sequence bought
+    # nothing, because the clear is itself the non-atomic act — and the message
+    # was confidently wrong for the second time in one day.
+    #
+    # The lock is not incidental, either: the only process holding it is
+    # **OneDrive's own sync client**, which opens files it is uploading. On a
+    # synced folder that hazard is permanent, so the deploy has to be safe
+    # against it rather than lucky.
+    #
+    # ## What is actually atomic: renaming a directory
+    #
+    # A directory rename either happens or does not. It cannot half-happen, and
+    # on Windows it fails outright if anything inside is open — which is exactly
+    # the guarantee that was missing. So nothing is ever deleted in place:
+    #
+    #   1. copy the new build into `.slot-incoming`      (slow, and safe:
+    #                                                     the slot is untouched)
+    #   2. rename `slot`  →  `.slot-outgoing`            (atomic; fails clean)
+    #   3. rename `.slot-incoming`  →  `slot`            (atomic)
+    #   4. delete `.slot-outgoing`                       (best effort)
+    #
+    # Step 4 is the only `rmtree`, and it runs against a directory nothing is
+    # pointing at any more. If it fails, the operator has a stray hidden folder
+    # — not a missing build.
     #
     # | step | if it fails | the slot holds |
     # |---|---|---|
-    # | copy into staging | the payload never reached OneDrive | **the previous build**, untouched |
-    # | clear the slot | the slot is locked — the 2026-08-20 case | **the previous build**, untouched |
-    # | rename staging into place | the slot is cleared and the staging directory holds the new build | nothing, and the message says exactly where the bytes are |
-    #
-    # The rename is a move on one volume, which is as close to atomic as this
-    # gets, so the window in which the slot is empty is a directory rename
-    # rather than a multi-megabyte copy.
+    # | 1 copy into staging | the payload never reached the volume | **the previous build**, untouched |
+    # | 2 rename the slot aside | the slot is locked — the case that fired twice | **the previous build**, untouched, because a failed rename moves nothing |
+    # | 3 rename staging in | the previous build is at `.slot-outgoing` and the new one at `.slot-incoming`, and the message names both | nothing, briefly, and recoverably |
+    # | 4 delete the old one | a stray hidden folder | **the new build** |
     staging = MIRROR_ROOT / f".{target_name}-incoming"
+    outgoing = MIRROR_ROOT / f".{target_name}-outgoing"
     try:
         if staging.exists():
             shutil.rmtree(staging, onerror=_force)
+        if outgoing.exists():
+            shutil.rmtree(outgoing, onerror=_force)
         # `copytree` of the package directory's CONTENTS, not the timestamped
         # folder itself: the slot name is the identity the operator navigates
         # by, and nesting `pdfceGUI1/pdfcegui-2026…/pdfce-gui.exe` would make
@@ -907,32 +940,39 @@ def mirror(out: Path) -> None:
             shutil.move(str(stash), str(target / "userdata"))
         return
 
+    moved_aside = False
     try:
         if target.exists():
-            shutil.rmtree(target, onerror=_force)
+            os.rename(target, outgoing)
+            moved_aside = True
     except OSError as e:
         print()
         print(f"package-portable: mirror FAILED - {e}")
-        print(f"  {target_name} is locked by another process — most likely the exe in it")
-        print("  is running. It still holds the previous build; nothing was replaced.")
-        print(f"  The build in {out} is fine. Close it and run this again.")
+        print(f"  {target_name} is locked — most likely OneDrive is syncing it, or the exe")
+        print("  in it is running. A failed rename moves nothing, so it still holds the")
+        print("  previous build in full. Nothing was replaced.")
+        print(f"  The build in {out} is fine. Try again in a moment.")
         shutil.rmtree(staging, ignore_errors=True)
         if stash is not None:
             shutil.move(str(stash), str(target / "userdata"))
         return
 
     try:
-        shutil.move(str(staging), str(target))
+        os.rename(staging, target)
     except OSError as e:
         print()
         print(f"package-portable: mirror FAILED - {e}")
-        print(f"  ⚠ {target_name} HAS BEEN CLEARED and the new build is at")
-        print(f"    {staging}")
-        print("  Rename that directory to the slot name by hand. The other slot still")
-        print("  holds a working build.")
+        print(f"  ⚠ {target_name} is temporarily absent. Nothing is lost:")
+        print(f"    the PREVIOUS build is at {outgoing}")
+        print(f"    the NEW build is at      {staging}")
+        print("  Rename whichever you want to the slot name. The other slot is untouched.")
         if stash is not None:
             shutil.move(str(stash), str(staging / "userdata"))
         return
+
+    # Only now, and against a directory nothing points at.
+    if moved_aside:
+        shutil.rmtree(outgoing, ignore_errors=True)
     if stash is not None:
         shutil.move(str(stash), str(keep))
         print(f"  kept the existing userdata/ in {target_name}")

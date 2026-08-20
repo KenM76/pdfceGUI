@@ -1,85 +1,127 @@
 # CONTINUE — start here, then keep going
 
-**Updated 2026-08-20, clean tree, gates 14/14, 1,523 + 384 + 144 tests,
-53 driven checks — 45 verified, 6 skipped for a stated reason, 0 failed, and
-★ **two written that have NEVER BEEN RUN**.**
-**All six of the operator's standing complaints are closed AND driven.**
-**Newest portable build: `OneDrive\pdfceGUI2`** (2026-08-20 00:34, `d829ae2`).
+**Updated 2026-08-20, clean tree, gates 14/14, 1,525 + 384 + 144 tests,
+56 driven checks — 50 verified, 6 skipped for a stated reason, 0 failed.**
+**All six of the operator's standing complaints are closed AND driven, and so
+is everything he asked for on 2026-08-19 and 2026-08-20 except one scope
+question — §0a.**
+**Newest portable build: `OneDrive\pdfceGUI2`** (2026-08-20 06:03, `d2bc52f`).
 `pdfceGUI1` holds the previous (2026-08-19 17:44, `3be942c`).
 **Phase 1 is complete but for the object clipboard. Phase 5 is complete but for
 live re-layout.**
 
 ---
 
-## 0a. ★★★ WHAT LANDED ON 2026-08-20, AND THE ONE THING IT STILL OWES
+## 0a. ★★★ THE MULTI-DOCUMENT WORK, AND THE ONE QUESTION LEFT OPEN
 
-The operator asked for **several PDFs open at once, and pages dragged between
-them**. It is built: a document tab strip, spring-loaded tabs, a page drag that
-survives the document switch, a drop caret on the page view, and a
-cross-document insert that says *copy* before the button is released.
+The operator asked for **several PDFs open at once, pages dragged between
+them**, then — the same day — for **Shift to move rather than copy**,
+**rearrangeable tabs**, and **dragging a tab off into a new window**.
 
-**It has not been driven.** The harness takes the pointer, the keyboard and the
-display, and `feedback_ui_verify_competes_for_the_machine` says that needs a
-go-ahead. So the two checks written for it — `two_documents_get_two_tabs` and
-`a_page_dragged_between_documents_is_copied` — exist and have never executed.
+All of it is built and driven except the last, which is a scope question rather
+than a piece of work. **Full suite: 50 verified, 0 failed, 6 skipped for stated
+reasons.**
 
-★ **This is the exact state this project was founded to stop treating as done.**
-Report it in those words. The queue:
-
-```bash
-cargo run --release -q -p ui-verify -- \
-  --exe target/release/pdfce-gui.exe \
-  --pdf D:/Dev/temp/pdfce/SW41177.pdf \
-  --second-pdf D:/Dev/pdfce/fixtures/synthetic/pageops/four-pages.pdf \
-  --doc-point 0,300,500 \
-  --check two_documents_get_two_tabs \
-  --check a_page_dragged_between_documents_is_copied
+```text
+two_documents_get_two_tabs                       PASS
+document_tabs_can_be_rearranged                  PASS
+a_page_dragged_between_documents_is_copied       PASS
+a_shift_drag_between_documents_moves_the_pages   PASS
+pages_drag_shows_where_it_lands                  PASS   (broke, and was fixed — see below)
 ```
 
-`--second-pdf` must be a **different file** from `--pdf`; both checks SKIP with
-that sentence rather than falling back, because opening an already-open path
-activates its tab by design and passing one file twice would make them assert
-the opposite of what they are for.
+### ⛔ The open question: what does dragging a tab OFF the strip mean?
 
-### ⚠ And one defect in the TOOLING, found by it firing
+**Do not answer this by picking one.** `CONTINUE.md` §1b makes the convergence
+of the product class the specification, and here there is none:
 
-`package-portable.py` mirrored by `rmtree(target)` **then** `copytree(...)`, so
-a failure anywhere in between left the slot **empty** — and the handler printed
-*"only the OneDrive copy did not happen"*, which was false. It happened on this
-build: `pdfceGUI1` was locked, the clear partly succeeded, the copy raised
-`WinError 32`, and the operator's fallback build was gone. It was restored by
-hand from `D:/builds/`.
+| | what it does |
+|---|---|
+| Chrome, Firefox, VS Code | the document **moves** to a new, fully functional window |
+| Acrobat `Window ▸ New Window`, Bluebeam's split | a **second view**; the document stays where it was |
 
-Fixed the same day: **stage into a sibling, then clear, then rename**, in three
-separate `try` blocks so the message can say which step failed and what the
-slot therefore holds. The finding is in `D:/dev/rag/rust/` as
+The costs differ by an order of magnitude:
+
+- **A second view** — canvas, page list, status bar; the document stays in the
+  strip — is about a day. `egui::Context::show_viewport_immediate` takes
+  `FnMut(&mut Ui, ViewportClass)`, so it can capture `&mut self` and the
+  existing composition code works unchanged inside it. It also delivers the
+  *original* request from another direction: two page lists on screen at once.
+- **A full move** needs a `Workspace` extraction — every window owning its own
+  `ribbon`, `dock`, `modes`, `panels` and `find` — because a document that has
+  left the strip must still be editable, and all five are application-scoped
+  today. The visible failure of *not* doing it is a second window whose View tab
+  changes the first window's.
+
+Building the wrong one is worse than building neither: a window the document
+cannot be edited in is a trap, and a second view that pretends to be a move is a
+lie about where the operator's work is.
+
+### ★★ Two defects the driven run found that no unit test could
+
+Both are in `D:/dev/rag/egui/` and both will be re-created by anybody who does
+not read them.
+
+1. **`Response::hovered()` is false on every widget except the one being
+   dragged.** egui locks interaction to the pressed widget, so a hover built
+   from a `Response` is false in exactly the one situation a spring-loaded drop
+   target exists for. The tab was visibly under the pointer and nothing
+   happened. Resolve hover **geometrically** —
+   `state_a_gesture_must_outlive_...` and the tab strip's own comment.
+
+2. **A surface may not change size in response to a gesture aimed at it.** The
+   drag caption was a wrapping label above the page grid; its height depends on
+   its own wording, and its wording changes as the pointer moves. The row being
+   aimed at moved +49 pt, then +34 pt, mid-drag. It presents as a hit-testing
+   bug and sends you to the gap arithmetic, which is correct.
+   `a_surface_may_not_change_size_in_response_to_a_gesture_aimed_at_it.md`.
+
+And one about the harness, which cost a wrong defect report:
+**a harness constant naming an application trace event decays in one direction
+only** — absence reads as failure, so a rename produces a confident accusation
+against working code.
+
+### ⚠ Three things this work did NOT do
+
+1. **Quitting with unsaved documents still asks nothing.** Unguarded before
+   this; now unguarded across *N* documents. `PendingIntent::Open` / `::New` /
+   `::NewSized` are deliberately left unconstructed — they are the shape a quit
+   guard would use.
+2. **A parked document keeps its page texture and strip cache.** Deliberate —
+   877 ms per full-page render on the benchmark drawing — and unbounded. If it
+   ever needs bounding, bound *how many parked documents keep rasters*.
+3. **The reorder caret publishes no `ui_rect`**, so a caret drawn at the wrong
+   x would pass `document_tabs_can_be_rearranged`. Worth closing the day
+   anything about the strip's geometry changes.
+
+### ⚠⚠ And `package-portable.py` destroyed the fallback build TWICE
+
+Both times while publishing this work, and the second time was **after a fix**.
+
+1. It mirrored by `rmtree(target)` **then** `copytree(...)`, so a failure in
+   between left the slot empty — and printed *"only the OneDrive copy did not
+   happen"*, which was false.
+2. The repair was *stage, then clear, then rename*. It failed again on the very
+   next run, identically: **`rmtree` is itself non-atomic.** It walks
+   depth-first and deletes as it goes, so a lock on one file leaves everything
+   it had already removed removed. Moving the clear later in the sequence
+   bought nothing, and the message was confidently wrong a second time.
+
+★ The lock is **OneDrive's own sync client**, which opens files it is
+uploading. On a synced folder that hazard is permanent, so the deploy has to be
+safe against it rather than lucky.
+
+The real fix, now in place: **nothing is ever deleted in place.** Copy into
+`.slot-incoming`, `os.rename` the slot to `.slot-outgoing`, `os.rename` the
+staging in, then delete the old one. A directory rename either happens or does
+not — on Windows it fails outright if anything inside is open, which is exactly
+the guarantee that was missing. The only `rmtree` left runs against a directory
+nothing points at.
+
+★★ **Check both slots after packaging** — `head -4` each `BUILD-INFO.txt` —
+and report the two dates. That is the cheap check nobody was doing, and it is
+the only reason either failure was noticed. Filed in `D:/dev/rag/rust/` as
 `a_rotate_two_slots_deploy_that_clears_before_it_copies_destroys_the_fallback_it_exists_to_provide.md`.
-
-### ★ What IS verified, precisely, without taking the desktop
-
-`PDFCE_DIAG_VIEWPORT=-4000,-4000,1400,900` gives a **real, laid-out,
-off-screen, non-focus-stealing** window (`D:/dev/rag/egui/offscreen_viewport_position_beats_with_visible_false_for_headless_gui.md`),
-so a smoke launch costs the operator nothing. Run on this build:
-
-```
-open ok pages=36 path="D:/Dev/temp/pdfce/SW41177.pdf"
-window-title "SW41177.pdf — pdfce"
-ui-rect name=doc-tabs   rect=[[8.0 111.3] - [1392.0 135.3]]
-ui-rect name=doc-tab.0  rect=[[8.0 111.3] - [116.6 133.3]]
-doc-tabs open=1 active=0 drawn=1 hidden=0
-shell commands=105 planned=74 directed=1
-canvas … pages=36 … display=continuous visible=2 drawn=2
-```
-
-So: **the strip is composed on a real frame, spans the window, and its one tab
-has 108 × 22 pt of clickable extent.** That rules out the whole family of
-failures this project keeps finding — a surface that is registered and never
-drawn, or drawn at zero height, or clipped out of its pane.
-
-It rules out **nothing about the gestures**. Whether a click on that rectangle
-switches document, whether a tab springs open under a drag, and whether a page
-crosses between documents are all unverified, and the two checks that would
-say have never run.
 
 ### The map, for reading the new code
 
