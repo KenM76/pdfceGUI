@@ -42,6 +42,42 @@ disk, and its history is in git so a row cannot quietly disappear.
 
 ---
 
+# ★★★ THE OPERATOR'S CURRENT DIRECTION — 2026-08-20
+
+> *"put the text editing aside again. In the next version I just need the
+> perimeter measuring tool to work with the group scale stuff the same as the
+> other dimensioning tools have."*
+
+**O1 is PARKED at his instruction.** Not closed, not solved — parked. The
+findings stand and the engine request stays open. Do not pick it back up
+without him.
+
+**O3, the perimeter tool, is the single deliverable for the next build.** The
+engine shipped its whole half on 2026-08-20; everything left is shell work.
+
+## And the standing criticism, recorded rather than argued with
+
+> *"We'll have to reconsider how you are going about the canvas later since it
+> shouldn't take multiple 3 hour sessions each day to figure out how to get a
+> cursor to move and edit text on it, or get shortcuts to work for basic
+> functions."*
+
+He is right and this belongs at the top of the file where it cannot be missed.
+Two observations that are mine to act on, not his to have to make again:
+
+1. **The basics were never audited as basics.** Ctrl+P had never been bound. A
+   text caret had no index. Both are things every application in this class has
+   on day one, and both were found by him rather than by us — because every
+   test asked "does the thing I built work?" and nothing asked "does the thing
+   everyone expects exist?". The keymap now has a list-shaped gate for exactly
+   this reason. The canvas needs the same treatment and does not have it yet.
+2. **Sessions have been spent diagnosing, not building.** Three of today's
+   findings were engine defects that presented as shell defects, and each cost
+   hours to localise. That is partly the boundary and partly that the driven
+   checks were reading traces rather than pixels — a trace can say the verb ran
+   and cannot say the screen changed. Two checks were fixed today to stop
+   producing confident wrong diagnoses. That is the pattern to keep pulling on.
+
 # OPEN
 
 ## O1 — Editing text on the canvas, and editing text in a text box
