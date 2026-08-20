@@ -312,6 +312,43 @@ pub struct PdfceApp {
     /// the `file.recent` dispatch arm.
     pub recent: crate::app::recent::RecentFiles,
 
+    /// **The document tab a context menu was opened on**, for the length of
+    /// one dispatch.
+    ///
+    /// `window.close_document` and `window.close_other_documents` act on the
+    /// tab that was **right-clicked**, not on the one on screen — which is what
+    /// every tab context menu on this desktop does, and what makes them
+    /// different commands from `file.close`.
+    ///
+    /// ★ Parked rather than carried, in the same shape and for the same reason
+    /// as [`Self::recent_choice`]: `egui_shell`'s menu reports the operator's
+    /// intent as a `HandlerToken` and nothing else, so it has no channel for an
+    /// operand. Set immediately before the dispatch and cleared immediately
+    /// after, so it can never be read by a command that did not come from a
+    /// tab.
+    pub tab_menu_target: Option<usize>,
+
+    /// **A `Close others` sequence waiting on an unsaved-edits answer**, and
+    /// the tab it is keeping.
+    ///
+    /// `None` for all but the handful of frames between one document's
+    /// question and the operator's answer. See
+    /// [`PdfceApp::apply_close_other_documents`], which parks it, and
+    /// [`PdfceApp::resume_after_unsaved`], which picks it up.
+    ///
+    /// ★ A **slot**, kept in step by the loop that parks it, rather than a
+    /// path or an identity. The alternative was tried on paper and does not
+    /// work: a created document's path is a *name*, so an identity keyed on it
+    /// cannot find an `Untitled 2.pdf`, and *"close the others and keep my
+    /// unsaved scratch document"* is precisely the case that must not close the
+    /// wrong thing.
+    ///
+    /// ★ Cleared at the top of every close arm, so a cancelled sequence cannot
+    /// be picked up later by an unrelated question. A cancel produces no
+    /// answer, so it never resumes on its own; the clear is what stops it
+    /// waiting around for one that belongs to somebody else.
+    pub closing_others: Option<usize>,
+
     /// **The window title as it was last set**, so it is set again only when
     /// it changes.
     ///
@@ -716,6 +753,8 @@ impl PdfceApp {
             created_documents: 0,
             // Not a title anything sets, so the first frame always sends one.
             last_window_title: String::new(),
+            closing_others: None,
+            tab_menu_target: None,
             recent_choice: None,
             panels: crate::panels::PanelsState::default(),
             find: crate::find::FindState::default(),

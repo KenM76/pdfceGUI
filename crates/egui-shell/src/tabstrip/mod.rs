@@ -153,6 +153,32 @@ pub enum TabIntent {
     /// The caller may refuse, ask first, or defer. Nothing about this strip
     /// assumes the tab is gone on the next frame.
     Close(usize),
+    /// **Move the tab at `from` to the boundary `gap`.**
+    ///
+    /// Raised when a tab is dragged along the strip and released somewhere
+    /// else. Every tabbed application allows this and nobody has to be taught
+    /// it; a strip whose order is fixed is the one thing about a tab strip an
+    /// operator notices as missing.
+    ///
+    /// # ★ `gap` is a BOUNDARY, not a destination index
+    ///
+    /// `0` is before the first tab and `len` is after the last, which is the
+    /// same vocabulary an insertion caret is drawn in and the same one a page
+    /// drop uses. It is deliberately *not* "the index it ends up at", because
+    /// those two differ by one whenever the tab moves rightward — the tab is
+    /// removed before it is re-inserted — and a caller that got the convention
+    /// wrong would be off by one in one direction only, which is the hardest
+    /// kind of off-by-one to notice.
+    ///
+    /// A gap of `from` or `from + 1` is where the tab already is. The strip
+    /// raises the intent anyway rather than filtering it; the caller is the one
+    /// that knows whether a no-op is worth tracing.
+    Reorder {
+        /// The tab being moved.
+        from: usize,
+        /// The boundary it is moving to.
+        gap: usize,
+    },
 }
 
 /// What one frame of the strip produced.
@@ -179,6 +205,32 @@ pub struct TabStrip {
     /// How many tabs did not fit and are reachable only through the overflow
     /// menu.
     pub hidden: usize,
+    /// **Each drawn tab's own `Response`**, handed out so the caller can attach
+    /// a context menu to it.
+    ///
+    /// ★ Handed out rather than used here, and that is a hard constraint rather
+    /// than a preference. A `Response` carries exactly **one** popup id
+    /// (`response.id.with("popup")`), so a widget can host exactly one context
+    /// menu: if this module attached its own, an application could never add
+    /// one, and two menus on one response are two writers of one flag in
+    /// `egui`'s memory. [`crate::dock::tabs`] hit the same wall and resolved it
+    /// the same way.
+    ///
+    /// *What* a right-click on a document tab should offer is the application's
+    /// business — close, close others, detach — and none of it is expressible
+    /// without knowing what a document is, which R7 forbids this crate from
+    /// knowing.
+    ///
+    /// In drawn order, absent for a tab behind the overflow affordance.
+    pub responses: Vec<(usize, egui::Response)>,
+    /// **A tab drag in flight, and where it would land**, as a `(from, gap)`
+    /// pair — for a caller that wants to say so in words.
+    ///
+    /// `None` when no tab is being dragged. The caret itself is drawn here; this
+    /// is the same fact in numbers, for the same reason the page grid publishes
+    /// its landing: *a hairline between two near-identical labels is precise and
+    /// not checkable*.
+    pub reordering: Option<(usize, usize)>,
 }
 
 /// **Draw the strip.**
@@ -289,8 +341,114 @@ pub fn strip(ui: &mut egui::Ui, theme: &Theme, tabs: &[TabItem], active: usize) 
         draw_overflow(ui, tabs, bar.hidden, affordance, &mut out);
     }
 
+    // 7 — the reorder drag, resolved and painted after everything else.
+    settle_reorder(ui, theme, rect, &mut out);
+
     out
 }
+
+/// **A tab drag in flight**, between frames.
+///
+/// In `egui::Memory` rather than in a field on [`TabStrip`], because
+/// [`TabStrip`] is built fresh every frame — the strip is deliberately
+/// stateless (see [`TabItem`]) and a drag has to outlive a frame. This is the
+/// only thing about the strip that does.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct TabDrag {
+    /// The tab the press landed on.
+    from: usize,
+}
+
+/// The reorder drag's memory key. Salted with the `Ui`'s own id so two strips
+/// in one application cannot share a drag.
+fn drag_id(ui: &egui::Ui) -> egui::Id {
+    ui.id().with("tabstrip-drag") // ui-text-exempt: an id, never displayed
+}
+
+/// **Resolve a reorder drag, draw its caret, and settle its release.**
+///
+/// Runs after every tab is laid out, because the boundary the caret marks does
+/// not exist until they are — the same reason a page grid resolves its drop
+/// target inside its layout pass.
+///
+/// # The gap is resolved by CENTRES, not by edges
+///
+/// A tab whose centre is left of the pointer is a tab the dragged one has
+/// passed. That makes the boundary flip when the pointer crosses the middle of
+/// a neighbour, which is what every tab strip does and what stops the caret
+/// jittering between two gaps while the pointer sits over the seam between two
+/// tabs.
+fn settle_reorder(ui: &mut egui::Ui, theme: &Theme, strip_rect: Rect, out: &mut TabStrip) {
+    let id = drag_id(ui);
+    let Some(drag) = ui.ctx().data(|d| d.get_temp::<TabDrag>(id)) else {
+        return;
+    };
+    let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+        return;
+    };
+
+    // The boundary: how many drawn tabs the pointer has passed the middle of.
+    // Seeded from the leftmost drawn tab so a scrolled strip cannot report a
+    // gap left of what is on screen.
+    let mut gap = out.drawn.first().map_or(0, |(i, _)| *i);
+    for (i, r) in &out.drawn {
+        if pointer.x > r.center().x {
+            gap = i + 1;
+        }
+    }
+    out.reordering = Some((drag.from, gap));
+
+    // The caret, at the boundary. Painted after the tabs, so it is over them
+    // rather than under — in an immediate-mode painter that is call order and
+    // nothing else.
+    //
+    // Its x is read from a drawn rectangle rather than computed from a width,
+    // for the rule this crate's own `drawn` field carries: do not derive a
+    // coordinate the layout already knows.
+    let x = out.drawn.iter().find(|(i, _)| *i == gap).map_or_else(
+        || {
+            out.drawn
+                .last()
+                .map_or(strip_rect.left(), |(_, r)| r.right())
+        },
+        |(_, r)| r.left(),
+    );
+    ui.painter().line_segment(
+        [
+            egui::pos2(x, strip_rect.top()),
+            egui::pos2(x, strip_rect.bottom()),
+        ],
+        egui::Stroke::new(CARET_PTS, theme.palette.accent),
+    );
+    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+
+    // ★ The release is read from RAW POINTER INPUT, not from the tab's own
+    // `Response`.
+    //
+    // A drag begun on a tab may end anywhere — past the last tab, over the
+    // canvas, off the window — and a `Response` only reports releases inside
+    // the widget that produced it. Reading the input means a drag always ends,
+    // which is the property that stops a half-finished drag surviving into the
+    // next frame as a caret nobody can get rid of.
+    if ui
+        .ctx()
+        .input(|i| i.pointer.button_released(egui::PointerButton::Primary))
+    {
+        ui.ctx().data_mut(|d| d.remove_temp::<TabDrag>(id));
+        out.reordering = None;
+        out.intents.push(TabIntent::Reorder {
+            from: drag.from,
+            gap,
+        });
+    }
+}
+
+/// How thick the reorder caret is drawn.
+///
+/// The same weight the dock's and the page grid's carets use: thin enough to
+/// read as a boundary rather than as a tab, thick enough not to look like a
+/// rendering artefact on a dense strip.
+const CARET_PTS: f32 = 2.0;
 
 /// Draw one document tab: the label, and the ✕ beside it.
 fn draw_tab(
@@ -347,7 +505,18 @@ fn draw_tab(
                     egui::Button::new(text)
                         .min_size(label_rect.size())
                         .truncate()
-                        .selected(selected),
+                        .selected(selected)
+                        // ★ `click_and_drag`, so the tab can be **reordered**.
+                        //
+                        // A `Button` senses clicks only, and adding the drag
+                        // does not cost the click: `egui` still reports
+                        // `clicked()` when the press and release are close
+                        // enough together in space and time, which is exactly
+                        // the distinction between "I meant this tab" and "I
+                        // meant to move this tab". That is how every tab strip
+                        // on this desktop behaves and it needs no threshold of
+                        // our own.
+                        .sense(egui::Sense::click_and_drag()),
                 )
             },
         )
@@ -355,6 +524,15 @@ fn draw_tab(
 
     if response.clicked() {
         out.intents.push(TabIntent::Activate(index));
+    }
+    // ★ `drag_started_by(Primary)`, not `drag_started()`. `egui`'s plain
+    // predicate is button-agnostic, so a middle-press that wandered a few
+    // pixels before releasing would start a reorder the operator meant as a
+    // close — and a right-press one they meant as a context menu.
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        let id = drag_id(ui);
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(id, TabDrag { from: index }));
     }
     // Middle click closes. Read from the response rather than from raw input
     // so it is scoped to this tab, and gated on `closable` so a tab that shows
@@ -371,6 +549,10 @@ fn draw_tab(
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &tooltip)
     });
+    // ★ Handed out for the caller's context menu, AFTER the accessible name is
+    // published and before anything else can claim the response's one popup id.
+    // See [`TabStrip::responses`].
+    out.responses.push((index, response));
     if !tab.closable {
         return;
     }

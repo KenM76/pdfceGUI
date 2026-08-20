@@ -177,6 +177,14 @@ pub const OBJECTS_ROW: &str = "objects.row";
 /// silently detaching every tile's menu.
 pub const PAGES_ROW: &str = "pages.row";
 
+/// **A document tab in the strip under the ribbon** — not a dock tab.
+///
+/// The two are deliberately different contexts because they name different
+/// things: [`DOCK_TAB`] names a *panel*, which is a tool, and this names a
+/// *document*, which is an operand. Sharing one menu between them would offer
+/// *Reset layout* on a drawing and *Close others* on the Bookmarks panel.
+pub const DOCUMENT_TAB: &str = "document.tab";
+
 /// Every context id this module defines, for the sweeps in [`tests`].
 ///
 /// Hand-written, and pinned by
@@ -188,6 +196,7 @@ pub const CONTEXTS: &[&str] = &[
     CANVAS_OBJECT,
     CANVAS_EMPTY,
     DOCK_TAB,
+    DOCUMENT_TAB,
     OBJECTS_ROW,
     PAGES_ROW,
 ];
@@ -377,6 +386,49 @@ pub fn built_in() -> Menus {
         // becomes a selection gesture and that focus field is deleted, which
         // is the commit `ObjectTreeUi::focus` names.
         // -------------------------------------------------------------------
+        // -------------------------------------------------------------------
+        // document.tab — the strip under the ribbon.
+        //
+        // ★ TWO rows, where the conventional menu has three.
+        //
+        // Every browser and every editor offers *Close*, *Close others* and
+        // *Close tabs to the right*.
+        //
+        // **Close is `file.close` itself**, not a second command — and that is
+        // worth reading, because the second command was written first and two
+        // gates refused it in the same run. `no_two_commands_share_a_label`
+        // caught that it would carry `file.close`'s label, because it does
+        // `file.close`'s job; `every_menu_command_is_also_reachable_from_the_ribbon`
+        // caught that its only route would have been this right-click. Between
+        // them they are right: what differs is not the *meaning* but the
+        // **operand**, and an operand that comes from the surface a command was
+        // invoked on is `crate::app::PdfceApp::tab_menu_target`'s whole job.
+        // From here it closes the tab you right-clicked; from the ribbon and
+        // from `Ctrl+W` it closes the one on screen.
+        //
+        // ★ It is also what stops this menu being **empty with one document
+        // open**. `view.close_other_documents` waits on `docs.multiple`, so a
+        // menu of it alone would never open for the commonest state there is —
+        // and `every_menu_offers_something_when_a_document_is_open_and_selected`
+        // caught exactly that. A surface an operator right-clicks once, gets
+        // nothing from, and never tries again is worse than a surface with no
+        // menu at all.
+        //
+        // **Close tabs to the right** is absent because its operand is a
+        // *direction* rather than a document, and this application has no other
+        // control shaped that way — so it would arrive with its own command,
+        // condition and arm, to save a gesture that closing two tabs already
+        // covers. It goes in the day somebody has fifteen drawings open and
+        // says so.
+        //
+        // **Move to a new window**, which the operator asked for on 2026-08-20,
+        // is absent under R9: a row for a capability the build does not have is
+        // a placeholder. It is registered nowhere, so `Menu::attach` cannot
+        // draw it even if this list named it.
+        .with(Menu::new(DOCUMENT_TAB).with_items([
+            Item::command("file.close"),
+            Item::command("view.close_other_documents"),
+        ]))
         .with(Menu::new(OBJECTS_ROW).with_items([Item::command("file.properties")]))
         // -------------------------------------------------------------------
         // pages.row — a page tile in the Pages panel.

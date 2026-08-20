@@ -592,6 +592,17 @@ impl PdfceApp {
             format!("unsaved-resume outcome={outcome:?} intent={intent:?}")
         });
 
+        // ★ Taken unconditionally, and consulted only on the `Close` arm.
+        //
+        // Taking it here rather than inside the arm is what bounds how long a
+        // parked sequence can live: at most until the next answer of any kind.
+        // A cancelled `Close others` produces no answer at all, so it would
+        // otherwise sit there until some unrelated question was answered and
+        // then close four documents nobody had asked about.
+        let queued = self.closing_others.take();
+        // Recorded before the match, which consumes `intent`.
+        let was_close = matches!(intent, PendingIntent::Close);
+
         match intent {
             PendingIntent::Close => self.close_document(),
             PendingIntent::Open(path) => self.open_path(path),
@@ -602,6 +613,27 @@ impl PdfceApp {
             } => self.new_document_sized(pdfce_core::page_tree::Rect::from_corners(
                 0.0, 0.0, width_pt, height_pt,
             )),
+        }
+
+        // ★★ **And carry on closing, if this answer was one of a sequence.**
+        //
+        // `Close others` over four marked-up drawings asks four questions, and
+        // the loop that asks them cannot run across a frame boundary — the
+        // dialog needs frames to be answered in. So it parks the tab it is
+        // keeping and returns, and this is where the rest happens.
+        //
+        // Only on the `Close` arm, because that is the only intent the
+        // sequence can produce, and only when an answer actually arrived —
+        // this function does not run at all on a cancel, which is exactly how
+        // cancelling stops the sequence.
+        //
+        // AFTER the close above, not before: the document the operator just
+        // answered about has to be gone before the loop counts what is left,
+        // or it would immediately ask about it again.
+        if let Some(keep) = queued
+            && was_close
+        {
+            self.apply_close_other_documents(keep);
         }
     }
 

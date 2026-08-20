@@ -687,6 +687,20 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::pages::handles(id) {
         return Some("handles");
     }
+    // ★ The second membership-test guard, added 2026-08-20 with
+    // `dispatch::textcopy`. Everything the paragraph above says about
+    // `pages::handles` applies to it unchanged — including the mitigation: its
+    // partner `dispatch` traces `textcopy-unrouted` on a member it does not
+    // know, rather than doing nothing.
+    //
+    // Both resolve to the string `"handles"` because that is the **guard's own
+    // spelling** in `dispatch.rs`, which is what
+    // `the_guards_the_checker_evaluates_are_the_guards_the_dispatcher_has`
+    // reads out of the syntax tree. Two modules sharing one predicate name is
+    // therefore one entry here, not two.
+    if crate::app::dispatch::textcopy::handles(id) {
+        return Some("handles");
+    }
     None
 }
 

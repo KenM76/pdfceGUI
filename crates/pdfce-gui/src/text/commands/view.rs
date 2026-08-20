@@ -484,6 +484,28 @@ pub const fn view_previous_document() -> CommandText {
     )
 }
 
+/// `view.close_other_documents`
+///
+/// ★ The label says which one **survives**, not how many go. *"Close others"*
+/// is what every browser and every editor calls it, and an operator reading it
+/// in a menu opened on a specific tab already knows which that is — which is
+/// what makes the short wording safe rather than merely terse.
+///
+/// ★★ The tooltip has to say **which** *this one* is, because the command has
+/// two routes with two operands: from a tab's context menu it keeps the tab
+/// that was right-clicked, and from the ribbon it keeps the one on screen. So
+/// it says *"the one you opened this on"* rather than naming either, which is
+/// true from both and misleading from neither.
+#[must_use]
+pub const fn view_close_other_documents() -> CommandText {
+    CommandText::new(
+        "Close others",
+        "Close every open document except the one you opened this on. Any with unsaved \
+         edits are asked about one at a time (Ctrl+W closes just the one you are \
+         looking at).",
+    )
+}
+
 /// `view.reset_layout`
 ///
 /// ★ **This entry lost an ellipsis and a promise, and both losses are the

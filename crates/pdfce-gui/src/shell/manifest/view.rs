@@ -364,6 +364,13 @@ pub(super) fn tab() -> Tab {
                     // navigation pair in this manifest is.
                     command("view.previous_document"),
                     command("view.next_document"),
+                    // ★ On the ribbon as well as on a tab's context menu, and
+                    // the ribbon entry is not decoration: `menus`'
+                    // `every_menu_command_is_also_reachable_from_the_ribbon`
+                    // holds that *a command reachable by right-click alone is
+                    // undiscoverable*. From here it keeps the document on
+                    // screen; from a tab, the tab that was right-clicked.
+                    command("view.close_other_documents"),
                     command("view.read_mode"),
                     command("view.fullscreen"),
                     command("view.reset_layout"),

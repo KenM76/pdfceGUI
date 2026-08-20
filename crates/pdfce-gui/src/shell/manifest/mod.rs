@@ -1289,6 +1289,7 @@ mod tests {
             [
                 "view.previous_document",
                 "view.next_document",
+                "view.close_other_documents",
                 "view.read_mode",
                 "view.fullscreen",
                 "view.reset_layout",

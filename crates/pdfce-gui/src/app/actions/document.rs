@@ -159,6 +159,10 @@ impl PdfceApp {
     /// a path that assumes a document, which is the other half of why this
     /// family is matched before `apply`'s guard.
     pub(super) fn apply_close(&mut self) {
+        // A close the operator started themselves ends any `Close others`
+        // sequence that was waiting for an answer. See
+        // `PdfceApp::closing_others`.
+        self.closing_others = None;
         if self.save_pending() {
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -200,6 +204,9 @@ impl PdfceApp {
     /// at. A `PendingIntent::CloseSlot(n)` would carry a slot number across a
     /// dialog, and slots renumber when a tab closes.
     pub(super) fn apply_close_document(&mut self, slot: usize) {
+        // As `apply_close`. `apply_close_other_documents` re-parks it AFTER
+        // this returns, so its own loop is unaffected.
+        self.closing_others = None;
         if self.save_pending() {
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -220,6 +227,101 @@ impl PdfceApp {
             return;
         }
         self.close_document();
+    }
+
+    /// `Action::CloseOtherDocuments` — close everything except the tab at
+    /// `keep`.
+    ///
+    /// ★★ **The sixth arm, and it has both guards by DELEGATION** rather than
+    /// by carrying its own copies. Every close it performs goes through
+    /// [`Self::apply_close_document`], which is where the guards live, so there
+    /// is no second place for *"does this ask about unsaved edits?"* to be
+    /// answered differently.
+    ///
+    /// This is also why [`tests::every_action_that_discards_a_document_asks_about_unsaved_edits`]
+    /// still holds with a sixth arm present: this body names a close verb only
+    /// through its sibling, and the sibling is checked.
+    ///
+    /// # ★ It closes from the RIGHT, and `keep` is adjusted as it goes
+    ///
+    /// Slots renumber every time one is removed, so the loop takes the
+    /// **rightmost tab that is not `keep`** each pass — which is either the
+    /// last one or, when the last one is the keeper, the one before it. Only
+    /// when the victim was *below* `keep` does anything shift, and then by
+    /// exactly one, which is the whole of the bookkeeping.
+    ///
+    /// The alternative — a `for` over a snapshot of the indices — is the
+    /// obvious version and is wrong after the first close, because every index
+    /// it holds names a different document from then on.
+    ///
+    /// # ★★ It survives the unsaved-edits question, which is what makes it
+    /// usable
+    ///
+    /// A modified document brings itself to the front and asks, and answering
+    /// takes a frame — so the loop cannot simply continue. It parks `keep` in
+    /// [`PdfceApp::closing_others`] and returns; [`PdfceApp::resume_after_unsaved`]
+    /// picks it up once the operator has answered and runs the rest.
+    ///
+    /// Without that, *"close others"* over four marked-up drawings would close
+    /// one per press, and an operator would reasonably conclude the command was
+    /// broken.
+    ///
+    /// # A cancelled answer stops the whole sequence
+    ///
+    /// Cancelling produces **no answer**, so `resume_after_unsaved` never runs
+    /// and the parked `keep` is never picked up — the sequence simply ends.
+    /// That is deliberate rather than incidental: *"close the others"* is a
+    /// convenience, and somebody who cancels halfway has said something about
+    /// the gesture, not about one document.
+    ///
+    /// `pub(crate)` rather than `pub(super)`, and the one arm in this file that
+    /// is: `crate::app::lifecycle::resume_after_unsaved` continues the sequence
+    /// once an answer arrives, and it lives in `app` rather than in
+    /// `app::actions`. Routing the resume back through an `Action` was the
+    /// alternative and would have re-entered the guard that has just been
+    /// answered — the same loop `resume_after_unsaved`'s own header describes
+    /// and refuses.
+    pub(crate) fn apply_close_other_documents(&mut self, keep: usize) {
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "close-others keep={keep} of={}",
+                self.document_count()
+            )
+        });
+        let mut keep = keep;
+        loop {
+            let count = self.document_count();
+            if count <= 1 || keep >= count {
+                break;
+            }
+            // The rightmost that is not the keeper. `count >= 2` here, so when
+            // the last tab IS the keeper there is always one before it.
+            let victim = if count - 1 == keep {
+                count - 2
+            } else {
+                count - 1
+            };
+            self.apply_close_document(victim);
+            if self.document_count() == count {
+                // Nothing went. Either a dialog is now up — the ordinary case
+                // for a modified document — or a guard declined. Park the
+                // keeper and let the resume continue; a cancel simply never
+                // resumes.
+                self.closing_others = Some(keep);
+                crate::diag::trace(|| {
+                    format!(
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        "close-others-paused at={victim} left={count} keep={keep}"
+                    )
+                });
+                return;
+            }
+            if victim < keep {
+                keep -= 1;
+            }
+        }
+        self.closing_others = None;
     }
 }
 

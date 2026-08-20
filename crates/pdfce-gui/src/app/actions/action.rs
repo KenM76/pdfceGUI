@@ -248,6 +248,25 @@ pub enum Action {
     /// identity the strip itself is indexed by, so a click cannot resolve to a
     /// different document than the one under the pointer.
     CloseDocument(usize),
+    /// **Close every open document except the one at this tab position.**
+    ///
+    /// Raised by `window.close_other_documents` on the tab strip's context
+    /// menu, and by nothing else.
+    ///
+    /// # ★ It is one action and N closes, and the N is the point
+    ///
+    /// Each document is closed through the **same** guarded path a single close
+    /// takes, one at a time, so a modified one still brings itself to the front
+    /// and asks. The operator therefore answers a question per document that
+    /// has unsaved work and none for the rest — which is what every editor
+    /// does, and the only behaviour that does not either discard work silently
+    /// or ask N times about nothing.
+    ///
+    /// A cancelled answer stops the sequence where it is. That is deliberate:
+    /// *"close the others"* is a convenience, and an operator who cancels
+    /// halfway has said something about the whole gesture, not just about one
+    /// document.
+    CloseOtherDocuments(usize),
     /// **Copy pages out of another open document into the one on screen.**
     ///
     /// Raised by a page drag that was released over a document other than the

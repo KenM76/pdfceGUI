@@ -332,6 +332,82 @@ impl PdfceApp {
         self.forget_previous_documents_view();
     }
 
+    /// **Move the tab at `from` to the boundary `gap`**, keeping the same
+    /// document on screen.
+    ///
+    /// `gap` is a **boundary**, not a destination index: `0` is before the
+    /// first tab and `document_count()` is after the last, which is the same
+    /// vocabulary the insertion caret is drawn in and the same one a page drop
+    /// uses. `egui_shell::tabstrip::TabIntent::Reorder` carries the argument
+    /// for why it is not "the index it ends up at" — the two differ by one
+    /// whenever a tab moves rightward, because it is removed before it is
+    /// re-inserted, and a caller with the wrong convention is off by one in one
+    /// direction only.
+    ///
+    /// # ★ The document on screen does not change, and that is arithmetic
+    ///
+    /// Reordering tabs is not navigation. An operator dragging tab 5 to the
+    /// front has not asked to *look* at it, so the active document has to
+    /// follow its own tab through the permutation rather than staying at an
+    /// index. Getting that wrong would switch document as a side effect of
+    /// tidying the strip, which no application does.
+    ///
+    /// Three cases, and the third is the one that needs the `+1`:
+    ///
+    /// | the active tab | where it goes |
+    /// |---|---|
+    /// | **is** the one being moved | wherever it lands |
+    /// | was to the **right** of `from` | one place left, because a tab was removed in front of it |
+    /// | ends up at or after the insertion point | one place right, because a tab was inserted in front of it |
+    ///
+    /// The two adjustments compose — a tab can be both — which is why they are
+    /// applied in sequence rather than as a `match`.
+    pub fn move_slot(&mut self, from: usize, gap: usize) {
+        let count = self.document_count();
+        if from >= count {
+            return;
+        }
+        // Where it actually lands. Moving rightward, the removal has already
+        // shifted every later tab down by one, so the boundary `gap` is one
+        // place further along than the index to insert at.
+        let insert_at = if gap > from { gap - 1 } else { gap }.min(count - 1);
+        if insert_at == from {
+            // Dropped where it already is. Not traced and not applied: a
+            // reorder that changes nothing is a gesture the operator abandoned,
+            // and treating it as an event would put a line in the log for every
+            // tab they thought better of moving.
+            return;
+        }
+
+        let was_active = self.active_slot;
+        let mut all = self.take_slots();
+        let moved = all.remove(from);
+        all.insert(insert_at, moved);
+
+        let active = if was_active == from {
+            insert_at
+        } else {
+            let shifted = if was_active > from {
+                was_active - 1
+            } else {
+                was_active
+            };
+            if shifted >= insert_at {
+                shifted + 1
+            } else {
+                shifted
+            }
+        };
+        self.put_slots(all, active);
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "document-reorder from={from} gap={gap} to={insert_at} active={}",
+                self.active_slot
+            )
+        });
+    }
+
     /// **Move to the next or previous tab**, wrapping.
     ///
     /// Wrapping because Ctrl+Tab wraps in every application that has it, and
@@ -510,6 +586,74 @@ mod tests {
         );
         app.cycle_document(false);
         assert_eq!(app.active_slot, 2, "back from the first wraps to the last");
+    }
+
+    /// ★★ **Reordering tabs keeps the same document on screen.**
+    ///
+    /// The property that makes `move_slot` correct and the one a naive
+    /// implementation gets wrong: dragging a tab is tidying, not navigation, so
+    /// the active document has to follow its own tab through the permutation
+    /// rather than staying at an index.
+    ///
+    /// Swept across **every** `(from, gap)` pair on a four-tab strip with each
+    /// of the four active in turn — 4 x 5 x 4 = 80 cases — rather than spot
+    /// checked, because the arithmetic has two adjustments that compose and the
+    /// composition is where an off-by-one hides. Three hand-picked cases would
+    /// very likely all miss it.
+    #[test]
+    fn reordering_tabs_never_changes_which_document_is_on_screen() {
+        for active in 0..4 {
+            for from in 0..4 {
+                for gap in 0..=4 {
+                    let mut app = app_with(&["a", "b", "c", "d"]);
+                    app.activate_slot(active);
+                    let looking_at = strip(&app)[active].clone();
+
+                    app.move_slot(from, gap);
+
+                    assert_eq!(
+                        app.document_count(),
+                        4,
+                        "a reorder lost or gained a tab: from={from} gap={gap}"
+                    );
+                    assert_eq!(
+                        strip(&app)[app.active_slot],
+                        looking_at,
+                        "moving tab {from} to gap {gap} with {looking_at} on screen \
+                         switched document"
+                    );
+                    let mut sorted = strip(&app);
+                    sorted.sort();
+                    assert_eq!(
+                        sorted,
+                        ["a", "b", "c", "d"],
+                        "a reorder duplicated or dropped a document: from={from} gap={gap}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// **A tab dropped where it already is changes nothing**, and the two gaps
+    /// that mean that are both of them.
+    ///
+    /// `gap == from` is *before itself* and `gap == from + 1` is *after
+    /// itself*; a strip that treated the second as a real move would shuffle
+    /// the document one place every time an operator picked a tab up and put it
+    /// back.
+    #[test]
+    fn dropping_a_tab_where_it_already_is_does_nothing() {
+        for from in 0..4 {
+            for gap in [from, from + 1] {
+                let mut app = app_with(&["a", "b", "c", "d"]);
+                app.move_slot(from, gap);
+                assert_eq!(
+                    strip(&app),
+                    ["a", "b", "c", "d"],
+                    "from={from} gap={gap} moved a tab that was already there"
+                );
+            }
+        }
     }
 
     /// **A path that is already open is found**, so the caller can activate it

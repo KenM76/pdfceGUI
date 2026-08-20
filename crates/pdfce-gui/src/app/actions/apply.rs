@@ -147,6 +147,10 @@ impl PdfceApp {
                 self.apply_close_document(slot);
                 return;
             }
+            Action::CloseOtherDocuments(keep) => {
+                self.apply_close_other_documents(keep);
+                return;
+            }
             Action::InsertPagesFromOpenDocument {
                 source_slot,
                 pages,
@@ -291,6 +295,7 @@ impl PdfceApp {
             | Action::NewSized { .. }
             | Action::Close
             | Action::CloseDocument(_)
+            | Action::CloseOtherDocuments(_)
             | Action::InsertPagesFromOpenDocument { .. }
             | Action::SaveCopy
             | Action::Find(_) => {

@@ -789,6 +789,34 @@ pub(super) fn all() -> Vec<Command> {
         command("view.previous_document", t::view_previous_document(), 256)
             .with_icon("chevron-left")
             .enabled_when("docs.multiple"),
+        // ★ **Close others**, 2026-08-20, with the document tab strip.
+        //
+        // Its operand depends on the route: from a tab's context menu it keeps
+        // the tab that was right-clicked, from the ribbon it keeps the one on
+        // screen. `crate::app::PdfceApp::tab_menu_target` is how the first is
+        // supplied and `unwrap_or(active_slot)` is how the second falls back —
+        // and the tooltip says *"the one you opened this on"* rather than
+        // naming either, because that sentence is true from both routes.
+        //
+        // ★ There is deliberately **no** `close_document` beside it. The
+        // conventional tab menu has three rows — Close, Close others, Close to
+        // the right — and a Close here would be a second command with
+        // `file.close`'s label and `file.close`'s behaviour from the ribbon,
+        // differing only in a parked operand. `no_two_commands_share_a_label`
+        // and `every_menu_command_is_also_reachable_from_the_ribbon` both
+        // caught the attempt, and between them they are right: closing the tab
+        // you right-clicked is already the ✕ on that tab and a middle click on
+        // it, which are the two gestures every operator reaches for first.
+        //
+        // No icon. `catalog`'s coverage table calls a context-menu row's glyph
+        // decoration: a menu is a list of words, read rather than scanned, and
+        // a half-iconed menu is worse than none.
+        command(
+            "view.close_other_documents",
+            t::view_close_other_documents(),
+            257,
+        )
+        .enabled_when("docs.multiple"),
         // ===================================================================
         // PAGES — tokens 300-399
         //

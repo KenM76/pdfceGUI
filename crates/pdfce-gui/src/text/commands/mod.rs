@@ -895,6 +895,7 @@ mod tests {
             view_fullscreen(),
             view_next_document(),
             view_previous_document(),
+            view_close_other_documents(),
             view_reset_layout(),
             pages_insert_from_file(),
             pages_delete(),

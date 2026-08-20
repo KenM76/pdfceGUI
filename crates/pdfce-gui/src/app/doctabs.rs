@@ -149,10 +149,54 @@ impl PdfceApp {
             return;
         }
 
+        // ★ Everything that needs `&self` is read BEFORE the strip is drawn,
+        // and everything that needs `&mut self` is applied after.
+        //
+        // The reason is the menu host: it borrows `self.shell` and
+        // `self.commands` for as long as it lives, and the intents the strip
+        // produces need `&mut self` to apply. Building the tabs and the host
+        // first, drawing into locals, and mutating afterwards is the same
+        // "draw first, dispatch second" shape `crate::app::surfaces::central`
+        // uses for the canvas, and for the same borrow.
         let tabs: Vec<egui_shell::tabstrip::TabItem> =
             (0..count).map(|slot| self.tab_item(slot)).collect();
         let theme = egui_shell::theme::Theme::of(ui.ctx());
-        let strip = egui_shell::tabstrip::strip(ui, &theme, &tabs, self.active_slot);
+        let active = self.active_slot;
+        let conditions = self.conditions(ui.ctx());
+        let host = self
+            .shell
+            .as_ref()
+            .map(|s| crate::shell::menus::MenuHost::new(s, &self.commands, &conditions));
+
+        let strip = egui_shell::tabstrip::strip(ui, &theme, &tabs, active);
+
+        // ★★ The context menu, attached to each tab's own response.
+        //
+        // `egui_shell::tabstrip` deliberately attaches none of its own — a
+        // `Response` carries exactly one popup id, so whoever attaches first
+        // owns it, and *what* a right-click on a document should offer is
+        // domain knowledge R7 forbids that crate. See `TabStrip::responses`.
+        //
+        // The tab under the pointer is remembered as the menu's **operand**,
+        // because `window.close_document` and `window.close_other_documents`
+        // act on the tab that was right-clicked and not on the one on screen.
+        // Parked for one frame in the same shape `recent_choice` uses, and for
+        // the same reason: the shell's menu reports a `HandlerToken` and has no
+        // channel for an operand.
+        let mut menu_tokens: Vec<(usize, egui_shell::HandlerToken)> = Vec::new();
+        if let Some(host) = &host {
+            for (slot, response) in &strip.responses {
+                for token in host.attach(response, crate::shell::menus::DOCUMENT_TAB) {
+                    menu_tokens.push((*slot, token));
+                }
+            }
+        }
+        // ★ NOT `drop(host)`. `MenuHost` is `Copy`, so dropping it does
+        // nothing at all and clippy says so — the borrow of `self.shell` and
+        // `self.commands` ends where the binding's last USE is, which is the
+        // loop above. Naming that here rather than trusting it: everything
+        // below this line needs `&mut self`, and it compiles because non-lexical
+        // lifetimes have already released both.
 
         crate::diag::ui_rect(REGION_STRIP, ui.max_rect());
         for (slot, rect) in &strip.drawn {
@@ -175,7 +219,29 @@ impl PdfceApp {
                 egui_shell::tabstrip::TabIntent::Close(slot) => {
                     actions.push(Action::CloseDocument(slot));
                 }
+                // Applied here with activation, and for the same reason:
+                // rearranging the strip discards nothing and asks nobody. It is
+                // also the one act in this file that must be visible on the
+                // frame it happens — a tab that lags a frame behind the pointer
+                // that dropped it reads as a strip that did not take the drop.
+                egui_shell::tabstrip::TabIntent::Reorder { from, gap } => {
+                    self.move_slot(from, gap);
+                }
             }
+        }
+
+        // ★ The menu's commands, dispatched after the borrow that drew them
+        // has ended — and through the ordinary dispatcher, so a row in this
+        // menu and the same command anywhere else cannot diverge.
+        //
+        // The operand is parked immediately before each dispatch rather than
+        // once for the frame: a menu can only produce one token, but parking it
+        // beside its own dispatch is what keeps *"which tab did this come
+        // from"* impossible to get wrong if that ever stops being true.
+        for (slot, token) in menu_tokens {
+            self.tab_menu_target = Some(slot);
+            self.dispatch_token(ui.ctx(), token, actions);
+            self.tab_menu_target = None;
         }
 
         crate::diag::trace_changed(STRIP_SLOT, || {

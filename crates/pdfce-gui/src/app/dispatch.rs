@@ -61,6 +61,16 @@ pub(crate) mod images;
 /// silent.
 mod measure;
 pub(crate) mod pages;
+/// ★ **The two text-copy verbs** — the page's words and the whole document's,
+/// onto the clipboard.
+///
+/// A module rather than two arms because their bodies are longer than most
+/// whole tabs and their subject is its own; the third application of the seam
+/// [`images`] and [`pages`] were split along, on the day this file crossed
+/// R2's ceiling for the third time. Its header carries why both read the
+/// **same** extraction a canvas selection reads, and why neither raises an
+/// `Action`.
+pub(crate) mod textcopy;
 
 use super::PdfceApp;
 use super::actions::Action;
@@ -223,7 +233,34 @@ impl PdfceApp {
             // is unreachable from the ribbon — and the action handles it
             // anyway, because a customized keymap can reach any command from
             // any state.
-            "file.close" => actions.push(Action::Close),
+            // ★★ **One command, two operands, decided by where it was
+            // invoked.**
+            //
+            // From the ribbon, the quick-access toolbar or `Ctrl+W` this means
+            // *the document on screen*, which is what Close means everywhere.
+            // From a **document tab's context menu** it means the tab that was
+            // right-clicked, which is what a tab menu means everywhere.
+            //
+            // The alternative was a second command — `window.close_document` —
+            // and two of this project's own gates refused it in the same run:
+            // `no_two_commands_share_a_label` (it would carry `file.close`'s
+            // label and tooltip, because it does `file.close`'s job) and
+            // `every_menu_command_is_also_reachable_from_the_ribbon` (its only
+            // route would have been the right-click). Between them they are
+            // right. A command whose *meaning* is unchanged and whose
+            // **operand** comes from the surface it was invoked on is one
+            // command, and `tab_menu_target` is how the surface says so.
+            "file.close" => match self.tab_menu_target {
+                Some(slot) => actions.push(Action::CloseDocument(slot)),
+                None => actions.push(Action::Close),
+            },
+            // ★ Its operand comes from the same place, and falls back the same
+            // way: from a tab's menu it keeps that tab, from the ribbon it
+            // keeps the one on screen.
+            "view.close_other_documents" => {
+                let keep = self.tab_menu_target.unwrap_or(self.active_slot);
+                actions.push(Action::CloseOtherDocuments(keep));
+            }
             // ★ Applied here rather than raised as an `Action`, which is the
             // same call `crate::app::doctabs` makes for a tab click and for
             // the same reason: switching documents destroys nothing, asks
@@ -1065,119 +1102,15 @@ impl PdfceApp {
             // a command that says "not yet" is still a command that does
             // nothing, and dressing it up would make the trace harder to grep
             // for what is genuinely unwired.
-            // ★ **The two text-copy verbs — registered since 2026-08-14 and
-            // dead until now.**
-            //
-            // They were drawn on File ▸ Export, `Ctrl+Shift+C` was bound to the
-            // page one, and neither had an arm: a live control that does
-            // nothing, which is defect D1's shape and which this project's
-            // own `both_text_copy_commands_are_offered_by_every_mode` test could
-            // not see, because offering a command and implementing it are
-            // different facts.
-            //
-            // What made them wirable was the per-page extraction cache
-            // (`app::cache::PageTextCache`) arriving for canvas text selection.
-            // Before it, `file.copy_page_text` had no cheap route to one page's
-            // text: `EditSession::find_text_with` is the only text verb on the
-            // session, it needs `&mut`, and it walks the **whole document**.
-            //
-            // ★ Both arms read `page_text()` / `extract_*_view`, so the string
-            // an operator copies from the ribbon and the string a canvas
-            // selection copies come from **one** extraction of one revision.
-            // Two paths to "the text of this page" is how a Copy and a
-            // selection come to disagree about what is on it.
-            //
-            // Neither raises an `Action`: a clipboard write touches no document
-            // and needs no frame boundary — the same call `file.print` makes,
-            // for the same stated reason. `canvas::textsel::copy` is the one
-            // place the clipboard is written and the one place a copy is traced.
-            "file.copy_page_text" => {
-                if let Status::Open(doc) = &self.status {
-                    match doc.page_text() {
-                        // `plain_text()` rather than `sourced_text()`: it
-                        // carries the engine's derived word spaces and line
-                        // breaks, so a copied page reads as a page. `sourced_`
-                        // is the honest lower bound for a *test* asserting what
-                        // the file provides, and it would paste as one
-                        // unbroken word.
-                        Some(text) => crate::canvas::textsel::copy(
-                            ctx,
-                            &text.plain_text(),
-                            // ui-text-exempt: diagnostic trace field, never displayed
-                            "page",
-                        ),
-                        None => {
-                            // ★ The engine's own reason where there is one, and
-                            // a distinct token where there is not.
-                            //
-                            // Three states reach here and they are three
-                            // different facts: the page's content stream would
-                            // not walk (`detail=` carries `pdfce-core`'s error),
-                            // there is no such page at all, and — a fourth,
-                            // handled by `copy` rather than here — the page
-                            // extracted fine and has no text on it. A reader of
-                            // a trace from a machine they cannot see should not
-                            // have to guess which kind of nothing happened;
-                            // that is the same argument `objects-unavailable`
-                            // makes one module over.
-                            let detail = doc.page_text_failure().map(|e| e.clone());
-                            crate::diag::trace(|| match &detail {
-                                // ui-text-exempt: diagnostic trace, never displayed
-                                Some(reason) => format!(
-                                    "command-declined id={id} reason=extract-failed \
-                                     detail={reason:?}"
-                                ),
-                                // ui-text-exempt: diagnostic trace, never displayed
-                                None => {
-                                    format!("command-declined id={id} reason=no-such-page")
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-            // The whole-document twin. It really can block the window on a long
-            // file — its own tooltip says so — because
-            // `extract_document_view` walks every page, which `crate::find`
-            // measured at 331–449 ms on this project's fixtures. That cost is
-            // paid here and nowhere else: it is a verb the operator invoked
-            // once, not a per-frame derivation, which is exactly the line the
-            // page-level cache exists to draw.
-            //
-            // Deliberately NOT cached: a document-wide extraction keyed on the
-            // edit epoch would hold the whole document's text alive for the life
-            // of the session to serve a command pressed at most a handful of
-            // times.
-            "file.copy_document_text" => {
-                if let Status::Open(doc) = &self.status {
-                    match pdfce_core::text_extract::extract_document_view(
-                        // The SESSION's revision, as everywhere else: the
-                        // operator is copying the document they are looking at,
-                        // unsaved edits included (decision 018).
-                        &doc.session.view(),
-                        // ★ The funnel, not `ExtractOptions::default()`. This
-                        // and the page-level extraction in `app::cache` must
-                        // agree, or the same document copied two ways would
-                        // come out spaced two ways — and the operator's word-gap
-                        // setting would apply to one of them.
-                        &{
-                            use crate::app::settings::SettingsExt;
-                            doc.settings.extract_options()
-                        },
-                    ) {
-                        Ok(text) => crate::canvas::textsel::copy(
-                            ctx,
-                            &text.plain_text(),
-                            // ui-text-exempt: diagnostic trace field, never displayed
-                            "document",
-                        ),
-                        Err(e) => crate::diag::trace(|| {
-                            // ui-text-exempt: diagnostic trace, never displayed
-                            format!("command-declined id={id} reason=extract-failed detail={e}")
-                        }),
-                    }
-                }
-            }
+            // ★ The two text-copy verbs moved to `dispatch::textcopy` on
+            // 2026-08-20, when this file crossed R2's ceiling for the third
+            // time. The seam is the one `dispatch::images` and
+            // `dispatch::pages` were drawn along: a family whose bodies are
+            // longer than most whole tabs and whose subject — *read text out
+            // of this document and put it on the clipboard* — is its own.
+            // That module's header carries the argument, including why
+            // neither of them raises an `Action`.
+            id if textcopy::handles(id) => textcopy::dispatch(self, ctx, id),
             // ★ Find. `Ctrl+F`, and the status bar's Find toggle.
             //
             // A **toggle**, not a show: Ctrl+F is the chord every application

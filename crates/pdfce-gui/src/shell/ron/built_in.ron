@@ -170,6 +170,7 @@
                     items: [
                         Command("view.previous_document"),
                         Command("view.next_document"),
+                        Command("view.close_other_documents"),
                         Command("view.read_mode"),
                         Command("view.fullscreen"),
                         Command("view.reset_layout"),
@@ -451,6 +452,13 @@
             context: "dock.tab",
             items: [
                 Command("view.reset_layout"),
+            ],
+        ),
+        (
+            context: "document.tab",
+            items: [
+                Command("file.close"),
+                Command("view.close_other_documents"),
             ],
         ),
         (
