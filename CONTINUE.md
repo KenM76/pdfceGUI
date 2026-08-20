@@ -4,6 +4,8 @@
 53 driven checks — 45 verified, 6 skipped for a stated reason, 0 failed, and
 ★ **two written that have NEVER BEEN RUN**.**
 **All six of the operator's standing complaints are closed AND driven.**
+**Newest portable build: `OneDrive\pdfceGUI2`** (2026-08-20 00:34, `d829ae2`).
+`pdfceGUI1` holds the previous (2026-08-19 17:44, `3be942c`).
 **Phase 1 is complete but for the object clipboard. Phase 5 is complete but for
 live re-layout.**
 
@@ -32,6 +34,20 @@ cargo run --release -q -p ui-verify --   --exe target/release/pdfce-gui.exe   --
 that sentence rather than falling back, because opening an already-open path
 activates its tab by design and passing one file twice would make them assert
 the opposite of what they are for.
+
+### ⚠ And one defect in the TOOLING, found by it firing
+
+`package-portable.py` mirrored by `rmtree(target)` **then** `copytree(...)`, so
+a failure anywhere in between left the slot **empty** — and the handler printed
+*"only the OneDrive copy did not happen"*, which was false. It happened on this
+build: `pdfceGUI1` was locked, the clear partly succeeded, the copy raised
+`WinError 32`, and the operator's fallback build was gone. It was restored by
+hand from `D:uilds\`.
+
+Fixed the same day: **stage into a sibling, then clear, then rename**, in three
+separate `try` blocks so the message can say which step failed and what the
+slot therefore holds. The finding is in `D:\devagust\` as
+`a_rotate_two_slots_deploy_that_clears_before_it_copies_destroys_the_fallback_it_exists_to_provide.md`.
 
 ### The map, for reading the new code
 

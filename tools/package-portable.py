@@ -854,24 +854,84 @@ def mirror(out: Path) -> None:
         os.chmod(path, stat.S_IWRITE)
         func(path)
 
+    # ★★ STAGE, THEN SWAP. The old order destroyed the fallback it exists to
+    #    protect — measured, on 2026-08-20.
+    #
+    # This block used to be `rmtree(target)` followed by `copytree(out, target)`,
+    # with the failure path printing:
+    #
+    #     The build in {out} is fine; only the OneDrive copy did not happen.
+    #
+    # That sentence was **false**, and it was false in the worst available
+    # direction. The slot is cleared first, so a failure anywhere after the
+    # `rmtree` leaves it EMPTY — and on 2026-08-20 it did: `pdfceGUI1` was
+    # locked by another process, the `rmtree` partially succeeded, the
+    # `copytree` raised `WinError 32`, and the operator's previous build was
+    # gone. The message said the copy "did not happen".
+    #
+    # The two-slot rotation exists for exactly one reason, stated in
+    # `RESUME.md`: *"the previous build stays intact beside the new one, to fall
+    # back to and to compare against."* A rotation that can delete the previous
+    # build has removed the only property it was built to provide, silently, at
+    # the moment a build is most likely to be wrong.
+    #
+    # So: copy into a staging sibling first, and only then clear and rename.
+    # Each of the three steps fails safely, and they fail differently:
+    #
+    # | step | if it fails | the slot holds |
+    # |---|---|---|
+    # | copy into staging | the payload never reached OneDrive | **the previous build**, untouched |
+    # | clear the slot | the slot is locked — the 2026-08-20 case | **the previous build**, untouched |
+    # | rename staging into place | the slot is cleared and the staging directory holds the new build | nothing, and the message says exactly where the bytes are |
+    #
+    # The rename is a move on one volume, which is as close to atomic as this
+    # gets, so the window in which the slot is empty is a directory rename
+    # rather than a multi-megabyte copy.
+    staging = MIRROR_ROOT / f".{target_name}-incoming"
     try:
-        if target.exists():
-            shutil.rmtree(target, onerror=_force)
+        if staging.exists():
+            shutil.rmtree(staging, onerror=_force)
         # `copytree` of the package directory's CONTENTS, not the timestamped
         # folder itself: the slot name is the identity the operator navigates
         # by, and nesting `pdfceGUI1/pdfcegui-2026…/pdfce-gui.exe` would make
         # them click through a folder whose name they already know.
         # `BUILD-INFO.txt` carries the real identity inside.
-        shutil.copytree(out, target)
+        shutil.copytree(out, staging)
     except OSError as e:
         print()
         print(f"package-portable: mirror FAILED - {e}")
-        print(f"  The build in {out} is fine; only the OneDrive copy did not happen.")
+        print(f"  The build in {out} is fine, and {target_name} still holds the")
+        print("  previous build — nothing was replaced.")
+        shutil.rmtree(staging, ignore_errors=True)
         if stash is not None:
-            # Put the operator's state back even though the payload did not
-            # land. A slot with settings and no program is recoverable; a slot
-            # with neither is not.
             shutil.move(str(stash), str(target / "userdata"))
+        return
+
+    try:
+        if target.exists():
+            shutil.rmtree(target, onerror=_force)
+    except OSError as e:
+        print()
+        print(f"package-portable: mirror FAILED - {e}")
+        print(f"  {target_name} is locked by another process — most likely the exe in it")
+        print("  is running. It still holds the previous build; nothing was replaced.")
+        print(f"  The build in {out} is fine. Close it and run this again.")
+        shutil.rmtree(staging, ignore_errors=True)
+        if stash is not None:
+            shutil.move(str(stash), str(target / "userdata"))
+        return
+
+    try:
+        shutil.move(str(staging), str(target))
+    except OSError as e:
+        print()
+        print(f"package-portable: mirror FAILED - {e}")
+        print(f"  ⚠ {target_name} HAS BEEN CLEARED and the new build is at")
+        print(f"    {staging}")
+        print("  Rename that directory to the slot name by hand. The other slot still")
+        print("  holds a working build.")
+        if stash is not None:
+            shutil.move(str(stash), str(staging / "userdata"))
         return
     if stash is not None:
         shutil.move(str(stash), str(keep))
