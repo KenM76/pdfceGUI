@@ -146,6 +146,10 @@
 //! | `ctx` | The per-frame context and the intent queue. |
 //! | `width_tests` | Layout tests against **real** font metrics. |
 
+/// The two controls that minimise a side and bring it back — split out under
+/// R2 on 2026-08-20. Its header carries the operator's ask and the argument for
+/// why a collapsed side must leave something on screen.
+mod collapse;
 pub mod ctx;
 pub mod model;
 pub mod plan;
@@ -487,12 +491,27 @@ impl<'a> Dock<'a> {
 
         for side in DockSide::ALL {
             let s = snapshot.side(side);
-            if !s.visible || s.is_empty() {
+            // ★ A side with no panels in it draws nothing at all — not even a
+            // rail. There is nothing to bring back, and a control that opened
+            // an empty compartment would be the no-placeholders rule broken:
+            // an affordance for something that cannot happen.
+            if s.is_empty() {
                 continue;
             }
-            report.sides_drawn.push(side);
-            let width = snapshot.drawn_side_width(side, window_width);
-            self.draw_side(ui, &mut ctx, &snapshot, side, width, &mut report, &mut body);
+            if s.visible {
+                report.sides_drawn.push(side);
+                let width = snapshot.drawn_side_width(side, window_width);
+                self.draw_side(ui, &mut ctx, &snapshot, side, width, &mut report, &mut body);
+            } else {
+                // ★★ The RAIL — the way back from a collapsed side.
+                //
+                // Before 2026-08-20 a hidden side drew nothing, so the only
+                // route back was a ribbon command the operator had to know
+                // existed. A collapsed panel with no visible handle is a panel
+                // that has been lost rather than minimised, which is the
+                // difference the operator was asking about.
+                collapse::draw_collapsed_rail(ui, &mut ctx, side, &mut report);
+            }
         }
 
         // Phase 3: apply. The one place the layout is mutable.
@@ -550,6 +569,12 @@ impl<'a> Dock<'a> {
                 let area = ui.max_rect();
                 ctx.reporter.report(area, || report::side(side));
                 self.draw_side_contents(ui, ctx, layout, side, area, report, body);
+                // ★ The collapse chevron, drawn LAST and OVER the columns.
+                //
+                // Over rather than inside, because inserting it into the column
+                // layout would take height from a panel body on every frame —
+                // and it is dock chrome, not a panel's content.
+                collapse::draw_collapse(ctx, ui, side, area);
             });
     }
 
@@ -810,6 +835,26 @@ fn apply(layout: &mut DockLayout, intents: &[Intent], report: &mut DockFrameRepo
 
     for intent in intents {
         match intent {
+            // ★★ Collapse a side, or bring it back. One toggle, two controls:
+            // the chevron on an open side and the rail on a shut one, neither
+            // of which can be pressed in the state the other lives in.
+            Intent::ToggleSide(side) => {
+                let s = match side {
+                    DockSide::Left => &mut layout.left,
+                    DockSide::Right => &mut layout.right,
+                };
+                s.visible = !s.visible;
+                // The arrangement is UNTOUCHED. Collapsing is a view state, not
+                // a structural edit — which is the whole difference between
+                // "collapse the dock" and "reset the dock", and the reason an
+                // operator can minimise a side and get their columns back
+                // exactly as they left them.
+                //
+                // No `changed` flag: this function compares the whole layout
+                // against a clone taken before the loop, so a mutation IS the
+                // signal. One place decides "did anything move", which is what
+                // stops a new intent forgetting to say so.
+            }
             Intent::Activate(panel) => {
                 if layout.activate(panel) {
                     report.activated = Some(panel.clone());
@@ -1009,17 +1054,69 @@ mod tests {
         assert_eq!(report.panels_drawn.len(), 4);
     }
 
-    /// The frame report is the honest answer to "what is on screen", and
-    /// a hidden side contributes nothing to it.
+    /// ★★ **A collapsed side draws NO PANELS and still leaves a rail.**
+    ///
+    /// This test asserted `sides_drawn == [Left]` until 2026-08-20 — that a
+    /// hidden side contributed nothing at all. That was the behaviour, and it
+    /// was the defect:
+    ///
+    /// > *"add the little tabs that allow the left and right panels to be
+    /// > minimized."* — the operator, 2026-08-20
+    ///
+    /// He was asking for the affordance in both directions, and the half that
+    /// was missing is the way back. A side that drew nothing could only be
+    /// restored from a ribbon command the operator had to know existed, so a
+    /// panel collapsed by accident was a panel **lost** rather than minimised.
+    /// Every program in the class leaves a rail: VS Code's activity bar, Visual
+    /// Studio's auto-hide tabs, Photoshop's collapsed dock strip.
+    ///
+    /// So the report now lists the side — because a rail IS on screen and the
+    /// report is the honest answer to *"what is on screen"* — and the
+    /// assertions that matter are unchanged and are the real content of this
+    /// test: **no panel body is constructed, and nothing on that side counts as
+    /// on-screen.** A collapsed side must cost nothing but its rail.
     #[test]
-    fn a_hidden_side_draws_nothing_and_reports_nothing() {
+    fn a_collapsed_side_draws_no_panels_and_leaves_a_rail() {
         let mut layout = sample();
         layout.right.visible = false;
         let mut state = DockState::new(layout);
         let (report, bodies) = frame(&mut state, Vec2::new(1280.0, 800.0));
-        assert_eq!(report.sides_drawn, vec![DockSide::Left]);
-        assert!(!bodies.iter().any(|(p, _)| p.as_str() == "objects"));
-        assert!(!state.is_on_screen(&PanelId::new("objects")));
+        assert!(
+            report.sides_drawn.contains(&DockSide::Right),
+            "the rail is on screen, so the report must say so: {:?}",
+            report.sides_drawn
+        );
+        assert!(
+            !bodies.iter().any(|(p, _)| p.as_str() == "objects"),
+            "a collapsed side must construct no panel body"
+        );
+        assert!(
+            !state.is_on_screen(&PanelId::new("objects")),
+            "and nothing on it is on screen"
+        );
+    }
+
+    /// ★ **An EMPTY side draws no rail either**, and the distinction from a
+    /// collapsed one is the whole of why this is a separate test.
+    ///
+    /// A collapsed side has panels waiting behind it, so a rail is a promise it
+    /// can keep. An empty side has nothing to bring back, and a control that
+    /// opened an empty compartment would be an affordance for something that
+    /// cannot happen — the no-placeholders rule, which this crate holds to as
+    /// strictly as its host does.
+    #[test]
+    fn an_empty_side_leaves_no_rail_because_there_is_nothing_to_bring_back() {
+        let mut state = DockState::new(DockLayout::new(
+            SideLayout::single("pages"),
+            SideLayout::new([]),
+        ));
+        state.layout.right.visible = false;
+        let (report, _) = frame(&mut state, Vec2::new(1280.0, 800.0));
+        assert_eq!(
+            report.sides_drawn,
+            vec![DockSide::Left],
+            "an empty collapsed side is not a rail, it is nothing"
+        );
     }
 
     /// An empty side draws nothing — not an empty bordered stripe.

@@ -117,7 +117,19 @@ pub fn stack_splitter(side: DockSide, column: usize, boundary: usize) -> String 
     format!("{PREFIX}.{}.{column}.split.row.{boundary}", side.key())
 }
 
-/// The splitter that sets a whole side's width.
+/// The **collapse control** on an open side — the little tab that minimises it.
+#[must_use]
+pub fn collapse(side: DockSide) -> String {
+    format!("{PREFIX}.{}.collapse", side.key())
+}
+
+/// The rail a collapsed side leaves behind — the way back.
+#[must_use]
+pub fn rail(side: DockSide) -> String {
+    format!("{PREFIX}.{}.rail", side.key())
+}
+
+/// The splitter between a side and the central area.
 #[must_use]
 pub fn side_splitter(side: DockSide) -> String {
     format!("{PREFIX}.{}.split.side", side.key())

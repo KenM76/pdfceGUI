@@ -74,6 +74,23 @@ pub(crate) enum Intent {
     Activate(PanelId),
     /// Remove a panel from the layout.
     Close(PanelId),
+    /// ★★ **Collapse a side, or bring it back.**
+    ///
+    /// The operator's ask of 2026-08-20: *"add the little tabs that allow the
+    /// left and right panels to be minimized."*
+    ///
+    /// An intent rather than a direct write for the reason every other one here
+    /// is: the layout is mutated in exactly one place, after the frame has
+    /// drawn. A control that flipped `visible` mid-frame would change the width
+    /// of a panel that has already laid out inside it.
+    ///
+    /// # Why it carries no target state
+    ///
+    /// A toggle, not a setter. Two controls raise it — the collapse chevron on
+    /// an open side and the rail on a shut one — and neither can be pressed in
+    /// the state the other lives in, so "what should it become" is always the
+    /// opposite of what it is. A `Set(side, bool)` would let the two disagree.
+    ToggleSide(DockSide),
     /// Move the boundary between two columns of a side.
     DragColumns {
         /// Which side.
