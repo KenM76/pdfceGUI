@@ -249,6 +249,24 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         };
         lengths.push(length);
     }
+    // ★★ THE PREVIEW, AND ONLY A SCREENSHOT CAN SAY IT DREW.
+    //
+    // Captured after the last vertex, with the pointer still on the page.
+    // Everything asserted above reads the trace, and on 2026-08-20 all of it
+    // passed on a build whose preview drew NOTHING - `gesture_in_progress` had
+    // not learned the perimeter's pick, so `measure::preview` returned before
+    // painting a single segment. The operator reported it the same day: *"both
+    // these tools need a preview just like the measure tool has."*
+    //
+    // A picture rather than an assertion, deliberately. Asserting on accent
+    // pixels would need the theme's colour and the polyline's exact route
+    // through the canvas transform, which is a second derivation of the thing
+    // under test. The artifact is what a human looks at, and its absence from
+    // the report is what says nobody has.
+    let shot = ctx.out("measure_perimeter_preview.png");
+    if crate::capture::window_to_png(&session, &shot).is_ok() {
+        report.artifact(shot);
+    }
     report.note(format!(
         "four vertices taken; running total after each: {}",
         lengths
