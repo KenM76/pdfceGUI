@@ -295,6 +295,11 @@ pub mod document_tabs;
 /// at the wrong moment produces.
 pub mod page_drag_between_documents;
 
+/// **Dragging a document tab along the strip moves it**, and does not change
+/// which document is on screen — the second half being the failure that would
+/// otherwise ship silently.
+pub mod tab_reorder;
+
 pub mod about;
 pub mod add_text;
 /// Insert a form's pages to make orphaned widgets, then register one back.
@@ -632,6 +637,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `--second-pdf`, and the SKIP reason says why the same file cannot be
         // passed twice.
         Box::new(document_tabs::TwoDocumentsGetTwoTabs),
+        Box::new(tab_reorder::DocumentTabsCanBeRearranged),
         Box::new(page_drag_between_documents::PageDraggedBetweenDocuments::COPY),
         Box::new(page_drag_between_documents::PageDraggedBetweenDocuments::MOVE),
         Box::new(about::AboutReportsTheBuild),
