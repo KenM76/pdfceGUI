@@ -339,12 +339,6 @@ pub(super) fn resync(doc: &mut OpenDoc) {
         }
     };
     let now: Vec<(ObjId, u16)> = after.iter().map(|p| (p.id, p.rotate)).collect();
-    if now == before {
-        // The overwhelmingly common case: a markup, a move, a form fill. The
-        // page vector already describes the document, every raster is still a
-        // picture of the right sheet, and nothing below has anything to do.
-        return;
-    }
 
     // ★ The identity sequence, which is the fact that decides whether an INDEX
     // changed meaning. A rotation leaves it alone; a delete and a reorder do
@@ -354,8 +348,67 @@ pub(super) fn resync(doc: &mut OpenDoc) {
         .iter()
         .map(|(id, _)| *id)
         .ne(now.iter().map(|(id, _)| *id));
+    let structure_changed = now != before;
 
+    // ★★★ **THE PAGE VECTOR IS REPLACED ON EVERY EDIT, NOT ONLY A STRUCTURAL
+    // ONE.** 2026-08-20, and the line this replaces was a real defect.
+    //
+    // It read:
+    //
+    // ```text
+    // if now == before {
+    //     // The overwhelmingly common case: a markup, a move, a form fill. The
+    //     // page vector already describes the document …
+    //     return;
+    // }
+    // ```
+    //
+    // **"The page vector already describes the document" is false**, and the
+    // comparison cannot see that it is false. `page_tree::Page` is not an id —
+    // it is a RESOLVED page: its `/Contents` and its `/Resources` are in it. An
+    // edit that rewrites the page dictionary without changing the page's object
+    // id passes `now == before` and leaves `doc.pages` describing the document
+    // as it was.
+    //
+    // The operator, 2026-08-20:
+    //
+    // > *"I tried a new document and inserted an image. Nothing appeared on
+    // > screen or in the tree, but after saving and reopening the image was
+    // > there."*
+    //
+    // Exactly that. `EditSession::add_image` turns `/Contents` from a stream
+    // into an array and adds an `/XObject` to `/Resources`; the page's id does
+    // not move; the early return fires; the canvas and the Objects panel both
+    // go on reading a `Page` whose `/Contents` names the old stream alone. The
+    // bytes on disk were right the whole time, which is why saving and
+    // reopening showed it.
+    //
+    // # Why the other edits looked fine
+    //
+    // * A **markup** is an annotation. `/Annots` is read from the session, not
+    //   from this vector.
+    // * A **move** rewrites a content stream **in place** — same stream object
+    //   — so the stale `Page`'s `/Contents` reference still resolves to the
+    //   right object and re-reading it gets the new bytes.
+    //
+    // `add_image` is the first verb that changes what `/Contents` *is*. So the
+    // early return had been wrong since it was written and had never been
+    // reachable in a way anyone could see.
+    //
+    // # What it costs to replace it every time: nothing
+    //
+    // `after` has already been walked, three lines above. The early return
+    // saved one `Vec` assignment and bought a class of stale-view defect.
     doc.pages = after;
+
+    if !structure_changed {
+        // No page was added, removed, reordered or turned. The vector above is
+        // now current, every cached raster is still a picture of the right
+        // sheet, and none of the heavier invalidation below applies — that is
+        // what this comparison is genuinely for, and it is all it is for.
+        return;
+    }
+
     let page_count = doc.pages.len();
 
     // Every cached raster in the strip is keyed on a page **index**, and an

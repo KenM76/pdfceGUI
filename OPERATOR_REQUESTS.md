@@ -171,16 +171,41 @@ the text after?"*
 **Asked:** 2026-08-20 — *"I tried a new document and inserted an image. Nothing
 appeared on screen or in the tree, but after saving and reopening the image was
 there."*
-**Status:** OPEN, and this is **new evidence that splits O4 in two.**
+**Status:** **FIXED 2026-08-20 and DRIVEN.** Awaiting your verdict.
 
-O4 is the engine corrupting `/Contents` when it is an indirect array — that one
-produces a file pdfce cannot reopen at all. Your new document reopened fine and
-had the image in it, so the write was correct and **the in-session view never
-updated**. That is a second, shell-side defect: the canvas and the object tree
-kept describing the pre-edit page.
+Your report split O4 in two, and this half was mine.
 
-"Nothing on screen or in the tree" is the important half — the tree reads the
-decomposition, so both surfaces are downstream of one stale cache.
+After every edit the shell re-walks the page tree and then compared *(page
+object id, rotation)* against what it had. If nothing there moved it returned
+early, with a comment saying *"the page vector already describes the
+document"*. **That is false.** A `Page` is not an id — it is a resolved page,
+with its `/Contents` and `/Resources` in it. `add_image` turns `/Contents` from
+a stream into an array and adds an `/XObject`; the page's id does not move; the
+early return fired; the canvas and the Objects panel went on reading a page as
+it was before the edit.
+
+Which is why saving and reopening worked: the bytes were right the whole time.
+
+Markup never showed it (annotations are read from the session, not that vector)
+and moving an object never showed it (that rewrites a stream *in place*, so the
+stale reference still resolves to the right object). `add_image` is the first
+verb that changes what `/Contents` **is**, so the bug had been there since it
+was written and had never been reachable in a way anyone could see.
+
+Driven, on your own JPEG, into a new document from the template:
+
+```
+made a blank document first
+placed: add-image page=0 n=1 — 839 dpi
+the page repainted: 118,580 of 256,878 pixels changed
+```
+
+and the Objects panel now reads *"1 object(s) on this page — 1 image(s). #0
+Image · 6247 × 5010 px"*.
+
+**O4 is still open** — that one is the engine corrupting `/Contents` when it is
+already an indirect array, which is what your CAD sheets use, and it produces a
+file pdfce cannot reopen at all. Filed and unchanged.
 
 
 ## O1 — Editing text on the canvas, and editing text in a text box
