@@ -247,6 +247,39 @@ pub fn strip(ui: &mut egui::Ui, theme: &Theme, tabs: &[TabItem], active: usize) 
         x += width + plan::TAB_GAP;
     }
 
+    // ★★ **Which tab the pointer is over, resolved GEOMETRICALLY.**
+    //
+    // NOT from `Response::hovered()`, and the difference is the whole
+    // spring-loading feature.
+    //
+    // While a drag is in flight `egui` locks interaction to the widget that was
+    // pressed, so **every other widget reports `hovered() == false`** — including
+    // the tab the operator is deliberately holding the pointer over. A hover
+    // built from a `Response` is therefore false in exactly the one situation a
+    // spring-loaded target exists for, and it fails silently: the tab is
+    // visibly under the pointer and nothing happens.
+    //
+    // Measured, 2026-08-20: `a_page_dragged_between_documents_is_copied` drove
+    // this, the trace carried `page-drag-start` and no spring, and the drop
+    // landed back in the source document.
+    //
+    // A rectangle and a pointer position are facts that do not care who owns the
+    // interaction, which is what makes them the right instrument here. It is the
+    // same reason `pdfce`'s own page grid resolves its drop target from
+    // `pointer_latest_pos()` against a tile rect rather than from the tile's
+    // response.
+    //
+    // Resolved over `out.drawn` — the tabs actually laid out this frame — so a
+    // tab behind the overflow affordance cannot be hovered, which is correct:
+    // it is not on screen.
+    if let Some(pointer) = ui.ctx().pointer_latest_pos() {
+        out.hovered = out
+            .drawn
+            .iter()
+            .find(|(_, r)| r.contains(pointer))
+            .map(|(i, _)| *i);
+    }
+
     // 6 — the affordance, in reserved space.
     if bar.has_overflow() {
         let affordance = Rect::from_min_max(
@@ -338,10 +371,6 @@ fn draw_tab(
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &tooltip)
     });
-    if response.hovered() {
-        out.hovered = Some(index);
-    }
-
     if !tab.closable {
         return;
     }
@@ -367,9 +396,6 @@ fn draw_tab(
         .inner;
     if close.clicked() {
         out.intents.push(TabIntent::Close(index));
-    }
-    if close.hovered() {
-        out.hovered = Some(index);
     }
 }
 

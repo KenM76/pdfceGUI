@@ -107,6 +107,10 @@ const REGION_TAB_PREFIX: &str = "doc-tab."; // ui-text-exempt: trace region name
 /// Trace slot for the once-per-change summary of what the strip drew.
 const STRIP_SLOT: &str = "doc-tabs"; // ui-text-exempt: trace slot name, never displayed
 
+/// Trace slot for *"the pointer is resting on a tab with a drag in flight"* —
+/// the gate between "no hover" and "hovered but never dwelt long enough".
+const HOVER_SLOT: &str = "doc-tab-hover"; // ui-text-exempt: trace slot name, never displayed
+
 /// What the spring timer is watching, between frames.
 /// `Default` is derived only because `egui::IdTypeMap::remove_temp` requires
 /// it. The defaulted value — slot 0 at time 0 — is never constructed by this
@@ -251,6 +255,24 @@ impl PdfceApp {
             ctx.data_mut(|d| d.remove_temp::<Spring>(spring_id()));
             return;
         };
+
+        // ★ A diagnostic at the ENTRY of each gate, naming it.
+        //
+        // `CONTINUE.md` §7: *an instrument that can only return one answer
+        // cannot detect the thing it was added to detect*. `doc-tab-spring` is
+        // emitted only when the spring FIRES, so its absence used to have three
+        // indistinguishable meanings — no drag, no hover, or a hover that never
+        // reached the dwell. This line separates the second from the third,
+        // which is the pair that actually cost a driven run.
+        //
+        // De-duplicated on the slot, so resting on a tab costs one line rather
+        // than one per frame.
+        crate::diag::trace_changed(HOVER_SLOT, || {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "doc-tab-hover slot={slot} armed=1"
+            )
+        });
 
         let spring = ctx.data(|d| d.get_temp::<Spring>(spring_id()));
         match spring {
