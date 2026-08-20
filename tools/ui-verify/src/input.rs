@@ -165,7 +165,8 @@ impl Driver {
     /// under test sees nothing. That failure looks identical to a hit test
     /// returning nothing.
     pub fn click_at(&self, p: ScreenPoint) -> Result<()> {
-        self.raise();
+        self.raise_and_confirm()?;
+        self.confirm_uncovered(p)?;
         sys::set_cursor_position(p.x(), p.y())?;
         std::thread::sleep(MOVE_SETTLE);
         sys::mouse_button(true);
@@ -206,7 +207,7 @@ impl Driver {
     /// The button is held across the walk rather than being pressed at each
     /// step: a released-and-pressed pointer is *n* gestures, not one.
     pub fn drag(&self, from: ScreenPoint, to: ScreenPoint) -> Result<()> {
-        self.raise();
+        self.raise_and_confirm()?;
         sys::set_cursor_position(from.x(), from.y())?;
         std::thread::sleep(MOVE_SETTLE);
         sys::mouse_button(true);
@@ -293,7 +294,7 @@ impl Driver {
         dwell: std::time::Duration,
         to: ScreenPoint,
     ) -> Result<()> {
-        self.raise();
+        self.raise_and_confirm()?;
         sys::set_cursor_position(from.x(), from.y())?;
         std::thread::sleep(MOVE_SETTLE);
         sys::mouse_button(true);
@@ -363,7 +364,7 @@ impl Driver {
         // second press is at the same point on the same frame's layout. So the
         // pointer is positioned and settled once, and the two press/release
         // pairs follow with only `CLICK_HOLD` between them.
-        self.raise();
+        self.raise_and_confirm()?;
         sys::set_cursor_position(p.x(), p.y())?;
         std::thread::sleep(MOVE_SETTLE);
         for _ in 0..2 {
@@ -500,6 +501,33 @@ impl Driver {
     ///
     /// Both were observed: a `find_opens_and_finds` run reported "Ctrl+F did
     /// not dispatch `edit.find`" against a build in which Ctrl+F works.
+    /// **Bring the target to the front and PROVE it got there**, or refuse.
+    ///
+    /// ★★ Every input method uses this, and until 2026-08-20 only the keyboard
+    /// ones did. The pointer methods called the fire-and-forget `raise` below,
+    /// and the consequence is the reason this doc comment exists:
+    ///
+    /// > **A click sent to a window that is not in front goes to whatever
+    /// > window IS, and the check then reports the feature as broken.**
+    ///
+    /// Windows refuses `SetForegroundWindow` to a process without foreground
+    /// rights, and this harness is a background process — so the raise is a
+    /// *request*, not a fact, and whether it is honoured depends on which
+    /// process last had focus and on how recently the operator typed. That
+    /// makes it **intermittent**, which is the worst available property: it
+    /// works while a suite is running and fails on a single check run alone,
+    /// or the reverse, and every failure it produces is a confident, specific
+    /// accusation against code that is fine.
+    ///
+    /// Measured on 2026-08-20: `markup_rectangle_arms_from_the_ribbon` and
+    /// `insert_image_places_a_picture` both reported the ribbon as unresponsive
+    /// — *"the click on `ribbon.tab.markup` produced no `ribbon-tab-activated`"*
+    /// — over a build in which the ribbon works, and both had passed in a full
+    /// suite an hour earlier. The old build reproduced it too, which is what
+    /// ruled the application out.
+    ///
+    /// The message this returns is deliberately long. Whoever meets it is one
+    /// step from diagnosing a feature that was never clicked.
     fn raise_and_confirm(&self) -> Result<()> {
         let Some(w) = self.target else {
             return Err(Error::new(
@@ -520,6 +548,57 @@ impl Driver {
         if let Some(w) = self.target {
             sys::raise_window(w);
         }
+    }
+
+    /// **Refuse to click a point another window is sitting on.**
+    ///
+    /// ★★★ The lesson of 2026-08-20, and it cost an afternoon.
+    ///
+    /// `SetForegroundWindow` succeeding means the target has **focus**. It says
+    /// nothing about what is **drawn over it** — an always-on-top window sits
+    /// above a focused one and swallows every click aimed at the region it
+    /// covers. The click is delivered, to something else, and the check reports
+    /// the feature as broken.
+    ///
+    /// The culprit here was `osk.exe`, the Windows on-screen keyboard, lying
+    /// across the ribbon's tab row. It is summoned by synthetic keystrokes, so
+    /// **this harness brings it on itself**, and it cannot be closed from a
+    /// process of ordinary integrity — `taskkill`, `CloseMainWindow` and
+    /// `ShowWindow(SW_HIDE)` were all refused by UIPI.
+    ///
+    /// The symptoms were the worst available: intermittent, and confidently
+    /// wrong. `markup_rectangle_arms_from_the_ribbon` and
+    /// `insert_image_places_a_picture` reported the ribbon as unresponsive over
+    /// a build in which it works; both had passed in a full suite an hour
+    /// before; the pre-multi-document build reproduced it, which is what ruled
+    /// the application out. The oracle that settled it was a **screenshot** —
+    /// `D:/dev/rag/egui/` is unambiguous that a reachability defect has exactly
+    /// one — and the on-screen keyboard was plainly visible in it.
+    ///
+    /// So: ask who owns the point, and if it is not the target, say so and
+    /// stop. An error becomes a SKIP, which is *"this did not run"*, rather
+    /// than a FAIL, which is an accusation.
+    fn confirm_uncovered(&self, p: ScreenPoint) -> Result<()> {
+        let Some(target) = self.target else {
+            return Ok(());
+        };
+        let Some(owner) = sys::window_at(p.x(), p.y()) else {
+            return Ok(());
+        };
+        if owner == target {
+            return Ok(());
+        }
+        Err(Error::new(format!(
+            "the point ({}, {}) belongs to another window, not to the application under test,\
+             so a click there would go to that window instead. Something is drawn OVER the\
+             target — on this machine it has been `osk.exe`, the on-screen keyboard, which\
+             synthetic keystrokes summon and which cannot be closed from a process of ordinary\
+             integrity. Close it by hand and run again. Reported rather than clicked: sending\
+             the click anyway would make this check report a working feature as broken, which\
+             it did repeatedly before this guard existed.",
+            p.x(),
+            p.y()
+        )))
     }
 }
 

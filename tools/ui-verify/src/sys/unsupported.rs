@@ -53,6 +53,15 @@ pub fn window_frame(_w: WindowHandle) -> Result<WindowFrame> {
 /// No-op: there is nothing to raise.
 pub fn raise_window(_w: WindowHandle) {}
 
+/// Always `None`: there are no windows to ask about.
+#[must_use]
+pub const fn window_at(_x: i32, _y: i32) -> Option<WindowHandle> {
+    None
+}
+
+/// No-op: there is nothing to move.
+pub const fn move_window(_w: WindowHandle, _x: i32, _y: i32) {}
+
 /// Does nothing. See [`raise_window`] for why the no-op stubs are silent while
 /// the reading ones refuse: a check that cannot maximise still runs, it just
 /// runs against whatever size the window happened to open at.

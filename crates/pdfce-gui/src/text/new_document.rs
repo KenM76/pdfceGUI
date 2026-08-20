@@ -128,8 +128,74 @@ pub fn size_name(size: pdfce_core::paper::PaperSize) -> String {
 /// list and [`sheet_summary`] round identically.
 #[must_use]
 pub fn size_entry(name: &str, size_pt: (f64, f64)) -> String {
+    if imperial(name) {
+        return format!("{name} — {} × {} in", inches(size_pt.0), inches(size_pt.1));
+    }
     let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
     format!("{name} — {} × {} mm", mm(size_pt.0), mm(size_pt.1))
+}
+
+/// **Is this sheet DEFINED in inches?**
+///
+/// ★★ Operator request, 2026-08-20: *"please add imperial sizes too — we use
+/// imperial units — then select B size."*
+///
+/// The sizes were already there. `PaperSize::ALL` has carried Letter, Legal,
+/// Tabloid, Executive and ANSI A–E since before this dialog was written, and
+/// the combo lists every one of them. What was missing was the **unit**: every
+/// entry read in millimetres, so ANSI B — an 11 × 17 inch sheet, defined in
+/// inches, called "B" by everybody who uses one — appeared as
+/// *"ANSI B — 279 × 432 mm"*.
+///
+/// Nobody looks for B size under 279 × 432. A list that contains the thing an
+/// operator wants and describes it in units they do not work in is a list that
+/// does not contain it, and the report *"please add imperial sizes"* is exactly
+/// what that looks like from the outside. **It was a labelling defect wearing a
+/// missing-feature costume.**
+///
+/// So each size is shown in the unit it is **defined** in — ISO A-series in
+/// millimetres, US and ANSI in inches — rather than in one unit chosen for the
+/// whole list. That is not a compromise between two preferences; it is the only
+/// labelling that is *true*: ANSI B is exactly 11 × 17 in and approximately
+/// 279 × 432 mm, and a list that rounds the exact one into the approximate one
+/// has thrown away the number the sheet actually has.
+///
+/// Keyed on the **name** rather than on the enum, so a size the engine adds
+/// appears without a shell change — the same reason `size_name`'s wildcard
+/// exists. A new ISO or JIS size falls through to millimetres, which is the
+/// right default for anything not in the US series.
+fn imperial(name: &str) -> bool {
+    matches!(name, "Letter" | "Legal" | "Tabloid" | "Executive")
+        || name.starts_with("ANSI ")
+        || name.starts_with("ARCH ")
+}
+
+/// A dimension in inches, to the nearest sixteenth, with the fraction spelled
+/// the way a drawing office writes it.
+///
+/// ★ Not a decimal. `8.5 in` is what a programmer writes and `8 1/2"` is what
+/// is on every title block in the operator's own corpus; the sizes that matter
+/// here are 8½ × 11 and 11 × 17, and a list reading *"8.5 × 11 in"* is a list
+/// that has been translated rather than written.
+fn inches(pt: f64) -> String {
+    let total = pt / 72.0;
+    let whole = total.trunc();
+    let sixteenths = ((total - whole) * 16.0).round() as i64;
+    if sixteenths == 0 {
+        return format!("{whole:.0}");
+    }
+    // Reduce the fraction: 8/16 is a half, not eight sixteenths.
+    let mut num = sixteenths;
+    let mut den = 16_i64;
+    while num % 2 == 0 && den % 2 == 0 {
+        num /= 2;
+        den /= 2;
+    }
+    if whole == 0.0 {
+        format!("{num}/{den}")
+    } else {
+        format!("{whole:.0} {num}/{den}")
+    }
 }
 
 /// Heading over the orientation pair.
@@ -184,12 +250,21 @@ pub const fn custom_height() -> &'static str {
 /// that arrived from CAD needs them. Millimetres first because that is the
 /// unit the decision was made in.
 #[must_use]
+///
+/// ★ **Both units, since 2026-08-20**, and points after them. The list above
+/// shows each sheet in the unit it is *defined* in, which makes it findable;
+/// this line is the one place an operator checks what they are about to get, so
+/// it says the size in millimetres AND in inches whatever was picked. An
+/// imperial shop choosing A3 and a metric one choosing ANSI B are both
+/// answered, and neither has to convert.
 pub fn sheet_summary(width_pt: f64, height_pt: f64) -> String {
     let mm = |pt: f64| (pt * 25.4 / 72.0).round() as i64;
     format!(
-        "Sheet: {} × {} mm ({:.0} × {:.0} pt)",
+        "Sheet: {} × {} mm  ·  {} × {} in  ·  {:.0} × {:.0} pt",
         mm(width_pt),
         mm(height_pt),
+        inches(width_pt),
+        inches(height_pt),
         width_pt,
         height_pt,
     )
@@ -279,6 +354,65 @@ pub const fn create_tooltip() -> &'static str {
 #[must_use]
 pub const fn cancel() -> &'static str {
     "Cancel"
+}
+
+#[cfg(test)]
+mod imperial_tests {
+    use super::{size_entry, size_name};
+    use pdfce_core::paper::PaperSize as P;
+
+    /// ★★ **Every US and ANSI sheet reads in inches, and every ISO one in
+    /// millimetres.**
+    ///
+    /// The operator's report of 2026-08-20 was *"please add imperial sizes
+    /// too"*, and every size he wanted was already in the list — labelled in
+    /// millimetres. `ANSI B — 279 × 432 mm` is the sheet he calls B, described
+    /// in units his office does not use, which is indistinguishable from its
+    /// not being there.
+    ///
+    /// So this asserts the labelling directly, on the two sizes that matter
+    /// most to him and on one from each family, because the failure it guards
+    /// is a *silent* one: a size added to the US series and not added to
+    /// `imperial` would simply appear in millimetres and nobody would file a
+    /// bug against a list that has the entry.
+    #[test]
+    fn a_us_sheet_reads_in_inches_and_an_iso_sheet_in_millimetres() {
+        let entry = |p: P| size_entry(&size_name(p), p.size_pt());
+
+        assert_eq!(entry(P::AnsiB), "ANSI B — 11 × 17 in");
+        assert_eq!(entry(P::Tabloid), "Tabloid — 11 × 17 in");
+        assert_eq!(entry(P::AnsiA), "ANSI A — 8 1/2 × 11 in");
+        assert_eq!(entry(P::Letter), "Letter — 8 1/2 × 11 in");
+        assert_eq!(entry(P::Legal), "Legal — 8 1/2 × 14 in");
+        assert_eq!(entry(P::AnsiD), "ANSI D — 22 × 34 in");
+
+        assert_eq!(entry(P::A4), "A4 — 210 × 297 mm");
+        assert_eq!(entry(P::A1), "A1 — 594 × 841 mm");
+    }
+
+    /// **The fraction is reduced and written the way a title block writes it.**
+    ///
+    /// `8 1/2`, not `8 8/16` and not `8.5`. The sizes an operator reads most
+    /// are the two half-inch ones, and a list that says `8.50 × 11.00 in` has
+    /// been translated rather than written.
+    #[test]
+    fn a_half_inch_is_written_as_a_half() {
+        let entry = size_entry(&size_name(P::Letter), P::Letter.size_pt());
+        assert!(entry.contains("8 1/2"), "{entry}");
+        assert!(
+            !entry.contains("8/16"),
+            "the fraction was not reduced: {entry}"
+        );
+        assert!(!entry.contains("8.5"), "a decimal, not a fraction: {entry}");
+    }
+
+    /// **The summary answers both offices**, whichever sheet was picked.
+    #[test]
+    fn the_summary_carries_both_units() {
+        let summary = super::sheet_summary(792.0, 1224.0);
+        assert!(summary.contains("279 × 432 mm"), "{summary}");
+        assert!(summary.contains("11 × 17 in"), "{summary}");
+    }
 }
 
 #[cfg(test)]

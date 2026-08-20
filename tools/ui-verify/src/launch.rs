@@ -92,6 +92,22 @@ impl LaunchSpec {
 /// Not a guess at the application's size — a floor below which the window
 /// cannot be a laid-out application window. See the polling loop in
 /// [`Session::launch`] for what happens without it.
+/// **Where every launched window is put**, in desktop pixels.
+///
+/// To the **right** of the top-left corner, which is where always-on-top
+/// furniture docks — see [`Session::place`]. Measured on this machine
+/// 2026-08-20: the Windows on-screen keyboard occupies `(-5, 0)-(746, 266)`,
+/// and it cannot be closed from a process of ordinary integrity. `780` clears
+/// it, and a 1100 px client still ends at 1880 on a 1920-wide desktop.
+///
+/// ★ This is a **mitigation, not the guard.** `Driver::confirm_uncovered`
+/// refuses a click on a point another window owns, wherever the window is;
+/// this only makes that refusal rare. A machine whose furniture docks
+/// somewhere else will still be caught, and will be told so.
+const SAFE_ORIGIN_X: i32 = 780;
+/// See [`SAFE_ORIGIN_X`].
+const SAFE_ORIGIN_Y: i32 = 40;
+
 const MIN_CLIENT_PX: u32 = 200;
 
 /// A running application, its captured trace, and its window.
@@ -199,6 +215,7 @@ impl Session {
                 && frame.client_size.1 >= MIN_CLIENT_PX
             {
                 session.window = Some(w);
+                session.place();
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -265,6 +282,29 @@ impl Session {
     pub fn maximize(&self) {
         if let Some(w) = self.window {
             sys::maximize_window(w);
+        }
+    }
+
+    /// **Put the window at a known place, clear of the top of the screen.**
+    ///
+    /// Two reasons, and the second is the one that cost an afternoon.
+    ///
+    /// **Determinism.** Letting Windows choose gets a *cascade*: every launch
+    /// steps down and right from the last, so a long session marches its
+    /// windows toward the edge of the desktop. A failure that depends on where
+    /// the window happened to open is a failure nobody can reproduce.
+    ///
+    /// **★★ Always-on-top windows live at the top of the screen.** The
+    /// Windows on-screen keyboard docks there, it is summoned by synthetic
+    /// keystrokes — so this harness brings it on itself — and it cannot be
+    /// closed from a process of ordinary integrity. It lay across the ribbon's
+    /// tab row for an afternoon on 2026-08-20 and made two checks report a
+    /// working ribbon as unresponsive, intermittently. `Driver::confirm_uncovered`
+    /// is the guard that now catches it; this is the measure that stops it
+    /// happening. Below [`SAFE_ORIGIN_Y`] there is nothing docked.
+    fn place(&self) {
+        if let Some(w) = self.window {
+            sys::move_window(w, SAFE_ORIGIN_X, SAFE_ORIGIN_Y);
         }
     }
 

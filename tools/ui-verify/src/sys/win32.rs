@@ -45,8 +45,9 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     mouse_event,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId,
-    IsWindowVisible, SW_MAXIMIZE, SW_SHOW, SetCursorPos, SetForegroundWindow, ShowWindow,
+    EnumWindows, GA_ROOT, GetAncestor, GetClientRect, GetCursorPos, GetForegroundWindow,
+    GetWindowThreadProcessId, IsWindowVisible, SW_MAXIMIZE, SW_SHOW, SWP_NOSIZE, SWP_NOZORDER,
+    SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow, WindowFromPoint,
 };
 
 use crate::coords::WindowFrame;
@@ -64,6 +65,15 @@ pub struct WindowHandle(isize);
 impl WindowHandle {
     fn hwnd(self) -> HWND {
         self.0 as HWND
+    }
+
+    /// Wrap a raw handle. Private to this module, for [`window_at`].
+    fn from_raw(hwnd: HWND) -> Option<Self> {
+        if hwnd.is_null() {
+            None
+        } else {
+            Some(Self(hwnd as isize))
+        }
     }
 }
 
@@ -304,6 +314,61 @@ pub fn key_stroke(vk: u16) {
 /// under test". That was a description of an intent, not of the code: the
 /// driver checked only that a target *existed*. This is the function that
 /// makes the sentence true.
+/// **Which top-level window owns this screen point.**
+///
+/// ★★ Added 2026-08-20, after an afternoon of confident, specific and entirely
+/// wrong defect reports.
+///
+/// `SetForegroundWindow` succeeding says the target has focus. It says
+/// **nothing about what is drawn over it**, and an always-on-top window — the
+/// Windows on-screen keyboard is the one that bit us — sits above a focused
+/// window and swallows every click aimed at the region it covers.
+///
+/// The failure that produces is the worst shape available: `markup_rectangle`
+/// and `insert_image` both reported the ribbon as unresponsive, intermittently,
+/// over a build in which it works. The oracle that settled it was a screenshot
+/// (`D:/dev/rag/egui/` — *a layout or reachability defect has exactly one
+/// oracle*), which showed `osk.exe` lying across the ribbon's tab row.
+///
+/// So a click now asks who owns the point first, and refuses rather than
+/// missing. `WindowFromPoint` returns the deepest child; the ancestor walk is
+/// what makes the answer comparable to a top-level handle.
+pub fn window_at(x: i32, y: i32) -> Option<WindowHandle> {
+    // SAFETY: both calls take plain values and tolerate any input, returning
+    // null for a point on no window.
+    unsafe {
+        let hwnd = WindowFromPoint(POINT { x, y });
+        if hwnd.is_null() {
+            return None;
+        }
+        let root = GetAncestor(hwnd, GA_ROOT);
+        WindowHandle::from_raw(if root.is_null() { hwnd } else { root })
+    }
+}
+
+/// **Move the window to a known position**, without resizing it.
+///
+/// A harness that lets Windows choose gets a *cascade*: every launch steps down
+/// and right from the last, so a long session marches its windows towards the
+/// edge of the desktop and eventually off it. A known position also makes a
+/// failure reproducible, which a cascading one is not.
+pub fn move_window(w: WindowHandle, x: i32, y: i32) {
+    // SAFETY: `w` is a handle this module produced; `SetWindowPos` tolerates a
+    // stale handle by returning false. `SWP_NOSIZE | SWP_NOZORDER` keeps the
+    // size and the stacking exactly as they were.
+    unsafe {
+        SetWindowPos(
+            w.hwnd(),
+            std::ptr::null_mut(),
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER,
+        );
+    }
+}
+
 pub fn is_foreground(w: WindowHandle) -> bool {
     // SAFETY: no pointers, no ownership; returns a handle or null.
     unsafe { GetForegroundWindow() == w.hwnd() }

@@ -209,6 +209,30 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 
     crate::checks::driving::click_mode_segment(&session, &driver, ui_rect, MODE)?;
 
+    // ★★ **The operator's own sequence, when asked for**: a NEW document from
+    // the template first, then the insert.
+    //
+    // 2026-08-20, verbatim: *"Make a new document from a template … and insert
+    // the image."* He reports the insert doing nothing and has done since it
+    // shipped, while this check — which inserts into an **opened** PDF — has
+    // passed throughout, including against his own file.
+    //
+    // A created document is not an opened one: `Origin::Created`, no file
+    // behind it, `stored_under()` empty. If the difference lives there, this is
+    // the flag that finds it, and it costs one chord.
+    if std::env::var_os("PDFCE_UIV_NEW_DOCUMENT").is_some() {
+        driver.press_chord(&[crate::input::Key::Ctrl.vk()], 0x4E)?;
+        session.settle(20);
+        let made = session.trace()?;
+        let Some(line) = made.last("new-document") else {
+            return Err(Error::new(
+                "Ctrl+N traced no `new-document` line, so no blank document was made and the\
+                 rest of this run would be about the wrong document.",
+            ));
+        };
+        report.note(format!("made a blank document first: `{}`", line.raw));
+    }
+
     // --- 1: the Edit tab ---------------------------------------------------
     let trace = session.trace()?;
     let tab = declared(&trace, ui_rect, "ribbon.tab.edit").ok_or_else(|| {
@@ -224,9 +248,18 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let Some(item) =
         declared_or_in_overflow(&session, &driver, ui_rect, "ribbon.item.edit.insert_image")?
     else {
+        // ★ A screenshot at the moment of failure, because this message has
+        // been wrong before. `D:/dev/rag/egui/` records the rule: a layout or
+        // reachability defect has exactly one oracle and it is a rendered
+        // screenshot. A trace can say a region was declared and say nothing at
+        // all about whether a click could reach it.
+        let shot = ctx.out("insert_image.no-edit-items.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+        }
         return Ok(Some(format!(
             "the Edit tab declares no `ribbon.item.edit.insert_image`, on the band or in the \
-             overflow. Items declared: {}.",
+             overflow. Items declared: {}. A screenshot of the moment is attached.",
             list(&declared_names(
                 &session.trace()?,
                 ui_rect,
