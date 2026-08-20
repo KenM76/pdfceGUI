@@ -124,8 +124,25 @@ decided against.
    label held to its *standoff* or its *slide* specifically rather than to a
    page axis. Each is a decision recorded in `canvas::constrain`'s header, not
    an omission.
-3. **A vertex drag does not snap**, while the tool that placed that vertex does
-   — so you can pick a corner onto geometry and then be unable to put it back.
+3. ~~**A vertex drag does not snap**, while the tool that placed that vertex
+   does.~~ — **SHIPPED 2026-08-20.** Drag a perimeter corner and it now snaps to
+   endpoints, midpoints and intersections exactly as the tool that placed it
+   does, with the same marker at the same size, honouring the same *"Snap to
+   content"* switch. Hold **Alt** to refuse the offer for one drag.
+
+   ★ **The snap overrides the grab point**, deliberately. If you grabbed the
+   handle three pixels off centre, a corner that preserved that offset would
+   land three pixels off the thing it snapped to — a corner that looks snapped
+   and is not, which is the worst of the three outcomes.
+
+   The **label** drag still does not snap and will not: a label's position is
+   presentational, it changes no measured value, and snapping a caption to a
+   wall would move it onto the drawing rather than clear of it.
+
+   Driven: `measure_perimeter_traces_and_closes` now asserts the drag **asked**
+   the snap query — the `snap=` field exists on the shell's own line. It does
+   not assert a hit, because whether anything is near that destination is a
+   fact about the fixture and not about the build. NOT YET RUN.
 4. Neither a move, a resize nor a handle drag snaps to guides, grid or geometry.
 5. **No rotate handle** anywhere. Blocked on the engine verb, which is accepted
    and being built.

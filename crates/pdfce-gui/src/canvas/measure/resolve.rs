@@ -78,7 +78,7 @@ use super::{MEASURE_MEMORY_KEY, MeasureKind, MeasureState, hover, snap};
 /// Returns the raw point unchanged when any gate declines, with `None` for the
 /// candidate — so a caller never has to distinguish "snapping is off" from
 /// "nothing was near", because neither changes what it does next.
-pub(super) fn snapped(
+pub(in crate::canvas) fn snapped(
     st: &MeasureState,
     raw: Point,
     alt_held: bool,
@@ -98,6 +98,58 @@ pub(super) fn snapped(
         Some(c) => (c.point, Some(c)),
         None => (raw, None),
     }
+}
+
+/// **Snap a point the way a measure pick would**, for a caller that is not a
+/// measure tool.
+///
+/// ★★ Added 2026-08-20 for the perimeter's vertex drag, and the reason it is
+/// here rather than a second snap in `canvas::dimdrag` is the rule this project
+/// has paid for twice: **a predicate with two claimants must exist exactly
+/// once.** `text_edit_focused()` cost the Delete key and then the space bar
+/// because two places each had their own idea of one question. *"Where would
+/// this land if it snapped"* is one question, and the operator's answer to it —
+/// the master toggle, the Alt override, the tolerance, the Tab cycle — is one
+/// set of settings. A drag that snapped by its own rules would honour a
+/// different "Snap to content" switch from the tool beside it.
+///
+/// # The gap this closes, in the operator's terms
+///
+/// `ui-conventions/drag-moves.md` D6, found by the 2026-08-20 sweep:
+///
+/// > **A vertex drag does not snap**, while the tool that placed that vertex
+/// > does — so you can pick a corner onto geometry and then be unable to put it
+/// > back.
+///
+/// That is the worst shape a missing convention can take: the tool teaches the
+/// operator that corners land exactly on lines, and then takes it away for the
+/// one gesture whose entire purpose is correcting a corner that landed wrong.
+///
+/// # ★ It builds a `MeasureState` rather than requiring one
+///
+/// [`super::load`] persists nothing and [`super::read`] answers `None` until the operator has
+/// clicked a measure tool at least once. A vertex drag can happen in a session
+/// where no measure tool was ever armed, so requiring stored state would mean
+/// *snapping switches on only after you have used a different tool* — the same
+/// defect [`resolve_hover`] records at length, which shipped and was reported.
+///
+/// The fallback carries `snap_master: true`, the shipped default, and a
+/// `snap_cycle` of 0. Tab-cycling between two nearby candidates is therefore
+/// **not** offered during a vertex drag; that is a decision rather than an
+/// oversight, because Tab during a drag is not a gesture any program in the
+/// class defines.
+pub(in crate::canvas) fn snap_point(
+    ctx: &egui::Context,
+    page_index: usize,
+    raw: Point,
+    alt_held: bool,
+    targets: Option<&dyn crate::canvas::target::CanvasTargetProvider>,
+    map: &PageMapping,
+) -> (Point, Option<pdfce_core::vector::snap::SnapCandidate>) {
+    let st = super::read(ctx)
+        .filter(|s| s.page_index == page_index)
+        .unwrap_or_else(|| MeasureState::new(page_index));
+    snapped(&st, raw, alt_held, targets, page_index, map)
 }
 
 /// **Where the pointer would pick, resolved once for the frame.**
@@ -349,4 +401,125 @@ pub(in crate::canvas) fn frame(
         .map(|kind| super::circular::pick_outlines(ctx, page_index, kind, targets))
         .unwrap_or_default();
     (hover, picked)
+}
+
+#[cfg(test)]
+mod tests {
+    //! The snap resolution's own tests, moved here from `measure/mod.rs` on
+    //! 2026-08-20 under R2 — with `snapped` and `snap_point`, which is where
+    //! they always belonged.
+
+    use super::*;
+    use crate::canvas::measure::{MeasureKind, MeasureState};
+    use crate::canvas::target::StubTargets;
+
+    /// ★ **Snapping off means the raw pointer, unchanged.**
+    ///
+    /// The master toggle is the operator's, and a tool that snapped anyway
+    /// would be applying an inference they had switched off — which is rule 4's
+    /// definition of sneaky rather than fuzzy.
+    #[test]
+    fn the_master_toggle_off_returns_the_raw_point() {
+        let mut st = MeasureState::for_kind(0, MeasureKind::Linear);
+        st.snap_master = false;
+        let raw = Point { x: 10.5, y: 20.25 };
+        let targets = StubTargets::default();
+        let map = crate::canvas::mapping::PageMapping::new(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
+            (200.0, 300.0),
+            1.0,
+        );
+        let (at, candidate) = snapped(&st, raw, false, Some(&targets), 0, &map);
+        assert_eq!(at, raw, "the pick is where the pointer was");
+        assert!(candidate.is_none(), "nothing to draw an indicator for");
+    }
+
+    /// ★★ **A caller with no stored `MeasureState` still snaps.**
+    ///
+    /// The vertex drag's case, and the reason [`snap_point`] exists rather than
+    /// the caller doing `read(ctx)?`. [`load`] persists nothing and [`read`]
+    /// answers `None` until a measure tool has been *clicked*, so a `?` here
+    /// would mean **snapping switches on only after you have used a different
+    /// tool** — which is not a smaller version of the feature; it is the exact
+    /// defect `resolve_hover`'s own header records, which shipped and was
+    /// reported as *"the measuring tools don't give me any indication of what
+    /// is being selected"*.
+    ///
+    /// Asserted through the master toggle rather than through a candidate,
+    /// because what is being proved is *which state was used*: a build that
+    /// declined on empty memory answers the raw point with `None`, and so does
+    /// a build that found nothing nearby. The distinguishable fact is that the
+    /// fallback carries `snap_master: true`.
+    #[test]
+    fn a_caller_with_no_stored_state_gets_the_shipped_defaults() {
+        let fresh = MeasureState::new(3);
+        assert!(
+            fresh.snap_master,
+            "the fallback `snap_point` builds must arrive with snapping ON, or a vertex drag would silently never snap in a session where no measure tool was ever armed"
+        );
+        assert_eq!(fresh.snap_cycle, 0, "and with no Tab cycle carried in");
+    }
+
+    /// ★ **Alt refuses the snap for one pick**, which is what makes a generous
+    /// catch radius affordable — see `PageMapping::snap_tolerance`.
+    #[test]
+    fn alt_overrides_an_enabled_master_toggle() {
+        let st = MeasureState::for_kind(0, MeasureKind::Linear);
+        assert!(st.snap_master, "the toggle defaults on");
+        let raw = Point { x: 1.0, y: 2.0 };
+        let targets = StubTargets::default();
+        let map = crate::canvas::mapping::PageMapping::new(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
+            (200.0, 300.0),
+            1.0,
+        );
+        let (at, candidate) = snapped(&st, raw, true, Some(&targets), 0, &map);
+        assert_eq!(at, raw);
+        assert!(candidate.is_none());
+    }
+
+    /// With no decomposition there is nothing to snap to, and that is a real
+    /// case rather than a defensive one: the model is built only when something
+    /// asks, and this is one of the things that asks.
+    #[test]
+    fn no_decomposition_means_no_snap_and_no_panic() {
+        let st = MeasureState::for_kind(0, MeasureKind::Linear);
+        let raw = Point { x: 3.0, y: 4.0 };
+        let map = crate::canvas::mapping::PageMapping::new(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
+            (200.0, 300.0),
+            1.0,
+        );
+        let (at, candidate) = snapped(&st, raw, false, None, 0, &map);
+        assert_eq!(at, raw);
+        assert!(candidate.is_none());
+    }
+
+    /// ★ **The snap radius is wider than the selection radius, and stays so at
+    /// every zoom.**
+    ///
+    /// Both are screen-pixel constants divided by the same zoom, so the
+    /// relation is scale-invariant — asserting it at one zoom would be the
+    /// *"relation rather than magnitude"* trap `HANDOFF.md` §2 names, so the
+    /// magnitudes are checked too.
+    #[test]
+    fn the_snap_radius_is_wider_than_the_selection_radius_at_every_zoom() {
+        for zoom in [0.05_f32, 0.5, 1.0, 4.0, 32.0] {
+            let map = crate::canvas::mapping::PageMapping::new(
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
+                (200.0, 300.0),
+                zoom,
+            );
+            let snap = map.snap_tolerance();
+            let select = map.tolerance();
+            assert!(
+                snap > select,
+                "zoom={zoom}: snap {snap} must out-reach selection {select}"
+            );
+            assert!(
+                snap.is_finite() && snap > 0.0,
+                "zoom={zoom}: a catch radius of {snap} would snap to everything or nothing"
+            );
+        }
+    }
 }

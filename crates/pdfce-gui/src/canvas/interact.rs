@@ -540,6 +540,18 @@ pub(super) fn interact(
                 // gets `None` and declines. The resize spent a whole driving
                 // session on exactly this.
                 | GestureOutcome::Handle { .. }
+                // ★★ …and `DimensionVertex`, added 2026-08-20 when the vertex
+                // drag learned to snap. THIRD time this list has been the
+                // defect: `Resize` and `Handle` both shipped needing the model
+                // and not asking for it, and both spent a driving session
+                // presenting as "the gesture does nothing".
+                //
+                // The failure here would have been quieter than either, because
+                // the drag works perfectly without the model — it just never
+                // snaps, and a snap that never fires is indistinguishable from
+                // a snap that found nothing nearby. That is precisely the class
+                // of defect that survives a green suite.
+                | GestureOutcome::DimensionVertex { .. }
                 | GestureOutcome::Marquee {
                     phase: Phase::Complete,
                     intent: MarqueeIntent::Select,
@@ -577,6 +589,12 @@ pub(super) fn interact(
     // the wrong picture entirely.
     let mut dimension_preview: Option<Vec<(pdfce_core::vector::Point, pdfce_core::vector::Point)>> =
         None;
+    // What a perimeter corner is snapping to while it is being dragged, if
+    // anything. A fifth preview slot, and it is separate from
+    // `dimension_preview` for the reason `dimdrag::VertexDrag` gives: the
+    // polyline is page-space geometry and this is one screen-space glyph, drawn
+    // by a different painter at a different moment.
+    let mut vertex_snap: Option<pdfce_core::vector::snap::SnapCandidate> = None;
     let mut band = None;
     // The freehand trail, already simplified, in canvas space. A second
     // preview value beside `band` rather than a variant of it, because the two
@@ -921,8 +939,34 @@ pub(super) fn interact(
             // ★ SHIFT LOCKS A CORNER TO ONE AXIS, measured from the PRESS —
             // so the grab point survives (`drag-moves` D8).
             let at = crate::canvas::constrain::reposition(&ctx, shift, from, at);
-            dimension_preview =
-                dimdrag::drag_vertex(index, from, at, phase, doc, &selection, actions);
+            // ★ ALT SUSPENDS THE SNAP, read live and asked of the same
+            // `snap_query_enabled` a measure pick asks. It is what makes a
+            // generous catch radius affordable: the offer is refusable, so it
+            // can afford to be eager.
+            let alt_held = ctx.input(|i| i.modifiers.alt);
+            let dragged = dimdrag::drag_vertex(
+                dimdrag::VertexFrame {
+                    ctx: &ctx,
+                    index,
+                    from,
+                    at,
+                    phase,
+                    doc,
+                    selection: &selection,
+                    targets: targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
+                    map,
+                    alt_held,
+                },
+                actions,
+            );
+            dimension_preview = dragged.segments;
+            // ★ The candidate travels to the painter rather than being
+            // re-queried there, which is `measure::Resolved`'s whole reason for
+            // existing: a marker resolved a second time is a second derivation,
+            // and this project has already shipped one that sat away from the
+            // point it described for four days because a raw screen position
+            // and a converted canvas one are the same type.
+            vertex_snap = dragged.snap;
         }
         GestureOutcome::Handle {
             node,
@@ -1114,6 +1158,7 @@ pub(super) fn interact(
             resize_ghost,
             handle_drag: handle_preview,
             dimension_preview: dimension_preview.as_deref(),
+            vertex_snap,
             band,
             ink_trail,
             active_tool,

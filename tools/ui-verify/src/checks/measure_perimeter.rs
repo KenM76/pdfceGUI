@@ -86,6 +86,12 @@ const COMMIT_EVENT: &str = "add-dimension";
 const VERTEX_REGION: &str = "canvas.dimension-vertex";
 /// `move-dimension-vertex …` — the engine accepted a reshaped corner.
 const VERTEX_COMMIT: &str = "move-dimension-vertex";
+/// `dimension-vertex id=… index=… dx=… dy=… snap=…` — the SHELL's own report of
+/// the same drag, which is where the snap answer rides. Distinct from
+/// [`VERTEX_COMMIT`], which is the engine's acknowledgement: one says what was
+/// asked for and the other says it was accepted, and a check that conflated
+/// them could not tell a shell that never asked from an engine that refused.
+const SHELL_VERTEX: &str = "dimension-vertex";
 
 /// The four corners, as fractions of the page box.
 ///
@@ -528,6 +534,45 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "★ the corner drag reached the engine: `{}`",
         trace.last(VERTEX_COMMIT).expect("just counted one").raw
+    ));
+
+    // ★★ …and the shell ASKED whether the corner should snap.
+    //
+    // `ui-conventions/drag-moves.md` D6, and the gap the 2026-08-20 sweep
+    // named: *"a vertex drag does not snap, while the tool that placed that
+    // vertex does — so you can pick a corner onto geometry and then be unable
+    // to put it back."*
+    //
+    // What is asserted is that the `snap=` FIELD EXISTS, not that a candidate
+    // was found. The destination above is a document point chosen for being far
+    // from the traced square, so whether anything is near it is a fact about
+    // the fixture; asserting a hit would make this check pass or fail on which
+    // drawing it was pointed at. A build that never wired the query reports no
+    // field at all, and that is a fact about the BUILD — which is the
+    // distinction this whole harness exists to keep.
+    let Some(line) = trace.last(SHELL_VERTEX) else {
+        return Ok(Some(format!(
+            "the corner drag committed and the shell traced no `{SHELL_VERTEX}` line, so there is nothing to read the snap answer off. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    let Some(snap) = line.get("snap") else {
+        return Ok(Some(format!(
+            "★ THE CORNER DRAG NEVER ASKED WHETHER TO SNAP: `{}` carries no `snap=` field. \
+             The tool that PLACED this vertex snaps to endpoints, midpoints and \
+             intersections; a drag that does not is a corner an operator can put onto a line \
+             and then never put back. Look at `canvas::interact`'s \
+             `GestureOutcome::DimensionVertex` arm — and at `needs_targets`, which is where \
+             `Resize` and `Handle` both failed the same way before it: without the \
+             decomposition the query has nothing to ask, so the drag works perfectly and \
+             silently never snaps. Trace: {}.",
+            line.raw,
+            session.trace_path().display()
+        )));
+    };
+    report.note(format!(
+        "the corner drag asked the snap query and got `snap={snap}` (a miss is expected here \
+         — the destination is deliberately far from the traced square)"
     ));
     Ok(None)
 }

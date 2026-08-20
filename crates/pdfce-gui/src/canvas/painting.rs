@@ -95,6 +95,20 @@ pub(super) struct Frame<'a> {
     /// defined in the page. Projecting happens once, at the painter, through
     /// the same two-hop bridge `canvas::measure` uses.
     pub dimension_preview: Option<&'a [(pdfce_core::vector::Point, pdfce_core::vector::Point)]>,
+    /// What a perimeter corner being dragged is snapping to, if anything.
+    ///
+    /// ★ `ui-conventions/drag-moves.md` D6: *"a snap is an inference. It is
+    /// announced by an indicator at the target while the drag is live — never
+    /// applied silently."* Without the marker the corner simply arrives
+    /// somewhere the operator did not put it, and there is nothing on screen to
+    /// say why.
+    ///
+    /// It is the **same candidate** `dimdrag::drag_vertex` computed and the
+    /// release commits, carried here rather than re-queried — one derivation,
+    /// which is `measure::Resolved`'s founding rule and the reason a snap
+    /// marker once described a point four days' worth of clicks did not land
+    /// on.
+    pub vertex_snap: Option<pdfce_core::vector::snap::SnapCandidate>,
     /// The markup band, if one would commit.
     pub band: Option<markup::band::Preview>,
     /// The freehand trail, already simplified, in canvas space.
@@ -347,6 +361,51 @@ pub(super) fn draw(
             };
             painter.line_segment([sa, sb], stroke);
         }
+    }
+    // ★★ …and the snap marker for that corner, over the preview it belongs to.
+    //
+    // Drawn from `snap::snap_marker_shapes` — the same glyph set, in the same
+    // theme role, at the same zoom-invariant size the measure tools use — so an
+    // operator who has learned that a square means *endpoint* while placing a
+    // perimeter reads the same square while correcting one. A second marker
+    // vocabulary for the same inference would be a second thing to learn for no
+    // information gained.
+    //
+    // Rule 4: this is a pre-commit affordance, the cursor describing what is
+    // about to happen. It disappears on release, and what replaces it is the
+    // dimension itself, rendered with no marking of any kind.
+    if let Some(candidate) = f.vertex_snap
+        && let Some(page) = doc.pages.get(page_index)
+        && let Some(screen) = crate::canvas::measure::page_to_screen(candidate.point, page, map)
+    {
+        let colour = crate::canvas::snap::snap_indicator_tint(ui.ctx())
+            .unwrap_or_else(|| ui.visuals().selection.stroke.color);
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // The marker's screen position beside the pointer's, exactly as
+            // `measure-snap-marker` carries them, and for the invariant that is
+            // true by the definition of snapping: a marker is never further
+            // from the pointer than the snap tolerance. That is the assertion
+            // that catches a coordinate hop applied twice, which is the defect
+            // this codebase has now met three times.
+            let p = ui.ctx().pointer_latest_pos();
+            format!(
+                "vertex-snap-marker kind={:?} marker={:.1},{:.1} dx={:.1} dy={:.1} tol={:.2}",
+                candidate.kind,
+                screen.x,
+                screen.y,
+                p.map_or(f32::NAN, |q| screen.x - q.x),
+                p.map_or(f32::NAN, |q| screen.y - q.y),
+                map.snap_tolerance(),
+            )
+        });
+        painter.extend(crate::canvas::snap::snap_marker_shapes(
+            screen,
+            candidate.kind,
+            colour,
+            crate::canvas::measure::SNAP_MARKER_PT,
+        ));
     }
     // Last, and over everything: the band IS the cursor for as long as it
     // exists, and a guide or an outline drawn over the shape being authored

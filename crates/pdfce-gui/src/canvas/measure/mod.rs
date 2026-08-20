@@ -55,7 +55,7 @@ pub(super) mod hover;
 pub(in crate::canvas) mod resolve;
 
 use resolve::snapped;
-pub(in crate::canvas) use resolve::{Resolved, resolve_hover};
+pub(in crate::canvas) use resolve::{Resolved, resolve_hover, snap_point};
 /// The perimeter tool - click around a shape, one number for the whole way
 /// round. A hybrid of the two tools beside it: point picks with snapping like
 /// `Linear`, an open-ended gesture like `Circular`, plus an ending of its own
@@ -1202,7 +1202,14 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
 /// affordance, not content, so it must stay the same apparent size whether the
 /// operator is zoomed to a whole A1 sheet or to one dimension line. Carried
 /// from the old shell's own indicator sizing.
-const SNAP_MARKER_PT: f32 = 6.0;
+///
+/// ★ `pub(in crate::canvas)` as of 2026-08-20, when the perimeter's vertex drag
+/// learned to snap and needed to draw the SAME marker at the SAME size. A
+/// second constant would have been two sizes for one affordance, free to
+/// diverge — and an operator who has learned that a small square means
+/// *endpoint* while placing a perimeter must read the identical square while
+/// correcting one.
+pub(in crate::canvas) const SNAP_MARKER_PT: f32 = 6.0;
 
 /// **PDF user space → screen**, both hops, in one place.
 ///
@@ -1240,91 +1247,6 @@ pub(in crate::canvas) fn page_to_screen(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas::target::StubTargets;
-
-    /// ★ **Snapping off means the raw pointer, unchanged.**
-    ///
-    /// The master toggle is the operator's, and a tool that snapped anyway
-    /// would be applying an inference they had switched off — which is rule 4's
-    /// definition of sneaky rather than fuzzy.
-    #[test]
-    fn the_master_toggle_off_returns_the_raw_point() {
-        let mut st = MeasureState::for_kind(0, MeasureKind::Linear);
-        st.snap_master = false;
-        let raw = Point { x: 10.5, y: 20.25 };
-        let targets = StubTargets::default();
-        let map = crate::canvas::mapping::PageMapping::new(
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
-            (200.0, 300.0),
-            1.0,
-        );
-        let (at, candidate) = snapped(&st, raw, false, Some(&targets), 0, &map);
-        assert_eq!(at, raw, "the pick is where the pointer was");
-        assert!(candidate.is_none(), "nothing to draw an indicator for");
-    }
-
-    /// ★ **Alt refuses the snap for one pick**, which is what makes a generous
-    /// catch radius affordable — see `PageMapping::snap_tolerance`.
-    #[test]
-    fn alt_overrides_an_enabled_master_toggle() {
-        let st = MeasureState::for_kind(0, MeasureKind::Linear);
-        assert!(st.snap_master, "the toggle defaults on");
-        let raw = Point { x: 1.0, y: 2.0 };
-        let targets = StubTargets::default();
-        let map = crate::canvas::mapping::PageMapping::new(
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
-            (200.0, 300.0),
-            1.0,
-        );
-        let (at, candidate) = snapped(&st, raw, true, Some(&targets), 0, &map);
-        assert_eq!(at, raw);
-        assert!(candidate.is_none());
-    }
-
-    /// With no decomposition there is nothing to snap to, and that is a real
-    /// case rather than a defensive one: the model is built only when something
-    /// asks, and this is one of the things that asks.
-    #[test]
-    fn no_decomposition_means_no_snap_and_no_panic() {
-        let st = MeasureState::for_kind(0, MeasureKind::Linear);
-        let raw = Point { x: 3.0, y: 4.0 };
-        let map = crate::canvas::mapping::PageMapping::new(
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
-            (200.0, 300.0),
-            1.0,
-        );
-        let (at, candidate) = snapped(&st, raw, false, None, 0, &map);
-        assert_eq!(at, raw);
-        assert!(candidate.is_none());
-    }
-
-    /// ★ **The snap radius is wider than the selection radius, and stays so at
-    /// every zoom.**
-    ///
-    /// Both are screen-pixel constants divided by the same zoom, so the
-    /// relation is scale-invariant — asserting it at one zoom would be the
-    /// *"relation rather than magnitude"* trap `HANDOFF.md` §2 names, so the
-    /// magnitudes are checked too.
-    #[test]
-    fn the_snap_radius_is_wider_than_the_selection_radius_at_every_zoom() {
-        for zoom in [0.05_f32, 0.5, 1.0, 4.0, 32.0] {
-            let map = crate::canvas::mapping::PageMapping::new(
-                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
-                (200.0, 300.0),
-                zoom,
-            );
-            let snap = map.snap_tolerance();
-            let select = map.tolerance();
-            assert!(
-                snap > select,
-                "zoom={zoom}: snap {snap} must out-reach selection {select}"
-            );
-            assert!(
-                snap.is_finite() && snap > 0.0,
-                "zoom={zoom}: a catch radius of {snap} would snap to everything or nothing"
-            );
-        }
-    }
 
     // =====================================================================
     // The radius/diameter tool: the pick, and the two endings

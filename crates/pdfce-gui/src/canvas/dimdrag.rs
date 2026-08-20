@@ -125,7 +125,16 @@
 //!   survives (D8). A label held to its *standoff* or its *slide* specifically —
 //!   the dimension-space pair rather than the page axes — is a further
 //!   refinement and is not built; recorded as a gap rather than claimed.
-//! - D6 snapping: **GAP** — a vertex drag does not snap, while the tool that
+//! - D6 snapping: **a vertex drag snaps**, as of 2026-08-20, through the same
+//!   `snap_candidates` query and the same operator settings the measure tools
+//!   use — [`crate::canvas::measure::snap_point`], which exists precisely so
+//!   there is one answer to *"where would this land"* rather than two. Alt
+//!   suspends it, exactly as it does for a pick, and the marker is drawn at the
+//!   target before the release. **The LABEL drag still does not snap**, and
+//!   that is deliberate rather than pending: a label's position is
+//!   presentational, it changes no measured value, and snapping a caption to a
+//!   wall would move it onto the drawing rather than clear of it. The old row
+//!   read: a vertex drag does not snap, while the tool that
 //!   PLACED that vertex does. So an operator can pick a corner onto geometry and
 //!   then be unable to put it back. The sharpest of the gaps here.
 //! - D7 no-op-is-not-an-edit: **GAP** — a zero-travel release still raises the
@@ -500,15 +509,94 @@ pub fn vertex_at(
 /// remaining refusal is structural and knowable before the drag begins.
 ///
 /// **⇒ Draw the preview. Always.**
-pub fn drag_vertex(
+pub fn drag_vertex(frame: VertexFrame<'_>, actions: &mut Vec<Action>) -> VertexDrag {
+    let VertexFrame {
+        ctx,
+        index,
+        from,
+        at,
+        phase,
+        doc,
+        selection,
+        targets,
+        map,
+        alt_held,
+    } = frame;
+    inner(
+        ctx, index, from, at, phase, doc, selection, targets, map, alt_held, actions,
+    )
+    .unwrap_or_default()
+}
+
+/// What one frame of a vertex drag needs, gathered at the call site.
+///
+/// A struct rather than eleven parameters — `canvas::resizing::Frame`'s own
+/// argument, and this one crossed clippy's arity limit the moment snapping
+/// arrived. Three of the members are `Option`s of borrowed things and two are
+/// `Pos2`s in the same space, both of which a positional list would let a
+/// caller swap silently.
+pub struct VertexFrame<'a> {
+    /// The frame's context. Read only — the snap settings live in it.
+    pub ctx: &'a egui::Context,
+    /// Which vertex, sampled at the press.
+    pub index: usize,
+    /// Where the press landed, in canvas space — the grab point.
+    pub from: egui::Pos2,
+    /// Where the pointer is now, in canvas space.
+    pub at: egui::Pos2,
+    /// Draw, or commit.
+    pub phase: Phase,
+    /// The open document.
+    pub doc: &'a OpenDoc,
+    /// The current selection, which is what names the perimeter.
+    pub selection: &'a SelectionState,
+    /// The decomposition, for the snap query. `None` means no snapping this
+    /// frame rather than an error — see [`crate::canvas::measure::snap_point`].
+    pub targets: Option<&'a dyn crate::canvas::target::CanvasTargetProvider>,
+    /// The frame's mapping, which owns the snap tolerance in page units.
+    pub map: &'a PageMapping,
+    /// Whether Alt is down **this frame** — the operator saying *"not this
+    /// time"*, and the same override a measure pick honours.
+    pub alt_held: bool,
+}
+
+/// What one frame of a vertex drag produced.
+///
+/// ★ Two fields rather than one, because the preview and the snap indicator are
+/// different pictures with different lifetimes: the polyline is drawn in page
+/// space through the dimension painter, and the marker is a screen-space glyph
+/// at the candidate. Folding them would make the caller unpack a tuple whose
+/// members it uses in two different places, forty lines apart.
+#[derive(Default)]
+pub struct VertexDrag {
+    /// The polyline the release would commit, as page-space segments, or `None`
+    /// when this frame previews nothing.
+    pub segments: Option<Vec<(Point, Point)>>,
+    /// What the corner is snapping to, if anything.
+    ///
+    /// ★ `drag-moves` D6: *"a snap is an inference. It is announced by an
+    /// indicator at the target while the drag is live — never applied
+    /// silently."* This is what the painter draws that indicator from, and it
+    /// is the **same candidate** the release commits — one derivation, which is
+    /// the rule `measure::Resolved` exists to enforce and the reason a snap
+    /// marker once sat away from the point it described for four days.
+    pub snap: Option<pdfce_core::vector::snap::SnapCandidate>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn inner(
+    ctx: &egui::Context,
     index: usize,
     from: egui::Pos2,
     at: egui::Pos2,
     phase: Phase,
     doc: &OpenDoc,
     selection: &SelectionState,
+    targets: Option<&dyn crate::canvas::target::CanvasTargetProvider>,
+    map: &PageMapping,
+    alt_held: bool,
     actions: &mut Vec<Action>,
-) -> Option<Vec<(Point, Point)>> {
+) -> Option<VertexDrag> {
     let (id, kind) = selected(doc, selection)?;
     let (points, closed) = kind.polyline()?;
     let page = doc.pages.get(doc.view.page_index)?;
@@ -548,16 +636,43 @@ pub fn drag_vertex(
 
     let mut moved: Vec<Point> = points.to_vec();
     #[allow(clippy::cast_lossless)]
-    let target = Point::new(f64::from(new.x), f64::from(new.y));
+    let free = Point::new(f64::from(new.x), f64::from(new.y));
+
+    // ★★ THE SNAP, and it deliberately OVERRIDES the grab point.
+    //
+    // D8 (the grab point is preserved) and D6 (snapping) pull in opposite
+    // directions here, and every program in the class resolves it the same way:
+    // **snapping wins.** The whole content of the gesture is landing the corner
+    // exactly on something, and preserving a three-pixel grab offset would put
+    // it exactly three pixels off the thing it snapped to — which is a corner
+    // that looks snapped and is not, the worst of the three outcomes.
+    //
+    // The grab is still what decides *which* candidate is near, because `free`
+    // is computed from the delta above; it is only the final placement that
+    // yields.
+    //
+    // ★ The same query, the same tolerance and the same operator settings the
+    // measure tools use. See `measure::snap_point` for why that is one function
+    // and not two.
+    let (target, snap) =
+        crate::canvas::measure::snap_point(ctx, doc.view.page_index, free, alt_held, targets, map);
     *moved.get_mut(index)? = target;
 
     if phase == Phase::Complete {
         let (dx, dy) = (target.x - old.x, target.y - old.y);
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
+            //
+            // ★ `snap=` carries the candidate KIND, not a boolean. A wrong
+            // build that snapped to the nearest thing of any sort still reports
+            // `snap=1`; one that reports `snap=Endpoint` when the operator was
+            // over a midpoint is telling a driven check something a bool
+            // cannot. `resize-commit`'s own note makes the same argument: a
+            // trace line must carry the number a wrong build would get wrong.
             format!(
-                "dimension-vertex id={} index={index} dx={dx:.2} dy={dy:.2}",
-                id.0
+                "dimension-vertex id={} index={index} dx={dx:.2} dy={dy:.2} snap={}",
+                id.0,
+                snap.map_or_else(|| "none".to_owned(), |c| format!("{:?}", c.kind))
             )
         });
         actions.push(Action::Dimension(DimensionAction::MoveVertex {
@@ -566,20 +681,27 @@ pub fn drag_vertex(
             dx,
             dy,
         }));
-        return None;
+        // Nothing is previewed on the frame that commits — the dimension is
+        // about to be regenerated and drawn for real — and the marker goes with
+        // it, because a snap indicator over a snap that has already happened is
+        // describing the past.
+        return Some(VertexDrag::default());
     }
 
     // The preview, through the same segment function a committed perimeter is
     // drawn from — this module's standing rule, and `measure::pick` supplies
     // the closing segment for a ring rather than this call site guessing at it.
-    Some(super::measure::pick::dimension_preview_segments(
-        &DimensionKind::Perimeter {
-            points: moved,
-            closed,
-            offset: 0.0,
-            text_along: 0.0,
-        },
-    ))
+    Some(VertexDrag {
+        segments: Some(super::measure::pick::dimension_preview_segments(
+            &DimensionKind::Perimeter {
+                points: moved,
+                closed,
+                offset: 0.0,
+                text_along: 0.0,
+            },
+        )),
+        snap,
+    })
 }
 
 /// **Every ce dimension's drawn ink on the current page**, in canvas space,
