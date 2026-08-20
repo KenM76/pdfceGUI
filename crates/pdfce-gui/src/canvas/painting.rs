@@ -417,7 +417,7 @@ pub(super) fn draw(
     // `textedit::preview`, which carries the argument for why a better ghost is
     // the wrong fix for `DEFECTS.md` D4a rather than a deferred one.
     if active_tool.text_edit_kind().is_some() {
-        crate::canvas::textedit::preview(
+        crate::canvas::textedit::paint::preview(
             ui,
             &ctx,
             &crate::canvas::textedit::Preview {

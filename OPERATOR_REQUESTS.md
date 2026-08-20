@@ -123,8 +123,11 @@ decided against.
 
 **Text**
 
-9. **No live preview while typing** — your open complaint, and now a named row
-   rather than a bug I might forget again.
+9. ~~No live preview while typing~~ — **FIXED 2026-08-20.** An in-place editor
+   box, sized to what you type, with the caret measured against the text as
+   drawn. The design had always intended the characters to be shown *off-canvas
+   in the status bar* and that half was never built, so they appeared nowhere at
+   all.
 10. Caret indices are characters, not grapheme clusters, so a combining mark or
     an emoji takes two presses. `unicode-segmentation` is already in the tree.
 11. **No selection inside a draft** — no Shift+arrow, no Ctrl+A, no drag-select.

@@ -253,6 +253,27 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note("real keystrokes reached the draft — the OS -> egui -> draft link holds");
 
+    // ★★ THE IN-PLACE EDITOR, CAPTURED MID-DRAFT.
+    //
+    // Everything above reads the trace, and the trace can say a keystroke
+    // reached the draft. It cannot say the operator can SEE it — and for a
+    // fortnight they could not:
+    //
+    //   "I can edit text now, but there is no live preview of that either."
+    //
+    // The draft lived beside the page and nothing drew it, so the canvas showed
+    // the old text, a bracket and a blinking caret. Every assertion in this
+    // check passed throughout.
+    //
+    // A picture rather than an assertion, deliberately: asserting on the box
+    // would mean re-deriving the theme colour and the layout, which is a second
+    // derivation of the thing under test. The artifact is what a human looks
+    // at, and its absence from the report is what says nobody has.
+    let shot = ctx.out("add_text_draft.png");
+    if crate::capture::window_to_png(&session, &shot).is_ok() {
+        report.artifact(shot);
+    }
+
     // --- D: click away, which is how a draft commits ------------------------
     let away = frame.to_screen(mapping.doc_to_window(DocPoint {
         page: target.page,
