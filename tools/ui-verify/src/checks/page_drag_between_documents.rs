@@ -97,23 +97,58 @@ const DWELL: Duration = Duration::from_millis(1_400);
 /// answer.
 const LAND_ACROSS: f32 = 0.75;
 
-/// See the module documentation.
-pub struct PageDraggedBetweenDocumentsIsCopied;
+/// The trace line the source-side removal produces, on a move.
+const TOOK: &str = "page-move-took";
 
-impl Check for PageDraggedBetweenDocumentsIsCopied {
+/// **The same gesture, with and without Shift.**
+///
+/// One implementation and two registrations rather than two files, because the
+/// only thing that differs is a key held during the drag and two assertions at
+/// the end — and a copied file would drift on the twenty-odd things that are
+/// the same.
+///
+/// ★ Both are registered, and the copy one is not redundant. The failure this
+/// pair is really shaped to catch is a build where the modifier is read at the
+/// **press** instead of the release, or read from the wrong field, or ignored:
+/// such a build makes one of the two behave like the other, and only running
+/// both can see it. A single check would pass on a build that always copied, or
+/// always moved.
+pub struct PageDraggedBetweenDocuments {
+    /// Whether Shift is held for the whole gesture.
+    take: bool,
+}
+
+impl PageDraggedBetweenDocuments {
+    /// The unmodified drag, which must leave the source document alone.
+    pub const COPY: Self = Self { take: false };
+    /// The Shift-held drag, which must remove the pages from the source.
+    pub const MOVE: Self = Self { take: true };
+}
+
+impl Check for PageDraggedBetweenDocuments {
     fn name(&self) -> &'static str {
-        "a_page_dragged_between_documents_is_copied"
+        if self.take {
+            "a_shift_drag_between_documents_moves_the_pages"
+        } else {
+            "a_page_dragged_between_documents_is_copied"
+        }
     }
 
     fn defect(&self) -> &'static str {
-        "a page cannot be dragged from one open document into another — the drag does not \
-         survive the document switch, or no tab springs open under it, or the release lands \
-         nowhere — so combining two drawings means Insert-from-file and a dialog"
+        if self.take {
+            "holding Shift while dragging a page into another document still copies it — so \
+             Windows' own move modifier is inert, and an operator who used it is left with \
+             the sheets in both documents and no indication of which one they meant"
+        } else {
+            "a page cannot be dragged from one open document into another — the drag does not \
+             survive the document switch, or no tab springs open under it, or the release \
+             lands nowhere — so combining two drawings means Insert-from-file and a dialog"
+        }
     }
 
     fn run(&self, ctx: &CheckContext) -> CheckReport {
         let mut report = CheckReport::new(self.name(), self.defect());
-        match drive(ctx, &mut report) {
+        match drive(ctx, &mut report, self.take) {
             Ok(Some(failure)) => report.fail(failure),
             Ok(None) => report.pass(),
             Err(skip) => report.skip(skip.to_string()),
@@ -122,7 +157,7 @@ impl Check for PageDraggedBetweenDocumentsIsCopied {
 }
 
 #[allow(clippy::too_many_lines)]
-fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>> {
+fn drive(ctx: &CheckContext, report: &mut CheckReport, take: bool) -> Result<Option<String>> {
     let exe = ctx.resolve_exe().ok_or_else(|| {
         Error::new(format!(
             "no binary to drive. Pass --exe, or build the profile's default at {}.",
@@ -259,7 +294,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         land_at.x(),
         land_at.y()
     ));
-    driver.drag_via(start, spring_at, DWELL, land_at)?;
+    driver.drag_via(
+        start,
+        spring_at,
+        DWELL,
+        land_at,
+        take.then_some(crate::input::Key::Shift),
+    )?;
     session.settle(60);
 
     // --- 5: the tab sprang open --------------------------------------------
@@ -314,7 +355,31 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             release.raw
         )));
     }
-    report.note(format!("copied out of slot {from_slot}"));
+    report.note(format!("came out of slot {from_slot}"));
+
+    // --- 7b: ★ the MODIFIER reached the application ------------------------
+    //
+    // Asserted before anything is asked about the source, so a build that
+    // ignores Shift fails here — naming the modifier — rather than three steps
+    // later with "the source still has its pages", which is the same fact
+    // reported as a mystery.
+    let wanted = if take { "1" } else { "0" };
+    if release.get("take") != Some(wanted) {
+        return Ok(Some(format!(
+            "Shift was {} for the whole drag and the release reported `take={}`. The modifier \
+             is not reaching the drop. It is sampled at the RELEASE — as Windows does — so \
+             the likely causes are reading `i.modifiers` from the wrong frame, or latching it \
+             at the press. Line: `{}`.",
+            if take { "HELD" } else { "not held" },
+            release.get("take").unwrap_or("absent"),
+            release.raw
+        )));
+    }
+    report.note(if take {
+        "Shift was held, and the release asked for a move"
+    } else {
+        "no modifier, and the release asked for a copy"
+    });
 
     // --- 8: the pages actually arrived -------------------------------------
     let Some(landed) = trace.last(LANDED) else {
@@ -350,6 +415,46 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
                 landed.raw
             )));
         }
+    }
+
+    // --- 9: ★★ the SOURCE, which is where copy and move differ -------------
+    //
+    // The whole point of the pair. A copy must leave it alone and a move must
+    // take the pages out of it, and both assertions are made from the SAME
+    // trace line's absence or presence — which is only admissible because the
+    // other member of the pair demonstrates, in the same run of the suite,
+    // that the line can be produced. See `checks::mod`'s rule 4.
+    let took = trace.last(TOOK);
+    if take {
+        let Some(took) = took else {
+            return Ok(Some(format!(
+                "Shift was held, the release asked for a move (`take=1`), the pages arrived — \
+                 and no `{TOOK}` line followed. The insert half happened and the removal half \
+                 did not, so the sheets are now in BOTH documents. That is the one outcome \
+                 neither a copy nor a move, and it is the state an operator discovers by \
+                 counting."
+            )));
+        };
+        if took.get("removed") == Some("0") {
+            return Ok(Some(format!(
+                "the move removed 0 pages from the source, so they are in both documents. The \
+                 engine declined the delete — a certified source, an encrypted one, or a page \
+                 tree that would not walk. Line: `{}`.",
+                took.raw
+            )));
+        }
+        report.note(format!("and the source lost them: `{}`", took.raw));
+    } else if let Some(took) = took {
+        return Ok(Some(format!(
+            "no modifier was held and the source document was edited anyway: `{}`. An \
+             unmodified cross-document drag must be a COPY — the source's undo stack, its \
+             page count and its unsaved marker are all promised untouched, and an operator \
+             who assumed a copy would discover the loss on the drawing they did not have \
+             open.",
+            took.raw
+        )));
+    } else {
+        report.note("and the source was left alone, as a copy must");
     }
     Ok(None)
 }

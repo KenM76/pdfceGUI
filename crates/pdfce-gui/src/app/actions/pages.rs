@@ -563,12 +563,22 @@ pub(super) fn insert_from_file(
 /// some are unrecoverable; a dropped outline; dropped page labels; stale page
 /// labels), and a second copy of that reporting would be a second place for it
 /// to fall behind what the engine actually returns.
+///
+/// # Returns
+///
+/// **How many pages the document actually gained**, which is `0` for every
+/// refusal — an empty operand list, an engine decline, a source with nothing in
+/// it. Added 2026-08-20 for the cross-document *move*: the source's pages are
+/// removed only if the target's insert happened, and *"did it happen"* is a
+/// question this function is the only one in a position to answer. A move that
+/// deleted first, or deleted regardless, would lose the operator's sheets to a
+/// refusal they never saw.
 pub(super) fn insert_from_view(
     doc: &mut OpenDoc,
     view: &pdfce_core::view::DocumentView<'_>,
     pages: &[usize],
     position: pdfce_core::pageops::InsertPosition,
-) {
+) -> usize {
     if pages.is_empty() {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
@@ -578,7 +588,7 @@ pub(super) fn insert_from_view(
             doc.edit_epoch,
             crate::text::pages::insert_empty().to_owned(),
         );
-        return;
+        return 0;
     }
     let count = pages.len();
 
@@ -658,6 +668,11 @@ pub(super) fn insert_from_view(
             )
         });
     }
+    // The page vector is the oracle, not the operand count: `insert_pages` is
+    // free to insert fewer than it was asked for, and a caller about to delete
+    // the originals must be told what actually arrived rather than what was
+    // requested.
+    doc.pages.len().saturating_sub(before)
 }
 
 /// The engine call behind [`Action::RotatePages`].

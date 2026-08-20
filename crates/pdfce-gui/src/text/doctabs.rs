@@ -190,6 +190,108 @@ pub fn drag_landing_other(moving: usize, gap: usize, source: &str, page_count: u
     }
 }
 
+/// **Where a page drag would land, when Shift is held and it therefore MOVES.**
+///
+/// ★ Shift, because that is what Shift does on this desktop. Windows has bound
+/// the drag modifiers the same way since the mid-nineties and every operator on
+/// it has the reflex already:
+///
+/// | held | what a drag does |
+/// |---|---|
+/// | nothing | move within a volume, copy across one |
+/// | **Ctrl** | copy |
+/// | **Shift** | **move** |
+/// | Ctrl+Shift, or Alt | make a shortcut — no analogue here, and pdfce offers none |
+///
+/// Two documents are two volumes by that analogy — they are separate files with
+/// separate undo stacks — so the unmodified drag copies and Shift is what asks
+/// for the sheets to be taken out of where they came from.
+///
+/// ## ★ The sentence says the source will lose them, in those words
+///
+/// A copy that turns out to have been a move is discovered a day later, on the
+/// drawing you did not have open. So the caption names the source document and
+/// says *removed*, and it is on screen for as long as Shift is held, before the
+/// button is released.
+#[must_use]
+pub fn drag_landing_move(moving: usize, gap: usize, source: &str, page_count: usize) -> String {
+    let sheets = if moving == 1 { "sheet" } else { "sheets" };
+    let where_to = if gap >= page_count {
+        "to the end".to_owned()
+    } else {
+        format!("to before page {}", gap + 1)
+    };
+    format!("Move {moving} {sheets} {where_to} — they will be REMOVED from {source}.")
+}
+
+/// **The copy caption with the hint that the other half of the gesture
+/// exists.**
+///
+/// ★ One function rather than two joined at the call site, because the joined
+/// result is what the operator reads and `R1` puts *that* in the catalogue. A
+/// `format!("{} {}", a, b)` in a caller is a composition decision — how the two
+/// sentences meet, whether with a space, a dash or a newline — made somewhere
+/// nobody looking for the operator's words would think to look. The gate
+/// caught it.
+///
+/// ★ The hint rides with the copy sentence and only with it: an operator
+/// already holding Shift does not need to be told Shift is available, and a
+/// hint that is always on screen is furniture nobody reads.
+#[must_use]
+pub fn drag_landing_copy_with_hint(
+    moving: usize,
+    gap: usize,
+    source: &str,
+    page_count: usize,
+) -> String {
+    format!(
+        "{} Hold Shift to move them instead.",
+        drag_landing_other(moving, gap, source, page_count)
+    )
+}
+
+/// **What a move actually did**, on the status row afterwards.
+///
+/// ★ It states the undo consequence, and that is the part that cannot be left
+/// out. A cross-document move is **two** edits in two documents, each with its
+/// own undo stack, so one Ctrl+Z reverses one half of it. There is no ordering
+/// of the two commands that makes a single undo mean *"put it back how it
+/// was"*, and an operator who assumes otherwise will undo the insert, see the
+/// pages vanish, and believe the source still has them.
+///
+/// This is why the drag defaults to a copy and the move is the modified
+/// gesture rather than the other way round.
+#[must_use]
+pub fn moved_out_of(moving: usize, source: &str) -> String {
+    let sheets = if moving == 1 {
+        "sheet was"
+    } else {
+        "sheets were"
+    };
+    format!(
+        "{moving} {sheets} removed from {source}. Undo works one document at a time, so \
+         undoing this here does not put them back there."
+    )
+}
+
+/// A move inserted its pages and could not remove them from the source.
+///
+/// ★ Its own sentence rather than silence, and rather than the engine's raw
+/// refusal, because the operator is now looking at a state neither of the two
+/// things they asked for: the pages are in both documents. Saying which half
+/// happened is the only way they can finish the job by hand.
+///
+/// ★ It names the **remedy**, because the operator's next act is not guessable
+/// from the refusal: the sheets they wanted moved are sitting in the document
+/// they came from and have to be deleted there, in that document, by hand.
+#[must_use]
+pub fn move_left_the_source_alone(source: &str) -> String {
+    format!(
+        "The sheets were placed here and could NOT be removed from {source}, so they are in \
+         both documents now. Switch to {source} and delete them there if you meant to move them."
+    )
+}
+
 /// The drag is over something that is not a drop target.
 ///
 /// Distinct from "it would change nothing", which

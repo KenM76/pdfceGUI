@@ -260,7 +260,33 @@ impl Driver {
     /// # Errors
     ///
     /// As [`Self::drag`].
+    /// `modifier` is held down for the **whole** gesture, press to release.
+    ///
+    /// ★ Which is more than the application strictly needs — pdfce samples the
+    /// drag modifier at the *release*, as Windows does — and it is deliberately
+    /// more. Holding it throughout is what an operator's hand actually does,
+    /// and it also exercises the frames in between, where the caption has to
+    /// follow the key. A harness that pressed the key only at the last instant
+    /// would pass against a build whose caption never updated.
     pub fn drag_via(
+        &self,
+        from: ScreenPoint,
+        via: ScreenPoint,
+        dwell: std::time::Duration,
+        to: ScreenPoint,
+        modifier: Option<Key>,
+    ) -> Result<()> {
+        match modifier {
+            Some(key) => sys::with_modifiers(&[key.vk()], || {
+                self.drag_via_unmodified(from, via, dwell, to)
+            }),
+            None => self.drag_via_unmodified(from, via, dwell, to),
+        }
+    }
+
+    /// [`Self::drag_via`]'s body, with whatever modifier state the caller has
+    /// already established.
+    fn drag_via_unmodified(
         &self,
         from: ScreenPoint,
         via: ScreenPoint,

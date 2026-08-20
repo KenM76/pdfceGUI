@@ -263,13 +263,14 @@ pub enum Action {
     /// tabs mean the active document changes mid-gesture, which is the whole
     /// mechanism that lets a page reach another document at all.
     ///
-    /// # It is a copy
+    /// # It is a copy unless the operator held Shift
     ///
-    /// The source document is not modified: no page is removed from it, its
-    /// undo stack is untouched, and its tab does not acquire the unsaved
-    /// marker. [`crate::app::actions::crossdoc`] §2 carries the reason, which
-    /// is that a cross-document move would be two commands on two undo stacks
-    /// and no single Ctrl+Z could reverse it.
+    /// Unmodified, the source document is not touched: no page is removed from
+    /// it, its undo stack is unchanged, and its tab does not acquire the
+    /// unsaved marker. With Shift held at the moment of release it is a
+    /// **move** — see [`Self::InsertPagesFromOpenDocument::take`], and
+    /// [`crate::app::actions::crossdoc`] §2 for why the copy is the default
+    /// rather than the other way round.
     InsertPagesFromOpenDocument {
         /// The tab position of the document the pages come from.
         ///
@@ -284,6 +285,24 @@ pub enum Action {
         /// [`PageAction::InsertPagesFromFile`]'s field, verbatim and for the
         /// same reason.
         position: pdfce_core::pageops::InsertPosition,
+        /// **Remove them from the source afterwards** — the Shift-held move.
+        ///
+        /// Windows' own drag modifier: Ctrl copies, Shift moves. Two documents
+        /// are two files with two undo stacks, which is the "different volumes"
+        /// case, so the unmodified drag copies and this is what asks for
+        /// something else.
+        ///
+        /// ★ Sampled at the **release**, not at the press. That is what
+        /// Explorer does — the cursor badge changes under your hand as you
+        /// press and release the key mid-drag — and it is what lets an operator
+        /// start a drag, see the caption say *copy*, and change their mind
+        /// without letting go.
+        ///
+        /// ★★ It is TWO edits in two documents and the operator is told so.
+        /// One `Ctrl+Z` reverses one half. `crate::text::doctabs::moved_out_of`
+        /// is the sentence that says it, and it is the reason this is the
+        /// modified gesture rather than the default.
+        take: bool,
     },
     /// Multiply the current zoom by a factor — the Ctrl+wheel path.
     ///

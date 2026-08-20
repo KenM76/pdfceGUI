@@ -38,7 +38,42 @@
 //! copies between volumes by default. Acrobat's Insert Pages is a copy. So this
 //! is a copy, and the caption says so before the operator releases the button.
 //!
-//! ## 3. What the source document is guaranteed
+//! ## 2b. ★★ And Shift makes it a move, which is the operator's call
+//!
+//! Requested 2026-08-20: *"can you also make it so you can move the pages
+//! between documents instead of just copy by holding one of the keys like shift
+//! or control, whichever on windows uses to switch from copy to move
+//! operation."*
+//!
+//! **Shift.** Windows has bound the drag modifiers the same way since the
+//! mid-nineties — Ctrl copies, Shift moves, Ctrl+Shift makes a shortcut — and
+//! [`crate::text::doctabs::drag_landing_move`] carries the table. Copy is
+//! already what an unmodified cross-document drag does here, so Ctrl asks for
+//! what it already gets and Shift is the modifier that changes the verb.
+//!
+//! Everything §2 says about undo is still true, so **it is disclosed rather
+//! than designed away**: [`crate::text::doctabs::moved_out_of`] states in words
+//! that one Ctrl+Z reverses one half of a move, on the status row, immediately
+//! after it happens. That is the honest shape — the operator asked for a
+//! capability whose cost is real, so they get the capability *and* the cost,
+//! rather than a refusal that protects them from a choice that is theirs.
+//!
+//! ### The order is insert, then delete, and it cannot be the other way
+//!
+//! The source's pages are removed **only if the target's insert actually
+//! happened**, which is why [`super::pages::insert_from_view`] returns a count
+//! rather than nothing. Deleting first — or deleting regardless — would lose
+//! the operator's sheets to a refusal they never saw: a certified target, an
+//! encrypted one, a page tree that will not walk. All three are reachable and
+//! all three decline silently as far as the source document is concerned.
+//!
+//! And if the *delete* is the half that fails, the pages are now in **both**
+//! documents. That is a third state, neither of the two things anybody asked
+//! for, and [`crate::text::doctabs::move_left_the_source_alone`] says so
+//! plainly. Silence there would leave an operator believing they had moved
+//! something they had duplicated.
+//!
+//! ## 3. What the source document is guaranteed **when it is a copy**
 //!
 //! **Nothing is written to it and nothing is read out of it destructively.**
 //! The engine takes a `DocumentView` — a read-only projection — and copies
@@ -93,6 +128,7 @@ impl PdfceApp {
         source_slot: usize,
         pages: &[usize],
         position: pdfce_core::pageops::InsertPosition,
+        take: bool,
     ) {
         if source_slot == self.active_slot {
             crate::diag::trace(|| {
@@ -157,6 +193,119 @@ impl PdfceApp {
         // Everything past this point is an ordinary insert, and deliberately
         // the *same* one an Insert-from-file performs. See that function's
         // docs for the disclosure and for why the view goes to what arrived.
-        super::pages::insert_from_view(target, &view, pages, position);
+        let inserted = super::pages::insert_from_view(target, &view, pages, position);
+        if !take || inserted == 0 {
+            return;
+        }
+        // Captured before the borrows end: the move's own sentence is stamped
+        // with the TARGET's revision, because the target is the document on
+        // screen and the status bar only ever draws the active one's.
+        let target_epoch = target.edit_epoch;
+        let source_label = crate::text::doctabs::tab_label(&source_path, false);
+        self.take_pages_from(source_slot, pages, target_epoch, &source_label);
+    }
+
+    /// **The second half of a move** — remove the pages from the document they
+    /// came from, now that the first half has demonstrably happened.
+    ///
+    /// Split out of the arm above because it needs the **opposite borrow**. The
+    /// insert holds `&self.parked[i]` together with `&mut self.status`; this
+    /// holds `&mut self.parked[i]` and nothing else. Two borrows of one field
+    /// that differ in mutability cannot overlap, so they cannot be one
+    /// function, and forcing it would mean cloning a document to satisfy the
+    /// compiler.
+    ///
+    /// # Why the disclosure is stamped with the TARGET's epoch
+    ///
+    /// Because the target is the document on screen. `crate::app::status` draws
+    /// the **active** document's disclosure and nothing else, so a sentence
+    /// filed against the source's revision would be recorded, correct, and
+    /// invisible — the shape of failure `app::actions::vector_edit`'s own
+    /// header calls *recorded, not disclosed*.
+    fn take_pages_from(
+        &mut self,
+        source_slot: usize,
+        pages: &[usize],
+        target_epoch: u64,
+        source_label: &str,
+    ) {
+        // `documents` §1's arithmetic again, and written out again rather than
+        // shared: the caller's copy is inside a borrow that has ended by the
+        // time this runs, and a helper returning it would be a third place the
+        // encoding is known.
+        let parked_index = if source_slot < self.active_slot {
+            source_slot
+        } else {
+            source_slot.wrapping_sub(1)
+        };
+        let Some(Status::Open(source)) = self.parked.get_mut(parked_index) else {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "page-move-take-refused slot={source_slot} reason=source-not-open"
+                )
+            });
+            return;
+        };
+        let before = source.pages.len();
+        // ★★ The SOURCE's own disclosures are captured on the way past, and
+        // that is not tidiness — it is the only way they reach anybody.
+        //
+        // `delete_pages` reports what the removal broke: outline items and
+        // links that now point at nothing, named destinations that no longer
+        // resolve, page labels gone stale. `vector_edit` files those against
+        // the document it edited — the SOURCE — and `crate::app::status` draws
+        // the **active** document's disclosure and nothing else. So without
+        // this they would be recorded, correct, and invisible, on the one
+        // document the operator is not looking at.
+        //
+        // Captured here and re-filed under the target's epoch below, together
+        // with the move's own sentence.
+        let mut source_notes: Vec<String> = Vec::new();
+        // ★ `vector_edit` on the SOURCE, which is what buys the whole protocol
+        // for a document that is not on screen: the render worker is cancelled,
+        // the mutation goes through `Arc::get_mut`, the epoch is bumped, and
+        // `pages::resync` drops the rasters of sheets that have moved.
+        //
+        // That last one is not ceremony here. A parked document **keeps its
+        // page texture and its strip cache** (`crate::app::documents` §4), so
+        // skipping the resync would leave pictures of the old page order
+        // waiting behind its tab — visible the moment the operator clicks back,
+        // and attributable to nothing.
+        super::apply::vector_edit(source, "page-move-take", 0, pages.len(), |session| {
+            let outcome = super::pages::delete(session, pages);
+            if let Ok(notes) = &outcome {
+                source_notes.clone_from(notes);
+            }
+            outcome
+        });
+        let removed = before.saturating_sub(source.pages.len());
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "page-move-took slot={source_slot} asked={} removed={removed}",
+                pages.len()
+            )
+        });
+
+        // ★ Which sentence, decided by what HAPPENED rather than by what was
+        // attempted. `removed == 0` means the insert landed and the delete did
+        // not, so the pages are in both documents — a third state neither of
+        // the two things anybody asked for, and the one an operator must not
+        // discover by counting.
+        let mut notes = vec![if removed == 0 {
+            crate::text::doctabs::move_left_the_source_alone(source_label)
+        } else {
+            crate::text::doctabs::moved_out_of(removed, source_label)
+        }];
+        // The move's own sentence FIRST, then whatever the removal broke in the
+        // source. Order is the reading order: *what happened* before *what it
+        // cost*, which is the shape every other disclosure in this application
+        // uses.
+        notes.extend(source_notes);
+        super::record_edit_disclosure(Some(super::EditDisclosure {
+            epoch: target_epoch,
+            notes,
+        }));
     }
 }

@@ -578,19 +578,27 @@ fn settle_drag(
     // reverse it.
     if drag.source_slot != here.slot {
         let position = crate::pagedrag::insert_position(target.gap, page_count);
+        // ★ Sampled HERE, at the release, not at the press. Windows reads the
+        // drag modifiers at the drop — which is why Explorer's cursor badge
+        // changes under your hand as you press and release the key mid-drag —
+        // and it is what lets an operator start a drag, read the caption, and
+        // change their mind without letting go.
+        let take = crate::pagedrag::wants_move(ui.ctx());
         crate::diag::trace(|| {
             format!(
                 // ui-text-exempt: diagnostic trace, never displayed
-                "pages-drag-release from-slot={} gap={} moving={} copied=1",
+                "pages-drag-release from-slot={} gap={} moving={} copied=1 take={}",
                 drag.source_slot,
                 target.gap,
                 drag.pages.len(),
+                u8::from(take),
             )
         });
         actions.push(Action::InsertPagesFromOpenDocument {
             source_slot: drag.source_slot,
             pages: drag.pages,
             position,
+            take,
         });
         return;
     }

@@ -151,8 +151,9 @@ impl PdfceApp {
                 source_slot,
                 pages,
                 position,
+                take,
             } => {
-                self.apply_insert_from_open_document(source_slot, &pages, position);
+                self.apply_insert_from_open_document(source_slot, &pages, position, take);
                 return;
             }
             // ★ Save a copy — matched here for the guard's own reason rather

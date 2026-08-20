@@ -288,6 +288,11 @@ pub mod document_tabs;
 
 /// **A page dragged out of one open document and into another**, through a
 /// spring-loaded tab — the operator's request of 2026-08-19, end to end.
+///
+/// Two registrations, one implementation: the unmodified drag must **copy** and
+/// the Shift-held drag must **move**. Running only one would pass against a
+/// build that always did the same thing, which is exactly what a modifier read
+/// at the wrong moment produces.
 pub mod page_drag_between_documents;
 
 pub mod about;
@@ -627,7 +632,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `--second-pdf`, and the SKIP reason says why the same file cannot be
         // passed twice.
         Box::new(document_tabs::TwoDocumentsGetTwoTabs),
-        Box::new(page_drag_between_documents::PageDraggedBetweenDocumentsIsCopied),
+        Box::new(page_drag_between_documents::PageDraggedBetweenDocuments::COPY),
+        Box::new(page_drag_between_documents::PageDraggedBetweenDocuments::MOVE),
         Box::new(about::AboutReportsTheBuild),
         // Beside About because it is its neighbour in every way that matters to
         // a run: it launches with NO document, it opens one window, and it

@@ -217,19 +217,23 @@ pub(super) fn offer(
         return;
     }
 
+    // Sampled at the release, for `panels::pages::settle_drag`'s reason.
+    let take = crate::pagedrag::wants_move(ui.ctx());
     crate::diag::trace(|| {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            "canvas-drop from-slot={} gap={} moving={} copied=1",
+            "canvas-drop from-slot={} gap={} moving={} copied=1 take={}",
             drag.source_slot,
             target.gap,
-            drag.pages.len()
+            drag.pages.len(),
+            u8::from(take),
         )
     });
     actions.push(Action::InsertPagesFromOpenDocument {
         source_slot: drag.source_slot,
         pages: drag.pages,
         position: crate::pagedrag::insert_position(target.gap, page_count),
+        take,
     });
 }
 

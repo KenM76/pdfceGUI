@@ -315,6 +315,34 @@ pub fn landing(ctx: &egui::Context) -> Option<DropLanding> {
     ctx.data(|d| d.get_temp::<DropLanding>(landing_shown_key()))
 }
 
+/// **Is the operator asking for a MOVE rather than a copy?**
+///
+/// Shift, read live — so the answer changes as the key goes down and up, the
+/// caption follows it, and the state **at the moment of release** is what the
+/// drop uses. That is what Windows does: the modifier is not latched at the
+/// press, it is sampled at the drop, which is why Explorer's cursor badge
+/// changes under your hand mid-drag.
+///
+/// ## ★ Why Shift, and not Ctrl
+///
+/// Because on this desktop Ctrl means *copy* and Shift means *move*, and has
+/// since the mid-nineties. `crate::text::doctabs::drag_landing_move` carries
+/// the table. Copy is already the unmodified behaviour here — two documents
+/// are two files with two undo stacks, which is the "different volumes" case —
+/// so Ctrl is a no-op that asks for what it already gets, and Shift is the one
+/// that changes the verb.
+///
+/// ## It means nothing within one document
+///
+/// A drag that begins and ends in the same document is a reorder, which is
+/// already a move; there is nothing for a modifier to select between. Callers
+/// consult this only on the cross-document branch, and the caption only offers
+/// the hint there.
+#[must_use]
+pub fn wants_move(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.modifiers.shift)
+}
+
 /// **The sentence describing what this drag is about to do**, or `None` when
 /// no drag is in flight.
 ///
@@ -337,16 +365,33 @@ pub fn caption(ctx: &egui::Context) -> Option<String> {
     if !landing.lands {
         return Some(crate::text::pages::drag_lands_nowhere().to_owned());
     }
-    Some(if landing.target_slot == drag.source_slot {
-        crate::text::doctabs::drag_landing_here(drag.pages.len(), landing.gap, landing.page_count)
-    } else {
-        crate::text::doctabs::drag_landing_other(
+    if landing.target_slot == drag.source_slot {
+        // Within one document the drag is a reorder, which is already a move.
+        // No modifier applies and none is offered.
+        return Some(crate::text::doctabs::drag_landing_here(
+            drag.pages.len(),
+            landing.gap,
+            landing.page_count,
+        ));
+    }
+    if wants_move(ctx) {
+        return Some(crate::text::doctabs::drag_landing_move(
             drag.pages.len(),
             landing.gap,
             &drag.source_label,
             landing.page_count,
-        )
-    })
+        ));
+    }
+    // ★ The copy sentence AND the hint, from one catalogue function rather
+    // than joined here. How two operator-visible sentences meet is itself an
+    // operator-visible decision, and `R1` puts it in the catalogue with them —
+    // `check-ui-strings` caught the `format!("{} {}", …)` this replaced.
+    Some(crate::text::doctabs::drag_landing_copy_with_hint(
+        drag.pages.len(),
+        landing.gap,
+        &drag.source_label,
+        landing.page_count,
+    ))
 }
 
 #[cfg(test)]
