@@ -373,24 +373,67 @@ with three asks — a published "is this editable?" query, a distinct error for
 
 ## O2 — Cut / copy / paste of PAGE CONTENT (`Ctrl+X` / `Ctrl+C` / `Ctrl+V`)
 
-**Asked:** repeatedly; restated 2026-08-20.
-**Status:** OPEN — partially shipped, and the part that is missing is the part
-you are pressing the key for.
+**Asked:** first week, and repeatedly since. Restated 2026-08-20: *"can you get
+cut copy and paste working for objects I select on the canvas?"*
+**Scope set by you, 2026-08-20:** *"oh I might want all cases so we shouldn't be
+restrictive in our ask."*
+**Status:** OPEN — **blocked on the engine, and the full ask is now filed**:
+`request_an_object_clipboard_the_whole_capability_not_the_convenient_subset.md`.
 
-- Markup / comments: **works** (`edit.cut`, `edit.copy`, `edit.paste`, all
-  three chords bound and driven).
-- Swept text: **works** (copy to the system clipboard).
-- **Page content — a path, a line, a block of drawing:** refused. The
-  refusal is a sentence on the status row, which from your chair reads as
-  "the shortcut does nothing".
-- A placed image: can be pasted in, cannot be picked back up.
+### What works today
 
-**Blocked by the engine.** `pdfce-core` has no verb that inserts page content;
-this was measured over `edit.rs` and the narrower half was corrected on
-2026-08-19 (`note_correcting_our_own_clipboard_blocker_and_one_small_ask.md`).
-The note ended *"we are not asking for it yet"* — **that was my call to make and
-it was the wrong one**, because you had already asked. A proper request is owed
-and this row is not closed until the round trip works on a path.
+- Markup and comments: cut, copy and paste, all three chords bound.
+- Swept text: copy to the system clipboard.
+- **Page content — a path, a line, a block of drawing:** nothing.
+- A placed image: can be put in, cannot be picked back up.
+
+And **nothing at all crosses a document boundary**, which matters now that you
+have tabs and move pages between them.
+
+### I nearly asked for a third of it
+
+I was going to ask for `duplicate_objects` alone, on the argument that Ctrl+V in
+one document decomposes into *duplicate + offset* and `move_objects` already
+exists. That is true and it would have covered same-document duplication only —
+not pasting into the other tab, not the system clipboard, not dimensions or form
+fields. You stopped that, and the filed request is the whole capability:
+
+1. **A portable object payload** — content *and* the resources it depends on.
+   Kind-agnostic, so a mixed selection works; takes a `Matrix`, so paste-in-place,
+   paste-offset, paste-scaled and paste-rotated are one verb; with a preflight so
+   the menu item can be greyed rather than discovering the refusal by pressing.
+2. **Serialisable**, which is what makes cross-document and cross-session paste
+   fall out instead of being a second feature.
+3. **The system clipboard** — a pdfce-private format so pdfce→pdfce is lossless,
+   plus a standalone PDF and an image so SolidWorks and your CAD packages can
+   read it. Registering those is mine; I need the bytes from them.
+4. **Cut as one undo entry**, or Ctrl+X then Ctrl+Z gives your objects back and
+   leaves the clipboard changed.
+5. **Dimensions and form fields refuse loudly** rather than pasting something
+   subtly broken — a pasted dimension needs a sidecar record and a group, a
+   pasted field needs a name that does not collide. Silent partial success is
+   the one outcome I cannot work with.
+
+**Reading vector data IN from other programs** (paste from Illustrator) is
+explicitly *not* in the ask — that is foreign PDF/EMF/SVG parsing and a much
+larger job. Named so it is a decision rather than an omission. Say the word if
+you want it.
+
+### ★ The finding that makes this smaller than it looks
+
+`EditSession::import_object` already exists, privately: a recursive
+cross-document object-graph copy with fresh object numbers, every reference
+remapped, cycles handled, and stream payloads re-staged. It is what
+`insert_pages` and `merge_document` use to bring pages across **with their
+fonts, patterns, images and soft masks intact**.
+
+That is the entire difficulty of pasting page content, already solved. The ask
+is not "build a copy engine" — it is "expose the one you have at object
+granularity."
+
+**Sits below the transform verbs in priority**, deliberately: an operator who
+can place an image and not move it is worse off than one who cannot copy a path.
+The first is a feature that looks broken; the second is one that is absent.
 
 ## O3 — Perimeter measuring tool
 
@@ -455,18 +498,36 @@ tells a menu whether to grey the item, so this is shell work only.
 ## O4 — Insert image does nothing
 
 **Asked:** 2026-08-19, restated 2026-08-20 — *"No it always hasn't worked."*
-**Status:** OPEN, **cause found 2026-08-20**, blocked on the engine.
+**Status:** **BOTH CAUSES FIXED 2026-08-20.** Awaiting your verdict.
 
-You were right and it was never a misunderstanding. `EditSession::add_image`
-returns success, the status bar reports the resolution, and the picture is not
-on the page — because `add_image` corrupts the page's `/Contents` when it is an
-indirect reference to an array, which is what every CAD-exported sheet uses.
-The saved file then cannot be reopened by pdfce at all.
+You were right, twice, and it was never a misunderstanding. There were two
+separate defects sitting on top of each other:
 
-Eight-line repro and the exact bytes are in
-`request_add_image_corrupts_a_page_whose_contents_is_an_indirect_array.md`.
-Works on a page whose `/Contents` is a plain stream; fails on one whose
-`/Contents` is an array. That is the entire difference.
+**The engine's.** `add_image` corrupted the page's `/Contents` whenever it was
+an indirect reference to an array — which is what every CAD-exported sheet uses.
+The verb returned success, the status bar reported the resolution, the picture
+was not on the page, and **the saved file could not be reopened by pdfce at
+all**. Filed with an eight-line repro; fixed in `Pass 111.0`. Files already
+damaged by an older build now open, render, and say so through a counted
+disclosure rather than being silently patched.
+
+Verified here, headlessly, on your benchmark drawing:
+
+```
+pages BEFORE: Ok(1)
+pages AFTER:  Ok(1)     ← was Err("/Contents is neither a stream nor an array")
+reloaded:     Ok(1)
+```
+
+**Mine.** The shell re-walked the page tree after every edit and returned early
+when the page's object id had not moved — with a comment claiming *"the page
+vector already describes the document"*. False: a `Page` carries its `/Contents`
+and `/Resources`, and `add_image` changes what `/Contents` **is**. So the canvas
+and the object tree went on reading the page as it was before the edit. That is
+row O13, fixed the same day and driven.
+
+Between them they explain everything you reported, including why saving and
+reopening showed the picture: the bytes were right the whole time.
 
 ## O7 — Selecting text inside a draft
 
