@@ -55,7 +55,22 @@
 //! dimension does not exist yet — and that is precisely where `canvas::measure`
 //! uses it.
 //!
-//! ## Why only linear dimensions may be dragged (and why that is not a stub)
+//! ## Two kinds may be dragged, and a perimeter is the easier of them
+//!
+//! **Linear** resolves the delta in the dimension's own axis frame, above.
+//! **Perimeter** does not have one — a shape has no single axis to build a
+//! frame around — so the engine anchors its label at `centroid + (text_along,
+//! offset)` in the **page's** axes, and the delta is the answer with no
+//! projection at all.
+//!
+//! One consequence is worth naming rather than discovering: a perimeter's label
+//! is **strictly more free** than a linear one's. Drag a linear label
+//! diagonally and it is flattened onto its axis, because that is where a
+//! dimension line's text lives; drag a perimeter's and it lands where you
+//! dropped it. That is not an inconsistency to iron out — it is the difference
+//! between a label that belongs to a line and one that belongs to a shape.
+//!
+//! ## Why an ANGULAR dimension may not (and why that is not a stub)
 //!
 //! `place_dimension` accepts angular dimensions too, but its two arguments mean
 //! something different there: `offset` is an **arc radius** from the apex and
@@ -130,7 +145,14 @@ pub fn selected(doc: &OpenDoc, selection: &SelectionState) -> Option<(DimensionI
     // The gate that keeps an un-draggable kind from ever starting a gesture.
     // See the module header: an angular dimension's placement is a radius and
     // an angle, and this module's delta is in points.
-    if !matches!(record.kind, DimensionKind::Linear { .. }) {
+    //
+    // Perimeter joined Linear on 2026-08-20, when the engine shipped the kind
+    // and confirmed that `place_dimension` carries it *"with no new semantics
+    // and no new fields"*.
+    if !matches!(
+        record.kind,
+        DimensionKind::Linear { .. } | DimensionKind::Perimeter { .. }
+    ) {
         return None;
     }
     Some((record.id, record.kind.clone()))
@@ -168,10 +190,11 @@ pub fn grab_box(doc: &OpenDoc, map: &PageMapping, selection: &SelectionState) ->
 /// a caller cannot draw one placement and commit another without going out of
 /// its way.
 ///
-/// `None` when there is no frame to resolve against — a non-linear dimension
-/// (see the module header) or a degenerate `Aligned` one whose two picks
-/// coincide, which has no axis at all and which `axis_frame` refuses rather
-/// than fabricating.
+/// `None` when the delta cannot be resolved — an **angular** dimension (see the
+/// module header: its placement is a radius and an angle, and this delta is in
+/// points), a **circular** one (which the engine refuses outright, having no
+/// axis to place along), or a degenerate `Aligned` linear one whose two picks
+/// coincide and which `axis_frame` refuses rather than fabricating.
 ///
 /// # TODO — angular placement
 ///
@@ -182,6 +205,48 @@ pub fn grab_box(doc: &OpenDoc, map: &PageMapping, selection: &SelectionState) ->
 /// rather than approximated.
 #[must_use]
 pub fn placed(kind: &DimensionKind, dx: f64, dy: f64) -> Option<(DimensionKind, f64, f64)> {
+    // ★★ A PERIMETER'S PLACEMENT IS IN PAGE AXES, AND THAT IS WHY IT NEEDS NO
+    // PROJECTION.
+    //
+    // A linear dimension's `offset` and `text_along` are measured along its own
+    // axis frame — the whole reason [`placed`]'s linear arm takes two dot
+    // products. A perimeter has no single axis to have a frame around, so the
+    // engine anchors its label at `centroid + (text_along, offset)` in the
+    // PAGE's own axes, and says so:
+    //
+    // > *"It resolves with no projection at all — the pointer delta IS the
+    // > answer, so unlike the linear case, dropping the label anywhere is
+    // > expressible rather than flattened onto one axis."*
+    //
+    // So this arm is the delta, unchanged. `text_along` takes x and `offset`
+    // takes y, which reads backwards until you remember that `offset` is
+    // "away from the thing" and for a perimeter that direction is page +y by
+    // definition rather than by derivation.
+    //
+    // ★ It is strictly MORE expressive than the linear case: a linear label
+    // dragged diagonally is flattened onto its axis, and this one lands where
+    // the operator dropped it. That is not an inconsistency to fix — it is the
+    // difference between a label that belongs to a line and one that belongs to
+    // a shape.
+    if let DimensionKind::Perimeter {
+        points,
+        closed,
+        offset,
+        text_along,
+    } = kind
+    {
+        let (offset, text_along) = (offset + dy, text_along + dx);
+        return Some((
+            DimensionKind::Perimeter {
+                points: points.clone(),
+                closed: *closed,
+                offset,
+                text_along,
+            },
+            offset,
+            text_along,
+        ));
+    }
     let DimensionKind::Linear {
         a,
         b,
@@ -359,5 +424,57 @@ mod tests {
             text_along: 0.0,
         };
         assert!(placed(&degenerate, 5.0, 5.0).is_none());
+    }
+    fn square_perimeter() -> DimensionKind {
+        DimensionKind::Perimeter {
+            points: vec![
+                Point::new(0.0, 0.0),
+                Point::new(100.0, 0.0),
+                Point::new(100.0, 100.0),
+                Point::new(0.0, 100.0),
+            ],
+            closed: true,
+            offset: 0.0,
+            text_along: 0.0,
+        }
+    }
+
+    /// ★★ **A perimeter's label goes where it is dropped**, in both axes.
+    ///
+    /// The property that separates it from a linear dimension, and the one the
+    /// engine went out of its way to point out: a perimeter's placement is in
+    /// PAGE axes, so a diagonal drag is expressible. A linear dimension's
+    /// diagonal drag is flattened onto its own axis, which is correct there and
+    /// would be wrong here.
+    #[test]
+    fn a_perimeter_label_takes_the_delta_in_both_axes() {
+        let (_, offset, along) = placed(&square_perimeter(), 25.0, -40.0).expect("places");
+        assert!((along - 25.0).abs() < 1e-9, "x goes to text_along");
+        assert!((offset + 40.0).abs() < 1e-9, "y goes to offset");
+    }
+
+    /// ★ And the same guarantee the linear case has, which is the whole reason
+    /// this gesture is safe to be the default: **the measured shape is never
+    /// touched**, so the number cannot change no matter where the label lands.
+    #[test]
+    fn no_drag_moves_a_perimeter_vertex() {
+        let before = square_perimeter();
+        let (after, _, _) = placed(&before, 900.0, -700.0).expect("places");
+        let (
+            DimensionKind::Perimeter { points, closed, .. },
+            DimensionKind::Perimeter {
+                points: p0,
+                closed: c0,
+                ..
+            },
+        ) = (&after, &before)
+        else {
+            panic!("both are perimeters");
+        };
+        assert_eq!(points.len(), p0.len());
+        for (a, b) in points.iter().zip(p0) {
+            assert!((a.x - b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9);
+        }
+        assert_eq!(closed, c0, "and the ring is still a ring");
     }
 }
