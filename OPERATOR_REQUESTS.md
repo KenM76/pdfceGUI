@@ -80,6 +80,133 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O17 — Selection is governed by a FILTER on the status bar, not by two menus at the top
+
+**Asked:** 2026-08-21 — *"Can we change how editing works? On the bottom bar I
+want a filter menu that pops up with all the options of what to enable
+selecting of — text, points, lines, etc — all the object types (glyphs beside
+each option). … We should put a view one beside it that allows the changing of
+what objects show bounding boxes around them on screen. … This is to replace
+the wonky content edit text and edit objects menu at the top. … we should also
+add a right click feature to select other for objects that are under another
+object."*
+
+**Status:** **RECORDED 2026-08-21, NOT STARTED.** Nothing below is built. This
+row is the specification; it is written out in full so the shape of the ask
+survives the session it was made in.
+
+### What is being replaced, and why he calls it wonky
+
+The two menus at the top ask the operator to **declare an intention before
+pointing at anything** — *I am now editing text*, *I am now editing objects* —
+and then hit-testing obeys the declaration rather than the drawing. That is the
+wrong end of the gesture. It means the same click on the same pixel does
+different things depending on a control the operator is not looking at while
+they click, and it means reaching two levels into a ribbon to make a line
+selectable.
+
+Every program in the class solved this the other way round: **a persistent,
+always-visible filter that says what is pickable, parked where it can be
+glanced at without leaving the page.** AutoCAD's object snap and selection
+filter, Illustrator's layer lock column, Inkscape's "Select Same" plus its
+per-layer locks, Acrobat's own object-type restriction — the mechanism differs,
+the shape does not. Ken's placement (status bar, popup on click, glyph per row)
+is the CAD convention exactly, and per the standing rule the convergence of the
+product class IS the specification.
+
+### A — The Selection Filter popup
+
+Lives on the **bottom status bar**. Click opens a popup listing **every object
+class pdfce can hit-test**, each with a glyph and a checkbox. Enabled = that
+class accepts a click. Disabled = clicks pass straight through it to whatever is
+behind, in every mode, with no exception.
+
+The class list must be derived from what the hit test can actually distinguish
+today, not invented — text, glyph/character, path, line segment, node/vertex,
+image, shape/annotation, ce dimension, form field, markup, link, and whatever
+else the selection enum already carries. **Every class in the enum gets a row;
+a class with no row is a class the operator cannot reach.**
+
+Needs, at minimum: All / None, and the state must persist across sessions like
+any other operator preference.
+
+### B — The View popup, beside it
+
+Same placement, same shape, different question: **what is drawn as a bounding
+box or a node marker while unselected.**
+
+- Text **off** = renders exactly as it renders. Text **on** = a box around each
+  text run, always, selected or not.
+- Objects **on** = a box around each object.
+- Nodes **on** = the vertices of paths shown as markers, so they can be seen
+  before they are aimed at.
+
+★ **This is disclosure furniture, not content marking, and the distinction has
+to be held.** Rule 4 forbids styling *applied content* to signal uncertainty.
+It does not forbid an operator-controlled overlay that reveals structure — that
+is the same category as a CAD program's grid or an editor's whitespace marks:
+**off by default, switched on deliberately, drawn as chrome over the page and
+never mistaken for ink.** The test still applies: with every View toggle off, a
+screenshot of the canvas must be indistinguishable from the saved-and-reopened
+document. That is what makes this safe.
+
+### C — What a click MEANS, per mode
+
+| mode | single click on a filtered-in object |
+|---|---|
+| **Read** | selects it. From that selection: clipboard operations, and form filling |
+| **Review** | selects it, and permits editing of the things review owns — markup, comments, form fields |
+| **Edit** | selects it, and permits editing of anything |
+
+**In all three modes the filter is authoritative.** A class switched off in the
+filter is not selectable in Read, not selectable in Review, not selectable in
+Edit. The filter sits *above* the mode, not inside it.
+
+★ **Open question, and it is a convention question rather than a preference
+one:** whether entering edit-on-an-object in Edit mode is the single click that
+selected it, or a second click / double-click. He named the alternative himself
+— *"or double clicking if that is the more common convention"* — which is the
+right instinct and the right person to be asked. **The class answer is
+double-click**: PowerPoint, Illustrator, Figma, Visio and Acrobat all use
+single-click-selects, double-click-enters. Single-click-enters exists mainly in
+programs with no selection concept at all. Proposed, for his ruling: **click
+selects, double-click enters the object's editor**, with Enter as the keyboard
+equivalent on a selection.
+
+### D — Right-click, including "Select other"
+
+The escape hatch for the topmost-wins rule (`click-selects` C3). When objects
+stack, the click correctly takes the top one; **Select other** walks the stack
+underneath the cursor. The class convention is a submenu listing each candidate
+by type and hovering it highlights that candidate on the page before committing
+— Illustrator and Visio both do exactly this.
+
+Other entries that make sense on a canvas right-click, to be specified rather
+than improvised: Cut / Copy / Paste, Delete, Properties, Bring/Send order where
+it applies, and the object's own primary action (Edit text…, Edit dimension…).
+Right-click on **empty** page gets its own short menu — Paste, Select All, and
+the two filter popups so they are reachable without travelling to the status
+bar.
+
+### What this row does NOT decide
+
+- The exact class list — that comes from reading the selection enum, and any
+  class the enum cannot currently distinguish is a **finding**, not a row to
+  quietly drop.
+- Whether the top menus are deleted or left as a redundant path during
+  transition. Ken said *replace*; that is read as delete, but it is his call.
+- Glyph choices.
+
+### Why this is a bigger change than it reads
+
+Every one of these touches the same function: **the thing that turns a click
+into a selection.** Adding a filter, adding a stack-walk, adding mode-dependent
+consequences and adding node visibility are four demands on one code path that
+currently answers one question. `click-selects` C8 says the priority order must
+be *written down in one place and testable* — this row is the reason that rule
+now has to be honoured rather than noted, because four new claimants are about
+to arrive at the same press.
+
 ## O15 — Text editing should be MULTI-LINE
 
 **Asked:** 2026-08-21 — *"I should be able to make it multi line."*
