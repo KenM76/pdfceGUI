@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Selection filter, "Links" row (O17) — engineer-authored in the same §1
+       style contract as the rest of the set (see PROVENANCE.md, "spec gaps").
+       Generic geometry, no trademark risk.
+
+       The row it marks is `/Link` annotations — the clickable regions that
+       jump somewhere.
+
+       ★ It deliberately does NOT reuse link.svg, and the reason is that
+       link.svg does not mean a hyperlink. It is a pair of interlocking chain
+       links and it belongs to Icon::Combine, where the metaphor is "join these
+       two files into one". Handing the same chain to a hyperlink row would put
+       one picture on two unrelated ideas, in a product where the operator
+       combines PDFs often enough to have learned the first one.
+
+       The construction here is the box-with-an-escaping-arrow that has meant
+       "this goes somewhere else" since about 1995 and is in every browser,
+       every help viewer and every office suite. Per the standing rule that the
+       convergence of a product class IS the specification, an invented glyph
+       would be a defect even if it were prettier.
+
+       The frame's top-right corner is deliberately LEFT OPEN, with the arrow
+       departing through the gap. A closed box with an arrow floating outside it
+       reads as two objects; the gap is what makes it one gesture. -->
+  <path d="M26 10H12a2 2 0 0 0-2 2v24a2 2 0 0 0 2 2h24a2 2 0 0 0 2-2V22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30 8h10v10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M40 8L24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

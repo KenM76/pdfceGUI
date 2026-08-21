@@ -561,6 +561,40 @@ pub enum Icon {
     /// honestly promise where "fields" and "dimension groups" are words only
     /// the label can say. They sit on different tabs.
     ManageList,
+
+    /// Selection-filter row: **text as a whole object**.
+    ///
+    /// One of five glyphs added for `crate::canvas::pick`'s popup (O17). Its
+    /// pair is [`Icon::TextSelect`], one row below it, which means the
+    /// *characters* you sweep rather than the *object* you click — the two
+    /// rows ask genuinely different questions about the same ink, so the two
+    /// glyphs share nothing.
+    PickText,
+    /// Selection-filter row: **path objects** — the line work of a drawing.
+    ///
+    /// The operator's word for the row is "lines". Carries no node marks, and
+    /// that absence is the entire thing separating it from
+    /// [`Icon::EditObjects`] and [`Icon::ShowPoints`], both of which are also
+    /// "a stroke across the box".
+    PickPath,
+    /// Selection-filter row: **the Part rung** — one subpath of a path, or one
+    /// show-operator run of a text object.
+    ///
+    /// A chain with a bracket under one segment. The hardest of the five,
+    /// because what it has to depict is a *relationship* rather than a thing.
+    PickPart,
+    /// Selection-filter row: **form XObjects** — a whole nested drawing that
+    /// the page treats as one opaque object.
+    ///
+    /// Usually the title block or the border on a CAD sheet, and the usual
+    /// answer to "why is the selection box so big?".
+    PickFormXObject,
+    /// Selection-filter row: **`/Link` annotations**.
+    ///
+    /// ★ Deliberately not [`Icon::Combine`]'s chain, which means "join these
+    /// files" and is a metaphor the operator has already learned for something
+    /// else. This is the box-with-escaping-arrow every browser uses.
+    PickLink,
 }
 
 impl Icon {
@@ -659,6 +693,12 @@ impl Icon {
         Icon::PageExtract,
         Icon::FormFlatten,
         Icon::ManageList,
+        // The 2026-08-21 pass — the selection filter's rows (O17).
+        Icon::PickText,
+        Icon::PickPath,
+        Icon::PickPart,
+        Icon::PickFormXObject,
+        Icon::PickLink,
     ];
 
     /// The asset's SVG source.
@@ -757,6 +797,11 @@ impl Icon {
             Icon::PageExtract => assets::PAGE_EXTRACT,
             Icon::FormFlatten => assets::FORM_FLATTEN,
             Icon::ManageList => assets::LIST,
+            Icon::PickText => assets::PICK_TEXT,
+            Icon::PickPath => assets::PICK_PATH,
+            Icon::PickPart => assets::PICK_PART,
+            Icon::PickFormXObject => assets::PICK_FORM_XOBJECT,
+            Icon::PickLink => assets::PICK_LINK,
         }
     }
 
@@ -867,6 +912,17 @@ impl Icon {
             Icon::PageExtract => "page-extract",
             Icon::FormFlatten => "form-flatten",
             Icon::ManageList => "list",
+            // ui-text-exempt: diagnostic/lookup keys, matched by ui-verify and
+            // by `from_key`; never rendered.
+            Icon::PickText => "pick-text",
+            // ui-text-exempt: diagnostic/lookup key, never rendered.
+            Icon::PickPath => "pick-path",
+            // ui-text-exempt: diagnostic/lookup key, never rendered.
+            Icon::PickPart => "pick-part",
+            // ui-text-exempt: diagnostic/lookup key, never rendered.
+            Icon::PickFormXObject => "pick-form-xobject",
+            // ui-text-exempt: diagnostic/lookup key, never rendered.
+            Icon::PickLink => "pick-link",
         }
     }
 
@@ -881,7 +937,8 @@ impl Icon {
     /// two copies of a mapping is exactly how a rename lands in one of them.
     /// [`Icon::name`] stays the single source of truth and this walks it.
     ///
-    /// The cost is 82 pointer-length comparisons with an early exit, for the
+    /// The cost is one pointer-length comparison per catalogue entry
+    /// ([`Icon::ALL`]`.len()`) with an early exit, for the
     /// handful of icons a ribbon draws per frame — comfortably under a
     /// microsecond, against a frame budget of 16 ms. A `HashMap` would need
     /// a lazily-initialised static, would hash the key anyway, and would buy
@@ -922,15 +979,24 @@ mod tests {
         // remaining text buttons added 25 — and 76 until later the same day,
         // when the three unblocked Phase 6 markup kinds added `shape-polyline`,
         // `shape-polygon` and `shape-ink`. If this fails, the fix is not to
-        // edit the number: it is to check that the variant you added is in
-        // `ALL`, and then to update this count AND the two prose figures
-        // that quote it — `from_key`'s "N pointer-length comparisons" and
-        // `super::cache`'s "N icons x 2 weights". A count in a doc comment
-        // that has drifted from the count in a test is how this project has
-        // twice shipped a paragraph that was quietly false.
+        // edit the number: it is to check that the variant you added really is
+        // in `ALL`, and only then to update this count.
+        //
+        // ★ This comment used to also say "and update the two prose figures
+        // that quote it". That instruction was followed exactly once. On
+        // 2026-08-21 the count here was 86 while both of those paragraphs
+        // still said 82 — the drift the instruction existed to prevent,
+        // committed by the instruction's own readers, twice.
+        //
+        // So the paragraphs no longer carry a number. `from_key` now says
+        // "one comparison per catalogue entry" and `super::cache` says "one
+        // entry per icon per weight", both of which are true at every size
+        // the set will ever be. THIS assertion is the only figure left, and it
+        // is in a test, where drift fails the build instead of misinforming a
+        // reader. Prefer that shape for any future count.
         assert_eq!(
             Icon::ALL.len(),
-            86,
+            91,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

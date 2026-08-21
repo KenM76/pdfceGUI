@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Selection filter, "Parts" row (O17) — engineer-authored in the same §1
+       style contract as shape-polyline.svg (see PROVENANCE.md, "spec gaps").
+       Generic geometry, no trademark risk.
+
+       The row it marks is the PART rung: one subpath of a path object, or one
+       show-operator run of a text object. The thing that has to come across is
+       not "a line" but "ONE PIECE OF a line" — which is a relationship, and a
+       relationship is the hardest thing an icon has to say.
+
+       The construction is a chain of three segments (deliberately the same
+       chain shape_polyline.svg uses, because "a path" should look like a path
+       wherever it appears) with a BRACKET under the middle segment. A bracket
+       is the one mark that means "this extent, of the thing above it" without
+       needing a second colour or a second stroke weight — both of which are
+       unavailable here, since the set is single-weight currentColor throughout
+       and redact.svg owns the only fill.
+
+       The bracket spans exactly the middle segment's horizontal extent (18..30
+       against a segment running 18->30) so it points at one segment and not at
+       the chain. Getting that span wrong is the whole failure mode: a bracket
+       under the entire chain says "all of it", which is the Object rung and a
+       different row of the same popup.
+
+       Drop-tails on the bracket (the 4-unit stubs at each end) are what make it
+       a bracket rather than an underline. Without them, at 16px, it reads as
+       shape-highlight.svg. -->
+  <path d="M8 26L18 12L30 26L40 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 40v-4h12v4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

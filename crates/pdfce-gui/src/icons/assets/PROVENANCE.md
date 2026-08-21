@@ -1,6 +1,6 @@
 # PROVENANCE — the pdfce icon set
 
-The 79 SVG files beside this note are **redistributed** by pdfceGUI: each one
+The SVG files beside this note are **redistributed** by pdfceGUI: each one
 is compiled into `pdfce-gui.exe` by an `include_str!` in
 `crates/pdfce-gui/src/icons/assets.rs`, so every operator who is handed a
 binary is handed this art. `cargo-about` generates `THIRD_PARTY_LICENSES.md`
@@ -78,17 +78,27 @@ Two consequences bind every future asset dropped into this directory:
 
 ## The files
 
-All 79 `.svg` files in this directory, and every `.svg` added to it in future.
-This note **covers every file in this directory** — a per-glyph table would be
-79 rows saying the same sentence, and the thing that varies between them (what
+Every `.svg` file in this directory, including every one added to it in
+future. This note **covers the whole directory** — a per-glyph table would be
+one row per file saying the same sentence, and the thing that varies (what
 the glyph depicts, and which neighbouring glyph it was drawn to stay
 distinguishable from) is recorded in each asset's own embedded XML comment,
 which is where someone editing the art will actually be looking.
 
-`crates/pdfce-gui/src/icons/catalog.rs` holds 80 `Icon` variants against these
-79 assets: `folder.svg` is deliberately shared by two roles (Open, and the
-font-folder control), which `tests::only_the_folder_asset_is_shared` asserts is
-the only sharing in the set.
+`crates/pdfce-gui/src/icons/catalog.rs` holds exactly one more `Icon` variant
+than there are assets here, because `folder.svg` is deliberately shared by two
+roles (Open, and the font-folder control).
+`tests::only_the_folder_asset_is_shared` asserts that is the only sharing in
+the set — which is the durable statement, and the reason no count appears in
+this paragraph.
+
+★ **Deliberately no totals anywhere in this note.** It carried "79 files" and
+"80 variants" from 2026-08-14 until 2026-08-21, by which point the real figures
+were 85 and 86. Nothing failed, because no gate reads them and
+`check-shipped-assets.py` accounts for the directory by *contents* rather than
+by count. A number in prose that nothing verifies is a number that rots, and
+this project has spent several corrections on exactly that failure. Count with
+`ls *.svg | wc -l` if you need a figure; do not write one down here.
 
 ## ★ What would change this
 

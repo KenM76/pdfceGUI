@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Selection filter, "Text" row (O17) — engineer-authored in the same §1
+       style contract as edit-objects.svg and show-points.svg (see
+       PROVENANCE.md, "spec gaps"). Generic geometry, no trademark risk.
+
+       The row it marks is TEXT AS A WHOLE OBJECT — the thing you click once to
+       move or restyle. It has to stay readable against two neighbours it will
+       often sit near in the same popup:
+
+       - text-select.svg (the "Characters" row) is a bare serif I-beam, and
+         means the LETTERS you sweep to copy. The two rows are genuinely
+         different questions about the same ink, so the two glyphs share
+         nothing at all: one is a cursor, this one is an object.
+       - text-freetext.svg is a rect with text lines inside it and means the
+         FreeText annotation. This must not be that, so there is deliberately
+         NO frame around the lines here.
+
+       The construction instead borrows the SQUARE NODE vocabulary that
+       edit-objects.svg and show-points.svg already established across the set:
+       two square grips on the diagonal say "this is a thing you select", and
+       the three text lines say what kind of thing. Diagonal rather than a full
+       set of four, because two grips read as a corner pair at 16px where four
+       collapse into a smudged border.
+
+       Line lengths run 14/14/9 so the block reads as prose with a short last
+       line rather than as a stack of rules. -->
+  <path d="M18 18h14M18 24h14M18 30h9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="6" y="6" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="34" y="34" width="8" height="8" rx="1" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+</svg>

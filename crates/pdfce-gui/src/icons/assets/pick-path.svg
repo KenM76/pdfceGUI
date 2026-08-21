@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Selection filter, "Lines" row (O17) — engineer-authored in the same §1
+       style contract as edit-objects.svg (see PROVENANCE.md, "spec gaps").
+       Generic geometry, no trademark risk.
+
+       The row it marks is PATH OBJECTS: the line work a drawing is made of.
+       The operator's own word for the row is "lines", and on a CAD sheet this
+       is nearly everything on the page.
+
+       ★ The load-bearing decision is what this glyph does NOT have: nodes.
+       Three icons in this set are all "a stroke across the box", and they are
+       only distinguishable by what is attached to the stroke —
+
+         edit-objects.svg   one Bezier + two square nodes   -> editing a shape
+         show-points.svg    one run + three square nodes    -> the points
+         this file          one line and one curve, bare    -> the ink itself
+
+       So a square node anywhere on this glyph would collapse it into one of
+       the other two, and specifically into the two rows immediately below it
+       in the same popup ("Parts" and "Points"). Bare strokes are the whole
+       message.
+
+       TWO strokes rather than one, and one straight against one curved,
+       because a PDF path object is `m`/`l`/`c` — segments and curves — and a
+       single diagonal would read as shape-ink.svg's freehand or as a divider.
+       They cross rather than meeting, so neither can be read as a corner of
+       one connected chain (which is what shape-polyline.svg means). -->
+  <path d="M8 38L24 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M10 20C22 20 26 38 40 34" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

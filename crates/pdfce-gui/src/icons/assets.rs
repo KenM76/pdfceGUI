@@ -780,3 +780,52 @@ pub(super) const ZOOM_REGION: &str = include_str!("assets/zoom-region.svg");
 ///
 /// Authored for pdfce in the header §3 style contract — ui-spec §3.1's corner-bracket family, reduced to a diagonal PAIR so it cannot be read as [`FIT_PAGE`].
 pub(super) const ZOOM_SELECTION: &str = include_str!("assets/zoom-selection.svg");
+
+// ===========================================================================
+// The 2026-08-21 pass — the selection filter's rows (O17)
+// ===========================================================================
+//
+// Five glyphs authored for `canvas::pick`'s eleven-row popup. The other six
+// rows reuse icons the set already had (`text-select`, `image`, `show-points`,
+// `markup`, `ruler`, `form-field`), because reuse of an ICON is free while
+// reuse of an ASSET is not: `tests::only_the_folder_asset_is_shared` holds
+// `folder.svg` as the set's one shared file and every other asset to exactly
+// one `Icon`. These five exist because no glyph in the set meant what their
+// row means — see each file's embedded comment for which neighbour it had to
+// stay distinguishable from, and why.
+
+/// `pick-text.svg` — the art for [`super::Icon::PickText`].
+///
+/// Authored for pdfce in the header §3 style contract — three text lines with
+/// two square grips on the diagonal. Deliberately frameless, so it cannot be
+/// read as [`TEXT_FREETEXT`], and deliberately not an I-beam, so it cannot be
+/// read as [`TEXT_SELECT`] one row below it.
+pub(super) const PICK_TEXT: &str = include_str!("assets/pick-text.svg");
+
+/// `pick-path.svg` — the art for [`super::Icon::PickPath`].
+///
+/// Authored for pdfce in the header §3 style contract — one straight segment
+/// crossing one curve, with **no nodes anywhere**, which is the only thing
+/// separating it from [`EDIT_OBJECTS`] and [`SHOW_POINTS`].
+pub(super) const PICK_PATH: &str = include_str!("assets/pick-path.svg");
+
+/// `pick-part.svg` — the art for [`super::Icon::PickPart`].
+///
+/// Authored for pdfce in the header §3 style contract — a three-segment chain
+/// with a bracket under the middle segment only. The bracket's span is the
+/// message: under the whole chain it would mean the Object rung instead.
+pub(super) const PICK_PART: &str = include_str!("assets/pick-part.svg");
+
+/// `pick-form-xobject.svg` — the art for [`super::Icon::PickFormXObject`].
+///
+/// Authored for pdfce in the header §3 style contract — a frame holding three
+/// unlike marks. The heterogeneous contents are what separate it from
+/// [`TEXT_FREETEXT`]'s evenly spaced prose rules.
+pub(super) const PICK_FORM_XOBJECT: &str = include_str!("assets/pick-form-xobject.svg");
+
+/// `pick-link.svg` — the art for [`super::Icon::PickLink`].
+///
+/// Authored for pdfce in the header §3 style contract — the box-with-escaping
+/// -arrow every browser and office suite uses for "goes somewhere else".
+/// Explicitly **not** [`LINK`], which is a chain and belongs to Combine.
+pub(super) const PICK_LINK: &str = include_str!("assets/pick-link.svg");
