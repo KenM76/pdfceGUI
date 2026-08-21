@@ -189,7 +189,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
 
     let mut spec = LaunchSpec::new(&exe, ctx.out("insert_image.trace.txt"));
-    spec.pdf = Some(pdf);
+    spec.pdf = Some(pdf.clone());
     spec.env.push((
         ctx.profile.diag_env.0.to_owned(),
         ctx.profile.diag_env.1.to_owned(),
@@ -483,18 +483,66 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             }
         }
     }
-    if total > 0 && differing * 500 < total {
+    // ★★★ THE FLOOR IS THE PICTURE'S OWN AREA, NOT A FRACTION OF THE PAGE.
+    //
+    // This read `differing * 500 < total` — one pixel in five hundred of the
+    // page — on the argument that *"a picture seeded at its natural size covers
+    // most of the sheet, so a real insert moves an enormous fraction of it."*
+    //
+    // **That is a statement about the FIXTURE, not about the build**, and it
+    // failed the moment the suite was pointed at a CAD sheet. On a 1584 × 1224
+    // pt drawing shown at 0.3×, a 64 × 16 pt picture at 72 dpi is about 19 × 5
+    // screen pixels — so a *correct* insert changes ~90 of 169,416, which is
+    // one in eighteen hundred. The check reported *"THE PAGE DID NOT CHANGE"*
+    // about a picture that was demonstrably on the page: the sharp oracle above
+    // had already decomposed it and counted one image object.
+    //
+    // A confident, specific, wrong accusation, produced by a threshold that
+    // encoded the shape of the documents this project authors. It is the same
+    // finding `FEATURES.md` records about the text-editing checks — *a check
+    // that drives a document this project authored tests the shape this project
+    // imagined* — reached from the measurement end instead.
+    //
+    // ★ So the floor is derived from what was actually asked for: the fixture's
+    // size in points, projected through the page rect's own scale, quartered.
+    // A quarter rather than the whole because the picture lands on ink of its
+    // own colour some of the time, and anti-aliasing at 0.3× makes an exact
+    // count meaningless — what must not happen is ZERO, and zero is what an
+    // unrepainted canvas gives.
+    //
+    // The scale comes from the declared page rect against the page's own size,
+    // so it needs no zoom trace and follows a resized window.
+    // ★ The page's own width in points, from the FILE rather than from a
+    // trace. `page_geometry` reads the `/MediaBox`, which is the same number
+    // the application projected — and reading it here rather than taking a
+    // zoom off the channel means this floor follows a resized window, a fit
+    // change, and a different fixture without any of them being told about it.
+    //
+    // Unreadable geometry leaves the floor at 1, which is the old behaviour's
+    // honest core: what must not happen is ZERO.
+    let page_pts = crate::fixture::page_geometry(&pdf).map_or(0.0, |g| f64::from(g.width_pt));
+    let scale = if page_pts > 0.0 {
+        f64::from(rect.w) / page_pts
+    } else {
+        0.0
+    };
+    let expected = (f64::from(FIXTURE_W) * scale).max(1.0) * (f64::from(FIXTURE_H) * scale).max(1.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let floor = (expected / 4.0).max(1.0) as u64;
+    if total > 0 && differing < floor {
         return Ok(Some(format!(
             "★ the engine reported placing the picture — `{}` — and THE PAGE DID NOT CHANGE. \
-             {differing} of {total} pixels differ, under one in five hundred, and that count \
-             also includes the placement window disappearing. The edit reached the document \
-             and the view is still showing what it showed before. Screenshot: {}.",
+             {differing} of {total} pixels differ, and a {FIXTURE_W}×{FIXTURE_H} pt picture at \
+             this page scale ({scale:.3}) should have moved at least {floor}. That count also \
+             includes the placement window disappearing. The edit reached the document and the \
+             view is still showing what it showed before. Screenshot: {}.",
             applied.raw,
             shot.display()
         )));
     }
     report.note(format!(
-        "the page repainted: {differing} of {total} pixels in the page area changed"
+        "the page repainted: {differing} of {total} pixels in the page area changed, against a \
+         floor of {floor} for a {FIXTURE_W}×{FIXTURE_H} pt picture at scale {scale:.3}"
     ));
     Ok(None)
 }

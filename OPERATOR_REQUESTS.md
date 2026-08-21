@@ -313,30 +313,62 @@ is now the guard.
 
 **Asked:** 2026-08-20 — *"there was no way to reposition, resize, or rotate it
 on the screen. Can I please please please have that too?"*
-**Status:** OPEN. **Blocked on the engine, filed 2026-08-20**:
-`request_no_verb_transforms_a_non_path_object_so_a_placed_image_cannot_be_moved.md`.
+**Status:** **MOVE AND RESIZE SHIPPED 2026-08-20 AND DRIVEN. ROTATE IS NOT — see
+below.** Awaiting your verdict.
 
-`EditSession::move_objects` — the verb the canvas drag already reaches — is
-**path-only**, by name and on purpose. There is no verb anywhere in the engine
-that moves, scales or rotates an image or a text object.
+Select a picture and drag it: it moves. Grab a corner and drag: it resizes.
+Select several things at once — a picture, a box and a line — and one corner
+drag resizes all three about the same point, as one undo entry.
 
-**O11 and O12 are one gap**, and I asked for it as one verb rather than three.
-In a content stream a placed image and a placed text run are the same shape —
-an object emitted under a transformation matrix — so move, resize and rotate
-are all "pre-multiply that matrix", and building them separately would give me
-two call sites for one gesture.
+Three refusals you may have seen are gone with it:
 
-Everything on my side is already built and waiting: the selection model, the
-eight grips, the ghost preview. `canvas::resizing` computes the scale factors
-from a grip drag today and commits them for paths only. That is exactly the
-hole.
+- *"pdfce cannot resize text or pictures — only shapes drawn out of lines and
+  curves."*
+- *"pdfce resizes one shape at a time."*
+- *"This shape has no corners to move."*
+
+**Driven, on your own drawing, 2026-08-20:**
+
+```
+resize_scales_a_shape           PASS — through transform_objects
+geometry_fields_resize_a_shape  PASS — the typed W/H route, same function
+shift_constrains_a_resize       PASS — and Shift keeps the proportions
+```
+
+### ★ ROTATE IS NOT BUILT, and it is a shell gap now rather than an engine one
+
+The verb rotates. **There is no rotate handle on the canvas to reach it with.**
+That is `O14` row 5, and it stopped being blocked tonight — it needs a ninth
+grip above the selection box, a drag that measures an angle rather than a
+distance, and a preview. Say the word and it is the next thing.
+
+### And one more thing that is not built, named rather than left to be found
+
+A picture whose own placement matrix is degenerate cannot be transformed at
+all, and the engine says so — *"do not offer a handle"*. pdfce currently offers
+one and you would find out by dragging it. The preflight that would grey it
+needs a page decomposition cached per selection (**~4 seconds** on your
+benchmark drawing in a debug build), which is a piece of work rather than a
+line. Rare: it needs a producer to have emitted a collapsed matrix.
 
 ## O12 — Move text after placing it
 
 **Asked:** 2026-08-20 — *"can I please please please have the capability to move
 the text after?"*
-**Status:** OPEN, and it is **the same gap as O11** — filed together, one verb.
-See that row.
+**Status:** **SHIPPED 2026-08-20.** Select the text and drag it. Same verb as
+O11, exactly as asked for — a placed image and a placed text run are the same
+shape in a content stream, so they got one verb rather than two.
+
+★ **A move still uses the lighter verb where it can**, and that is deliberate
+rather than a leftover: for a selection made only of shapes, pdfce rewrites the
+coordinates in place and adds nothing to the file. The general verb wraps each
+object in three extra operators every time you nudge it, and you nudge things
+dozens of times in a file you then send to somebody. Shapes take the light
+path; anything else takes the general one.
+
+**NOT YET DRIVEN** on a text object specifically — the driven checks aim at a
+shape, because that is what the fixture's `--doc-point` names. The verb is the
+same one three passing checks exercise.
 
 ## O13 — Insert image does not appear until you save and reopen
 

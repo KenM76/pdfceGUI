@@ -98,6 +98,15 @@ const DWELL: Duration = Duration::from_millis(1_400);
 const LAND_ACROSS: f32 = 0.75;
 
 /// The trace line the source-side removal produces, on a move.
+/// `page-move-take-refused page=… n=… detail=…` — the engine declining the
+/// removal half of a move, with its own sentence.
+///
+/// Distinct from [`TOOK`]'s `removed=0`, and the distinction is the whole of
+/// the 2026-08-20 repair: `removed=0` says *the source still has them*, which
+/// has two causes with opposite verdicts — a build that never attempted the
+/// delete (a defect) and an engine that refused it for a reason about the
+/// document (not one).
+const TOOK_REFUSED: &str = "page-move-take-refused";
 const TOOK: &str = "page-move-took";
 
 /// **The same gesture, with and without Shift.**
@@ -436,10 +445,41 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport, take: bool) -> Result<Opt
             )));
         };
         if took.get("removed") == Some("0") {
+            // ★★ ASK WHY BEFORE ACCUSING, and the commonest why is the fixture.
+            //
+            // This branch reported a FAILURE — *"the sheets are now in both
+            // documents"* — for any `removed=0`, and on 2026-08-20 it produced
+            // exactly that accusation about working code. The trace said:
+            //
+            //   page-move-take-refused page=0 n=1
+            //     detail=removing 1 of 1 page(s) would leave the document with none
+            //
+            // The source was a **one-page** document. Moving its only sheet out
+            // would leave a document with no pages, which the engine refuses by
+            // name and correctly. The shell had already noticed, worded it for
+            // the operator, and left the sheets where they were — the whole
+            // chain behaved.
+            //
+            // That is this harness's own three-state discipline, arrived at
+            // again: *a fact about the fixture is not a fact about the build.*
+            // The refusal is quoted verbatim rather than paraphrased, for the
+            // reason `text_edit_real` records about the same repair — the
+            // engine's sentence IS the diagnosis, and a second account of it
+            // would drift.
+            if let Some(refused) = trace.last(TOOK_REFUSED) {
+                return Err(Error::new(format!(
+                    "the source document refused to give up its pages: `{}`. If that says the \
+                     document would be left with none, pass a `--second-pdf` with MORE THAN ONE \
+                     page — a one-page source cannot be moved out of, by design, and no build \
+                     could make it. Reported as SKIPPED rather than FAILED for exactly that \
+                     reason.",
+                    refused.raw
+                )));
+            }
             return Ok(Some(format!(
-                "the move removed 0 pages from the source, so they are in both documents. The \
-                 engine declined the delete — a certified source, an encrypted one, or a page \
-                 tree that would not walk. Line: `{}`.",
+                "the move removed 0 pages from the source, so they are in both documents, and \
+                 nothing refused it — so the delete was never attempted rather than declined. \
+                 Line: `{}`.",
                 took.raw
             )));
         }
