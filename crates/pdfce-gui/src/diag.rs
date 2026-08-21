@@ -373,17 +373,46 @@ fn record_if_changed(
 /// It is the same repair as `ui-rect-gone`: the channel should describe what
 /// is visible, not what was laid out.
 ///
-/// # The test is intersection, not containment
+/// # ★★★ The test is MOSTLY VISIBLE, and it used to be bare intersection
 ///
-/// A heading half-scrolled off the bottom is still partly on screen and still
-/// worth measuring — a contrast check samples what it can reach. Requiring
-/// full containment would silently drop the boundary case, which on a scroll
-/// area is a case that exists on almost every frame.
+/// The rule here read: *"a heading half-scrolled off the bottom is still partly
+/// on screen and still worth measuring — a contrast check samples what it can
+/// reach. Requiring full containment would silently drop the boundary case."*
+///
+/// **Measured false on 2026-08-21.** A settings heading sitting two points
+/// inside the scroll area's bottom edge published a rect, and the contrast
+/// sampler measured **1.53:1** on it — reading the anti-aliased top rows of
+/// glyphs whose bodies had been clipped away, at 5.3 % coverage, and reporting
+/// an illegible heading in a dialog whose other headings measured 15.07:1.
+///
+/// So the test is a *proportion*: a region must be at least
+/// [`VISIBLE_FRACTION`] inside the clip before it is worth naming. Both ends of
+/// the old argument survive — a heading three-quarters visible is still
+/// measured, and full containment is still not required — but a sliver is no
+/// longer offered to a sampler as though it were a surface.
+///
+/// ★ The general form, and it is the second instance of it in one afternoon:
+/// **a measurement of the wrong surface is indistinguishable from a measurement
+/// of a broken one.** The first was a capture of the wrong window; this is the
+/// wrong part of the right one. A diagnostic channel that publishes a region
+/// nobody can read is not being generous, it is manufacturing false failures.
+/// How much of a region must be inside the clip before it is published.
+///
+/// Three fifths, and the number is a judgement rather than a measurement: it is
+/// low enough to keep a heading that is mostly there and high enough to drop
+/// the sliver that produced a false 1.53:1. A heading is a row of glyphs about
+/// two-thirds the height of its rect, so at 0.6 the glyph bodies are inside the
+/// clip whichever end is cut.
+const VISIBLE_FRACTION: f32 = 0.6;
+
 pub fn ui_rect_visible(name: &str, rect: egui::Rect, clip: egui::Rect) {
     if !enabled() {
         return;
     }
-    if clip.intersects(rect) {
+    let shown = clip.intersect(rect);
+    let area = rect.width() * rect.height();
+    let visible = shown.width().max(0.0) * shown.height().max(0.0);
+    if area > 0.0 && visible / area >= VISIBLE_FRACTION {
         ui_rect(name, rect);
     }
     // Deliberately silent when it does not intersect. This is not a retirement

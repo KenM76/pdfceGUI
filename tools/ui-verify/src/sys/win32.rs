@@ -106,6 +106,63 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
     1 // keep going
 }
 
+/// State for the all-windows enumerator.
+struct SearchAll {
+    pid: u32,
+    found: Vec<isize>,
+}
+
+/// Collect EVERY visible top-level window belonging to a pid.
+unsafe extern "system" fn enum_proc_all(hwnd: HWND, lparam: LPARAM) -> i32 {
+    // SAFETY: as `enum_proc` — the pointer is the `&mut SearchAll` handed to
+    // `EnumWindows`, which is synchronous.
+    let search = unsafe { &mut *(lparam as *mut SearchAll) };
+    let mut pid: u32 = 0;
+    // SAFETY: `hwnd` is supplied by the enumerator.
+    unsafe { GetWindowThreadProcessId(hwnd, &raw mut pid) };
+    // SAFETY: `hwnd` is supplied by the enumerator.
+    if pid == search.pid && unsafe { IsWindowVisible(hwnd) } != 0 {
+        search.found.push(hwnd as isize);
+    }
+    1
+}
+
+/// **Every visible top-level window belonging to `pid`.**
+///
+/// ★★ Written 2026-08-21, when thirteen dialogs became real OS windows and six
+/// driven checks began clicking hundreds of pixels from the control they named.
+/// A process used to have exactly one window; it now has one per open dialog,
+/// and a harness that knows only the first cannot raise the one it is aiming
+/// at — so it raises the main window instead, which puts the dialog BEHIND it,
+/// and the click lands on the application.
+///
+/// Order is `EnumWindows`' own, which is **z-order, front to back**. Callers
+/// that want a specific window must identify it by geometry rather than by
+/// position in this list: z-order is what the raise is about to change.
+#[must_use]
+pub fn windows_for_pid(pid: u32) -> Vec<WindowHandle> {
+    let mut search = SearchAll {
+        pid,
+        found: Vec::new(),
+    };
+    // SAFETY: `enum_proc_all` matches `WNDENUMPROC`, and the pointer is to a
+    // stack local that outlives this synchronous call.
+    unsafe {
+        EnumWindows(Some(enum_proc_all), (&raw mut search) as LPARAM);
+    }
+    search.found.into_iter().map(WindowHandle).collect()
+}
+
+/// The process a window belongs to.
+#[must_use]
+pub fn pid_of_window(w: WindowHandle) -> Option<u32> {
+    let mut pid: u32 = 0;
+    // SAFETY: `w` is a handle this module produced; the call tolerates a stale
+    // one by returning 0.
+    unsafe { GetWindowThreadProcessId(w.hwnd(), &raw mut pid) };
+    (pid != 0).then_some(pid)
+}
+
 /// The first visible top-level window belonging to `pid`, if it has one yet.
 ///
 /// `None` is a normal early answer, not an error: a freshly launched

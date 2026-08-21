@@ -41,7 +41,7 @@
 
 use crate::capture;
 use crate::checks::driving::{
-    SHELL_DIAG_ENV, declared, declared_names, declared_or_in_overflow, list,
+    SHELL_DIAG_ENV, declared, declared_names, declared_or_in_overflow, frame_of, list,
 };
 use crate::checks::{Check, CheckContext};
 use crate::error::{Error, Result};
@@ -336,7 +336,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              opens declining its own default."
         )));
     };
-    driver.click_at(session.frame()?.declared_center(button))?;
+    driver.click_at(frame_of(&session, &trace, ui_rect, INSERT)?.declared_center(button))?;
     session.settle(26);
 
     let trace = session.trace()?;

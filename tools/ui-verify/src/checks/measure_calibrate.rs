@@ -48,7 +48,7 @@
 //! the same direction, which is worse than a tool that plainly fails.
 
 use crate::checks::driving::{
-    SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, list, shell_trace,
+    SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, frame_of, list, shell_trace,
 };
 use crate::checks::{Check, CheckContext};
 use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
@@ -221,7 +221,9 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
                 .to_owned(),
         ));
     };
-    driver.click_at(session.frame()?.declared_center(button))?;
+    driver.click_at(
+        frame_of(&session, &trace, ui_rect, "scale.calibrate")?.declared_center(button),
+    )?;
     session.settle(16);
     let trace = session.trace()?;
     if !trace

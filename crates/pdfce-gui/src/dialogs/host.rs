@@ -450,6 +450,27 @@ impl Host {
             //
             // ui-text-exempt: a panic message for an egui contract violation,
             // never displayed to an operator and never reachable from one.
+            // ★★★ THE WINDOW'S OWN BACKGROUND, and its absence was a defect
+            // that shipped for an hour on 2026-08-21.
+            //
+            // The `Ui` egui hands a viewport callback is the child window's
+            // ROOT — the same position `eframe::App::ui` occupies for the main
+            // window — and nothing has painted it. In the application window
+            // `app::frame` adds a `CentralPanel`, which fills it; a dialog had
+            // no such thing, so every one of the thirteen converted that day
+            // rendered its controls over the **clear colour**: dark text on
+            // near-black, legible only as an outline.
+            //
+            // ★ It is invisible to every non-pixel oracle. `viewport-inner` was
+            // published, every `ui-rect` was declared, the driven check that
+            // asserts *"a dialog opens in its own OS window"* passed on all
+            // eight — and a screenshot showed a black rectangle. That is
+            // `D:/dev/rag/egui/`'s standing rule arriving again: **a layout or
+            // rendering defect has exactly one oracle, and it is a rendered
+            // screenshot.**
+            ui.painter()
+                .rect_filled(ui.max_rect(), 0.0, ui.visuals().panel_fill);
+            // ui-text-exempt: a panic message for an egui contract violation.
             let draw = add.take().expect("viewport callback ran twice");
             let out = draw(ui);
 

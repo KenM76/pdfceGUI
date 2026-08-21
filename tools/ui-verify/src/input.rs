@@ -165,7 +165,7 @@ impl Driver {
     /// under test sees nothing. That failure looks identical to a hit test
     /// returning nothing.
     pub fn click_at(&self, p: ScreenPoint) -> Result<()> {
-        self.raise_and_confirm()?;
+        self.raise_and_confirm_at(p)?;
         self.confirm_uncovered(p)?;
         sys::set_cursor_position(p.x(), p.y())?;
         std::thread::sleep(MOVE_SETTLE);
@@ -581,6 +581,87 @@ impl Driver {
     ///
     /// The message this returns is deliberately long. Whoever meets it is one
     /// step from diagnosing a feature that was never clicked.
+    /// **Which of the application's windows owns this point**, decided by
+    /// geometry rather than by z-order.
+    ///
+    /// # ★★★ Why z-order cannot be the answer
+    ///
+    /// Because the raise is about to change it. Before 2026-08-21 the
+    /// application had one window and this question did not exist; it now has
+    /// one per open dialog, and the sequence that broke six checks in a single
+    /// suite run is:
+    ///
+    /// 1. the check aims at a control inside a dialog, correctly;
+    /// 2. `click_at` raises **the main window**, because that is the target;
+    /// 3. the dialog is not *owned* by the main window — `eframe 0.35` has no
+    ///    owner option at all — so it goes **behind** it;
+    /// 4. the point is now on the application's own canvas, `window_at`
+    ///    agrees it belongs to the target, the cover guard is satisfied, and
+    ///    the click lands on a page.
+    ///
+    /// Every step is individually correct and the result is a check reporting
+    /// a working feature as broken. So the window is chosen from the process's
+    /// windows by **whose client rectangle contains the point**, which no
+    /// raise can change.
+    ///
+    /// ★ Ties go to the SMALLEST window. A dialog is inside the application's
+    /// bounds on screen, so both contain the point; the dialog is the one in
+    /// front of the other in every arrangement an operator would produce, and
+    /// it is always the smaller. Stated rather than implied because the
+    /// alternative — first match — depends on enumeration order, which is
+    /// z-order, which is the thing this function exists to not use.
+    fn window_owning(&self, p: ScreenPoint) -> Option<WindowHandle> {
+        let target = self.target?;
+        let pid = sys::pid_of_window(target)?;
+        let mut best: Option<(WindowHandle, u64)> = None;
+        for w in sys::windows_for_pid(pid) {
+            let Ok(frame) = sys::window_frame(w) else {
+                continue;
+            };
+            let (x, y) = frame.client_origin;
+            let (cw, ch) = frame.client_size;
+            let inside = p.x() >= x
+                && p.y() >= y
+                && p.x() < x.saturating_add(cw as i32)
+                && p.y() < y.saturating_add(ch as i32);
+            if !inside {
+                continue;
+            }
+            let area = u64::from(cw) * u64::from(ch);
+            if best.is_none_or(|(_, a)| area < a) {
+                best = Some((w, area));
+            }
+        }
+        best.map(|(w, _)| w)
+    }
+
+    /// [`Self::raise_and_confirm`] for a point that may be inside a dialog.
+    ///
+    /// Raises whichever of the application's windows actually contains the
+    /// point — see [`Self::window_owning`] — and falls back to the target when
+    /// the point is on no window of this process, which is the case a check
+    /// aiming off-window is entitled to and which the cover guard reports on
+    /// its own terms.
+    fn raise_and_confirm_at(&self, p: ScreenPoint) -> Result<()> {
+        let Some(w) = self.window_owning(p) else {
+            return self.raise_and_confirm();
+        };
+        sys::raise_window(w);
+        std::thread::sleep(MOVE_SETTLE);
+        if !sys::is_foreground(w) {
+            return Err(Error::new(format!(
+                "the window containing ({}, {}) could not be brought to the front. Windows \
+                 refuses SetForegroundWindow to a process without foreground rights, and this \
+                 harness is a background process. Reported rather than clicked: a click into a \
+                 window that is not in front goes wherever IS, and the check would then report \
+                 the feature as broken when nothing was ever pressed at it.",
+                p.x(),
+                p.y()
+            )));
+        }
+        Ok(())
+    }
+
     fn raise_and_confirm(&self) -> Result<()> {
         let Some(w) = self.target else {
             return Err(Error::new(
@@ -639,6 +720,15 @@ impl Driver {
             return Ok(());
         };
         if owner == target {
+            return Ok(());
+        }
+        // ★ A DIALOG OF THE SAME APPLICATION IS NOT A COVER. As of 2026-08-21
+        // the application has one window per open dialog, and a click aimed
+        // into one legitimately lands on a window that is not the target. The
+        // guard is about a FOREIGN window — `osk.exe` is the recorded case —
+        // so the question it should have been asking all along is *whose
+        // process owns what is on top*, not *which handle*.
+        if self.window_owning(p) == Some(owner) {
             return Ok(());
         }
         Err(Error::new(format!(

@@ -212,20 +212,58 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     // is the ordering mistake that would report "no headings declared" about a
     // dialog that had not been asked to appear yet.
     let trace = session.trace()?;
+    // ★★ THE DIALOG'S OWN WINDOW. Settings became a real OS window on
+    // 2026-08-21, and a capture of the application shows the page where the
+    // dialog used to be — while the contrast sampler goes on sampling and
+    // reports a confident 1.51:1 about a piece of the drawing. **A measurement
+    // of the wrong surface is indistinguishable from a measurement of a broken
+    // one**, which is the worst failure a check of this kind can have.
+    let frame = crate::checks::driving::frame_of(&session, &trace, ui_rect, "dialog:settings")?;
     let png = ctx.out("settings_headings.png");
-    let image = crate::capture::window_to_png(&session, &png)?;
+    let image = crate::capture::frame_to_png(&session, &frame, &png)?;
     report.artifact(png);
 
     // The regions this check is about: every `settings.heading.<key>` the
     // dialog declared. One per collapsible header, so each is measured against
     // ITS OWN background — D2 was a foreground/background pairing, and a
     // pairing only exists once something is drawn.
-    let frame = session.frame()?;
     let declared_regions = ctx.profile.vocab.declared_regions(&trace);
+    // ★★★ A REGION BELOW THE FOLD IS NOT A REGION THIS CHECK CAN MEASURE, and
+    // leaving that out produced a confident 1.53:1 about a heading that renders
+    // perfectly well.
+    //
+    // The application declares a heading it has laid out, and a `ScrollArea`
+    // lays out what is past its bottom edge as readily as what is above it. The
+    // rect is therefore honest and the pixels at it are not the heading: they
+    // are whatever is under the window, sampled through a rectangle that has
+    // been clamped to the capture's edge.
+    //
+    // **A measurement of the wrong surface is indistinguishable from a
+    // measurement of a broken one.** That is the same sentence the capture
+    // fix above carries, and this is its second instance in one afternoon: the
+    // first was the wrong WINDOW, this is the wrong part of the right one.
+    // ★ Tested on the RAW rect, NOT through `logical_to_capture_pixels`, and
+    // the first version of this filter made exactly that mistake and changed
+    // nothing. That conversion **clamps to the client area** — which is right
+    // for aiming a sampler and fatal for asking whether something is inside it,
+    // because a rect past the bottom edge comes back sitting exactly ON the
+    // bottom edge and passes every containment test written against it.
+    let (client_w, client_h) = frame.client_size;
+    let logical_w = client_w as f32 / frame.scale;
+    let logical_h = client_h as f32 / frame.scale;
+    let visible = |r: crate::geom::LRect| -> bool {
+        r.min.x >= 0.0
+            && r.min.y >= 0.0
+            && r.max.x <= logical_w
+            && r.max.y <= logical_h
+            && r.max.x > r.min.x
+            && r.max.y > r.min.y
+    };
     let trace_regions = legibility::TraceRegions {
         matched: declared_regions
             .iter()
             .filter(|r| r.name.starts_with(HEADING_PREFIX))
+            .filter(|r| visible(r.rect))
             .map(|r| legibility::PlannedRegion {
                 name: r.name.clone(),
                 area: legibility::RegionArea::Pixels(frame.logical_to_capture_pixels(r.rect)),

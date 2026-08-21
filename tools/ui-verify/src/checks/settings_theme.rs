@@ -77,7 +77,8 @@
 //! so the session ends on whatever the operator had.
 
 use crate::checks::driving::{
-    ITEM_PREFIX, SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, fill_of, list, shell_trace,
+    ITEM_PREFIX, SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, fill_of, frame_of, list,
+    shell_trace,
 };
 use crate::checks::{Check, CheckContext, CheckReport};
 use crate::error::{Error, Result};
@@ -304,14 +305,22 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
             list(&declared_names(&trace, ui_rect, "settings.heading."))
         )));
     };
-    driver.click_at(session.frame()?.declared_center(heading))?;
+    driver.click_at(
+        frame_of(&session, &trace, ui_rect, APPEARANCE_HEADING)?.declared_center(heading),
+    )?;
     session.settle(12);
 
     // --- D. the picture, before ---------------------------------------------
+    //
+    // ★★ THE DIALOG'S OWN WINDOW, not the application's. Settings became a real
+    // OS window on 2026-08-21, and a capture of the application shows the page
+    // where the dialog used to be — while the sampler goes on sampling and
+    // reports a confident colour about a piece of the drawing. A measurement of
+    // the wrong surface is indistinguishable from a measurement of a broken one.
+    let before_frame = frame_of(&session, &trace, ui_rect, DIALOG)?;
     let before_path = ctx.out("settings_theme.before.png");
-    let before_image = crate::capture::window_to_png(&session, &before_path)?;
+    let before_image = crate::capture::frame_to_png(&session, &before_frame, &before_path)?;
     report.artifact(before_path);
-    let before_frame = session.frame()?;
     let Some(before) = fill_of(&before_image, &before_frame, body) else {
         return Err(Error::new(
             "the window's body region did not map onto the capture, so no colour could be \
@@ -338,10 +347,11 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     session.settle(20);
 
     // --- F. the picture, after ----------------------------------------------
+    let trace = session.trace()?;
+    let after_frame = frame_of(&session, &trace, ui_rect, DIALOG)?;
     let after_path = ctx.out("settings_theme.after.png");
-    let after_image = crate::capture::window_to_png(&session, &after_path)?;
+    let after_image = crate::capture::frame_to_png(&session, &after_frame, &after_path)?;
     report.artifact(after_path);
-    let after_frame = session.frame()?;
     // ★ Re-read the rect rather than reusing `body`. A theme change alters
     // metrics as well as colours — the `airy` preset is explicitly roomier —
     // so the window may have been laid out differently, and sampling the old

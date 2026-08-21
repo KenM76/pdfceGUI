@@ -237,6 +237,53 @@ pub fn declared_in(trace: &Trace, ui_rect: &str, name: &str) -> Option<(LRect, O
     Some((rect, viewport))
 }
 
+/// **The frame to convert a named region against**, whichever window drew it.
+///
+/// # ★★★ Why almost every dialog-driving check needed this on 2026-08-21
+///
+/// The idiom every check used was:
+///
+/// ```ignore
+/// let button = declared(&trace, ui_rect, "dialog:export-dxf.export")?;
+/// driver.click_at(session.frame()?.declared_center(button))?;
+/// ```
+///
+/// which is correct for as long as every region is drawn in the application's
+/// own window. The day the other thirteen dialogs became real OS windows, six
+/// checks failed and six more skipped — **every one of them clicking hundreds
+/// of pixels from the control it named**, with no error anywhere, because a
+/// child viewport's rectangles are relative to ITS origin and the numbers stay
+/// perfectly plausible.
+///
+/// That is the defect `a_child_viewports_ui_rects_are_relative_to_ITS_origin`
+/// records, arriving in bulk. [`frame_for`] was written for the print dialog
+/// and does the conversion; this is the two-argument form that finds the
+/// viewport for you, so a call site changes by one word rather than by four
+/// lines:
+///
+/// ```ignore
+/// driver.click_at(frame_of(&session, &trace, ui_rect, NAME)?.declared_center(button))?;
+/// ```
+///
+/// ★ It is **safe on a main-window region** and that is the point: an untagged
+/// region answers with `session.frame()`, unchanged. So a call site converted
+/// pre-emptively costs nothing and survives its surface being moved into a
+/// dialog later — which is the direction this shell keeps moving.
+///
+/// # Errors
+///
+/// When the region names a viewport whose origin was never published. See
+/// [`frame_for`] for why that is refused rather than guessed around.
+pub fn frame_of(
+    session: &Session,
+    trace: &Trace,
+    ui_rect: &str,
+    name: &str,
+) -> Result<crate::coords::WindowFrame> {
+    let viewport = declared_in(trace, ui_rect, name).and_then(|(_, v)| v);
+    frame_for(session, trace, viewport.as_deref())
+}
+
 /// **A region's rectangle, once it has stopped moving.**
 ///
 /// Reads the region, settles, reads it again, and repeats until two consecutive

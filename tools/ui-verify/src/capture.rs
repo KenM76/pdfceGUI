@@ -63,10 +63,60 @@ const RAISE_SETTLE_MS: u64 = 700;
 ///   error, not as a picture, because the caller would otherwise assert on it
 ///   and produce a confident verdict about nothing.
 pub fn window(session: &Session) -> Result<Image> {
-    session.raise();
-    std::thread::sleep(std::time::Duration::from_millis(RAISE_SETTLE_MS));
-
     let frame = session.frame()?;
+    frame_capture(session, &frame, true)
+}
+
+/// **Capture an arbitrary window of the application under test**, given the
+/// frame that describes it.
+///
+/// # ★★ Why a pixel check needed this on 2026-08-21
+///
+/// Because [`window`] captures the application's own window, and as of that day
+/// the surface a pixel check is measuring is often **not in it**. Thirteen
+/// dialogs became real OS windows; a capture of the application shows the page
+/// where the dialog used to be, and the contrast sampler goes on sampling —
+/// reporting a confident 1.51:1 about a piece of the drawing.
+///
+/// That is the worst available failure: a measurement of the wrong surface is
+/// indistinguishable from a measurement of a broken one. `settings_headings_legible`
+/// produced exactly that, naming two headings that render perfectly well.
+///
+/// `raise` is the caller's choice here rather than unconditional, because the
+/// caller may already have raised the dialog to click something in it and a
+/// second raise of the MAIN window would put it behind again — which is the
+/// same z-order trap `Driver::window_owning` exists for.
+pub fn frame_capture(
+    session: &Session,
+    frame: &crate::coords::WindowFrame,
+    raise: bool,
+) -> Result<Image> {
+    // ★★ RAISE THE WINDOW THIS FRAME DESCRIBES, which is not always the
+    // application's own. A screen grab reads the COMPOSITED DESKTOP, so a
+    // dialog sitting behind the main window is captured as the main window —
+    // plausible pixels, wrong surface. `session.raise()` would make that
+    // certain rather than likely, by putting the main window in front.
+    //
+    // The window is found by matching client origins rather than by z-order,
+    // for the reason `Driver::window_owning` states at length: the raise is
+    // about to change z-order, so z-order cannot be the way in.
+    if raise {
+        let found = session
+            .window()
+            .and_then(crate::sys::pid_of_window)
+            .map(crate::sys::windows_for_pid)
+            .and_then(|windows| {
+                windows.into_iter().find(|w| {
+                    crate::sys::window_frame(*w)
+                        .is_ok_and(|f| f.client_origin == frame.client_origin)
+                })
+            });
+        match found {
+            Some(w) => crate::sys::raise_window(w),
+            None => session.raise(),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(RAISE_SETTLE_MS));
+    }
     let region = frame.client_pixels();
     if region.area() == 0 {
         return Err(Error::new(
@@ -100,6 +150,18 @@ pub fn window(session: &Session) -> Result<Image> {
 /// failure diagnosable, because there is something to compare against.
 pub fn window_to_png(session: &Session, path: &Path) -> Result<Image> {
     let image = window(session)?;
+    image.save_png(path)?;
+    Ok(image)
+}
+
+/// [`frame_capture`] with the PNG written, for the same reason
+/// [`window_to_png`] writes one.
+pub fn frame_to_png(
+    session: &Session,
+    frame: &crate::coords::WindowFrame,
+    path: &Path,
+) -> Result<Image> {
+    let image = frame_capture(session, frame, true)?;
     image.save_png(path)?;
     Ok(image)
 }

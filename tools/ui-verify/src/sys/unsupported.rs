@@ -92,6 +92,18 @@ pub fn key_stroke_with(_modifiers: &[u16], _vk: u16) {}
 /// Always `false` — there is no window server here, so nothing can be
 /// confirmed to be in front. `false` rather than `true` so a caller that
 /// gates typing on it refuses rather than types blind.
+pub fn windows_for_pid(_pid: u32) -> Vec<WindowHandle> {
+    Vec::new()
+}
+
+/// Always `None` — there is no window server here.
+pub fn pid_of_window(_w: WindowHandle) -> Option<u32> {
+    None
+}
+
+/// Always `false` — there is no window server here, so nothing can be
+/// confirmed to be in front. `false` rather than `true` so a caller that
+/// gates typing on it refuses rather than types blind.
 pub fn is_foreground(_w: WindowHandle) -> bool {
     false
 }
