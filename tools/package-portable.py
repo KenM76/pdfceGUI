@@ -771,12 +771,48 @@ def mirror(out: Path) -> None:
     mirror would put the last known-good build under the one that broke — on a
     drive that then syncs the loss to every other machine.
 
-    Which slot is older is read from the directories' own modification times
-    rather than from a counter file. A counter is state that can disagree with
-    the thing it describes: deleted by hand, absent on a fresh machine, or
-    written by a run that then failed to copy. A directory's timestamp cannot
-    drift from the directory. A missing or empty slot is treated as infinitely
-    old, so the first two builds fill both before anything is overwritten.
+    Which slot is older is read from **the build's own `Built:` stamp**, out of
+    the `BUILD-INFO.txt` that build wrote. A missing or empty slot, or one whose
+    stamp cannot be parsed, is treated as infinitely old — so the first two
+    builds fill both slots before anything is overwritten, and an unreadable
+    slot is replaced rather than trusted.
+
+    # ★★ IT USED TO READ THE DIRECTORY'S MTIME, AND THAT WAS WRONG TWICE OVER
+
+    The argument for mtime was good and the conclusion was not:
+
+    > *"A counter is state that can disagree with the thing it describes:
+    > deleted by hand, absent on a fresh machine, or written by a run that then
+    > failed to copy. A directory's timestamp cannot drift from the directory."*
+
+    True — and the wrong question. A directory's mtime describes **the
+    directory**, and what the rotation needs is the age of **the build inside
+    it**. Those are different facts, and two ordinary events separate them:
+
+    1. **The operator RUNS the build from the slot.** pdfce then creates
+       `userdata/` beside the exe and writes their settings, dock layout and
+       recent files into it. That bumps the slot's mtime to *now*, so the slot
+       holding the older build looks like the newest — and the next package
+       overwrites the good, newer one. **The two-slot guarantee is destroyed by
+       the operator merely using the build**, which is what the slots are for.
+
+    2. **A failed mirror bumps the slot it failed on.** Observed 2026-08-20 at
+       19:59: `pdfceGUI1` held the previous day's build and was correctly chosen
+       as the target; OneDrive held it locked, the rename failed clean — and the
+       attempt had already touched the directory. Three minutes later the same
+       slot read as the *newest*, so the run overwrote `pdfceGUI2`, which held
+       that afternoon's build. Nothing was corrupted and nothing was lost that
+       git does not have, but the fallback silently aged by a day. Repeat the
+       lock and it ages indefinitely, one build at a time, while every run
+       reports success.
+
+    The `Built:` stamp has the property the mtime was reached for and does not
+    have: **it is written by the run that produced the build and by nothing
+    else.** Running the exe does not touch it. A failed rename does not touch
+    it. It travels inside the directory, so it cannot be deleted by hand
+    without deleting the build, and it is already printed for the operator to
+    read — which is the other half of why it is the right source: the number
+    the rotation decides on is the number they can see.
 
     # Failure is reported and never fatal
 
@@ -791,13 +827,48 @@ def mirror(out: Path) -> None:
         return
 
     def age_key(slot: str) -> float:
+        """When the build in `slot` was PACKAGED, as a POSIX timestamp.
+
+        `-1.0` means "infinitely old, replace this one" and covers every case
+        where the answer is not knowable: no directory, an empty directory, no
+        `BUILD-INFO.txt`, an unreadable one, or a `Built:` line that does not
+        parse. All five mean the same thing operationally — there is no build
+        here worth protecting — and collapsing them is right, because a slot
+        this function cannot describe is a slot it must not defend.
+
+        Deliberately NOT `d.stat().st_mtime`; see the rotation note above for
+        the two events that made mtime lie.
+        """
         d = MIRROR_ROOT / slot
-        # Missing or empty sorts oldest, so the first two runs fill both slots.
         if not d.is_dir() or not any(d.iterdir()):
             return -1.0
-        return d.stat().st_mtime
+        info = d / "BUILD-INFO.txt"
+        try:
+            for line in info.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("Built:"):
+                    stamp = line.split(":", 1)[1].strip()
+                    return datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").timestamp()
+        except (OSError, ValueError):
+            return -1.0
+        return -1.0
 
     target_name = min(MIRROR_SLOTS, key=age_key)
+    # ★ Print BOTH slots' ages and which one is about to go.
+    #
+    # The rotation is the one part of this script whose correctness the operator
+    # cannot see afterwards — a successful mirror looks identical whether it
+    # replaced the right slot or the wrong one, which is exactly how the mtime
+    # defect survived. Naming the two dates makes a wrong choice visible on the
+    # run that makes it rather than on the day the fallback is needed.
+    for slot in MIRROR_SLOTS:
+        age = age_key(slot)
+        when = (
+            datetime.fromtimestamp(age).strftime("%Y-%m-%d %H:%M:%S")
+            if age >= 0
+            else "no readable build"
+        )
+        marker = "  <- replacing this one" if slot == target_name else ""
+        print(f"  {slot:<12} {when}{marker}")
     target = MIRROR_ROOT / target_name
     keeps = [s for s in MIRROR_SLOTS if s != target_name]
 
