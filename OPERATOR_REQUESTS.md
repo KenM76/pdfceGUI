@@ -87,10 +87,80 @@ resize and rotate any object. you'll have to confirm, but that is what I want. I
 should be able to click individual nodes, or select several at once and move
 them too, with live preview of everything if possible."*
 
-**Status:** **RECORDED 2026-08-21. ENGINE CAPABILITY UNDER CONFIRMATION.** He
-asked for it to be confirmed rather than assumed, which is the right instinct —
-this project has already had four recorded claims turn out false in one day, and
-two of them were about what the engine could do.
+**Status:** ★ **ENGINE CONFIRMED 2026-08-21 against `D:\Dev\pdfce` source.**
+You were right, with two boundaries worth knowing. Asking for it to be
+confirmed rather than assumed was the correct instinct and it paid: the
+confirmation also caught **a claim in this very file that was false**, and I
+had re-published it an hour earlier — see `O20`.
+
+### What the engine actually does
+
+**`EditSession::transform_objects`** (`crates/pdfce-core/src/edit.rs:7512`) is
+**genuinely kind-agnostic**: one verb, one undo entry, doing move, scale,
+rotate, shear and mirror on **paths, text objects, image XObjects, form
+XObjects and inline images**. It is kind-agnostic *by construction* rather than
+by a match — it wraps each object's byte span in `q … cm … Q` and never reads
+an operand (`vector/edit.rs:996`). So *"any object"* is true for page content,
+and it is true of text specifically.
+
+**Three places it stops being true**, and they are worth knowing because each
+is something you might reasonably try:
+
+| | |
+|---|---|
+| **Annotations** — markup, form fields, ce dimensions | no transform verb at all. Translate only, or nothing. And a `/Rect`-based markup **cannot express a rotation**: the engine's own words, *"a rotated one has no spelling"* |
+| **Below whole-object level** — subpaths, nodes, Bézier handles | **translate only.** There is no rotate or scale for a node selection |
+| **Inside a placed block (form XObject)** | not addressable. The decomposer treats it as one object and does not recurse, so you can rotate the block but nothing within it |
+
+### Nodes — better than expected
+
+**`move_nodes`** (`edit.rs:8486`) moves **several anchors in one call**, each
+to its own destination, as one command and one undo entry. ★ And a loop of
+single moves would have been *wrong*, not merely slow — all four corners of an
+`re` rectangle are the same four operands, so the second call would plan
+against byte offsets the first had already replaced.
+
+**Bézier control points are separately addressable** (`move_handle`,
+`edit.rs:8542`), and it refuses a straight segment by name rather than quietly
+turning a line into a curve.
+
+★ The shell already has multi-node selection and already calls `move_nodes`
+(`canvas/moving.rs:560`, `app/actions/vector.rs:469`). Whether you can *build*
+that selection by pointing — marquee inside an object, Shift+click to add — is
+the open question, not whether the verb exists.
+
+### Live preview — already there for all three gestures
+
+`canvas::overlay` draws a move ghost, a **rotate ghost** (four transformed
+corners as a quadrilateral, deliberately not a growing rectangle) and a resize
+ghost. They are outlines rather than re-rendered content, which is the correct
+trade and is documented as such.
+
+### ★★ The one real gap the confirmation found
+
+**`transform_preview` is never called.** It is the engine's preflight and it
+distinguishes two refusals the UI must treat differently: `DegenerateCtm`
+means *this object can never be transformed — do not offer a handle*, and
+`SingularTransform` means *this particular drag collapses it — offer the
+handle, refuse on release*.
+
+`canvas/resizing.rs:172` admits it in the source, in these words:
+
+> *"A handle is currently offered for an object that can never be transformed,
+> and the operator finds out by dragging it. That is a real gap."*
+
+It is unbuilt for a measured reason rather than an oversight: the preview
+**decomposes the whole page** — about 4 seconds in a debug build on your
+benchmark drawing — so it cannot be asked per frame. It needs a cache keyed on
+`(page, edit epoch, selection)`.
+
+### And one thing to watch in the file you send on
+
+Every `transform_objects` call adds a fresh `q`/`cm`/`Q` wrapper **per object,
+per gesture**, and nothing folds them together. Forty nudges nest forty
+wrappers and the file grows monotonically. The shell already dodges this for
+the common case — an all-path move takes the lighter `move_objects`, which
+rewrites coordinates and adds no bytes — but a rotate or a resize cannot.
 
 This row supersedes nothing. It **subsumes** `O20`'s rotate half and `O11`'s
 rotate paragraph, both of which say the same thing more narrowly: the verb
@@ -161,9 +231,31 @@ same day it reached him doing nothing at all.
 sentence, and they are in very different states, which is why they are written
 out rather than merged.
 
-### Rotate — nothing to grab, and it is the oldest live gap on the canvas
+### ~~Rotate — nothing to grab~~ — ⚠️ WRONG, AND WRITTEN BY ME, TODAY
 
-`O11` and `O14` row 5 both already say this and neither has been actioned:
+**The rotate grip exists and has since 2026-08-20** (`560280a`). This section
+was written on 2026-08-21 by reading `O11` and `O14` row 5 and trusting them
+instead of the source. Both were stale; the claim was three weeks' worth of
+true and one day's worth of false, and I re-published it as current.
+
+★ **The lesson, which is the same one this file already carries twice:** a row
+in the backlog is a record of what was true when it was written. It is not
+evidence. `git log -S` and the source are evidence, and they cost a minute.
+
+So the operator's *"I also can't drag and rotate text"* is **not** explained by
+an absent grip. It needs driving. The candidates, none confirmed:
+
+- **Grips are drawn at the Object rung only** (`overlay.rs:220`). If a click
+  descended into the text object — to a run, or a caret — the box and its nine
+  grips are gone, correctly, and there is nothing to grab.
+- **A click on text may be arming the caret rather than selecting the object**
+  — rung 2 of `clicking.rs`'s ladder beats rung 8.
+- **The mode.** Content selection needs `edit_content`; Read and Review have
+  no grips because they have no content selection.
+
+The superseded text follows.
+
+~~`O11` and `O14` row 5 both already say this and neither has been actioned:~~
 
 > The verb rotates. **There is no rotate handle on the canvas to reach it
 > with.** … it needs a ninth grip above the selection box, a drag that measures
@@ -737,7 +829,11 @@ decided against.
    not assert a hit, because whether anything is near that destination is a
    fact about the fixture and not about the build. NOT YET RUN.
 4. Neither a move, a resize nor a handle drag snaps to guides, grid or geometry.
-5. **No rotate handle** anywhere. ~~Blocked on the engine verb~~ — **the verb
+5. ~~**No rotate handle** anywhere.~~ ⚠️ **CLOSED 2026-08-20 by commit
+   `560280a` and not marked until 2026-08-21.** The ninth grip is painted and
+   hit-tested from one predicate, with a ghost and 15° Shift-snapping. The
+   struck text below is kept because the row's history is the point:
+   ~~**the verb
    shipped 2026-08-20 and rotates**; what is missing is a ninth grip above the
    selection box to reach it with, a drag that measures an angle rather than a
    distance, and a preview. **Shell work, unblocked, and the next thing on the
@@ -1057,7 +1153,22 @@ shift_constrains_a_resize       PASS — and Shift keeps the proportions
 
 ### ★ ROTATE IS NOT BUILT, and it is a shell gap now rather than an engine one
 
-The verb rotates. **There is no rotate handle on the canvas to reach it with.**
+
+> ⚠️ **CORRECTION, 2026-08-21. THE ROTATE GRIP EXISTS AND HAS SINCE
+> 2026-08-20.** Commit `560280a`, *"The ninth grip - you can turn things now,
+> which was the third word all along"*, added `canvas/rotating.rs` (424 lines),
+> `Grip::Rotate` (`canvas/handles.rs:175`), its hit test
+> (`handles.rs:412`, ahead of the eight resize grips), its painter
+> (`overlay.rs:222` via `draw_grips`), a rotate **ghost**
+> (`overlay.rs:612`), Shift-snapping to 15°, and the commit through
+> `transform_objects` (`canvas/rotating.rs:273`).
+>
+> The paragraph below was true when written and was **never updated**. It was
+> then re-quoted, in good faith, into two rows written on 2026-08-21 —
+> propagating a false claim rather than checking it against the source. That
+> is the failure this file exists to prevent, committed inside this file.
+
+~~The verb rotates. **There is no rotate handle on the canvas to reach it with.**~~
 That is `O14` row 5, and it stopped being blocked tonight — it needs a ninth
 grip above the selection box, a drag that measures an angle rather than a
 distance, and a preview. Say the word and it is the next thing.
