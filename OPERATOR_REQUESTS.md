@@ -312,14 +312,44 @@ decided against.
 
     An 800 x 620 OS window of its own, with its controls positioned inside it.
 
-    **Still open:** the other thirteen dialogs, and one row that eframe cannot
-    express — the dialog is not *owned* by the main window, so it can fall
-    behind it. There is no owner option in the toolkit's window builder at all.
-    Making it always-on-top instead was considered and refused: it would break
-    the driven harness in a way that produces confident wrong bug reports, which
-    we have paid for once already. The taskbar entry is the route back.
+    ★★ **AND THE OTHER THIRTEEN SHIPPED 2026-08-21.** About, Render
+    diagnostics, Export to DXF, Insert image, Insert pages, New document,
+    Recognise text, Apply redactions, Set scale, Keyboard shortcuts, Settings,
+    the note editor and the unsaved-changes question. Every one has a title
+    bar, a taskbar entry and can go on the second monitor.
+
+    Three of them are worth naming because the window is the *feature*, not a
+    tidy-up: **Apply redactions** lists what will be removed and you could not
+    check it against the page it was covering; **Render diagnostics** is read
+    while zooming the very document it describes; and the **unsaved-changes**
+    question appears in answer to a close, when you have already looked away —
+    a modal question hidden behind the main window with no taskbar entry is
+    the classic *"the program has frozen"*.
+
+    ★ **Nine of the thirteen had no size to convert.** They were content-sized
+    windows, so no number for how big they are existed anywhere — and a
+    guessed size that is too small does not look wrong, it clips the bottom
+    row, which on a confirmation is the row with the buttons on it. So a
+    dialog now measures its own body and grows the window to fit; the declared
+    size is an opening bid. The first version of that grew About from 560 px
+    to 1,624 px in a few frames, and a driven launch caught it the same hour.
+
+    **Driven:** eight of the thirteen, one launch each, no mouse touched.
+    Every one opened at its declared size and none needed to grow.
+
+    **NOT VERIFIED**, named rather than implied: the five reachable only by a
+    gesture — Insert image, Insert pages, Set scale, the note editor and the
+    unsaved-changes question. They are converted; nothing has driven them.
+
+    **Still open:** one row eframe cannot express — the dialog is not *owned*
+    by the main window, so it can fall behind it. There is no owner option in
+    the toolkit's window builder at all. Making it always-on-top instead was
+    considered and refused: it would break the driven harness in a way that
+    produces confident wrong bug reports, which we have paid for once already.
+    The taskbar entry is the route back.
 13. ~~**Enter is not the affirmative default**~~ — **PRINT SHIPPED
-    2026-08-20.** Type a page range, press Enter, it prints. Print is drawn
+    2026-08-20**, and the pair is the host's, so every dialog converted on
+    2026-08-21 inherited it. Type a page range, press Enter, it prints. Print is drawn
     filled in the theme's own accent so you can see what Enter will do before
     you press it, and Escape now closes the dialog exactly as the X does.
 
@@ -331,9 +361,10 @@ decided against.
     without saying whether it is multi-line — and a multi-line field must keep
     the ability to type a newline. So in a dialog whose last control is a
     one-line box, you may need to click out of it first. The fix is per-field.
-14. **PARTIAL 2026-08-20.** Print comes back where you left it for as long as
-    it stays open. It does not survive closing and reopening, and it does not
-    survive a restart: a remembered position has to be checked against your
+14. **PARTIAL, improved 2026-08-21.** Every dialog comes back where you left
+    it, and it now **survives closing and reopening** — the position moved out
+    of the dialog and into the application's own memory on the same pass that
+    converted the other thirteen. It still does not survive a restart: a remembered position has to be checked against your
     current monitors, and a dialog that opens on a screen you have unplugged is
     worse than one that opens where Windows puts it. Tab order and modal
     focus-trapping are still untested.
