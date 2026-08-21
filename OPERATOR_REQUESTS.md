@@ -241,9 +241,11 @@ pasteboard changes.
 2. The `canvas::geometry` audit, with its unit tests extended to cover
    `content != strip` — that arithmetic is pure and is exactly what a unit test
    is good for.
-3. A driven check per page **edge** (`O22` item 2): the eight resize grips have
-   the same latent defect on the left and bottom that the rotate handle has on
-   the top, and nothing has ever aimed at them there.
+3. A driven check per page **edge**, as a regression guard once the pasteboard
+   lands. ⚠️ **Not** because the resize grips share the defect — they do not;
+   see `O22`'s correction. Their centres sit ON the box edge, so their inner
+   half is always inside the canvas and always grabbable. Only the rotate
+   handle's centre is outside the box.
 4. Re-run `rotate_handle_turns_a_selection` at **both** `--doc-point`s. One
    point passing is what hid `O22` for a day.
 5. **B**, as its own piece of work, starting with the three questions above
@@ -369,6 +371,51 @@ blanket failure.
 **a confident, specific, wrong accusation is worse than a vague one**, because
 it is actionable and it aims somebody at the wrong file. A check that can rule
 a cause OUT should.
+
+### ⚠️ CORRECTION 2026-08-21: the resize grips do NOT have this defect
+
+This row claimed, twice, that *"the eight resize grips have the same latent
+defect on the left and bottom edges"*. **That is wrong, and it was written
+here without being checked** — hours after this same file recorded the rule
+that a claim about what the code does is verified against source, not
+asserted. It was then repeated to the operator and promoted into
+`CONTINUE.md` as scheduled work.
+
+The geometry, from `canvas/handles.rs`:
+
+| affordance | where its CENTRE sits | how far outside the box |
+|---|---|---|
+| the eight resize grips | **on** the box's edge or corner (`anchor`, `handles.rs:260-267`) | half a grip — `GRIP_SIZE_PX / 2` = **4 pt** |
+| the rotate handle | `bounds.top() - ROTATE_STEM_PX` | **16 – 24 pt**, entirely outside |
+
+`handles.rs:269` says it in the source, in as many words:
+
+> *"Above the top edge, centred, by the stem's length. **The one grip whose
+> centre is OUTSIDE the box**, which is what the offset is for."*
+
+So a resize grip's centre — and its whole inner half — is inside the
+selection box, and therefore inside the canvas whenever the object is
+visible at all. **It can always be grabbed.** The rotate handle has no part
+inside the box and can be entirely off-canvas, which is why it and only it
+disappears.
+
+★ **What is left of the claim, stated accurately**, because there is a
+residual and it is cosmetic rather than functional: against a viewport edge
+the outer half of a grip is clipped, so it is drawn as a 4 pt sliver rather
+than an 8 pt square, and its effective target shrinks from 12 pt (8 + 2 slack
+each side) to about 6. Harder to hit, never impossible.
+
+**Consequence for the plan:** the per-edge driven check drops from *"needed
+to cover a latent defect"* to *"a reasonable regression guard once the
+pasteboard lands"*. `O23` is the whole of the work; there is no second
+defect waiting on the left and bottom edges.
+
+★★ The shape, for the third time in one day: **an unverified claim about an
+ABSENCE or a DEFECT costs nothing at the moment it is written and is
+expensive later**, because nothing fails when it is wrong — it just quietly
+shapes a plan. Analysis, not driving: no fixture point flush with a page
+edge was available to aim at, and this is labelled as reasoning from the
+constants rather than as a measurement.
 
 ### What it needs
 

@@ -40,12 +40,19 @@ the top of the viewport puts that outside the clip.
 It is not about text, which is what `O20` assumed. **Any selection within 24 pt
 of the top of the view**, whatever it is made of.
 
-★ The fix is a convention question and `O22` records three candidates rather
-than picking one in a hurry. The recommendation is scroll padding — a
-pasteboard you can scroll past the page edge into, as Illustrator and Acrobat
-have — because it is the conventional answer and because the eight RESIZE grips
-have the same latent defect on the left and bottom edges, with no check aimed
-there yet.
+★ **The fix is settled and was attempted.** Ken answered the convention
+question on 2026-08-21 and asked for more than `O22` proposed — any corner of
+the page reachable to anywhere on screen — which is `O23`. The pasteboard was
+built that evening, passed 1,634 tests and 17 gates, **broke selection on the
+real application, and was reverted.** `O23` carries the three things measured
+on the way; the one that stopped it is that the page JUMPS a frame after
+opening, which the operator would see on every file. Solve the seeding before
+rebuilding the rest.
+
+⚠️ Do not plan around this row's first claim that the eight resize grips share
+the defect. **They do not** — their centres sit ON the box edge, so their inner
+half is always inside the canvas and always grabbable. Only the rotate handle's
+centre is outside the box. The correction, with the geometry, is in `O22`.
 
 ★★ **The transferable half: one `--doc-point` passing is what hid this for a
 day.** A driven check aimed at a single point proves the gesture works *there*.
@@ -219,10 +226,15 @@ order that returns the most:
    view.** This is what Ken is blocked on, it is confirmed by driving with
    numbers, and it is the only item here that a person is currently waiting on.
 
-   The recommendation is scroll padding rather than moving the handle; `O22`
-   carries why the two cheaper fixes are worse. Then a driven check per page
-   EDGE, because the eight resize grips have the same latent defect on the left
-   and bottom and nothing has ever aimed at them there.
+   ★ Ken settled the approach on 2026-08-21 and asked for MORE than was
+   proposed — `O23` supersedes the fix half of this row. It was attempted the
+   same evening, broke selection, and was reverted; `O23` carries the three
+   things that were measured, and the one that stopped it is that the page
+   JUMPS a frame after opening. Solve the seeding before rebuilding the rest.
+
+   ⚠️ And do not plan around this row's old claim that the resize grips share
+   the defect — **they do not**, and the correction is in `O22`. Their centres
+   sit ON the box edge; only the rotate handle's is outside it.
 
    ★ Re-run `rotate_handle_turns_a_selection` at **both** `--doc-point`s
    afterwards. One point passing is what hid this.
