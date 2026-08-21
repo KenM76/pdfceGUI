@@ -1,15 +1,42 @@
-# CONTINUE — handoff, 2026-08-21 morning
+# CONTINUE — handoff, 2026-08-21 afternoon
 
 **Type `continue` and start at §2.** Everything above it is state; §2 is the
 work queue, in order.
 
-**Clean tree. 16/16 gates. 1,595 tests.** Driven suite, last full green run:
-**53 passed, 0 failed, 12 skipped**, on his own drawing at
-`--doc-point 0,300,500` — but read §1c, because two things have landed since
-that are **published and unverified**.
+**Clean tree. 17/17 gates. 1,628 + 385 tests.** Re-measure before quoting any
+of that; the commands are in `RESUME.md`.
 
-**Published: `OneDrive\pdfceGUI2`, built 2026-08-21 09:50**, engine `cbb1ede`,
-shell `622f74b`. `pdfceGUI1` holds 2026-08-19 17:44 as the fallback.
+**Published: `OneDrive\pdfceGUI1`, built 2026-08-21 15:46**, engine `2cc448f`,
+shell `9e09bc0`. `pdfceGUI2` holds 2026-08-21 09:50 as the fallback.
+
+## ★★★ THE VERIFICATION DEBT, AT THE TOP WHERE IT CANNOT BE MISSED
+
+**Two things shipped in that build and NEITHER has been driven.** This is the
+R1 debt again, on exactly the class of change R1 exists for.
+
+| shipped 2026-08-21 afternoon | driven? |
+|---|---|
+| **The clipboard fix (O18)** — Ctrl+C copies text in Read and in a canvas text box; Cut and Paste added to drafts | ✗ |
+| **The selection filter (O17 parts A and C)** — the `Select` popup on the status bar, and the hit test obeying it | ✗ |
+
+★★ **The clipboard fix cannot be verified by ANY test in the suite**, and that
+is a property of the defect rather than of the effort spent. 1,628 unit tests
+cannot see the operating system's clipboard, and the clipboard is the thing
+that was wrong. The check must clear the clipboard, drive the chord, and read
+the clipboard back. **It must clear it first** — a stale marker from an
+earlier run makes a failing check pass.
+
+★ **The selection popup has never been opened.** It publishes an indexed
+diagnostic rect per row (`status-filter-row:<n>`) specifically so a harness
+can *choose from* it rather than only prove it opens — which is the one claim
+that is also true of every inert control.
+
+**What HAS been done:** a smoke launch offscreen with
+`PDFCE_DIAG_VIEWPORT=-3000,-3000,1600,1000` and the benchmark drawing as
+argv1. No panic, the document opens, and `status-group:filter` is published at
+the left edge of the status bar's fixed cluster, immediately left of
+`status-group:find`. That proves the control is **laid out**, not that it
+works.
 
 ---
 
@@ -157,7 +184,23 @@ build's own `BUILD-INFO.txt` (`--note`).
 His standing instruction is *"continue looping through other tasks"*. In the
 order that returns the most:
 
-1. **Run the full driven suite**, machine free, and fix whatever the engine
+1. ★★★ **Drive the two things published on 2026-08-21 afternoon**, machine
+   free. They are at the top of this file and they outrank everything below.
+   Two new checks are needed and neither exists:
+
+   - **`clipboard_copies_text`** — clear the OS clipboard, open the fixture in
+     Read, sweep a range, `Ctrl+C`, read the clipboard back and assert it holds
+     the swept text and **not** the string `"copied from pdfce"`. Then the same
+     inside a canvas text box in Edit, plus `Ctrl+X` and `Ctrl+V`. ★ Asserting
+     on the trace is not enough and never was: the trace cannot see the
+     clipboard.
+   - **`select_filter_changes_what_a_click_hits`** — the honest claim is not
+     *"the popup opens"*. Click an object and assert it selects; open `Select`,
+     click the row for its class, close, click the same pixel, and assert
+     **nothing** is selected. Anything weaker repeats the failure the harness
+     exists to prevent.
+
+2. **Run the full driven suite**, and fix whatever the engine
    bump moved:
    ```
    ./target/release/ui-verify.exe --pdf D:/Dev/temp/pdfce/SW41177.pdf \
@@ -167,24 +210,24 @@ order that returns the most:
    running unverified code and the sooner that stops being true the better.
    **`0,300,500` is the calibrated point**; `0,1211,1021` aims at a BOM row and
    is right for the text checks and wrong for `rotate_handle_turns_a_selection`.
-2. **The three gesture-only dialogs nobody has driven** — Insert pages, Set
+3. **The three gesture-only dialogs nobody has driven** — Insert pages, Set
    scale, and the unsaved-changes question. They are OS windows now and nothing
    has clicked them. `frame_of` and the driver's focus tracking are in place, so
    each is a check rather than an investigation.
-3. **`Pass 120.2/120.4` is in the tree now** — selection to a standalone
+4. **`Pass 120.2/120.4` is in the tree now** — selection to a standalone
    one-page PDF, and the clipboard's cross-application half. That closes
    `OPERATOR_REQUESTS.md` O2's remaining rows; the shell side is a paste target
    and a private Windows clipboard format.
-4. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
+5. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
    real shape), grapheme clusters in the caret, right-click to add or remove a
    perimeter point (both engine verbs exist), the zero-travel guard on three of
    four drag paths.
-5. **The transform preflight**, a named gap in `canvas::resizing`: an object
+6. **The transform preflight**, a named gap in `canvas::resizing`: an object
    whose own CTM is singular cannot be transformed and the engine says *do not
    offer a handle*. `transform_preview` is the predicate and it decomposes the
    page, so it needs a cache keyed on `(page, epoch, selection)` shaped like
    `app::cache::FormRunCache`.
-6. **Turning existing page text into multiple lines** — O15's remainder. That
+7. **Turning existing page text into multiple lines** — O15's remainder. That
    is a reflow, which the engine has and which currently demands the document
    be saved and reopened first.
 
