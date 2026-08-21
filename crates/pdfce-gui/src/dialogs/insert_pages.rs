@@ -179,16 +179,19 @@ impl InsertPagesDialog {
 
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
-        let mut open = true;
-        egui::Window::new(t::insert_window_title())
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. Size is an opening bid; see
+        // [`crate::dialogs::host::Host::fit`].
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "insert-pages", // ui-text-exempt: a viewport key, never displayed.
+            t::insert_window_title(),
+            egui::vec2(480.0, 560.0),
+            egui::vec2(380.0, 300.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
 
         if std::mem::take(&mut self.insert_requested)
             && let Some(pages) = self.chosen()

@@ -261,18 +261,23 @@ impl ScaleDialog {
             ((screen.height() - size.y).max(0.0) / 3.0).max(0.0),
         );
 
-        let mut open = true;
-        egui::Window::new(t::window_title())
-            .collapsible(false)
-            .resizable(true)
-            .default_size(size)
-            .min_size([360.0, 220.0])
-            .default_pos(pos)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. The computed opening position
+        // above is retired with the `egui::Window` it fed: `dialogs::host`
+        // insets a new dialog from the application window and then remembers
+        // wherever the operator drags it, which is the thing that position was
+        // approximating without the memory.
+        let _ = pos;
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "set-scale", // ui-text-exempt: a viewport key, never displayed.
+            t::window_title(),
+            size,
+            egui::vec2(360.0, 220.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
 
         if std::mem::take(&mut self.accept_requested) {
             self.commit(actions);

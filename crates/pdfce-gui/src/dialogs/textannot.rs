@@ -150,17 +150,23 @@ impl TextAnnotDialog {
             ((screen.width() - size.x).max(0.0) / 2.0).max(0.0),
             ((screen.height() - size.y).max(0.0) / 3.0).max(0.0),
         );
-        let mut open = true;
-        egui::Window::new(t::title(self.kind))
-            .collapsible(false)
-            .resizable(false)
-            .default_size(size)
-            .default_pos(pos)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. A note is typed *about*
+        // something on the page, so the one window that must be movable off
+        // the document is this one. The computed opening position is retired
+        // with the `egui::Window` it fed — see `dialogs::host` for what places
+        // and remembers a dialog now.
+        let _ = pos;
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "text-annot", // ui-text-exempt: a viewport key, never displayed.
+            t::title(self.kind),
+            size,
+            egui::vec2(320.0, 200.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
 
         if self.accept_requested {
             self.accept_requested = false;

@@ -287,22 +287,27 @@ impl RedactDialog {
         // this frame does not enable the confirm control until the next one.
         let ready = self.ready_to_confirm();
 
-        let mut open = true;
-        let window = egui::Window::new(t::apply_title())
-            .collapsible(false)
-            // Resizable, unlike the other confirmations in this shell: the body
-            // is a variable-length report and an operator with six residual
-            // lines must be able to see them without scrolling a fixed box.
-            .resizable(true)
-            .default_size([760.0, 560.0])
-            .min_size([480.0, 320.0])
-            // Screen-anchored, never page-anchored — the module rule.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| self.body(ui, ready));
-        if let Some(response) = &window {
-            crate::diag::ui_rect(REGION_DIALOG, response.response.rect);
-        }
+        // ★ ITS OWN OS WINDOW as of 2026-08-21, and of every dialog in this
+        // directory this is the one where being able to move it off the
+        // document matters most: the report lists what will be REMOVED, and
+        // checking it against the page underneath was impossible while the
+        // window covered that page.
+        //
+        // ★ The dialog region is published from inside the callback now — the
+        // window response it used to come from no longer exists, and
+        // `dialogs::host` tags what is published with this viewport so the
+        // harness can convert it.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "redact-apply", // ui-text-exempt: a viewport key, never displayed.
+            t::apply_title(),
+            egui::vec2(760.0, 560.0),
+            egui::vec2(480.0, 320.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_DIALOG, ui.max_rect());
+            self.body(ui, ready);
+        });
+        let open = !frame.closed;
 
         // The irreversible half, after the closure. See `confirm_requested`.
         if std::mem::take(&mut self.confirm_requested) {

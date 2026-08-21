@@ -240,18 +240,21 @@ impl InsertImageDialog {
 
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
-        let mut open = true;
-        egui::Window::new(t::window_title())
-            .collapsible(false)
-            .resizable(false)
-            // Screen-anchored, never page-anchored — the standing rule for
-            // every dialog in this directory.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21, and the screen anchor is
+        // retired rather than moved: an OS window is anchored to the DESKTOP,
+        // which is what the standing rule was reaching for. Size is an opening
+        // bid — see [`crate::dialogs::host::Host::fit`].
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "insert-image", // ui-text-exempt: a viewport key, never displayed.
+            t::window_title(),
+            egui::vec2(480.0, 620.0),
+            egui::vec2(380.0, 320.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
 
         if std::mem::take(&mut self.insert_requested) {
             let rect = self.rect_pt();

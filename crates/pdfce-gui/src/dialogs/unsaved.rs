@@ -261,23 +261,30 @@ impl UnsavedDialog {
 
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
-        let mut open = true;
-        egui::Window::new(t::title())
-            .collapsible(false)
-            .resizable(false)
-            // ★ Fixed size, no `resizable`, and **no `ScrollArea`**. This is the
-            // one dialog in the directory whose content is bounded by
-            // construction — three buttons and at most four sentences — so the
-            // whole family of reach defects `CONTINUE.md` §7 records cannot
-            // arise here. Adding a scroll region "for safety" would create the
-            // condition it was meant to prevent.
-            .default_size([420.0, 190.0])
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21 — and this is the dialog that
+        // most needs a **taskbar entry**, which is the half of `dialogs::host`
+        // easy to overlook. It appears in answer to a close, so an operator who
+        // has already looked away is the normal case; a modal question hidden
+        // behind the application window with no entry anywhere is the classic
+        // "the program has frozen" report.
+        //
+        // ★ Still no `ScrollArea`, and the note that said so stands: this is
+        // the one dialog whose content is bounded by construction — three
+        // buttons and at most four sentences — so the family of reach defects
+        // cannot arise here, and adding a scroll region "for safety" would
+        // create the condition it was meant to prevent. The floor equals the
+        // opening size for the same reason.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "unsaved", // ui-text-exempt: a viewport key, never displayed.
+            t::title(),
+            egui::vec2(420.0, 190.0),
+            egui::vec2(420.0, 190.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
         // The ✕ is a Cancel. That is not a convenience: the window's close
         // control must mean the NON-destructive answer, because it is the one
         // an operator presses reflexively to make a surprise go away.

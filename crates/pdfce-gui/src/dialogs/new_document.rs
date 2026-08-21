@@ -206,20 +206,22 @@ impl NewDocumentDialog {
 
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
-        let mut open = true;
-        egui::Window::new(t::window_title())
-            .collapsible(false)
-            .resizable(false)
-            // Anchored to the SCREEN, never to the document — the operator's
-            // standing objection is to surfaces whose position is derived from
-            // the page and therefore move on every zoom and scroll. This one
-            // could not be page-anchored anyway: there may be no page.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. The screen-anchor note is
+        // retired rather than moved: the operator's standing objection is to
+        // surfaces whose position is derived from the page, and a desktop
+        // window is as far from page-derived as a position gets. Size is an
+        // opening bid; see [`crate::dialogs::host::Host::fit`].
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "new-document", // ui-text-exempt: a viewport key, never displayed.
+            t::window_title(),
+            egui::vec2(460.0, 520.0),
+            egui::vec2(380.0, 300.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
 
         if std::mem::take(&mut self.create_requested) {
             let (width_pt, height_pt) = self.sheet_pt();

@@ -367,30 +367,6 @@ pub struct PrintDialog {
     /// both closes — the button's and the title bar's — through one `open`
     /// flag means there is one close path rather than two that can disagree.
     close_requested: bool,
-    /// ★ **This dialog's OS window.**
-    ///
-    /// Held on the dialog rather than created per frame, because it carries the
-    /// position the operator dragged the window to — see
-    /// [`crate::dialogs::host::Host`] for why that memory is session-scoped and
-    /// what it deliberately does not persist.
-    ///
-    /// # ★★ Why it is an `Option`, and why that is the same idiom as the canvas
-    ///
-    /// It is **taken out for the duration of the frame's draw** and put back at
-    /// the end. `Host::show` needs `&mut` on the host while the closure it is
-    /// handed needs `&mut` on the rest of this struct — `body` and `footer` both
-    /// take `&mut self` — and the borrow checker cannot see that those are
-    /// disjoint fields through a method call.
-    ///
-    /// `canvas::interact` does exactly this with the selection and states the
-    /// reason in the same words: *"out of the document for the duration of the
-    /// frame's gesture … taken by value, put back at the bottom, and a frame
-    /// that panicked between the two leaves an empty one rather than a
-    /// half-updated one."* Here an empty one costs the remembered position and
-    /// nothing else, and the next frame rebuilds it — so the failure mode is a
-    /// dialog that opens where the platform puts it, which is where it opens on
-    /// the first frame anyway.
-    host: Option<crate::dialogs::host::Host>,
 }
 
 impl PrintDialog {
@@ -456,14 +432,6 @@ impl PrintDialog {
             outcome: None,
             commit_requested: false,
             close_requested: false,
-            // ★ The size argument is unchanged and moved here verbatim from
-            // the `egui::Window` this replaced. The floor is not a preference:
-            // `resizable` with no minimum lets the operator drag the window
-            // down to a title bar and a scrollbar, which is a state with no way
-            // back except closing it — and closing this dialog discards the job
-            // they were configuring. 520 x 380 is the smallest size at which
-            // one column and both scrollbars are still usable.
-            host: Some(Self::new_host()),
         }
     }
 
@@ -475,8 +443,13 @@ impl PrintDialog {
     /// affordable because planning is arithmetic over a page-size list; the
     /// two things that are *not* affordable per frame (enumerating printers,
     /// asking a driver about duplex) are the two that are not done here.
-    /// This dialog's window, built from one place so the constructor and the
-    /// rebuild-after-a-panic path cannot disagree about its size.
+    /// This dialog's window: what it is called, how big it opens, and the
+    /// floor it may not be dragged below.
+    ///
+    /// ★ Built fresh each frame and owning nothing — the position the operator
+    /// drags it to lives in `egui::Memory`, keyed on the id string. See
+    /// [`crate::dialogs::host`]'s header for why that is what let the other
+    /// thirteen dialogs be converted in one line each.
     ///
     /// ★ The size argument is unchanged and carried verbatim from the
     /// `egui::Window` this replaced. The floor is not a preference:
@@ -485,7 +458,7 @@ impl PrintDialog {
     /// closing it — and closing this dialog discards the job they were
     /// configuring. 520 x 380 is the smallest size at which one column and
     /// both scrollbars are still usable.
-    fn new_host() -> crate::dialogs::host::Host {
+    fn host() -> crate::dialogs::host::Host {
         crate::dialogs::host::Host::new(
             "print", // ui-text-exempt: a viewport key, never displayed.
             t::dialog_title(),
@@ -561,8 +534,7 @@ impl PrintDialog {
         // operator moved it.
         // Out for the duration of the draw — see the field's own docs for why,
         // and for why rebuilding it is a safe answer rather than a panic.
-        let mut host = self.host.take().unwrap_or_else(Self::new_host);
-        let (frame, ()) = host.show(ctx, |ui| {
+        let (frame, ()) = Self::host().show(ctx, |ui| {
             if let Some(unavailable) = &self.unavailable {
                 // No printer list, no printer to choose, nothing to
                 // preview. Two sentences and a Close button: the general
@@ -593,8 +565,6 @@ impl PrintDialog {
             ui.separator();
             self.footer(ui, job.as_ref());
         });
-
-        self.host = Some(host);
 
         self.trace_plan(printer_name.as_deref(), job.as_ref());
 

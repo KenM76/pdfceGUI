@@ -92,28 +92,35 @@ impl AboutDialog {
 
     /// Draw one frame of the dialog. Returns `false` when it should close.
     pub(super) fn show(&mut self, ctx: &egui::Context) -> bool {
-        let mut open = true;
-        egui::Window::new(t::title())
-            .collapsible(false)
-            .resizable(true)
-            .default_size([560.0, 480.0])
-            // A floor, for the reason the print dialog records: `resizable`
-            // with no minimum lets the window be dragged down to a title bar
-            // and a scrollbar, which is a state with no way out but closing.
-            .min_size([420.0, 300.0])
-            // Screen-anchored, never page-anchored. The module rule: a
-            // surface an operator is reading must not move when they zoom.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                // Declared like every other dialog's body, so a driven check can
-                // find this window. Its absence is why nothing has ever driven
-                // About — which carries the third-party ATTRIBUTIONS, the one
-                // surface in this program with a legal obligation behind it.
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
-        open && !std::mem::take(&mut self.close_requested)
+        // ★ ITS OWN OS WINDOW as of 2026-08-21 — the operator's report about
+        // the print dialog applied to every dialog in this directory, and this
+        // one is the case that makes it obvious: About carries the third-party
+        // ATTRIBUTIONS, the one surface in this program with a legal obligation
+        // behind it, and it could not be moved off the document to be read
+        // beside anything.
+        //
+        // The screen anchor that stood here is retired rather than moved: an OS
+        // window is anchored to the DESKTOP, which satisfies the standing
+        // objection to surfaces that move on zoom more completely than
+        // `CENTER_CENTER` did — and `CENTER_CENTER` on every frame was G6's
+        // defect, dragging the window back to the middle the moment it was
+        // moved.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "about", // ui-text-exempt: a viewport key, never displayed.
+            t::title(),
+            egui::vec2(560.0, 480.0),
+            // A floor, for the reason the print dialog records: a resizable
+            // window with no minimum can be dragged down to a title bar and a
+            // scrollbar, which is a state with no way out but closing.
+            egui::vec2(420.0, 300.0),
+        )
+        .show(ctx, |ui| {
+            // Declared like every other dialog's body, so a driven check can
+            // find this window.
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        !frame.closed && !std::mem::take(&mut self.close_requested)
     }
 
     /// Everything inside the window.

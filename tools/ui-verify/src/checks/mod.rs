@@ -332,6 +332,7 @@ pub mod adopt_widget;
 pub mod block_nav;
 pub mod bookmark_add;
 pub mod chords;
+pub mod dialog_windows;
 /// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
 /// operator could press chose one. Proved the only way a theme can be proved:
 /// two captures of one window, before and after the click.
@@ -681,6 +682,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // asserts on a trace rather than on pixels. It is also cheap.
         Box::new(shortcuts::ShortcutsReferenceIsLive),
         Box::new(block_nav::ArrowKeysWalkBetweenBlocks),
+        Box::new(dialog_windows::DialogsOpenInTheirOwnWindow),
         Box::new(bookmark_add::BookmarkCanBeWritten),
         // Last of the three new ones and the most expensive: it drives Insert
         // pages, the Forms panel and the Tab-order section in one session,

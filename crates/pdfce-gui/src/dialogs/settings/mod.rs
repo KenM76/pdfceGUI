@@ -304,154 +304,166 @@ pub fn show(
         (((screen.height() - height).max(0.0) / 2.0) - 20.0).max(0.0),
     );
 
+    // ★ ITS OWN OS WINDOW as of 2026-08-21. Settings is the tallest dialog in
+    // the program — the height above is 82 % of the screen — so it was the one
+    // most obviously squeezed by living inside the application frame.
+    //
+    // ★ `open` stays an `&mut bool` here, unlike the other twelve, because this
+    // is a free function whose caller owns the flag. `frame.closed` is written
+    // into it rather than returned.
+    let _ = pos;
     let mut outcome = Outcome::Idle;
-    egui::Window::new(t::window_title())
-        .collapsible(false)
-        .resizable(true)
-        .default_size([width, height])
-        .default_pos(pos)
-        .open(open)
-        .show(ctx, |ui| {
-            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-            ui.label(t::intro());
-            ui.add_space(4.0);
-            // Always shown, never a control. An operator who does not know
-            // which of the two homes is live cannot follow the update
-            // instructions, and those instructions are the one place a wrong
-            // guess costs them their configuration.
-            ui.label(RichText::new(t::store_location(store)).small().weak());
-            ui.separator();
+    let (frame, ()) = crate::dialogs::host::Host::new(
+        "settings", // ui-text-exempt: a viewport key, never displayed.
+        t::window_title(),
+        egui::vec2(width, height),
+        egui::vec2(420.0, 420.0),
+    )
+    .show(ctx, |ui| {
+        crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+        ui.label(t::intro());
+        ui.add_space(4.0);
+        // Always shown, never a control. An operator who does not know
+        // which of the two homes is live cannot follow the update
+        // instructions, and those instructions are the one place a wrong
+        // guess costs them their configuration.
+        ui.label(RichText::new(t::store_location(store)).small().weak());
+        ui.separator();
 
-            let reserved = 96.0;
-            let available = (ui.available_height() - reserved).max(180.0);
-            egui::ScrollArea::vertical()
-                .max_height(available)
-                .show(ui, |ui| {
-                    // The order below is the operator-facing order and is the
-                    // contract. It is deliberately NOT the order the fields
-                    // appear in `Settings`, nor the order they are written to
-                    // the file — three orders that the source let drift apart,
-                    // which is how `theme` ended up emitted between the two
-                    // image settings and splitting them.
-                    widgets::group(ui, "appearance", t::group_appearance(), false, |ui| {
-                        appearance::theme(ui, draft);
-                        // ★ The group's second member, and the two belong
-                        // together: they are the only settings in this window
-                        // that change the PROGRAM's appearance rather than the
-                        // document's, and the only two that take effect before
-                        // Save. Grouping them makes that exception legible in
-                        // one place instead of scattered across the window.
-                        ui.add_space(10.0);
-                        appearance::ui_scale(ui, &mut draft.working_prefs);
-                    });
-                    // ★ Colour is the expanded one. See the module header for
-                    // the contradiction in the source this resolves.
-                    widgets::group(ui, "colour", t::group_colour(), true, |ui| {
-                        colour::intent(ui, draft);
-                        ui.add_space(10.0);
-                        colour::polarity(ui, draft);
-                    });
-                    widgets::group(ui, "images", t::group_images(), false, |ui| {
-                        images::mask_resample(ui, draft);
-                        ui.add_space(10.0);
-                        images::minify(ui, draft);
-                    });
-                    widgets::group(ui, "text", t::group_text(), false, |ui| {
-                        text::word_gap(ui, draft);
-                        // The source omitted this one space, so the word-gap
-                        // slider and the setting under it ran together. Every
-                        // other adjacent pair in every group has it.
-                        ui.add_space(10.0);
-                        text::unmappable(ui, draft);
-                        ui.add_space(10.0);
-                        text::actual_text(ui, draft);
-                    });
-                    widgets::group(ui, "measuring", t::group_measuring(), false, |ui| {
-                        measuring::parallel(ui, draft);
-                    });
-                    widgets::group(ui, "pages", t::group_pages(), false, |ui| {
-                        pages::separations(ui, draft);
-                        ui.add_space(10.0);
-                        pages::missing_as(ui, draft);
-                    });
-                    // ★ The shell's own preferences, LAST — after the twelve
-                    // that are about the document and before nothing. They are
-                    // the only group here whose values live in a different
-                    // file, and putting them at the end keeps the window
-                    // reading as "everything about your documents, then
-                    // everything about the program".
-                    widgets::group(ui, "display", t::group_display(), false, |ui| {
-                        display::render_quality(ui, &mut draft.working_prefs);
-                        ui.add_space(10.0);
-                        display::zoom_settle(ui, &mut draft.working_prefs);
-                        // ★ Third, after the two an operator adjusts while
-                        // looking at a page and before the two that apply to
-                        // the NEXT document. See `display::page_cache`.
-                        ui.add_space(10.0);
-                        display::page_cache(ui, &mut draft.working_prefs);
-                        // ★ The two "when a document opens" settings come after
-                        // the two "how a frame is drawn" ones, and the order is
-                        // the group's argument rather than the order they were
-                        // built in. A reader scanning the group meets the
-                        // settings that affect what they are looking at now,
-                        // then the ones that affect the next thing they open —
-                        // and the second pair's radius lines both say so, so a
-                        // reader who stops after the first two has not been
-                        // misled about what the ones below do.
-                        ui.add_space(10.0);
-                        display::opening_fit(ui, &mut draft.working_prefs);
-                        ui.add_space(10.0);
-                        display::page_chrome(ui, &mut draft.working_prefs);
-                    });
-                    widgets::group(ui, "saving", t::group_saving(), false, |ui| {
-                        saving::xref_entry_eol(ui, draft);
-                        ui.add_space(10.0);
-                        saving::trailing_eol(ui, draft);
-                        // ★ Third, and last, because it is the one an operator
-                        // is least likely to have come for. The two above are
-                        // about every file pdfce writes; this one is about
-                        // files that carry text markup, which not every
-                        // document does.
-                        ui.add_space(10.0);
-                        saving::quad_point_order(ui, draft);
-                    });
+        let reserved = 96.0;
+        let available = (ui.available_height() - reserved).max(180.0);
+        egui::ScrollArea::vertical()
+            .max_height(available)
+            .show(ui, |ui| {
+                // The order below is the operator-facing order and is the
+                // contract. It is deliberately NOT the order the fields
+                // appear in `Settings`, nor the order they are written to
+                // the file — three orders that the source let drift apart,
+                // which is how `theme` ended up emitted between the two
+                // image settings and splitting them.
+                widgets::group(ui, "appearance", t::group_appearance(), false, |ui| {
+                    appearance::theme(ui, draft);
+                    // ★ The group's second member, and the two belong
+                    // together: they are the only settings in this window
+                    // that change the PROGRAM's appearance rather than the
+                    // document's, and the only two that take effect before
+                    // Save. Grouping them makes that exception legible in
+                    // one place instead of scattered across the window.
+                    ui.add_space(10.0);
+                    appearance::ui_scale(ui, &mut draft.working_prefs);
                 });
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                let dirty = draft.is_dirty();
-                let save = ui.add_enabled(dirty, egui::Button::new(t::save()));
-                if save.clicked() {
-                    outcome = Outcome::Save;
-                }
-                if !dirty {
-                    save.on_disabled_hover_text(t::save_disabled_tooltip());
-                }
-                if ui
-                    .button(t::cancel())
-                    .on_hover_text(t::cancel_tooltip())
-                    .clicked()
-                {
-                    outcome = Outcome::Cancel;
-                }
-                // Separated from the two commit/abort controls, because it is
-                // the destructive one and a mis-click on it costs the operator
-                // every choice they have ever made here.
-                ui.add_space(12.0);
-                let all_default = draft.is_all_default();
-                let restore =
-                    ui.add_enabled(!all_default, egui::Button::new(t::restore_defaults()));
-                if restore.clicked() {
-                    outcome = Outcome::RestoreDefaults;
-                }
-                if all_default {
-                    restore.on_disabled_hover_text(t::restore_defaults_disabled_tooltip());
-                } else {
-                    restore.on_hover_text(t::restore_defaults_tooltip());
-                }
+                // ★ Colour is the expanded one. See the module header for
+                // the contradiction in the source this resolves.
+                widgets::group(ui, "colour", t::group_colour(), true, |ui| {
+                    colour::intent(ui, draft);
+                    ui.add_space(10.0);
+                    colour::polarity(ui, draft);
+                });
+                widgets::group(ui, "images", t::group_images(), false, |ui| {
+                    images::mask_resample(ui, draft);
+                    ui.add_space(10.0);
+                    images::minify(ui, draft);
+                });
+                widgets::group(ui, "text", t::group_text(), false, |ui| {
+                    text::word_gap(ui, draft);
+                    // The source omitted this one space, so the word-gap
+                    // slider and the setting under it ran together. Every
+                    // other adjacent pair in every group has it.
+                    ui.add_space(10.0);
+                    text::unmappable(ui, draft);
+                    ui.add_space(10.0);
+                    text::actual_text(ui, draft);
+                });
+                widgets::group(ui, "measuring", t::group_measuring(), false, |ui| {
+                    measuring::parallel(ui, draft);
+                });
+                widgets::group(ui, "pages", t::group_pages(), false, |ui| {
+                    pages::separations(ui, draft);
+                    ui.add_space(10.0);
+                    pages::missing_as(ui, draft);
+                });
+                // ★ The shell's own preferences, LAST — after the twelve
+                // that are about the document and before nothing. They are
+                // the only group here whose values live in a different
+                // file, and putting them at the end keeps the window
+                // reading as "everything about your documents, then
+                // everything about the program".
+                widgets::group(ui, "display", t::group_display(), false, |ui| {
+                    display::render_quality(ui, &mut draft.working_prefs);
+                    ui.add_space(10.0);
+                    display::zoom_settle(ui, &mut draft.working_prefs);
+                    // ★ Third, after the two an operator adjusts while
+                    // looking at a page and before the two that apply to
+                    // the NEXT document. See `display::page_cache`.
+                    ui.add_space(10.0);
+                    display::page_cache(ui, &mut draft.working_prefs);
+                    // ★ The two "when a document opens" settings come after
+                    // the two "how a frame is drawn" ones, and the order is
+                    // the group's argument rather than the order they were
+                    // built in. A reader scanning the group meets the
+                    // settings that affect what they are looking at now,
+                    // then the ones that affect the next thing they open —
+                    // and the second pair's radius lines both say so, so a
+                    // reader who stops after the first two has not been
+                    // misled about what the ones below do.
+                    ui.add_space(10.0);
+                    display::opening_fit(ui, &mut draft.working_prefs);
+                    ui.add_space(10.0);
+                    display::page_chrome(ui, &mut draft.working_prefs);
+                });
+                widgets::group(ui, "saving", t::group_saving(), false, |ui| {
+                    saving::xref_entry_eol(ui, draft);
+                    ui.add_space(10.0);
+                    saving::trailing_eol(ui, draft);
+                    // ★ Third, and last, because it is the one an operator
+                    // is least likely to have come for. The two above are
+                    // about every file pdfce writes; this one is about
+                    // files that carry text markup, which not every
+                    // document does.
+                    ui.add_space(10.0);
+                    saving::quad_point_order(ui, draft);
+                });
             });
-        });
 
+        ui.separator();
+        ui.horizontal(|ui| {
+            let dirty = draft.is_dirty();
+            let save = ui.add_enabled(dirty, egui::Button::new(t::save()));
+            if save.clicked() {
+                outcome = Outcome::Save;
+            }
+            if !dirty {
+                save.on_disabled_hover_text(t::save_disabled_tooltip());
+            }
+            if ui
+                .button(t::cancel())
+                .on_hover_text(t::cancel_tooltip())
+                .clicked()
+            {
+                outcome = Outcome::Cancel;
+            }
+            // Separated from the two commit/abort controls, because it is
+            // the destructive one and a mis-click on it costs the operator
+            // every choice they have ever made here.
+            ui.add_space(12.0);
+            let all_default = draft.is_all_default();
+            let restore = ui.add_enabled(!all_default, egui::Button::new(t::restore_defaults()));
+            if restore.clicked() {
+                outcome = Outcome::RestoreDefaults;
+            }
+            if all_default {
+                restore.on_disabled_hover_text(t::restore_defaults_disabled_tooltip());
+            } else {
+                restore.on_hover_text(t::restore_defaults_tooltip());
+            }
+        });
+    });
+
+    // The caller's flag, written rather than returned. See the note above the
+    // host for why this dialog differs from the other twelve.
+    if frame.closed {
+        *open = false;
+    }
     outcome
 }
 

@@ -127,24 +127,19 @@ impl DiagnosticsDialog {
 
     /// Draw one frame of the dialog. Returns `false` when it should close.
     pub(super) fn show(&mut self, ctx: &egui::Context, doc: &OpenDoc) -> bool {
-        let mut open = true;
-        egui::Window::new(t::title())
-            .collapsible(false)
-            .resizable(true)
-            .default_size([520.0, 380.0])
-            // A floor, for the reason the print and About dialogs record:
-            // `resizable` with no minimum lets the window be dragged down to a
-            // title bar and a scrollbar, which is a state with no way out but
-            // closing.
-            .min_size([380.0, 240.0])
-            // Screen-anchored, never page-anchored. The module rule: a surface
-            // an operator is reading must not move when they zoom — and this
-            // one is read *while* zooming, which is the case that makes the
-            // rule bite.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| self.body(ui, doc));
-        open && !std::mem::take(&mut self.close_requested)
+        // ★ ITS OWN OS WINDOW as of 2026-08-21, and this dialog is the one
+        // that most wanted it: it is read *while* zooming and panning the
+        // document it describes, so a window locked inside the application's
+        // frame necessarily covered the thing being diagnosed. Off on a second
+        // monitor is where it belongs.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "render-diagnostics", // ui-text-exempt: a viewport key, never displayed.
+            t::title(),
+            egui::vec2(520.0, 380.0),
+            egui::vec2(380.0, 240.0),
+        )
+        .show(ctx, |ui| self.body(ui, doc));
+        !frame.closed && !std::mem::take(&mut self.close_requested)
     }
 
     /// Everything inside the window.

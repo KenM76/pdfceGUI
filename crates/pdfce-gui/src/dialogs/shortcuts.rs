@@ -90,34 +90,32 @@ impl ShortcutsDialog {
         keymap: Option<&Keymap>,
         registry: &CommandRegistry,
     ) -> bool {
-        let mut open = true;
-        egui::Window::new(t::window_title())
-            .collapsible(false)
-            .resizable(true)
-            // ★ A HEIGHT as well as a width — see
-            // `crate::dialogs::dimension_groups`, which had the identical defect
-            // and was caught by a driven run rather than by a test.
-            //
-            // A window with no declared height sizes itself to its content, and
-            // this body is a vertical `ScrollArea` listing every bound chord.
-            // The scroll area asks for its full content height, the window
-            // grows to fit, the scroll area gets more room and asks for more.
-            // The list here is long enough to have run off the bottom of the
-            // screen, which would have put the last shortcuts where nothing
-            // could scroll to them.
-            //
-            // Fixed on the same pass as its twin rather than left for the check
-            // that would have found it, because the two are one defect with two
-            // instances and fixing one of them is how the other becomes folklore.
-            .default_size([420.0, 480.0])
-            .min_height(220.0)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                body(ui, keymap, registry);
-            });
-        open
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. A shortcut list is read
+        // *while working*, which is the one thing a window trapped inside the
+        // application frame makes impossible: it covers the surface whose
+        // shortcuts are being looked up.
+        //
+        // ★★ THE HEIGHT NOTE THAT STOOD HERE IS ANSWERED BY CONSTRUCTION NOW,
+        // and it is worth saying why rather than deleting it. It read: *"a
+        // window with no declared height sizes itself to its content, and this
+        // body is a vertical `ScrollArea` … the scroll area asks for its full
+        // content height, the window grows to fit, the scroll area gets more
+        // room and asks for more."* That loop needs a container whose size is
+        // decided by its content. An **OS window always has a finite size** —
+        // the platform gives it one — so the scroll area is bounded on every
+        // frame and the loop has nowhere to start. The declared size below is
+        // an opening bid, not a fix.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "shortcuts", // ui-text-exempt: a viewport key, never displayed.
+            t::window_title(),
+            egui::vec2(420.0, 480.0),
+            egui::vec2(320.0, 220.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            body(ui, keymap, registry);
+        });
+        !frame.closed
     }
 }
 

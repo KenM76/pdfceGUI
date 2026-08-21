@@ -140,16 +140,24 @@ impl ExportDxfDialog {
 
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
-        let mut open = true;
-        egui::Window::new(t::window_title())
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                crate::diag::ui_rect(REGION_BODY, ui.max_rect());
-                self.body(ui);
-            });
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. The size below is an opening
+        // bid rather than a measurement: this dialog was `resizable(false)`
+        // with no declared size, so egui sized it to its content and no number
+        // for it existed anywhere. `dialogs::host` grows the window to fit what
+        // the body actually draws — see [`crate::dialogs::host::Host::fit`] for
+        // why that is safer than thirteen guessed numbers, and for the two
+        // guards that keep it from oscillating.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "export-dxf", // ui-text-exempt: a viewport key, never displayed.
+            t::window_title(),
+            egui::vec2(420.0, 560.0),
+            egui::vec2(340.0, 300.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_BODY, ui.max_rect());
+            self.body(ui);
+        });
+        let open = !frame.closed;
 
         if std::mem::take(&mut self.export_requested) {
             crate::diag::trace(|| {

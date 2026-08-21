@@ -69,10 +69,10 @@
 //!
 //! ## G6 — it remembers where it was left
 //!
-//! Position is held per dialog, keyed on the [`Host::id`] it was constructed
-//! with, and re-applied on the next open through
-//! `ViewportBuilder::with_position`. **Nothing is remembered in the embedded
-//! fallback**, because egui places that window and the OS does not.
+//! Position is held per dialog, keyed on the string [`Host::new`] was given,
+//! and re-applied on the next open through `ViewportBuilder::with_position`.
+//! **Nothing is remembered in the embedded fallback**, because egui places that
+//! window and the OS does not.
 //!
 //! ★ It is stored in memory rather than on disk, deliberately. A position that
 //! survived a restart would have to be validated against the *current* monitor
@@ -81,6 +81,32 @@
 //! Persisting it is a real feature with a real check to write; the session-long
 //! version is the nine-tenths of it that costs nothing and cannot strand
 //! anybody.
+//!
+//! ## ★★ THE HOST OWNS NO STATE, AND THAT IS WHAT MADE THE OTHER THIRTEEN
+//! ## DIALOGS ONE LINE EACH
+//!
+//! The first version of this module kept the remembered position in a `Host`
+//! **struct field**, which meant every dialog that wanted an OS window had to
+//! grow a `host: Option<Host>` field, a `new_host()` constructor, and a
+//! `take()`/put-back dance around the borrow — because `show` needed `&mut` on
+//! the host while the closure it was handed needed `&mut` on the dialog.
+//!
+//! That is fine for one dialog and it is a tax on thirteen. Worse, it made
+//! `ShortcutsDialog` — a **unit struct**, deliberately stateless — impossible
+//! to convert without giving it state it does not otherwise need.
+//!
+//! So the position lives in `egui::Memory` keyed on the dialog's own id string,
+//! `show` takes `&self`, and a `Host` is a **description** built fresh each
+//! frame rather than an object with a lifetime. Three consequences, all wanted:
+//!
+//! 1. A conversion is one expression: `Host::new(…).show(ctx, |ui| …)`.
+//! 2. The memory **survives close-and-reopen**, which is what G6 actually asks
+//!    for. The struct version lost the position the moment the dialog closed,
+//!    and called that correct because it had no way to be otherwise.
+//! 3. There is no second copy of the position to go stale.
+//!
+//! ★ It is `insert_temp`, so it is session-scoped and never written to disk —
+//! see the paragraph above for why that is the feature and not a shortcut.
 //!
 //! ## What this does NOT fix, said so it is a decision
 //!
@@ -131,6 +157,11 @@ use egui::{Pos2, Vec2, ViewportBuilder, ViewportClass, ViewportId};
 /// window" without covering its middle.
 const OPEN_INSET_PT: f32 = 48.0;
 
+/// How much a dialog's body must overflow its window before the window is
+/// grown to fit it. See [`Host::fit`], whose first version had no such floor
+/// and grew the About window from 560 px to 1,624 px in a few frames.
+const FIT_MARGIN: f32 = 8.0;
+
 /// One dialog's window: what it is called, how big it opens, and where the
 /// operator last left it.
 ///
@@ -148,6 +179,15 @@ pub struct Host {
     /// dialog a different window depending on what else was open when it was
     /// created.
     id: ViewportId,
+    /// Where the last size this host ASKED FOR is kept, so it asks once.
+    /// See [`Self::fit`].
+    fit_key: egui::Id,
+    /// Where the remembered position is kept in `egui::Memory`.
+    ///
+    /// Derived from the same string as [`Self::id`] and salted, so it cannot
+    /// collide with anything else keyed on the dialog's name. See the module
+    /// header for why the position is not a field.
+    key: egui::Id,
     /// The window's title bar text. Owned rather than `&'static str` because it
     /// may carry a document name.
     title: String,
@@ -160,10 +200,6 @@ pub struct Host {
     /// a scrollbar, which is a state with no way back except closing the
     /// dialog and losing what was typed into it.
     min_size: Vec2,
-    /// Where the operator last left it, in **desktop** coordinates, or `None`
-    /// before it has been placed. See the module header for why this is
-    /// session-scoped.
-    left_at: Option<Pos2>,
 }
 
 /// What one frame of a hosted dialog reported back.
@@ -192,11 +228,107 @@ impl Host {
     pub fn new(id: &str, title: impl Into<String>, default_size: Vec2, min_size: Vec2) -> Self {
         Self {
             id: ViewportId::from_hash_of(id),
+            // ui-text-exempt: a memory key, never displayed.
+            key: egui::Id::new(("dialog-host-position", id)),
+            // ui-text-exempt: a memory key, never displayed.
+            fit_key: egui::Id::new(("dialog-host-fit", id)),
             title: title.into(),
             default_size,
             min_size,
-            left_at: None,
         }
+    }
+
+    /// Where this dialog was last left, in desktop coordinates.
+    fn remembered(&self, ctx: &egui::Context) -> Option<Pos2> {
+        ctx.data(|d| d.get_temp::<Pos2>(self.key))
+    }
+
+    /// Record where the OS has put this dialog.
+    fn remember(&self, ctx: &egui::Context, at: Pos2) {
+        ctx.data_mut(|d| d.insert_temp(self.key, at));
+    }
+
+    /// **Grow the window until the body fits**, at most once per size.
+    ///
+    /// # ★★ Why this exists: `.resizable(false)` was a SIZE, and an OS window
+    /// # has to be given one
+    ///
+    /// Nine of the thirteen dialogs converted on 2026-08-21 were
+    /// `egui::Window::…resizable(false)` with **no** `default_size`, which
+    /// means egui sized them to their content every frame. There is no number
+    /// written down anywhere for how big those dialogs are — the layout *is*
+    /// the number.
+    ///
+    /// An OS window must be created at some size, so a naive conversion means
+    /// **guessing thirteen numbers**, and a guess that is too small does not
+    /// look wrong: it clips the bottom of the dialog, which on a confirmation
+    /// is the row with the buttons on it. That is exactly the class of defect
+    /// `D:/dev/rag/egui/` records as *"panels that shipped unreachable in real
+    /// builds with every gate green"*.
+    ///
+    /// So the window is created at a stated size and then **asks the content
+    /// how big it actually is**, growing to fit. The stated size stops being a
+    /// promise and becomes an opening bid.
+    ///
+    /// # ★★★ It only ever GROWS, it grows by a MEANINGFUL amount, and it
+    /// # never asks twice for the same size
+    ///
+    /// Three guards, and every one of them is here because of R128 — the
+    /// fit-zoom feedback loop this project has already been bitten by, where a
+    /// measurement fed a size that changed the measurement.
+    ///
+    /// **The first version of this function had that exact defect, and a driven
+    /// run found it in one launch.** It padded the measured content by an item
+    /// spacing before comparing — so `want` was always larger than `inner`,
+    /// every frame asked for eight more pixels than the last, and the
+    /// once-per-size guard did not help because *every* size was a new one.
+    /// The About window opened at 560 x 480 and was 1624 x 746 by the time the
+    /// trace was read. Monotonic creep is a loop; a guard that only stops
+    /// *repetition* does not stop it.
+    ///
+    /// 1. **Grow only.** Shrinking to content would fight the operator every
+    ///    time they enlarged a window, and would shrink a scrollable body to
+    ///    its own scroll viewport, which is circular by construction.
+    /// 2. **Grow by something worth growing by.** [`FIT_MARGIN`] is the floor
+    ///    on how much overflow is worth a resize. Below it the difference is
+    ///    measurement noise between `min_rect` and a client size the window
+    ///    manager reports, and acting on noise is what creep is made of.
+    /// 3. **Never ask twice for the same size**, so a body that genuinely does
+    ///    respond to its window settles after one round trip instead of
+    ///    oscillating for the life of the dialog.
+    ///
+    /// ★ The content is measured RAW, with nothing added. A margin added here
+    /// is indistinguishable from real overflow, which is the whole of the bug
+    /// above: the padding an eye would want belongs in the *layout*, not in the
+    /// question "is the layout bigger than its window".
+    ///
+    /// ★ A scrollable body cannot trigger this at all: a `ScrollArea` reports
+    /// the size it was *given*, not the size of what is inside it. That is why
+    /// the print dialog — the one dialog that already had a measured size and a
+    /// scrollbar — is unaffected by a mechanism written for the other twelve.
+    fn fit(&self, child: &egui::Context, content: Vec2) {
+        let Some(inner) = child.input(|i| i.viewport().inner_rect).map(|r| r.size()) else {
+            return;
+        };
+        if content.x <= inner.x + FIT_MARGIN && content.y <= inner.y + FIT_MARGIN {
+            return;
+        }
+        let want = Vec2::new(
+            content.x.max(inner.x).max(self.min_size.x),
+            content.y.max(inner.y).max(self.min_size.y),
+        );
+        if child.data(|d| d.get_temp::<Vec2>(self.fit_key)) == Some(want) {
+            return;
+        }
+        child.data_mut(|d| d.insert_temp(self.fit_key, want));
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                "dialog-fit title={:?} from={:.0}x{:.0} to={:.0}x{:.0}",
+                self.title, inner.x, inner.y, want.x, want.y
+            )
+        });
+        child.send_viewport_cmd_to(self.id, egui::ViewportCommand::InnerSize(want));
     }
 
     /// **Draw one frame of this dialog in its own OS window.**
@@ -214,11 +346,7 @@ impl Host {
     /// window or the caller's own code did. [`Frame::closed`] is a report about
     /// this frame only, and the caller decides what closing means — which for
     /// a dialog that is mid-transaction is not always "stop".
-    pub fn show<R>(
-        &mut self,
-        ctx: &egui::Context,
-        add: impl FnOnce(&mut egui::Ui) -> R,
-    ) -> (Frame, R) {
+    pub fn show<R>(&self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> (Frame, R) {
         // ★ `show_viewport_immediate` takes `FnMut`, because egui reserves the
         // right to call a viewport's callback more than once. `add` is `FnOnce`
         // — the honest signature for a dialog body, which draws once per frame
@@ -243,7 +371,7 @@ impl Host {
             // unavailable (see the module header) this is the only route back
             // to a dialog that has fallen behind the parent.
             .with_taskbar(true);
-        builder = match self.left_at {
+        builder = match self.remembered(ctx) {
             // G6: back where it was left.
             Some(at) => builder.with_position(at),
             // First open: inset from the application window rather than centred
@@ -282,7 +410,7 @@ impl Host {
                 let (outer, inner) =
                     child.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect));
                 if let Some(outer) = outer {
-                    self.left_at = Some(outer.min);
+                    self.remember(&child, outer.min);
                 }
                 // ★★ The child's own client rectangle, in DESKTOP coordinates,
                 // for the harness. See the module header: every `ui-rect` this
@@ -323,7 +451,17 @@ impl Host {
             // ui-text-exempt: a panic message for an egui contract violation,
             // never displayed to an operator and never reachable from one.
             let draw = add.take().expect("viewport callback ran twice");
-            draw(ui)
+            let out = draw(ui);
+
+            // ★ Measured AFTER the body has drawn, which is the only moment
+            // the answer exists in an immediate-mode toolkit. See [`Self::fit`]
+            // for the two guards that keep this from becoming a feedback loop.
+            if class == ViewportClass::Immediate {
+                // ★ RAW. Nothing added — see [`Self::fit`] for the run where an
+                // added margin turned this into a growth loop.
+                self.fit(&child, ui.min_rect().size());
+            }
+            out
         });
         (frame, result)
     }
@@ -440,11 +578,55 @@ mod tests {
         assert_eq!(a.id, b.id, "the id must key on the NAME, not on the size");
     }
 
-    /// A fresh host has nothing to remember, so the first open is placed rather
-    /// than restored.
+    /// ★ **A host with nothing remembered reports nothing**, so the first open
+    /// is placed rather than restored.
+    ///
+    /// Asserted against a real `Context` rather than a field, because as of
+    /// 2026-08-21 the position is not a field: it lives in `egui::Memory`, and
+    /// the property worth holding is *what the host answers*, not where it
+    /// keeps it. See the module header for why the memory moved.
     #[test]
     fn a_fresh_host_remembers_no_position() {
+        let ctx = egui::Context::default();
         let h = Host::new("print", "Print", Vec2::splat(100.0), Vec2::splat(10.0));
-        assert!(h.left_at.is_none());
+        assert!(h.remembered(&ctx).is_none());
+    }
+
+    /// …and once it has been told, it answers with what it was told — for
+    /// **that dialog only**.
+    ///
+    /// ★ The second half is the one worth a test. Two dialogs sharing a memory
+    /// key would drag each other around the desktop, and the key is derived
+    /// from the same string as the viewport id, so a mistake there is a
+    /// mistake in both places at once and invisible in either.
+    #[test]
+    fn a_position_is_remembered_per_dialog() {
+        let ctx = egui::Context::default();
+        let print = Host::new("print", "Print", Vec2::splat(100.0), Vec2::splat(10.0));
+        let about = Host::new("about", "About", Vec2::splat(100.0), Vec2::splat(10.0));
+        print.remember(&ctx, Pos2::new(320.0, 240.0));
+        assert_eq!(print.remembered(&ctx), Some(Pos2::new(320.0, 240.0)));
+        assert!(
+            about.remembered(&ctx).is_none(),
+            "one dialog's position must not answer for another's"
+        );
+    }
+
+    /// ★★ **A window already big enough for its body is left alone**, which is
+    /// the guard that keeps [`Host::fit`] from being a feedback loop.
+    ///
+    /// Only the no-op half is reachable headlessly — issuing the resize needs a
+    /// live viewport — and the no-op half is the one with the hazard in it.
+    /// Named rather than claimed: the growing branch is asserted by the driven
+    /// check, which is the only place it can be.
+    #[test]
+    fn fitting_a_window_that_already_fits_asks_for_nothing() {
+        let ctx = egui::Context::default();
+        let h = Host::new("print", "Print", Vec2::new(400.0, 300.0), Vec2::splat(10.0));
+        h.fit(&ctx, Vec2::new(100.0, 100.0));
+        assert!(
+            ctx.data(|d| d.get_temp::<Vec2>(h.fit_key)).is_none(),
+            "no resize may be requested when the body already fits"
+        );
     }
 }

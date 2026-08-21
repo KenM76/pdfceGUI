@@ -205,23 +205,30 @@ impl OcrDialog {
     pub(super) fn show(&mut self, ctx: &egui::Context, doc: &OpenDoc) -> bool {
         self.poll_worker();
 
-        let mut open = true;
-        let window = egui::Window::new(t::title())
-            .collapsible(false)
-            .resizable(true)
-            .default_size([560.0, 420.0])
+        // ★ ITS OWN OS WINDOW as of 2026-08-21. OCR is the longest-running
+        // thing in this program — a job an operator starts and then goes back
+        // to work while it runs — and a progress window locked inside the
+        // application frame is a window that has to be closed to keep working.
+        //
+        // ★ The dialog region is published from INSIDE the callback now. It
+        // used to come from the `egui::Window` response rect, which no longer
+        // exists; `ui.max_rect()` is the same rectangle in the coordinates the
+        // harness converts, and `dialogs::host` tags it with this viewport.
+        let (frame, ()) = crate::dialogs::host::Host::new(
+            "ocr", // ui-text-exempt: a viewport key, never displayed.
+            t::title(),
+            egui::vec2(560.0, 420.0),
             // A floor, on the print and About dialogs' own reasoning: a
             // resizable window with no minimum can be dragged down to a title
             // bar and a scrollbar, which is a state with no way out but
             // closing.
-            .min_size([420.0, 260.0])
-            // Screen-anchored, never page-anchored — the module rule.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| self.body(ui, doc));
-        if let Some(response) = &window {
-            crate::diag::ui_rect(REGION_DIALOG, response.response.rect);
-        }
+            egui::vec2(420.0, 260.0),
+        )
+        .show(ctx, |ui| {
+            crate::diag::ui_rect(REGION_DIALOG, ui.max_rect());
+            self.body(ui, doc);
+        });
+        let open = !frame.closed;
 
         // The irreversible half, after the closure. See `save_requested`.
         if std::mem::take(&mut self.save_requested) {
