@@ -1,7 +1,8 @@
 # CONTINUE — handoff, 2026-08-20 late evening
 
-**Clean tree. 16/16 gates. 1,565 tests. 61 driven checks (not run tonight).**
-**Newest build: `OneDrive\pdfceGUI2`, 2026-08-20 21:06, engine `65f6a36`.**
+**Clean tree. 16/16 gates. 1,567 tests. The driven suite RAN, live, on his own
+drawing — see §1b.**
+**Newest build: `OneDrive\pdfceGUI2`, engine at `e5be7d5d` or later.**
 `pdfceGUI1` holds 2026-08-19 17:44 — the fallback is a day old, and that is
 now a *known* fact rather than an accident; see §4.
 
@@ -54,6 +55,20 @@ matter to Ken:
    tool that placed it uses. Alt suspends it.
 4. **The Print dialog is a real OS window**, with Enter as its default. One
    host, so the other thirteen dialogs are one line each.
+5. **Move, resize and rotate ANY object** — `transform_objects` (`Pass 113.0`)
+   landed an hour after the form-text work and closes the request he made three
+   times. Three refusals were **deleted** with it, each true when written.
+   ★ The verb rotates; there is **no rotate handle** to reach it with. That is
+   the next thing.
+
+### ★ The seam to hold on to, because it paid twice in one evening
+
+Both of tonight's big unblocks cost almost nothing on this side, and for the
+same reason: **the shell had asked the engine rather than modelling it.**
+`TextRun::editability()` started answering `Editable` and a `#[deprecated]`
+attribute pointed at the one line to delete; `transform_objects` took a slice
+and three refusals became false at once. A hand-rolled guard would have outlived
+both. That is decision 058 earning its keep, twice, inside forty-eight hours.
 
 ### ★★ And the retraction, which is the thing to internalise
 
@@ -79,20 +94,58 @@ Three separate lessons, all live:
 
 ---
 
+## 1b. The driven suite, run live
+
+He said *"I'm not using the PC so you can thoroughly test everything live"*, so
+it ran against `SW41177.pdf` with `--doc-point 0,300,500`.
+
+**First run: 49 passed, 3 failed, 7 skipped. All three failures were the
+harness**, and each in a different way — which is worth reading, because two of
+them were *confident, specific, wrong accusations about working code*:
+
+| check | what it said | what was true |
+|---|---|---|
+| `insert_image_places_a_picture` | *"THE PAGE DID NOT CHANGE"* | the picture was on the page and the sharp oracle had already counted it. The pixel floor was **one in five hundred of the page** — a statement about the FIXTURE. On a 1584 × 1224 pt sheet at 0.3× a 64 × 16 pt picture is 19 × 5 screen pixels, so a *correct* insert changes 90 of 169,416 |
+| `a_shift_drag_between_documents_moves_the_pages` | *"the sheets are now in BOTH documents"* | `--second-pdf` was a **one-page** file. The engine refused to remove its only page, by name and correctly, and the shell had already worded that |
+| `read_mode_hides_the_chrome` | full screen did not restore | **flaky**; passed on re-run with no change. `osk.exe` is up on this machine — the recorded hazard |
+
+Both real checks are repaired: the pixel floor is now derived from the
+**operand** (the fixture's size in points through the page rect against the
+`/MediaBox`), and the page-drag check asks for the refusal line before accusing
+and SKIPS with the engine's sentence quoted.
+
+★★ **The rule, third instance in two days:** *a check asserting on an absence
+must first ask whether a different signal explains it*, and *a fact about the
+fixture is not a fact about the build* — which must be SKIP, never FAIL.
+
+**Use `--second-pdf D:/Dev/temp/pdfce/big.pdf`** (5 pages). A one-page second
+document makes the move-between-documents check unrunnable.
+
+---
+
 ## 2. What to do next, in his stated order
 
 He approved a three-item list; items 1–3 are done. What is left of it:
 
-1. **The other thirteen dialogs**, now that the host exists. Each is: hold a
+1. **The rotate handle.** Unblocked tonight and the one thing he asked for that
+   is still missing: a ninth grip above the selection box, a drag that measures
+   an angle rather than a distance, a preview, and `Matrix::rotate(θ).about(c)`.
+   Everything under it exists.
+2. **The other thirteen dialogs**, now that the host exists. Each is: hold a
    `Host`, take it out for the draw, call `Host::buttons` in the footer. Watch
    for the borrow — `Host::show` needs `&mut` on the host while the body needs
    `&mut` on the dialog, so the field is an `Option` and is taken for the
    duration, exactly as `canvas::interact` does with the selection.
-2. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
+3. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
    real shape), grapheme clusters in the caret, selection inside a draft,
    right-click to add/remove a perimeter point (both engine verbs exist), the
    zero-travel guard on three of four drag paths.
-3. **Run the driven checks.** Three features shipped tonight with checks
+4. **The transform preflight**, which is a named gap in `canvas::resizing`:
+   an object whose own CTM is singular cannot be transformed at all and the
+   engine says *do not offer a handle*. `transform_preview` is the predicate and
+   it **decomposes the page** (~4 s debug on the benchmark), so it needs a cache
+   keyed on `(page, epoch, selection)` shaped like `app::cache::FormRunCache`.
+5. **Re-run the driven checks** Three features shipped tonight with checks
    written and **not run** — `shift_constrains_a_resize`, the snap assertion in
    `measure_perimeter_traces_and_closes`, and the two new assertions in
    `text_edit_on_a_real_drawing`. The harness takes the real cursor; ask.
@@ -121,6 +174,17 @@ with no error anywhere.
 ## 4. Environment gotchas
 
 - **`ui-verify` takes the real cursor and keyboard.** Ask, or verify headlessly.
+- **★ `--second-pdf` must have MORE THAN ONE PAGE.** A one-page source cannot be
+  moved out of — the engine refuses to leave a document with no pages — so the
+  cross-document move check cannot run. `D:/Dev/temp/pdfce/big.pdf` (5 pages).
+- **★ Python heredocs eat the `\` continuation in a Rust string literal**, and
+  the result COMPILES: what lands on disk is one long line with the indentation
+  baked into the string. **Five times tonight**, and `check-string-gaps` missed
+  the first four because its character class enumerated `[A-Za-z,.:;)]` and had
+  a hole the width of `}` — which in Rust is one of the likeliest characters to
+  end a clause. The class is `[^[:space:]("]` now, and widening it found **four
+  already-shipped defects**. Use the Edit tool for anything with a continuation,
+  or `r"""…"""`, or `chr(92)`.
 - **★ NEW: `PDFCE_DIAG_INVOKE=<command.id>` presses one ribbon command once**,
   in an invisible window, through the real dispatcher. That is how the Print
   dialog was verified tonight while he was working:
