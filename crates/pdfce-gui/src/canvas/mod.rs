@@ -227,6 +227,20 @@ pub mod pagedrop;
 /// [`interact`] when that file crossed R2's ceiling. Its header carries the
 /// layer order and the argument for each position in it.
 mod painting;
+/// ★★ **What a click is ALLOWED to land on** — the operator's selection
+/// filter, and the eleven classes it switches.
+///
+/// `OPERATOR_REQUESTS.md` O17. This is the replacement for Edit ▸ Content's
+/// declare-your-intention-then-point model, and its header carries the whole
+/// argument: why a filter belongs on the status bar rather than the ribbon,
+/// why it is **subtractive only** (so `default()` reproduces today's behaviour
+/// and R6 holds by construction), and why it composes with
+/// [`crate::app::modes::capability::Capabilities`] as an `AND` rather than an
+/// override.
+///
+/// Pure: no egui, no pointer, no document. Which is exactly why the popup that
+/// drives it still has to be driven before any of it counts — R1.
+pub mod pick;
 /// ★★ The eight resize grips, finally committing — built out of `move_nodes`
 /// because `pdfce-core` has no scale verb, which was re-derived against its
 /// source rather than taken from a note.
