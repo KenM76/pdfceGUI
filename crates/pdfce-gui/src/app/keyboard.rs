@@ -366,6 +366,27 @@ pub fn collect(ctx: &Context, page_count: Option<usize>) -> Vec<Action> {
 /// `PdfceApp::apply` drops when `Status` is not `Open`, which is where that
 /// judgement already lives.
 #[must_use]
+/// The chord an `egui` clipboard event stands in for, or `None`.
+///
+/// ★ Named for the CHORD rather than the command, because the mapping from
+/// chord to command is the keymap's and this function must not have an opinion
+/// about it. What egui has taken away is the *keystroke*; this puts the
+/// keystroke back and lets the keymap decide what it means.
+///
+/// The spellings match the manifest's own (`"Ctrl+C"`), and the comparison at
+/// the call site is case-insensitive so a hand-edited keymap saying `"ctrl+c"`
+/// is not silently dead — which is the failure mode this whole function is a
+/// fix for, one layer up.
+fn clipboard_chord(ev: &egui::Event) -> Option<&'static str> {
+    match ev {
+        // ui-text-exempt: keymap chord spellings, never displayed.
+        egui::Event::Copy => Some("Ctrl+C"),
+        egui::Event::Cut => Some("Ctrl+X"),
+        egui::Event::Paste(_) => Some("Ctrl+V"),
+        _ => None,
+    }
+}
+
 pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
     let Some(keymap) = keymap else {
         return Vec::new();
@@ -428,6 +449,53 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
 
     let mut out = Vec::new();
     for ev in events {
+        // ★★★ CTRL+C, CTRL+X AND CTRL+V NEVER ARRIVE AS KEY EVENTS, AND THAT IS
+        // WHY THEY HAVE NEVER WORKED.
+        //
+        // The operator, twice: *"still no ctrl+c, ctrl+v, ctrl+x"*. On
+        // 2026-08-20 they were bound in the manifest, which was necessary and
+        // **not sufficient** — and the reason is fifteen lines of
+        // `egui-winit-0.35.0/src/lib.rs`:
+        //
+        // ```rust
+        // if is_cut_command(modifiers, active_key)   { events.push(Event::Cut);   return; }
+        // if is_copy_command(modifiers, active_key)  { events.push(Event::Copy);  return; }
+        // if is_paste_command(modifiers, active_key) { … events.push(Event::Paste(contents)); return; }
+        // events.push(Event::Key { … });
+        // ```
+        //
+        // **The `return` is before the `Event::Key` push.** So for these three
+        // chords there is no key event at all, the loop below sees nothing, and
+        // a keymap binding for `Ctrl+C` is a binding nothing can ever match. The
+        // chord was dead the day it was written and every unit test agreed it
+        // was bound, because a keymap lookup is not a keystroke.
+        //
+        // ★ And `Ctrl+V` is worse than the other two: `Event::Paste` is pushed
+        // **only if the OS clipboard has non-empty text**. With an empty
+        // clipboard the keystroke vanishes entirely — no event of any kind — so
+        // a paste of something pdfce is holding in its own memory would depend
+        // on whether the operator had recently copied text in another
+        // application. `canvas::clipboard` puts a short marker on the OS
+        // clipboard when it copies, for exactly that reason; its own note
+        // carries the argument.
+        //
+        // ★★ The translation goes THROUGH THE KEYMAP rather than hard-coding
+        // three ids. An operator who rebinds `Ctrl+C` gets the rebinding
+        // honoured, and a manifest that binds these chords to something else
+        // entirely still works — which is R8's whole posture: the registry
+        // decides, not this file.
+        if let Some(chord) = clipboard_chord(&ev) {
+            for (bound, id) in keymap.iter() {
+                if bound.eq_ignore_ascii_case(chord) {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("chord-command chord={chord:?} id={id} via=clipboard-event")
+                    });
+                    out.push(id.to_owned());
+                }
+            }
+            continue;
+        }
         let egui::Event::Key {
             key,
             pressed: true,

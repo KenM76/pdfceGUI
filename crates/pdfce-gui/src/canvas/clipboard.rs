@@ -108,6 +108,43 @@ pub enum Clipped {
         /// The 0-based page it was copied from.
         page: usize,
     },
+    /// ★★★ **Page content** — a path, a text run, an image, in any mixture.
+    ///
+    /// This variant is what the type's own docs predicted: *"the day page
+    /// content becomes pasteable this type is where that arrives."* `Pass 120.0`
+    /// shipped `ObjectClip` on 2026-08-20 and this is that day.
+    ///
+    /// # ★★ Why the BYTES and not the `ObjectClip`
+    ///
+    /// Three reasons, and the third is the one that decides it:
+    ///
+    /// 1. `egui::Memory` wants `Clone + Send + Sync + 'static`, and bytes are
+    ///    all four without asking anything of the engine's type.
+    /// 2. `Clipped` derives `PartialEq`, which bytes give for free.
+    /// 3. **It is the same representation the OS clipboard will take.** The
+    ///    engine's `to_bytes` is magic-prefixed, versioned and bit-exact
+    ///    precisely so a pdfce→pdfce paste is lossless, and registering it as a
+    ///    private format is the remaining half of the operator's item 3. Holding
+    ///    the live struct here would mean serialising at the moment of
+    ///    registration instead — a second code path, for the same bytes.
+    ///
+    /// ★ The clip **owns its resources**, transitively, by value. So copying
+    /// from one document, closing it, and pasting into another works — and
+    /// cross-document paste is not a special case but the same call.
+    Content {
+        /// `ObjectClip::to_bytes` — magic-prefixed, versioned, bit-exact.
+        bytes: Vec<u8>,
+        /// The 0-based page it was copied from, for the same reason
+        /// [`Self::Markup`] carries one: a paste onto the *same* page offsets
+        /// so the copy is visible, a paste elsewhere lands in place.
+        page: usize,
+        /// How many objects are in it, for the trace and for a sentence.
+        ///
+        /// Carried rather than re-derived because reading it back means
+        /// deserialising, and the count is wanted in places that have no reason
+        /// to.
+        count: usize,
+    },
 }
 
 /// Why a copy or a cut could not happen.
@@ -120,12 +157,21 @@ pub enum Clipped {
 pub enum Refusal {
     /// Nothing is selected.
     NothingSelected,
-    /// A **content** object is selected — a path, a text run, an image.
+    /// The engine refused to copy the selection.
     ///
-    /// The honest refusal, and the one that names the boundary: `EditSession`
-    /// has no verb that puts page content back, so a copy would be offering a
-    /// paste that could never happen.
-    ContentNotAnnotation,
+    /// ★★ **This variant was `ContentNotAnnotation` until 2026-08-20**, and it
+    /// said: *"`EditSession` has no verb that puts page content back, so a copy
+    /// would be offering a paste that could never happen."* True when it was
+    /// written, and `Pass 120.0` made it false — the operator had been asking
+    /// for cut/copy/paste of page content since the first week.
+    ///
+    /// What replaces it is the engine's own refusal, which is a genuinely
+    /// different fact: a clip it could not assemble. Kept as one variant rather
+    /// than mirroring the engine's taxonomy, for the reason
+    /// `canvas::resizing`'s note gives about the same choice — a shell that
+    /// modelled the engine's internals a second time is decision 058's failure
+    /// mode, and this module has just watched one of those expire.
+    EngineRefused,
     /// The selected annotation's dictionary would not yield a spec.
     ///
     /// Reachable on an annotation whose subtype `annot_author` does not author
@@ -157,15 +203,17 @@ pub fn copy(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> {
     use pdfce_core::object::Object;
 
     let Some(selected) = doc.selection.annot() else {
-        // ★ A CONTENT selection is a different refusal from an empty one, and
-        // the distinction is the whole value of this branch: "nothing is
-        // selected" over a plainly-selected rectangle would read as the
-        // selection being broken, when what is missing is a verb.
-        return Err(if doc.selection.is_empty() {
-            Refusal::NothingSelected
-        } else {
-            Refusal::ContentNotAnnotation
-        });
+        // ★★★ PAGE CONTENT, as of 2026-08-20. This branch used to refuse it by
+        // name — *"pdfce has no verb that puts page content back, so a copy
+        // would be offering a paste that could never happen"* — and it was the
+        // operator's oldest open request.
+        //
+        // ★ The ORDER here is the annotation first and content second, which is
+        // the opposite of how the selections are populated and is deliberate: a
+        // ce dimension and a markup are annotations that a content selection can
+        // never name, so asking the narrower question first means the broad one
+        // never has to exclude anything.
+        return copy_content(ctx, doc);
     };
     let graph = doc.session.graph();
     let Some(Object::Dict(dict)) = doc.session.value(selected.target.id) else {
@@ -180,6 +228,105 @@ pub fn copy(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!("clipboard-copy kind=markup page={}", selected.target.page)
+    });
+    Ok(clipped)
+}
+
+/// Copy the selected **page content** — a path, a text run, an image, in any
+/// mixture.
+///
+/// # ★★ What the engine does that this could not have done for itself
+///
+/// This shell's own request scoped the work as *"expose the copy engine you
+/// already have at object granularity"*, on the strength of `import_object`
+/// being a recursive, reference-remapping, cycle-guarded object-graph copy.
+/// That reading was correct **and it was the smaller half**, in one specific
+/// place worth writing down:
+///
+/// > `import_object` copies **indirect objects**. A page's content objects are
+/// > not indirect objects — a path, a text run and an image invocation are byte
+/// > ranges inside a content stream, and the operators in those bytes name
+/// > their resources **by page-local name**. On the destination page, `/F1` is a
+/// > different font. Paste the bytes verbatim and you get the right glyphs in
+/// > the wrong typeface, or nothing at all. **Neither failure errors**, and
+/// > neither is visible in a diff, because *a resource name is not a
+/// > reference.*
+///
+/// So the clip records which names each item consumes, carries the objects
+/// behind them by value, and paste re-binds every one to a fresh name on the
+/// destination page — rewriting the names inside the copied bytes. That is the
+/// feature; `import_object` was the prerequisite.
+///
+/// Recorded here rather than in a request file because it is the general
+/// lesson: **a graph copy does not copy a namespace.**
+///
+/// # Errors
+///
+/// [`Refusal::NothingSelected`] for an empty selection,
+/// [`Refusal::EngineRefused`] when the clip could not be assembled.
+fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> {
+    let page = doc.view.page_index;
+    let objects = doc.selection.object_indices_on(page);
+    if objects.is_empty() {
+        return Err(Refusal::NothingSelected);
+    }
+    // ★ `&self`, and it commits nothing — which is what makes `cut` below one
+    // undo entry without a `cut_objects` call: only the deletion is an edit.
+    let clip = doc
+        .session
+        .copy_objects(page, &objects)
+        .map_err(|_| Refusal::EngineRefused)?;
+    let clipped = Clipped::Content {
+        count: clip.len(),
+        bytes: clip.to_bytes(),
+        page,
+    };
+    store(ctx, clipped.clone());
+    // ★★★ AND A MARKER ON THE OS CLIPBOARD, WITHOUT WHICH CTRL+V DOES NOT
+    // ARRIVE AT ALL.
+    //
+    // Not a nicety and not a placeholder. `egui-winit` turns `Ctrl+V` into
+    // `Event::Paste(contents)` **only if the OS clipboard has non-empty text**,
+    // and returns before pushing a key event either way — so with an empty
+    // clipboard the keystroke vanishes completely, no event of any kind.
+    // `app::keyboard::clipboard_chord` carries the whole account.
+    //
+    // So a copy that put nothing on the OS clipboard would leave `Ctrl+V`
+    // working or not depending on **whether the operator had recently copied
+    // text in another application**, which is the worst kind of intermittent:
+    // it is not random, it is not reproducible, and the thing that fixes it has
+    // nothing to do with pdfce.
+    //
+    // ★ What goes there is a SENTENCE RATHER THAN THE BYTES, and both halves of
+    // that are deliberate:
+    //
+    // * a human who pastes into a text editor gets something that says what
+    //   happened, not a screenful of binary;
+    // * the real payload is `ObjectClip::to_bytes`, which belongs under a
+    //   **private clipboard format** so a pdfce→pdfce paste is lossless — and
+    //   registering one is a Win32 `RegisterClipboardFormat` call this shell
+    //   does not make yet. That is the remaining half of the operator's item 3,
+    //   named here rather than left as a silence.
+    //
+    // Until then the marker is what makes the chord arrive and the in-memory
+    // clip is what is pasted, so a pdfce→pdfce paste is already lossless. What
+    // is missing is pdfce→pdfce **across two processes**.
+    ctx.copy_text(crate::text::clipboard::os_marker(objects.len()));
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        //
+        // ★ The COUNT and the BYTE LENGTH, because those are what a wrong build
+        // gets wrong: a clip that copied the operators and dropped the
+        // resources is a plausible-looking clip that pastes the right glyphs in
+        // the wrong typeface, and it is several hundred bytes shorter.
+        let bytes = match &clipped {
+            Clipped::Content { bytes, .. } => bytes.len(),
+            Clipped::Markup { .. } => 0,
+        };
+        format!(
+            "clipboard-copy kind=content page={page} objects={} bytes={bytes}",
+            objects.len()
+        )
     });
     Ok(clipped)
 }
@@ -208,17 +355,54 @@ pub fn cut(
     actions: &mut Vec<Action>,
 ) -> Result<Clipped, Refusal> {
     let clipped = copy(ctx, doc)?;
+    // ★★ COPY RUNS FIRST, and the engine makes the same point about its own
+    // `cut_objects`: *"a selection that cannot be copied is refused with
+    // nothing deleted. Reversed, a cut whose copy half failed would take the
+    // objects away with nothing on the clipboard — the one outcome the operator
+    // cannot recover from by pasting."* The `?` above is that ordering.
+    //
+    // ★ And this is deliberately NOT `EditSession::cut_objects`, though that
+    // verb exists and would work. `cut_objects` is copy-then-delete inside the
+    // engine; doing it here as copy-then-`DeleteSelection` keeps the delete
+    // going through the funnel like every other edit, so it lands one
+    // `EditSession` command and one undo entry by the same mechanism as
+    // everything else — and this module goes on changing no document, which is
+    // what lets its refusals be unit-tested without one.
+    //
+    // The undo property is unchanged either way: only one half of a cut is an
+    // edit.
     // The delete is raised through the funnel like every other edit, rather
     // than performed here: this module changes no document.
-    if let Some(selected) = doc.selection.annot() {
-        actions.push(Action::DeleteAnnotation {
-            page: selected.target.page,
-            id: selected.target.id,
-        });
+    match (&clipped, doc.selection.annot()) {
+        (Clipped::Markup { .. }, Some(selected)) => {
+            actions.push(Action::DeleteAnnotation {
+                page: selected.target.page,
+                id: selected.target.id,
+            });
+        }
+        (Clipped::Content { page, .. }, _) => {
+            let objects = doc.selection.object_indices_on(*page);
+            if !objects.is_empty() {
+                actions.push(
+                    crate::app::actions::VectorAction::DeleteSelection {
+                        page: *page,
+                        objects,
+                    }
+                    .into(),
+                );
+            }
+        }
+        (Clipped::Markup { .. }, None) => {}
     }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
-        "clipboard-cut kind=markup".to_owned()
+        format!(
+            "clipboard-cut kind={}",
+            match &clipped {
+                Clipped::Markup { .. } => "markup",
+                Clipped::Content { .. } => "content",
+            }
+        )
     });
     Ok(clipped)
 }
@@ -229,8 +413,20 @@ pub fn cut(
 ///
 /// [`Refusal::NothingCopied`] when the clipboard is empty.
 pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Result<(), Refusal> {
-    let Some(Clipped::Markup { spec, page: from }) = read(ctx) else {
-        return Err(Refusal::NothingCopied);
+    let (spec, from) = match read(ctx) {
+        Some(Clipped::Markup { spec, page: from }) => (spec, from),
+        // ★ Page content takes its own path: the clip is bytes and the verb is
+        // `paste_objects`, which takes a page-space MATRIX rather than a
+        // displacement — so the offset below cannot be shared even though the
+        // rule that decides it is.
+        Some(Clipped::Content {
+            bytes,
+            page: from,
+            count,
+        }) => {
+            return paste_content(page, &bytes, from, count, actions);
+        }
+        None => return Err(Refusal::NothingCopied),
     };
     // See the module header: same page offsets so the copy is visible, a
     // different page lands in place so a mark copied to sheet 12 is where it
@@ -254,6 +450,64 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
         // reports as a bug — they just think that is how it works.
         dy: -offset,
     });
+    Ok(())
+}
+
+/// Paste page content onto `page`, raising the action that authors it.
+///
+/// # ★ The offset rule is the markup one, and the geometry is not
+///
+/// Same page offsets so the copy is visible; a different page or document lands
+/// in place, so a shape copied to sheet 12 is where it was on sheet 1. That
+/// rule is shared with [`paste`] deliberately — two answers to *"where does a
+/// paste land"* would be two things for the operator to learn.
+///
+/// What is **not** shared is how the offset is expressed. A markup carries a
+/// `/Rect` and moves by a pair of numbers; page content moves by a **page-space
+/// matrix**, which is the same contract `transform_objects` takes and the same
+/// reason: `cm` composes into the CTM in force at that point in the stream, so
+/// the engine conjugates by each item's own captured matrix and the caller
+/// passes page space or nothing.
+///
+/// `Matrix::IDENTITY` is paste-in-place; `translate` is paste-with-offset. That
+/// the same verb also gives paste-scaled and paste-rotated through
+/// `Matrix::about` is why the request asked for a matrix rather than a
+/// displacement, and it is what a future *paste special* is already built on.
+///
+/// # Errors
+///
+/// None today — the deserialisation happens in the apply arm, where the session
+/// is. A clip this shell wrote is a clip this shell can read; one it cannot is
+/// the engine's `ClipError::NotAClip`, and that reaches the status row through
+/// `vector_edit` like every other engine refusal.
+fn paste_content(
+    page: usize,
+    bytes: &[u8],
+    from: usize,
+    count: usize,
+    actions: &mut Vec<Action>,
+) -> Result<(), Refusal> {
+    let offset = if from == page { PASTE_OFFSET_PT } else { 0.0 };
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!(
+            "clipboard-paste kind=content page={page} from={from} objects={count} \
+             offset={offset:.1}"
+        )
+    });
+    actions.push(
+        crate::app::actions::VectorAction::PasteObjects {
+            page,
+            clip: bytes.to_vec(),
+            // ★ Down the page, which is NEGATIVE in PDF user space because y
+            // increases upward — the identical trap `paste` names one function
+            // up, and worth repeating rather than cross-referencing because
+            // getting it backwards produces a paste that goes up-and-right,
+            // which looks deliberate and is the kind of thing nobody reports.
+            at: pdfce_core::vector::Matrix::translate(offset, -offset),
+        }
+        .into(),
+    );
     Ok(())
 }
 

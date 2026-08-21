@@ -241,6 +241,12 @@ pub mod geometry_fields;
 /// nodes one at a time". The capability was in the selection model from the day
 /// the Node rung landed and no consumer read it that way.
 pub mod multi_node;
+/// ★★★ **The operator's oldest open request** — cut, copy and paste of page
+/// content. Its header carries why the interesting failure is silent: a clip
+/// that carried the operators and dropped the resources pastes the right glyphs
+/// in the wrong typeface and errors nowhere, so the assertion is a COUNT the
+/// engine reports rather than a picture.
+pub mod object_clipboard;
 /// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
 /// and a line in the shortcuts reference, and **no dispatch arm** for the whole
 /// life of the project. Its whole behaviour is one `if` in the frame
@@ -632,6 +638,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // operation the program has. Its fixture is **generated**, so unlike
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
+        Box::new(object_clipboard::CopyAndPastePageContent),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

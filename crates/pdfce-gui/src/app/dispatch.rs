@@ -591,10 +591,33 @@ impl PdfceApp {
                     return;
                 };
                 let cutting = id == "edit.cut";
-                if cutting && !self.capabilities().author_markup {
+                // ★★ The gate follows WHAT IS SELECTED, not the command.
+                //
+                // A cut removes something, so it needs a mode that may remove
+                // that kind of thing — and as of 2026-08-20 there are two
+                // kinds. Cutting an annotation needs `author_markup` (Review
+                // and Edit); cutting page content needs `edit_content` (Edit
+                // alone), which is the same predicate the Delete key is gated
+                // on and must be, because a cut IS a delete with a copy in
+                // front of it.
+                //
+                // Asking `author_markup` for both would have let Review cut a
+                // line off a drawing — a mode whose whole promise is that it
+                // does not change the document's content.
+                let caps = self.capabilities();
+                let content = doc.selection.annot().is_none() && !doc.selection.is_empty();
+                let allowed = if content {
+                    caps.edit_content
+                } else {
+                    caps.author_markup
+                };
+                if cutting && !allowed {
                     crate::diag::trace(|| {
                         // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-author-markup")
+                        format!(
+                            "command-declined id={id} reason=mode-cannot-remove-{}",
+                            if content { "content" } else { "markup" }
+                        )
                     });
                     return;
                 }
@@ -618,10 +641,26 @@ impl PdfceApp {
                 let Status::Open(doc) = &self.status else {
                     return;
                 };
-                if !self.capabilities().author_markup {
+                // ★ The gate follows WHAT IS ON THE CLIPBOARD, for the same
+                // reason the cut's follows what is selected: pasting page
+                // content is a content edit and Review may not make one.
+                //
+                // It reads the clipboard rather than the selection, which is
+                // the only honest source here — a paste has no operand on the
+                // page to look at.
+                let caps = self.capabilities();
+                let allowed = match crate::canvas::clipboard::read(ctx) {
+                    Some(crate::canvas::clipboard::Clipped::Content { .. }) => caps.edit_content,
+                    // An empty clipboard takes the markup gate, so the refusal
+                    // an operator gets in Read is the mode's rather than
+                    // "nothing has been copied" — which would be true and
+                    // useless, because copying something would not help.
+                    _ => caps.author_markup,
+                };
+                if !allowed {
                     crate::diag::trace(|| {
                         // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-author-markup")
+                        format!("command-declined id={id} reason=mode-cannot-paste-here")
                     });
                     return;
                 }

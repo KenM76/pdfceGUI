@@ -318,6 +318,40 @@ pub enum VectorAction {
     /// inside* another selected object's, are collapsed — because wrapping a
     /// contained span twice applies the transform to those marks twice, which is
     /// the one arithmetic error here that renders as *almost* right.
+    /// ★★★ **Paste page content** — `Pass 120.0`, 2026-08-20, and the
+    /// operator's oldest open request.
+    ///
+    /// > *"can you get cut copy and paste working for objects I select on the
+    /// > canvas?"* — asked in the first week and repeatedly since.
+    ///
+    /// # Why the clip travels as BYTES
+    ///
+    /// Because that is what the shell is holding: `canvas::clipboard` parks an
+    /// `ObjectClip::to_bytes` payload in `egui::Memory` so that the same
+    /// representation serves the in-process clipboard and the OS one. See
+    /// `Clipped::Content` for the three reasons, and for why the third decides
+    /// it.
+    ///
+    /// The deserialisation therefore happens here, in the apply arm, and its
+    /// refusals are the engine's own — `ClipError::NotAClip` is checked **before
+    /// any length prefix is read**, so an unrelated payload the OS clipboard
+    /// hands back is refused with a sentence rather than with whatever a length
+    /// prefix read out of the wrong bytes.
+    ///
+    /// # ★★ `at` is a PAGE-SPACE matrix, exactly as [`Self::TransformObjects`]
+    ///
+    /// `Matrix::IDENTITY` is paste-in-place, `translate` is paste-with-offset,
+    /// and `Matrix::about` gives paste-scaled and paste-rotated from the same
+    /// verb. That is why the request asked for a matrix rather than a
+    /// displacement: a future *paste special* is already built.
+    PasteObjects {
+        /// The 0-based page to paste onto.
+        page: usize,
+        /// `ObjectClip::to_bytes` — magic-prefixed, versioned, bit-exact.
+        clip: Vec<u8>,
+        /// Where it lands, **in PAGE space**.
+        at: Matrix,
+    },
     TransformObjects {
         /// The 0-based page.
         page: usize,
@@ -460,6 +494,41 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
         // reports — see the variant's docs for what the engine collapses and
         // why. A count taken from our own slice would be a number this
         // shell wished were true.
+        // ★★★ PASTE. The operator's oldest open request, and the arm is short
+        // because the engine's clip owns everything it needs.
+        //
+        // ★ The deserialisation is INSIDE the closure, so a payload that is not
+        // a clip refuses through `vector_edit`'s own channel with the engine's
+        // sentence — `ClipError::NotAClip`, checked before any length prefix is
+        // read. A shell that unwrapped here would have to invent a sentence for
+        // a case the engine already words.
+        //
+        // ★★ `resources_added` is on the trace at the engine's suggestion:
+        // *"every paste adds fresh /Resources entries, so a shell that pastes
+        // the same clip forty times and wonders why the file grew has the
+        // answer in hand."* Not on the status row — it is a fact about the
+        // file rather than about the page, and rule 4 asks for a disclosure in
+        // terms of what the operator can see.
+        VectorAction::PasteObjects { page, clip, at } => {
+            let mut added = 0_u64;
+            let mut pasted = 0_u64;
+            vector_edit(doc, "paste-objects", page, clip.len(), |session| {
+                let clip = pdfce_core::vector::ObjectClip::from_bytes(&clip)?;
+                session.paste_objects(page, &clip, at).map(|outcome| {
+                    added = outcome.resources_added;
+                    pasted = outcome.objects_pasted;
+                    outcome.disclosures
+                })
+            });
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!(
+                    "paste-objects page={page} pasted={pasted} resources_added={added} \
+                     at=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
+                    at.a, at.b, at.c, at.d, at.e, at.f,
+                )
+            });
+        }
         VectorAction::TransformObjects {
             page,
             objects,

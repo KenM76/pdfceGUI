@@ -126,6 +126,10 @@ pub mod vk {
     pub const T: u16 = 0x54;
     /// See [`D`].
     pub const A: u16 = 0x41;
+    /// Copy. Added 2026-08-20 with the object clipboard's driven check; see the
+    /// note above about why these are added one at a time rather than as a
+    /// block.
+    pub const C: u16 = 0x43;
     /// `V` — the select tool's chord, and the way a driven check puts an armed
     /// tool down. With a measure or markup tool armed, a click on the page is a
     /// PICK rather than a selection, so any check that needs to select
