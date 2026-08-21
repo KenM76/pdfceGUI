@@ -1,43 +1,74 @@
-# CONTINUE — handoff, 2026-08-21 afternoon
+# CONTINUE — handoff, 2026-08-21 evening
 
 **Type `continue` and start at §2.** Everything above it is state; §2 is the
 work queue, in order.
 
-**Clean tree. 17/17 gates. 1,628 + 385 tests.** Re-measure before quoting any
-of that; the commands are in `RESUME.md`.
+**Clean tree. 17/17 gates. 1,632 + 385 tests. Driven: 54 passed, 0 failed.**
+Re-measure before quoting any of that; the commands are in `RESUME.md`.
 
-**Published: `OneDrive\pdfceGUI1`, built 2026-08-21 15:46**, engine `2cc448f`,
-shell `9e09bc0`. `pdfceGUI2` holds 2026-08-21 09:50 as the fallback.
+**Published: `OneDrive\pdfceGUI2`, built 2026-08-21 16:0x**, with the Select
+popup working. `pdfceGUI1` holds the 15:47 build as the fallback.
 
-## ★★★ THE VERIFICATION DEBT, AT THE TOP WHERE IT CANNOT BE MISSED
+★ **The published build predates the two new driven checks and O22's finding.**
+Nothing in it is wrong that was not wrong before — the checks are harness
+work, and O22 is a defect it already had — but it is not the tip.
 
-**Two things shipped in that build and NEITHER has been driven.** This is the
-R1 debt again, on exactly the class of change R1 exists for.
+## ★★★ STATE, MEASURED 2026-08-21 EVENING
 
-| shipped 2026-08-21 afternoon | driven? |
+**The driven suite: 54 passed, 0 failed, 13 skipped.** All thirteen skips are
+legitimate — four need `--second-pdf`, three are fixture properties, OCR has no
+models in this build, and `ctrl_c_copies_text_to_the_os_clipboard` correctly
+skips at `0,300,500` because that point is not text.
+
+**The afternoon's verification debt is PAID.** Both things published on
+2026-08-21 are driven:
+
+| | |
 |---|---|
-| **The clipboard fix (O18)** — Ctrl+C copies text in Read and in a canvas text box; Cut and Paste added to drafts | ✗ |
-| **The selection filter (O17 parts A and C)** — the `Select` popup on the status bar, and the hit test obeying it | ✗ |
+| `ctrl_c_copies_text_to_the_os_clipboard` | PASS — swept 10 chars, the **real Windows clipboard** held those 10 |
+| `select_filter_changes_what_a_click_hits` | PASS — selects, switch off, selects nothing, switch on, selects again |
 
-★★ **The clipboard fix cannot be verified by ANY test in the suite**, and that
-is a property of the defect rather than of the effort spent. 1,628 unit tests
-cannot see the operating system's clipboard, and the clipboard is the thing
-that was wrong. The check must clear the clipboard, drive the chord, and read
-the clipboard back. **It must clear it first** — a stale marker from an
-earlier run makes a failing check pass.
+### ★★★ AND DRIVING FOUND THE DEFECT KEN IS BLOCKED ON — `O22`
 
-★ **The selection popup has never been opened.** It publishes an indexed
-diagnostic rect per row (`status-filter-row:<n>`) specifically so a harness
-can *choose from* it rather than only prove it opens — which is the one claim
-that is also true of every inert control.
+**An object near the top of the view cannot be rotated. Its handle is drawn
+nine pixels above the canvas.** `rotate_handle_turns_a_selection` passes at
+`0,300,500` and fails at `0,1211,1021`, while `resize_scales_a_shape` passes at
+both. The numbers are in `O22`; the short version is that
+`Grip::Rotate.anchor()` is `bounds.top() - 20.0`, and a selection flush with
+the top of the viewport puts that outside the clip.
 
-**What HAS been done:** a smoke launch offscreen with
-`PDFCE_DIAG_VIEWPORT=-3000,-3000,1600,1000` and the benchmark drawing as
-argv1. No panic, the document opens, and `status-group:filter` is published at
-the left edge of the status bar's fixed cluster, immediately left of
-`status-group:find`. That proves the control is **laid out**, not that it
-works.
+It is not about text, which is what `O20` assumed. **Any selection within 24 pt
+of the top of the view**, whatever it is made of.
 
+★ The fix is a convention question and `O22` records three candidates rather
+than picking one in a hurry. The recommendation is scroll padding — a
+pasteboard you can scroll past the page edge into, as Illustrator and Acrobat
+have — because it is the conventional answer and because the eight RESIZE grips
+have the same latent defect on the left and bottom edges, with no check aimed
+there yet.
+
+★★ **The transferable half: one `--doc-point` passing is what hid this for a
+day.** A driven check aimed at a single point proves the gesture works *there*.
+
+### Two harness lessons from the same evening, both now in the RAG
+
+Both new checks accused the application before they were right, and both times
+the harness was at fault:
+
+- one asked whether a `ui-rect` region had been published. That channel is a
+  **change log**, so a region that stopped being drawn is still in the trace —
+  it reported *"THE FILTER IS DECORATIVE"* about a build whose own trace said
+  `sel=0`;
+- the other watched `text-selection`, which no build has ever emitted (it is
+  `canvas-text-selection`), and reported SKIPPED blaming the fixture.
+
+**Read the trace before believing the check.**
+
+And one that is about harness design: **a driven check that mutates persisted
+state must establish that state at the START.** Restoring it at the end only
+runs when the check passed, which is the case that did not need it — the filter
+check failed at step 2, left every class switched off on disk, and its next run
+blamed `--doc-point`.
 ---
 
 ## 0. ★★★ READ THESE FIRST, EVERY SESSION
@@ -184,22 +215,17 @@ build's own `BUILD-INFO.txt` (`--note`).
 His standing instruction is *"continue looping through other tasks"*. In the
 order that returns the most:
 
-1. ★★★ **Drive the two things published on 2026-08-21 afternoon**, machine
-   free. They are at the top of this file and they outrank everything below.
-   Two new checks are needed and neither exists:
+1. ★★★ **Fix `O22` — the rotate handle is off-canvas near the top of the
+   view.** This is what Ken is blocked on, it is confirmed by driving with
+   numbers, and it is the only item here that a person is currently waiting on.
 
-   - **`clipboard_copies_text`** — clear the OS clipboard, open the fixture in
-     Read, sweep a range, `Ctrl+C`, read the clipboard back and assert it holds
-     the swept text and **not** the string `"copied from pdfce"`. Then the same
-     inside a canvas text box in Edit, plus `Ctrl+X` and `Ctrl+V`. ★ Asserting
-     on the trace is not enough and never was: the trace cannot see the
-     clipboard.
-   - **`select_filter_changes_what_a_click_hits`** — the honest claim is not
-     *"the popup opens"*. Click an object and assert it selects; open `Select`,
-     click the row for its class, close, click the same pixel, and assert
-     **nothing** is selected. Anything weaker repeats the failure the harness
-     exists to prevent.
+   The recommendation is scroll padding rather than moving the handle; `O22`
+   carries why the two cheaper fixes are worse. Then a driven check per page
+   EDGE, because the eight resize grips have the same latent defect on the left
+   and bottom and nothing has ever aimed at them there.
 
+   ★ Re-run `rotate_handle_turns_a_selection` at **both** `--doc-point`s
+   afterwards. One point passing is what hid this.
 2. **Run the full driven suite**, and fix whatever the engine
    bump moved:
    ```
