@@ -550,18 +550,67 @@ so in its own words rather than borrowing the form sentence.
 cut copy and paste working for objects I select on the canvas?"*
 **Scope set by you, 2026-08-20:** *"oh I might want all cases so we shouldn't be
 restrictive in our ask."*
-**Status:** OPEN — **blocked on the engine, and the full ask is now filed**:
-`request_an_object_clipboard_the_whole_capability_not_the_convenient_subset.md`.
+**Status:** **SHIPPED 2026-08-20 AND DRIVEN.** Awaiting your verdict.
+
+Select a line, a shape or a piece of text on the page and press **Ctrl+C**, then
+**Ctrl+V**. It lands 10 pt down and right so you can see it is a copy, or in
+place if you paste onto a different page. **Ctrl+X** cuts, as one undo.
+
+Driven on your own drawing: a 108 KB clip out, one object back in.
+
+### ★★★ And Ctrl+C had never once reached the keyboard map — that is why you kept reporting it
+
+You said *"still no ctrl+c, ctrl+v, ctrl+x"* twice. On 2026-08-20 they were
+bound, which was necessary and **not sufficient**: the toolkit intercepts those
+three chords and converts them into its own clipboard events **before** the
+keystroke reaches anything pdfce can see. So the binding existed, every test
+agreed it existed, the menu showed it next to the command — and the key did
+nothing, for ever.
+
+★ **Ctrl+V was worse.** The toolkit only raises a paste event if the *Windows*
+clipboard already holds some text. With it empty, the keystroke vanished
+completely — so whether paste worked depended on **whether you had recently
+copied text in another program**. Not random, not reproducible, and nothing to
+do with pdfce.
+
+That is why copying now also leaves a sentence on the Windows clipboard —
+*"1 object copied from pdfce. Paste it back into pdfce to place it."* It is what
+makes the key arrive, and if you paste it into an email by accident it reads as
+an explanation rather than as garbage.
 
 ### What works today
 
-- Markup and comments: cut, copy and paste, all three chords bound.
+- **Page content — a path, a line, a block of drawing, a picture, text:** cut,
+  copy and paste, in any mixture, as one undo entry.
+- Markup and comments: cut, copy and paste.
 - Swept text: copy to the system clipboard.
-- **Page content — a path, a line, a block of drawing:** nothing.
-- A placed image: can be put in, cannot be picked back up.
 
-And **nothing at all crosses a document boundary**, which matters now that you
-have tabs and move pages between them.
+### Still open, and named rather than left as a silence
+
+- **Across two pdfce windows.** Within one window it is lossless. Between two
+  processes it needs the clip registered under a private Windows clipboard
+  format, which is a call this shell does not make yet.
+- **Copying to another program** — Illustrator, SolidWorks — needs the selection
+  rendered as a standalone one-page PDF, which the engine has filed separately
+  and deliberately did *not* fold into the same bytes: a one-page PDF cannot
+  carry which byte range was which object, so re-deriving it on the way back in
+  would make a pdfce→pdfce paste worse than a pdfce→Illustrator one.
+- **Dimensions and form fields** are annotations rather than page content, so
+  these verbs cannot reach them at all. Filed.
+
+### ★ And our reading of the engine was right in a way that mattered, and wrong in one place that was the whole job
+
+We scoped the ask as *"expose the copy engine you already have at object
+granularity"*, on the strength of a function that already copies object graphs
+with every reference remapped. That was correct. What it misses is that a
+drawing's content is not an object graph at all — it is **bytes inside a page's
+content stream**, and those bytes name their fonts and images **by a nickname
+that is local to that page**. On another page, `/F1` is a different font.
+
+So a naive copy would have pasted the right letters in the wrong typeface, and
+**nothing would have errored**. The engine built the name-rebinding half; our
+reading identified the prerequisite. Worth recording for the next request scoped
+that way.
 
 ### I nearly asked for a third of it
 
