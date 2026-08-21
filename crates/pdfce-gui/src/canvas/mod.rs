@@ -231,6 +231,12 @@ mod painting;
 /// because `pdfce-core` has no scale verb, which was re-derived against its
 /// source rather than taken from a note.
 pub mod resizing;
+/// ★★ **The ninth grip** — the rotate handle above the selection box, and the
+/// one gesture the eight could never express. `ui-conventions/handles.md` H2,
+/// and the third word of the operator's *"reposition, resize, or rotate"*. Its
+/// header carries why a rotation is not a resize with different arithmetic:
+/// the pointer's DISTANCE from the centre must mean nothing.
+pub mod rotating;
 // The ruler gutters, the 1-2-5 tick ladder they and the grid share, and what
 // unit the whole thing reads in. Its header carries the three decisions this
 // feature turns on: the unit, the space the grid lives in, and why the

@@ -515,6 +515,29 @@ pub fn draw_grips(painter: &Painter, visuals: &Visuals, bounds: Rect) {
             StrokeKind::Middle,
         );
     }
+    // ★★ …and the rotate handle, which is a CIRCLE ON A STEM and not a ninth
+    // square.
+    //
+    // Every square on this canvas resizes, so a shape that resized in one place
+    // and rotated in another would be a private convention the operator has to
+    // learn — `handles.md` H2's stated failure mode. The stem is what says the
+    // handle belongs to this box; without it the circle reads as an unrelated
+    // dot floating over the page.
+    //
+    // Drawn from the same `bounds` and the same predicate as the eight above,
+    // in the same call, so "painted" and "grabbable" cannot drift apart (H7).
+    let handle = handles::rotate_rect(bounds);
+    let centre = handle.center();
+    painter.line_segment(
+        [egui::pos2(centre.x, bounds.top()), centre],
+        Stroke::new(1.0, visuals.selection.stroke.color),
+    );
+    painter.circle(
+        centre,
+        handles::GRIP_SIZE_PX / 2.0,
+        visuals.window_fill,
+        stroke,
+    );
 }
 
 /// Paint the **move ghost**: the selection's outlines, displaced by an
@@ -566,6 +589,47 @@ pub fn draw_move_ghost(
             MIN_OUTLINE_EXTENT_PX,
         );
         painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
+    }
+}
+
+/// Paint the **rotate ghost**: the selection's outlines turned about the
+/// selection's centre.
+///
+/// [`draw_resize_ghost`]'s sibling, and split from it for the same reason that
+/// one is split from the move ghost: this transforms four CORNERS rather than
+/// two, because a rotated rectangle is not an axis-aligned one and
+/// `Rect::from_min_max` of two rotated corners is a different shape entirely.
+///
+/// ★ **It draws a quadrilateral, not a rect**, and that is the whole visible
+/// difference. Drawing the rotated bounding box instead would show the operator
+/// a shape that grew as they turned it — a preview of something the release
+/// does not do.
+///
+/// The angle is the **un-negated** screen-space one from
+/// `rotating::angle`, and the rotation is `rotating::rotate_about` — the same
+/// function that module's own test pins against the measured bearing. The
+/// commit negates once, at the page crossing; see `rotating::drag`.
+pub fn draw_rotate_ghost(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    selection: &SelectionState,
+    centre: egui::Pos2,
+    radians: f32,
+) {
+    let stroke = Stroke::new(1.5, ghost(visuals.selection.stroke.color));
+    for (_, page_rect) in selection.outlines() {
+        let screen = mapping.rect_to_screen(*page_rect);
+        let corners = [
+            screen.left_top(),
+            screen.right_top(),
+            screen.right_bottom(),
+            screen.left_bottom(),
+        ]
+        .map(|p| crate::canvas::rotating::rotate_about(centre, p, radians));
+        for i in 0..4 {
+            painter.line_segment([corners[i], corners[(i + 1) % 4]], stroke);
+        }
     }
 }
 

@@ -51,6 +51,12 @@ pub const fn caption(lock: Lock) -> &'static str {
         // It also states the *consequence* — the shape does not distort — which
         // is the fact that makes the key worth reaching for.
         Lock::Aspect => "Shift: keeping its proportions",
+        // ★ It names the STEP, because that is the fact an operator acts on —
+        // "constrained" tells them a rule is in force and not what it will let
+        // them have. Fifteen degrees is what makes the four right angles and
+        // the four diagonals reachable, and saying the number is how they find
+        // that out without counting.
+        Lock::Angle => "Shift: turning in steps of 15°",
     }
 }
 

@@ -111,6 +111,24 @@ pub enum DragKind {
     Move,
     /// The press was on one of the eight resize grips.
     Resize(Grip),
+    /// ★★ The press was on the **rotate handle**, above the top edge.
+    ///
+    /// Carries nothing, and that is the difference from [`Self::Resize`]: a
+    /// resize needs to know WHICH grip, because each one pivots about a
+    /// different corner and scales a different pair of axes. There is one
+    /// rotate handle, it always turns about the selection's centre, and what
+    /// the drag reads is a bearing rather than a displacement — so the press
+    /// has nothing to sample that the frame does not already have.
+    ///
+    /// # ★ Why it is a drag kind rather than `Resize(Grip::Rotate)`
+    ///
+    /// Because everything downstream of `Resize` computes scale factors from a
+    /// delta and a box. Routing the handle there would have produced a
+    /// perfectly working *resize* on the ninth grip — an object that got bigger
+    /// when the operator meant to turn it, which looks like a deliberate
+    /// feature. `Grip::is_resize` is the predicate that keeps them apart and it
+    /// is enumerated rather than negated for exactly this reason.
+    Rotate,
     /// The press was on a **Bézier handle** of a selected anchor.
     ///
     /// Carries the anchor it belongs to, object-scoped, and which side of it —
@@ -629,6 +647,13 @@ pub fn press_kind(
             // deeper than anything a grip describes, so it wins.
             (Some((node, handle)), _) => Some(DragKind::Handle { node, handle }),
             (None, Some(grip)) if grip.is_resize() => Some(DragKind::Resize(grip)),
+            // ★ Matched by NAME rather than falling into the `Move` arm below,
+            // which is where it would have gone silently: `Grip::Move` and
+            // `Grip::Rotate` are the two non-resize grips, so a wildcard that
+            // meant "the body" now covers both. A press on the handle would
+            // have MOVED the selection — a working gesture, aimed at the wrong
+            // verb, with nothing to report.
+            (None, Some(Grip::Rotate)) => Some(DragKind::Rotate),
             (None, Some(_)) => Some(DragKind::Move),
             (None, None) if zoom_armed => Some(DragKind::Marquee(MarqueeIntent::Zoom)),
             (None, None) => Some(DragKind::Marquee(MarqueeIntent::Select)),

@@ -91,6 +91,13 @@ pub fn cursor_for(
             }
             DragKind::Move => CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),
+            // ★ `Grabbing` too, and it names the same limit `Grip::Rotate`'s
+            // cursor records: egui 0.35 has no rotate cursor. What it says is
+            // *"you are holding something"*, which is true; what it does not say
+            // is *"and turning it"*, which `handles.md` H6 asks for. Spelled out
+            // rather than folded into the `Move` arm above, so the day a rotate
+            // cursor exists there is one line to change and it is findable.
+            DragKind::Rotate => CursorIcon::Grabbing,
             // ★ `Grabbing`, the same as a move, and deliberately NOT a bespoke
             // icon. A handle drag IS a move — of a control point rather than of
             // an object — and the operator learns one grammar: the closed hand

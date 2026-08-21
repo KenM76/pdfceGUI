@@ -109,6 +109,14 @@ pub(super) struct Frame<'a> {
     /// marker once described a point four days' worth of clicks did not land
     /// on.
     pub vertex_snap: Option<pdfce_core::vector::snap::SnapCandidate>,
+    /// The angle a rotate drag has turned through, in **screen** space and
+    /// un-negated, or `None`.
+    ///
+    /// `Some` only when `rotating::drag` has established that a release would
+    /// commit — the same honesty contract the move and resize ghosts are held
+    /// to. A preview of a gesture that will be refused is *"a lie with a low
+    /// alpha"*.
+    pub rotate_ghost: Option<f32>,
     /// The markup band, if one would commit.
     pub band: Option<markup::band::Preview>,
     /// The freehand trail, already simplified, in canvas space.
@@ -283,6 +291,25 @@ pub(super) fn draw(
             // by its own size on release.
             grip.pivot(bounds),
             factors,
+        );
+    }
+    // ★ …and the rotate ghost, on the same layer and under the same contract.
+    //
+    // The centre is re-read from the same `grip_box` the drag measured against
+    // rather than carried on the value, for the reason the resize ghost gives
+    // one block up: it is a pure function of the selection, and carrying it
+    // would be a second copy that could go stale between the frame that
+    // computed it and the frame that paints.
+    if let Some(radians) = f.rotate_ghost
+        && let Some(bounds) = overlay::grip_box(map, selection)
+    {
+        overlay::draw_rotate_ghost(
+            &painter,
+            ui.visuals(),
+            map,
+            selection,
+            crate::canvas::handles::Grip::Rotate.pivot(bounds),
+            radians,
         );
     }
     // ★★ THE PERIMETER'S VERTEX HANDLES.

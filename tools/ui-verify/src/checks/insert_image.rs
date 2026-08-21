@@ -520,13 +520,14 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     //
     // Unreadable geometry leaves the floor at 1, which is the old behaviour's
     // honest core: what must not happen is ZERO.
-    let page_pts = crate::fixture::page_geometry(&pdf).map_or(0.0, |g| f64::from(g.width_pt));
+    let page_pts = crate::fixture::page_geometry(&pdf).map_or(0.0, |g| g.width_pt);
     let scale = if page_pts > 0.0 {
         f64::from(rect.w) / page_pts
     } else {
         0.0
     };
-    let expected = (f64::from(FIXTURE_W) * scale).max(1.0) * (f64::from(FIXTURE_H) * scale).max(1.0);
+    let expected =
+        (f64::from(FIXTURE_W) * scale).max(1.0) * (f64::from(FIXTURE_H) * scale).max(1.0);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let floor = (expected / 4.0).max(1.0) as u64;
     if total > 0 && differing < floor {

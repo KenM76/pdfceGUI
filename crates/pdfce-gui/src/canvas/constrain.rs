@@ -157,6 +157,14 @@ pub enum Lock {
     Axis(Axis),
     /// A resize keeping the object's proportions.
     Aspect,
+    /// ★ A rotation snapping to fixed steps.
+    ///
+    /// The third flavour of the same convention, and the one that is neither an
+    /// axis nor a ratio: `drag-moves` D5 says *"Shift constrains to an axis or
+    /// preserves aspect"*, and for a rotation every program in the class means
+    /// **steps of 15°**. `canvas::rotating::STEP_DEGREES` owns the number and
+    /// the argument for it.
+    Angle,
 }
 
 /// The axis a delta has travelled furthest along.

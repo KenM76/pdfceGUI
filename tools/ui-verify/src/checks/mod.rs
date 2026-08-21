@@ -256,6 +256,12 @@ pub mod read_mode_chrome;
 pub mod redaction;
 pub mod resize;
 pub mod ribbon_captions;
+/// ★★ **The ninth grip** — the rotate handle above the selection box, and the
+/// third word of the operator's *"reposition, resize, or rotate"*. Its header
+/// carries the three links that would each produce a working gesture aimed at
+/// the wrong verb, and why the sign of the committed angle is the assertion
+/// that matters.
+pub mod rotate;
 /// ★ `file.save_copy` — the command that was registered, drawn, on the
 /// quick-access toolbar and bound to `Ctrl+S` with **no dispatch arm**, so
 /// nothing this shell could author could reach a disk. The only check in the
@@ -627,6 +633,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
         Box::new(resize::ResizeScalesAShape),
+        Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),

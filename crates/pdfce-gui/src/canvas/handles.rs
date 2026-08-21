@@ -60,10 +60,13 @@
 //!
 //! - H1 appear-on-selection: the eight grips are drawn when something is
 //!   selected at the Object rung, before any drag.
-//! - H2 standard-set: eight resize grips plus the body. **GAP: no rotate
-//!   handle**, because no engine verb rotates anything — filed 2026-08-20 and
-//!   accepted. When that lands, the handle above the top edge is the shape to
-//!   build, not a menu item.
+//! - H2 standard-set: **complete as of 2026-08-20** — eight resize grips, the
+//!   body, and a rotate handle offset above the top edge on a stem, which is
+//!   the arrangement PowerPoint, Illustrator, Figma, Inkscape, Visio and Konva
+//!   all present. This row read *"GAP: no rotate handle, because no engine verb
+//!   rotates anything"*, and it ended *"when that lands, the handle above the
+//!   top edge is the shape to build, not a menu item."* `Pass 113.0` landed it
+//!   and that is the shape that was built.
 //! - H3 screen-sized: `GRIP_SIZE_PX` is in points and does not scale with zoom,
 //!   so a corner on a plan at 20 % is as grabbable as one at 400 %.
 //! - H4 target-not-smaller: `GRIP_GRAB_SLACK_PX` expands the live area beyond
@@ -136,12 +139,40 @@ pub enum Grip {
     SouthWest,
     /// Left edge, centred.
     West,
-    /// The body of the selection — the ninth affordance, and the only one
-    /// with a verb behind it today.
+    /// The body of the selection.
     ///
     /// Not drawn as a square: the whole interior *is* the target, which is
     /// what every drawing tool does and what an operator will try first.
     Move,
+    /// ★★ **The rotate handle**, offset above the top edge on a stem.
+    ///
+    /// # Why above, and why on a stem
+    ///
+    /// Because that is where PowerPoint, Illustrator, Figma, Inkscape, Visio
+    /// and Konva's `Transformer` all put it, and the standing tie-breaker for
+    /// anything an operator compares against the tools they already use is to
+    /// behave the way those tools behave.
+    ///
+    /// The **offset** is what makes it reachable on a selection whose top edge
+    /// is already crowded by the north grip; the **stem** is what says the two
+    /// belong together, without which the handle reads as an unrelated dot
+    /// floating over the page.
+    ///
+    /// # ★ It is drawn as a CIRCLE
+    ///
+    /// Every square on this canvas resizes. A shape that resized in one place
+    /// and rotated in another would be a private convention the operator has to
+    /// learn, which is `handles.md` H2's stated failure mode — *"the operator
+    /// has to learn a control they already knew."*
+    ///
+    /// # And it is not a resize
+    ///
+    /// [`Self::is_resize`] answers `false`, so `gesture::meaning` routes a press
+    /// on it to its own drag kind rather than to `DragKind::Resize`. That
+    /// predicate used to be `self != Self::Move`, which would have quietly made
+    /// this the ninth resize grip — a rotate handle that scaled the object, and
+    /// a defect nobody would have thought to test for.
+    Rotate,
 }
 
 impl Grip {
@@ -176,13 +207,43 @@ impl Grip {
             Self::North | Self::South => CursorIcon::ResizeVertical,
             Self::East | Self::West => CursorIcon::ResizeHorizontal,
             Self::Move => CursorIcon::Move,
+            // ★ egui 0.35 has no rotate cursor, so this is the nearest honest
+            // thing rather than the right thing: `Grab` says *"this is a handle
+            // you take hold of"*, which is true, where `Default` would say
+            // nothing and `Crosshair` would suggest precision placement.
+            // Recorded as a compromise rather than a choice — `handles.md` H6
+            // asks the cursor to NAME the gesture, and this one only hints at
+            // it. A custom cursor is a texture and an atlas entry, which is a
+            // real piece of work for one glyph.
+            Self::Rotate => CursorIcon::Grab,
         }
     }
 
-    /// Whether this grip resizes rather than moves.
+    /// Whether this grip resizes rather than moves or rotates.
+    ///
+    /// ★★ This was `self != Self::Move`, and leaving it that way when
+    /// [`Self::Rotate`] arrived would have made the rotate handle **the ninth
+    /// resize grip**: `gesture::meaning` asks exactly this question to decide
+    /// between `DragKind::Resize` and everything else, so a press on the handle
+    /// would have scaled the object about a corner. It would have looked like a
+    /// deliberate feature and nothing in the suite asked about it.
+    ///
+    /// The enumeration is deliberate rather than a negation for that reason: a
+    /// tenth affordance added later has to be classified rather than defaulting
+    /// into the resize family.
     #[must_use]
     pub fn is_resize(self) -> bool {
-        self != Self::Move
+        matches!(
+            self,
+            Self::NorthWest
+                | Self::North
+                | Self::NorthEast
+                | Self::East
+                | Self::SouthEast
+                | Self::South
+                | Self::SouthWest
+                | Self::West
+        )
     }
 
     /// Where this grip's centre sits on a screen-space bounding box.
@@ -205,6 +266,9 @@ impl Grip {
             Self::SouthWest => bounds.left_bottom(),
             Self::West => Pos2::new(bounds.left(), mid.y),
             Self::Move => mid,
+            // Above the top edge, centred, by the stem's length. The one grip
+            // whose centre is OUTSIDE the box, which is what the offset is for.
+            Self::Rotate => Pos2::new(mid.x, bounds.top() - ROTATE_STEM_PX),
         }
     }
 
@@ -247,8 +311,42 @@ impl Grip {
             Self::SouthWest => bounds.right_top(),
             Self::West => Pos2::new(bounds.right(), mid.y),
             Self::Move => mid,
+            // ★ The CENTRE, and for this grip it is the real answer rather than
+            // a harmless one. A rotation turns the selection about its middle —
+            // which is what every drawing program does, and the only choice that
+            // leaves the object where the operator can still see it. The eight
+            // resize grips pivot about an opposite corner because a resize has
+            // an edge that must not move; a rotation has no such edge.
+            Self::Rotate => mid,
         }
     }
+}
+
+/// How far above the selection box the rotate handle's centre sits, in points.
+///
+/// ★ Far enough that its grab area (the handle plus [`GRIP_GRAB_SLACK_PX`])
+/// cannot overlap the north grip's, or the two would fight for the same press
+/// and which one won would depend on the order they are checked in — the
+/// failure `handles.md` H5's corollary is about. With a 7 pt handle and 2 pt of
+/// slack on each, 20 pt clears both by a comfortable margin.
+///
+/// Screen-space, like every other number here (H3), so the handle sits the same
+/// distance from the box at 20 % as at 400 %.
+pub const ROTATE_STEM_PX: f32 = 20.0;
+
+/// **The rotate handle's square**, above the top edge on its stem.
+///
+/// Separate from [`grip_rects`] rather than an entry in it, because every
+/// consumer of that list treats its members as resize grips: the painter draws
+/// them as squares and the hit test routes them to `DragKind::Resize`. Adding a
+/// ninth entry would have made the rotate handle a square that resizes — the
+/// same collision `Grip::is_resize`'s own note describes, arriving through the
+/// list instead of through the predicate.
+///
+/// Drawn as a circle at this rect's centre; see [`Grip::Rotate`].
+#[must_use]
+pub fn rotate_rect(bounds: Rect) -> Rect {
+    Rect::from_center_size(Grip::Rotate.anchor(bounds), Vec2::splat(GRIP_SIZE_PX))
 }
 
 /// The grips to draw for a screen-space selection box, with their squares.
@@ -295,6 +393,24 @@ pub fn grip_rects(bounds: Rect) -> Vec<(Grip, Rect)> {
 #[must_use]
 pub fn grip_at(bounds: Rect, pointer: Pos2, offer_resize: bool) -> Option<Grip> {
     if offer_resize {
+        // ★★ The rotate handle FIRST, and the reason is H7 rather than
+        // geometry: it sits outside the box, so it collides with nothing and
+        // the order could not matter for correctness. It is first because
+        // **the same predicate decides painting and hit-testing**, and that
+        // predicate is `offer_resize` — so a handle painted here is grabbable
+        // here, in one place, with nothing in between for a future edit to slip
+        // a capability check into.
+        //
+        // That row exists because it failed on 2026-08-20: a dimension's vertex
+        // handles were painted from the selection and hit-tested behind a
+        // capability the mode did not have, so they were visible and untouchable
+        // in the very mode that authors dimensions.
+        if rotate_rect(bounds)
+            .expand(GRIP_GRAB_SLACK_PX)
+            .contains(pointer)
+        {
+            return Some(Grip::Rotate);
+        }
         for (grip, rect) in grip_rects(bounds) {
             if rect.expand(GRIP_GRAB_SLACK_PX).contains(pointer) {
                 return Some(grip);

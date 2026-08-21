@@ -99,6 +99,32 @@ pub enum GestureOutcome {
         /// Draw the ghost, or commit the move.
         phase: Phase,
     },
+    /// ★★ A **rotate** drag on the handle above the selection box.
+    ///
+    /// # Why this carries two POSITIONS and not a delta
+    ///
+    /// Because what the gesture reads is a **bearing**, and a bearing needs a
+    /// ray. `from` is where the press landed and `at` is where the pointer is;
+    /// the angle between the two rays *from the selection's centre* is the whole
+    /// content of the drag.
+    ///
+    /// A delta cannot express it. The same displacement means a different turn
+    /// depending on where round the box it happened — and, more sharply, the
+    /// pointer's **distance** from the centre must mean nothing at all, which a
+    /// delta has no way to discard. See [`crate::canvas::rotating`].
+    ///
+    /// The centre is not carried: it is a pure function of the selection's grip
+    /// box, which the caller already has, and carrying it would be a second copy
+    /// that could go stale between the frame that computed it and the frame that
+    /// draws — `painting`'s own argument for re-reading `grip_box`.
+    Rotate {
+        /// Canvas-space position of the press — the first ray.
+        from: Pos2,
+        /// Canvas-space position of the pointer now — the second ray.
+        at: Pos2,
+        /// Draw the ghost, or commit.
+        phase: Phase,
+    },
     /// A resize drag on one of the eight grips.
     ///
     /// Raised so the drag is **consumed** rather than falling through to a
@@ -266,6 +292,15 @@ impl Drag {
             },
             DragKind::Move => GestureOutcome::Move { delta, phase },
             DragKind::Resize(grip) => GestureOutcome::Resize { grip, delta, phase },
+            // Raw, and in that order: `origin` is the ray the press established
+            // and `latest` is the ray the pointer is on. Passing a delta here —
+            // which is what every neighbouring arm does — would discard the
+            // thing this gesture is made of.
+            DragKind::Rotate => GestureOutcome::Rotate {
+                from: self.origin,
+                at: self.latest,
+                phase,
+            },
             DragKind::DimensionVertex { index } => GestureOutcome::DimensionVertex {
                 index,
                 from: self.origin,

@@ -552,6 +552,11 @@ pub(super) fn interact(
                 // a snap that found nothing nearby. That is precisely the class
                 // of defect that survives a green suite.
                 | GestureOutcome::DimensionVertex { .. }
+                // ★ …and `Rotate`, for the same reason as `Resize` one line
+                // above: the commit resolves paint-order indices, and a gesture
+                // on a canvas that never asked for a provider would address
+                // indices nothing has verified.
+                | GestureOutcome::Rotate { .. }
                 | GestureOutcome::Marquee {
                     phase: Phase::Complete,
                     intent: MarqueeIntent::Select,
@@ -573,6 +578,12 @@ pub(super) fn interact(
     // them into one `enum` would put a branch inside the paint loop for a value
     // that is `None` on every frame nobody is dragging.
     let mut resize_ghost: Option<(handles::Grip, (f32, f32))> = None;
+    // The angle a rotate drag has turned through, in SCREEN space, or `None`.
+    // A sixth preview slot, separate for the reason the five before it are: a
+    // rotation is one scalar and a resize is two, and folding them into one
+    // `enum` would put a branch in the paint loop for a value that is `None` on
+    // every frame nobody is dragging.
+    let mut rotate_ghost: Option<f32> = None;
     // The handle being dragged, if one is: its anchor, its side and where it
     // now sits in canvas space. A third preview slot beside `ghost` and
     // `resize_ghost` for the reason those two are separate — three different
@@ -899,6 +910,36 @@ pub(super) fn interact(
         // rather than the point: without it the drag would fall through to a
         // marquee, so aiming at a grip would replace the selection the operator
         // was trying to act on.
+        // ★★ THE NINTH GRIP. `ui-conventions/handles.md` H2, and the third word
+        // of the operator's *"reposition, resize, or rotate"*.
+        //
+        // Everything about the gesture is `canvas::rotating`'s: the bearing
+        // between two rays from the selection's centre, the 15° snap under
+        // Shift, the wrap that stops a drag past 180° spinning a whole turn, and
+        // the single negation at the page crossing. This arm is wiring.
+        //
+        // ★ It needs the decomposition for the same reason `Resize` and
+        // `Handle` do — the commit addresses paint-order indices and this shell
+        // will not send unverified ones to a verb that rewrites bytes — so
+        // `DimensionVertex`'s note in `needs_targets` applies to it too, and it
+        // is in that list.
+        GestureOutcome::Rotate { from, at, phase } => {
+            rotate_ghost = crate::canvas::rotating::drag(
+                &ctx,
+                crate::canvas::rotating::Frame {
+                    from,
+                    at,
+                    phase,
+                    bounds: overlay::grip_box(map, &selection),
+                    page_index,
+                    constrain: shift,
+                    map: Some(map),
+                    page: doc.current_page(),
+                },
+                &selection,
+                actions,
+            );
+        }
         GestureOutcome::Resize { grip, delta, phase } => {
             resize_ghost = crate::canvas::resizing::drag(
                 crate::canvas::resizing::Frame {
@@ -1159,6 +1200,7 @@ pub(super) fn interact(
             handle_drag: handle_preview,
             dimension_preview: dimension_preview.as_deref(),
             vertex_snap,
+            rotate_ghost,
             band,
             ink_trail,
             active_tool,
