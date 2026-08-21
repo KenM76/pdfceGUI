@@ -61,19 +61,55 @@ use crate::text::pick as t_pick;
 /// operator change the filter"* is one comparison of a `Copy` value at the call
 /// site, which is both cheaper and more obvious than a dirty flag threaded
 /// through the bar. See [`crate::app::frame`]'s status-bar block.
-pub(super) fn show(ui: &mut egui::Ui, filter: &mut PickFilter) {
+///
+/// # Returns
+///
+/// The **button's** response, not the popup's. Two callers want it: a test
+/// asserting the popup opens needs `Popup::default_response_id` of exactly
+/// this response, and there is no other way to name the flag the popup's open
+/// state lives under — `Memory::any_popup_open` is `pub(crate)` to egui.
+///
+/// The status bar ignores it. That is not a wasted return: the alternative was
+/// a test that could only assert the button exists, which is precisely the
+/// claim that was TRUE throughout the day this control did nothing.
+pub(super) fn show(ui: &mut egui::Ui, filter: &mut PickFilter) -> egui::Response {
     let response = ui
         .button(t_pick::filter_button())
         .on_hover_text(t_pick::filter_button_tooltip());
     crate::diag::ui_rect(super::REGION_FILTER, response.rect);
 
-    if response.clicked() {
-        egui::Popup::toggle_id(ui.ctx(), egui::Popup::default_response_id(&response));
-    }
-
+    // ★★★ NO MANUAL TOGGLE HERE, AND THE ABSENCE IS THE FIX.
+    //
+    // This function shipped on 2026-08-21 with an `if response.clicked() {
+    // Popup::toggle_id(..) }` above the call below, and **the button did
+    // nothing at all**. The operator: *"I see a Select button, but this should
+    // be a menu that pops up."*
+    //
+    // `Popup::menu` is defined as `from_toggle_button_response`, which is
+    // `egui-0.35.0/src/containers/popup.rs:228`:
+    //
+    // ```rust
+    // Self::from_response(button_response)
+    //     .open_memory(button_response.clicked().then_some(SetOpenCommand::Toggle))
+    // ```
+    //
+    // It **already toggles on click**, against the same id
+    // `Popup::default_response_id` returns. So the manual call was a second
+    // toggle of the same flag in the same frame: open, then closed, net
+    // nothing, every time. A popup that is opened and closed within one frame
+    // is indistinguishable from one that was never wired up.
+    //
+    // ★ It compiled, 1,628 tests passed, 17 gates passed, and an offscreen
+    // smoke launch confirmed the button's rect was published at the right
+    // place on the status bar — because every one of those observes the
+    // BUTTON, and the button was always fine. R1 is not a slogan: this is the
+    // exact defect class the rule exists for, and it reached the operator
+    // because the popup was never opened by anything before he opened it.
     egui::Popup::menu(&response)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| popup(ui, filter));
+
+    response
 }
 
 /// The body of the Select popup — a heading, All/None, and one row per class.
@@ -197,4 +233,148 @@ pub(super) fn empty_note(ui: &mut egui::Ui, filter: PickFilter) {
         .response
         .rect;
     crate::diag::ui_rect(super::REGION_FILTER_EMPTY, rect);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run one frame of [`show`], returning the Select button's popup id and its
+    /// rect.
+    ///
+    /// Only this control is built, not the whole bar: the question under test is
+    /// *"does clicking this button open its popup"*, and nothing else on the bar
+    /// can change that answer.
+    fn frame(
+        ctx: &egui::Context,
+        filter: &mut PickFilter,
+        input: egui::RawInput,
+    ) -> (egui::Id, egui::Rect) {
+        let mut id = egui::Id::NULL;
+        let mut rect = egui::Rect::NOTHING;
+        let _ = ctx.run_ui(input, |ui| {
+            let response = show(ui, filter);
+            id = egui::Popup::default_response_id(&response);
+            rect = response.rect;
+        });
+        (id, rect)
+    }
+
+    /// Raw input for a completed primary click at `pos`.
+    ///
+    /// A press AND a release, because egui raises `clicked()` on the release and
+    /// a press-only frame would assert nothing about a click.
+    fn click_at(pos: egui::Pos2) -> egui::RawInput {
+        egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    /// ★★★ **CLICKING SELECT OPENS THE POPUP.**
+    ///
+    /// This is the test that did not exist on 2026-08-21, and its absence is why
+    /// a button that did nothing at all reached the operator:
+    ///
+    /// > *"I see a Select button, but this should be a menu that pops up."*
+    ///
+    /// Everything that DID exist — 1,628 unit tests, 17 gates, and an offscreen
+    /// smoke launch confirming the button's published rect sat exactly where the
+    /// layout intended — observed the **button**, and the button was never the
+    /// broken part.
+    ///
+    /// The defect was a second `Popup::toggle_id` beside `Popup::menu`, which
+    /// already toggles on click (`egui-0.35.0/src/containers/popup.rs:228`). Two
+    /// toggles of one flag in one frame open and close the popup before it is
+    /// drawn, which from outside is indistinguishable from a control that was
+    /// never wired up at all.
+    ///
+    /// ★ It asserts on `Popup::is_id_open` — the exact flag the two toggles were
+    /// fighting over — so a regression fails here rather than somewhere
+    /// downstream that merely reads the flag.
+    #[test]
+    fn clicking_select_opens_the_popup() {
+        let ctx = egui::Context::default();
+        let mut filter = PickFilter::default();
+
+        let (id, rect) = frame(&ctx, &mut filter, egui::RawInput::default());
+        assert!(
+            rect.is_positive(),
+            "the button must occupy space before a click can be aimed at it"
+        );
+
+        frame(&ctx, &mut filter, click_at(rect.center()));
+
+        assert!(
+            egui::Popup::is_id_open(&ctx, id),
+            "clicking Select must open its popup — `Popup::menu` already toggles, \
+             so a second toggle beside it cancels the first and nothing appears"
+        );
+    }
+
+    /// ★★ **AND CLICKING IT AGAIN CLOSES IT.**
+    ///
+    /// The other half of a toggle, and the half a careless fix breaks: deleting
+    /// the duplicate could as easily have been deleting *the* toggle, leaving a
+    /// popup that opens and cannot be dismissed from the control that opened it.
+    #[test]
+    fn clicking_select_again_closes_the_popup() {
+        let ctx = egui::Context::default();
+        let mut filter = PickFilter::default();
+
+        let (id, rect) = frame(&ctx, &mut filter, egui::RawInput::default());
+        let target = rect.center();
+
+        frame(&ctx, &mut filter, click_at(target));
+        assert!(
+            egui::Popup::is_id_open(&ctx, id),
+            "the first click opens it"
+        );
+
+        frame(&ctx, &mut filter, click_at(target));
+        assert!(
+            !egui::Popup::is_id_open(&ctx, id),
+            "the second click on the button must close it again"
+        );
+    }
+
+    /// ★ **An idle frame opens nothing.**
+    ///
+    /// Without this, the test above would pass on a build where the popup was
+    /// simply always open — which is a different defect wearing the same green
+    /// tick.
+    #[test]
+    fn an_idle_frame_leaves_the_popup_shut() {
+        let ctx = egui::Context::default();
+        let mut filter = PickFilter::default();
+        let (id, _) = frame(&ctx, &mut filter, egui::RawInput::default());
+        assert!(!egui::Popup::is_id_open(&ctx, id));
+    }
+
+    /// A click somewhere else on the bar must not open it either.
+    #[test]
+    fn a_click_that_misses_the_button_opens_nothing() {
+        let ctx = egui::Context::default();
+        let mut filter = PickFilter::default();
+
+        let (id, rect) = frame(&ctx, &mut filter, egui::RawInput::default());
+        let miss = egui::pos2(rect.right() + 200.0, rect.center().y);
+        frame(&ctx, &mut filter, click_at(miss));
+
+        assert!(!egui::Popup::is_id_open(&ctx, id));
+    }
 }

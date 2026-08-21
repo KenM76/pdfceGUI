@@ -80,6 +80,73 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O20 — Dragging and rotating TEXT on the canvas
+
+**Asked:** 2026-08-21 — *"I also can't drag and rotate text on the screen yet."*
+
+**Status:** **RECORDED 2026-08-21. NOT STARTED.** Two separate things behind one
+sentence, and they are in very different states, which is why they are written
+out rather than merged.
+
+### Rotate — nothing to grab, and it is the oldest live gap on the canvas
+
+`O11` and `O14` row 5 both already say this and neither has been actioned:
+
+> The verb rotates. **There is no rotate handle on the canvas to reach it
+> with.** … it needs a ninth grip above the selection box, a drag that measures
+> an angle rather than a distance, and a preview.
+
+★ **Nothing is blocked.** The engine verb shipped 2026-08-20. This is entirely
+shell work and has been since then. It applies to *everything* selectable, not
+only text — a picture, a shape and a text run all have the same absent grip —
+so the sentence *"I can't rotate text"* is really *"nothing on the canvas can be
+rotated by pointing at it"*.
+
+`ui-conventions/handles.md` H2 already specifies the shape: eight resize grips,
+a body, and a rotate handle above the box. This is the "use the conventional
+interaction, never invent one" case with the convention already written down in
+this repository.
+
+### Drag — claimed as shipped, never verified on text specifically
+
+`O12` says text became draggable on 2026-08-20, through the same verb as an
+image, and its own row ends:
+
+> **NOT YET DRIVEN** on a text object specifically — the driven checks aim at a
+> shape, because that is what the fixture's `--doc-point` names.
+
+So there are two possibilities and this row does **not** guess between them:
+
+1. It works and he has not found the gesture — which would make it a
+   discoverability defect rather than a functional one, and those are fixed
+   differently.
+2. It does not work on text, and the row that claimed it did was claiming a
+   verb rather than a behaviour.
+
+★ Given the afternoon of 2026-08-21 — a Select button that did nothing at all,
+green on 1,628 tests and 17 gates — **possibility 2 gets no benefit of the
+doubt.** The first action is to drive it on a text run, not to reason about the
+verb.
+
+### What it needs, in order
+
+1. **Drive a drag on a text object** at a `--doc-point` that names one, and find
+   out which of the two above is true. Cheap, and it decides everything else.
+2. **The ninth grip.** Painted from the same predicate that hit-tests it —
+   convention C7 and H7, and the trap this shell has already fallen into once:
+   *"a set of vertex handles was painted for a selected dimension and could not
+   be grabbed, because the painter asked about the selection and the hit test
+   asked about a capability the mode did not have."*
+3. **A live preview during the rotate drag**, because he has reported the
+   absence of live preview on three separate features now, and *"I've never seen
+   a program that doesn't live preview any change"* is a standing expectation
+   rather than a per-feature request.
+4. The **degenerate-matrix preflight** named in `O11`: an object whose own
+   placement matrix is collapsed cannot be transformed and the engine says *do
+   not offer a handle*. Offering a grip that cannot act is exactly what H7
+   forbids.
+
+
 ## O19 — In single-page mode, an option to turn the page when you scroll past its end
 
 **Asked:** 2026-08-21 — *"also in single page mode I'd like a little checkbox
@@ -131,9 +198,13 @@ in read mode, or edit and select text in an edit box in the canvas in edit
 mode, and press ctrl+c to copy, then try to paste in notepad, it doesn't work.
 I get a notice to paste it back into pdfc to place it."*
 
-**Status:** **FIXED 2026-08-21 IN ALL THREE PLACES. NOT VERIFIED — the driven
-check does not exist yet, and no unit test can see the operating system's
-clipboard, which is the thing that was wrong.** Awaiting your verdict.
+**Status:** ★ **CONFIRMED BY THE OPERATOR, 2026-08-21** — *"copy paste now
+works!"* Fixed in all three places.
+
+The driven check still does not exist, and the row stays open until you say
+it can close. His confirmation is worth more than the check would be — he is
+the oracle the check approximates — but the check is what stops it breaking
+again without anyone noticing, and `CONTINUE.md` §2 item 1 still carries it.
 
 What changed: `textsel::clipboard::pending_key` reads `Event::Copy` instead of
 a key event that never arrives; `canvas/textedit/` gained Copy, **Cut and
@@ -269,9 +340,44 @@ the wonky content edit text and edit objects menu at the top. … we should also
 add a right click feature to select other for objects that are under another
 object."*
 
-**Status:** **RECORDED 2026-08-21, NOT STARTED.** Nothing below is built. This
-row is the specification; it is written out in full so the shape of the ask
-survives the session it was made in.
+**Status:** **PARTS A AND C BUILT 2026-08-21. THE POPUP SHIPPED BROKEN THE
+FIRST TIME AND IS FIXED.** Parts B and D not started.
+
+| part | state |
+|---|---|
+| **A** — the Select filter popup | built; **shipped inert, fixed 2026-08-21** — see below |
+| **B** — the View twin (bounding boxes, node markers) | not started |
+| **C** — what a click means per mode | built: the filter gates the hit test in all three modes |
+| **D** — right-click *Select other* | not started |
+
+### ★★★ The first build of part A did nothing at all, and how that happened
+
+The operator, within minutes of opening it: *"I see a Select button, but this
+should be a menu that pops up to choose what I can select on the screen and
+edit in editor mode."*
+
+The button was drawn, in the right place, and clicking it did nothing.
+`egui::Popup::menu` is defined as `from_toggle_button_response`, which
+**already toggles the popup open on click**. The code called
+`Popup::toggle_id` as well, against the same id, in the same frame — so the
+popup opened and closed before it could be drawn. From outside, a popup
+toggled twice in one frame is indistinguishable from one that was never
+wired up.
+
+★ **What makes this worth writing down is everything that was green.** 1,628
+unit tests. 17 of 17 gates. An offscreen smoke launch that confirmed the
+button's rect was published at the exact intended spot on the status bar. All
+of them observed the **button**, and the button was never the broken part.
+This is R1 stated as an incident rather than as a rule: *the tests pass* is
+not a report of working software, and it reached you because nothing had ever
+opened the popup before you did.
+
+There are now four tests that click the button and assert the popup's open
+flag directly. **They were checked by re-introducing the defect and watching
+two of them fail**, which is the only way to know a regression test tests
+anything.
+
+### The specification, unchanged
 
 ### What is being replaced, and why he calls it wonky
 

@@ -708,7 +708,7 @@ pub fn show(
             // page); this is the only control on the bar that changes what
             // the pointer does, so it sits at the boundary between the two
             // rather than inside the view group.
-            filter::show(ui, filter);
+            let _ = filter::show(ui, filter);
         });
     });
 
