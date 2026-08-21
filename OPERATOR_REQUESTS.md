@@ -167,6 +167,32 @@ fixes the resize grips too, and it needs no new rule for the operator to learn.
 The trace shows `off=[0.0 0.0]` — the canvas is scrolled hard against its own
 top with nowhere further to go.
 
+### ★ The check now names this cause instead of three wrong ones
+
+Its first failure listed `Grip::is_resize`, `gesture::meaning` and
+`needs_targets` — three real hazards, none of which is what happened, all three
+inside the application, and all three in the ROUTING when the defect is in the
+LAYOUT. A reader would have gone looking in the wrong file, with a specific and
+plausible instruction to do so.
+
+It now measures the handle against the canvas's own declared rect first, and
+says so with numbers:
+
+```
+★★ THE ROTATE HANDLE IS OFF-CANVAS - defect O22, and NOT a routing problem.
+   The selection's top edge is at y=150.2, the handle therefore spans from
+   y=126.2, and the canvas begins at y=143.3. The handle is 17.1 point(s)
+   above the top of the canvas ...
+```
+
+It still **passes** at `0,300,500`, so this is a diagnosis rather than a
+blanket failure.
+
+★★ The general rule it earned, and it is the third instance in one evening:
+**a confident, specific, wrong accusation is worse than a vague one**, because
+it is actionable and it aims somebody at the wrong file. A check that can rule
+a cause OUT should.
+
 ### What it needs
 
 1. Scroll padding around the page in the canvas's scroll area, sized so every

@@ -77,6 +77,21 @@ const APPLIED: &str = "transform-objects";
 /// The region the selection outline publishes.
 const OUTLINE_REGION: &str = "canvas.selection-outline";
 
+/// The canvas viewport's own declared region.
+///
+/// Read so the check can tell *the handle is outside the canvas* from *the
+/// handle is on the canvas and the press was routed wrongly*. Those are
+/// different defects in different files and they produce the identical
+/// symptom — no `rotate-commit` line.
+const CANVAS_REGION: &str = "canvas-viewport";
+
+/// Half a grip's edge, in points — mirrors `canvas::handles::GRIP_SIZE_PX / 2`.
+///
+/// The handle is a square CENTRED on the stem's end, so its topmost pixel is
+/// half a grip above that centre. Using the centre alone would let a handle
+/// that is half off-canvas read as reachable.
+const HALF_GRIP_PT: f32 = 4.0;
+
 /// How far above the selection box the handle sits, in points.
 ///
 /// ★ It mirrors `canvas::handles::ROTATE_STEM_PX` and is **not** imported from
@@ -252,6 +267,53 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // fraction is not a distance until you say of what.
     let radius_pt = 0.5 * h + STEM_PT;
     let handle = frame.declared_at(outline, 0.5, -STEM_PT / h);
+
+    // --- 3b: IS THE HANDLE EVEN ON THE CANVAS? -----------------------------
+    //
+    // ★★★ Added 2026-08-21 after this check failed and named three causes,
+    // ALL THREE WRONG. `OPERATOR_REQUESTS.md` O22.
+    //
+    // The rotate handle sits `ROTATE_STEM_PX` ABOVE the selection box. Select
+    // something near the top of the viewport and the handle's whole square
+    // lands outside the canvas: the painter clips it away, so it is never
+    // drawn, and the press lands on whatever occupies that strip of the
+    // window — the ribbon. Measured on `SW41177.pdf` at `--doc-point
+    // 0,1211,1021`: canvas top y=143.0, outline top y=150.2, handle centre
+    // y=130.2. Nine pixels above the canvas.
+    //
+    // Without this branch the check reports `THE ROTATE HANDLE COMMITTED
+    // NOTHING` and lists `Grip::is_resize`, `gesture::meaning` and
+    // `needs_targets` — three real hazards, none of which is what happened,
+    // and all three inside the application. A reader would go looking in the
+    // routing for a defect that is in the LAYOUT.
+    //
+    // ★ This is the same failure mode the two checks written this evening
+    // both committed: **a confident, specific, wrong accusation is worse than
+    // a vague one**, because it is actionable and it aims somebody at the
+    // wrong file. A check that can rule a cause OUT should.
+    if let Some(canvas) = driving::declared(&trace, ui_rect, CANVAS_REGION) {
+        let handle_top = outline.min.y - STEM_PT - HALF_GRIP_PT;
+        if handle_top < canvas.min.y {
+            return Ok(Some(format!(
+                "★★ THE ROTATE HANDLE IS OFF-CANVAS — defect O22, and NOT a routing \
+                 problem. The selection's top edge is at y={:.1}, the handle therefore \
+                 spans from y={:.1}, and the canvas begins at y={:.1}. The handle is {:.1} \
+                 point(s) above the top of the canvas, so it is clipped away by the painter \
+                 (the operator sees eight grips and no ninth) and the press never reaches \
+                 the canvas widget at all. \
+                 ★ ANY selection whose top is within {:.0} pt of the top of the view has \
+                 this, whatever kind of object it is — it is not about text. Do NOT go \
+                 looking in `Grip::is_resize` or `gesture::meaning`; the gesture never \
+                 started. See O22 for the fix, which is a pasteboard rather than moving \
+                 the handle.",
+                outline.min.y,
+                handle_top,
+                canvas.min.y,
+                canvas.min.y - handle_top,
+                STEM_PT + HALF_GRIP_PT,
+            )));
+        }
+    }
 
     // --- 4: a quarter turn clockwise ---------------------------------------
     //
