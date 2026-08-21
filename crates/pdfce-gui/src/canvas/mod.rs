@@ -301,6 +301,7 @@ use crate::canvas::input::pan_delta;
 // reads exactly as it did before the split.
 use crate::canvas::interact::{Frame, interact};
 use crate::canvas::mapping::PageMapping;
+use crate::canvas::pick::PickFilter;
 use crate::canvas::rulers::CanvasGeometry;
 use crate::shell::menus::MenuHost;
 use crate::viewer;
@@ -360,12 +361,18 @@ pub fn show(
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
     caps: Capabilities,
+    // ★ **What a click on the page may land on** — the operator's selection
+    // filter, threaded in beside `caps` because the two compose. Passed
+    // rather than read from a global for the same reason `caps` is: it is
+    // application state the canvas must see a CONSISTENT snapshot of for the
+    // whole frame. See `crate::canvas::pick`.
+    pick: PickFilter,
     pen: crate::canvas::markup::pen::Pen,
     actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
     let gutters = rulers::reserve(ui, doc.view.rulers && !doc.pages.is_empty());
     let mut content = gutters.content_ui(ui);
-    let (tokens, geometry) = show_in(&mut content, doc, host, find, caps, pen, actions);
+    let (tokens, geometry) = show_in(&mut content, doc, host, find, caps, pick, pen, actions);
     rulers::draw(ui, doc, gutters, geometry.as_ref());
     // Starting a guide drag needs a ruler to drag out of; *finishing* one does
     // not, because it may have started on the canvas. So the two halves are
@@ -387,6 +394,8 @@ fn show_in(
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
     caps: Capabilities,
+    // See `show` — threaded through unchanged.
+    pick: PickFilter,
     pen: crate::canvas::markup::pen::Pen,
     actions: &mut Vec<Action>,
 ) -> (Vec<HandlerToken>, Option<CanvasGeometry>) {
@@ -891,6 +900,7 @@ fn show_in(
             clip: scroll_output.inner_rect,
             tool: active_tool,
             caps,
+            pick,
         },
         host,
         find,

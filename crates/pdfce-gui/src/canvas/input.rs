@@ -43,7 +43,8 @@ use egui::{Pos2, Vec2};
 use crate::canvas::gesture::GestureState;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::{ClickHit, SelectionState};
-use crate::canvas::target::CanvasTargetProvider;
+use crate::canvas::pick::{PickClass, PickFilter};
+use crate::canvas::target::{CanvasTargetProvider, TargetId};
 use crate::canvas::tool::CanvasTool;
 
 /// `egui::Memory` key for the in-flight pointer gesture.
@@ -72,31 +73,88 @@ pub(super) fn probe(
     page_index: usize,
     point: Pos2,
     map: &PageMapping,
+    filter: PickFilter,
 ) -> ClickHit {
     // ONE tolerance, converted once, in page units. Passing
     // `SELECT_SCREEN_TOLERANCE_PX` here would compile, run, and merely drift
     // with zoom — see `mapping`.
     let tolerance = map.tolerance();
-    let object = targets.hit_test(page_index, point, tolerance);
+    let object = topmost_allowed(targets, page_index, point, tolerance, filter);
 
     let subject = selection
         .entered_object()
         .map(|e| e.object)
         .or(object)
         .and_then(|t| usize::try_from(t.0).ok());
+    // ★ The two deeper rungs are gated by the SAME filter, and switching a
+    // rung off is not the same act as switching an object class off — it
+    // changes how deep a click may go rather than what it may reach. With
+    // `Parts` off, a double-click stops descending and the sheet behaves like
+    // a diagram of whole objects; with `Points` off, no anchor is ever picked
+    // and none is offered as a drag target.
+    //
+    // Node is gated behind Part deliberately rather than independently: an
+    // anchor is addressed as `(part, node)` and there is no way to name one
+    // without its subpath. Allowing Points while forbidding Parts would be a
+    // state the address space cannot express, so it resolves the only way it
+    // can — no part, therefore no node.
     let (part, node) = match subject {
-        Some(index) => {
+        Some(index) if filter.allows(PickClass::Part) => {
             let part = targets
                 .part_hits(page_index, index, point, tolerance)
                 .first()
                 .copied();
-            let node =
-                part.and_then(|p| targets.nearest_node(page_index, index, p, point, tolerance));
+            let node = part
+                .filter(|_| filter.allows(PickClass::Node))
+                .and_then(|p| targets.nearest_node(page_index, index, p, point, tolerance));
             (part, node)
         }
-        None => (None, None),
+        _ => (None, None),
     };
     ClickHit { object, part, node }
+}
+
+/// The front-most target at `point` whose CLASS the operator has left
+/// switched on.
+///
+/// # ★ Why this is not `hit_test` with a predicate bolted on
+///
+/// [`CanvasTargetProvider::hit_test`] is defined as the head of
+/// [`CanvasTargetProvider::hit_test_all`], and that definition is load-bearing:
+/// it is what makes *"what does a plain click select?"* and *"what does
+/// cycling step through?"* structurally the same answer rather than a
+/// convention two implementations have to keep in step.
+///
+/// A filter must not break that. So it walks the same depth-ordered list and
+/// takes the first **allowed** entry, which keeps the two answers derived from
+/// one query — and, as a side effect, is exactly the traversal a future
+/// "select the object underneath" needs.
+///
+/// # A provider that cannot classify lets everything through
+///
+/// [`CanvasTargetProvider::object_class`] returns `None` for a target it does
+/// not know, and the default implementation returns `None` for every target.
+/// `None` means *"I cannot say"* and is treated as ALLOWED.
+///
+/// Getting that default backwards would be quiet and severe: every test double
+/// in the crate uses the default, so treating `None` as forbidden would make
+/// every object unselectable in every harness — and the failure would look
+/// like a broken hit test rather than a filter, because nothing would name the
+/// filter in the output.
+fn topmost_allowed(
+    targets: &dyn CanvasTargetProvider,
+    page_index: usize,
+    point: Pos2,
+    tolerance: f64,
+    filter: PickFilter,
+) -> Option<TargetId> {
+    targets
+        .hit_test_all(page_index, point, tolerance)
+        .into_iter()
+        .find(|target| match targets.object_class(page_index, *target) {
+            Some(class) => filter.allows(class),
+            None => true,
+        })
 }
 
 /// Read the in-flight pointer gesture.

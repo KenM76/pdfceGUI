@@ -122,6 +122,7 @@ use crate::canvas::clicking;
 use crate::canvas::gesture::{GestureOutcome, MarqueeIntent, Phase, PointerFrame};
 use crate::canvas::input::{load_gesture, store_gesture};
 use crate::canvas::mapping::PageMapping;
+use crate::canvas::pick::PickFilter;
 use crate::canvas::target::CanvasTargetProvider;
 use crate::canvas::tool::CanvasTool;
 use crate::shell::menus::MenuHost;
@@ -178,6 +179,21 @@ pub(super) struct Frame<'a> {
     /// a gesture means what it meant when it started, and a mode change
     /// mid-drag is handled by cancelling the drag, not by re-reading it here.
     pub(super) caps: Capabilities,
+    /// ★ **What the operator is allowing clicks to land on** — the
+    /// selection filter (`OPERATOR_REQUESTS.md` O17).
+    ///
+    /// The fourth member of the sampled-once-per-frame set, and it belongs
+    /// with `tool`, `caps` and `pen` for the same reason they belong with
+    /// each other: `tool` is what the operator armed, `caps` is what the
+    /// mode permits, `pen` is what it will look like, and this is what is
+    /// worth pointing at. All four are read at the top of the frame, so a
+    /// gesture means what it meant when it started.
+    ///
+    /// It composes with `caps` as an `AND` in one direction only: switching
+    /// a class on here can never grant a capability the mode withholds.
+    /// [`crate::canvas::pick`]'s header carries the argument for why those
+    /// are two questions with two owners rather than one flag.
+    pub(super) pick: PickFilter,
     /// ★ The colour and width the next markup will be authored with.
     ///
     /// Beside `caps` and `tool` because it belongs to the same triple: `tool`
@@ -300,6 +316,7 @@ pub(super) fn interact(
         clip,
         tool: active_tool,
         caps,
+        pick,
         pen,
     } = frame_ctx;
     let (clip, active_tool, caps, pen) = (*clip, *active_tool, *caps, *pen);
@@ -637,6 +654,7 @@ pub(super) fn interact(
                 targets: targets.as_deref(),
                 active_tool,
                 caps,
+                pick: *pick,
                 pen,
                 point,
                 shift,

@@ -356,10 +356,15 @@ impl PdfceApp {
         // `self.shell` and `self.ribbon`, both of which are disjoint from the
         // document but not provably so through a single `self`.
         let caps = self.capabilities();
+        // ★ Sampled by value here for the same reason `caps` and `pen` are:
+        // `PickFilter` is `Copy`, and taking a snapshot before the `&mut
+        // self.status` borrow is what lets the canvas see one consistent
+        // filter for the whole frame without a second borrow of `self`.
+        let pick = self.pick_filter;
         let pen = self.pen;
         let find = &self.find;
         if let Status::Open(doc) = &mut self.status {
-            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, caps, pen, actions);
+            let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, caps, pick, pen, actions);
             // Dispatched here rather than inside `show`: the canvas reports
             // intent and the application decides, which is the same seam the
             // ribbon and the dock already use.

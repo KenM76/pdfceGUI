@@ -76,6 +76,7 @@ use crate::app::modes::Capabilities;
 use crate::app::state::OpenDoc;
 use crate::canvas::input::probe;
 use crate::canvas::mapping::PageMapping;
+use crate::canvas::pick::PickFilter;
 use crate::canvas::selection::SelectionState;
 use crate::canvas::textsel::TextSelection;
 use crate::canvas::tool::CanvasTool;
@@ -110,6 +111,17 @@ pub struct Frame<'a> {
     pub active_tool: CanvasTool,
     /// What this mode is allowed to do.
     pub caps: Capabilities,
+    /// ★ What the OPERATOR is allowing clicks to land on.
+    ///
+    /// Beside `caps` because the two compose, and the composition is an
+    /// `AND` in one direction only: a mode decides what may be authored,
+    /// this decides what is worth pointing at, and switching a class on
+    /// here can never grant a capability the mode withholds. See
+    /// [`crate::canvas::pick`]'s header.
+    ///
+    /// Sampled once per frame for the same reason `caps` and `active_tool`
+    /// are: a gesture means what it meant when it started.
+    pub pick: PickFilter,
     /// The markup pen's current settings, for a vertex markup's click.
     pub pen: crate::canvas::markup::pen::Pen,
     /// Where the click landed, in canvas space.
@@ -140,6 +152,7 @@ pub fn click(
         targets,
         active_tool,
         caps,
+        pick,
         pen,
         point,
         shift,
@@ -244,7 +257,7 @@ pub fn click(
     });
     if active_tool.is_node() && caps.edit_content {
         let hit = targets
-            .map(|t| probe(t, selection, page_index, point, map))
+            .map(|t| probe(t, selection, page_index, point, map, pick))
             .unwrap_or_default();
         selection.click_direct(page_index, hit, shift);
         crate::diag::trace(|| {
@@ -442,7 +455,7 @@ pub fn click(
         );
     } else {
         let hit = targets
-            .map(|t| probe(t, selection, page_index, point, map))
+            .map(|t| probe(t, selection, page_index, point, map, pick))
             .unwrap_or_default();
         selection.click(page_index, hit, shift, double);
         super::trace::selection_event(selection, "click", double);

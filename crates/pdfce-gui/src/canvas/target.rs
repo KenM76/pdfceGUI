@@ -55,6 +55,7 @@
 use egui::{Pos2, Rect};
 
 use crate::panels::objects::provider::ObjectModelProvider;
+use crate::canvas::pick::PickClass;
 pub use crate::panels::objects::provider::TargetId;
 
 /// The seam a hit-testable content model plugs into.
@@ -107,6 +108,26 @@ pub trait CanvasTargetProvider {
         self.hit_test_all(page_index, point, tolerance)
             .into_iter()
             .next()
+    }
+
+    /// Which **class** a target belongs to, for the operator's selection
+    /// filter — or `None` for a target this provider no longer knows.
+    ///
+    /// ★ This exists so that [`crate::canvas::input::probe`] can skip
+    /// candidates whose class is switched off *without* knowing anything
+    /// about how objects are stored. The alternative — handing `probe` the
+    /// decomposition and letting it match on `VectorObject` — would put a
+    /// second kind classifier in the codebase, which
+    /// `crate::panels::objects::summary` exists to prevent.
+    ///
+    /// A provided method returning `None`, so the test doubles in this
+    /// module and elsewhere do not all have to implement it. `None` means
+    /// *"I cannot say"*, and the filter's contract for that is to let the
+    /// candidate through: a provider that does not classify must not become
+    /// a provider whose objects are all unselectable.
+    fn object_class(&self, page_index: usize, target: TargetId) -> Option<PickClass> {
+        let _ = (page_index, target);
+        None
     }
 
     /// Every target **fully enclosed** by a canvas-space marquee rect.
@@ -275,6 +296,25 @@ impl CanvasTargetProvider for ObjectModelProvider {
 
     fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
         Self::hit_test_rect(self, page_index, rect)
+    }
+
+    /// The real classifier, guarded on the page for the same reason every
+    /// other query here is: this provider decomposes exactly one page.
+    ///
+    /// Delegates to `panels::objects::summary::object_kind`, which is **the**
+    /// kind classifier in this crate, and then maps its answer with
+    /// `PickClass::of_object`. Two hops rather than one match, deliberately:
+    /// the hop through `object_kind` is what keeps this from becoming a
+    /// second, drifting copy of the same decision.
+    fn object_class(&self, page_index: usize, target: TargetId) -> Option<PickClass> {
+        if page_index != self.page_index() {
+            return None;
+        }
+        let index = usize::try_from(target.0).ok()?;
+        let object = self.page_objects().objects.get(index)?;
+        Some(PickClass::of_object(
+            crate::panels::objects::summary::object_kind(object),
+        ))
     }
 
     fn bounds(&self, page_index: usize, target: TargetId) -> Option<Rect> {

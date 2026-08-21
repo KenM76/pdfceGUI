@@ -80,6 +80,168 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O19 — In single-page mode, an option to turn the page when you scroll past its end
+
+**Asked:** 2026-08-21 — *"also in single page mode I'd like a little checkbox
+below that option to go to the next page when scrolling, and unchecked it keeps
+its current behaviour."*
+
+**Status:** **RECORDED 2026-08-21, NOT STARTED.**
+
+A checkbox positioned **below the Single page option** in the page-display
+group, so it reads as a qualifier on that mode rather than as an independent
+setting — which is what it is: it has no meaning in Continuous, Facing or
+Facing-continuous, where scrolling already crosses page boundaries.
+
+- **Checked** — scrolling past the bottom of the page moves to the next page,
+  and past the top moves to the previous one.
+- **Unchecked** — today's behaviour exactly, which is that the scroll stops at
+  the page's edge. **This is the default**, because it is what the shell does
+  now and changing what an existing control does without being asked is the
+  regression R6 forbids.
+
+### The parts that are not decided, and are not to be improvised
+
+These are the questions the class has already answered and they should be
+checked against a real program rather than guessed:
+
+- **Does the new page arrive at its top or at its bottom?** Scrolling *down*
+  onto page 4 should land at page 4's **top**; scrolling *up* onto page 3 should
+  land at page 3's **bottom**. Anything else teleports the reader.
+- **Is there resistance at the boundary?** Every reader in the class makes you
+  reach the edge and then scroll *again* rather than sliding straight through,
+  so that a fast flick down a long page does not overshoot into the next one.
+  Acrobat, Preview and every browser PDF viewer do this.
+- **Does it interact with zoom?** At a zoom where the page is narrower than the
+  viewport there is no vertical travel at all, so the first scroll event is
+  already at the boundary. The resistance rule above is what stops that
+  becoming "one wheel click skips a page".
+
+### Where it lives
+
+The page-display controls are `View` ▸ page display, mirrored by
+`viewer::PageDisplay`. The checkbox belongs beside them and **not** in the
+Settings window: it is a view control the operator changes while reading, in
+the same group as the mode it qualifies.
+
+## O18 — Ctrl+C on selected TEXT puts "1 object copied from pdfce" on the clipboard
+
+**Asked:** 2026-08-21 — *"in the build from 9:50 this morning if I select text
+in read mode, or edit and select text in an edit box in the canvas in edit
+mode, and press ctrl+c to copy, then try to paste in notepad, it doesn't work.
+I get a notice to paste it back into pdfc to place it."*
+
+**Status:** **ROOT CAUSE FOUND 2026-08-21, BY READING THE SOURCE. NOT YET
+FIXED, NOT YET DRIVEN.** Both cases are one defect and the cause is exact, with
+`file:line`. Nothing is fixed as this row is written; the fix is scoped at the
+bottom.
+
+### The sentence he is seeing, and where it comes from
+
+`crate::text::clipboard::os_marker` — *"1 object copied from pdfce. Paste it
+back into pdfce to place it."* It is written to the operating system's
+clipboard deliberately, by the **object** copy path, and it is not a bug in
+itself: `egui-winit` synthesises a paste event only when the OS clipboard holds
+non-empty text, so without *something* there, whether Ctrl+V works inside pdfce
+would depend on what the operator last copied in another application.
+
+The defect is that this sentence is reaching the clipboard when the operator
+copied **text**, which should have put the text there.
+
+### Case 2 — inside a text edit box. CONFIRMED, cause known
+
+**`Key::C` is handled in exactly one place in the whole canvas**:
+`canvas::textsel::clipboard::pending_key`. That function opens with
+
+> *"A canvas draft claims these chords too … Ctrl+C mid-word must not copy the
+> page's text selection: the operator is composing, and the selection they made
+> before the caret landed is not what those two keys mean any more."*
+
+and returns `None` whenever `canvas::textedit::composing()` is true.
+
+That reasoning was right about what Ctrl+C must **stop** doing and never
+supplied what it must **start** doing. `canvas/textedit/` has no Ctrl+C
+handler of any kind — no `Key::C` appears anywhere in it. So inside a draft the
+chord falls straight through to the ribbon keymap, which binds it to
+`edit.copy`, which is the **object** clipboard, which writes the marker.
+
+★ Note what this means precisely: **selecting text inside an edit box and
+pressing Ctrl+C has never copied that text.** Not since the draft selection
+shipped on 2026-08-21. The gesture is new; the gap arrived with it.
+
+The shape is worth recording because it is a recurring one: a guard was added
+to stop a chord doing the *wrong* thing, and stopping it was treated as the
+whole of the job. The chord then had no owner at all, and fell through to
+whatever claimed it next.
+
+### Case 1 — a text sweep in Read mode. ROOT CAUSE FOUND, and it is the same one
+
+The first draft of this row listed three candidates and said the convenient
+answer was the one to distrust. It was right to, and all three were wrong.
+
+**`Ctrl+C` never reaches `textsel` at all, in the real application, and never
+has.** `canvas::textsel::clipboard::pending_key` asks
+`InputState::key_pressed(egui::Key::C)`. In a real window that is permanently
+false, because of fifteen lines of `egui-winit-0.35.0/src/lib.rs`:
+
+```rust
+if is_cut_command(modifiers, active_key)   { events.push(Event::Cut);   return; }
+if is_copy_command(modifiers, active_key)  { events.push(Event::Copy);  return; }
+if is_paste_command(modifiers, active_key) { … events.push(Event::Paste(contents)); return; }
+events.push(Event::Key { … });
+```
+
+**The `return` comes before the `Event::Key` push.** So `Ctrl+C` produces
+`Event::Copy` and *no key event whatsoever*. A function asking "was C pressed
+with Ctrl held" can never be told yes.
+
+★★ **This project already knew.** `app::keyboard` carries that exact quotation
+under a heading reading *"CTRL+C, CTRL+X AND CTRL+V NEVER ARRIVE AS KEY EVENTS,
+AND THAT IS WHY THEY HAVE NEVER WORKED"*, written on 2026-08-20 after the
+operator reported the chords dead twice. That module was fixed: it translates
+`Event::Copy` through the keymap, which is why `edit.copy` fires at all.
+
+`canvas::textsel::clipboard` was not, and nobody noticed the second reader of
+the same broken signal. So the finding was recorded, the general lesson was
+written down, and the sweep's own copy went on being dead beside it.
+
+### Why the two cases produce the marker rather than silence
+
+With the text path dead, the surviving handler is `app::keyboard`'s: it turns
+`Event::Copy` into the keymap's `edit.copy`, which is the **object** clipboard,
+which writes `os_marker` — the sentence Ken pasted into Notepad.
+
+So there is one defect wearing two faces:
+
+| | why the text is not copied | what writes the marker instead |
+|---|---|---|
+| sweep, Read | `pending_key` reads a key event that does not exist | `Event::Copy` → keymap → `edit.copy` |
+| draft, Edit | no `Ctrl+C` handler exists in `canvas/textedit/` at all | the same |
+
+### ★ The transferable lesson, which is the expensive half
+
+**A finding recorded in one module is not a fix applied to its siblings.** The
+question that was never asked on 2026-08-20 is *who else reads this signal?* —
+and the answer was one grep away: `Key::C` appears in exactly one other file.
+
+The gate this suggests is a real one: **nothing in this crate may ask
+`key_pressed` about `C`, `X` or `V`**, because the answer is always false. That
+is checkable by a script, unlike the behaviour it protects.
+
+### What it needs
+
+- `canvas::textsel::clipboard::pending_key` reads `Event::Copy` (and `Cut`)
+  rather than `Key::C`. ★ Its unit tests inject `Event::Key { key: C }` and
+  **pass**, which is how this survived — they must be changed to inject what
+  winit actually sends, or they will keep certifying a dead path.
+- `canvas/textedit/` gains Copy, **Cut and Paste** for a draft's selection. All
+  three are missing, not just the one reported: a text box you cannot paste
+  into is the next report.
+- A driven check per case that asserts **the operating system's clipboard**
+  holds the expected text, having cleared it first. A trace line cannot see the
+  clipboard, and the clipboard is the thing that is wrong.
+- A gate forbidding `key_pressed` on `C`/`X`/`V` anywhere in the crate.
+
 ## O17 — Selection is governed by a FILTER on the status bar, not by two menus at the top
 
 **Asked:** 2026-08-21 — *"Can we change how editing works? On the bottom bar I
