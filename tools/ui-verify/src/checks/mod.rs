@@ -324,6 +324,12 @@ pub mod add_text;
 /// Insert a form's pages to make orphaned widgets, then register one back.
 pub mod adopt_widget;
 /// A bookmark can be written into a document that has no outline.
+/// ★★ **The cursor walks between blocks of text** — salvage from the shell this
+/// project replaces, on the operator's report of 2026-08-21. Its header carries
+/// why the assertion is a CHANGE OF RUN rather than a caret movement: a build
+/// that moved within the same run looks identical from outside and does nothing
+/// that was asked for.
+pub mod block_nav;
 pub mod bookmark_add;
 pub mod chords;
 /// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
@@ -674,6 +680,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // a run: it launches with NO document, it opens one window, and it
         // asserts on a trace rather than on pixels. It is also cheap.
         Box::new(shortcuts::ShortcutsReferenceIsLive),
+        Box::new(block_nav::ArrowKeysWalkBetweenBlocks),
         Box::new(bookmark_add::BookmarkCanBeWritten),
         // Last of the three new ones and the most expensive: it drives Insert
         // pages, the Forms panel and the Tab-order section in one session,

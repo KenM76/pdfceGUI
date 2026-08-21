@@ -130,19 +130,64 @@ to go false the week it was written.
 **Asked:** 2026-08-21 — *"there was an acrobat feature in the original pdfce-gui
 that attempted to reassemble individual lines into paragraphs and the cursor
 would move to the next block of text using the navigation keys."*
-**Status:** OPEN, not started. **This is SALVAGE** — it existed in the shell
-this project is replacing, so the first act is to find it there and read it, not
-to design it.
+**Status:** **SHIPPED 2026-08-21 AND DRIVEN.** Awaiting your verdict.
 
-`SALVAGE.md` is the register for what carries over and in what condition; this
-row will name the file and the line count once it has been read.
+Put the caret in any piece of text and the navigation keys now work on **the
+page**, not on the fragment you happened to click:
 
-★ The substrate is already in `pdfce-core` and this shell already touches it:
-`EditableTextModel::recognize` with `BlockRecognitionOptions`, `block_at`,
-`line_range_at` and `ReflowEngine::detect_alignment` are what
-`canvas::textedit::plan` uses today to decide whether a tail should move. So the
-paragraph recognition exists; what is missing is a surface that shows it and a
-navigation that uses it.
+| key | where it goes |
+|---|---|
+| **↓ / ↑** | the line below / above — **including into the next block of text** |
+| **End / Home** | the end / start of the line **you can see**, however many pieces it was drawn in |
+
+A CAD sheet draws one visible row as four or five separate instructions, so
+"the end of the line" and "the end of the thing I clicked" are different places.
+End now goes to the first of those.
+
+### It was SALVAGE, and the salvaged part was four lines
+
+The old shell asked `pdfce-core` four questions — `caret_up`, `caret_down`, and
+`line_range_at`'s two ends — and that was the whole of its contribution. **The
+reassembly was always the engine's**: `recognize` groups a page's instructions
+into lines and lines into blocks by column band, and `caret_up` walks *lines*.
+So a caret on the last line of one paragraph steps into the next without
+anything in the shell knowing what a paragraph is.
+
+This shell had not been asking, and at the time that was right: its caret is a
+position inside **one** run, and a single run has no line above it. What changed
+is not the caret — it is that the *page* is now the thing being navigated.
+
+### Driven
+
+```
+text-edit-caret  kind=Edit page=0 run=232 len=18     (a BOM row: "SW41177 - 22 - 250")
+text-caret-step  dir=Down from_run=232 to_run=240 to_caret=8
+text-caret-line  end=true from_run=232 to_run=236 to_caret=1
+```
+
+Down crossed into the row beneath and Up came back; End crossed into the rest of
+the same row. Three different runs, all reached with the keyboard.
+
+★ **The first live run failed, and the failure was not a defect.** No caret
+movement at all — and the trace could not say whether the keys had been eaten on
+the way in (a bug) or whether the model had simply found nothing above or below
+(a fact about *where the click landed*, because the engine never crosses a
+column band and a lone label has nothing stacked over it). Both look like
+silence. The fix was a second trace line for the *nowhere* outcome, so the check
+now **skips** on the second cause and accuses only on the first. A trace that
+can only report success cannot tell a broken build from an unlucky fixture.
+
+### Still open, and named rather than implied
+
+- **Showing which block the caret is in.** The recognition is there; drawing it
+  is a separate surface and R8b rule 4 governs how — off-canvas, never a mark on
+  the page.
+- **A remembered column.** Three presses down and three back up return the caret
+  to where it started only when the lines are of similar length. A true desired
+  column survives short lines in between; that is a second piece of state.
+- **Up and Down inside a text BOX** still do nothing, deliberately: a box's
+  lines are the shell's own wrap, and answering with the page model would throw
+  the caret to a run somewhere else on the sheet.
 
 ## O14 — The conventions sweep, 2026-08-20: fourteen gaps, found by asking
 

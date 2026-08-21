@@ -107,6 +107,11 @@ pub mod vk {
     /// `Down` (`VK_DOWN`), for the `Alt+Down` page-move binding — the Alt
     /// modifier family, which nothing else here presses.
     pub const ARROW_DOWN: u16 = 0x28;
+    /// Up. Added 2026-08-21 with the block-navigation check.
+    pub const ARROW_UP: u16 = 0x26;
+    /// `VK_END`. Pressed to prove that End reaches the end of the page's LINE
+    /// rather than of the show operator the caret happens to sit in.
+    pub const END: u16 = 0x23;
 
     /// `D`, `T`, `A`, `I` and `L` — the five letters that spell **DETAIL**.
     ///

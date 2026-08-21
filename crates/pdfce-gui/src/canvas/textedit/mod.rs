@@ -175,6 +175,14 @@
 //!   draft. Named rather than left implied, because a highlight that some keys
 //!   respect and others silently ignore is worse than none.
 
+/// ★ **Where a press puts the caret** — the three gestures that start a draft,
+/// and the refusals each of them can raise. Split out under R2 on 2026-08-21;
+/// its header carries why a text BOX must be a drag rather than a click.
+/// ★★ **The page's lines, reassembled into paragraphs** — and the arrow keys
+/// that walk between them. SALVAGE from the shell this project replaces, on the
+/// operator's report of 2026-08-21; its header carries the four lines it came
+/// from and why the reassembly was always `pdfce-core`'s.
+pub mod blocks;
 /// The caret's own arithmetic - insert, delete, and the four movements -
 /// split out under R2 on 2026-08-20. Pure functions of a `&str` and an index,
 /// with no window in them; its header says why that is a seam and not a cut.
@@ -183,9 +191,6 @@ pub mod caret;
 /// Split out under R2 on 2026-08-20; its header carries the standing rule that
 /// the text and the caret are measured from ONE layout.
 pub mod paint;
-/// ★ **Where a press puts the caret** — the three gestures that start a draft,
-/// and the refusals each of them can raise. Split out under R2 on 2026-08-21;
-/// its header carries why a text BOX must be a drag rather than a click.
 pub mod place;
 /// ★ **What an edit report is worth telling anyone** — which of
 /// `EditReport`'s eleven fields reach the operator, which reach the diagnostic
@@ -593,6 +598,7 @@ pub fn load(ctx: &egui::Context, page: usize, kind: TextEditKind) -> Option<Draf
 pub fn typing(
     ui: &Ui,
     ctx: &egui::Context,
+    doc: &OpenDoc,
     focused: bool,
     actions: &mut Vec<crate::app::actions::Action>,
 ) -> bool {
@@ -683,11 +689,66 @@ pub fn typing(
                     };
                     changed = true;
                 }
+                // ★★★ UP AND DOWN WALK THE PAGE'S OWN LINES, AND CROSS INTO
+                // THE NEXT PARAGRAPH.
+                //
+                // The operator, 2026-08-21: *"there was an acrobat feature in
+                // the original pdfce-gui that attempted to reassemble
+                // individual lines into paragraphs and the cursor would move to
+                // the next block of text using the navigation keys."*
+                //
+                // **Salvage.** `canvas::textedit::blocks` carries the four
+                // lines it came from and the argument; the short form is that
+                // the reassembly is `pdfce-core`'s — `caret_up` walks the
+                // model's *lines*, and a block is a group of lines, so the
+                // caret steps into the next paragraph without anything here
+                // knowing what a paragraph is. The old shell's whole
+                // contribution was **asking**, and this shell had not been.
+                //
+                // ★ It was not bound at all before today, and that was right at
+                // the time: the caret is a character index into ONE run, and a
+                // single run has no line above it. What changed is not the
+                // draft — it is that the *page* is now the thing being
+                // navigated.
+                //
+                // ★★ THE DRAFT IS COMMITTED ON THE WAY OUT. A caret that left
+                // a run with unsaved keystrokes in it would silently discard
+                // them, which is the defect class this whole module exists
+                // against — and `commit_into` writes nothing when the text is
+                // unchanged, so an operator who is merely reading with the
+                // arrow keys puts nothing on the undo stack.
+                //
+                // ★ A BOX draft is deliberately excluded. Its lines are the
+                // shell's wrap rather than the page's, so this model would move
+                // the caret to a run somewhere else on the sheet mid-paragraph.
+                // Named in `blocks`' header rather than left to be discovered.
+                egui::Event::Key {
+                    key: key @ (egui::Key::ArrowUp | egui::Key::ArrowDown),
+                    pressed: true,
+                    ..
+                } => {
+                    let dir = if key == egui::Key::ArrowUp {
+                        blocks::Vertical::Up
+                    } else {
+                        blocks::Vertical::Down
+                    };
+                    if blocks::step(ctx, doc, &draft, dir, actions) {
+                        return true;
+                    }
+                }
+                // ★★ HOME AND END REACH THE ENDS OF THE LINE THE OPERATOR CAN
+                // SEE, which on a CAD sheet is usually several show operators
+                // wide. `blocks::line` answers `false` when the line is this
+                // run — the common case, and the cheap one — and the two
+                // assignments below are what happens then.
                 egui::Event::Key {
                     key: egui::Key::Home,
                     pressed: true,
                     ..
                 } => {
+                    if blocks::line(ctx, doc, &draft, false, actions) {
+                        return true;
+                    }
                     draft.caret = 0;
                     changed = true;
                 }
@@ -696,6 +757,9 @@ pub fn typing(
                     pressed: true,
                     ..
                 } => {
+                    if blocks::line(ctx, doc, &draft, true, actions) {
+                        return true;
+                    }
                     draft.caret = draft.text.chars().count();
                     changed = true;
                 }
@@ -1279,9 +1343,16 @@ mod tests {
         input.events.push(egui::Event::Text("h".to_owned()));
         let mut actions = Vec::new();
         let inner = ctx.clone();
+        // ★ A real document, because `typing` now takes one: Up and Down ask
+        // the PAGE where the next line is (see `blocks`). This test's own event
+        // is a `Text`, which never reaches that path — the document is here to
+        // satisfy the signature, and passing a real one rather than inventing a
+        // stub is what keeps the test honest if the typing path ever grows a
+        // second document read.
+        let doc = crate::app::state::open_fixture(crate::app::state::FOUR_PAGES);
         let _ = ctx.run_ui(input, move |c| {
             egui::CentralPanel::default().show(c, |ui| {
-                typing(ui, &inner, true, &mut actions);
+                typing(ui, &inner, &doc, true, &mut actions);
             });
         });
         assert_eq!(read(&ctx).map(|d| d.text), Some("h".to_owned()));
