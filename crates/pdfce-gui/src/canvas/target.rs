@@ -54,8 +54,8 @@
 
 use egui::{Pos2, Rect};
 
-use crate::panels::objects::provider::ObjectModelProvider;
 use crate::canvas::pick::PickClass;
+use crate::panels::objects::provider::ObjectModelProvider;
 pub use crate::panels::objects::provider::TargetId;
 
 /// The seam a hit-testable content model plugs into.

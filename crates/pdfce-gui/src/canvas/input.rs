@@ -42,8 +42,8 @@ use egui::{Pos2, Vec2};
 
 use crate::canvas::gesture::GestureState;
 use crate::canvas::mapping::PageMapping;
-use crate::canvas::selection::{ClickHit, SelectionState};
 use crate::canvas::pick::{PickClass, PickFilter};
+use crate::canvas::selection::{ClickHit, SelectionState};
 use crate::canvas::target::{CanvasTargetProvider, TargetId};
 use crate::canvas::tool::CanvasTool;
 

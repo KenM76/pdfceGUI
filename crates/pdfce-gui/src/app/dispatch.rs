@@ -591,6 +591,28 @@ impl PdfceApp {
                     return;
                 };
                 let cutting = id == "edit.cut";
+
+                // ★★ TEXT WINS. Defect O18: both handlers see the same
+                // `Event::Copy` in the same frame, and until 2026-08-21 the
+                // object path ran anyway and wrote its marker over what the
+                // text path had put on the clipboard. The operator swept some
+                // text, pressed Ctrl+C, pasted into Notepad and got "1 object
+                // copied from pdfce".
+                //
+                // The collision is resolved in the BROADER verb because only
+                // this one can see both operands. Cut is included deliberately:
+                // cutting swept page text is not a thing pdfce can do, so the
+                // right answer is nothing rather than quietly cutting the
+                // object underneath it. The full argument — including why a
+                // draft with no selection still counts — is on
+                // `canvas::clipboard::text_owns_the_chord`.
+                if crate::canvas::clipboard::text_owns_the_chord(ctx, doc) {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=text-owns-the-clipboard")
+                    });
+                    return;
+                }
                 // ★★ The gate follows WHAT IS SELECTED, not the command.
                 //
                 // A cut removes something, so it needs a mode that may remove

@@ -146,6 +146,14 @@ run "check-string-gaps"  bash "$HERE/check-string-gaps.sh"
 # report was one nobody had ASKED about, not one somebody decided against.
 run "check-typing-guard" bash "$HERE/check-typing-guard.sh"
 run "check-conventions"  bash "$HERE/check-conventions.sh"
+# ★ The gate of 2026-08-21, born the same way and from the same failure mode as
+# `check-typing-guard`: a finding was recorded in one module and never applied to
+# its siblings. Ctrl+C/X/V never arrive as key events - egui-winit intercepts
+# them - so `key_pressed(Key::C)` is permanently false in a real window. That was
+# written up in capitals in `app::keyboard` on 2026-08-20, and the identical
+# mistake sat one grep away in `canvas::textsel::clipboard` for a further day,
+# certified green by tests injecting the key event winit never sends.
+run "check-clipboard-chords" bash "$HERE/check-clipboard-chords.sh"
 
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #

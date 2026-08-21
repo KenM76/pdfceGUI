@@ -249,6 +249,65 @@ pub fn typing(
                     draft.caret = draft.text.chars().count();
                     changed = true;
                 }
+                // ★★★ THE DRAFT'S CLIPBOARD — copy, cut and paste. Defect O18.
+                //
+                // All three were absent until 2026-08-21, and the absence was
+                // not an oversight so much as a half-finished thought.
+                // `textsel::clipboard::pending_key` was widened that same week
+                // to STOP answering Ctrl+C while a draft is composing, with a
+                // correct argument: *"the operator is composing, and the
+                // selection they made before the caret landed is not what those
+                // two keys mean any more"*. True — and it left the chord with no
+                // owner at all, so it fell through to the ribbon keymap, reached
+                // `edit.copy`, and copied an OBJECT. The operator pasted into
+                // Notepad and got *"1 object copied from pdfce"*.
+                //
+                // The lesson is the general one: taking a chord away from a
+                // handler is only half a decision. The other half is naming who
+                // gets it, and a chord with no owner does not go quiet — it goes
+                // to whoever claims it next.
+                //
+                // ★ These arrive as `Event::Copy` / `Event::Cut` /
+                // `Event::Paste`, never as key events: `egui-winit` intercepts
+                // the three chords and returns before pushing an `Event::Key`.
+                // Matching on `Key::C` here would compile, read correctly, pass
+                // a unit test that injected a key event, and never fire once in
+                // the running application. That is exactly how O18 shipped.
+                egui::Event::Copy => {
+                    // Copy leaves the draft alone — `changed` stays as it was.
+                    // A copy is not an edit, so it must not mark the draft dirty
+                    // and must not cost an undo entry.
+                    copy_selection(ctx, &draft);
+                }
+                egui::Event::Cut => {
+                    // ★ Cut is copy-then-delete, in that order, and it is a
+                    // no-op with no selection rather than a cut of the whole
+                    // draft. Some editors cut the current line when nothing is
+                    // selected; a text box on a drawing is not a code editor,
+                    // and silently removing everything the operator had typed on
+                    // a stray Ctrl+X is not a behaviour worth borrowing.
+                    if copy_selection(ctx, &draft) {
+                        draft.caret = take_selection(&mut draft);
+                        changed = true;
+                    }
+                }
+                egui::Event::Paste(pasted) if !pasted.is_empty() => {
+                    // ★ Replaces the selection, exactly as typing does — rule 2
+                    // of the four in `caret`'s selection section. Reusing
+                    // `take_selection` rather than repeating its two lines is
+                    // what keeps paste and typing from drifting apart on a rule
+                    // the operator experiences as one behaviour.
+                    //
+                    // `caret::insert` filters control characters, so a multi-
+                    // line paste arrives as one line. That is a real limitation
+                    // and it is the RIGHT one until the draft is multi-line
+                    // (O15): inserting a newline the draft cannot represent
+                    // would either be dropped silently later or committed as a
+                    // literal control byte into a content stream.
+                    draft.caret = take_selection(&mut draft);
+                    draft.caret = insert(&mut draft.text, draft.caret, &pasted);
+                    changed = true;
+                }
                 // ★★ **Caret movement**, 2026-08-20, on the operator's report
                 // that *"the cursor just sits at the end of a text line. It
                 // can't be moved to the center of an existing text block."*
@@ -495,6 +554,38 @@ pub fn typing(
     false
 }
 
+/// **Put the draft's selected text on the clipboard**, reporting whether there
+/// was any.
+///
+/// The return value is what makes [`Event::Cut`](egui::Event::Cut) safe: cut is
+/// copy-then-delete, and it must not delete when the copy found nothing to take.
+/// Returning a `bool` rather than having the caller re-ask `caret::range` means
+/// the two halves of a cut cannot disagree about whether a selection existed.
+///
+/// Routed through [`crate::canvas::textsel::clipboard::copy`] — **the** one
+/// place this shell writes text to the clipboard — rather than calling
+/// `egui::Context::copy_text` directly. That function's header carries why:
+/// three verbs reach it, and routing all of them through one function is what
+/// makes its trace line a complete record of what pdfce has copied rather than
+/// one of several partial ones. It also refuses an empty string there, which is
+/// the guard that stops a copy silently destroying whatever the operator had on
+/// their clipboard from another application.
+fn copy_selection(ctx: &egui::Context, draft: &Draft) -> bool {
+    let Some((from, to)) = caret::range(draft.mark, draft.caret) else {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "text-copy-declined source=draft reason=no-selection".to_owned()
+        });
+        return false;
+    };
+    let text: String = draft.text.chars().skip(from).take(to - from).collect();
+    if text.is_empty() {
+        return false;
+    }
+    crate::canvas::textsel::clipboard::copy(ctx, &text, "draft");
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +669,136 @@ mod tests {
             modifiers: egui::Modifiers::NONE,
         });
         input
+    }
+
+    /// A draft holding `text` with `from..to` selected.
+    fn draft_selecting(ctx: &egui::Context, text: &str, from: usize, to: usize) {
+        store(
+            ctx,
+            Draft {
+                page: 0,
+                kind: TextEditKind::Add,
+                anchor: Anchor::Origin { x: 10.0, y: 10.0 },
+                text: text.to_owned(),
+                caret: to,
+                mark: Some(from),
+                seeded: true,
+            },
+        );
+    }
+
+    /// One frame carrying a single clipboard event.
+    fn clipboard_frame(ctx: &egui::Context, event: egui::Event) {
+        let mut input = egui::RawInput {
+            modifiers: egui::Modifiers::COMMAND,
+            ..Default::default()
+        };
+        input.events.push(event);
+        frame(ctx, input);
+    }
+
+    /// ★★★ **CTRL+C IN A TEXT BOX COPIES THE SELECTED TEXT** — defect O18, the
+    /// operator's report of 2026-08-21.
+    ///
+    /// The event injected is `Event::Copy`, which is what `egui-winit` actually
+    /// sends, and injecting anything else is how this defect shipped: a test
+    /// feeding `Event::Key { key: C }` certifies a path the running application
+    /// can never take.
+    ///
+    /// ★ It asserts the draft is UNCHANGED as well. A copy that quietly moved
+    /// the caret or dropped the selection would pass a "did it copy" check and
+    /// still be wrong — the operator's next Shift+Left would select the wrong
+    /// range.
+    #[test]
+    fn ctrl_c_in_a_text_box_copies_the_selection_and_changes_nothing() {
+        let ctx = egui::Context::default();
+        draft_selecting(&ctx, "SHEET 1 OF 4", 0, 5);
+        clipboard_frame(&ctx, egui::Event::Copy);
+
+        let after = read(&ctx).expect("a copy must not end the draft");
+        assert_eq!(after.text, "SHEET 1 OF 4", "a copy is not an edit");
+        assert_eq!(after.caret, 5, "a copy must not move the caret");
+        assert_eq!(after.mark, Some(0), "a copy must not drop the selection");
+    }
+
+    /// ★★ **CTRL+X removes what it copied**, and copy runs first.
+    #[test]
+    fn ctrl_x_in_a_text_box_cuts_the_selection() {
+        let ctx = egui::Context::default();
+        draft_selecting(&ctx, "SHEET 1 OF 4", 0, 6);
+        clipboard_frame(&ctx, egui::Event::Cut);
+
+        let after = read(&ctx).expect("a cut must not end the draft");
+        assert_eq!(after.text, "1 OF 4");
+        assert_eq!(after.caret, 0, "the caret lands where the cut text began");
+        assert_eq!(after.mark, None, "a stale mark would index past the string");
+    }
+
+    /// ★★★ **A CUT WITH NO SELECTION MUST DESTROY NOTHING.**
+    ///
+    /// Some editors cut the whole current line when nothing is selected. A text
+    /// box on a drawing is not a code editor, and a stray Ctrl+X silently
+    /// removing everything the operator had typed is not a behaviour worth
+    /// borrowing — they would have to notice it to undo it.
+    #[test]
+    fn ctrl_x_with_no_selection_destroys_nothing() {
+        let ctx = egui::Context::default();
+        draft_of(&ctx, "SHEET 1 OF 4");
+        clipboard_frame(&ctx, egui::Event::Cut);
+
+        let after = read(&ctx).expect("the draft survives");
+        assert_eq!(after.text, "SHEET 1 OF 4", "a cut with nothing selected");
+    }
+
+    /// ★★ **CTRL+V pastes at the caret**, and replaces a selection if there is
+    /// one — rule 2, the same rule typing obeys.
+    #[test]
+    fn ctrl_v_replaces_the_selection_the_way_typing_does() {
+        let ctx = egui::Context::default();
+        draft_selecting(&ctx, "SHEET 1 OF 4", 0, 5);
+        clipboard_frame(&ctx, egui::Event::Paste("PLAN".to_owned()));
+
+        let after = read(&ctx).expect("the draft survives a paste");
+        assert_eq!(after.text, "PLAN 1 OF 4");
+        assert_eq!(after.caret, 4, "the caret lands after what was pasted");
+    }
+
+    /// A paste with nothing selected inserts at the caret rather than appending.
+    #[test]
+    fn ctrl_v_with_no_selection_inserts_at_the_caret() {
+        let ctx = egui::Context::default();
+        store(
+            &ctx,
+            Draft {
+                page: 0,
+                kind: TextEditKind::Add,
+                anchor: Anchor::Origin { x: 10.0, y: 10.0 },
+                text: "SHEET 4".to_owned(),
+                // Index 5 is between "SHEET" and the space before "4".
+                caret: 5,
+                mark: None,
+                seeded: true,
+            },
+        );
+        clipboard_frame(&ctx, egui::Event::Paste("S 1 OF".to_owned()));
+
+        let after = read(&ctx).expect("the draft survives");
+        assert_eq!(after.text, "SHEETS 1 OF 4");
+    }
+
+    /// ★ **A multi-line paste arrives as one line**, because the draft is
+    /// single-line. Named as a test rather than left to be discovered: the
+    /// filtering is `caret::insert`'s and it is deliberate — a newline the draft
+    /// cannot represent would otherwise be dropped later or committed as a
+    /// literal control byte into a content stream.
+    #[test]
+    fn a_multi_line_paste_arrives_as_one_line() {
+        let ctx = egui::Context::default();
+        draft_of(&ctx, "");
+        clipboard_frame(&ctx, egui::Event::Paste("one\ntwo".to_owned()));
+
+        let after = read(&ctx).expect("the draft survives");
+        assert_eq!(after.text, "onetwo");
     }
 
     /// ★★★ **A DRAG ACROSS THE TEXT SELECTS WHAT IT CROSSED** — the pointer

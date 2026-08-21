@@ -320,6 +320,45 @@ use crate::viewer;
 /// read as two different ideas of what fitting means.
 pub const CANVAS_MARGIN: f32 = 16.0;
 
+/// ★★ **The three values the canvas samples once per frame**, bundled.
+///
+/// They were three separate parameters until 2026-08-21, when adding the
+/// fourth-from-last put [`show`] over clippy's seven-argument ceiling. The
+/// lint was right and the bundle is not a workaround for it: these three
+/// already had a paragraph in [`interact::Frame`] arguing that they belong
+/// together, and it reads as a definition of this type —
+///
+/// > `tool` is *what* the operator armed, `caps` is *whether* the mode
+/// > permits it, and `pen` is *what it will look like*. All three are
+/// > sampled once per frame and for the same reason — a gesture means what
+/// > it meant when it started.
+///
+/// `tool` is not here because the canvas reads it from `egui::Memory`
+/// itself; these three are the ones the application owns and must hand over.
+///
+/// # Why sampling matters more than tidiness
+///
+/// Every field is `Copy` and every one is read at the top of the frame, so
+/// the canvas sees a **consistent** snapshot for the whole frame. A canvas
+/// that re-read any of them mid-frame could start a drag under one mode and
+/// finish it under another, which is the class of defect
+/// `app::gating::on_mode_capabilities_changed` exists to prevent from the
+/// other end.
+#[derive(Debug, Clone, Copy)]
+pub struct Sampled {
+    /// **What the active mode lets this frame do to the document.**
+    pub caps: Capabilities,
+    /// **What a click on the page may land on** — the operator's selection
+    /// filter (`OPERATOR_REQUESTS.md` O17).
+    ///
+    /// Composes with [`Self::caps`] as an `AND` in one direction only:
+    /// switching a class on here can never grant a capability the mode
+    /// withholds. See [`pick`](mod@pick).
+    pub pick: PickFilter,
+    /// The colour and width the next markup will be authored with.
+    pub pen: crate::canvas::markup::pen::Pen,
+}
+
 /// Draw the page, read the canvas gestures, and attach the canvas context
 /// menus.
 ///
@@ -360,19 +399,12 @@ pub fn show(
     doc: &mut OpenDoc,
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
-    caps: Capabilities,
-    // ★ **What a click on the page may land on** — the operator's selection
-    // filter, threaded in beside `caps` because the two compose. Passed
-    // rather than read from a global for the same reason `caps` is: it is
-    // application state the canvas must see a CONSISTENT snapshot of for the
-    // whole frame. See `crate::canvas::pick`.
-    pick: PickFilter,
-    pen: crate::canvas::markup::pen::Pen,
+    sampled: Sampled,
     actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
     let gutters = rulers::reserve(ui, doc.view.rulers && !doc.pages.is_empty());
     let mut content = gutters.content_ui(ui);
-    let (tokens, geometry) = show_in(&mut content, doc, host, find, caps, pick, pen, actions);
+    let (tokens, geometry) = show_in(&mut content, doc, host, find, sampled, actions);
     rulers::draw(ui, doc, gutters, geometry.as_ref());
     // Starting a guide drag needs a ruler to drag out of; *finishing* one does
     // not, because it may have started on the canvas. So the two halves are
@@ -393,12 +425,10 @@ fn show_in(
     doc: &mut OpenDoc,
     host: Option<&MenuHost<'_>>,
     find: &crate::find::FindState,
-    caps: Capabilities,
-    // See `show` — threaded through unchanged.
-    pick: PickFilter,
-    pen: crate::canvas::markup::pen::Pen,
+    sampled: Sampled,
     actions: &mut Vec<Action>,
 ) -> (Vec<HandlerToken>, Option<CanvasGeometry>) {
+    let Sampled { caps, pick, pen } = sampled;
     if doc.pages.is_empty() {
         let placeholder = ui.centered_and_justified(|ui| ui.label(crate::text::canvas_no_pages()));
         // Say so on the trace rather than staying silent. A consumer that

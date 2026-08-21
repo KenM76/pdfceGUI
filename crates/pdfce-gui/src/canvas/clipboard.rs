@@ -73,6 +73,52 @@
 
 use pdfce_core::annot_author::MarkupSpec;
 
+/// **Whether a text gesture owns `Ctrl+C` / `Ctrl+X` this frame**, so the object
+/// clipboard must stand aside.
+///
+/// Defect O18's enforcement point. **This module's header has always**
+/// *claimed* that text wins; this is the function that makes the claim true,
+/// and it lives here, beside the claim, rather than beside the caller that
+/// consults it — so a reader who arrives at the header's promise finds its
+/// enforcement in the same file rather than having to trust it.
+///
+/// It also has to live somewhere other than `app::dispatch`, which R2's
+/// 1,500-line ceiling put over the limit the moment this was added. That was
+/// the forcing function; this is the right home independently of it.
+///
+/// # The two claimants, and why both count
+///
+/// | claimant | what the operator did | who copies it |
+/// |---|---|---|
+/// | a composing draft | put a caret in a text box, possibly with a selection | `canvas::textedit::keys` |
+/// | a live text sweep | dragged across text on the page | `canvas::textsel::clipboard` |
+///
+/// A draft counts **even with no selection inside it**, and that is deliberate.
+/// `canvas::textedit::composing` is also true for a focused ordinary widget —
+/// the Find field, the status bar's page box — and an operator pressing Ctrl+C
+/// in the Find field is copying their search term. Letting the object clipboard
+/// answer that keystroke would copy something off the page instead, which is
+/// `DEFECTS.md` D1's failure exactly: a canvas taking a chord that belonged to
+/// the widget the operator was looking at.
+///
+/// # ★ Why "the sweep produced no text" is not checked here
+///
+/// A live-but-empty selection still counts as text owning the chord. The
+/// alternative — falling through to the object clipboard when the sweep turns
+/// out to be empty — would make one keystroke mean two different things
+/// depending on a property the operator cannot see, and the failure would be
+/// silent and destructive on the cut path. `textsel::clipboard::copy` refuses an
+/// empty string on its own and traces the refusal; that is the right place for
+/// it, because it is the only place that has the string.
+pub fn text_owns_the_chord(ctx: &egui::Context, doc: &crate::app::state::OpenDoc) -> bool {
+    if crate::canvas::textedit::composing(ctx) {
+        return true;
+    }
+    doc.text_selection
+        .as_ref()
+        .is_some_and(|selection| selection.live(doc.edit_epoch))
+}
+
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
 
