@@ -1,10 +1,13 @@
 # CONTINUE — handoff, 2026-08-20 late evening
 
-**Clean tree. 16/16 gates. 1,567 tests. The driven suite RAN, live, on his own
-drawing — see §1b.**
-**Newest build: `OneDrive\pdfceGUI2`, engine at `e5be7d5d` or later.**
-`pdfceGUI1` holds 2026-08-19 17:44 — the fallback is a day old, and that is
-now a *known* fact rather than an accident; see §4.
+**Clean tree. 16/16 gates. 1,578 tests. Driven suite: 54 passed, 0 failed,
+7 skipped — live, on his own drawing, every skip a fixture fact with its reason
+printed.**
+**Newest build: `OneDrive\pdfceGUI2`, 2026-08-20 23:21.**
+`pdfceGUI1` holds 2026-08-19 17:44. **The fallback is a day old and that is not
+drift** — OneDrive held that slot locked for the whole evening, the packager
+correctly refused it every time, and the last publish used `--slot pdfceGUI2`
+deliberately so the day-old fallback survived rather than the two-hour-old one.
 
 The previous edition of this file is in git history at `5221e61`.
 
