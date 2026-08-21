@@ -1,15 +1,18 @@
-# CONTINUE — handoff, 2026-08-21 early morning
+# CONTINUE — handoff, 2026-08-21 morning
 
-**Clean tree. 16/16 gates. 1,592 tests. Driven suite: 51 passed, 1 failed,
-12 skipped** on his own drawing at `--doc-point 0,300,500`. **The one failure is
-real and is written up** — see §1's *"what is still broken"* and
-`OPERATOR_REQUESTS.md` row 13b.
+**Clean tree. 16/16 gates. 1,592 tests. Driven suite: 53 passed, 0 failed,
+12 skipped** on his own drawing at `--doc-point 0,300,500`.
 
-**Newest published build: `OneDrive\pdfceGUI2`, 2026-08-20 23:21 — NOT this
-session's work.** Nothing was packaged today, deliberately: the note-box focus
-regression is in a workflow he uses, and the 20:09 retraction of 2026-08-20 is
-the standing argument against publishing over a known fresh defect.
-`pdfceGUI1` holds 2026-08-19 17:44.
+**Newest published build: `OneDrive\pdfceGUI2`, 2026-08-21 07:53**, engine
+`10de389`, shell `6b20ab3`. `pdfceGUI1` holds 2026-08-20 06:03 as the fallback.
+
+★ **Slot 2 again, and it was not the rotation's choice.** The packager wanted
+`pdfceGUI1` — the older slot — and OneDrive held it locked across two attempts
+(`WinError 32`, a failed rename, so nothing was moved and it still holds its
+build in full). Forcing slot 2 replaces yesterday's build and leaves the
+2026-08-20 fallback intact, which is the right trade and the same one made on
+2026-08-20. **If slot 1 is locked again next session, that is now twice: worth
+asking whether something is holding it open.**
 
 The previous edition of this file is in git history at `5221e61`.
 
@@ -92,35 +95,53 @@ is written up as still broken. In the order they matter to Ken:
   one (a heading two points inside a scroll area's bottom edge, measured off
   the anti-aliased top rows of clipped glyphs).
 
-### ⚠ What is still broken, and it is his workflow
+### ⚠ What LOOKED broken, and was not — the sharpest lesson of the session
 
-`text_annot_takes_the_keyboard_unclicked` FAILS. Drag out a **Text box** or
-**Sticky note** and type without clicking the field first: the characters may
-go nowhere, and because Accept is gated on the field being non-empty, pressing
-Accept then authors nothing with no message. **Clicking the field first always
-works.**
+`text_annot_takes_the_keyboard_unclicked` failed all evening with *"drag out
+a note box, type without clicking the field, and the words go nowhere"*. It was
+written up for Ken as a live defect. **It was not one.**
 
-The new `dialog-focus` trace says exactly what happens:
+The check clicked its Accept button through the APPLICATION window's
+coordinates while the dialog had its own. The typing worked the whole time —
+the dialog took the characters, the field held focus, the draft was right — and
+the click that should have committed it landed on a page. One call site,
+converted to `frame_of` like the other six, and it passes.
 
-```
-dialog-focus title="Text box" focused=Some(true)
-dialog-focus title="Text box" focused=Some(false)
-```
+★★★ **Chasing the wrong culprit, the program was changed four times to hold the
+keyboard harder, and every change appeared to help.** The dialog visibly held
+the foreground while the new code was asking for it and lost it the instant it
+stopped. Real, repeatable, and beside the point. `FOCUS_FRAMES` went
+1 → 8 → 40 → 120 on exactly that evidence and is back at 8.
 
-The platform grants the keyboard and takes it away a few passes later, before
-any keystroke arrives, and repeating `ViewportCommand::Focus` through that
-window does not hold it. **The harness is not the cause** — it was
-instrumented and confirmed to raise nothing during the sequence. Next places
-to look: who else calls `focus_window` in `eframe`'s multi-viewport path, and
-whether the main window's own repaint re-activates it.
+> **A measurement that moves when you turn a knob is not proof the knob is the
+> subject.**
 
-### Not published
+Two of the four changes were kept because they are right on their own terms:
+**G3 is closed** (a dialog is now OWNED by the window it belongs to, so it can
+no longer fall behind it — the unsafe quarantined in a `native-window` crate so
+two `#![forbid(unsafe_code)]` claims survive), and a dialog's **position is
+asserted once**, on the pass it opens, rather than re-asserted every frame from
+a value read back out of the window.
 
-**No build was packaged to OneDrive this session, deliberately.** The
-regression above is in a workflow he uses — notes drawn on a drawing — and the
-20:09 retraction of 2026-08-20 is the standing argument against handing him a
-build with a known, fresh, operator-visible defect in it. `pdfceGUI2` from
-2026-08-20 23:21 is still the current published build.
+### Published — and on the ENGINE PIN THAT WAS VERIFIED, not the newest one
+
+Packaged to OneDrive at Ken's request: *"fix the regression and release the
+latest version."*
+
+★★ **The engine pin was bumped and then deliberately put back.** `cargo update`
+moved core/render/print from `10de389` to `05ba72a`, eleven commits — and four
+of them are `Pass 97`, the compositing formula, non-isolated group backdrops,
+knockout groups and soft masks applied once per group instead of once per
+object. **That is the class of change that alters how every page RASTERIZES**,
+and the driven suite could not be re-run against it because Ken had come back
+to the keyboard: `SetForegroundWindow` is refused to a background process, so
+55 of 65 checks correctly declined to click rather than clicking into whatever
+he was using.
+
+A green unit suite is not a substitute for a rendered page. So the release ships
+the pin the driven suite was green on, and the bump is the next session's first
+job — with `Pass 120.2/120.4` in it, which is the engine half of the clipboard
+work already on the list.
 
 ## 1b. The driven suite, run live
 
