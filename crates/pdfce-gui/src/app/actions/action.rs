@@ -874,6 +874,30 @@ pub enum Action {
         /// and `TextPen` resolves them at the boundary. See its docs for why
         /// black is written `Black` and not `Rgb(0, 0, 0)`.
         pen: crate::canvas::textedit::pen::TextPen,
+        /// ★★★ **The wrap rectangle**, in PDF user space, or `None` for a
+        /// single-line run at [`Self::CommitAddText::origin`].
+        ///
+        /// The operator, 2026-08-21: *"I should be able to make it multi line."*
+        ///
+        /// `Some((llx, lly, urx, ury))` reaches `AddTextRequest::with_box`
+        /// (`Pass 16.1`), which is what makes multi-line expressible at all: a
+        /// PDF has no paragraph, so each visual line is its own show operator at
+        /// its own absolute position, and *something* has to decide where the
+        /// second line starts. A width to wrap against and a leading to step by
+        /// is that something.
+        ///
+        /// ★ It gives the operator **both** behaviours from one field: hard
+        /// newlines split paragraphs and each paragraph is wrapped
+        /// independently to the box's width. So Enter makes a new paragraph and
+        /// running past the right edge makes a new line, which is what anyone
+        /// who has used a text box expects and is not two features.
+        ///
+        /// A tuple rather than the engine's `Rect` for the reason every other
+        /// geometric field here is a tuple: this crate's `Action` is a
+        /// statement of what the operator asked for, and it does not carry
+        /// engine types across the funnel where a pair of primitives says the
+        /// same thing. `apply` builds the `Rect`, once, at the boundary.
+        wrap: Option<(f64, f64, f64, f64)>,
     },
     /// ★★ **Restyle a markup that is already on the page** — the action behind
     /// `EditSession::set_markup_style`, and the first caller that verb has ever

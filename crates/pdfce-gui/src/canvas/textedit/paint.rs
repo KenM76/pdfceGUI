@@ -203,7 +203,46 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
     // one fact, and the caret would sit where a *slightly different* string
     // would have ended. See this module's header.
     let font = egui::FontId::proportional(height * PREVIEW_FILL);
-    let laid = painter.layout_no_wrap(draft.text.clone(), font.clone(), theme.palette.text);
+    // ★★★ A BOX DRAFT WRAPS; EVERY OTHER DRAFT DOES NOT.
+    //
+    // The operator, 2026-08-21: *"I should be able to make it multi line."*
+    //
+    // `Anchor::Box` is the anchor a dragged rectangle produces, and the whole
+    // point of that rectangle is a **width to wrap against** — a PDF has no
+    // paragraph, so each visual line is its own show operator and something has
+    // to decide where the second line starts.
+    //
+    // ★ The preview therefore wraps at **the box's own screen width**, which is
+    // the same width `add_text`'s boxed variant will wrap to. Not the same
+    // *metrics* — the preview is the shell's font and the commit is the pen's,
+    // which this module's header is explicit about and which is why the box is
+    // opaque rather than a ghost. What it promises is *"your text will break
+    // around here"*, and that promise it keeps.
+    //
+    // A point or run draft passes `f32::INFINITY`, which is exactly
+    // `layout_no_wrap` and is written as one call so the caret below measures
+    // through the same path in both cases. Two layout calls would be the two
+    // derivations this module deleted `caret_x` to be rid of.
+    let box_width = match &draft.anchor {
+        Anchor::Box { llx, urx, .. } => {
+            #[allow(clippy::cast_possible_truncation)]
+            let (lo, hi) = (*llx as f32, *urx as f32);
+            let a = crate::viewer::pdf_space_to_canvas(Pos2::new(lo, 0.0), page);
+            let b = crate::viewer::pdf_space_to_canvas(Pos2::new(hi, 0.0), page);
+            match (a, b) {
+                (Some(a), Some(b)) => Some((p.map.to_screen(b).x - p.map.to_screen(a).x).abs()),
+                _ => None,
+            }
+        }
+        Anchor::Run { .. } | Anchor::Origin { .. } => None,
+    };
+    let wrap_at = box_width.map_or(f32::INFINITY, |w| (w - PREVIEW_INSET_PT * 2.0).max(1.0));
+    let laid = painter.layout(
+        draft.text.clone(),
+        font.clone(),
+        theme.palette.text,
+        wrap_at,
+    );
 
     // ★★ THE BOX GROWS WITH WHAT IS IN IT, and it has to.
     //
@@ -223,22 +262,47 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
     // Every in-place editor in every program does this — a spreadsheet cell
     // editor grows as you type past the column, and it grows because the
     // alternative is text that has escaped its own control.
-    let width = screen
-        .width()
-        .max(laid.rect.width() + PREVIEW_INSET_PT * 2.0);
-    let body = egui::Rect::from_min_size(
-        egui::pos2(screen.left(), screen.center().y - height / 2.0),
-        egui::vec2(width, height),
-    );
+    let width = box_width.unwrap_or_else(|| {
+        screen
+            .width()
+            .max(laid.rect.width() + PREVIEW_INSET_PT * 2.0)
+    });
+    // ★★ A BOX GROWS DOWNWARD FROM ITS TOP EDGE, and a single-line draft stays
+    // centred on the run it replaces.
+    //
+    // Two different anchors and therefore two different rectangles, and the
+    // difference is not cosmetic: `add_text`'s boxed variant is **top-anchored**
+    // — the text is laid out from the top of the box downward — so a preview
+    // centred on the caret slot would show the paragraph in a place the commit
+    // will not put it.
+    //
+    // The height is the laid-out text's, floored at one line, so an empty box
+    // still shows where the first character will land rather than collapsing to
+    // nothing.
+    let body = if box_width.is_some() {
+        egui::Rect::from_min_size(
+            egui::pos2(screen.left(), screen.top()),
+            egui::vec2(
+                width,
+                (laid.rect.height() + PREVIEW_INSET_PT * 2.0).max(height),
+            ),
+        )
+    } else {
+        egui::Rect::from_min_size(
+            egui::pos2(screen.left(), screen.center().y - height / 2.0),
+            egui::vec2(width, height),
+        )
+    };
     painter.rect_filled(body, 0.0, theme.palette.surface);
-    painter.galley(
-        egui::pos2(
-            body.left() + PREVIEW_INSET_PT,
-            body.center().y - laid.rect.height() / 2.0,
-        ),
-        laid.clone(),
-        theme.palette.text,
+    let text_origin = egui::pos2(
+        body.left() + PREVIEW_INSET_PT,
+        if box_width.is_some() {
+            body.top() + PREVIEW_INSET_PT
+        } else {
+            body.center().y - laid.rect.height() / 2.0
+        },
     );
+    painter.galley(text_origin, laid.clone(), theme.palette.text);
 
     // The bracket, drawn round the EDITOR rather than round the run: it is the
     // extent of what the operator is composing, which after the first keystroke
@@ -266,16 +330,31 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
         // separating under use. So there is one derivation. The preview draws
         // the text; the caret measures **the same string, in the same font, at
         // the same size**, and the two cannot disagree.
-        let prefix: String = draft.text.chars().take(draft.caret).collect();
-        let advance = painter
-            .layout_no_wrap(prefix, font.clone(), theme.palette.text)
-            .rect
-            .width();
-        let x = body.left() + PREVIEW_INSET_PT + advance;
+        // ★★ Measured from the GALLEY THAT WAS DRAWN, not from a second
+        // layout of a prefix string.
+        //
+        // The prefix trick was right while a draft was one line: lay out
+        // `text[..caret]` and its width is the caret's x. It cannot survive
+        // wrapping — a prefix laid out on its own breaks in different places
+        // from the same characters inside the whole paragraph, so the caret
+        // would drift a line at a time, and would be exactly wrong at the point
+        // the operator was looking at.
+        //
+        // `Galley::pos_from_cursor` asks the drawn galley where a character
+        // index is, in ITS coordinates, and answers with a rect spanning that
+        // row's height. One derivation, wrapped or not, which is the rule this
+        // module deleted `caret_x` to establish.
+        //
+        // ★ The index is a CHARACTER index and `ccursor_from_index` is what
+        // takes one — the same unit `Draft::caret` is documented in. Passing a
+        // byte offset would compile and would put the caret inside a multi-byte
+        // character on any document with an accent in it.
+        let slot = laid.pos_from_cursor(egui::text::CCursor::new(draft.caret));
+        let x = text_origin.x + slot.min.x;
         painter.line_segment(
             [
-                egui::Pos2::new(x, body.top()),
-                egui::Pos2::new(x, body.bottom()),
+                egui::Pos2::new(x, text_origin.y + slot.min.y),
+                egui::Pos2::new(x, text_origin.y + slot.max.y),
             ],
             egui::Stroke::new(1.5, theme.palette.accent),
         );
@@ -334,6 +413,26 @@ fn caret_box(
             let (x, y) = (*x as f32, *y as f32);
             let lo = crate::viewer::pdf_space_to_canvas(Pos2::new(x, y - 3.0), page)?;
             let hi = crate::viewer::pdf_space_to_canvas(Pos2::new(x + 6.0, y + 11.0), page)?;
+            Some(egui::Rect::from_two_pos(lo, hi))
+        }
+        // ★ A box's caret box is a nominal ONE-LINE slot at the box's TOP-LEFT,
+        // not the whole rectangle.
+        //
+        // Because that is where the first character will land: `add_text`'s
+        // boxed variant is top-anchored, so the text grows down from the top
+        // edge. Drawing the caret as the full box would be drawing the
+        // *container* and calling it a cursor — and would put a blinking bar
+        // the height of a paragraph on the page before a single letter existed.
+        //
+        // The box itself IS drawn, separately and as a rubber-band outline, by
+        // `preview` — which is the honest division: the outline says *"your
+        // text will live in here"* and the caret says *"and the next keystroke
+        // goes here."*
+        Anchor::Box { llx, ury, .. } => {
+            #[allow(clippy::cast_possible_truncation)]
+            let (x, y) = (*llx as f32, *ury as f32);
+            let lo = crate::viewer::pdf_space_to_canvas(Pos2::new(x, y - 14.0), page)?;
+            let hi = crate::viewer::pdf_space_to_canvas(Pos2::new(x + 6.0, y), page)?;
             Some(egui::Rect::from_two_pos(lo, hi))
         }
     }

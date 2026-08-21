@@ -125,6 +125,30 @@ pub enum GestureOutcome {
         /// Draw the ghost, or commit.
         phase: Phase,
     },
+    /// ★★ A **text box** being dragged out: the two raw endpoints, in canvas
+    /// space.
+    ///
+    /// Raw and in drag order, for the reason [`Self::Markup`] states at length —
+    /// `Rect::from_two_pos` has one normalised form and discards which corner
+    /// the operator started at. It is normalised exactly once, at the point it
+    /// becomes a page rectangle, so a preview and an authored box cannot come
+    /// from two different normalisations.
+    ///
+    /// # What `Phase::Complete` means here, and why it is a separate variant
+    ///
+    /// It **opens a draft**, and authors nothing. The band is the cursor; the
+    /// words decide whether anything is written, and an empty box committed by
+    /// clicking away writes nothing at all. That is the same shape as
+    /// [`Self::TextAnnot`] — which opens a dialog — and different from
+    /// [`Self::Markup`], which authors on release.
+    TextBox {
+        /// Canvas-space position of the press — one corner.
+        from: Pos2,
+        /// Canvas-space position of the pointer now — the opposite corner.
+        to: Pos2,
+        /// Draw the band, or open the draft.
+        phase: Phase,
+    },
     /// A resize drag on one of the eight grips.
     ///
     /// Raised so the drag is **consumed** rather than falling through to a
@@ -291,6 +315,14 @@ impl Drag {
                 phase,
             },
             DragKind::Move => GestureOutcome::Move { delta, phase },
+            // Raw and in drag order, exactly as the markup band and the
+            // text-annotation band above — the rectangle is normalised once, at
+            // the point it becomes a page rect.
+            DragKind::TextBox => GestureOutcome::TextBox {
+                from: self.origin,
+                to: self.latest,
+                phase,
+            },
             DragKind::Resize(grip) => GestureOutcome::Resize { grip, delta, phase },
             // Raw, and in that order: `origin` is the ray the press established
             // and `latest` is the ray the pointer is on. Passing a delta here —

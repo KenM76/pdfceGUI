@@ -86,9 +86,15 @@ pub fn cursor_for(
             // The text-annotation band joins them: it is the same crosshair
             // for the same reason, and what tells the operator which tool is
             // armed is the pressed ribbon control, off-canvas.
-            DragKind::Marquee(_) | DragKind::Markup(_) | DragKind::TextAnnot(_) => {
-                CursorIcon::Crosshair
-            }
+            // ★ …and the text box joins them, which is the same crosshair for
+            // the same reason: it is a rubber-band being dragged out, and what
+            // tells the operator it will hold text rather than a comment is the
+            // pressed ribbon control, off-canvas, where a mode indicator
+            // belongs.
+            DragKind::Marquee(_)
+            | DragKind::Markup(_)
+            | DragKind::TextAnnot(_)
+            | DragKind::TextBox => CursorIcon::Crosshair,
             DragKind::Move => CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),
             // ★ `Grabbing` too, and it names the same limit `Grip::Rotate`'s

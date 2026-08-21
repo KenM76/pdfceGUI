@@ -80,6 +80,70 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O15 — Text editing should be MULTI-LINE
+
+**Asked:** 2026-08-21 — *"I should be able to make it multi line."*
+**Status:** **SHIPPED 2026-08-21 AND DRIVEN.** Awaiting your verdict.
+
+Arm **Edit ▸ Add text** and **drag a rectangle**. Type into it. **Enter starts a
+new line**; text that runs past the right edge wraps by itself. **Ctrl+Enter**
+puts it on the page — or click away, which also commits.
+
+A plain click still places a single line at a point, exactly as before, and
+Enter there still commits. Two gestures, two behaviours, and the one you get is
+decided by whether you dragged.
+
+### Why it needs a rectangle, which is not a design choice
+
+**A PDF has no paragraph.** Every visual line in a PDF is a separate instruction
+at its own absolute position — there is nothing in the file that says "these
+lines belong together". So something has to decide where the second line starts,
+and the only thing that can is a width to wrap against. That is the rectangle.
+
+### Driven
+
+```
+text-box-open page=0 box=301.2,438.8,500.9,499.7 w=199.7 h=60.9
+add-text page=0 n=2 … boxed add: wrapped to 2 line(s) at 199.7pt box width,
+         left alignment, top-anchored from the box top at 14.40pt leading
+```
+
+★ **And the check earned its keep on its first run.** Everything was correct —
+the drag opened the box, Enter arrived, the right branch ran — and the newline
+was **thrown away one function deeper**, by a filter that strips control
+characters from typed text. Its own comment argued, correctly, that a control
+character has no meaning in a PDF show string. True of typed text; not true of a
+paragraph break. That is the **fifth** carefully-argued restriction in two days
+to go false the week it was written.
+
+### Still open, and named rather than implied
+
+- **Turning existing text into multiple lines.** This ships *new* multi-line
+  text. Making a line that is already on the page break into two is a *reflow*,
+  which the engine has and which currently demands the page be saved and
+  reopened first. Separate row when you want it.
+- **Alignment and the box's own size.** A new box is left-aligned and cannot be
+  resized after the fact. Both are surfaces rather than engine gaps.
+
+## O16 — Reassemble lines into paragraphs, and move between blocks with the arrow keys
+
+**Asked:** 2026-08-21 — *"there was an acrobat feature in the original pdfce-gui
+that attempted to reassemble individual lines into paragraphs and the cursor
+would move to the next block of text using the navigation keys."*
+**Status:** OPEN, not started. **This is SALVAGE** — it existed in the shell
+this project is replacing, so the first act is to find it there and read it, not
+to design it.
+
+`SALVAGE.md` is the register for what carries over and in what condition; this
+row will name the file and the line count once it has been read.
+
+★ The substrate is already in `pdfce-core` and this shell already touches it:
+`EditableTextModel::recognize` with `BlockRecognitionOptions`, `block_at`,
+`line_range_at` and `ReflowEngine::detect_alignment` are what
+`canvas::textedit::plan` uses today to decide whether a tail should move. So the
+paragraph recognition exists; what is missing is a surface that shows it and a
+navigation that uses it.
+
 ## O14 — The conventions sweep, 2026-08-20: fourteen gaps, found by asking
 
 **Asked:** by you, as *"how can you learn from these other programs so that you
@@ -759,10 +823,20 @@ after the caret and I would rather name the gap than leave it implied.
 Shift+arrow, Ctrl+A, and dragging across a draft to select part of it, so that
 typing replaces the selection. Not started.
 
-## Q1 — A question for you, not a request: should a text edit HOLD the rest of the line?
+## Q1 — ANSWERED 2026-08-21: the rest of the line MOVES ALONG
 
-**Raised by the engine, 2026-08-20**, and it is a default that is yours to set
-rather than mine to guess.
+> *"It should move along."*
+
+**Settled. Nothing changes** — `FollowerDisposition::Reflow` was already the
+default and stays it. The three automatic exceptions stay too: rotated text,
+right-aligned or centred text, and a line drawn as several separate pieces are
+each pinned, because in those three cases "moving along" would move the tail the
+wrong way, off its margin, or drag a neighbour that is not part of your edit.
+
+Recorded rather than deleted, because the engine will ask again the next time it
+touches reflow and the answer should not have to be re-derived.
+
+The question, kept for that reason:
 
 When you retype a piece of text and the new words are longer, pdfce has to
 decide what happens to whatever is drawn after it on the same line. Two answers:

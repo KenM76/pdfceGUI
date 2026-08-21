@@ -112,10 +112,52 @@ pub fn insert(text: &mut String, caret: usize, s: &str) -> usize {
     if typed.is_empty() {
         return caret;
     }
+    splice(text, caret, typed)
+}
+
+/// **Insert a line break**, and the only way to get a control character into a
+/// draft.
+///
+/// # ★★★ Why this is its own function rather than `insert(text, caret, "\n")`
+///
+/// Because [`insert`] **drops control characters**, and it is right to. Its own
+/// doc says why: *"`egui` delivers Enter and Escape as `Key` events, so a
+/// control character arriving in a `Text` event is something this shell has no
+/// meaning for, and putting it in a PDF show string would be authoring a byte
+/// the operator cannot see."* That is still true of typed text.
+///
+/// It stopped being true of the whole draft on 2026-08-21, when a box gained a
+/// paragraph break — and the guard silently ate it. **The Enter arrived, the
+/// branch was right, `insert` was called, and the newline was filtered out one
+/// call deeper.** The driven check reported *"the paragraph was authored as 1
+/// line"*; the trace showed the key arriving and the length not moving; and the
+/// answer was a filter written for a different question.
+///
+/// ★ So the filter stays and the newline gets a door of its own. Relaxing
+/// `insert` to permit `\n` would have permitted every other control character
+/// with it — a stray `\t` or `\r` from a paste would land in a show string —
+/// and it would have made *"can a control character be in a draft?"* a question
+/// with two answers depending on which caller you asked.
+///
+/// **This is the fifth guard in two days to expire the week it was written**,
+/// and the shape is always the same: a well-argued restriction reads as
+/// permanent precisely because it is well argued. See
+/// `C:\personal_rag\claude_code\lesson_20260820_a_refusal_is_a_claim_with_a_date_on_it.md`.
+pub fn newline(text: &mut String, caret: usize) -> usize {
+    splice(text, caret, vec!['\n'])
+}
+
+/// Put `chars` into `text` at `caret`, and answer the caret after them.
+///
+/// The shared body of [`insert`] and [`newline`], so there is one statement of
+/// *"caret indices are CHARACTERS, not bytes"* rather than two. `é` is one
+/// keystroke and two bytes, and a byte-indexed splice would panic on the next
+/// one.
+fn splice(text: &mut String, caret: usize, chars_to_add: Vec<char>) -> usize {
     let mut chars: Vec<char> = text.chars().collect();
     let at = caret.min(chars.len());
-    let n = typed.len();
-    chars.splice(at..at, typed);
+    let n = chars_to_add.len();
+    chars.splice(at..at, chars_to_add);
     *text = chars.into_iter().collect();
     at + n
 }

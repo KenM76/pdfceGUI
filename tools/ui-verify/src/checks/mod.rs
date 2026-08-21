@@ -334,11 +334,16 @@ pub mod settings_theme;
 pub mod shortcuts;
 pub mod text_annot;
 pub mod text_annot_focus;
-pub mod text_edit;
 /// ★ The operator's own report, driven: Edit text on a REAL CAD sheet, aimed at a
 /// point the ENGINE says carries text. Its header carries why two passing text
 /// checks were not enough — both drive fixtures this repository generated to
 /// verify itself.
+/// ★★★ **Multi-line text** — the operator's ask of 2026-08-21. Its header
+/// carries why multi-line needs a rectangle (a PDF has no paragraph) and which
+/// of the four links would ship silently: a plain Enter that still commits ends
+/// the draft at the first line break and discards everything after it.
+pub mod text_box;
+pub mod text_edit;
 pub mod text_edit_real;
 pub mod text_markup;
 /// The canvas text-selection sweep: the one feature whose entire behaviour is a
@@ -679,6 +684,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(chords::EveryDeclaredChordDispatches),
         Box::new(text_annot::TextAnnotPlacesAndAuthors),
         Box::new(text_annot_focus::TextAnnotTakesTheKeyboardUnclicked),
+        Box::new(text_box::TextBoxTakesAParagraph),
         Box::new(text_edit::TextEditPinsAnAlignedTail),
         Box::new(text_edit_real::TextEditOnARealDrawing),
         // After both, because it is the only driving check that does not touch

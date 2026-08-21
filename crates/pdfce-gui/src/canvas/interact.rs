@@ -940,6 +940,31 @@ pub(super) fn interact(
                 actions,
             );
         }
+        // ★★★ A TEXT BOX being dragged out. `ui-conventions` has no row for
+        // this because it is not a convention question — it is the file
+        // format's: a PDF has no paragraph, so multi-line text needs a width to
+        // wrap against, and a width is a rectangle the operator draws.
+        //
+        // The band is `markup::band::preview_rect`, reused rather than given its
+        // own painter, for the reason the text-annotation band gives about the
+        // same reuse: a rubber band is a rubber band, and two sets of pixels for
+        // one gesture would be two things to keep level.
+        //
+        // On `Complete` it **opens a draft and authors nothing** — which is the
+        // whole difference from a markup band, and why `canvas::textedit` gets
+        // the box rather than `apply` getting an action.
+        GestureOutcome::TextBox { from, to, phase } => {
+            band = Some(markup::band::Preview {
+                kind: markup::MarkupKind::Rectangle,
+                from,
+                to,
+            });
+            if phase == crate::canvas::gesture::Phase::Complete
+                && let Some(page) = doc.current_page()
+            {
+                crate::canvas::textedit::begin_box(&ctx, doc, page_index, from, to, page);
+            }
+        }
         GestureOutcome::Resize { grip, delta, phase } => {
             resize_ghost = crate::canvas::resizing::drag(
                 crate::canvas::resizing::Frame {
@@ -1242,8 +1267,19 @@ pub(super) fn interact(
             });
             format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "kind={:?} draft={} owns_keyboard={owns_keyboard} text_events={text_events} len={}",
+                // ★ The ANCHOR, added 2026-08-21. `kind` is the armed TOOL and
+                // the anchor is what the caret is actually on, and the two can
+                // disagree: an `Add` tool whose click landed on a run edits it,
+                // and a dragged box is an `Add` tool with a rectangle. The
+                // multi-line work needed to tell those apart from a trace and
+                // could not, which cost an investigation.
+                "kind={:?} anchor={} draft={} owns_keyboard={owns_keyboard} text_events={text_events} len={}",
                 active_tool.text_edit_kind(),
+                draft.as_ref().map_or("none", |d| match d.anchor {
+                    crate::canvas::textedit::Anchor::Run { .. } => "run",
+                    crate::canvas::textedit::Anchor::Origin { .. } => "origin",
+                    crate::canvas::textedit::Anchor::Box { .. } => "box",
+                }),
                 draft.is_some(),
                 draft.map_or(0, |d| d.text.chars().count()),
             )

@@ -700,6 +700,7 @@ impl PdfceApp {
                 origin,
                 text,
                 pen,
+                wrap,
             } => {
                 // ★★ The three fields the engine has carried since
                 // `AddTextRequest` shipped and this arm never set.
@@ -716,7 +717,32 @@ impl PdfceApp {
                     .with_font(pen.face)
                     .with_size(pen.size())
                     .with_color(pen.engine_colour());
-                vector_edit(doc, "add-text", page, 1, |session| {
+                // ★★★ …and the fourth, which is what makes text MULTI-LINE.
+                //
+                // `with_box` is `Pass 16.1`'s boxed variant: hard newlines split
+                // paragraphs, each paragraph is wrapped independently to the
+                // box's width, and the whole thing is top-anchored from the
+                // box's top edge (so `origin` is ignored, by the engine's own
+                // documentation — see the action's `wrap` field for why it is
+                // carried anyway).
+                //
+                // ★ Applied as a `map` over the option rather than as an `if`,
+                // so there is exactly one `req` and one call below it. Two
+                // branches each building a request would be two places for a
+                // font to be forgotten, which is what this arm's own comment is
+                // about one paragraph up.
+                // ★ `with_box` takes ORIGIN AND EXTENT, not two corners — a
+                // signature worth reading rather than assuming, because
+                // `(x, y, w, h)` and `(llx, lly, urx, ury)` are four `f64`s
+                // either way and transposing them compiles. The action carries
+                // corners because that is what a dragged rectangle is; the
+                // subtraction happens here, once, at the boundary.
+                let req = match wrap {
+                    Some((llx, lly, urx, ury)) => req.with_box(llx, lly, urx - llx, ury - lly),
+                    None => req,
+                };
+                let lines = text_lines(&req);
+                vector_edit(doc, "add-text", page, lines, |session| {
                     session.add_text(&req).map(|report| report.disclosures)
                 });
             }
@@ -1020,6 +1046,23 @@ impl PdfceApp {
 /// only capability the error branch below actually uses — it puts the message on
 /// the trace and declines. Nothing here inspects a variant, so nothing here
 /// needed to know the type.
+/// How many lines an add-text request will author, for the trace's operand
+/// count.
+///
+/// ★ The count is what `vector_edit` reports as `n=`, and *"one"* was the honest
+/// answer while every add was one line. It stopped being honest when boxes
+/// arrived: a check reading `add-text … n=1` cannot tell a one-line run from a
+/// paragraph, and the number a wrong build gets wrong here is exactly *"did the
+/// newlines survive?"*
+///
+/// It counts **hard newlines**, not laid-out lines — the engine wraps to the
+/// box's width and this shell does not know the face's metrics, so a wrapped
+/// line count would be a guess. Hard newlines are a fact about what the operator
+/// typed, which is the thing worth reporting.
+fn text_lines(req: &pdfce_core::text_edit::AddTextRequest) -> usize {
+    req.text.split('\n').count()
+}
+
 pub(super) fn vector_edit<E: std::fmt::Display>(
     doc: &mut OpenDoc,
     label: &str,

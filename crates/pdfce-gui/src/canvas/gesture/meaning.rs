@@ -109,6 +109,22 @@ pub enum DragKind {
     Marquee(MarqueeIntent),
     /// The press was inside the selection's body: move it.
     Move,
+    /// ★★ The press began a **text box** — a rectangle to type a paragraph
+    /// into.
+    ///
+    /// Carries nothing: the rectangle is the drag's own two endpoints, which
+    /// [`Drag::outcome`] already has, and there is no per-press decision to
+    /// sample. Compare [`Self::Markup`], which carries a `MarkupKind` because
+    /// *which shape* was armed decides what the release authors.
+    ///
+    /// # ★ Why it is not `Markup(MarkupKind::Rectangle)` with a flag
+    ///
+    /// Because what it authors is **page content**, not an annotation. A markup
+    /// rectangle is a `/Square` the operator can select, restyle and delete as a
+    /// comment; this writes glyphs into the page's own stream through
+    /// `add_text`. They look identical while the band is being dragged and have
+    /// nothing else in common.
+    TextBox,
     /// The press was on one of the eight resize grips.
     Resize(Grip),
     /// ★★ The press was on the **rotate handle**, above the top edge.
@@ -497,7 +513,26 @@ pub fn press_kind(
     }
     if tool.text_edit_kind().is_some() {
         return PressMeaning {
-            drag: None,
+            // ★★★ A DRAG WITH THE TEXT TOOL DRAWS A BOX TO TYPE IN — the
+            // operator, 2026-08-21: *"I should be able to make it multi line."*
+            //
+            // It has to be a drag, and the reason is the file format rather
+            // than a preference: a PDF has no paragraph, so each visual line is
+            // its own show operator at its own absolute position, and something
+            // must decide where the second line starts. A width to wrap against
+            // is that something, and a width is a rectangle.
+            //
+            // ★ The CLICK still means what it meant, and both live at once.
+            // Click for a single line at a point, drag for a paragraph in a
+            // box — the same pair the markup band and the sticky note already
+            // form one rung above, and the same pair the old shell had (*"in
+            // box mode a plain Enter is a paragraph break … in point mode Enter
+            // accepts"*).
+            //
+            // A zero-travel press is a click by the gesture machine's own rule,
+            // so a twitch while aiming at a caret does not silently become an
+            // empty box.
+            drag: caps.edit_content.then_some(DragKind::TextBox),
             click: caps.edit_content,
         };
     }
@@ -720,8 +755,21 @@ mod tests {
     /// Over the whole capability lattice rather than the three shipped modes,
     /// for the reason this module's other tests are: a mode is a manifest entry
     /// and can be customized, and the rule is about the flags.
+    /// ★★ **This test asserted `drag.is_none()` until 2026-08-21**, and the
+    /// sentence it carried — *"a caret is placed, not dragged"* — was true of
+    /// the gesture and wrong about the tool.
+    ///
+    /// The operator: *"I should be able to make it multi line."* Multi-line
+    /// needs a width to wrap against, because a PDF has no paragraph and each
+    /// visual line is its own show operator at its own position. A width is a
+    /// rectangle, and a rectangle is a drag.
+    ///
+    /// So the tool now has **both**: a click places a caret for one line, a drag
+    /// draws a box for a paragraph. What is asserted here is that neither has
+    /// taken the other away, and that **both** answer to `edit_content` and to
+    /// nothing else — the half of this test that was always the point.
     #[test]
-    fn the_caret_tool_clicks_and_never_drags_and_needs_edit_content() {
+    fn the_caret_tool_clicks_for_a_caret_and_drags_for_a_box_on_edit_content_alone() {
         for edit_content in [false, true] {
             for author_markup in [false, true] {
                 for author_measure in [false, true] {
@@ -732,12 +780,21 @@ mod tests {
                     for kind in [TextEditKind::Edit, TextEditKind::Add] {
                         let m =
                             press_kind(CanvasTool::TextEdit(kind), None, None, None, false, caps);
-                        assert!(m.drag.is_none(), "a caret is placed, not dragged");
                         assert_eq!(
                             m.click, edit_content,
                             "the caret needs `edit_content` and nothing else"
                         );
+                        assert_eq!(
+                            m.drag == Some(DragKind::TextBox),
+                            edit_content,
+                            "the box needs `edit_content` and nothing else — a mode that may not \
+                             change page content must not offer a rectangle to type into"
+                        );
                     }
+                    // ★ An armed region zoom does NOT take the box away, which
+                    // is the one interaction worth pinning: the zoom marquee
+                    // outranks a text SWEEP (`textsel`) and must not outrank a
+                    // tool the operator explicitly armed to author with.
                     let zoomed = press_kind(
                         CanvasTool::TextEdit(TextEditKind::Edit),
                         None,
@@ -746,7 +803,7 @@ mod tests {
                         true,
                         caps,
                     );
-                    assert!(zoomed.drag.is_none());
+                    assert_eq!(zoomed.drag == Some(DragKind::TextBox), edit_content);
                 }
             }
         }

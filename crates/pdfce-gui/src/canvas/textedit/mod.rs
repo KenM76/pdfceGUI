@@ -45,14 +45,36 @@
 //! doing exactly one of the two, and a type that could say both would need
 //! discipline to keep honest.
 //!
-//! ## §3. It is a CLICK tool, like measure and unlike markup
+//! ## §3. It clicks AND drags — and until 2026-08-21 it only clicked
 //!
-//! [`press_kind`](crate::canvas::gesture::press_kind) answers
-//! `drag: None, click: caps.edit_content` for this tool. There is no drag in
-//! "put the caret here", so there is no `DragKind` for one and inventing a
-//! `DragKind::TextEdit` that every arm ignored would be the placeholder this
-//! project's no-placeholders invariant forbids — the identical argument the
-//! measure and vertex-markup rungs make immediately above it.
+//! This section read: *"There is no drag in 'put the caret here', so there is no
+//! `DragKind` for one, and inventing a `DragKind::TextEdit` that every arm
+//! ignored would be the placeholder this project's no-placeholders invariant
+//! forbids."* Correct, and it answered the wrong question — because the
+//! operator's next ask was not about carets:
+//!
+//! > *"I should be able to make it multi line."*
+//!
+//! **A PDF has no paragraph.** Each visual line is its own show operator at its
+//! own absolute position, so something has to decide where the second line
+//! starts: a width to wrap against and a leading to step by. That is
+//! `AddTextRequest::with_box`, and it needs a rectangle — so the gesture is a
+//! drag, and the `DragKind` is not a placeholder but the whole feature.
+//!
+//! | gesture | anchor | what commits |
+//! |---|---|---|
+//! | click on existing text | [`Anchor::Run`] | `edit_text` |
+//! | click on bare page | [`Anchor::Origin`] | `add_text`, one line at a point |
+//! | **drag a rectangle** | [`Anchor::Box`] | `add_text` boxed, a wrapped paragraph |
+//!
+//! ★★ The drag belongs to **this** tool and not to `CanvasTool::Text`, and that
+//! was decided by two unit tests rather than by taste. The box was briefly
+//! offered from the sweep tool's rung — where it took the text sweep away in
+//! Edit, which `text_tool_selects_and_marks_in_edit` depends on to make a
+//! selection the markup verbs can act on. **Two features claiming one drag is a
+//! choice somebody has to make, and taking a shipped gesture away to make room
+//! is the wrong way to make it.** Add-text drags; the text tool goes on
+//! sweeping.
 //!
 //! ## §4. It does not disturb the text-selection gate
 //!
@@ -132,10 +154,23 @@
 //!   **This row exists because it failed twice** — Delete after a canvas click,
 //!   then the space bar, which the pan tool took because this caret is not an
 //!   `egui::TextEdit` and egui's own predicate cannot see it.
-//! - T6 enter-commits-escape-abandons: both, and a draft identical to what it
-//!   replaces raises no action.
-//! - T7 no-control-characters: `insert` filters them; Enter and Escape arrive as
-//!   key events and mean something.
+//! - T6 enter-commits-escape-abandons: both — **and Enter has a second meaning
+//!   as of 2026-08-21**. Inside a dragged text BOX a plain Enter is a paragraph
+//!   break and `Ctrl+Enter` commits; everywhere else Enter commits. That is the
+//!   old shell's own split, carried across, and it is why [`Anchor::Box`] is a
+//!   variant rather than a flag: the keystroke handler has to know which gesture
+//!   started the draft, and asking the TEXT would make the first Enter commit
+//!   and every one after it insert. A draft identical to what it replaces still
+//!   raises no action.
+//! - T7 no-control-characters: [`caret::insert`] filters them, and **that filter
+//!   ate the paragraph break for one driven run.** The Enter arrived, the branch
+//!   was right, `insert` was called, and the newline was dropped one call
+//!   deeper — by a guard whose own doc argued, correctly, that *"a control
+//!   character arriving in a `Text` event is something this shell has no meaning
+//!   for."* Still true of typed text; no longer true of the whole draft. The
+//!   filter stays and the newline has its own door, [`caret::newline`], because
+//!   relaxing `insert` would have let a stray `\t` or `\r` from a paste into a
+//!   show string as well.
 //! - T8 selection: **GAP** — no Shift+arrow, no Ctrl+A, no drag-select within a
 //!   draft. Named rather than left implied, because a highlight that some keys
 //!   respect and others silently ignore is worse than none.
@@ -148,12 +183,17 @@ pub mod caret;
 /// Split out under R2 on 2026-08-20; its header carries the standing rule that
 /// the text and the caret are measured from ONE layout.
 pub mod paint;
+/// ★ **Where a press puts the caret** — the three gestures that start a draft,
+/// and the refusals each of them can raise. Split out under R2 on 2026-08-21;
+/// its header carries why a text BOX must be a drag rather than a click.
+pub mod place;
 /// ★ **What an edit report is worth telling anyone** — which of
 /// `EditReport`'s eleven fields reach the operator, which reach the diagnostic
 /// channel, and which reach neither. Split out under R2; its header carries
 /// the rule and why the middle row of it exists.
 pub mod report;
 pub use caret::{backspace, delete_forward, insert, word_left, word_right};
+pub use place::{Click, begin_box, click};
 pub mod disposition;
 // The byte-level proof that the untouched tail did not move, with the old
 // shell's own `EditOptions::default()` run beside it as the falsifier.
@@ -168,7 +208,7 @@ mod cost;
 /// in `egui::Memory` where the markup pen does not.
 pub mod pen;
 
-use egui::{Pos2, Ui};
+use egui::Ui;
 use pdfce_core::text_edit::{
     BlockRecognitionOptions, EditOptions, EditRequest, EditableTextModel, GlyphRef, ReflowEngine,
     TextPosition, reflow_recognition_options,
@@ -255,6 +295,47 @@ pub enum Anchor {
     Run { run: usize, original: String },
     /// A point in **PDF user space** where new text will be placed.
     Origin { x: f64, y: f64 },
+    /// ★★★ **A RECTANGLE in PDF user space** — new text, wrapped to its width.
+    ///
+    /// The operator, 2026-08-21: *"I should be able to make it multi line."*
+    ///
+    /// # Why multi-line needs a BOX and cannot be a point with newlines in it
+    ///
+    /// Because a PDF has no paragraph. Each visual line is its own show
+    /// operator at its own absolute position, so *something* has to decide
+    /// where the second line starts — and the only thing that can is a width to
+    /// wrap against and a leading to step by.
+    ///
+    /// `pdfce-core`'s `AddTextRequest::wrap_box` is exactly that (`Pass 16.1`),
+    /// and it is more than a container: **paragraphs split on a hard `\n` and
+    /// each is wrapped independently**, so an operator gets both behaviours —
+    /// Enter makes a new paragraph, and running past the right edge makes a new
+    /// line — from one field.
+    ///
+    /// # ★ Why this is a third variant and not a `wrap: Option<Rect>` on
+    /// [`Self::Origin`]
+    ///
+    /// Because the two are **different gestures with different affordances**,
+    /// and folding them would make "did the operator drag or click?" a runtime
+    /// question at commit time rather than a fact the press already settled. A
+    /// click places a single-line run at a point; a drag places a paragraph in
+    /// a box. That is the old shell's own split — *"in box mode a plain Enter
+    /// is a paragraph break; Ctrl+Enter accepts. In point mode Enter accepts"*
+    /// — and it is what every program in the class does.
+    ///
+    /// It is also what keeps the Enter key honest. Enter cannot mean *insert a
+    /// line* and *commit* in one draft, and the variant is how the keystroke
+    /// handler knows which it is without asking about the text's contents.
+    Box {
+        /// Lower-left x, PDF user space.
+        llx: f64,
+        /// Lower-left y.
+        lly: f64,
+        /// Upper-right x.
+        urx: f64,
+        /// Upper-right y.
+        ury: f64,
+    },
 }
 
 /// An in-progress, operator-composed edit. Never written anywhere until commit.
@@ -494,396 +575,6 @@ pub fn load(ctx: &egui::Context, page: usize, kind: TextEditKind) -> Option<Draf
 }
 
 // ===========================================================================
-// Starting a draft
-// ===========================================================================
-
-/// Everything resolving a click needs, gathered by the caller so this module
-/// reads no globals.
-pub struct Click<'a> {
-    /// The document, for its page-text extraction.
-    pub doc: &'a OpenDoc,
-    /// Which page was clicked.
-    pub page_index: usize,
-    /// Which verb is armed.
-    pub kind: TextEditKind,
-    /// Where, in canvas space.
-    pub canvas_point: Pos2,
-}
-
-/// **Start (or move) a draft from a click.**
-///
-/// Returns the refusal to show, if the click could not begin one. `Ok(())` means
-/// a draft is now in flight and the next keystroke will reach it.
-///
-/// # Why an existing draft is committed rather than discarded
-///
-/// Clicking elsewhere while composing is the operator saying *"that word is
-/// finished"*, not *"throw it away"* — every editor behaves this way, and the
-/// old shell settled it under the name `commit_on_click`. So the caller is
-/// handed the commit as an [`crate::app::actions::Action`] before the new draft
-/// starts. Escape, and only Escape, discards.
-pub fn click(
-    ctx: &egui::Context,
-    click: &Click<'_>,
-    actions: &mut Vec<crate::app::actions::Action>,
-) -> Result<(), Refusal> {
-    if let Some(existing) = read(ctx) {
-        commit_into(ctx, &existing, actions);
-        abandon(ctx);
-    }
-    let anchor = match click.kind {
-        TextEditKind::Add => {
-            let page = click
-                .doc
-                .pages
-                .get(click.page_index)
-                .ok_or(Refusal::NoText)?;
-            let pdf = crate::viewer::canvas_to_pdf_space(click.canvas_point, page)
-                .ok_or(Refusal::NoText)?;
-            Anchor::Origin {
-                x: f64::from(pdf.x),
-                y: f64::from(pdf.y),
-            }
-        }
-        // ★★ **A click that names no run starts a new one**, as of 2026-08-19.
-        //
-        // This used to be `resolve_run(click)?` — a bare `?`, so a click on
-        // blank paper with the caret armed refused, wrote a sentence to the
-        // status row, and did nothing. Two separate tools were needed to type a
-        // character in an empty spot versus in an existing word, and which one
-        // you had was invisible.
-        //
-        // The operator, 2026-08-19:
-        //
-        // > *"How do I make new text when I click on the canvas and expect to
-        // > edit there? Same problem as the previous."*
-        //
-        // Every editor he has used does this with **one** text tool: click in
-        // text to edit it, click in space to start some. So a `NoRun` refusal
-        // becomes an origin at the click point, and the two ribbon commands
-        // (`edit.text`, `edit.add_text`) survive as two doors into one room.
-        //
-        // ★ Only `NoRun` falls through. Every other refusal — an encrypted
-        // document, a page that will not decompose, a run the engine cannot
-        // address — is still reported, because those say *this cannot be done
-        // here* rather than *there is nothing here*. Swallowing them would put
-        // a caret on a page that cannot take the edit, which is D4a's defect
-        // with a nicer opening move.
-        TextEditKind::Edit => match resolve_run(click) {
-            Ok(anchor) => anchor,
-            Err(Refusal::NoRun) => {
-                let page = click
-                    .doc
-                    .pages
-                    .get(click.page_index)
-                    .ok_or(Refusal::NoText)?;
-                let pdf = crate::viewer::canvas_to_pdf_space(click.canvas_point, page)
-                    .ok_or(Refusal::NoText)?;
-                crate::diag::trace(|| {
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    "text-edit-became-add reason=no-run-under-the-click".to_owned()
-                });
-                Anchor::Origin {
-                    x: f64::from(pdf.x),
-                    y: f64::from(pdf.y),
-                }
-            }
-            Err(other) => return Err(other),
-        },
-    };
-    let text = match &anchor {
-        Anchor::Run { original, .. } => original.clone(),
-        Anchor::Origin { .. } => String::new(),
-    };
-    // ★★ The caret lands WHERE THE CLICK LANDED, not at the end.
-    //
-    // `caret_index_at` measures the click's x against the run's own glyph
-    // advances - the same glyph boxes the caret is drawn from - so clicking
-    // between the `1` and the ` ` of `SHEET 1 OF 4` puts the caret between
-    // them. Before 2026-08-20 the draft had no caret index at all, so a click
-    // anywhere in a run behaved as a click at its end.
-    //
-    // Falls back to the end of the text, which is the old behaviour, when the
-    // run's glyphs cannot be read. That is the right fallback rather than the
-    // start: appending is the less destructive of the two if the operator
-    // types without looking.
-    let caret = match &anchor {
-        Anchor::Run { run, .. } => {
-            caret_index_at(click, *run).unwrap_or_else(|| text.chars().count())
-        }
-        Anchor::Origin { .. } => 0,
-    };
-    store(
-        ctx,
-        Draft {
-            page: click.page_index,
-            kind: click.kind,
-            anchor,
-            text,
-            caret,
-            seeded: false,
-        },
-    );
-    crate::diag::trace(|| {
-        // ui-text-exempt: diagnostic trace, never displayed.
-        //
-        // The whole reason this line exists: an armed text tool with a caret in
-        // it and an armed text tool without one are the same screenshot, and the
-        // caret blinks so even a captured frame cannot settle it. `DEFECTS.md`
-        // D14's lesson — the freehand trail that authored two points — is that a
-        // trace line must carry the number a wrong build would get wrong, so this
-        // names the run and the length rather than only saying a caret exists.
-        let d = read(ctx);
-        let (anchor, len) = d.as_ref().map_or((String::new(), 0), |d| {
-            (
-                match &d.anchor {
-                    Anchor::Run { run, .. } => format!("run={run}"),
-                    Anchor::Origin { x, y } => format!("origin={x:.1},{y:.1}"),
-                },
-                d.text.chars().count(),
-            )
-        });
-        format!(
-            "text-edit-caret kind={:?} page={} {anchor} len={len}",
-            click.kind, click.page_index
-        )
-    });
-    Ok(())
-}
-
-/// **Does `run` have no show operator of its own?** `Some(true)` /
-/// `Some(false)`, or `None` when the question could not be asked.
-///
-/// A thin forward to [`crate::app::state::OpenDoc::run_has_no_anchor`], which
-/// owns the extraction and the cache. It is worth a named function here anyway:
-/// this is the one place in the shell that asks *"can pdfce-core edit this
-/// run"*, so there is one line to change when the answer changes — which it
-/// did, on 2026-08-20, when form editing landed and this stopped being about
-/// forms at all.
-///
-/// # Why the answer is cached one level down and not here
-///
-/// Because the only way to ask is a **second extraction of the whole page with
-/// provenance on** - `PageTextCache` deliberately leaves provenance off, since
-/// the canvas, the find bar and the text sweep do not need it and it costs.
-/// Measured on the benchmark CAD sheet: **336 ms**. Doing it inline froze the
-/// UI for a third of a second on every click that landed on text, and made a
-/// driven check flake because the trace had not been written by the time the
-/// settle window closed - a performance defect that presented as harness
-/// flakiness, which this project has been caught by before.
-///
-/// `None` means **not measured**, never "yes". See `FormRunCache::flags`.
-fn has_no_anchor(c: &Click<'_>, run: usize) -> Option<bool> {
-    c.doc.run_has_no_anchor(run)
-}
-
-/// **Which character boundary a click landed on, inside `run`.**
-///
-/// Returns a character index in `0..=glyphs.len()`, or `None` when the run or
-/// the page cannot be read.
-///
-/// # How it decides
-///
-/// Every glyph `pdfce-core` publishes carries its origin `x` and its `advance`,
-/// so a run's character boundaries are `x[0]`, `x[0]+adv[0]`, `x[1]+adv[1]`, …
-/// The click's x is compared against each glyph's MIDPOINT: past the midpoint
-/// means the caret belongs after that glyph. That is the rule every text field
-/// uses and it is what makes clicking "on" a character feel like clicking
-/// *near* the boundary the operator was aiming at, rather than requiring them
-/// to hit a one-pixel gap.
-///
-/// # Why the x axis alone
-///
-/// Because a run is one show operator, which is one baseline. The vertical
-/// question - *which line?* - was already answered by `resolve_run`'s hit test
-/// before this is called, and asking it again here with different arithmetic is
-/// how a caret comes to land on a different line from the one that was clicked.
-///
-/// ★ Rotated runs. The comparison is done in **PDF user space** against the
-/// glyph origins as published, which is the same space `resolve_run` works in.
-/// For a run rotated off the horizontal this compares the wrong axis and the
-/// caret will land at a boundary the operator did not aim at - it is still
-/// inside the run, and still better than always landing at the end, but it is
-/// not right. Fixing it properly means projecting the click onto the run's own
-/// baseline direction, which needs the text matrix rather than the glyph
-/// boxes. Recorded here rather than silently approximated.
-fn caret_index_at(c: &Click<'_>, run: usize) -> Option<usize> {
-    let page = c.doc.pages.get(c.page_index)?;
-    let pdf = crate::viewer::canvas_to_pdf_space(c.canvas_point, page)?;
-    let text = c.doc.page_text()?;
-    let glyphs = &text.runs.get(run)?.glyphs;
-    if glyphs.is_empty() {
-        return None;
-    }
-    let x = pdf.x;
-    let mut index = 0;
-    for g in glyphs {
-        if x < g.x + g.advance / 2.0 {
-            return Some(index);
-        }
-        index += 1;
-    }
-    Some(index)
-}
-
-/// Resolve a click on existing page text to the run it landed in.
-///
-/// Two hops, and the first is the one `canvas::mapping`'s header calls *the
-/// classic silent defect*: the canvas is Y-down from the page's top-left with
-/// `/Rotate` applied, and every glyph position `pdfce-core` publishes is in PDF
-/// user space — Y-up from the un-rotated CropBox. `viewer::canvas_to_pdf_space`
-/// is the single bridge, and it works by inverting the **renderer's own**
-/// transform, so the geometry and the picture agree by construction. This is
-/// deliberately the identical route `canvas::textsel::hit` takes, because a
-/// second conversion here is how a caret comes to land on a different line from
-/// the highlight.
-fn resolve_run(c: &Click<'_>) -> Result<Anchor, Refusal> {
-    let page = c.doc.pages.get(c.page_index).ok_or(Refusal::NoText)?;
-    let pdf = crate::viewer::canvas_to_pdf_space(c.canvas_point, page).ok_or(Refusal::NoText)?;
-    let text = c.doc.page_text().ok_or(Refusal::NoText)?;
-    let model = EditableTextModel::recognize(&text, &BlockRecognitionOptions::default());
-    let pos = model
-        .hit_test(f64::from(pdf.x), f64::from(pdf.y))
-        .ok_or(Refusal::NoRun)?;
-    // ★★★ **D4a's boundary used to REFUSE here, and refusing was the defect.**
-    //
-    // The old code read: *if the caret's visual line begins and ends in
-    // different runs, `return Err(Refusal::SpansRuns)`* — on the argument that
-    // "the thing the operator is looking at is not a thing `pdfce-core` can be
-    // asked to replace".
-    //
-    // **That argument was about the LINE. The operator is editing a RUN.**
-    // `EditSession::edit_text` replaces one show operator, which is exactly what
-    // a click resolves; whether the *neighbours* on that line are separate
-    // operators is a fact about what happens to **them**, not about whether this
-    // edit is possible. The engine has answered the neighbour question since
-    // before this shell existed — `FollowerDisposition::Pin` leaves every
-    // follower `Tm` untouched — and this module has been *choosing* between the
-    // two dispositions on every commit for days.
-    //
-    // ★ How expensive the refusal was, measured rather than guessed. A
-    // SolidWorks-exported drawing sheet writes text as one show operator per
-    // *cell*, so nearly every visual line on a title block or a parts table is
-    // multi-run. `tools/ui-verify`'s `text_edit_on_a_real_drawing` armed the
-    // caret on `SW41177.pdf` and clicked a point `pdfce-cli find-text` reported
-    // as carrying the word `PART`: **`text-edit-declined reason=SpansRuns`**.
-    //
-    // So on this operator's own documents the feature refused essentially every
-    // click, and his report — *"text editing on canvas still doesn't work"*,
-    // twice, weeks apart — was **exactly accurate**. Two passing driven checks
-    // said otherwise, and both drove fixtures this repository generated to
-    // verify itself: a 924-byte three-line file and blank paper.
-    //
-    // What the refusal was right about is kept, and it is the *disclosure*: the
-    // operator is editing one piece of something that looks like one line, and
-    // the other pieces will not move. That is now said — before the commit and
-    // after it — rather than used as a reason to do nothing. See
-    // [`disposition::Reason::SharesTheLine`], and `crate::text::textedit`.
-    //
-    // The line is re-derived at commit rather than carried on the `Anchor`, for
-    // the reason the `Anchor` docs already give: everything but the original
-    // text is a pure function of `(page_text, run)` and a copy would go stale
-    // when the page is rebuilt.
-    let original = text
-        .runs
-        .get(pos.run)
-        .map(|r| r.text.clone())
-        .ok_or(Refusal::NoRun)?;
-    if original.is_empty() {
-        return Err(Refusal::NoRun);
-    }
-    // ★★ **Announced BEFORE the edit, not after it.**
-    //
-    // `MeasureState`'s derived-point rule in the operator's own vocabulary:
-    // *a derived point is pdfce's inference, so rule 4 requires it to be
-    // announced before it is picked, not after.* The same is true of a layout
-    // consequence — the operator is about to type into what looks like one line,
-    // and the pieces beside it will not move. Telling them at commit time is
-    // telling them after they have already chosen.
-    //
-    // It is a **note**, not a refusal: the caret is placed either way, and this
-    // returns `Ok`. `crate::text::textedit::pinned_tail_disclosure` says the
-    // same fact in the past tense when the edit lands, and both are wanted —
-    // one is a warning and one is a receipt.
-    if model
-        .line_range_at(pos)
-        .is_some_and(|(from, to)| from.run != to.run)
-    {
-        crate::app::actions::record_note(
-            c.doc.edit_epoch,
-            crate::text::textedit::shares_the_line_note().to_owned(),
-        );
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            //
-            // ★ Named so a driven check can tell the two shapes apart. Until
-            // 2026-08-19 this case emitted `text-edit-declined reason=SpansRuns`
-            // and placed no caret; it now emits this and a caret, and a harness
-            // that could not distinguish "refused" from "allowed and disclosed"
-            // would pass against either.
-            format!("text-edit-shares-line run={}", pos.run)
-        });
-    }
-    // ★★★ **THE EDITABILITY CHECK, and it is the last thing before the caret.**
-    //
-    // Added 2026-08-20 on the operator's *"Still no editing text on top of the
-    // canvas."* Every stage of this module worked; the commit reached
-    // `pdfce-core` and was refused, **to the trace only**, so a caret took his
-    // keystrokes and discarded them in silence.
-    //
-    // The cause is one field this shell was not reading. `GlyphProvenance`
-    // carries a byte span AND the name of the buffer that span indexes:
-    //
-    // ```text
-    // pub content_stream: ContentStreamRef,   // Page, or Form { object }
-    // pub operator_span:  ByteSpan,           // …within THAT buffer
-    // ```
-    //
-    // `commit` pins the request with `operator_span` alone. For page-stream text
-    // that is right. For text drawn inside a `Do`-invoked form XObject the span
-    // indexes the FORM's decoded bytes, while the engine's `find_anchor` walks
-    // the PAGE's — so the pin matches nothing, and because a pinned request
-    // skips the text search entirely, the loop exhausts and returns
-    // `NoMatch(find)`. That error names the operator's text, which is why the
-    // sentence reads *"text to edit ("p") was not found in an editable run"*
-    // about text that is plainly there.
-    //
-    // ★★★ THE FORM REFUSAL IS GONE — `Pass 119.0`, 2026-08-20.
-    //
-    // Everything above this line describes a limit the engine no longer has.
-    // It is kept because the mechanism it explains is still the mechanism, and
-    // because the next reader needs to know that `content_stream` is a field
-    // that MATTERS rather than one that used to.
-    //
-    // What is left is the one case that is genuinely unreachable and always
-    // was: a run with **no show operator of its own**. An `/ActualText` run is
-    // derived text — the producer supplied a replacement string for a span of
-    // glyphs — so there is no operator for a pinned span to name. The engine
-    // reports that as its own `Editability` variant rather than folding it into
-    // "not editable", and the reason is worth keeping: this is not text that is
-    // out of reach, it is text that has nothing to reach for.
-    //
-    // The answer is only populated when the extraction asked for provenance,
-    // which `app::cache`'s read-only pass deliberately does not — so `None`
-    // here means *"not measured"*, never "yes", and the caret is allowed.
-    // Refusing on an unmeasured answer would block editing everywhere on a
-    // guess, which is the exact failure the engine made `Editability` an enum
-    // rather than a `bool` to prevent.
-    if has_no_anchor(c, pos.run) == Some(true) {
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            format!("text-edit-declined reason=NoAnchor run={}", pos.run)
-        });
-        return Err(Refusal::NoAnchor);
-    }
-
-    Ok(Anchor::Run {
-        run: pos.run,
-        original,
-    })
-}
-
-// ===========================================================================
 // Typing
 // ===========================================================================
 
@@ -1008,18 +699,70 @@ pub fn typing(
                     draft.caret = draft.text.chars().count();
                     changed = true;
                 }
-                // ★ Enter commits, and the condition is the Accept control's
-                // own rather than a second one — the same R92 objection to
-                // deriving one fact twice that the old shell recorded when it
-                // wired this key.
+                // ★★★ ENTER MEANS TWO THINGS, AND THE ANCHOR DECIDES WHICH.
+                //
+                // The operator, 2026-08-21: *"I should be able to make it multi
+                // line."*
+                //
+                // | anchor | plain Enter | Ctrl+Enter |
+                // |---|---|---|
+                // | a **box** | a paragraph break | commit |
+                // | a point, or an existing run | commit | commit |
+                //
+                // ★ This is the old shell's own split, carried across verbatim:
+                // *"in box mode a plain Enter is a paragraph break; Ctrl+Enter
+                // accepts. In point mode Enter accepts (single line)."* It is
+                // also what every program in the class does, which is the
+                // standing tie-breaker.
+                //
+                // ★★ And it is why `Anchor::Box` is a variant rather than an
+                // `Option<Rect>` on `Origin`. Enter cannot mean *insert* and
+                // *commit* in one draft, so the keystroke handler has to know
+                // which gesture started it — and asking the TEXT ("does it
+                // already contain a newline?") would make the first Enter
+                // commit and every one after it insert, which is the worst
+                // possible answer.
+                //
+                // ★ A newline in an EXISTING run is refused by construction
+                // rather than by a check: `Anchor::Run` is not a box, so plain
+                // Enter commits there. That is correct and not a limitation
+                // being hidden — `edit_text` replaces the text of ONE show
+                // operator, and a show operator cannot contain a line break. A
+                // run that should become two lines is a *reflow*, which is a
+                // different verb with its own preconditions.
                 egui::Event::Key {
                     key: egui::Key::Enter,
                     pressed: true,
+                    modifiers,
                     ..
                 } => {
-                    commit_into(ctx, &draft, actions);
-                    abandon(ctx);
-                    return true;
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        //
+                        // ★ Enter is the one keystroke in this handler with TWO
+                        // meanings, so its ARRIVAL is worth reporting separately
+                        // from its effect. The multi-line work spent a driven
+                        // run on *"did the key arrive, or did the branch pick
+                        // wrong?"*, which the `text-edit-typing` line cannot
+                        // answer: it reports a length, and both failures leave
+                        // the length unchanged.
+                        format!(
+                            "text-edit-enter boxed={} command={}",
+                            u8::from(matches!(draft.anchor, Anchor::Box { .. })),
+                            u8::from(modifiers.command),
+                        )
+                    });
+                    if matches!(draft.anchor, Anchor::Box { .. }) && !modifiers.command {
+                        // ★ `newline`, NOT `insert` — see its docs. `insert`
+                        // drops control characters, correctly, and ate this
+                        // exact keystroke for one driven run.
+                        draft.caret = caret::newline(&mut draft.text, draft.caret);
+                        changed = true;
+                    } else {
+                        commit_into(ctx, &draft, actions);
+                        abandon(ctx);
+                        return true;
+                    }
                 }
                 _ => {}
             }
@@ -1037,7 +780,11 @@ pub fn typing(
 /// an operator who typed a character and deleted it again would put a no-op
 /// entry on the undo stack every time they clicked away — the old shell's own
 /// finding, and it matters more here because clicking out commits.
-fn commit_into(ctx: &egui::Context, draft: &Draft, actions: &mut Vec<crate::app::actions::Action>) {
+pub(super) fn commit_into(
+    ctx: &egui::Context,
+    draft: &Draft,
+    actions: &mut Vec<crate::app::actions::Action>,
+) {
     use crate::app::actions::Action;
     match &draft.anchor {
         Anchor::Run { run, original } if draft.text != *original && !draft.text.is_empty() => {
@@ -1057,6 +804,30 @@ fn commit_into(ctx: &egui::Context, draft: &Draft, actions: &mut Vec<crate::app:
                 // variant's own docs: an action is what the operator asked for,
                 // and it is applied on a later frame.
                 pen: pen::read(ctx),
+                // A point-text run is one line and has no box to wrap to.
+                wrap: None,
+            });
+        }
+        // ★★ The boxed variant, and it reaches the SAME action — one commit
+        // path, one apply arm, one place that can be wrong about a font.
+        //
+        // The whole difference is that `wrap` is `Some`, which is what
+        // `AddTextRequest::with_box` turns into the multi-line layout: hard
+        // newlines split paragraphs and each is wrapped independently to the
+        // box's width, top-anchored from its top edge.
+        //
+        // ★ `origin` is still carried and is still the box's lower-left, even
+        // though the engine documents it as **ignored** in boxed mode. Sending a
+        // meaningless value would be worse than sending a meaningful one that
+        // happens to be unread: the day a caller or a trace wants to know where
+        // this text was placed, the honest answer is already on the action.
+        Anchor::Box { llx, lly, urx, ury } if !draft.text.is_empty() => {
+            actions.push(Action::CommitAddText {
+                page: draft.page,
+                origin: (*llx, *lly),
+                text: draft.text.clone(),
+                pen: pen::read(ctx),
+                wrap: Some((*llx, *lly, *urx, *ury)),
             });
         }
         _ => {}
@@ -1292,6 +1063,106 @@ mod tests {
         // shape and not about a pen nobody set.
         commit_into(&egui::Context::default(), &draft, &mut actions);
         assert!(actions.is_empty(), "an unchanged draft is not an edit");
+    }
+
+    /// ★★★ **A box draft commits as a WRAPPED PARAGRAPH, and carries its
+    /// rectangle.**
+    ///
+    /// The operator, 2026-08-21: *"I should be able to make it multi line."*
+    ///
+    /// Asserted through the ACTION rather than through the engine, because the
+    /// action is where this shell's decision lives: `wrap: Some(..)` is what
+    /// becomes `AddTextRequest::with_box`, and a build that dropped it would
+    /// author the same characters as one long single line — plausible, silent,
+    /// and wrong in exactly the way the operator asked for.
+    #[test]
+    fn a_box_draft_commits_with_its_wrap_rectangle() {
+        use crate::app::actions::Action;
+        let draft = Draft {
+            page: 0,
+            kind: TextEditKind::Add,
+            anchor: Anchor::Box {
+                llx: 100.0,
+                lly: 200.0,
+                urx: 340.0,
+                ury: 290.0,
+            },
+            text: "first line\nsecond line".to_owned(),
+            caret: 0,
+            seeded: false,
+        };
+        let mut actions = Vec::new();
+        commit_into(&egui::Context::default(), &draft, &mut actions);
+        match actions.as_slice() {
+            [Action::CommitAddText { wrap, text, .. }] => {
+                assert_eq!(
+                    *wrap,
+                    Some((100.0, 200.0, 340.0, 290.0)),
+                    "the box must reach the action, or the paragraph is authored as one line"
+                );
+                assert!(
+                    text.contains('\n'),
+                    "the hard newline must survive to the engine: it is what splits paragraphs"
+                );
+            }
+            other => panic!("expected one CommitAddText, got {other:?}"),
+        }
+    }
+
+    /// …and a POINT draft carries no rectangle, which is what keeps the two
+    /// gestures distinct all the way down.
+    ///
+    /// A build that gave every add-text a box would wrap a one-line label at
+    /// whatever width it invented — and the width would have to be invented,
+    /// because a click has no extent.
+    #[test]
+    fn a_point_draft_commits_without_one() {
+        use crate::app::actions::Action;
+        let draft = Draft {
+            page: 0,
+            kind: TextEditKind::Add,
+            anchor: Anchor::Origin { x: 10.0, y: 20.0 },
+            text: "one line".to_owned(),
+            caret: 0,
+            seeded: false,
+        };
+        let mut actions = Vec::new();
+        commit_into(&egui::Context::default(), &draft, &mut actions);
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::CommitAddText { wrap: None, .. }]
+        ));
+    }
+
+    /// ★★ **Enter inserts inside a box and commits everywhere else**, which is
+    /// the whole reason `Anchor::Box` is a variant rather than a flag.
+    ///
+    /// Asserted on the ANCHOR, because that is the fact the keystroke handler
+    /// branches on. Driving the key itself needs a `Context` with focus and an
+    /// event queue, which `text_box_takes_a_paragraph` does in the real binary;
+    /// what is provable here is that the two anchors are distinguishable at all
+    /// — and a build that folded the box into `Origin` with an `Option<Rect>`
+    /// would fail this by construction.
+    #[test]
+    fn only_a_box_anchor_takes_a_paragraph_break() {
+        let boxed = Anchor::Box {
+            llx: 0.0,
+            lly: 0.0,
+            urx: 100.0,
+            ury: 50.0,
+        };
+        assert!(matches!(boxed, Anchor::Box { .. }));
+        assert!(!matches!(
+            Anchor::Origin { x: 0.0, y: 0.0 },
+            Anchor::Box { .. }
+        ));
+        assert!(!matches!(
+            Anchor::Run {
+                run: 0,
+                original: String::new()
+            },
+            Anchor::Box { .. }
+        ));
     }
 
     /// **An emptied draft is not a deletion.**
