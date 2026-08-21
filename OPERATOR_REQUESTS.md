@@ -149,9 +149,30 @@ Not yet investigated. What has to be established first, against source:
 1. Does the decomposition **include** objects whose geometry falls outside the
    `/MediaBox`? A content stream can paint anywhere; the crop is a rendering
    decision.
-2. Does the hit test accept a canvas point **outside the page rect**? Today
-   every mapping is page-relative and the pages are the only things allocated in
-   the strip.
+2. ~~Does the hit test accept a canvas point **outside the page rect**?~~
+   **ANSWERED 2026-08-21 — the hit test would, and it never gets the chance.**
+
+   | | |
+   |---|---|
+   | the screen→canvas conversion | `canvas::mapping::to_page` is pure arithmetic with **no clamp** (`mapping.rs:189`), so a point past the page's edge maps to a canvas point past its extent, and would hit-test as ordinary geometry |
+   | the pasteboard area | allocated `Sense::hover()` (`canvas/mod.rs:662`) — it senses the pointer and **cannot be clicked** |
+   | each page | allocated `Sense::click_and_drag()` (`canvas/mod.rs:688`) |
+   | where a press comes from | `response.clicked_by(..)` / `drag_started_by(..)` on **the current page's** response (`canvas/interact.rs:372-375`) |
+
+   ★ So the gate is not the hit test and not the mapping — **it is the input
+   surface.** A press only becomes a canvas gesture if it landed inside a
+   page's rectangle. Content painted outside the `/MediaBox` sits over the
+   area that senses hover and refuses clicks, so it can be pointed at and
+   never pressed.
+
+   ★★ That is worth knowing before any of part B is designed, because it
+   means B is **not** a hit-test change. It is a change to what the canvas
+   allocates as clickable — which is the same code the pasteboard touches,
+   and is why A and B belong in one row even though they are two jobs.
+
+   Hover, by contrast, is already unbounded: `interact` falls back to
+   `ctx.pointer_latest_pos()` (`interact.rs:352`) and asks `over_canvas`
+   against the scroll **viewport** rather than the page (`interact.rs:1310`).
 3. Is such an object **painted**? The raster is the page, clipped to the box, so
    an off-page object is currently invisible even where it is selectable —
    which would be worse than either, because a selection outline would appear
