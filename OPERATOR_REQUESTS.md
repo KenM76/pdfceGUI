@@ -366,10 +366,23 @@ I get a notice to paste it back into pdfc to place it."*
 **Status:** ★ **CONFIRMED BY THE OPERATOR, 2026-08-21** — *"copy paste now
 works!"* Fixed in all three places.
 
-The driven check still does not exist, and the row stays open until you say
-it can close. His confirmation is worth more than the check would be — he is
-the oracle the check approximates — but the check is what stops it breaking
-again without anyone noticing, and `CONTINUE.md` §2 item 1 still carries it.
+★★ **And it is now DRIVEN**, 2026-08-21, on the real application with the real
+Windows clipboard:
+
+```
+ctrl_c_copies_text_to_the_os_clipboard   PASS
+  the sweep selected 10 character(s); the clipboard holds 10 after Ctrl+C
+  clipboard begins "- 22 - 250"
+```
+
+The check reads the **operating system's** clipboard from outside the process,
+which is the only oracle that can see this defect: the failure was never in a
+function's return value but in which of two handlers reached the OS last, and a
+trace cannot see that either. It **clears the clipboard first** — without that,
+*"the application did nothing"* and *"the application copied correctly"* are
+the same observation whenever an earlier run left the right text behind.
+
+The row still stays open until you close it.
 
 What changed: `textsel::clipboard::pending_key` reads `Event::Copy` instead of
 a key event that never arrives; `canvas/textedit/` gained Copy, **Cut and
@@ -541,6 +554,19 @@ There are now four tests that click the button and assert the popup's open
 flag directly. **They were checked by re-introducing the defect and watching
 two of them fail**, which is the only way to know a regression test tests
 anything.
+
+★★ **And parts A and C are now DRIVEN**, 2026-08-21:
+
+```
+select_filter_changes_what_a_click_hits   PASS
+  with every class on, the click selects
+  with every class off, the same click selects nothing
+  switching them back on restores it
+```
+
+Deliberately **not** *"the popup opens"*. That is already a unit test, and it
+is also the one claim that stays true of an inert control — which is precisely
+what this popup was for an hour this morning.
 
 ### The specification, unchanged
 
