@@ -146,9 +146,25 @@ So the change is: introduce the **content extent** as a value distinct from the
 
 Not yet investigated. What has to be established first, against source:
 
-1. Does the decomposition **include** objects whose geometry falls outside the
-   `/MediaBox`? A content stream can paint anywhere; the crop is a rendering
-   decision.
+1. ~~Does the decomposition **include** objects outside the `/MediaBox`?~~
+   **ANSWERED 2026-08-21 against `pdfce-core` source: YES, with no culling of
+   any kind.** The decomposer is never even *told* what the page box is —
+   `decompose_page` has the `&Page` in hand and reads only its content
+   stream, resources and fonts. Grepping `media_box|crop_box|page_box` across
+   the whole `vector` module returns two hits, both in `clip.rs` and both
+   about the synthetic clipboard PDF's own box. An object drawn at
+   `(-5000, -5000)` is in `PageObjects::objects` with a truthful negative
+   `page_bbox`.
+
+   ★ Adjacent, and worth knowing before designing anything: **clipping is
+   ignored in general, not just the page box.** The painting-operator
+   dispatch has no `W`/`W*` arm at all, so a path used only as a clip is
+   emitted as an ordinary object, and an object whose paint is entirely
+   clipped away still arrives with its full unclipped geometry.
+   `PaintStyle::is_invisible` exists so a caller can tell — nothing drops
+   them. So *"everything the model contains"* is a larger set than
+   *"everything the operator can see"*, by more than just the off-page
+   objects.
 2. ~~Does the hit test accept a canvas point **outside the page rect**?~~
    **ANSWERED 2026-08-21 — the hit test would, and it never gets the chance.**
 
@@ -173,10 +189,70 @@ Not yet investigated. What has to be established first, against source:
    Hover, by contrast, is already unbounded: `interact` falls back to
    `ctx.pointer_latest_pos()` (`interact.rs:352`) and asks `over_canvas`
    against the scroll **viewport** rather than the page (`interact.rs:1310`).
-3. Is such an object **painted**? The raster is the page, clipped to the box, so
-   an off-page object is currently invisible even where it is selectable —
-   which would be worse than either, because a selection outline would appear
-   around nothing.
+3. ~~Is such an object **painted**?~~ **ANSWERED: no, and the engine already
+   has the way to make it so — this shell has never called it.**
+
+   The whole-page entry point sizes the pixmap to the **CropBox** and there
+   is no explicit clip anywhere; the clipping is purely *implicit*, because
+   geometry outside the pixmap is culled by the rasteriser. That is why the
+   escape hatch works at all:
+
+   **`pdfce_render::render_page_region(doc, page, scale, region, options)`**
+   takes an arbitrary page-space rect and **never clamps or intersects it
+   with the crop box**. A region starting left of or below the page produces
+   a negative origin and is translated into view. The only limits are
+   finite-and-non-empty and `MAX_PIXMAP_EDGE` (16,384) applied to the region.
+
+   ★ **Nothing in `RenderOptions` selects a box.** "Render a bigger area" is a
+   different *function*, not a setting — so this is not a matter of passing a
+   flag.
+
+   ⚠ **Two caveats, both load-bearing:**
+
+   - **No test exercises a region outside the crop box.** The region tests
+     cover sub-rectangles, quadrant tiling and a stroke-mitre band, all
+     *inside* the page. The off-page behaviour is correct by construction —
+     there is nothing in the code that could reject it — and is **unproven**.
+     Write a scratch test before building on it.
+   - **A region render re-interprets the whole content stream.** N tiles cost
+     N interpretations. For a view that moves, `display_list::record_page` +
+     `DisplayList::replay_region` is the intended path and is documented as
+     landing on byte-identical pixels.
+
+4. **And the measurement that makes the whole thing tractable:**
+   `PageObjects::page_bbox()` returns the union of every object's bounds —
+   which, because of (1), **includes the off-page ones**. So
+   `model.page_bbox().union(crop)` is a ready-made *"what must I be able to
+   scroll to in order to reach everything"*, and it feeds straight into both
+   the scrollable extent and `render_page_region`.
+
+   Precision caveats it carries: text boxes are approximate (and say so, via
+   `TextBoundsBasis`), stroke width is **not** included, and clip-only paths
+   inflate the union because of the finding in (1).
+
+### ★★★ The conclusion: NO ENGINE CHANGE IS REQUIRED
+
+Off-page content is already fully present and fully selectable in the model.
+The decomposer keeps it, `page_bbox` measures it, `hit_test_point_all` will
+select it. **The only place it disappears is the raster**, and only because
+the whole-page entry point sizes the pixmap to the crop box.
+
+So both halves of this row are shell work:
+
+| | |
+|---|---|
+| **A** | the scroll extent and the seeding — `O23`'s attempt above |
+| **B** | make the canvas allocate the off-page area as clickable, and render it through `render_page_region` |
+
+★ Verified against **this** shell rather than assumed: `render_page_region`
+appears twice in `crates/pdfce-gui/src/`, both times in **prose** explaining
+that a tiled-progressive path does not exist. It has never been called. The
+render worker uses `render_page_with_view`, i.e. whole-page-at-crop-box.
+
+★★ **No feature request to the engine session is owed for this row.** That
+was worth establishing rather than assuming: the reflex on hitting a wall
+like *"the raster stops at the page edge"* is to file it as an engine gap,
+and it is not one.
 
 ★ Rule 4 applies to the answer: if pdfce can see content the operator cannot,
 that owes an **off-canvas** report. It must not be marked on the page.
