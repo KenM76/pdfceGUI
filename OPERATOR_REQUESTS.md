@@ -80,6 +80,176 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O23 — Free navigation: any part of the page to anywhere on screen, and objects off the page still reachable
+
+**Asked:** 2026-08-21 — *"also objects should still be reachable even if they are
+off the page. I should also be able to move the view of the corner of the page
+to the center of the screen, or even all the way vertically to the opposite
+corner if I want to."*
+
+**Status:** **RECORDED 2026-08-21. NOT STARTED.** ★ This **answers `O22`'s open
+convention question** — the pasteboard is what he wants — and then asks for more
+than `O22` proposed. `O22`'s three candidate fixes are settled by this row:
+candidate 3, sized as below.
+
+### Two requirements, and they are not the same job
+
+| | |
+|---|---|
+| **A — free scrolling** | any point of the page can be brought to any point of the screen |
+| **B — off-page content is reachable** | an object whose geometry lies outside the `/MediaBox` can still be seen and selected |
+
+A is a scroll-extent change. B is about what the canvas draws and hit-tests at
+all. They are filed together because he asked for them together and because A is
+a precondition for B — there is no point being able to select something you
+cannot scroll to — but they will not be one change.
+
+### A — how much pasteboard, derived from his own words rather than guessed
+
+He gave two levels, and the second is the requirement because it subsumes the
+first:
+
+1. *"the corner of the page to the center of the screen"* → needs **half a
+   viewport** of margin on each side.
+2. *"even all the way vertically to the opposite corner"* → needs **a full
+   viewport** of margin on each side. To bring the page's top-left corner to the
+   screen's bottom-right, the content must extend one whole viewport past the
+   page on the top and left.
+
+★ So: **pad = one viewport extent on every side**, recomputed as the viewport
+changes rather than fixed in points. A constant number of points would be too
+small on a large monitor and absurd on a small one, and it would silently stop
+satisfying his sentence the first time he resized the window.
+
+That is also the standard approximation of an infinite canvas — it is what
+Illustrator, Figma and every CAD package give you, and none of them makes the
+operator think about it.
+
+### ★★ The risk, named up front because it has bitten this project before
+
+Everything in `canvas::geometry` that today treats the **strip's** size as the
+**scroll content's** size becomes wrong, because those stop being the same
+number. `strip_offset`, `page_local_offset` and `pan_offset` all take a
+`display`/`strip` extent and use it both to compute the centring margin and to
+clamp the scroll range.
+
+The failure mode is not hypothetical and it is recorded in `canvas::mod`'s own
+source: in the old GUI, a centring-margin error made selection outlines draw
+**~105 px** from the object they outlined, and clicking directly on a visible
+object missed it — worst at exactly the zoom an operator uses to see a whole
+page, and invisible at high zoom where the margin is zero.
+
+So the change is: introduce the **content extent** as a value distinct from the
+**strip extent**, and audit every consumer. Not "add a pad to `outer`".
+
+### B — off-page objects
+
+Not yet investigated. What has to be established first, against source:
+
+1. Does the decomposition **include** objects whose geometry falls outside the
+   `/MediaBox`? A content stream can paint anywhere; the crop is a rendering
+   decision.
+2. Does the hit test accept a canvas point **outside the page rect**? Today
+   every mapping is page-relative and the pages are the only things allocated in
+   the strip.
+3. Is such an object **painted**? The raster is the page, clipped to the box, so
+   an off-page object is currently invisible even where it is selectable —
+   which would be worse than either, because a selection outline would appear
+   around nothing.
+
+★ Rule 4 applies to the answer: if pdfce can see content the operator cannot,
+that owes an **off-canvas** report. It must not be marked on the page.
+
+### ★★★ ATTEMPTED 2026-08-21 AND BACKED OUT. What it cost, and what it taught
+
+The whole change was built, all 1,634 unit tests passed, all 17 gates passed
+— **and it broke selection on the real application.** It was reverted the
+same evening rather than left in the tree, because a build where clicking an
+object does nothing is worse than one that cannot rotate near the top edge.
+
+Nothing below is speculation. Every item was measured.
+
+#### 1. There are TWO offset spaces and only one of them has a pasteboard
+
+| space | origin | margin |
+|---|---|---|
+| the scroll offset egui is given | the content's top-left, pasteboard included | padded |
+| the page-local offset the view stores | the page's own top-left | **plain** |
+
+`strip_offset` and `page_local_offset` convert between them and must use
+**one of each**, or the pad cancels and vanishes.
+
+★ The trap: `anchor_screen_pos` and `offset_holding_anchor_at` look like
+scroll-space functions and are **page-local** — `canvas::mod` converts before
+building the `CanvasFrame`. Padding them doubles the pad, and the symptom is
+*"zoom-to-cursor flies off"*, worst on a large window.
+
+#### 2. ★★ The pasteboard must be measured against the OUTER viewport (R128)
+
+The obvious `ui.available_size()` is measured **inside** the scroll area, so
+it depends on whether the scrollbars are showing — and the pasteboard is what
+makes them show. Feeding it back is a loop: content grows, scrollbars appear,
+available shrinks, content changes.
+
+Measured symptom when it happened: `ui-rect-gone name=canvas-viewport` — the
+canvas region retired entirely and no page was drawn. That is R128 in a new
+place, the same shape as the status bar that drifted 230 % → 224 % → 215 %.
+
+#### 3. ★★★ THE ONE THAT ACTUALLY STOPPED IT: the first-frame transient
+
+`egui::ScrollArea` owns its offset and starts it at zero. Zero used to mean
+*the top-left of the strip*; with a pasteboard it means the top-left of the
+**content** — one whole viewport above and left of the page. So the document
+opens on blank paper with the sheet off the bottom-right corner, and the
+canvas has to be seeded once.
+
+Seeding works. **What does not work is that the page then MOVES**, one frame
+later, as the offset settles. Measured: the page's own published rect went
+from `y=143.0` to `y=269.7` between the frame the mapping was taken from and
+the frame the click landed on — so a click computed against the app's own
+geometry missed the page entirely, and `canvas-pointer` recorded **zero**
+events because the pointer was never over the canvas.
+
+★ That is not a harness problem to be settled away with a longer wait. **The
+operator would see the same jump** every time a document opens. The seed has
+to be applied before the first painted frame, not as a scroll that settles
+after it — which is a different mechanism from the one that was tried.
+
+#### 4. What survived, and what it is worth
+
+The pure arithmetic was written and proven before it was reverted, and it is
+reconstructible in minutes from this row:
+
+- `pasteboard(viewport) = viewport × 1.0` — the fraction comes from his two
+  sentences: half a viewport reaches the screen's centre, a whole one reaches
+  the opposite corner. **A fraction, never a constant number of points**, or
+  it stops satisfying the requirement when the window is resized.
+- `content_extent(display, viewport) = display.max(viewport) + 2 × pasteboard`
+- `strip_margin = margin + pasteboard`, and `margin` stays as it is
+- every scroll clamp moves from `display − viewport` to
+  `content_extent − viewport`
+- `strip_to_scroll(in_strip, strip, viewport)` for callers that already have a
+  strip-space position — `strip::page_scroll_offset` is the one that exists
+
+Five unit tests changed, each pinning the old unpadded model, and each
+correctly. **That is the useful signal**: they are the inventory of what the
+pasteboard changes.
+
+### What it needs, in order
+
+1. **A** first, because **B** is unreachable without it.
+2. The `canvas::geometry` audit, with its unit tests extended to cover
+   `content != strip` — that arithmetic is pure and is exactly what a unit test
+   is good for.
+3. A driven check per page **edge** (`O22` item 2): the eight resize grips have
+   the same latent defect on the left and bottom that the rotate handle has on
+   the top, and nothing has ever aimed at them there.
+4. Re-run `rotate_handle_turns_a_selection` at **both** `--doc-point`s. One
+   point passing is what hid `O22` for a day.
+5. **B**, as its own piece of work, starting with the three questions above
+   answered against `pdfce-core` source rather than assumed.
+
+
 ## O22 — An object near the top of the view cannot be rotated: its handle is off-canvas
 
 **Found:** 2026-08-21, by driving `rotate_handle_turns_a_selection` at a second
@@ -142,7 +312,14 @@ reaches for first.
 It is also why `O20` looked like a text problem. The BOM row that
 `--doc-point 0,1211,1021` names happens to sit at the top of the sheet.
 
-### The fix is a convention question — do not improvise it
+### ~~The fix is a convention question — do not improvise it~~ — ANSWERED
+
+★ **Ken settled it on 2026-08-21: `O23`.** He asked for the pasteboard and
+then for more of it than was proposed here — *"I should also be able to move
+the view of the corner of the page to the center of the screen, or even all the
+way vertically to the opposite corner"*. Candidate 3 below, sized at **one
+viewport on every side**. The analysis is kept because the two rejected
+candidates and their reasons are still the record of why.
 
 Three candidates, and the standing rule is *use the conventional interaction,
 never invent one*:
