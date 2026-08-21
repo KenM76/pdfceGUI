@@ -108,6 +108,11 @@ pub fn is_foreground(_w: WindowHandle) -> bool {
     false
 }
 
+/// Always `None` — there is no window server here.
+pub fn foreground_window() -> Option<WindowHandle> {
+    None
+}
+
 /// Always refuses.
 pub fn capture_screen(_region: PixRect) -> Result<Vec<u8>> {
     refuse("capturing the screen")

@@ -143,6 +143,24 @@ const DRAG_STEP_SETTLE: Duration = Duration::from_millis(25);
 pub struct Driver {
     original_cursor: Option<(i32, i32)>,
     target: Option<WindowHandle>,
+    /// ★★ **The window the last pointer action put the focus in.**
+    ///
+    /// A keystroke goes to whatever has keyboard focus, and what has keyboard
+    /// focus is whatever was last clicked — that is the model on the real
+    /// desktop, and until 2026-08-21 this harness could ignore it because the
+    /// application had exactly one window.
+    ///
+    /// It now has one per open dialog, and the failure without this field is
+    /// specific: a check clicks a field inside a dialog (which raises the
+    /// dialog, correctly), then presses a key — and `press` raises **the main
+    /// window**, taking focus away from the dialog, so the characters go to the
+    /// application. The check then reports that the dialog ignored the
+    /// keyboard.
+    ///
+    /// `Cell` rather than `&mut self`, because every input method takes `&self`
+    /// and threading mutability through them would change every call site to
+    /// record a fact the driver can perfectly well remember itself.
+    focus: std::cell::Cell<Option<WindowHandle>>,
 }
 
 impl Driver {
@@ -155,6 +173,7 @@ impl Driver {
         Self {
             original_cursor: sys::cursor_position().ok(),
             target,
+            focus: std::cell::Cell::new(None),
         }
     }
 
@@ -646,6 +665,9 @@ impl Driver {
         let Some(w) = self.window_owning(p) else {
             return self.raise_and_confirm();
         };
+        // Remember it: the next keystroke belongs to whatever was last
+        // clicked, which is what focus means. See [`Self::focus`].
+        self.focus.set(Some(w));
         sys::raise_window(w);
         std::thread::sleep(MOVE_SETTLE);
         if !sys::is_foreground(w) {
@@ -663,14 +685,16 @@ impl Driver {
     }
 
     fn raise_and_confirm(&self) -> Result<()> {
-        let Some(w) = self.target else {
+        // ★ The window the last pointer action focused, if any, and the
+        // application's own window otherwise. A keystroke follows the focus.
+        let Some(w) = self.focus.get().or(self.target) else {
             return Err(Error::new(
                 "refusing to send input with no target window: it would go to whatever window is in front, which may be the operator's own",
             ));
         };
         self.raise();
         std::thread::sleep(MOVE_SETTLE);
-        if !sys::is_foreground(w) {
+        if !sys::is_foreground(w) && !self.application_has_the_foreground() {
             return Err(Error::new(
                 "the target window could not be brought to the front, so anything typed now would go to the operator's own window. Windows refuses SetForegroundWindow to a process without foreground rights, and this harness is a background process. Reported rather than typed: sending the keystroke anyway would both corrupt whatever IS in front and make this check report the feature as broken when nothing was ever typed at it.",
             ));
@@ -678,10 +702,53 @@ impl Driver {
         Ok(())
     }
 
+    /// Bring the focused window — or the application's own — to the front.
+    ///
+    /// ★ `focus` first, and that ordering is the whole of the 2026-08-21 fix:
+    /// a keystroke belongs to whatever the last pointer action focused, which
+    /// since dialogs became real OS windows is frequently not the application's
+    /// main window. Raising the main window here takes focus AWAY from the
+    /// dialog a check just clicked into, and the characters land on the page.
     fn raise(&self) {
-        if let Some(w) = self.target {
+        if self.application_has_the_foreground() {
+            // ★★★ LEAVE IT ALONE. Raising here would take focus away from a
+            // sibling window of the same application — see
+            // [`Self::application_has_the_foreground`].
+            return;
+        }
+        if let Some(w) = self.focus.get().or(self.target) {
             sys::raise_window(w);
         }
+    }
+
+    /// **Is the foreground window one of the application's?**
+    ///
+    /// # ★★★ Why a harness must not raise when the answer is yes
+    ///
+    /// Because the application now opens windows *of its own accord*, and a
+    /// window it opened has the foreground without anybody having clicked it.
+    /// A text-annotation dialog appears in answer to a drag on the canvas and
+    /// takes the keyboard immediately — which is the behaviour under test, and
+    /// which the check verifies by typing WITHOUT clicking the field, *"the way
+    /// an operator does"*.
+    ///
+    /// A `press` that raises the main window first destroys exactly that: the
+    /// dialog loses focus, the characters land on the page, and the check
+    /// reports that the dialog ignored the keyboard. The feature is fine; the
+    /// harness broke it and then measured it.
+    ///
+    /// So the rule is **do not steal focus from the application** — only
+    /// reclaim it from something else. It is the same idea as the cover guard's
+    /// correction on the same day: the question is whose PROCESS owns what is
+    /// in front, not which handle.
+    fn application_has_the_foreground(&self) -> bool {
+        let Some(target) = self.target else {
+            return false;
+        };
+        let Some(pid) = sys::pid_of_window(target) else {
+            return false;
+        };
+        sys::foreground_window().and_then(sys::pid_of_window) == Some(pid)
     }
 
     /// **Refuse to click a point another window is sitting on.**

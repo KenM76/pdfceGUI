@@ -431,6 +431,20 @@ pub fn is_foreground(w: WindowHandle) -> bool {
     unsafe { GetForegroundWindow() == w.hwnd() }
 }
 
+/// **Whatever window currently has the foreground**, whoever owns it.
+///
+/// ★ Distinct from [`is_foreground`] in the way that matters: that answers
+/// *"is THIS window in front"*, and the question a harness needs once the
+/// application has several windows is *"which of them is"*. A dialog that just
+/// opened has the foreground and was never clicked, so no record of a click can
+/// answer it.
+#[must_use]
+pub fn foreground_window() -> Option<WindowHandle> {
+    // SAFETY: no pointers, no ownership; returns a handle or null.
+    let hwnd = unsafe { GetForegroundWindow() };
+    WindowHandle::from_raw(hwnd)
+}
+
 /// Press and release a virtual key **while modifiers are held**.
 ///
 /// `modifiers` are virtual-key codes (`VK_CONTROL` 0x11, `VK_SHIFT` 0x10,

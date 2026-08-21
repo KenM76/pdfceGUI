@@ -49,7 +49,7 @@
 //! stop.
 
 use crate::checks::driving::{
-    SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, list, shell_trace,
+    SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, frame_of, list, shell_trace,
 };
 use crate::checks::{Check, CheckContext};
 use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
@@ -269,7 +269,8 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
                 .to_owned(),
         ));
     };
-    driver.click_at(session.frame()?.declared_center(field))?;
+    driver
+        .click_at(frame_of(&session, &trace, ui_rect, "text-annot.text")?.declared_center(field))?;
     session.settle(8);
     // Two keys that already exist in `sys::vk`. WHAT is typed does not matter
     // — the Accept control is gated on the field being non-empty and nothing
@@ -286,7 +287,9 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             "the dialog declared no `text-annot.accept` region.".to_owned(),
         ));
     };
-    driver.click_at(session.frame()?.declared_center(accept))?;
+    driver.click_at(
+        frame_of(&session, &trace, ui_rect, "text-annot.accept")?.declared_center(accept),
+    )?;
     session.settle(24);
 
     let after_accept = annot_count(&session);

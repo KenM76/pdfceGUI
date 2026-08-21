@@ -162,6 +162,15 @@ const OPEN_INSET_PT: f32 = 48.0;
 /// and grew the About window from 560 px to 1,624 px in a few frames.
 const FIT_MARGIN: f32 = 8.0;
 
+/// How many passes from opening a dialog goes on asking for the keyboard.
+///
+/// Measured rather than chosen: one request on the opening pass was granted and
+/// then lost a few passes later, while the window manager was still settling
+/// the new window. Eight is a shade over a tenth of a second at 60 Hz — longer
+/// than that settling and far shorter than a human switching to another
+/// application, which is the thing this must never fight.
+const FOCUS_FRAMES: u64 = 8;
+
 /// One dialog's window: what it is called, how big it opens, and where the
 /// operator last left it.
 ///
@@ -182,6 +191,10 @@ pub struct Host {
     /// Where the last size this host ASKED FOR is kept, so it asks once.
     /// See [`Self::fit`].
     fit_key: egui::Id,
+    /// Where the pass number of the last frame this dialog was drawn on is
+    /// kept, so a **fresh opening** can be told from a continuing one. See
+    /// [`Self::show`]'s focus request.
+    seen_key: egui::Id,
     /// Where the remembered position is kept in `egui::Memory`.
     ///
     /// Derived from the same string as [`Self::id`] and salted, so it cannot
@@ -232,6 +245,8 @@ impl Host {
             key: egui::Id::new(("dialog-host-position", id)),
             // ui-text-exempt: a memory key, never displayed.
             fit_key: egui::Id::new(("dialog-host-fit", id)),
+            // ui-text-exempt: a memory key, never displayed.
+            seen_key: egui::Id::new(("dialog-host-seen", id)),
             title: title.into(),
             default_size,
             min_size,
@@ -387,6 +402,58 @@ impl Host {
             },
         };
 
+        // ★★★ A DIALOG THAT OPENS TAKES THE KEYBOARD, and it stopped doing
+        // that the day it became an OS window.
+        //
+        // In the embedded era a dialog drew inside the application's window, so
+        // it inherited that window's focus and `request_focus()` on its first
+        // field was the whole of the job. An OS window has focus of its own,
+        // and whether the platform grants it on creation is **not reliable**:
+        // Windows refuses to hand the foreground to a process that does not
+        // currently have it, silently, which is the same rule
+        // `tools/ui-verify` documents at length about `SetForegroundWindow`.
+        //
+        // The observable cost is exact. `text_annot_takes_the_keyboard_unclicked`
+        // types into the note dialog **without clicking it**, *"the way an
+        // operator does"*, and after the conversion the characters went to the
+        // page instead: the Accept control is gated on the field being
+        // non-empty, so it stayed disabled and pressing it authored nothing.
+        // The operator's version of that is *"I dragged out a note box and
+        // typing did nothing."*
+        //
+        // ★ ONLY ON THE FRAME IT OPENS. A `Focus` command sent every frame
+        // would seize the foreground back from anything the operator switched
+        // to while the dialog was open — including another application — which
+        // is the behaviour of the worst software on the machine. The pass
+        // number of the last frame this dialog drew tells an opening from a
+        // continuation; a gap of more than one frame means it was closed and
+        // reopened.
+        // ★★ A SHORT WINDOW, not a single frame, and the reason is measured.
+        //
+        // One `Focus` on the opening frame was sent, granted — the dialog
+        // traced `focused=Some(true)` — and **lost again a few frames later**,
+        // before any keystroke arrived. A window that has just been created is
+        // still settling with the window manager, and a single request lands in
+        // the middle of that.
+        //
+        // So the request is repeated for [`FOCUS_FRAMES`] passes from the
+        // opening and then stops for good. Bounded, because a `Focus` sent
+        // forever would seize the foreground back from anything the operator
+        // switched to while the dialog was open — including another
+        // application, which is the behaviour of the worst software on the
+        // machine. `dialogs::textannot`'s own field-focus retry is bounded for
+        // the same reason and says so in the same words.
+        let now = ctx.cumulative_pass_nr();
+        let opened_at = ctx.data(|d| d.get_temp::<(u64, u64)>(self.seen_key));
+        let (opened_at, last) = match opened_at {
+            // A gap means it was closed and reopened: a fresh opening.
+            Some((_, last)) if now.saturating_sub(last) > FOCUS_FRAMES => (now, now),
+            Some((opened, _)) => (opened, now),
+            None => (now, now),
+        };
+        ctx.data_mut(|d| d.insert_temp(self.seen_key, (opened_at, last)));
+        let opening = now.saturating_sub(opened_at) < FOCUS_FRAMES;
+
         let mut frame = Frame {
             // ★ `EmbeddedWindow`, not `Root`, as the value before egui
             // answers. It is the CONSERVATIVE default: it claims the fallback
@@ -429,6 +496,22 @@ impl Host {
             // and they are plausible numbers naming a different place on the
             // desktop.
             let _regions = crate::diag::ViewportScope::enter(self.id);
+
+            // See the note above `opening`.
+            if opening && class == ViewportClass::Immediate {
+                child.send_viewport_cmd_to(self.id, egui::ViewportCommand::Focus);
+            }
+            // ★ Whether the PLATFORM has given this window the keyboard, which
+            // is a different fact from whether it was asked to and the only one
+            // a driven check can act on. A dialog that never reports `true` is
+            // a dialog an operator has to click before typing — the thing the
+            // conversion to an OS window must not have cost.
+            crate::diag::trace_on_change("dialog-focus", || {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                let focused = child.input(|i| i.viewport().focused);
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!("title={:?} focused={focused:?}", self.title)
+            });
 
             // G4's Escape half, read from the CHILD's input. Reading the
             // parent's would answer about a key pressed into the application

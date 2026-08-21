@@ -255,10 +255,32 @@ impl TextAnnotDialog {
         // ★ And it latches on `has_focus()` rather than counting down, so the
         // common case costs exactly one request: the frame after a successful
         // one observes focus and stops asking for good.
+        // ★★★ AND THE BUDGET ONLY RUNS WHILE THE WINDOW ITSELF IS FOCUSED —
+        // 2026-08-21, when this dialog became a real OS window.
+        //
+        // The retry above is eight frames, chosen to outlast a pointer release
+        // being resolved. That was the whole race while the dialog drew inside
+        // the application's window and inherited its focus. An OS window has
+        // focus of its own, granted by the **platform**, and the grant can take
+        // longer than eight frames or not arrive at all — Windows refuses the
+        // foreground to a process that does not already have it.
+        //
+        // Spending the budget during that wait means every attempt is made at a
+        // window that cannot hold focus, the counter reaches its bound, and the
+        // field is never focused **at the moment it becomes possible**. The
+        // measured symptom: `text_annot_takes_the_keyboard_unclicked` typed two
+        // characters, the Accept control stayed disabled because the field was
+        // empty, and pressing it authored nothing — the operator's version being
+        // *"I dragged out a note box and typing did nothing."*
+        //
+        // So an attempt is only counted while the window is focused. The bound
+        // keeps its original meaning — *don't fight the operator's own click* —
+        // and stops being consumed by a wait that has nothing to do with them.
+        let window_focused = ui.ctx().input(|i| i.viewport().focused) != Some(false);
         if !self.focused_once {
             if response.has_focus() {
                 self.focused_once = true;
-            } else if self.focus_attempts < FOCUS_ATTEMPT_FRAMES {
+            } else if window_focused && self.focus_attempts < FOCUS_ATTEMPT_FRAMES {
                 self.focus_attempts += 1;
                 response.request_focus();
             }
