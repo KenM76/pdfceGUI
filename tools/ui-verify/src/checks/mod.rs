@@ -333,6 +333,10 @@ pub mod block_nav;
 pub mod bookmark_add;
 pub mod chords;
 pub mod dialog_windows;
+/// A selection INSIDE a text draft — Shift+arrows and the rule that drops it.
+/// Not to be confused with `text_selection`, which is about sweeping the
+/// page's own text with the pointer.
+pub mod draft_selection;
 /// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
 /// operator could press chose one. Proved the only way a theme can be proved:
 /// two captures of one window, before and after the click.
@@ -683,6 +687,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(shortcuts::ShortcutsReferenceIsLive),
         Box::new(block_nav::ArrowKeysWalkBetweenBlocks),
         Box::new(dialog_windows::DialogsOpenInTheirOwnWindow),
+        Box::new(draft_selection::ShiftArrowsSelectText),
         Box::new(bookmark_add::BookmarkCanBeWritten),
         // Last of the three new ones and the most expensive: it drives Insert
         // pages, the Forms panel and the Tab-order section in one session,

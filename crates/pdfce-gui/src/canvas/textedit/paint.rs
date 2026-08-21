@@ -302,6 +302,21 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
             body.center().y - laid.rect.height() / 2.0
         },
     );
+    // ★★ THE SELECTION IS DRAWN UNDER THE TEXT, before the galley, so the
+    // characters sit ON the highlight rather than behind it. Drawing it after
+    // would need a translucent fill and would tint every glyph it covers.
+    //
+    // ★ This is a **cursor**, not content marking, and R8b rule 4 permits it
+    // for exactly that reason: it shows what the *next keystroke* will replace
+    // and it is gone the moment the draft commits. Nothing about the applied
+    // document is styled here.
+    selection(
+        painter,
+        &draft,
+        &laid,
+        text_origin,
+        theme.palette.selection_fill,
+    );
     painter.galley(text_origin, laid.clone(), theme.palette.text);
 
     // The bracket, drawn round the EDITOR rather than round the run: it is the
@@ -386,6 +401,65 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
 /// origin it is a nominal one-line box at the click. Both are converted through
 /// [`crate::viewer::pdf_space_to_canvas`], the inverse of the bridge
 /// [`resolve_run`] uses, so the caret lands on the glyphs it was resolved from.
+/// **Highlight what is selected**, one rectangle per run of characters that
+/// share a row.
+///
+/// # ★★ Why it is measured character by character rather than from two
+/// # endpoints
+///
+/// Because a selection can wrap. Two endpoint rectangles describe a selection
+/// on one row and say nothing useful about one spanning three — the middle rows
+/// are not between the two x-coordinates in any sense a painter can use, and
+/// reconstructing them means asking the galley for its row geometry, which is
+/// a second derivation of what `pos_from_cursor` already answers.
+///
+/// So each character's own slot is asked for, and adjacent slots on the same
+/// row are merged into one rectangle. The cost is O(n) in the SELECTION's
+/// length, per frame — and a draft is one show operator, so n is tens of
+/// characters. That is the same trade `Draft::caret` makes for character
+/// indices, made again for the same reason.
+///
+/// ★ A character's right edge is taken from **the next slot's left edge**,
+/// not from its own `max.x`. The two differ where a row ends: the last
+/// character of a wrapped row has a next slot on the row BELOW, which is how
+/// the row break is detected at all.
+fn selection(
+    painter: &egui::Painter,
+    draft: &crate::canvas::textedit::Draft,
+    laid: &std::sync::Arc<egui::Galley>,
+    origin: egui::Pos2,
+    fill: egui::Color32,
+) {
+    let Some((from, to)) = crate::canvas::textedit::caret::range(draft.mark, draft.caret) else {
+        return;
+    };
+    let slot = |i: usize| laid.pos_from_cursor(egui::text::CCursor::new(i));
+    let mut run: Option<egui::Rect> = None;
+    for i in from..to {
+        let here = slot(i);
+        let next = slot(i + 1);
+        // Same row when the tops agree. The next slot is on the row below at a
+        // wrap, and its own `min.x` is then meaningless as a right edge.
+        let wraps = (next.min.y - here.min.y).abs() > 0.5;
+        let right = if wraps { here.max.x } else { next.min.x };
+        let cell = egui::Rect::from_min_max(
+            egui::pos2(origin.x + here.min.x, origin.y + here.min.y),
+            egui::pos2(origin.x + right, origin.y + here.max.y),
+        );
+        run = match run {
+            Some(open) if !wraps && (open.top() - cell.top()).abs() < 0.5 => Some(open.union(cell)),
+            Some(open) => {
+                painter.rect_filled(open.union(cell), 0.0, fill);
+                None
+            }
+            None => Some(cell),
+        };
+    }
+    if let Some(open) = run {
+        painter.rect_filled(open, 0.0, fill);
+    }
+}
+
 fn caret_box(
     doc: &OpenDoc,
     draft: &Draft,

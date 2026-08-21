@@ -1244,7 +1244,7 @@ pub(super) fn interact(
         // thing asking — `composing()` here would include the draft itself and
         // be permanently false, so the caret would never take a keystroke.
         let owns_keyboard = !ctx.text_edit_focused();
-        let _ = crate::canvas::textedit::typing(ui, &ctx, doc, owns_keyboard, actions);
+        let _ = crate::canvas::textedit::keys::typing(ui, &ctx, doc, owns_keyboard, actions);
         // ★ Evidence for *"it doesn't type anything in the box when I type and
         // nothing gets added"* — the operator, 2026-08-18. Four facts, each
         // killing a different hypothesis: `draft=false` (the click stored

@@ -163,6 +163,7 @@ pub fn click(
             anchor,
             text,
             caret,
+            mark: None,
             seeded: false,
         },
     );
@@ -259,6 +260,7 @@ pub fn begin_box(
             anchor: Anchor::Box { llx, lly, urx, ury },
             text: String::new(),
             caret: 0,
+            mark: None,
             seeded: false,
         },
     );

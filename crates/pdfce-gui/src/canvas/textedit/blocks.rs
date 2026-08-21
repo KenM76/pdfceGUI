@@ -338,6 +338,7 @@ fn land(
             },
             caret: to_caret.min(original.chars().count()),
             text: original,
+            mark: None,
             seeded: true,
         },
     );

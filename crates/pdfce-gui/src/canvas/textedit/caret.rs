@@ -198,6 +198,129 @@ pub fn delete_forward(text: &mut String, caret: usize) -> usize {
     at
 }
 
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+//
+// ★★ Added 2026-08-21 for `OPERATOR_REQUESTS.md` O14 item 11: *"no selection
+// inside a draft — no Shift+arrow, no Ctrl+A, no drag-select."*
+//
+// The whole of a selection is TWO INDICES AND FOUR RULES, and every one of the
+// rules is here rather than in the keystroke handler, because a rule stated at
+// a call site is a rule the next call site does not know about:
+//
+// 1. A selection is the range between the mark and the caret, in either order.
+// 2. Typing anything **replaces** it.
+// 3. Backspace and Delete **remove** it, and remove nothing else.
+// 4. Any movement without Shift **drops** it.
+//
+// Rule 4 is the one that looks like a detail and is not. Without it a
+// highlight stays on screen after the caret has walked out of it, and the next
+// keystroke deletes text the operator is no longer looking at.
+
+/// **The selected range**, as normalised character indices, or `None` when
+/// nothing is selected.
+///
+/// An empty range answers `None` rather than `Some((n, n))`: a mark sitting
+/// exactly on the caret is *not a selection*, it is the state after
+/// Shift+Right followed by Shift+Left, and every caller would otherwise need
+/// its own emptiness check before deciding whether Backspace deletes a
+/// selection or a character.
+#[must_use]
+pub fn range(mark: Option<usize>, caret: usize) -> Option<(usize, usize)> {
+    let mark = mark?;
+    if mark == caret {
+        return None;
+    }
+    Some((mark.min(caret), mark.max(caret)))
+}
+
+/// **Remove `from..to`** and answer the caret, which lands where the removed
+/// text began.
+///
+/// Character indices, clamped, like everything else in this module. A caller
+/// that passes a reversed pair gets nothing removed rather than a panic —
+/// [`range`] is the intended source and never produces one, and a panic here
+/// would be a crash in the middle of typing.
+pub fn delete_range(text: &mut String, from: usize, to: usize) -> usize {
+    let mut chars: Vec<char> = text.chars().collect();
+    let from = from.min(chars.len());
+    let to = to.min(chars.len());
+    if from >= to {
+        return from;
+    }
+    chars.drain(from..to);
+    *text = chars.into_iter().collect();
+    from
+}
+
+/// **Was Shift held for this movement?** — asked of BOTH places egui keeps the
+/// answer, because on this toolkit they disagree.
+///
+/// # ★★★ The measurement, 2026-08-21
+///
+/// The first driven run of `shift_arrows_select_text` failed with the caret
+/// moving and nothing selected. A trace of both values, on the same frame, on
+/// three consecutive presses with Shift physically held down throughout:
+///
+/// ```text
+/// TMPDIAG right ev=Modifiers::NONE frame=Modifiers { shift: true }
+/// TMPDIAG right ev=Modifiers::NONE frame=Modifiers { shift: true }
+/// TMPDIAG right ev=Modifiers::NONE frame=Modifiers { shift: true }
+/// ```
+///
+/// `egui-winit` builds a `Key` event with `modifiers: self.egui_input.modifiers`
+/// — the state as of the moment the key was *translated* — and updates that
+/// field from a separate `ModifiersChanged` window event. When the two arrive in
+/// one batch with the key first, the event carries `NONE` and the frame ends
+/// holding `shift: true`. Every arrow arrived; not one of them carried the
+/// modifier that gives it its meaning.
+///
+/// # ★★ Why the answer is OR and not "pick the better one"
+///
+/// `app::keyboard` argues at length for the opposite preference — *"read the
+/// modifiers CARRIED BY THE KEY EVENT, not the frame's"* — and it is right for
+/// what it does. A **chord** is a command: `Ctrl+S` read from a stale frame
+/// saves a document nobody asked to save, so a chord must be certain the
+/// modifier was down *at the keystroke*.
+///
+/// A **selection modifier is not a command**, and its two failure modes are not
+/// the same size:
+///
+/// | wrong answer | cost |
+/// |---|---|
+/// | shift read as held when it had just been released | the selection extends by ONE character, and the next press fixes it |
+/// | shift read as absent when it was held | **the selection is destroyed** — rule 4 drops the mark, and the range the operator was building is gone |
+///
+/// The second is unrecoverable by pressing the key again, so the union is the
+/// answer that fails cheaply. This is the same asymmetry argument
+/// `canvas::constrain` makes about a snap that is offered versus one that is
+/// silently taken.
+#[must_use]
+pub fn shifted(event: bool, frame: bool) -> bool {
+    event || frame
+}
+
+/// **What the mark becomes after a movement**, given whether Shift was held.
+///
+/// The single statement of rule 4. `was` is the mark before the movement and
+/// `from` is the caret before it.
+///
+/// - **Shift held, no mark yet** — the mark is planted where the caret *was*,
+///   which is what makes the first Shift+Right select one character rather
+///   than none.
+/// - **Shift held, mark already set** — it stays, so the selection grows and
+///   shrinks from the same fixed end.
+/// - **No Shift** — dropped.
+#[must_use]
+pub fn moved(was: Option<usize>, from: usize, shift: bool) -> Option<usize> {
+    if shift {
+        Some(was.unwrap_or(from))
+    } else {
+        None
+    }
+}
+
 /// The caret one **word** to the left of `caret` - `Ctrl+Left`.
 ///
 /// Skips any run of spaces immediately behind the caret, then the run of
@@ -240,6 +363,88 @@ pub fn word_right(text: &str, caret: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+
+    // ---------------------------------------------------------------------
+    // Selection
+    // ---------------------------------------------------------------------
+
+    /// ★★ **A mark sitting on the caret is not a selection.**
+    ///
+    /// The state after Shift+Right then Shift+Left, and it is reached by every
+    /// operator who changes their mind. If it answered `Some((n, n))` then
+    /// Backspace would take the "delete the selection" branch, delete nothing,
+    /// and leave the character it was supposed to remove — a key that stopped
+    /// working, silently, at one specific caret position.
+    #[test]
+    fn an_empty_selection_is_no_selection() {
+        assert_eq!(super::range(Some(3), 3), None);
+        assert_eq!(super::range(None, 3), None);
+    }
+
+    /// It normalises, because the operator may have dragged either way.
+    #[test]
+    fn a_selection_reads_the_same_from_either_end() {
+        assert_eq!(super::range(Some(2), 7), Some((2, 7)));
+        assert_eq!(super::range(Some(7), 2), Some((2, 7)));
+    }
+
+    /// ★ **Removing a selection is by CHARACTER**, like everything else here.
+    ///
+    /// Asserted on a string with an accent in it, because a byte-indexed
+    /// `drain` compiles, passes on ASCII, and panics on the first document with
+    /// a `café` in it — which is the failure this module has now avoided in
+    /// four separate functions for the same reason.
+    #[test]
+    fn removing_a_selection_counts_characters_not_bytes() {
+        let mut text = String::from("café au lait");
+        let caret = super::delete_range(&mut text, 0, 5);
+        assert_eq!(text, "au lait");
+        assert_eq!(caret, 0, "the caret lands where the removed text began");
+    }
+
+    /// A reversed or out-of-range pair removes nothing rather than panicking.
+    ///
+    /// ★ Not defensive programming for its own sake: this runs inside the
+    /// keystroke path, and a panic there is a crash in the middle of typing —
+    /// the one place a program must not crash, because the operator's work is
+    /// in the thing that died.
+    #[test]
+    fn a_nonsense_range_removes_nothing() {
+        let mut text = String::from("abc");
+        assert_eq!(super::delete_range(&mut text, 2, 1), 2);
+        assert_eq!(text, "abc");
+        let mut text = String::from("abc");
+        assert_eq!(super::delete_range(&mut text, 9, 99), 3);
+        assert_eq!(text, "abc");
+    }
+
+    /// ★★★ **The first Shift+Right selects one character**, which is the whole
+    /// reason [`super::moved`] takes the caret's position BEFORE the movement.
+    ///
+    /// Planting the mark where the caret *ends up* would select nothing on the
+    /// first press and one character on the second — an off-by-one that looks
+    /// like the key being ignored.
+    #[test]
+    fn the_first_shifted_move_plants_the_mark_where_the_caret_was() {
+        assert_eq!(super::moved(None, 4, true), Some(4));
+    }
+
+    /// A mark already planted stays put, so the selection grows and shrinks
+    /// from one fixed end.
+    #[test]
+    fn a_planted_mark_survives_further_shifted_moves() {
+        assert_eq!(super::moved(Some(2), 6, true), Some(2));
+    }
+
+    /// ★★ **Any movement without Shift drops it.** Rule 4, and the one whose
+    /// absence leaves a highlight on screen after the caret has walked out of
+    /// it — so the next keystroke deletes text the operator is no longer
+    /// looking at.
+    #[test]
+    fn an_unshifted_move_drops_the_selection() {
+        assert_eq!(super::moved(Some(2), 6, false), None);
+    }
+
     use super::*;
 
     /// **Typing inserts; Backspace removes one character, not one byte.**

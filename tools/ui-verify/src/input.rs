@@ -398,6 +398,59 @@ impl Driver {
         sys::with_modifiers(&[key.vk()], || self.click_at(p))
     }
 
+    /// **Press `vk` `times` times with `modifiers` HELD DOWN throughout**, the
+    /// way a hand does it.
+    ///
+    /// # ★★ Why this exists beside [`Self::press_chord`], which looks identical
+    ///
+    /// Because they are not identical and the difference is a whole class of
+    /// silent failure. `press_chord` posts the modifier down, sleeps, posts the
+    /// key, and releases the modifier — **per press**. This holds the modifier
+    /// across all of them, so the application sees one modifier transition and
+    /// N key presses inside it.
+    ///
+    /// The reason it was written: `shift_arrows_select_text` sent
+    /// `press_chord(&[SHIFT], ARROW_RIGHT)` three times and the application
+    /// traced `Modifiers::NONE` on all three. Every arrow arrived; not one of
+    /// them carried Shift. The pointer path had never had that problem, and it
+    /// uses `with_modifiers` — the modifier held across the whole gesture —
+    /// which is what this is.
+    ///
+    /// ★ The finding is about the toolkit, not about this harness: modifier
+    /// state reaches `egui` through winit's `ModifiersChanged`, and a modifier
+    /// that goes down and up again inside one frame's event batch can be
+    /// applied and undone before the key that was supposed to carry it is
+    /// dispatched. Holding it removes the race instead of tuning it — the same
+    /// answer this project reached about the fit-zoom loop and about
+    /// `ViewportCommand` lag, and for the same reason: **an intermittent is a
+    /// defect with a timing dependency, and a sleep is not a fix.**
+    ///
+    /// # Errors
+    ///
+    /// If the target window cannot be brought to the front, for the reason
+    /// [`Self::press_chord`] refuses.
+    pub fn press_held(&self, modifiers: &[u16], vk: u16, times: usize) -> Result<()> {
+        self.raise_and_confirm()?;
+        sys::with_modifiers(modifiers, || {
+            // ★★★ A WHOLE FRAME BEFORE THE FIRST KEY, and this is the fix, not
+            // padding. Measured: with `with_modifiers`' own 12 ms gap the
+            // application traced `ev=Modifiers::NONE frame=Modifiers { shift:
+            // true }` — the modifier HAD arrived and the key that was supposed
+            // to carry it did not. egui builds a `Key` event from the modifier
+            // state it holds when the key is translated, and a modifier posted
+            // less than a frame earlier is applied to `i.modifiers` in the same
+            // batch but AFTER the key. A real keyboard cannot produce that
+            // ordering: a hand holds Shift for tens of frames first.
+            std::thread::sleep(MOVE_SETTLE);
+            for _ in 0..times {
+                sys::key_stroke(vk);
+                std::thread::sleep(MOVE_SETTLE);
+            }
+        });
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
     /// Move the pointer without clicking — for hover assertions, and for
     /// getting the pointer off a widget before a screenshot.
     pub fn move_to(&self, p: ScreenPoint) -> Result<()> {

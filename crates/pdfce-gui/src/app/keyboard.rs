@@ -962,6 +962,7 @@ mod tests {
                 anchor: Anchor::Origin { x: 1.0, y: 1.0 },
                 text: String::new(),
                 caret: 0,
+                mark: None,
                 seeded: true,
             },
         );

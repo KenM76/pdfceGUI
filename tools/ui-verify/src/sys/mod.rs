@@ -69,6 +69,13 @@ pub mod vk {
     pub const CONTROL: u16 = 0x11;
     /// `Shift`, as a modifier. `Ctrl+Shift+…` is two entries in the slice.
     pub const SHIFT: u16 = 0x10;
+    /// `VK_LSHIFT` — the LEFT shift specifically.
+    ///
+    /// ★ Not a synonym for [`SHIFT`] where synthesis is concerned. `VK_SHIFT`
+    /// is the "either shift" virtual key that Windows reports in keyboard
+    /// STATE; a real keyboard never sends it, and a toolkit that derives its
+    /// modifier state from key events — winit does — may not recognise it.
+    pub const LSHIFT: u16 = 0xA0;
 
     /// `F` — the letter, for `Ctrl+F`.
     ///
@@ -109,6 +116,12 @@ pub mod vk {
     pub const ARROW_DOWN: u16 = 0x28;
     /// Up. Added 2026-08-21 with the block-navigation check.
     pub const ARROW_UP: u16 = 0x26;
+    /// `VK_RIGHT`. One character to the right, or one more selected when Shift
+    /// is held with it.
+    pub const ARROW_RIGHT: u16 = 0x27;
+    /// `VK_HOME`. Pressed to put the caret at a KNOWN end before a check
+    /// counts what a shifted arrow selects.
+    pub const HOME: u16 = 0x24;
     /// `VK_END`. Pressed to prove that End reaches the end of the page's LINE
     /// rather than of the show operator the caret happens to sit in.
     pub const END: u16 = 0x23;

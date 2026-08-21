@@ -187,6 +187,9 @@ pub mod blocks;
 /// split out under R2 on 2026-08-20. Pure functions of a `&str` and an index,
 /// with no window in them; its header says why that is a seam and not a cut.
 pub mod caret;
+/// What every key means inside a draft — the keystroke contract, split out
+/// under R2 on the day the selection landed.
+pub mod keys;
 /// What a draft looks like on the page - the in-place editor and its caret.
 /// Split out under R2 on 2026-08-20; its header carries the standing rule that
 /// the text and the caret are measured from ONE layout.
@@ -213,7 +216,6 @@ mod cost;
 /// in `egui::Memory` where the markup pen does not.
 pub mod pen;
 
-use egui::Ui;
 use pdfce_core::text_edit::{
     BlockRecognitionOptions, EditOptions, EditRequest, EditableTextModel, GlyphRef, ReflowEngine,
     TextPosition, reflow_recognition_options,
@@ -390,6 +392,36 @@ pub struct Draft {
     /// of characters, and the alternative is a byte index plus a boundary check
     /// at every call site.
     pub caret: usize,
+    /// ★★ **The other end of a selection**, as a character index, or `None`
+    /// when nothing is selected.
+    ///
+    /// The selection is the range between this and [`Self::caret`], in either
+    /// order — [`caret::range`] normalises it. Two indices rather than a
+    /// `Range`, because the *direction* is real: Shift+Left from the middle of
+    /// a word must extend leftward and then shrink back rightward, and a
+    /// normalised pair forgets which end the operator is dragging.
+    ///
+    /// # ★ Why it is called a mark
+    ///
+    /// Because "anchor" is taken. [`Anchor`] already means *what on the page
+    /// this draft is attached to*, which is a different question with a
+    /// different answer, and two fields called anchor in one struct is how a
+    /// wrong one gets read.
+    ///
+    /// # The defect this field is
+    ///
+    /// `OPERATOR_REQUESTS.md` O14 item 11, from the conventions sweep of
+    /// 2026-08-20: *"no selection inside a draft — no Shift+arrow, no Ctrl+A,
+    /// no drag-select."* Every text field the operator has ever used has all
+    /// three, and without them replacing a word means pressing Backspace once
+    /// per character.
+    ///
+    /// ★ **It is cleared by any un-shifted movement**, which is what makes a
+    /// selection feel like a selection rather than a mode. That rule lives in
+    /// [`caret::moved`] so it is applied in one place; every arrow arm calls
+    /// it, and an arm that forgot would leave a highlight behind after the
+    /// caret had walked out of it.
+    pub mark: Option<usize>,
     /// Whether the diagnostic seam has already been consumed for this draft, so
     /// a seam-supplied string is typed **once** rather than on every frame.
     ///
@@ -577,265 +609,6 @@ pub fn load(ctx: &egui::Context, page: usize, kind: TextEditKind) -> Option<Draf
     }
     abandon(ctx);
     None
-}
-
-// ===========================================================================
-// Typing
-// ===========================================================================
-
-/// **Consume this frame's keystrokes into the draft.**
-///
-/// Returns `true` when the draft was committed by Enter, so the caller knows the
-/// caret is gone.
-///
-/// # Why the events are read raw rather than through a `TextEdit` widget
-///
-/// Because the caret is painted in PDF space, on the page, at the glyphs' own
-/// scale — which is what *"just edit the existing box"* means. An `egui`
-/// `TextEdit` would be a second box floating over the first, and the old shell's
-/// one virtue here is worth keeping: it had a real caret in the page, and no
-/// widget in the typing path.
-pub fn typing(
-    ui: &Ui,
-    ctx: &egui::Context,
-    doc: &OpenDoc,
-    focused: bool,
-    actions: &mut Vec<crate::app::actions::Action>,
-) -> bool {
-    let Some(mut draft) = read(ctx) else {
-        return false;
-    };
-    let mut changed = false;
-    // The diagnostic seam, consumed exactly once per draft. See [`DIAG_TYPE`].
-    if !draft.seeded {
-        draft.seeded = true;
-        changed = true;
-        if let Ok(seed) = std::env::var(DIAG_TYPE)
-            && !seed.is_empty()
-        {
-            draft.text.clear();
-            draft.caret = insert(&mut draft.text, 0, &seed);
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed.
-                format!("text-edit-seeded len={}", draft.text.chars().count())
-            });
-        }
-    }
-    if focused {
-        for ev in ui.input(|i| i.events.clone()) {
-            match ev {
-                egui::Event::Text(t) if !t.is_empty() => {
-                    draft.caret = insert(&mut draft.text, draft.caret, &t);
-                    changed = true;
-                }
-                egui::Event::Key {
-                    key: egui::Key::Backspace,
-                    pressed: true,
-                    ..
-                } => {
-                    draft.caret = backspace(&mut draft.text, draft.caret);
-                    changed = true;
-                }
-                egui::Event::Key {
-                    key: egui::Key::Delete,
-                    pressed: true,
-                    ..
-                } => {
-                    draft.caret = delete_forward(&mut draft.text, draft.caret);
-                    changed = true;
-                }
-                // ★★ **Caret movement**, 2026-08-20, on the operator's report
-                // that *"the cursor just sits at the end of a text line. It
-                // can't be moved to the center of an existing text block."*
-                //
-                // These five arms are what makes the caret a caret. Before
-                // them the draft had no position at all: text was appended and
-                // Backspace popped, so changing `SHEET 1 OF 4` to `SHEET 2 OF
-                // 4` meant deleting back to `SHEET ` and retyping the rest.
-                //
-                // ★ `changed` is set for a pure movement, and that is
-                // deliberate rather than sloppy. It is the flag that decides
-                // whether the draft is written back to `egui::Memory`, and a
-                // moved caret IS a changed draft - without this the arrow keys
-                // would appear to work for one frame and then snap back on the
-                // next load. It does NOT put anything on the undo stack:
-                // `commit_into` compares the TEXT with the original, so a draft
-                // whose caret moved and whose characters did not still pushes
-                // no action.
-                egui::Event::Key {
-                    key: egui::Key::ArrowLeft,
-                    pressed: true,
-                    modifiers,
-                    ..
-                } => {
-                    draft.caret = if modifiers.command {
-                        word_left(&draft.text, draft.caret)
-                    } else {
-                        draft.caret.saturating_sub(1)
-                    };
-                    changed = true;
-                }
-                egui::Event::Key {
-                    key: egui::Key::ArrowRight,
-                    pressed: true,
-                    modifiers,
-                    ..
-                } => {
-                    let end = draft.text.chars().count();
-                    draft.caret = if modifiers.command {
-                        word_right(&draft.text, draft.caret)
-                    } else {
-                        (draft.caret + 1).min(end)
-                    };
-                    changed = true;
-                }
-                // ★★★ UP AND DOWN WALK THE PAGE'S OWN LINES, AND CROSS INTO
-                // THE NEXT PARAGRAPH.
-                //
-                // The operator, 2026-08-21: *"there was an acrobat feature in
-                // the original pdfce-gui that attempted to reassemble
-                // individual lines into paragraphs and the cursor would move to
-                // the next block of text using the navigation keys."*
-                //
-                // **Salvage.** `canvas::textedit::blocks` carries the four
-                // lines it came from and the argument; the short form is that
-                // the reassembly is `pdfce-core`'s — `caret_up` walks the
-                // model's *lines*, and a block is a group of lines, so the
-                // caret steps into the next paragraph without anything here
-                // knowing what a paragraph is. The old shell's whole
-                // contribution was **asking**, and this shell had not been.
-                //
-                // ★ It was not bound at all before today, and that was right at
-                // the time: the caret is a character index into ONE run, and a
-                // single run has no line above it. What changed is not the
-                // draft — it is that the *page* is now the thing being
-                // navigated.
-                //
-                // ★★ THE DRAFT IS COMMITTED ON THE WAY OUT. A caret that left
-                // a run with unsaved keystrokes in it would silently discard
-                // them, which is the defect class this whole module exists
-                // against — and `commit_into` writes nothing when the text is
-                // unchanged, so an operator who is merely reading with the
-                // arrow keys puts nothing on the undo stack.
-                //
-                // ★ A BOX draft is deliberately excluded. Its lines are the
-                // shell's wrap rather than the page's, so this model would move
-                // the caret to a run somewhere else on the sheet mid-paragraph.
-                // Named in `blocks`' header rather than left to be discovered.
-                egui::Event::Key {
-                    key: key @ (egui::Key::ArrowUp | egui::Key::ArrowDown),
-                    pressed: true,
-                    ..
-                } => {
-                    let dir = if key == egui::Key::ArrowUp {
-                        blocks::Vertical::Up
-                    } else {
-                        blocks::Vertical::Down
-                    };
-                    if blocks::step(ctx, doc, &draft, dir, actions) {
-                        return true;
-                    }
-                }
-                // ★★ HOME AND END REACH THE ENDS OF THE LINE THE OPERATOR CAN
-                // SEE, which on a CAD sheet is usually several show operators
-                // wide. `blocks::line` answers `false` when the line is this
-                // run — the common case, and the cheap one — and the two
-                // assignments below are what happens then.
-                egui::Event::Key {
-                    key: egui::Key::Home,
-                    pressed: true,
-                    ..
-                } => {
-                    if blocks::line(ctx, doc, &draft, false, actions) {
-                        return true;
-                    }
-                    draft.caret = 0;
-                    changed = true;
-                }
-                egui::Event::Key {
-                    key: egui::Key::End,
-                    pressed: true,
-                    ..
-                } => {
-                    if blocks::line(ctx, doc, &draft, true, actions) {
-                        return true;
-                    }
-                    draft.caret = draft.text.chars().count();
-                    changed = true;
-                }
-                // ★★★ ENTER MEANS TWO THINGS, AND THE ANCHOR DECIDES WHICH.
-                //
-                // The operator, 2026-08-21: *"I should be able to make it multi
-                // line."*
-                //
-                // | anchor | plain Enter | Ctrl+Enter |
-                // |---|---|---|
-                // | a **box** | a paragraph break | commit |
-                // | a point, or an existing run | commit | commit |
-                //
-                // ★ This is the old shell's own split, carried across verbatim:
-                // *"in box mode a plain Enter is a paragraph break; Ctrl+Enter
-                // accepts. In point mode Enter accepts (single line)."* It is
-                // also what every program in the class does, which is the
-                // standing tie-breaker.
-                //
-                // ★★ And it is why `Anchor::Box` is a variant rather than an
-                // `Option<Rect>` on `Origin`. Enter cannot mean *insert* and
-                // *commit* in one draft, so the keystroke handler has to know
-                // which gesture started it — and asking the TEXT ("does it
-                // already contain a newline?") would make the first Enter
-                // commit and every one after it insert, which is the worst
-                // possible answer.
-                //
-                // ★ A newline in an EXISTING run is refused by construction
-                // rather than by a check: `Anchor::Run` is not a box, so plain
-                // Enter commits there. That is correct and not a limitation
-                // being hidden — `edit_text` replaces the text of ONE show
-                // operator, and a show operator cannot contain a line break. A
-                // run that should become two lines is a *reflow*, which is a
-                // different verb with its own preconditions.
-                egui::Event::Key {
-                    key: egui::Key::Enter,
-                    pressed: true,
-                    modifiers,
-                    ..
-                } => {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        //
-                        // ★ Enter is the one keystroke in this handler with TWO
-                        // meanings, so its ARRIVAL is worth reporting separately
-                        // from its effect. The multi-line work spent a driven
-                        // run on *"did the key arrive, or did the branch pick
-                        // wrong?"*, which the `text-edit-typing` line cannot
-                        // answer: it reports a length, and both failures leave
-                        // the length unchanged.
-                        format!(
-                            "text-edit-enter boxed={} command={}",
-                            u8::from(matches!(draft.anchor, Anchor::Box { .. })),
-                            u8::from(modifiers.command),
-                        )
-                    });
-                    if matches!(draft.anchor, Anchor::Box { .. }) && !modifiers.command {
-                        // ★ `newline`, NOT `insert` — see its docs. `insert`
-                        // drops control characters, correctly, and ate this
-                        // exact keystroke for one driven run.
-                        draft.caret = caret::newline(&mut draft.text, draft.caret);
-                        changed = true;
-                    } else {
-                        commit_into(ctx, &draft, actions);
-                        abandon(ctx);
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    if changed {
-        store(ctx, draft);
-    }
-    false
 }
 
 /// Turn a draft into the action that commits it, if it says anything.
@@ -1118,6 +891,7 @@ mod tests {
             },
             text: "TITLE".to_owned(),
             caret: 0,
+            mark: None,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1153,6 +927,7 @@ mod tests {
             },
             text: "first line\nsecond line".to_owned(),
             caret: 0,
+            mark: None,
             seeded: false,
         };
         let mut actions = Vec::new();
@@ -1188,6 +963,7 @@ mod tests {
             anchor: Anchor::Origin { x: 10.0, y: 20.0 },
             text: "one line".to_owned(),
             caret: 0,
+            mark: None,
             seeded: false,
         };
         let mut actions = Vec::new();
@@ -1246,6 +1022,7 @@ mod tests {
             },
             text: String::new(),
             caret: 0,
+            mark: None,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1269,6 +1046,7 @@ mod tests {
             },
             text: "REV B".to_owned(),
             caret: 0,
+            mark: None,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1299,6 +1077,7 @@ mod tests {
             anchor: Anchor::Origin { x: 10.0, y: 20.0 },
             text: String::new(),
             caret: 0,
+            mark: None,
             seeded: true,
         };
         let mut actions = Vec::new();
@@ -1317,48 +1096,5 @@ mod tests {
     fn each_kind_names_its_own_registered_command() {
         assert_eq!(TextEditKind::Edit.command_id(), "edit.text");
         assert_eq!(TextEditKind::Add.command_id(), "edit.add_text");
-    }
-
-    /// **The oracle for *"it doesn't type anything in the box when I type"*.**
-    ///
-    /// Every existing text-edit check seeds the draft through `PDFCE_DIAG_TYPE`,
-    /// which is the ONE path that bypasses the event loop — so all of them pass
-    /// on a build where real typing is dead. This one drives a real
-    /// `egui::Context` with a real `Event::Text` and asserts the draft grew.
-    #[test]
-    fn a_real_text_event_lands_in_the_draft() {
-        let ctx = egui::Context::default();
-        store(
-            &ctx,
-            Draft {
-                page: 0,
-                kind: TextEditKind::Add,
-                anchor: Anchor::Origin { x: 10.0, y: 10.0 },
-                text: String::new(),
-                caret: 0,
-                seeded: true,
-            },
-        );
-        let mut input = egui::RawInput::default();
-        input.events.push(egui::Event::Text("h".to_owned()));
-        let mut actions = Vec::new();
-        let inner = ctx.clone();
-        // ★ A real document, because `typing` now takes one: Up and Down ask
-        // the PAGE where the next line is (see `blocks`). This test's own event
-        // is a `Text`, which never reaches that path — the document is here to
-        // satisfy the signature, and passing a real one rather than inventing a
-        // stub is what keeps the test honest if the typing path ever grows a
-        // second document read.
-        let doc = crate::app::state::open_fixture(crate::app::state::FOUR_PAGES);
-        let _ = ctx.run_ui(input, move |c| {
-            egui::CentralPanel::default().show(c, |ui| {
-                typing(ui, &inner, &doc, true, &mut actions);
-            });
-        });
-        assert_eq!(read(&ctx).map(|d| d.text), Some("h".to_owned()));
-        assert_ne!(
-            TextEditKind::Edit.command_id(),
-            TextEditKind::Add.command_id()
-        );
     }
 }
