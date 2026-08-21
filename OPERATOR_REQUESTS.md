@@ -209,11 +209,20 @@ Not yet investigated. What has to be established first, against source:
 
    ⚠ **Two caveats, both load-bearing:**
 
-   - **No test exercises a region outside the crop box.** The region tests
-     cover sub-rectangles, quadrant tiling and a stroke-mitre band, all
-     *inside* the page. The off-page behaviour is correct by construction —
-     there is nothing in the code that could reject it — and is **unproven**.
-     Write a scratch test before building on it.
+   - ~~**No test exercises a region outside the crop box.**~~ ★★ **CLOSED
+     2026-08-21 — one now does, in this repository.**
+     `crates/pdfce-gui/src/render/offpage.rs` drives `render_page_region` with
+     a region entirely off the page, one straddling its left edge, and one
+     containing the whole page plus a margin. **All three rasterize, and the
+     pixmap is sized to the region asked for rather than to its overlap with
+     the page.** So the escape hatch is proven rather than merely
+     unrejectable.
+
+     ★ It lives here rather than in `pdfce-render` for two reasons: that crate
+     is read-only to this project, and a consumer asserting the contract it
+     depends on is the right shape anyway — if an engine bump starts clamping
+     the region, the failure lands on the shell that cared, naming the feature,
+     instead of presenting as a blank canvas.
    - **A region render re-interprets the whole content stream.** N tiles cost
      N interpretations. For a view that moves, `display_list::record_page` +
      `DisplayList::replay_region` is the intended path and is documented as

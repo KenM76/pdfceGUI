@@ -54,6 +54,13 @@
 //! Phase 4 doubled its size. That file's header already named the seam: it
 //! answers *"what is open"*, and this answers *"what should the picture be"*.
 
+/// ★★ **Tests only** — the engine properties O23's second half will stand on,
+/// asserted here because the engine's own suite has never exercised them.
+///
+/// `render_page_region` accepts a rectangle outside the `/CropBox` by
+/// construction and is untested there; a shell feature built on an unexercised
+/// engine path is one whose first failure looks like a shell defect.
+pub mod offpage;
 pub mod raster;
 // The per-frame raster decision, and the strip's scheduling.
 pub mod settle;
