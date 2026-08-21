@@ -111,6 +111,10 @@ impl eframe::App for PdfceApp {
     /// needs it after the panel closure has ended, and `Ui::ctx()` borrows.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // ★ The window every dialog is owned BY, published once a frame.
+        // See `dialogs::host::set_owner` for why it travels this way, and the
+        // host's G3 section for what ownership buys.
+        crate::dialogs::host::set_owner(&ctx, self.window);
         crate::diag::trace_on_change("root-focus", || {
             // ui-text-exempt: diagnostic trace, never displayed.
             format!("focused={:?}", ctx.input(|i| i.viewport().focused))

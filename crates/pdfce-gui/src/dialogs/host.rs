@@ -110,19 +110,37 @@
 //!
 //! ## What this does NOT fix, said so it is a decision
 //!
-//! - **G3, owned by the application window.** `eframe 0.35`'s
-//!   `ViewportBuilder` has no owner or parent option — `grep with_` over
-//!   `egui/src/viewport.rs` returns thirty builders and none of them is one —
-//!   and `egui-winit` never passes the parent relationship egui itself tracks
-//!   in `viewport_parents` down to `winit`. So the dialog can fall behind the
-//!   main window, which is *the* classic Windows bug and the reason G3 exists.
-//!   Mitigating it with `with_always_on_top` was considered and refused: this
-//!   project's own RAG records an always-on-top window swallowing the driven
-//!   harness's clicks with `SetForegroundWindow` still reporting success, and
-//!   trading a rare confusion for a class of undiagnosable harness failure is
-//!   a bad trade. It needs a `SetWindowLongPtrW(GWLP_HWNDPARENT)` on the child
-//!   window, and eframe does not expose the child's handle either. Filed as a
-//!   gap rather than papered over.
+//! ## G3 — OWNED BY THE APPLICATION WINDOW, as of 2026-08-21
+//!
+//! This section read *"filed as a gap rather than papered over"* for a day. The
+//! gap said: `eframe 0.35`'s `ViewportBuilder` has no owner or parent option —
+//! `grep with_` over `egui/src/viewport.rs` returns thirty builders and none of
+//! them is one — and `egui-winit` never passes down the parent relationship
+//! egui itself tracks in `viewport_parents`. So a dialog could fall behind the
+//! main window, which is *the* classic Windows bug.
+//!
+//! ★★ **What closed it was a second symptom, not a second look.** The dialog
+//! also **lost the keyboard a third of a second after opening**, measured with
+//! both windows reporting their own focus, with the application asking for none
+//! of it. The operator's version: *drag out a note box, type without clicking
+//! the field first, and the words go nowhere.* Asking for focus again does not
+//! work and that was tried — Windows refuses the foreground to a process that
+//! does not already hold it.
+//!
+//! **Ownership is not a request.** An owned window is by definition above its
+//! owner and keeps activation as a property of the relationship. It is what
+//! every native dialog on the machine already uses, which is why none of them
+//! has either problem. `crate::dialogs::host` now sets it through
+//! [`native_window::own_window`], finding the child by title among **this
+//! process's** windows — the crate that call lives in exists so that this
+//! crate's `#![forbid(unsafe_code)]` survives.
+//!
+//! ★ `with_always_on_top` remains refused, and the reason is worth keeping now
+//! that it is not the only option: this project's own RAG records an
+//! always-on-top window swallowing the driven harness's clicks with
+//! `SetForegroundWindow` still reporting success. Trading a rare confusion for
+//! a class of undiagnosable harness failure was always a bad trade. Ownership
+//! gets the z-order guarantee without the input trap.
 //! - **G5, focus trapping and tab order.** An OS window gets keyboard focus of
 //!   its own, which is most of what G5 asks for and is strictly better than the
 //!   in-viewport version had. Ordered tab traversal and a focus trap are not
@@ -160,6 +178,40 @@ const OPEN_INSET_PT: f32 = 48.0;
 /// How much a dialog's body must overflow its window before the window is
 /// grown to fit it. See [`Host::fit`], whose first version had no such floor
 /// and grew the About window from 560 px to 1,624 px in a few frames.
+/// Where the application window's handle is kept for [`Host::show`] to find.
+const OWNER_KEY: &str = "dialog-host-owner"; // ui-text-exempt: a memory key, never displayed.
+
+/// **Tell the dialog host which window owns its dialogs.** Called once a frame
+/// by the application, before any dialog draws.
+///
+/// # ★★ Why a channel through `egui::Memory` and not an argument
+///
+/// Because the alternative is a fourteenth argument on thirteen call sites to
+/// carry one fact that never varies. `eframe` hands the application window's
+/// handle out **exactly once**, to `PdfceApp` at start-up, and every dialog in
+/// the program wants the same one; threading it by hand would be thirteen
+/// opportunities to pass `None` and one dialog that quietly kept G3's
+/// symptoms.
+///
+/// ★ It is safe as a hidden channel for the reason most hidden channels are
+/// not: **it has exactly one writer**, `app::frame`, on the frame path, and the
+/// value is a constant for the life of the process. There is no ordering to get
+/// wrong and no second producer to disagree with.
+pub fn set_owner(ctx: &egui::Context, window: Option<isize>) {
+    let key = egui::Id::new(OWNER_KEY);
+    match window {
+        Some(w) => {
+            ctx.data_mut(|d| d.insert_temp(key, w));
+        }
+        None => ctx.data_mut(|d| d.remove::<isize>(key)),
+    }
+}
+
+/// The application window's handle, if [`set_owner`] has been called.
+fn owner(ctx: &egui::Context) -> Option<isize> {
+    ctx.data(|d| d.get_temp::<isize>(egui::Id::new(OWNER_KEY)))
+}
+
 const FIT_MARGIN: f32 = 8.0;
 
 /// How many passes from opening a dialog goes on asking for the keyboard.
@@ -185,30 +237,32 @@ const FIT_MARGIN: f32 = 8.0;
 /// back to the owner-less main window about a third of a second after the child
 /// appears.
 ///
-/// # ★★★ AND FORTY PASSES WAS TRIED AND DOES NOT WORK — the number is back
-/// # at eight because repeating the request buys nothing
+/// # ★★★ THE NUMBER STAYED AT EIGHT, AND THE HUNT THAT NEARLY CHANGED IT IS
+/// # THE LESSON
 ///
-/// Half a second of `ViewportCommand::Focus`, one per pass, covering the
-/// measured moment of the loss with room to spare: **the root still takes the
-/// foreground back and the dialog still ends up without it.** Windows is
-/// refusing the grant, silently, which is the same foreground-lock rule
-/// `tools/ui-verify` documents at length about `SetForegroundWindow` — a
-/// process that does not already hold the foreground cannot take it, and after
-/// the initial courtesy grant this process does not.
+/// A driven check reported that a note dialog *"does not take the keyboard
+/// when it opens"*, and this constant was raised to forty passes and then to
+/// a hundred and twenty chasing it. Each raise was justified by a measurement
+/// — the dialog visibly held the foreground while the requests were going out
+/// and lost it when they stopped — and **every one of them was fixing the
+/// wrong thing.**
 ///
-/// So the value is back at eight: long enough for the settling it was written
-/// for, short enough that it cannot fight an operator who switches away. **A
-/// knob must not sit at a value chosen to fix something it does not fix**, and
-/// leaving it at forty would leave a future reader believing the problem was
-/// tuning.
+/// The check was clicking its Accept button through the APPLICATION window's
+/// coordinates while the dialog had its own. It typed correctly, the dialog
+/// received the characters correctly, and then the click that should have
+/// committed them landed on a page. Converting that one call site made the
+/// check pass **with this constant back at eight**, which is how the raises
+/// were shown to have bought nothing.
 ///
-/// ★ The real fix is **G3, window ownership** — `SetWindowLongPtrW` with
-/// `GWLP_HWNDPARENT` on the child. An owned window stays above its owner and
-/// keeps activation as a property of the relationship rather than as a request
-/// that can be refused. `eframe 0.35` exposes no owner option and no child
-/// handle, but the application can enumerate its own top-level windows exactly
-/// as the harness does. That is the next piece of work, and it closes the
-/// classic "the dialog fell behind the parent" bug in the same stroke.
+/// ★ Two things are worth carrying out of that:
+///
+/// - **A knob must not sit at a value chosen to fix something it does not
+///   fix.** Left at a hundred and twenty, a future reader would have believed
+///   the problem was tuning, and a dialog would have re-seized the foreground
+///   for two seconds after every opening for no benefit at all.
+/// - **A measurement that moves with the knob is not proof the knob is the
+///   subject.** Focus really did follow the requests; the requests really were
+///   irrelevant to the failure. Both were true at once.
 ///
 /// ★ The bound is not the only guard, and on its own it would be a bad one —
 /// see [`ENGAGED`]. A dialog stops asking the instant the operator touches it,
@@ -424,6 +478,7 @@ impl Host {
     /// this frame only, and the caller decides what closing means — which for
     /// a dialog that is mid-transaction is not always "stop".
     pub fn show<R>(&self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> (Frame, R) {
+        let owner = owner(ctx);
         // ★ `show_viewport_immediate` takes `FnMut`, because egui reserves the
         // right to call a viewport's callback more than once. `add` is `FnOnce`
         // — the honest signature for a dialog body, which draws once per frame
@@ -594,6 +649,28 @@ impl Host {
             // desktop.
             let _regions = crate::diag::ViewportScope::enter(self.id);
 
+            // ★★★ OWNED BY THE APPLICATION WINDOW. See the module header's G3
+            // section: this is what makes the dialog stay in front of the
+            // window it belongs to AND keep the keyboard, neither of which a
+            // request can guarantee.
+            //
+            // ★ Attempted every frame, deliberately, and cheap by construction:
+            // the call is idempotent and returns early when the relationship
+            // already holds. There is no "the viewport was just created" event
+            // to hang it on — the platform window comes into existence DURING a
+            // frame, so the first attempt after a dialog opens can legitimately
+            // find nothing, and the honest shape is to try again next frame
+            // rather than to guess how many frames to wait.
+            if class == ViewportClass::Immediate
+                && let Some(owner) = owner
+            {
+                let owned = native_window::own_window(owner, &self.title);
+                crate::diag::trace_on_change("dialog-owned", || {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("title={:?} owned={owned}", self.title)
+                });
+            }
+
             // See the note above `opening`, and [`ENGAGED`].
             if class == ViewportClass::Immediate {
                 // ★ ONLY AN OPERATOR'S OWN EVENTS COUNT, and the first
@@ -619,6 +696,13 @@ impl Host {
                     child.data_mut(|d| d.insert_temp(self.engaged_key, ENGAGED));
                 } else if opening {
                     child.send_viewport_cmd_to(self.id, egui::ViewportCommand::Focus);
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!(
+                            "TMPASK title={:?} now={now} opened_at={opened_at}",
+                            self.title
+                        )
+                    });
                 }
             }
             // ★ Whether the PLATFORM has given this window the keyboard, which

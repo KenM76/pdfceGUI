@@ -1,0 +1,36 @@
+# `native-window` — the two or three things a window manager will only tell
+# the operating system.
+#
+# WHY THIS IS ITS OWN CRATE, AND IT IS NOT ORGANISATION FOR ITS OWN SAKE
+#
+# Both `egui-shell` and `pdfce-gui` carry `#![forbid(unsafe_code)]`, and that
+# is a real claim rather than a lint preference: the UI layer cannot corrupt
+# memory, and a reviewer can establish that by reading one line. `forbid`
+# cannot be relaxed by an inner `allow`, deliberately.
+#
+# Window OWNERSHIP needs four `user32` calls (see the crate docs for why
+# nothing in `eframe 0.35` can express it). Rather than downgrade two crates'
+# invariant to `deny` and sprinkle exceptions, the unsafe is QUARANTINED here:
+# one file, four declarations, one public function, no state, no allocation
+# it does not free by scope.
+#
+# It names no PDF concept and depends on nothing, so it is also R7-clean:
+# `egui-shell` could take a dependency on it without learning what a document
+# is, if the dialog host ever moves there.
+#
+# DELETED, NOT PORTED. When a toolkit grows an owner option this crate is
+# removed rather than extended. It has no trait and no second backend beyond a
+# no-op for every non-Windows target, so there is nothing to migrate.
+
+[package]
+name = "native-window"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Window-manager facts a GUI toolkit will not express: ownership."
+license = "MIT"
+
+[dependencies]
+
+[lints.rust]
+missing_docs = "deny"

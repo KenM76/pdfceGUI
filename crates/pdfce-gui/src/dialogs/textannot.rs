@@ -277,6 +277,24 @@ impl TextAnnotDialog {
         // keeps its original meaning — *don't fight the operator's own click* —
         // and stops being consumed by a wait that has nothing to do with them.
         let window_focused = ui.ctx().input(|i| i.viewport().focused) != Some(false);
+        // ★★ Published because a field that never takes focus is a whole
+        // defect class in this shell — *"it doesn't type anything in the box
+        // when I type"* — and it is invisible from outside: the box is drawn,
+        // the caret blinks, and the characters go somewhere else. The four
+        // numbers are the whole state machine above, so a driven check or a
+        // reader of a trace can tell "never asked", "asked and lost the race",
+        // and "held it and then the WINDOW lost focus" apart. All three were
+        // suspected on 2026-08-21 and the trace is what ruled two of them out.
+        crate::diag::trace_on_change("text-annot-field", || {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "has_focus={} once={} attempts={} window_focused={window_focused}",
+                response.has_focus(),
+                self.focused_once,
+                self.focus_attempts
+            )
+        });
         if !self.focused_once {
             if response.has_focus() {
                 self.focused_once = true;

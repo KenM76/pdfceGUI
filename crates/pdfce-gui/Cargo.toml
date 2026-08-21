@@ -111,6 +111,13 @@ jpx = ["pdfce-core/jpx", "pdfce-render/jpx"]
 ocrs = ["pdfce-core/ocrs"]
 
 [dependencies]
+# native-window = the four `user32` calls that make a dialog OWNED by the
+# window it belongs to. Its own crate rather than a module here, because this
+# crate's `#![forbid(unsafe_code)]` is a claim worth keeping and `forbid`
+# cannot be relaxed from the inside. See that crate's manifest for the whole
+# argument, and `dialogs::host` for what the ownership fixes.
+native-window = { path = "../native-window" }
+
 # eframe = egui's application shell. Version, backend and feature set are
 # pinned once in this workspace's root `[workspace.dependencies]` to match
 # `D:\Dev\pdfce` exactly (glow rather than wgpu — the wgpu 29 stack fails

@@ -1898,6 +1898,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-window"
+version = "0.1.0"
+
+[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2333,7 +2337,7 @@ dependencies = [
 [[package]]
 name = "pdfce-core"
 version = "0.7.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#10de389b169d80c8a0bcb78031e6e5650aae06b5"
+source = "git+file:///D:/Dev/pdfce?branch=main#05ba72af2bb3bd0ebcd8d0d20c7a4d524c195882"
 dependencies = [
  "aes",
  "cbc",
@@ -2359,6 +2363,7 @@ dependencies = [
  "egui-shell",
  "embed-resource",
  "flate2",
+ "native-window",
  "pdfce-core",
  "pdfce-print",
  "pdfce-render",
@@ -2370,7 +2375,7 @@ dependencies = [
 [[package]]
 name = "pdfce-print"
 version = "0.7.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#10de389b169d80c8a0bcb78031e6e5650aae06b5"
+source = "git+file:///D:/Dev/pdfce?branch=main#05ba72af2bb3bd0ebcd8d0d20c7a4d524c195882"
 dependencies = [
  "thiserror 2.0.20",
  "windows",
@@ -2379,7 +2384,7 @@ dependencies = [
 [[package]]
 name = "pdfce-render"
 version = "0.7.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#10de389b169d80c8a0bcb78031e6e5650aae06b5"
+source = "git+file:///D:/Dev/pdfce?branch=main#05ba72af2bb3bd0ebcd8d0d20c7a4d524c195882"
 dependencies = [
  "pdfce-core",
  "skrifa",

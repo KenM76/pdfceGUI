@@ -385,12 +385,17 @@ decided against.
     question. The note editor is now driven, and see the row below for what
     that found.
 
-    **Still open:** one row eframe cannot express — the dialog is not *owned*
-    by the main window, so it can fall behind it. There is no owner option in
-    the toolkit's window builder at all. Making it always-on-top instead was
-    considered and refused: it would break the driven harness in a way that
-    produces confident wrong bug reports, which we have paid for once already.
-    The taskbar entry is the route back.
+    ★★ **AND THE LAST ROW OF THIS ITEM IS CLOSED TOO, 2026-08-21: a dialog
+    can no longer fall behind the main window.** It stood open because the
+    toolkit has no way to say *"this window belongs to that one"* — thirty
+    options in its window builder and not one of them is an owner. pdfce now
+    tells Windows directly, which is what every native dialog on your machine
+    already does and why none of them has this problem. Confirmed on every
+    dialog that opens: `dialog-owned owned=true`.
+
+    Making it always-on-top instead stays refused, and the reason is worth
+    keeping: it would break the driven checks in a way that produces confident
+    wrong bug reports, and we have paid for one of those already today.
 13. ~~**Enter is not the affirmative default**~~ — **PRINT SHIPPED
     2026-08-20**, and the pair is the host's, so every dialog converted on
     2026-08-21 inherited it. Type a page range, press Enter, it prints. Print is drawn
@@ -405,45 +410,36 @@ decided against.
     without saying whether it is multi-line — and a multi-line field must keep
     the ability to type a newline. So in a dialog whose last control is a
     one-line box, you may need to click out of it first. The fix is per-field.
-13b. ⚠ **OPEN, and it may bite you: a note box may not take your typing
-    until you click it.**
+13b. ~~⚠ **A note box may not take your typing until you click it.**~~ —
+    **WITHDRAWN the same session, 2026-08-21. There was no such defect.**
 
-    Drag out a **Text box** or **Sticky note** on the canvas, and type
-    *without clicking into the field first*. The characters may go nowhere —
-    and because Accept is only enabled once the field has something in it,
-    pressing Accept then authors nothing and there is no message.
+    It was written up here in good faith and it was wrong, so the whole of it
+    is left standing rather than deleted: this file is a record of what you
+    were told, and a retraction that hides what it retracts is worth less than
+    the mistake.
 
-    **Clicking the field first always works.** So does everything else about
-    the dialog.
+    **What was reported:** drag out a Text box or Sticky note, type without
+    clicking the field, and the words go nowhere — with no message, because
+    Accept is only enabled once the field has something in it.
 
-    Found by a driven check on 2026-08-21, and now **diagnosed exactly**.
-    Both windows report their own focus to the trace, and the sequence is:
+    **What was actually true:** *the test* was clicking Accept through the
+    main window's coordinates while the dialog had its own. You type, the
+    dialog takes the characters correctly, and then the click that should
+    commit them lands on the page instead. Converting that one line made the
+    check pass. Typing into an unclicked note box has worked the whole time,
+    and is now driven end to end — the check authors an annotation and
+    confirms it changed the page.
 
-    ```
-    dialog-focus  focused=Some(true)      the note window is given the keyboard
-    root-focus    focused=Some(false)
-    …17 idle frames: no resize, no move, no input, nothing asked for…
-    root-focus    focused=Some(true)      Windows hands it BACK to the main window
-    dialog-focus  focused=Some(false)
-    ```
+    ★★ **The lesson, because it nearly cost a lot more.** Chasing the wrong
+    culprit, the program was changed four times to hold the keyboard harder,
+    and **each change appeared to help**: the dialog visibly held focus while
+    the new code was asking for it and lost it the moment it stopped. That was
+    real, repeatable, and completely beside the point. *A measurement that
+    moves when you turn a knob is not proof the knob is the subject.*
 
-    The program asks for none of that. Asking for the keyboard again, once per
-    frame, for half a second — well past the moment it is taken — **does not
-    hold it**: Windows refuses the foreground to a program that does not
-    already have it, silently, and after the first courtesy grant this one does
-    not. It is not the test harness either; that was instrumented and confirmed
-    to be doing nothing during the sequence.
-
-    ★ **The fix is to make the dialog OWNED by the main window** — the same
-    row already open at item 12 as *"the dialog can fall behind the main
-    window"*. An owned window keeps its place above its owner and keeps the
-    keyboard as a property of that relationship, rather than as a request that
-    can be refused. The toolkit offers no way to say so, but the program can
-    tell Windows directly. **One fix closes both.**
-
-    Recorded here rather than left in a red test run, because it is your
-    workflow rather than ours: this is the one dialog you reach by drawing on
-    the drawing.
+    Two of those four changes were kept because they are right on their own
+    terms — see item 12's *"the dialog can fall behind"* line, now closed —
+    and the two that were only ever tuning were undone.
 
 14. **PARTIAL, improved 2026-08-21.** Every dialog comes back where you left
     it, and it now **survives closing and reopening** — the position moved out

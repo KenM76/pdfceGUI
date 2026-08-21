@@ -16,7 +16,12 @@
 # than at fold-in. D:\Dev\pdfce is READ-ONLY for this project.
 [workspace]
 resolver = "2"
-members = ["crates/egui-shell", "crates/pdfce-gui", "tools/ui-verify"]
+members = [
+    "crates/egui-shell",
+    "crates/native-window",
+    "crates/pdfce-gui",
+    "tools/ui-verify",
+]
 
 [workspace.package]
 edition = "2024"
