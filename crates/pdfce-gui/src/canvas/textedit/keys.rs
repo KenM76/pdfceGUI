@@ -39,21 +39,99 @@
 use egui::Ui;
 
 use super::caret::{self, backspace, delete_forward, insert, word_left, word_right};
-use super::{Anchor, DIAG_TYPE, Draft, abandon, blocks, commit_into, read, store};
+use super::{Anchor, DIAG_TYPE, Draft, abandon, blocks, commit_into, hit, read, store};
 use crate::app::state::OpenDoc;
 
-/// **Consume this frame's keystrokes into the draft.**
+/// **What the pointer does inside the editor box** — place the caret, sweep a
+/// selection, or take a word on a double click.
 ///
-/// Returns `true` when the draft was committed by Enter, so the caller knows the
-/// caret is gone.
+/// Returns `true` when the draft changed and must be written back.
 ///
-/// # Why the events are read raw rather than through a `TextEdit` widget
+/// # ★★★ The three gestures, and why they are one function
 ///
-/// Because the caret is painted in PDF space, on the page, at the glyphs' own
-/// scale — which is what *"just edit the existing box"* means. An `egui`
-/// `TextEdit` would be a second box floating over the first, and the old shell's
-/// one virtue here is worth keeping: it had a real caret in the page, and no
-/// widget in the typing path.
+/// | gesture | result |
+/// |---|---|
+/// | press | the caret goes where the pointer is, and any selection is dropped |
+/// | drag | the mark stays at the PRESS and the caret follows the pointer |
+/// | double click | the word under the pointer is selected |
+///
+/// They share a hit test and they share the rule that all three are only
+/// meaningful **inside** the box, so splitting them would be three copies of
+/// the containment check and three chances to drift on which coordinate space
+/// is being asked about.
+///
+/// # ★★ The press origin, not the current position, anchors the drag
+///
+/// `PointerState::press_origin` is where the button went down, so the mark is
+/// recomputed from it every frame rather than stored. That is deliberate: a
+/// stored mark would have to be cleared on every way a drag can end — released,
+/// Escaped, interrupted by focus loss, interrupted by the space bar — and
+/// `canvas::markup::ink`'s header records what forgetting one of those four
+/// costs. Derived state cannot go stale.
+///
+/// # ★ Why this reads raw pointer input rather than a `Response`
+///
+/// Because the draft is not a widget. It is painted into the canvas and the
+/// canvas's own `Response` covers the whole page; a second `interact` over the
+/// editor box would put an invisible widget in the canvas's hit-test order and
+/// change what the page under it receives. The box is a rectangle this module
+/// drew and this module knows where it is — asking egui to tell it back would
+/// be a second derivation of a fact it already has.
+fn pointer(ui: &Ui, ctx: &egui::Context, draft: &mut Draft) -> bool {
+    let Some(layout) = hit::read(ctx) else {
+        return false;
+    };
+    let (pressed, down, double, pos, origin) = ui.input(|i| {
+        (
+            i.pointer.primary_pressed(),
+            i.pointer.primary_down(),
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary),
+            i.pointer.interact_pos(),
+            i.pointer.press_origin(),
+        )
+    });
+    let Some(pos) = pos else {
+        return false;
+    };
+    // ★ The PRESS decides whether this gesture belongs to the box, not the
+    // current position. A sweep that starts inside and runs out over the page
+    // keeps selecting to the end of the text, which is what every text field
+    // does; a press that starts outside never becomes the draft's business no
+    // matter where it is dragged to.
+    let began_inside = origin.is_some_and(|o| layout.body.contains(o));
+
+    if double && began_inside {
+        // The word under the pointer. `word_left`/`word_right` are the same
+        // two functions `Ctrl+Left`/`Ctrl+Right` use, so a double click and a
+        // chord agree about where a word ends.
+        let at = layout.index_at(pos);
+        let from = word_left(&draft.text, (at + 1).min(draft.text.chars().count()));
+        let to = word_right(&draft.text, at);
+        draft.mark = Some(from);
+        draft.caret = to;
+        return true;
+    }
+    if pressed && began_inside {
+        draft.caret = layout.index_at(pos);
+        draft.mark = None;
+        return true;
+    }
+    if down
+        && began_inside
+        && let Some(origin) = origin
+    {
+        let from = layout.index_at(origin);
+        let to = layout.index_at(pos);
+        if from != to {
+            draft.mark = Some(from);
+            draft.caret = to;
+            return true;
+        }
+    }
+    false
+}
+
 /// **Remove whatever is selected**, and answer the caret.
 ///
 /// Answers `draft.caret` unchanged when nothing is selected, so a caller may
@@ -71,6 +149,18 @@ fn take_selection(draft: &mut Draft) -> usize {
     caret::delete_range(&mut draft.text, from, to)
 }
 
+/// **Consume this frame's keystrokes into the draft.**
+///
+/// Returns `true` when the draft was committed by Enter, so the caller knows the
+/// caret is gone.
+///
+/// # Why the events are read raw rather than through a `TextEdit` widget
+///
+/// Because the caret is painted in PDF space, on the page, at the glyphs' own
+/// scale — which is what *"just edit the existing box"* means. An `egui`
+/// `TextEdit` would be a second box floating over the first, and the old shell's
+/// one virtue here is worth keeping: it had a real caret in the page, and no
+/// widget in the typing path.
 pub fn typing(
     ui: &Ui,
     ctx: &egui::Context,
@@ -81,7 +171,11 @@ pub fn typing(
     let Some(mut draft) = read(ctx) else {
         return false;
     };
-    let mut changed = false;
+    // ★★ THE POINTER FIRST, and before the seam, because a press that lands
+    // in the box is the operator saying *where* the next keystroke goes — and
+    // a keystroke arriving in the same frame must land at the new caret rather
+    // than the old one.
+    let mut changed = pointer(ui, ctx, &mut draft);
     // The diagnostic seam, consumed exactly once per draft. See [`DIAG_TYPE`].
     if !draft.seeded {
         draft.seeded = true;
@@ -405,6 +499,171 @@ pub fn typing(
 mod tests {
     use super::*;
     use crate::canvas::textedit::TextEditKind;
+
+    /// A draft holding `text`, with the caret at the end and nothing selected.
+    fn draft_of(ctx: &egui::Context, text: &str) {
+        store(
+            ctx,
+            Draft {
+                page: 0,
+                kind: TextEditKind::Add,
+                anchor: Anchor::Origin { x: 10.0, y: 10.0 },
+                text: text.to_owned(),
+                caret: text.chars().count(),
+                mark: None,
+                seeded: true,
+            },
+        );
+    }
+
+    /// Lay `text` out and publish it as the editor box, the way `paint` does.
+    ///
+    /// ★ A REAL GALLEY, from the same font stack the shell draws with, because
+    /// the whole claim of `hit` is that the layout which is hit-tested is the
+    /// layout which was drawn. A stub that mapped x to an index would test the
+    /// arithmetic of a stub.
+    fn publish_layout(ctx: &egui::Context, text: &str) -> std::sync::Arc<egui::Galley> {
+        let galley = ctx.fonts_mut(|f| {
+            f.layout_no_wrap(
+                text.to_owned(),
+                egui::FontId::proportional(14.0),
+                // NOT A THEME COLOUR: a test fixture. This galley is laid out
+                // to be MEASURED, never drawn, and the colour is the one
+                // argument `layout_no_wrap` will not let us omit. Taking it
+                // from the theme would make the test depend on the palette to
+                // assert an arithmetic property of text layout.
+                egui::Color32::BLACK,
+            )
+        });
+        let origin = egui::pos2(100.0, 100.0);
+        hit::publish(
+            ctx,
+            hit::Layout {
+                body: egui::Rect::from_min_size(origin, galley.rect.size() + egui::vec2(8.0, 8.0)),
+                body_canvas: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1.0, 1.0)),
+                origin,
+                galley: galley.clone(),
+            },
+        );
+        galley
+    }
+
+    /// Where, on screen, the caret slot before character `i` sits.
+    fn slot_x(galley: &egui::Galley, i: usize) -> f32 {
+        100.0 + galley.pos_from_cursor(egui::text::CCursor::new(i)).min.x
+    }
+
+    /// Run one frame of `typing` with the given raw input.
+    fn frame(ctx: &egui::Context, input: egui::RawInput) {
+        let doc = crate::app::state::open_fixture(crate::app::state::FOUR_PAGES);
+        let inner = ctx.clone();
+        let mut actions = Vec::new();
+        let _ = ctx.run_ui(input, move |c| {
+            egui::CentralPanel::default().show(c, |ui| {
+                typing(ui, &inner, &doc, true, &mut actions);
+            });
+        });
+    }
+
+    /// Raw input placing the pointer at `x` on the editor box's line, with the
+    /// primary button in the given state.
+    fn at(x: f32, down: bool) -> egui::RawInput {
+        let mut input = egui::RawInput::default();
+        let pos = egui::pos2(x, 108.0);
+        input.events.push(egui::Event::PointerMoved(pos));
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: down,
+            modifiers: egui::Modifiers::NONE,
+        });
+        input
+    }
+
+    /// ★★★ **A DRAG ACROSS THE TEXT SELECTS WHAT IT CROSSED** — the pointer
+    /// half of `OPERATOR_REQUESTS.md` O14 item 11.
+    ///
+    /// Driven through the same function the keyboard goes through, with a real
+    /// galley published the way `paint` publishes one, so the hit test is the
+    /// inverse of the caret painter rather than a second guess at it.
+    #[test]
+    fn a_drag_across_the_editor_box_selects_what_it_crossed() {
+        let ctx = egui::Context::default();
+        // One frame to warm the font stack, so `fonts()` has a real atlas.
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let galley = publish_layout(&ctx, "SHEET 1 OF 4");
+        draft_of(&ctx, "SHEET 1 OF 4");
+
+        // Press before character 0, then drag to just past character 5.
+        frame(&ctx, at(slot_x(&galley, 0) + 1.0, true));
+        publish_layout(&ctx, "SHEET 1 OF 4");
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::PointerMoved(egui::pos2(
+            slot_x(&galley, 5),
+            108.0,
+        )));
+        frame(&ctx, input);
+
+        let after = read(&ctx).expect("the draft survives a pointer gesture");
+        assert_eq!(
+            caret::range(after.mark, after.caret),
+            Some((0, 5)),
+            "the sweep must select the characters it crossed, not place a caret"
+        );
+    }
+
+    /// ★★ **A press with no travel places the caret and clears any selection**,
+    /// which is the gesture that makes a sweep undoable by clicking.
+    #[test]
+    fn a_press_inside_the_box_places_the_caret_and_drops_the_selection() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let galley = publish_layout(&ctx, "SHEET 1 OF 4");
+        draft_of(&ctx, "SHEET 1 OF 4");
+        // Start with something selected, so the clearing is observable.
+        let mut d = read(&ctx).unwrap();
+        d.mark = Some(0);
+        d.caret = 5;
+        store(&ctx, d);
+
+        frame(&ctx, at(slot_x(&galley, 3) + 1.0, true));
+        let after = read(&ctx).expect("the draft survives a press");
+        assert_eq!(after.caret, 3, "the caret goes where the pointer is");
+        assert_eq!(
+            caret::range(after.mark, after.caret),
+            None,
+            "a press drops the selection - rule 4 in the pointer's dialect"
+        );
+    }
+
+    /// ★ **A press that begins OUTSIDE the box is not the draft's business**,
+    /// however far it is dragged into one. That is what keeps a marquee on the
+    /// page from turning into a text selection when it happens to cross the
+    /// editor.
+    #[test]
+    fn a_press_outside_the_box_never_becomes_a_selection() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let galley = publish_layout(&ctx, "SHEET 1 OF 4");
+        draft_of(&ctx, "SHEET 1 OF 4");
+
+        // Press well to the left of the box, then drag into it.
+        frame(&ctx, at(10.0, true));
+        publish_layout(&ctx, "SHEET 1 OF 4");
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::PointerMoved(egui::pos2(
+            slot_x(&galley, 5),
+            108.0,
+        )));
+        frame(&ctx, input);
+
+        let after = read(&ctx).expect("the draft survives");
+        assert_eq!(
+            caret::range(after.mark, after.caret),
+            None,
+            "a gesture that began off the box must not select inside it"
+        );
+    }
 
     /// **The oracle for *"it doesn't type anything in the box when I type"*.**
     ///

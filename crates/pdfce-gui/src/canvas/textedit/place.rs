@@ -66,6 +66,22 @@ pub fn click(
     click: &Click<'_>,
     actions: &mut Vec<crate::app::actions::Action>,
 ) -> Result<(), Refusal> {
+    // ★★★ A CLICK INSIDE THE EDITOR BOX BELONGS TO THE DRAFT, not to the page.
+    //
+    // Without this, clicking into the middle of what you are typing would
+    // commit the draft and open a new one from whatever run the PAGE has at
+    // that point — which after the first keystroke is not the text on screen,
+    // because the editor box covers the original glyphs. The operator's caret
+    // would land somewhere unrelated to where they clicked, and their draft
+    // would be committed by the act of trying to correct it.
+    //
+    // `canvas::textedit::keys::pointer` has already placed the caret from the
+    // galley that was actually drawn, so there is nothing to do here but stand
+    // aside. Answering `Ok(())` rather than a refusal is the honest report: the
+    // click was handled, just not by this function.
+    if crate::canvas::textedit::hit::owns_canvas(ctx, click.canvas_point) {
+        return Ok(());
+    }
     if let Some(existing) = read(ctx) {
         commit_into(ctx, &existing, actions);
         abandon(ctx);
@@ -232,6 +248,13 @@ pub fn begin_box(
     /// operator can have meant.
     const MIN_PT: f64 = 12.0;
 
+    // ★ A sweep that STARTS inside a live editor box is a text selection, not
+    // a new box — see `keys::pointer`, which has already made it one. Without
+    // this, dragging across what you are typing would commit that draft and
+    // open a second box on top of it.
+    if crate::canvas::textedit::hit::owns_canvas(ctx, from) {
+        return;
+    }
     let Some((a, b)) = crate::canvas::markup::band::endpoints(from, to, page) else {
         return;
     };

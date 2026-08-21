@@ -302,10 +302,23 @@ decided against.
     selection by one character and the next press fixes it, while reading it as
     absent **destroys the selection** and no keypress brings it back.
 
-    **Still open:** dragging across text to select it, and double-clicking a
-    word. The draft is drawn in an editor box floating over the page, and
-    hit-testing a pointer into it needs that box's layout published where the
-    click machinery can reach it. Real work, not a line.
+    ★★ **AND THE POINTER HALF LANDED 2026-08-21 TOO — but it is NOT yet
+    driven, and that distinction is the whole of this paragraph.** Drag across
+    the text in the editor box and it selects what you crossed; double-click a
+    word and it takes the word. Both are unit-tested against the **real** text
+    layout — the same one the caret is drawn from, so where the pointer lands
+    and where the caret appears cannot disagree — and the driven check that
+    sweeps the pointer across a live draft on your own drawing is **written and
+    has not been run**, because you came back to the keyboard and the harness
+    takes the cursor.
+
+    Until that check runs, this row is *built and unit-tested*, not *verified*.
+
+    ★ Two things it deliberately does: a sweep that **starts** in the box and
+    runs off onto the page keeps selecting to the end of the text, the way
+    every text field does; and a press that starts on the **page** never
+    becomes a text selection however far it is dragged into the box, so a
+    marquee that happens to cross the editor is still a marquee.
 
 **Dialogs**
 

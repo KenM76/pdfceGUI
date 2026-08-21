@@ -42,12 +42,18 @@
 //! A build with no rule 4 passes every "does Shift+Right select" assertion.
 //! This check presses Right afterwards and requires the shell to say `none`.
 //!
-//! # What is NOT covered, named rather than implied
+//! # ★★ The pointer half, added 2026-08-21
 //!
-//! **Drag-select and double-click-to-select-a-word.** Neither is built. The
-//! draft is drawn in an editor box in screen space and hit-testing a pointer
-//! into it needs the laid-out galley published where the click ladder can reach
-//! it — real work, not a line. `OPERATOR_REQUESTS.md` carries it as open.
+//! Step 6 sweeps the pointer across the editor box and requires a selection to
+//! come out of it. It is here rather than in a check of its own because it
+//! needs everything steps 1-3 establish — a mode, a tool, and a caret in a real
+//! run — and a second check would be a second copy of all of it.
+//!
+//! ★ **Double-click-to-select-a-word is built and is NOT driven here.** Its
+//! logic is unit-tested against a real galley, and a driven double click is a
+//! gesture this harness has had trouble synthesising before (see
+//! `a_synthetic_double_click_must_not_be_two_calls_to_a_settling_click_helper`
+//! in the egui RAG). Named rather than quietly implied by a green run.
 
 use crate::checks::driving::{SHELL_DIAG_ENV, click_mode_segment};
 use crate::checks::save_copy::{click_command, click_tab};
@@ -74,6 +80,8 @@ const PRESSES: usize = 3;
 /// `text-edit-typing … len=…` — the length of the run the caret is in NOW,
 /// which is not always the run that was clicked. See step 3.
 const TYPING_EVENT: &str = "text-edit-typing";
+/// The editor box's own declared region — the only way to aim at it. See step 6.
+const BOX_REGION: &str = "text-edit.box";
 
 /// See the module documentation.
 pub struct ShiftArrowsSelectText;
@@ -298,5 +306,61 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note("★★ and a plain Right dropped it, so no highlight is left behind".to_owned());
+
+    // --- 6: ★★★ SWEEP ACROSS THE TEXT WITH THE POINTER ----------------------
+    //
+    // The pointer half of item 11, added 2026-08-21. It is a separate step of
+    // this check rather than a check of its own because it needs everything
+    // steps 1-3 established — a mode, a tool, a caret in a real run — and a
+    // second check would be a second copy of all of it.
+    //
+    // ★ The editor box is aimed at through its OWN declared region. It is
+    // painted into the canvas rather than laid out as a widget, so it appears
+    // in no layout the harness can read; and aiming at it through the run's
+    // page coordinates would aim at the glyphs the box is COVERING, which is a
+    // different rectangle in a different place once the box takes its floor
+    // height at a low zoom.
+    let trace = session.trace()?;
+    let Some(area) = crate::checks::driving::declared(&trace, ui_rect, BOX_REGION) else {
+        return Err(Error::new(format!(
+            "the draft is live and no `{BOX_REGION}` region was declared, so there is nothing to \
+             sweep across. The editor box publishes it every frame it draws; its absence means \
+             the caret was committed or abandoned before this step. SKIPPED."
+        )));
+    };
+    let frame = crate::checks::driving::frame_of(&session, &trace, ui_rect, BOX_REGION)?;
+    // A tenth in from the left edge to nine tenths across: inside the box on
+    // both ends, so the gesture cannot be mistaken for one that began on the
+    // page. Vertically centred, which on a one-line draft is the text's row.
+    let from = frame.declared_at(area, 0.1, 0.5);
+    let to = frame.declared_at(area, 0.9, 0.5);
+    driver.drag(from, to)?;
+    session.settle(24);
+
+    let trace = session.trace()?;
+    let swept = trace
+        .events(SELECT_EVENT)
+        .filter_map(|l| l.get("n").and_then(|v| v.parse::<usize>().ok()))
+        .filter(|n| *n > 0)
+        .last();
+    let Some(swept) = swept else {
+        return Ok(Some(format!(
+            "★ THE POINTER SWEEP SELECTED NOTHING: the drag across the editor box raised no \
+             `{SELECT_EVENT}` line with a non-zero `n`.\n\
+             Three places to look, in order. `canvas::textedit::paint` must publish the box and \
+             the galley through `canvas::textedit::hit` — if it does not, the pointer handler \
+             has nothing to hit-test against and answers `false` every frame. \
+             `canvas::textedit::keys::pointer` must read `press_origin` rather than the current \
+             position to decide the gesture belongs to the box. And `place::click` must stand \
+             aside for a press inside the box, or the ladder commits the draft and opens a new \
+             one from the PAGE at that point — which is not the text on screen, because the box \
+             is covering it. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    report.note(format!(
+        "★★★ a pointer sweep across the box selected {swept} character(s) — the gesture that \
+         needed the galley to be shared rather than laid out twice"
+    ));
     Ok(None)
 }

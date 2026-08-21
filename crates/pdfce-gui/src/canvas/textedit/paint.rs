@@ -134,6 +134,9 @@ const PREVIEW_INSET_PT: f32 = 2.0;
 /// document's metrics would sit somewhere other than between the characters the
 /// operator can see — and would drift further with every keystroke. One string,
 /// one font, one size, measured once: the preview and the caret cannot disagree.
+/// The editor box's own region name. See its publication in [`preview`].
+pub const REGION_BOX: &str = "text-edit.box"; // ui-text-exempt: trace region name, never displayed
+
 pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
     let Some(draft) = read(ctx) else {
         return;
@@ -310,6 +313,25 @@ pub fn preview(ui: &Ui, ctx: &egui::Context, p: &Preview<'_>) {
     // for exactly that reason: it shows what the *next keystroke* will replace
     // and it is gone the moment the draft commits. Nothing about the applied
     // document is styled here.
+    // ★★ The box, published for the HARNESS as well as for the pointer
+    // handlers. A driven check that wants to sweep across a draft has no other
+    // way to find it: the editor is painted into the canvas rather than laid
+    // out as a widget, so it appears in no layout the harness can read, and a
+    // check aiming at it from the run's page coordinates would be aiming at
+    // the glyphs the box is covering rather than at the box.
+    crate::diag::ui_rect(REGION_BOX, body);
+    // ★ Publish the box and the galley for the pointer handlers. See
+    // `canvas::textedit::hit`: this is the ONE layout, and hit-testing it is
+    // the inverse of the `pos_from_cursor` the caret is drawn with.
+    crate::canvas::textedit::hit::publish(
+        ctx,
+        crate::canvas::textedit::hit::Layout {
+            body,
+            body_canvas: egui::Rect::from_two_pos(p.map.to_page(body.min), p.map.to_page(body.max)),
+            origin: text_origin,
+            galley: laid.clone(),
+        },
+    );
     selection(
         painter,
         &draft,

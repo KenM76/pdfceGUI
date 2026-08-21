@@ -187,6 +187,10 @@ pub mod blocks;
 /// split out under R2 on 2026-08-20. Pure functions of a `&str` and an index,
 /// with no window in them; its header says why that is a seam and not a cut.
 pub mod caret;
+/// Where the pointer is in relation to the editor box, published by `paint`
+/// and read by everything that has to decide whether a press belongs to the
+/// draft or to the page.
+pub mod hit;
 /// What every key means inside a draft — the keystroke contract, split out
 /// under R2 on the day the selection landed.
 pub mod keys;
