@@ -631,6 +631,7 @@ mod tests {
                 ui,
                 &status,
                 &mut crate::find::FindState::default(),
+                &mut crate::canvas::pick::PickFilter::default(),
                 &mut actions,
             );
         });
@@ -677,6 +678,7 @@ mod tests {
                 ui,
                 &status,
                 &mut crate::find::FindState::default(),
+                &mut crate::canvas::pick::PickFilter::default(),
                 &mut actions,
             );
         });
@@ -830,6 +832,7 @@ mod tests {
                 ui,
                 &status,
                 &mut crate::find::FindState::default(),
+                &mut crate::canvas::pick::PickFilter::default(),
                 &mut actions,
             );
         });

@@ -352,11 +352,20 @@ use egui::{Align, Layout, Vec2};
 
 use crate::app::actions::Action;
 use crate::app::state::{OpenDoc, Status};
+use crate::canvas::pick::PickFilter;
 use crate::find::FindState;
 use crate::text::find as t_find;
 use crate::text::forms as t_forms;
 use crate::text::status as t;
 use crate::viewer::FitMode;
+
+/// ★ The **Select** popup — what a click on the page may land on (O17).
+///
+/// The one control on this bar that is not a readout: everything else here
+/// reports what is true about the view, and this changes what the pointer
+/// does. Its header carries why that earns it both its own file and its own
+/// position at the left edge of the fixed cluster.
+pub(super) mod filter;
 
 // ---------------------------------------------------------------------------
 // Geometry — see the ★ R128 section of the module docs
@@ -447,6 +456,33 @@ const REGION_ZOOM: &str = "status-group:zoom"; // ui-text-exempt: trace region n
 /// The Find toggle.
 const REGION_FIND: &str = "status-group:find"; // ui-text-exempt: trace region name, never displayed
 
+/// The selection-filter button — the CLOSED control, not its popup.
+///
+/// The popup publishes its own rows separately (see [`REGION_FILTER_ROW`]),
+/// because a harness that can open a list but not choose from it can only
+/// assert *the control exists*, which is the one claim that is also true of
+/// every inert control.
+const REGION_FILTER: &str = "status-group:filter"; // ui-text-exempt: trace region name, never displayed
+
+/// The standing line shown when the filter has left nothing selectable.
+///
+/// A named region rather than a bare label, because the whole requirement for
+/// this sentence is that it is **on screen and legible** at the moment the
+/// canvas has stopped responding — and that can only be asserted about a rect
+/// the application published.
+const REGION_FILTER_EMPTY: &str = "status-group:filter-empty"; // ui-text-exempt: trace region name, never displayed
+
+/// Prefix for one row of the open filter popup: `status-filter-row:<index>`.
+///
+/// ★ **Indexed, not named.** Labels are operator copy and get reworded; an
+/// index is stable and a harness is choosing positionally anyway. The index is
+/// the position in [`PickClass::ALL`], which is also the display order.
+///
+/// These regions exist only on the frames the popup is open, which is what an
+/// `Area` laid out at paint time does — see
+/// `D:/dev/rag/egui/a_combobox_popup_is_an_area_laid_out_at_paint_time_so_only_the_app_can_publish_its_entry_rects.md`.
+const REGION_FILTER_ROW: &str = "status-filter-row"; // ui-text-exempt: trace region name, never displayed
+
 /// Trace slot for the bar's steady state, de-duplicated on the rendered line.
 const STATUS_SLOT: &str = "status"; // ui-text-exempt: trace slot name, never displayed
 
@@ -472,7 +508,13 @@ const STATUS_SLOT: &str = "status"; // ui-text-exempt: trace slot name, never di
 /// stays last because it takes whatever is left.
 ///
 /// Raises actions and mutates nothing — see the module docs.
-pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &mut Vec<Action>) {
+pub fn show(
+    ui: &mut egui::Ui,
+    status: &Status,
+    find: &mut FindState,
+    filter: &mut PickFilter,
+    actions: &mut Vec<Action>,
+) {
     // ★ One allocated row, of a height that does not depend on what there is
     // to show. R128; see the module docs for the measurement.
     let row = Vec2::new(ui.available_width(), ROW_HEIGHT_PTS);
@@ -623,6 +665,12 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
         // line takes a fraction of what *remains*, so the left half converges
         // and the right-to-left cluster opposite is what yields — the same
         // behaviour the render-notes line has always had.
+        // ★ Before the decline note, because it outranks it: a decline
+        // explains why one gesture did nothing, while this explains why
+        // EVERY gesture will. An operator reading the bar because the
+        // canvas stopped responding needs the general answer first.
+        filter::empty_note(ui, *filter);
+
         decline::show(ui, doc);
 
         // Right: the controls that must never move.
@@ -652,6 +700,15 @@ pub fn show(ui: &mut egui::Ui, status: &Status, find: &mut FindState, actions: &
             // width, fit page, zoom, page". The call order here is the reverse
             // of the reading order on screen; see the comment above this block.
             find_group(ui, find);
+            ui.separator();
+            // Added after Find, so it is drawn to Find's LEFT — the left
+            // end of the fixed cluster, which is the closest a
+            // right-to-left layout can put it to the canvas it governs.
+            // Everything to its right is about the VIEW (zoom, fit, which
+            // page); this is the only control on the bar that changes what
+            // the pointer does, so it sits at the boundary between the two
+            // rather than inside the view group.
+            filter::show(ui, filter);
         });
     });
 
@@ -975,7 +1032,7 @@ fn zoom_group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>) {
 /// descendants, and to nothing else.
 #[cfg(test)]
 pub(super) mod test_support {
-    use super::{Action, Status, show};
+    use super::{Action, PickFilter, Status, show};
     use crate::app::state::{FOUR_PAGES, open_fixture};
     use egui::{Context, Event, Key, Modifiers, RawInput};
 
@@ -1000,7 +1057,10 @@ pub(super) mod test_support {
         // controls, and the Find toggle writes its state directly rather than
         // raising an action, so nothing they assert can reach it.
         let mut find = crate::find::FindState::default();
-        let _ = ctx.run_ui(input, |ui| show(ui, status, &mut find, &mut actions));
+        let mut filter = PickFilter::default();
+        let _ = ctx.run_ui(input, |ui| {
+            show(ui, status, &mut find, &mut filter, &mut actions)
+        });
         actions
     }
 
@@ -1048,10 +1108,11 @@ pub(super) mod test_support {
     ) -> Option<(f32, usize)> {
         let mut height = f32::NAN;
         let mut find = crate::find::FindState::default();
+        let mut filter = PickFilter::default();
         let output = ctx.run_ui(RawInput::default(), |ui| {
             let mut actions = Vec::new();
             height = ui
-                .scope(|ui| show(ui, status, &mut find, &mut actions))
+                .scope(|ui| show(ui, status, &mut find, &mut filter, &mut actions))
                 .response
                 .rect
                 .height();
@@ -1090,10 +1151,11 @@ mod tests {
     fn bar_height(ctx: &Context, status: &Status) -> f32 {
         let mut height = f32::NAN;
         let mut find = FindState::default();
+        let mut filter = PickFilter::default();
         let _ = ctx.run_ui(RawInput::default(), |ui| {
             let mut actions = Vec::new();
             height = ui
-                .scope(|ui| show(ui, status, &mut find, &mut actions))
+                .scope(|ui| show(ui, status, &mut find, &mut filter, &mut actions))
                 .response
                 .rect
                 .height();

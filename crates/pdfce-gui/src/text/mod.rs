@@ -158,6 +158,18 @@ pub mod ocr;
 pub mod pages;
 /// Every string the dock's panel bodies show. Consumed by `crate::panels`.
 pub mod panels;
+/// ★ Every word the **selection filter** says — the status-bar control, the
+/// eleven class rows, and the standing line that appears when nothing at all
+/// is selectable. Consumed by `crate::app::status` and driven by
+/// `crate::canvas::pick`.
+///
+/// Its header carries the vocabulary argument, which is the interesting part:
+/// every row has a correct specification name that would be the wrong label,
+/// and the file explains each substitution — including why a form XObject is
+/// called a **Block**, borrowing the CAD word for the thing rather than
+/// inventing one or exposing "form XObject" to somebody who has not read the
+/// specification.
+pub mod pick;
 /// Every word the print dialog shows. Consumed by `crate::dialogs::print`.
 pub mod print;
 pub mod redact;

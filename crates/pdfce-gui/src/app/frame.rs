@@ -516,10 +516,48 @@ impl eframe::App for PdfceApp {
         egui::Panel::bottom("status")
             .exact_size(crate::app::status::HEIGHT_PTS)
             .show(ui, |ui| {
-                // Two disjoint field borrows through `self`, as at the canvas
-                // call site below: the bar reads the status and writes the
-                // Find toggle's own state.
-                crate::app::status::show(ui, &self.status, &mut self.find, &mut actions);
+                // Three disjoint field borrows through `self`, as at the
+                // canvas call site below: the bar reads the status and
+                // writes the Find toggle's and the selection filter's own
+                // state.
+                //
+                // ★ The filter is compared before and after rather than
+                // reporting its own change. `PickFilter` is `Copy` and
+                // eleven bytes wide, so a snapshot costs less than the
+                // dirty flag it replaces — and, more to the point, it
+                // cannot be forgotten by a future row added to the popup.
+                // A control that mutated the filter without setting a flag
+                // would persist nothing and look completely correct.
+                let filter_before = self.pick_filter;
+                crate::app::status::show(
+                    ui,
+                    &self.status,
+                    &mut self.find,
+                    &mut self.pick_filter,
+                    &mut actions,
+                );
+                if self.pick_filter != filter_before {
+                    // Immediately, not debounced: a filter can only change
+                    // on a discrete click, so one change is already one
+                    // operator decision. `pickstore`'s header carries the
+                    // contrast with the dock layout, which needs a delay
+                    // because a splitter drag reports one per frame.
+                    //
+                    // The error is traced and not shown. Losing a filter
+                    // across a restart is an inconvenience; a modal about a
+                    // preferences file, raised at the moment the operator
+                    // ticked a checkbox, would be worse than what it
+                    // reports.
+                    if let Err(err) = crate::app::pickstore::save(self.pick_filter) {
+                        crate::diag::trace(|| {
+                            format!(
+                                // ui-text-exempt: diagnostic trace, never displayed.
+                                "pick-filter-save-failed kind={}",
+                                err.kind()
+                            )
+                        });
+                    }
+                }
             });
 
         // Step 1c — the docks, between the ribbon and the canvas.

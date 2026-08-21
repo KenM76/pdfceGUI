@@ -101,6 +101,15 @@ pub mod lifecycle;
 pub mod modes;
 pub mod panels;
 pub mod persistence;
+/// ★ The **selection filter**, on disk — where it lives, and why it is written
+/// immediately where the dock layout is debounced.
+///
+/// The difference is the whole of the module: a splitter drag reports a change
+/// on every frame of the gesture, while a filter can only change on a discrete
+/// click, so one decision already equals one write. Its header also carries the
+/// three on-disk states and why *an empty file* must never be collapsed into
+/// *no file* — that would silently overrule a deliberate choice every restart.
+pub mod pickstore;
 
 /// ★ The shell's OWN preferences — how pdfce draws, as distinct from how it
 /// reads and writes PDFs.
@@ -432,6 +441,29 @@ pub struct PdfceApp {
     /// and for what an edit does to a hit list.
     pub find: crate::find::FindState,
 
+    /// ★ **What a click on the page is allowed to land on** — the operator's
+    /// selection filter (`OPERATOR_REQUESTS.md` O17).
+    ///
+    /// Here rather than on [`state::OpenDoc`], by this struct's own rule and
+    /// for the same reason [`Self::find`] is: it is a statement about **how
+    /// the operator works**, not about a document. Somebody who has switched
+    /// the drawing's line work off to reach a buried label wants it still off
+    /// when they open the next sheet — closing a file is not a reason to
+    /// undo a decision about how you point at things. It is persisted across
+    /// sessions for the same reason, and by the same argument
+    /// `crate::app::persistence` makes about the dock layout: *a
+    /// rearrangeable thing that forgets itself each restart is worse than a
+    /// fixed one*, because it charges the rearrangement every session and
+    /// teaches the operator not to bother.
+    ///
+    /// There is therefore **no `forget_document` seam** for this field, and
+    /// its absence is deliberate rather than an omission.
+    ///
+    /// See [`crate::canvas::pick`] for why the filter is subtractive, why
+    /// that makes its default a guarantee rather than a choice, and why it
+    /// composes with the mode's capabilities as an `AND`.
+    pub pick_filter: crate::canvas::pick::PickFilter,
+
     /// The modal dialogs — currently Print, and the place any other lands.
     ///
     /// Held on the application rather than inside the command arm that
@@ -732,6 +764,10 @@ impl PdfceApp {
 
         Self {
             status: Status::default(),
+            // The operator's saved selection filter, or everything the shell
+            // can pick if they have never set one. Never fails; see
+            // `pickstore`'s header for the three on-disk states.
+            pick_filter: pickstore::load(),
             // Nothing is parked because nothing is open. `document_count()`
             // reads this pair as "no documents at all" rather than "one empty
             // document", which is what keeps the tab strip off the screen
