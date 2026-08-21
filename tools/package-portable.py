@@ -202,7 +202,26 @@ ENGINE_CRATES = ["pdfce-core", "pdfce-render", "pdfce-print"]
 #: Operator instruction, 2026-08-17: *"can you put the last latest 2 builds on
 #: my onedrive? just put them in a folder called pdfceGUI1 and pdfceGUI2 and
 #: rotate the latest build between them."*
-MIRROR_ROOT = Path("C:/Users/Ken/OneDrive")
+#:
+#: ★★ **A LIST, since 2026-08-21**, on the operator's *"put it in the
+#: dropbox"*. Each root gets the identical two-slot rotation, independently:
+#: a root that is offline, locked or missing is skipped with a reason and the
+#: others still receive the build. That independence is the point rather than a
+#: convenience — OneDrive has now held a slot locked across two publishes
+#: (`WinError 32`, a failed rename), and a mirror that gave up on the first
+#: failure would have left every destination without the release because one
+#: sync client was busy.
+#:
+#: ★ The Dropbox path is the SUBST alias's target spelled out, not `R:\`. A
+#: subst drive exists only in the session that created it, and a scheduled or
+#: remote run of this script would find `R:\` absent and silently skip the
+#: mirror. The two are the same physical files, so writing both would be
+#: writing twice — see the operator's standing note about `R:\` and
+#: `D:\Stanley Dropbox\...` being one place.
+MIRROR_ROOTS = [
+    Path("C:/Users/Ken/OneDrive"),
+    Path("D:/Stanley Dropbox/Resource/Program Files"),
+]
 
 #: The two mirror slots, rotated so the newest build replaces the OLDER one.
 #:
@@ -756,8 +775,8 @@ def _bash() -> str:
     return shutil.which("bash") or "bash"
 
 
-def mirror(out: Path, forced: str | None = None) -> None:
-    """**Copy a finished build into the older of the two OneDrive slots.**
+def mirror(out: Path, root: Path, forced: str | None = None) -> None:
+    """**Copy a finished build into the older of `root`'s two slots.**
 
     Called after the package is assembled and verified, so a failed run never
     replaces a good mirrored build with a broken one — the rotation only ever
@@ -821,9 +840,9 @@ def mirror(out: Path, forced: str | None = None) -> None:
     correctly in `D:uilds`. Raising here would throw away a good package
     because a copy failed, so every problem prints and returns.
     """
-    if not MIRROR_ROOT.is_dir():
+    if not root.is_dir():
         print()
-        print(f"package-portable: mirror skipped - {MIRROR_ROOT} is not there.")
+        print(f"package-portable: mirror skipped - {root} is not there.")
         return
 
     def age_key(slot: str) -> float:
@@ -839,7 +858,7 @@ def mirror(out: Path, forced: str | None = None) -> None:
         Deliberately NOT `d.stat().st_mtime`; see the rotation note above for
         the two events that made mtime lie.
         """
-        d = MIRROR_ROOT / slot
+        d = root / slot
         if not d.is_dir() or not any(d.iterdir()):
             return -1.0
         info = d / "BUILD-INFO.txt"
@@ -883,7 +902,7 @@ def mirror(out: Path, forced: str | None = None) -> None:
         )
         marker = "  <- replacing this one" if slot == target_name else ""
         print(f"  {slot:<12} {when}{marker}")
-    target = MIRROR_ROOT / target_name
+    target = root / target_name
     keeps = [s for s in MIRROR_SLOTS if s != target_name]
 
     # ★ KEEP `userdata/` ACROSS A ROTATION.
@@ -908,7 +927,7 @@ def mirror(out: Path, forced: str | None = None) -> None:
     keep = target / "userdata"
     stash = None
     if keep.is_dir():
-        stash = MIRROR_ROOT / f".{target_name}-userdata-in-flight"
+        stash = root / f".{target_name}-userdata-in-flight"
         if stash.exists():
             shutil.rmtree(stash, ignore_errors=True)
         try:
@@ -1002,8 +1021,8 @@ def mirror(out: Path, forced: str | None = None) -> None:
     # | 2 rename the slot aside | the slot is locked — the case that fired twice | **the previous build**, untouched, because a failed rename moves nothing |
     # | 3 rename staging in | the previous build is at `.slot-outgoing` and the new one at `.slot-incoming`, and the message names both | nothing, briefly, and recoverably |
     # | 4 delete the old one | a stray hidden folder | **the new build** |
-    staging = MIRROR_ROOT / f".{target_name}-incoming"
-    outgoing = MIRROR_ROOT / f".{target_name}-outgoing"
+    staging = root / f".{target_name}-incoming"
+    outgoing = root / f".{target_name}-outgoing"
     try:
         if staging.exists():
             shutil.rmtree(staging, onerror=_force)
@@ -1570,7 +1589,11 @@ are in the program itself: File > pdfce > About pdfce.
     # Mirroring is the last thing that happens for exactly this reason. Every
     # payload file is on disk by now, and a mirror taken at any earlier point
     # is a copy of a directory that is still being built.
-    mirror(out, forced=args.slot)
+    # ★ Every root, independently. See MIRROR_ROOTS: one sync client being
+    # busy must not cost the others the release, and OneDrive has now held a
+    # slot locked across two publishes.
+    for mirror_root in MIRROR_ROOTS:
+        mirror(out, mirror_root, forced=args.slot)
 
     # ★ The engine's WORKING TREE is no longer a warning — it cannot reach the
     # binary. What IS worth a console line is the engine being ahead of the

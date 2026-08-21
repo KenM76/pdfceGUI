@@ -6,6 +6,12 @@
 **Newest published build: `OneDrive\pdfceGUI2`, 2026-08-21 07:53**, engine
 `10de389`, shell `6b20ab3`. `pdfceGUI1` holds 2026-08-20 06:03 as the fallback.
 
+**Also in the Dropbox:** `D:\Stanley Dropbox\Resource\Program Files\pdfceGUI1`
+(`R:\Program Files\pdfceGUI1`), byte-identical to the OneDrive release — on
+Ken's *"put it in the dropbox"*, 2026-08-21. The packager now mirrors to
+**both** roots on every publish, each with its own two-slot rotation, so this
+does not have to be done by hand again.
+
 ★ **Slot 2 again, and it was not the rotation's choice.** The packager wanted
 `pdfceGUI1` — the older slot — and OneDrive held it locked across two attempts
 (`WinError 32`, a failed rename, so nothing was moved and it still holds its
