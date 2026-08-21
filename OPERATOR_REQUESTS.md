@@ -278,7 +278,34 @@ decided against.
    all.
 10. Caret indices are characters, not grapheme clusters, so a combining mark or
     an emoji takes two presses. `unicode-segmentation` is already in the tree.
-11. **No selection inside a draft** — no Shift+arrow, no Ctrl+A, no drag-select.
+11. ~~**No selection inside a draft** — no Shift+arrow, no Ctrl+A, no
+    drag-select.~~ — **SHIPPED 2026-08-21 (keyboard half) AND DRIVEN.**
+    Shift+arrows, Shift+Home/End and Ctrl+A select; typing replaces the
+    selection, Backspace and Delete remove it, and any move without Shift drops
+    it. The highlight is drawn under the text, in the theme's own selection
+    colour, measured against the characters you can actually see.
+
+    ★★ **And Shift very nearly did not arrive at all.** The first driven run
+    moved the caret and selected nothing. With Shift physically held down
+    through three presses, the toolkit reported it as *held* to one half of the
+    program and *not held* to the other, on the same frame, three times running:
+
+    ```
+    ev=Modifiers::NONE  frame=Modifiers { shift: true }
+    ```
+
+    A key event is stamped with the modifier state at the moment it is
+    translated, and the modifier state itself arrives as a separate event; when
+    the two land together with the key first, the key carries nothing. The shell
+    now asks both, and the reason it is safe to is an asymmetry rather than a
+    preference: reading Shift as held a moment after it was released extends a
+    selection by one character and the next press fixes it, while reading it as
+    absent **destroys the selection** and no keypress brings it back.
+
+    **Still open:** dragging across text to select it, and double-clicking a
+    word. The draft is drawn in an editor box floating over the page, and
+    hit-testing a pointer into it needs that box's layout published where the
+    click machinery can reach it. Real work, not a line.
 
 **Dialogs**
 
