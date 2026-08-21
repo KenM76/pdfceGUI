@@ -94,6 +94,35 @@ const CARET_EVENT: &str = "text-edit-caret";
 /// the observable half of `Pass 119.0`: the prose disclosure goes to the status
 /// row for the operator, and this goes to the channel for a check.
 const TARGET_EVENT: &str = "edit-text-target";
+
+/// How many following absolutely-placed `Tm`s one edit may reposition before
+/// this check calls it a defect.
+///
+/// ★★ **This bound is a fact about the BUILD, not about the fixture.** Reflow
+/// shifts *the rest of the line* by the advance delta; a line is a handful of
+/// show operators in prose and often exactly one on a drawing. A number in the
+/// hundreds means the scan did not find the end of the line and ran on into the
+/// rest of the stream — which is true wherever it happens and on whatever
+/// document.
+///
+/// The number that earned it, measured by the engine on this operator's own
+/// benchmark drawing on 2026-08-20 (`Pass 121.1`):
+///
+/// | | `followers_repositioned` | changed pixels | bounding box |
+/// |---|---|---|---|
+/// | before the fix | **1,676** | 34,059 | x 62–858, y 34–795 — the whole page |
+/// | after | small | **42** | x 542–561, y 378–384 — one label |
+///
+/// The cause: reflow walked forward shifting every absolute `Tm` until a
+/// `Td`/`TD`/`T*` boundary, and **a CAD stream positions everything with `Tm`
+/// and never emits `Td`** — so there was no boundary. One four-character edit
+/// slid the rest of the drawing sideways.
+///
+/// 64 is deliberately generous: it is far above any real line and two orders of
+/// magnitude below the failure. A bound tuned close to the observed-good value
+/// would fail on the first document with a long justified line, and a check that
+/// cries wolf gets disabled.
+const MAX_FOLLOWERS: u64 = 64;
 const DECLINED_EVENT: &str = "text-edit-declined";
 
 /// See the module documentation.
@@ -445,6 +474,57 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     };
     report.note(format!("★ the edit named its buffer: `{}`", target.raw));
+
+    // --- 8: ★★★ AND IT DID NOT MOVE THE REST OF THE DRAWING ---------------
+    //
+    // The assertion that would have caught `Pass 121.1` before the operator
+    // did — and the engine's own request when it shipped the fix:
+    //
+    // > *"Surface `followers_repositioned`. It is the cheapest tell that a
+    // > reflow over-reached: on absolutely-placed content it should be `0`, and
+    // > a large number means the edited 'line' ran further than the line. If
+    // > you show one number from an edit report beyond the disclosures, make it
+    // > that one."*
+    //
+    // ★ Note what this is NOT: it is not a pixel oracle, and the standing rule
+    // says a trace cannot tell you the screen changed. It does not need to. The
+    // claim being checked is about the SCOPE of a rewrite — how many operators
+    // in the content stream were touched — and that is a number the engine
+    // measured and this shell forwards. A screenshot would show the damage
+    // without naming its size, and the size is what distinguishes "reflow
+    // worked" from "reflow ran to the end of the stream".
+    //
+    // A missing field parses to `MAX_FOLLOWERS + 1` rather than 0, so a build
+    // that stopped reporting fails here instead of passing silently. The safe
+    // direction: a check that could not read the number must not report that
+    // the number was fine.
+    let followers: u64 = target
+        .get("followers")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_FOLLOWERS + 1);
+    if followers > MAX_FOLLOWERS {
+        let shot = ctx.out("text-edit-followers.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+        }
+        return Ok(Some(format!(
+            "★ ONE EDIT REPOSITIONED {followers} FOLLOWING OPERATORS. A line is a handful of \
+             show operators in prose and often exactly one on a drawing; a number in the \
+             hundreds means the reflow scan never found the end of the line and ran on into the \
+             rest of the stream.\n\
+             That is `Pass 121.1` (engine, 2026-08-20): a CAD stream positions everything with \
+             `Tm` and never emits the `Td`/`TD`/`T*` the scan was looking for as a boundary. One \
+             four-character edit moved 1,676 labels and changed 34,059 pixels across the whole \
+             sheet. If this fires, either the engine has regressed or this build links a \
+             revision older than `bab0a23`.\n\
+             A capture is attached: compare it against the page before the edit. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "★★ the edit stayed inside its own line: {followers} following operator(s) \
+         repositioned, against 1,676 on the same drawing before the engine's `Pass 121.1`"
+    ));
     // ★★ …and the shared-content fan-out, REPORTED rather than asserted.
     //
     // A form XObject may legally be painted from several pages, so an edit

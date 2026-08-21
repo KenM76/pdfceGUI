@@ -191,6 +191,45 @@ def build_content() -> bytes:
     out.append(show("MOVING FOLLOWER"))
     out.append("ET\n")
 
+    # --- D. TWO RUNS ON ONE BASELINE, ONE BT/ET ---------------------------
+    #
+    # ★★ Added 2026-08-20, and it is the only block in this fixture that
+    # reflow still moves.
+    #
+    # The engine's `Pass 121.1` narrowed the reflow walk: a following ``Tm``
+    # continues the edited line **only if it differs in ``e`` alone** — same
+    # orientation, same scale, same baseline. Before that it walked forward
+    # shifting every absolute ``Tm`` until a ``Td``/``TD``/``T*`` boundary,
+    # and a CAD stream positions everything with ``Tm`` and never emits
+    # ``Td``, so one four-character edit on the operator's real drawing moved
+    # **1,676 labels** and changed 34,059 pixels across the whole sheet.
+    #
+    # ★ That fix made blocks A, B and C stop being falsifiable. Every
+    # follower in them sits on a DIFFERENT baseline (or a different
+    # orientation), so reflow no longer reaches any of them — which is
+    # exactly right, and which left this fixture with no case where the
+    # engine's default moves anything. A fixture that cannot exhibit the
+    # hazard cannot prove a rule that prevents it: the two falsifying
+    # assertions in ``proof.rs`` went quiet, and a quiet falsifier is a test
+    # that has stopped measuring.
+    #
+    # So: two runs at the SAME ``f``, differing in ``e`` alone. That is a
+    # single visual line drawn as two show operators — one table cell beside
+    # another, a title-block field beside its label — which is the
+    # overwhelmingly common shape on this operator's documents and the one
+    # case where "the rest of the line" genuinely is the rest of a line.
+    #
+    # The second run is placed past the first's advance so the two do not
+    # overlap; the exact x is computed rather than guessed for the reason
+    # every other coordinate here is.
+    same_line_x = 72.0 + advance("CELL ONE") + 12.0
+    out.append("BT\n/F1 12 Tf\n")
+    out.append("1 0 0 1 72.00 140.00 Tm\n")
+    out.append(show("CELL ONE"))
+    out.append(f"1 0 0 1 {same_line_x:.2f} 140.00 Tm\n")
+    out.append(show("CELL TWO"))
+    out.append("ET\n")
+
     return "".join(out).encode("latin-1")
 
 
@@ -248,6 +287,15 @@ def main() -> None:
     ):
         x = RIGHT_EDGE - advance(text)
         print(f"  {label}: x={x:.2f} width={advance(text):.2f} text={text!r}")
+    # ★ Block D's second run, which `proof.rs` scans for by its exact operand
+    # triple. Printed rather than duplicated in two files, for the reason the
+    # three above are: a check that hard-codes a coordinate this script
+    # computes is a check that silently aims at blank paper the day a width
+    # changes.
+    print(
+        f"  D follower: 1 0 0 1 {72.0 + advance('CELL ONE') + 12.0:.2f} 140.00 Tm"
+        "   (the ONLY Tm in this fixture that reflow still moves)"
+    )
 
 
 if __name__ == "__main__":

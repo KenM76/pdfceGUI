@@ -77,6 +77,12 @@ pub mod diagnostics;
 /// `pdfce-core`: every generic PDF-to-DXF converter exports at paper scale and
 /// says nothing, so a 1:2 detail arrives at half size **looking plausible**.
 pub mod export_dxf;
+/// ★★ **A dialog is an OS window** — the operator's report of 2026-08-20, and
+/// `ui-conventions/dialogs.md` G1. One host, so the path of least resistance
+/// and the right answer are the same call; its header carries what an OS
+/// window actually buys, how it degrades on the web target, and the two rows
+/// (G3 ownership, G5 focus trapping) that eframe 0.35 cannot express.
+pub mod host;
 pub mod insert_image;
 pub mod insert_pages;
 pub mod new_document;

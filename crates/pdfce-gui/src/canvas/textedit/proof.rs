@@ -335,9 +335,32 @@ fn upright_left_aligned_text_still_reflows() {
 /// * under `EditOptions::default()` — the old shell's only call site — it is
 ///   rewritten with `e` increased by the advance delta, and the string is gone.
 ///
-/// The `assert_ne!` at the end is what stops this passing vacuously: if the two
-/// runs produced the same bytes the fixture would not be exercising the defect
-/// at all, and a green result would mean nothing.
+/// # ★★★ THIS TEST CHANGED MEANING ON 2026-08-20, AND THE REASON IS A FIX
+///
+/// It used to end with a **falsifier**: an assertion that `EditOptions::default()`
+/// — plain `Reflow`, what the old shell always passed — *does* move line 3's
+/// `Tm`, proving the fixture exercised the defect. That assertion now fails,
+/// and the honest response is not to delete it.
+///
+/// The engine's `Pass 121.1` narrowed the reflow walk. It used to shift every
+/// absolute `Tm` it passed until a `Td`/`TD`/`T*` boundary; it now continues a
+/// line **only through a `Tm` that differs in `e` alone** — same orientation,
+/// same scale, same baseline. Lines 2 and 3 of this block sit on different
+/// baselines, so reflow no longer reaches them at all.
+///
+/// The number that earned that change, measured on the operator's real drawing:
+/// a four-character edit reported `followers_repositioned=1676` and changed
+/// **34,059 pixels across the whole sheet**, because a CAD stream positions
+/// everything with `Tm` and never emits the `Td` the walk was looking for.
+/// After the fix the same edit changed 42 pixels inside one label.
+///
+/// So the control is **inverted**, and it is worth more inverted than it was
+/// before: it now asserts that *the engine's own default is safe for this
+/// shape*, which is precisely the property `Pass 121.1` established and
+/// precisely what would break if the walk were ever loosened again. The shell's
+/// `Pin` rule is now belt-and-braces here rather than the only defence — and
+/// the case where it is still the only defence has its own test and its own
+/// block in the fixture: see [`a_same_baseline_follower_is_the_case_pinning_still_prevents`].
 #[test]
 fn the_right_aligned_tail_is_left_exactly_where_it_was() {
     const TAIL: &str = "412.64 668.00 Tm";
@@ -346,7 +369,7 @@ fn the_right_aligned_tail_is_left_exactly_where_it_was() {
         "REVISION BBBB",
         &disposition::options(Reason::Flush(pdfce_core::text_edit::BlockAlignment::Right)),
     );
-    let broken = appended_after_edit("REVISION B", "REVISION BBBB", &EditOptions::default());
+    let reflowed = appended_after_edit("REVISION B", "REVISION BBBB", &EditOptions::default());
 
     assert!(
         holds(&fixed, TAIL),
@@ -354,14 +377,12 @@ fn the_right_aligned_tail_is_left_exactly_where_it_was() {
          `{TAIL}` is not in the appended revision"
     );
     assert!(
-        !holds(&broken, TAIL),
-        "★ THE FALSIFIER DID NOT FIRE. `EditOptions::default()` is what the old \
-         shell passed, and it must move this Tm — if it does not, this fixture is \
-         not exercising D4b and the assertion above is worthless"
-    );
-    assert_ne!(
-        fixed, broken,
-        "the two dispositions must produce different bytes"
+        holds(&reflowed, TAIL),
+        "★ THE ENGINE'S REFLOW REACHED ANOTHER BASELINE. `Pass 121.1` narrowed the walk so a \
+         following Tm continues the edited line only if it differs in `e` alone, and line 3 of \
+         this block differs in `f` too. If this fires, either the walk has been loosened again \
+         or this build links an engine older than `bab0a23` — the revision where one \
+         four-character edit moved 1,676 labels."
     );
 }
 
@@ -398,12 +419,80 @@ fn the_rotated_tail_is_not_slid_along_the_wrong_axis() {
         "a rotated follower must be re-emitted verbatim; `{TAIL}` is not in the \
          appended revision"
     );
+    // ★ Inverted on 2026-08-20 for the same reason as its right-aligned
+    // sibling, and here the engine's rule bites harder: a rotated follower
+    // differs from the edited run in `a`, `b`, `c` AND `d`, so `Pass 121.1`'s
+    // "differs in `e` alone" test ends the line at the first character of it.
+    //
+    // ★★ Note what is NOT weakened by this. The shell still answers
+    // `Reason::Rotated` and still pins, and it must: the engine's rule is about
+    // where a line ENDS, and this shell's is about text whose baseline does not
+    // run left-to-right, where adding a scalar to `e` is the right magnitude on
+    // the wrong axis. Two different guards against two different errors that
+    // happened to have one victim in this fixture.
     assert!(
-        !holds(&broken, TAIL),
-        "★ THE FALSIFIER DID NOT FIRE — `EditOptions::default()` must displace \
-         this Tm, or the fixture is not exercising the rotation case"
+        holds(&broken, TAIL),
+        "★ THE ENGINE'S REFLOW CROSSED AN ORIENTATION CHANGE. `Pass 121.1` ends the edited \
+         line at any following Tm that differs in more than `e`, and a quarter-turn matrix \
+         differs in all four of a, b, c and d. If this fires, the walk has been loosened or \
+         this build links an engine older than `bab0a23`."
     );
-    assert_ne!(fixed, broken);
+}
+
+/// ★★★ **The case pinning still uniquely prevents: two runs on ONE baseline.**
+///
+/// Block D of the fixture, added 2026-08-20 with this test, and it exists
+/// because `Pass 121.1` left the other three blocks unable to falsify anything.
+///
+/// # Why a fixture that cannot exhibit the hazard is a fixture that proves
+/// # nothing
+///
+/// The engine's fix stopped reflow reaching any follower in blocks A, B or C —
+/// every one of them sits on a different baseline or at a different
+/// orientation. That is correct and it is what the fix was for. It also meant
+/// that both falsifying assertions in this file went quiet, and **a quiet
+/// falsifier is a test that has stopped measuring**: the two `Pin` assertions
+/// beside them would have gone on passing against a build that pinned nothing,
+/// because nothing was going to move either way.
+///
+/// So the fixture grew the one shape reflow still acts on: two show operators
+/// at the same `f`, differing in `e` alone. That is a single visual line drawn
+/// as two runs — a table cell beside another, a title-block field beside its
+/// label — which is the overwhelmingly common shape on this operator's
+/// documents and the one case where *"the rest of the line"* genuinely is the
+/// rest of a line.
+///
+/// This is therefore the test that tells the shipped rule from a build that
+/// pins nothing, and the `assert_ne!` is what stops it passing vacuously.
+#[test]
+fn a_same_baseline_follower_is_the_case_pinning_still_prevents() {
+    // Computed by `tools/gen-textedit-fixtures.py` and printed by it, never
+    // guessed: `72.00 + advance("CELL ONE") + 12.00`.
+    const TAIL: &str = "144.67 140.00 Tm";
+    let pinned = appended_after_edit(
+        "CELL ONE",
+        "CELL ONE LONGER",
+        &disposition::options(Reason::SharesTheLine),
+    );
+    let reflowed = appended_after_edit("CELL ONE", "CELL ONE LONGER", &EditOptions::default());
+
+    assert!(
+        holds(&pinned, TAIL),
+        "pinning must leave a same-baseline follower's Tm verbatim; `{TAIL}` is not in the \
+         appended revision"
+    );
+    assert!(
+        !holds(&reflowed, TAIL),
+        "★ THE FALSIFIER DID NOT FIRE. A follower differing in `e` ALONE is the one shape \
+         `Pass 121.1` still lets reflow move, so `EditOptions::default()` must rewrite this Tm. \
+         If it does not, block D of the fixture is not the shape it is documented to be — \
+         regenerate it with `python tools/gen-textedit-fixtures.py` — and every Pin assertion \
+         in this file is passing for the wrong reason."
+    );
+    assert_ne!(
+        pinned, reflowed,
+        "the two dispositions must produce different bytes"
+    );
 }
 
 /// ★ **The edit itself reaches the bytes**, under both dispositions.

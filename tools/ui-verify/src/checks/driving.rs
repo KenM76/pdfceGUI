@@ -136,6 +136,107 @@ pub fn declared(trace: &Trace, ui_rect: &str, name: &str) -> Option<LRect> {
     if retired_after { None } else { Some(rect) }
 }
 
+/// The `viewport-inner` event: a child viewport's client rectangle, in
+/// **desktop logical points**.
+pub const VIEWPORT_INNER_EVENT: &str = "viewport-inner";
+
+/// **The frame a declared region's coordinates are relative to.**
+///
+/// # ★★★ Why a region needs this at all, as of 2026-08-20
+///
+/// Every `ui-rect` rectangle is relative to **the viewport that drew it**.
+/// There was one viewport until `crate::checks` was written and until this
+/// harness's whole coordinate model was built, so
+/// `session.frame()?.declared_center(rect)` — add the application window's
+/// client origin — was right everywhere.
+///
+/// `dialogs::host` made a dialog a real OS window. Its regions publish
+/// rectangles that look **exactly like** the ones this harness has always
+/// converted and name a place several hundred points away, because the origin
+/// they are relative to is the dialog's client area rather than the
+/// application's.
+///
+/// That is a coordinate-space defect with plausible numbers, which is the
+/// single most expensive shape of bug in this project's record — `D:/dev/rag/egui/`
+/// carries three instances, every one presenting as *"the click lands somewhere
+/// else"*. The application therefore tags each region with the viewport that
+/// drew it and publishes that viewport's own origin, and this function joins
+/// the two.
+///
+/// # What it returns
+///
+/// The `WindowFrame` to convert with. For an untagged region — the application
+/// window, which is every region that existed before this — that is
+/// `session.frame()`, unchanged, so no existing call site changes behaviour.
+///
+/// # ★ Why an absent `viewport-inner` is an ERROR and not a fallback
+///
+/// Because falling back to the main window's frame would produce a **click at
+/// a plausible wrong place**, which is precisely the failure this exists to
+/// prevent, arriving through the code written to prevent it. A tagged region
+/// with no published origin means the application drew a dialog and did not say
+/// where — a defect worth reporting, not one worth guessing around.
+pub fn frame_for(session: &Session, trace: &Trace, viewport: Option<&str>) -> Result<WindowFrame> {
+    let main = session.frame()?;
+    let Some(id) = viewport else {
+        return Ok(main);
+    };
+    let inner = trace
+        .events(VIEWPORT_INNER_EVENT)
+        .filter(|l| l.get("id") == Some(id))
+        .filter_map(|l| l.get_rect("rect"))
+        .last()
+        .ok_or_else(|| {
+            Error::new(format!(
+                "a region was published in viewport `{id}` and no \
+                 `{VIEWPORT_INNER_EVENT} id={id}` line says where that viewport is. The \
+                 harness refuses to convert against the application window instead: the \
+                 numbers would be plausible and the click would land somewhere else, which is \
+                 the exact defect the tag exists to prevent. Look at \
+                 `dialogs::host::Host::show`, which publishes it."
+            ))
+        })?;
+    // ★ The dialog's own client origin, in DESKTOP PIXELS.
+    //
+    // `viewport-inner` is in egui's logical points of monitor space, and
+    // `WindowFrame::client_origin` is in pixels — the same relationship
+    // `to_screen` already applies to a window point, applied once here to the
+    // origin instead of once per point. The scale is the application's, which
+    // is correct: a child viewport of the same application renders at the same
+    // scale, and a per-monitor difference is a case neither this harness nor
+    // the application handles yet.
+    Ok(WindowFrame {
+        client_origin: (
+            (inner.min.x * main.scale).round() as i32,
+            (inner.min.y * main.scale).round() as i32,
+        ),
+        client_size: (
+            ((inner.max.x - inner.min.x) * main.scale).round() as u32,
+            ((inner.max.y - inner.min.y) * main.scale).round() as u32,
+        ),
+        scale: main.scale,
+    })
+}
+
+/// **A region's rectangle and the viewport it was drawn in.**
+///
+/// [`declared`]'s twin, for a caller that is going to CLICK the region rather
+/// than measure it. The rectangle alone is not enough to aim with once dialogs
+/// have their own windows — see [`frame_for`].
+///
+/// Shares `declared`'s retirement rule, and shares it by calling it: a region
+/// that has been retired is not declared, whichever viewport drew it.
+#[must_use]
+pub fn declared_in(trace: &Trace, ui_rect: &str, name: &str) -> Option<(LRect, Option<String>)> {
+    let rect = declared(trace, ui_rect, name)?;
+    let viewport = trace
+        .events(ui_rect)
+        .filter(|l| l.get("name") == Some(name))
+        .last()
+        .and_then(|l| l.get("viewport").map(str::to_owned));
+    Some((rect, viewport))
+}
+
 /// **A region's rectangle, once it has stopped moving.**
 ///
 /// Reads the region, settles, reads it again, and repeats until two consecutive

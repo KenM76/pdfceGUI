@@ -75,27 +75,39 @@
 //!
 //! Corpus: `ui-conventions/dialogs.md`.
 //!
-//! - G1 is-an-os-window: **GAP, and it is the operator's report of 2026-08-20** —
+//! - G1 is-an-os-window: **DONE 2026-08-20** — this was the operator's report,
 //!   *"doesn't pop up in its own movable window. It is locked within the
-//!   boundaries of the program's window."* Every dialog here is an
-//!   `egui::Window`, which is an in-viewport panel. egui can already do the real
-//!   thing through `show_viewport_immediate`; the panel was the path of least
-//!   resistance and nothing pushed back.
+//!   boundaries of the program's window."* It is now a real OS window through
+//!   [`crate::dialogs::host`]: title bar, taskbar entry, draggable outside the
+//!   application and onto a second monitor. It degrades to the old in-viewport
+//!   window on a backend with no multi-viewport support, which is the web
+//!   target, and egui owns that fallback rather than this file.
 //! - G2 use-the-os-dialog: the file and save pickers are the system's, and
 //!   `pdfce-print` opens the native printer-properties sheet owned by our
 //!   window. The dialogs in this directory are pdfce's own because they carry
 //!   choices only pdfce has — which is the right reason to draw one, and does
 //!   not excuse G1.
-//! - G3 owned-by-the-app: the native pickers are; an in-viewport panel cannot be
-//!   anything else. This becomes a live question the moment G1 is fixed.
-//! - G4 enter-accepts-escape-cancels: **PARTIAL** — Escape closes; Enter is not
-//!   wired as the affirmative default and no button is drawn as the default, so
-//!   an operator who types into the last field and presses Enter gets nothing.
+//! - G3 owned-by-the-app: the native pickers are. The dialog window itself is
+//!   **not**, and cannot be: `eframe 0.35`'s `ViewportBuilder` has no owner
+//!   option and `egui-winit` never passes egui's own `viewport_parents` down to
+//!   `winit`. `crate::dialogs::host`'s header carries the whole account,
+//!   including why `with_always_on_top` was considered and refused. **GAP**,
+//!   and a named one.
+//! - G4 enter-accepts-escape-cancels: **DONE 2026-08-20** — Escape closes, the
+//!   OS close button closes, Enter presses Print, and Print is drawn in the
+//!   theme's selection fill so an operator can see what Enter will do.
+//!   [`crate::dialogs::host::Host::buttons`] owns all three so no dialog can
+//!   implement two of them.
 //! - G5 keyboard-reachable: **GAP** — egui's tab order is positional and nothing
 //!   here asserts that focus starts in a sensible field or that a modal traps
 //!   it.
-//! - G6 remembers-position: **GAP** — anchored `CENTER_CENTER` every time, so a
-//!   dialog the operator moved comes back to the middle of the window.
+//! - G6 remembers-position: **PARTIAL 2026-08-20** — it comes back where it was
+//!   left for as long as the dialog object lives, which is the whole session it
+//!   is open. It does **not** survive being closed and reopened, and it does not
+//!   survive a restart: a remembered position has to be validated against the
+//!   current monitor layout, and a dialog that opens on a monitor which is no
+//!   longer attached is worse than one that opens where the platform puts it.
+//!   See `dialogs::host`.
 //! - G7 destructive-verbs-named: the unsaved-changes dialog names the file and
 //!   labels its buttons with verbs rather than Yes/No.
 //! - G8 cancel-is-silent: a cancelled picker is a complete, correct,
@@ -355,6 +367,30 @@ pub struct PrintDialog {
     /// both closes — the button's and the title bar's — through one `open`
     /// flag means there is one close path rather than two that can disagree.
     close_requested: bool,
+    /// ★ **This dialog's OS window.**
+    ///
+    /// Held on the dialog rather than created per frame, because it carries the
+    /// position the operator dragged the window to — see
+    /// [`crate::dialogs::host::Host`] for why that memory is session-scoped and
+    /// what it deliberately does not persist.
+    ///
+    /// # ★★ Why it is an `Option`, and why that is the same idiom as the canvas
+    ///
+    /// It is **taken out for the duration of the frame's draw** and put back at
+    /// the end. `Host::show` needs `&mut` on the host while the closure it is
+    /// handed needs `&mut` on the rest of this struct — `body` and `footer` both
+    /// take `&mut self` — and the borrow checker cannot see that those are
+    /// disjoint fields through a method call.
+    ///
+    /// `canvas::interact` does exactly this with the selection and states the
+    /// reason in the same words: *"out of the document for the duration of the
+    /// frame's gesture … taken by value, put back at the bottom, and a frame
+    /// that panicked between the two leaves an empty one rather than a
+    /// half-updated one."* Here an empty one costs the remembered position and
+    /// nothing else, and the next frame rebuilds it — so the failure mode is a
+    /// dialog that opens where the platform puts it, which is where it opens on
+    /// the first frame anyway.
+    host: Option<crate::dialogs::host::Host>,
 }
 
 impl PrintDialog {
@@ -420,6 +456,14 @@ impl PrintDialog {
             outcome: None,
             commit_requested: false,
             close_requested: false,
+            // ★ The size argument is unchanged and moved here verbatim from
+            // the `egui::Window` this replaced. The floor is not a preference:
+            // `resizable` with no minimum lets the operator drag the window
+            // down to a title bar and a scrollbar, which is a state with no way
+            // back except closing it — and closing this dialog discards the job
+            // they were configuring. 520 x 380 is the smallest size at which
+            // one column and both scrollbars are still usable.
+            host: Some(Self::new_host()),
         }
     }
 
@@ -431,6 +475,25 @@ impl PrintDialog {
     /// affordable because planning is arithmetic over a page-size list; the
     /// two things that are *not* affordable per frame (enumerating printers,
     /// asking a driver about duplex) are the two that are not done here.
+    /// This dialog's window, built from one place so the constructor and the
+    /// rebuild-after-a-panic path cannot disagree about its size.
+    ///
+    /// ★ The size argument is unchanged and carried verbatim from the
+    /// `egui::Window` this replaced. The floor is not a preference:
+    /// `resizable` with no minimum lets the operator drag the window down to a
+    /// title bar and a scrollbar, which is a state with no way back except
+    /// closing it — and closing this dialog discards the job they were
+    /// configuring. 520 x 380 is the smallest size at which one column and
+    /// both scrollbars are still usable.
+    fn new_host() -> crate::dialogs::host::Host {
+        crate::dialogs::host::Host::new(
+            "print", // ui-text-exempt: a viewport key, never displayed.
+            t::dialog_title(),
+            egui::vec2(800.0, 620.0),
+            egui::vec2(520.0, 380.0),
+        )
+    }
+
     pub(super) fn show(
         &mut self,
         ctx: &egui::Context,
@@ -476,54 +539,62 @@ impl PrintDialog {
             self.preview_page = self.preview_page.min(job.plans.len().saturating_sub(1));
         }
 
-        let mut open = true;
-        egui::Window::new(t::dialog_title())
-            .collapsible(false)
-            .resizable(true)
-            .default_size([800.0, 620.0])
-            // A floor, not a preference. `resizable(true)` without one lets
-            // the operator drag the window down to a title bar and a
-            // scrollbar, which is a state with no way back except closing it —
-            // and closing this dialog discards the job they were configuring.
-            // The floor is the smallest size at which one column and both
-            // scrollbars are still usable.
-            .min_size([520.0, 380.0])
-            // Anchored to the SCREEN, never to the document: the operator's
-            // objection was to controls whose position is derived from the
-            // page and therefore move on every zoom and scroll.
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                if let Some(unavailable) = &self.unavailable {
-                    // No printer list, no printer to choose, nothing to
-                    // preview. Two sentences and a Close button: the general
-                    // one an operator acts on, then the engine's own account
-                    // of what failed, which is the half they can quote at
-                    // whoever administers the machine.
-                    //
-                    // The specific line is `.small().weak()` for the same
-                    // reason the settings window's store-location line is:
-                    // it is a fact the reader may need and is not the thing
-                    // they are being told. Making it as loud as the sentence
-                    // above would put a Win32 error code at the same weight
-                    // as "nothing has been sent".
-                    ui.label(t::spooler_unavailable());
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(t::spooler_detail(&unavailable.to_string()))
-                            .small()
-                            .weak(),
-                    );
-                    return;
-                }
-                if self.printers.is_empty() {
-                    ui.label(t::no_printers());
-                    return;
-                }
-                self.body(ui, doc, job.as_ref(), &page_sizes);
-                ui.separator();
-                self.footer(ui, job.as_ref());
-            });
+        // ★★ A REAL OS WINDOW, as of 2026-08-20. The operator's report:
+        //
+        // > *"Print dialogue box doesn't pop up in its own movable window. It
+        // > is locked within the boundaries of the program's window."*
+        //
+        // The title, the size and the floor are unchanged; what changed is the
+        // host. Everything the closure below does is what it did inside
+        // `egui::Window`, because a `Ui` is a `Ui` — which is the point of
+        // routing this through `dialogs::host` rather than open-coding
+        // `show_viewport_immediate` here: the next dialog is one line, not a
+        // second implementation to keep level with this one.
+        //
+        // ★ The screen-anchoring note that stood here is retired rather than
+        // moved. It said the window is anchored to the SCREEN and never to the
+        // document, against an operator objection to controls that move on
+        // every zoom and scroll. An OS window is anchored to the DESKTOP, which
+        // satisfies that objection more completely than the anchor did — and
+        // the anchor's other half, `CENTER_CENTER` on every frame, was G6's
+        // defect: it dragged the window back to the middle the instant the
+        // operator moved it.
+        // Out for the duration of the draw — see the field's own docs for why,
+        // and for why rebuilding it is a safe answer rather than a panic.
+        let mut host = self.host.take().unwrap_or_else(Self::new_host);
+        let (frame, ()) = host.show(ctx, |ui| {
+            if let Some(unavailable) = &self.unavailable {
+                // No printer list, no printer to choose, nothing to
+                // preview. Two sentences and a Close button: the general
+                // one an operator acts on, then the engine's own account
+                // of what failed, which is the half they can quote at
+                // whoever administers the machine.
+                //
+                // The specific line is `.small().weak()` for the same
+                // reason the settings window's store-location line is:
+                // it is a fact the reader may need and is not the thing
+                // they are being told. Making it as loud as the sentence
+                // above would put a Win32 error code at the same weight
+                // as "nothing has been sent".
+                ui.label(t::spooler_unavailable());
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(t::spooler_detail(&unavailable.to_string()))
+                        .small()
+                        .weak(),
+                );
+                return;
+            }
+            if self.printers.is_empty() {
+                ui.label(t::no_printers());
+                return;
+            }
+            self.body(ui, doc, job.as_ref(), &page_sizes);
+            ui.separator();
+            self.footer(ui, job.as_ref());
+        });
+
+        self.host = Some(host);
 
         self.trace_plan(printer_name.as_deref(), job.as_ref());
 
@@ -547,7 +618,12 @@ impl PrintDialog {
         {
             self.outcome = Some(self.commit(&printer, doc, &job, &page_sizes));
         }
-        open && !std::mem::take(&mut self.close_requested)
+        // ★ Three routes out, one outcome — G4. The OS close button and
+        // Escape both arrive as `frame.closed`; the footer's own Close button
+        // sets `close_requested`. Treating any of them differently would give
+        // one route a different meaning from the other two, which is exactly
+        // the surprise the convention exists to prevent.
+        !frame.closed && !std::mem::take(&mut self.close_requested)
     }
 
     /// Re-read everything that belongs to the selected device.
@@ -956,20 +1032,48 @@ impl PrintDialog {
     ///   label is how they make it.
     fn footer(&mut self, ui: &mut Ui, job: Option<&Job>) {
         ui.horizontal(|ui| {
-            if ui.button(t::close()).clicked() {
-                self.close_requested = true;
-            }
-            if let Some(job) = job
-                && !job.plans.is_empty()
-            {
-                let clipped = job.clipped();
-                let label = if clipped > 0 {
-                    t::commit_with_clipping(clipped)
-                } else {
-                    t::commit().to_owned()
-                };
-                if ui.button(label).clicked() {
-                    self.commit_requested = true;
+            // ★★ G4 — ENTER PRESSES PRINT, AND PRINT LOOKS LIKE THE DEFAULT.
+            //
+            // The operator's second item, and the failure mode
+            // `ui-conventions/dialogs.md` names: *"the operator types into the
+            // last field, presses Enter out of habit, and nothing happens."*
+            // In this dialog the last field is the page range, which is exactly
+            // the box somebody types into and then expects Enter to act on.
+            //
+            // ★ The pair is drawn only when there is a job to send. That is not
+            // a styling decision, it is the no-placeholders invariant: a
+            // default button for a print that cannot happen is a control the
+            // operator would press and be ignored by — and worse, it would make
+            // ENTER silently do nothing while looking like it should do
+            // something, which is the very complaint. With no job, the footer
+            // keeps its plain Close and Enter is honestly inert.
+            //
+            // ★ `Host::buttons` owns the ordering, the theme fill and the Enter
+            // guard, so no dialog can implement two of the three. It puts
+            // Cancel to the LEFT of the affirmative in the right-to-left
+            // layout, which is Windows' order and the order every dialog on
+            // this machine uses.
+            match job.filter(|j| !j.plans.is_empty()) {
+                Some(job) => {
+                    let clipped = job.clipped();
+                    let label = if clipped > 0 {
+                        t::commit_with_clipping(clipped)
+                    } else {
+                        t::commit().to_owned()
+                    };
+                    let (accepted, cancelled) =
+                        crate::dialogs::host::Host::buttons(ui, &label, t::close());
+                    if accepted {
+                        self.commit_requested = true;
+                    }
+                    if cancelled {
+                        self.close_requested = true;
+                    }
+                }
+                None => {
+                    if ui.button(t::close()).clicked() {
+                        self.close_requested = true;
+                    }
                 }
             }
             match &self.outcome {

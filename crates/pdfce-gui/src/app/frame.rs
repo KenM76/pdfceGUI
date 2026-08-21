@@ -30,6 +30,73 @@ use super::actions::Action;
 use super::state::Status;
 use super::{PdfceApp, REGION_CENTRAL_PANEL, keyboard, modes, window};
 
+/// **A command to invoke once, from `PDFCE_DIAG_INVOKE`.**
+///
+/// Consumed on the first frame that reads it and `None` for ever after, so a
+/// scripted invocation happens exactly once rather than sixty times a second.
+///
+/// # ★★★ Why this seam exists, and it is R1 rather than convenience
+///
+/// R1 says a phase is not done until its behaviour is asserted by **driving the
+/// running binary**. `tools/ui-verify` does that by moving the operator's real
+/// mouse and keyboard — which means it cannot run while he is at the machine,
+/// and this project's own memory records him saying *"I'm working on the pc"*
+/// mid-session and everything after it having to be headless.
+///
+/// Two features have already needed a seam of exactly this shape and got one:
+/// `PDFCE_DIAG_OPEN_PATH` (a native file picker is a hard wall for synthetic
+/// input) and `PDFCE_DIAG_DROP_PATH` (a drop originates in Explorer and cannot
+/// be synthesised at all). `app::dropped`'s note is the argument, and it
+/// generalises:
+///
+/// > *"without this, drag-and-drop would be the one feature in this shell that
+/// > R1 could not reach — implemented, unit-tested, and never once exercised in
+/// > a running window, which is exactly the state R1 exists to forbid."*
+///
+/// This one generalises it one step further. **An offscreen window cannot be
+/// driven by OS input at all** — `D:/dev/rag/egui/postmessage_to_offscreen_eframe_window_drops_pointer_button.md`
+/// — so a headless run can launch the application and read its trace and can
+/// press nothing. `PDFCE_DIAG_VIEWPORT` already gives a real, laid-out,
+/// invisible window; this gives it something to do.
+///
+/// It landed with `dialogs::host` on 2026-08-20 because that change had no
+/// other honest oracle: *"a dialog opened in its own OS window"* is a fact
+/// about a second viewport that no unit test can observe and no screenshot of
+/// the main window contains.
+///
+/// # ★ It reaches the same choke point an operator's chord does
+///
+/// Deliberately. `dispatch_command` is where mode gating, the decline
+/// retirement and the command registry all live, and a seam that went round it
+/// would prove that a *different* path works. What this substitutes is the
+/// keystroke, not the dispatch.
+///
+/// # Why one command and not a script
+///
+/// Because a grammar is a language and this is a doorbell. `diag`'s own header
+/// records that the old shell's 800-line `PDFCE_DIAG_SCRIPT` harness was
+/// deliberately not salvaged — *"salvaging a script grammar before there is a
+/// harness to run it would be shipping a language with no speakers"* — and
+/// `tools/ui-verify` is that harness now. What it lacks is a way in on a
+/// machine whose desktop is occupied, and one command id is the whole of that.
+fn scripted_invoke() -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    /// ★ Consumed ONCE. Without this the variable would fire the command on
+    /// every frame for the life of the process — `app::dropped`'s
+    /// `DROPPED_ONCE` exists for the identical reason and made the identical
+    /// point: an env var is not an event, and turning one into an event needs
+    /// a latch.
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if !crate::diag::enabled() || DONE.load(Ordering::Relaxed) {
+        return None;
+    }
+    let id = std::env::var("PDFCE_DIAG_INVOKE")
+        .ok()
+        .filter(|s| !s.is_empty())?;
+    DONE.store(true, Ordering::Relaxed);
+    Some(id)
+}
+
 impl eframe::App for PdfceApp {
     /// eframe 0.35's entry point is `ui`, **not** `update`.
     ///
@@ -354,6 +421,21 @@ impl eframe::App for PdfceApp {
                 });
                 continue;
             }
+            self.dispatch_command(&ctx, &id, &mut actions);
+        }
+
+        // ★★★ Step 1a½ — THE SCRIPTED INVOCATION, once, for a headless run.
+        //
+        // See [`scripted_invoke`]. It is here rather than earlier because it
+        // must reach the SAME choke point a chord reaches, one line above:
+        // a seam that bypassed `dispatch_command` would be exercising a path
+        // no operator has, which is the failure this whole channel exists to
+        // avoid.
+        if let Some(id) = scripted_invoke() {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!("diag-invoke id={id}")
+            });
             self.dispatch_command(&ctx, &id, &mut actions);
         }
 

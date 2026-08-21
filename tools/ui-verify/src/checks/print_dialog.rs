@@ -103,8 +103,8 @@
 //! irreversible act.
 
 use crate::checks::driving::{
-    INVOKE_EVENT, ITEM_PREFIX, SHELL_DIAG_ENV, TAB_EVENT, UNIMPLEMENTED_EVENT, declared,
-    declared_names, list, shell_trace,
+    INVOKE_EVENT, ITEM_PREFIX, SHELL_DIAG_ENV, TAB_EVENT, UNIMPLEMENTED_EVENT,
+    VIEWPORT_INNER_EVENT, declared, declared_names, list, shell_trace,
 };
 use crate::checks::{Check, CheckContext, CheckReport};
 use crate::error::{Error, Result};
@@ -374,5 +374,39 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     report.note(format!(
         "the spooler answered with {printers} printer(s); the adapter is reaching `pdfce-print`"
     ));
+
+    // --- D. ★★★ AND IT OPENED IN ITS OWN OS WINDOW -------------------------
+    //
+    // The operator's report, 2026-08-20, and `ui-conventions/dialogs.md` G1:
+    //
+    // > *"Print dialogue box doesn't pop up in its own movable window. It is
+    // > locked within the boundaries of the program's window. Like, I just
+    // > assume you've been trained on a million lines of code and software that
+    // > pops it up in its own window."*
+    //
+    // ★ The oracle is `viewport-inner`, and there is no other. A screenshot of
+    // the application window cannot show it — a dialog in its own window is
+    // *absent* from that capture, and an in-viewport panel that regressed would
+    // look like a perfectly good dialog in it. "Is this a separate OS window"
+    // is a fact about the window manager, and the only thing in the process
+    // that knows the answer is the viewport egui created.
+    //
+    // A build that reverted to `egui::Window` emits no such line, and every
+    // other assertion in this check goes on passing — which is exactly the
+    // shape of regression this harness exists to catch.
+    let trace = session.trace()?;
+    let Some(viewport) = trace.events(VIEWPORT_INNER_EVENT).last() else {
+        return Ok(Some(format!(
+            "★ THE PRINT DIALOG DID NOT OPEN IN ITS OWN OS WINDOW: no \
+             `{VIEWPORT_INNER_EVENT}` line followed `{OPEN_EVENT}`.\n\
+             That is the operator's report of 2026-08-20 — a dialog locked inside the \
+             application's window, which cannot be moved off the document it is asking about, \
+             cannot go to a second monitor and does not appear in the taskbar. Look at \
+             `dialogs::print::PrintDialog::show`: it must go through `dialogs::host::Host`, not \
+             `egui::Window`. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    report.note(format!("★★ it is a real OS window: `{}`", viewport.raw));
     Ok(None)
 }

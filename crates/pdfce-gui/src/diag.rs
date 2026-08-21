@@ -393,6 +393,127 @@ pub fn ui_rect_visible(name: &str, rect: egui::Rect, clip: egui::Rect) {
     // returns.
 }
 
+/// **Where a child viewport's client area sits on the DESKTOP.**
+///
+/// ```text
+/// pdfce-diag viewport-inner id=<hash> rect=[[x0 y0] - [x1 y1]]
+/// ```
+///
+/// # ★★ Why this line has to exist, and what breaks silently without it
+///
+/// [`ui_rect`] publishes a named region's rectangle **relative to the viewport
+/// that drew it**. Until 2026-08-20 there was exactly one viewport, so a
+/// harness could add the application window's client origin and be right — and
+/// that assumption is baked into every driven check in `tools/ui-verify/`.
+///
+/// `crate::dialogs::host` makes a dialog a real OS window, which is a second
+/// viewport with its own origin. Its regions keep publishing rectangles that
+/// look exactly like the ones the harness has always converted, and they now
+/// name a completely different place on the desktop — typically by the few
+/// hundred points between the two windows' corners.
+///
+/// **That is a coordinate-space defect with plausible numbers**, which
+/// `D:/dev/rag/egui/` already records twice on this project. Both cost days,
+/// both were invisible to every unit test, and both presented as *"the click
+/// lands somewhere else"*. This line is the fix rather than care: the harness
+/// is handed the child's origin instead of assuming one.
+///
+/// It is also the only way a check can **assert that a dialog opened in its own
+/// window at all**, which is what makes `ui-conventions/dialogs.md` G1 testable
+/// rather than a matter of looking. A build that reverted to an in-viewport
+/// panel emits no `viewport-inner` line, and its absence is the failure.
+///
+/// Emitted on change only, like every other line in this file, so a dialog
+/// sitting still costs nothing per frame and a dragged one reports its travel.
+pub fn viewport_inner(id: egui::ViewportId, rect: egui::Rect) {
+    if !enabled() {
+        return;
+    }
+    // ★ Keyed by id, so two dialogs open at once are two independent change
+    // logs. Keying by "the last viewport" would make each one's move retire the
+    // other's rect and republish it, which is a change log that reports motion
+    // nothing moved.
+    let key = format!("viewport-inner:{:?}", id);
+    lock(&UI_RECTS_THIS_FRAME).insert(key.clone());
+    if record_rect_if_changed(&mut lock(&LAST_UI_RECT), &key, rect) {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        eprintln!("pdfce-diag viewport-inner id={:?} rect={rect:?}", id);
+    }
+}
+
+thread_local! {
+    /// Which viewport's coordinate space [`ui_rect`] is currently publishing
+    /// in, or `None` for the application's own window.
+    ///
+    /// A thread-local rather than a parameter because `ui_rect` is called from
+    /// ~40 sites, none of which knows or should know that dialogs exist. It is
+    /// safe as a thread-local for a reason specific to *immediate* viewports:
+    /// egui runs a child's callback **synchronously, inside the parent's
+    /// frame, on the parent's thread**, so the scope is a straight-line region
+    /// of one call stack rather than a global mode.
+    static VIEWPORT: std::cell::RefCell<Option<String>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+/// **Publish every [`ui_rect`] inside this scope as belonging to `id`.**
+///
+/// Entered by [`crate::dialogs::host::Host::show`] around a dialog's body. A
+/// guard rather than a closure because the body needs `&mut` on the dialog it
+/// belongs to, and threading that through a closure parameter would push the
+/// borrow problem into every caller.
+///
+/// # ★ What this is for, and the defect it is a fix for rather than a nicety
+///
+/// A region's rectangle is **relative to the viewport that drew it**. There was
+/// one viewport until 2026-08-20, so `tools/ui-verify` adds the application
+/// window's client origin and is right. A dialog in its own OS window keeps
+/// publishing rectangles that look exactly the same and name a different place
+/// on the desktop.
+///
+/// That is a coordinate-space defect with plausible numbers, which this project
+/// has met three times — the snap marker off by the scroll origin, the vertex
+/// drag tracking at `1/zoom`, and the caret measured against the wrong font.
+/// Every one presented as *"it lands somewhere else"* and every one cost a day.
+/// The tag plus [`viewport_inner`] is the fix in the instrument, not in the
+/// care.
+pub struct ViewportScope;
+
+impl ViewportScope {
+    /// Enter the scope. Restores the previous value on drop, so nesting is
+    /// correct even though nothing nests today.
+    #[must_use]
+    pub fn enter(id: egui::ViewportId) -> Self {
+        if enabled() {
+            VIEWPORT.with(|v| *v.borrow_mut() = Some(format!("{id:?}")));
+        }
+        Self
+    }
+}
+
+impl Drop for ViewportScope {
+    fn drop(&mut self) {
+        VIEWPORT.with(|v| *v.borrow_mut() = None);
+    }
+}
+
+/// The current viewport's suffix for a `ui-rect` line, or an empty string.
+///
+/// Empty for the application's own window, so **every existing trace line is
+/// byte-identical to what it was** and no consumer has to learn anything to go
+/// on working. A harness that never opens a dialog sees no change at all; one
+/// that does gets a field it can ask for. That is the cheaper half of the
+/// change and it was a deliberate choice over tagging every line with `root`.
+fn viewport_suffix() -> String {
+    VIEWPORT.with(|v| {
+        v.borrow()
+            .as_ref()
+            // ui-text-exempt: a diagnostic field name, never displayed.
+            .map(|id| format!(" viewport={id}"))
+            .unwrap_or_default()
+    })
+}
+
 pub fn ui_rect(name: &str, rect: egui::Rect) {
     if !enabled() {
         return;
@@ -404,8 +525,9 @@ pub fn ui_rect(name: &str, rect: egui::Rect) {
     lock(&UI_RECTS_THIS_FRAME).insert(name.to_owned());
     let changed = record_rect_if_changed(&mut lock(&LAST_UI_RECT), name, rect);
     if changed {
+        let where_ = viewport_suffix();
         // ui-text-exempt: diagnostic trace, never displayed in the UI
-        eprintln!("pdfce-diag ui-rect name={name} rect={rect:?}");
+        eprintln!("pdfce-diag ui-rect name={name} rect={rect:?}{where_}");
     }
 }
 

@@ -727,7 +727,7 @@ impl PdfceApp {
                             // argument for why those three numbers exist and
                             // what a wrong build gets wrong about them; this arm
                             // routes, as every other arm here does.
-                            crate::canvas::textedit::trace_target(page, run, &report);
+                            crate::canvas::textedit::report::trace_target(page, run, &report);
                             let mut notes = report.disclosures;
                             if reason.pins_the_tail() {
                                 notes.push(crate::text::textedit::pinned_tail_disclosure(reason));

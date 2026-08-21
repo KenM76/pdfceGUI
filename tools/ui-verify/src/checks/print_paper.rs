@@ -89,7 +89,8 @@
 //! will eventually start one by accident.
 
 use crate::checks::driving::{
-    ITEM_PREFIX, SHELL_DIAG_ENV, TAB_EVENT, declared, declared_names, list, shell_trace,
+    ITEM_PREFIX, SHELL_DIAG_ENV, TAB_EVENT, declared, declared_in, declared_names, frame_for, list,
+    shell_trace,
 };
 use crate::checks::{Check, CheckContext, CheckReport};
 use crate::error::{Error, Result};
@@ -308,14 +309,28 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     report.note(format!("before: paper={paper_before} sheet={sheet_before}"));
 
     // --- E. open the list and choose a DIFFERENT sheet -----------------------
-    let paper = declared(&trace, ui_rect, PAPER).ok_or_else(|| {
+    // ★★ FROM HERE ON THE REGIONS ARE IN THE DIALOG'S OWN OS WINDOW.
+    //
+    // As of 2026-08-20 the print dialog is a real OS window (`dialogs::host`,
+    // and `ui-conventions/dialogs.md` G1 — the operator's report). Its
+    // `ui-rect` rectangles are relative to **its** client area, not the
+    // application's, so `session.frame()` is the wrong origin for every one of
+    // them: it produces coordinates that look entirely reasonable and land
+    // several hundred points away.
+    //
+    // `declared_in` carries the viewport tag and `frame_for` turns it into the
+    // right origin. It is re-resolved per click rather than hoisted, because
+    // **the operator can move the window** — and more to the point, so can this
+    // harness's own clicks nudge it. A frame captured once and reused is the
+    // stale-coordinate defect `stable_rect` exists for, one space along.
+    let (paper, paper_vp) = declared_in(&trace, ui_rect, PAPER).ok_or_else(|| {
         Error::new(format!(
             "the dialog published no `{PAPER}` region. The Pages & Layout tab is the dialog's \
              default tab, so this is not a tab problem — either the combo is not being drawn or \
              the device enumerated no forms, and the line above says it enumerated {forms}."
         ))
     })?;
-    driver.click_at(session.frame()?.declared_center(paper))?;
+    driver.click_at(frame_for(&session, &trace, paper_vp.as_deref())?.declared_center(paper))?;
     session.settle(12);
 
     let trace = session.trace()?;
@@ -358,17 +373,21 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     for index in 1..ceiling {
         let target = format!("{PAPER_ITEM_PREFIX}{index}");
         let trace = session.trace()?;
-        let Some(entry) = declared(&trace, ui_rect, &target) else {
+        let Some((entry, entry_vp)) = declared_in(&trace, ui_rect, &target) else {
             // The popup closed after the previous click, which is what a
             // combo does. Reopen it and look again.
-            driver.click_at(session.frame()?.declared_center(paper))?;
+            driver.click_at(
+                frame_for(&session, &trace, paper_vp.as_deref())?.declared_center(paper),
+            )?;
             session.settle(12);
             let trace = session.trace()?;
-            let Some(entry) = declared(&trace, ui_rect, &target) else {
+            let Some((entry, entry_vp)) = declared_in(&trace, ui_rect, &target) else {
                 continue;
             };
             attempts.push(target.clone());
-            driver.click_at(session.frame()?.declared_center(entry))?;
+            driver.click_at(
+                frame_for(&session, &trace, entry_vp.as_deref())?.declared_center(entry),
+            )?;
             // Longer than a widget settle: the choice re-reads the device
             // geometry through `printer_caps_for`, which opens an information
             // device context.
@@ -383,7 +402,8 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
             continue;
         };
         attempts.push(target.clone());
-        driver.click_at(session.frame()?.declared_center(entry))?;
+        driver
+            .click_at(frame_for(&session, &trace, entry_vp.as_deref())?.declared_center(entry))?;
         session.settle(25);
         let (paper_after, sheet_after) = last_plan(&session)?;
         report.note(format!("{target}: paper={paper_after} sheet={sheet_after}"));

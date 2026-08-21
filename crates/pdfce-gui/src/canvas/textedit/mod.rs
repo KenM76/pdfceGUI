@@ -148,6 +148,11 @@ pub mod caret;
 /// Split out under R2 on 2026-08-20; its header carries the standing rule that
 /// the text and the caret are measured from ONE layout.
 pub mod paint;
+/// ★ **What an edit report is worth telling anyone** — which of
+/// `EditReport`'s eleven fields reach the operator, which reach the diagnostic
+/// channel, and which reach neither. Split out under R2; its header carries
+/// the rule and why the middle row of it exists.
+pub mod report;
 pub use caret::{backspace, delete_forward, insert, word_left, word_right};
 pub mod disposition;
 // The byte-level proof that the untouched tail did not move, with the old
@@ -1242,79 +1247,6 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
         options: disposition::options(reason),
         reason,
     }
-}
-
-/// **Which content stream the commit rewrote, and how many places paint it.**
-///
-/// # ★★★ Shared content, and why this is worth a named function
-///
-/// `Pass 119.0` made form-XObject text editable, and a form XObject may
-/// legally be painted **from several pages and several times on one page** —
-/// ISO 32000-1 §8.10.1 states that as the *purpose* of the feature, and names
-/// a CAD system's standard component as the illustration, which is this
-/// operator's title block exactly.
-///
-/// **No clause in either edition binds a form to a page.** That is a confirmed
-/// permanent negative result in pdfce's spec corpus (`FX-N1`), argued three
-/// independent ways. So editing text inside a shared form changes **every place
-/// it appears**, and there is nothing pdfce can do about that: there is exactly
-/// one stream holding those glyphs. The engine's words when it shipped this:
-///
-/// > *"A shell that ignores `form_invocations` is a shell that changes six
-/// > drawing sheets while showing one."*
-///
-/// # The operator's half is already handled, and is deliberately not re-worded
-///
-/// `pdfce-core` puts a `"SHARED CONTENT: …"` sentence into
-/// `EditReport::disclosures`, worded for direct display, and the `edit_text`
-/// apply arm has always carried that list to the status row. Re-wording it here
-/// would be a second account of one fact, free to drift from the engine's.
-///
-/// ★ It is **absent** on the ordinary single-paint case, by the engine's
-/// design and this project's own rule: a warning that fires every time is one
-/// nobody reads, and this one is meant to be startling. That is also why there
-/// is no badge, tint or flag drawn into the page — R8b rule 4 as narrowed by
-/// pdfce's decision 059. The disclosure is off-canvas or it is nowhere.
-///
-/// # What this adds is the machine-readable half
-///
-/// A driven check cannot assert on prose, and these three numbers are exactly
-/// what a wrong build gets wrong:
-///
-/// | field | what a wrong build reports |
-/// |---|---|
-/// | `form=` | `none` when the edit was meant for a form — the target collapsed to the page stream |
-/// | `invocations=` | `1` for a shared form, i.e. the fan-out was not asked for |
-/// | `pages=` | a count that disagrees with `invocations` on a form painted twice on one page |
-///
-/// The first is the regression that matters most on this operator's documents,
-/// because `EditTarget::Auto` offers a pinned span to the page's own stream
-/// first — and on the benchmark sheet that stream holds 3,007 single-character
-/// show operators, so a stray match there is a dense field of near-misses
-/// rather than a theoretical collision. See [`plan`], which names the target
-/// from the same provenance record it takes the pin from.
-///
-/// # What is NOT built, said so it is a decision
-///
-/// There is no **pre-commit** warning: an operator whose caret lands in a
-/// shared form is not told before they type. The engine publishes
-/// `text_edit::forms::invocation_map`, which answers the fan-out for every form
-/// in one document walk, so it is buildable — but one walk per click on text is
-/// not affordable uncached, and a cache keyed on the document rather than the
-/// page is a piece of work rather than a line. Recorded in
-/// `OPERATOR_REQUESTS.md` rather than left implied.
-pub fn trace_target(page: usize, run: usize, report: &pdfce_core::text_edit::EditReport) {
-    crate::diag::trace(|| {
-        // ui-text-exempt: diagnostic trace, never displayed.
-        format!(
-            "edit-text-target page={page} run={run} form={} invocations={} pages={}",
-            report
-                .form_object
-                .map_or_else(|| "none".to_owned(), |o| o.to_string()),
-            report.form_invocations,
-            report.form_pages.len(),
-        )
-    });
 }
 
 // ===========================================================================

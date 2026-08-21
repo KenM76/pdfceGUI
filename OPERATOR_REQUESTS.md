@@ -170,13 +170,61 @@ decided against.
 
 **Dialogs**
 
-12. **No dialog is a real OS window** — your report. egui can already do it via
-    `show_viewport_immediate`; the in-viewport panel was the path of least
-    resistance and nothing pushed back.
-13. **Enter is not the affirmative default** in any dialog, and no button is
-    drawn as the default. Type in the last field, press Enter, nothing happens.
-14. No dialog remembers where you moved it; every one re-centres. Tab order and
-    modal focus-trapping are untested.
+12. ~~**No dialog is a real OS window**~~ — **PRINT SHIPPED 2026-08-20.**
+    Print now opens in its own window: a title bar you can drag, a taskbar
+    entry, and you can put it on the second monitor or move it off the drawing
+    to read the page underneath while you choose a range.
+
+    Your words, recorded because the last sentence was the diagnosis:
+
+    > *"Print dialogue box doesn't pop up in its own movable window. It is
+    > locked within the boundaries of the program's window. Like, I just assume
+    > you've been trained on a million lines of code and software that pops it
+    > up in its own window."*
+
+    The mechanism is one host, so **the other thirteen dialogs are one line
+    each** rather than thirteen implementations. Print first because you said
+    to start there.
+
+    ★ **Verified, and without touching your mouse.** A new headless seam
+    (`PDFCE_DIAG_INVOKE`) lets a diagnostic run press a ribbon command in an
+    invisible window, so this was proved on the machine while you were using
+    it. The evidence:
+
+    ```
+    diag-invoke id=file.print
+    print-open printers=12 selected=8
+    viewport-inner id="4206" rect=[[-3944 -3921] - [-3144 -3301]]
+    ui-rect name=print.paper rect=[[393.9 480.0] - [601.4 504.0]] viewport="4206"
+    ```
+
+    An 800 x 620 OS window of its own, with its controls positioned inside it.
+
+    **Still open:** the other thirteen dialogs, and one row that eframe cannot
+    express — the dialog is not *owned* by the main window, so it can fall
+    behind it. There is no owner option in the toolkit's window builder at all.
+    Making it always-on-top instead was considered and refused: it would break
+    the driven harness in a way that produces confident wrong bug reports, which
+    we have paid for once already. The taskbar entry is the route back.
+13. ~~**Enter is not the affirmative default**~~ — **PRINT SHIPPED
+    2026-08-20.** Type a page range, press Enter, it prints. Print is drawn
+    filled in the theme's own accent so you can see what Enter will do before
+    you press it, and Escape now closes the dialog exactly as the X does.
+
+    The pair is drawn by the host, not by the dialog, so no future dialog can
+    implement two of the three obligations and forget the third.
+
+    **Known limit, named rather than found:** Enter is suppressed while a text
+    field has focus, because the toolkit reports *"a text field has focus"*
+    without saying whether it is multi-line — and a multi-line field must keep
+    the ability to type a newline. So in a dialog whose last control is a
+    one-line box, you may need to click out of it first. The fix is per-field.
+14. **PARTIAL 2026-08-20.** Print comes back where you left it for as long as
+    it stays open. It does not survive closing and reopening, and it does not
+    survive a restart: a remembered position has to be checked against your
+    current monitors, and a dialog that opens on a screen you have unplugged is
+    worse than one that opens where Windows puts it. Tab order and modal
+    focus-trapping are still untested.
 
 ### And two fixed on the spot, because writing the row exposed them
 
