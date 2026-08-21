@@ -483,6 +483,15 @@ const REGION_FILTER_EMPTY: &str = "status-group:filter-empty"; // ui-text-exempt
 /// `D:/dev/rag/egui/a_combobox_popup_is_an_area_laid_out_at_paint_time_so_only_the_app_can_publish_its_entry_rects.md`.
 const REGION_FILTER_ROW: &str = "status-filter-row"; // ui-text-exempt: trace region name, never displayed
 
+/// The popup's **All** button.
+///
+/// Published so a driven check can reach a known filter state without knowing
+/// which class the fixture's object belongs to — see [`filter::show`].
+const REGION_FILTER_ALL: &str = "status-filter-all"; // ui-text-exempt: trace region name, never displayed
+
+/// The popup's **None** button — the twin of [`REGION_FILTER_ALL`].
+const REGION_FILTER_NONE: &str = "status-filter-none"; // ui-text-exempt: trace region name, never displayed
+
 /// Trace slot for the bar's steady state, de-duplicated on the rendered line.
 const STATUS_SLOT: &str = "status"; // ui-text-exempt: trace slot name, never displayed
 

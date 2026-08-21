@@ -675,3 +675,143 @@ pub fn with_modifiers<T>(modifiers: &[u16], body: impl FnOnce() -> T) -> T {
     }
     out
 }
+
+// ===========================================================================
+// The clipboard
+// ===========================================================================
+//
+// ★★ WHY THE HARNESS HAS TO READ THE CLIPBOARD ITSELF
+//
+// Defect O18: the operator selected text, pressed Ctrl+C, pasted into Notepad
+// and got "1 object copied from pdfce" — because Ctrl+C reached the object
+// clipboard instead of the text one. It had been broken since the day it was
+// written, under 1,628 passing unit tests.
+//
+// **No test in the application's own suite can see that**, and no amount of
+// tracing fixes it: the trace can say `text-copy source=selection`, and be
+// telling the truth, while a later handler in the same frame overwrites the
+// clipboard. The only oracle for "what does the operator get when they paste"
+// is the operating system's clipboard, read from outside the process.
+//
+// So this is not harness convenience. It is the *only* place the assertion the
+// defect needs can be made.
+//
+// ★ A NOTE ON THE DEPENDENCY POSTURE. This adds two `windows-sys` FEATURES,
+// not a dependency. This crate's manifest records that a new dependency which
+// is not already in `D:\Dev\pdfce`'s lockfile is an operator decision;
+// `windows-sys 0.61` is already there and already linked, so enabling
+// `Win32_System_DataExchange` and `Win32_System_Memory` changes nothing about
+// what ships or what has to be reviewed for licensing.
+
+use windows_sys::Win32::Foundation::HANDLE;
+use windows_sys::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard,
+};
+use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+
+/// `CF_UNICODETEXT`, the only clipboard format this harness reads.
+///
+/// Deliberately not `CF_TEXT`: that is code-page-dependent, and a check that
+/// compared a round-tripped ANSI string would fail or pass depending on the
+/// machine's locale rather than on the application's behaviour.
+const CF_UNICODETEXT: u32 = 13;
+
+/// How many times to retry opening the clipboard, and how long to wait between.
+///
+/// ★ The clipboard is a **global, singly-owned** resource: `OpenClipboard`
+/// fails outright while any other process holds it, and on a live desktop
+/// something always might — a clipboard manager, an editor polling for
+/// changes, the shell itself. A single attempt would make this check flake in a
+/// way indistinguishable from the defect it exists to catch, which is the worst
+/// possible failure mode for a harness.
+const OPEN_ATTEMPTS: u32 = 20;
+const OPEN_RETRY_MS: u64 = 25;
+
+/// Take ownership of the clipboard, run `body`, and always release it.
+///
+/// The release is unconditional — including on the `body` panicking, which is
+/// why `body`'s result is captured rather than returned directly through the
+/// `?`. A harness that left the clipboard open would wedge every other program
+/// on the operator's desktop, and it is his desktop.
+fn with_clipboard<T>(body: impl FnOnce() -> T) -> Option<T> {
+    for _ in 0..OPEN_ATTEMPTS {
+        // SAFETY: a null window handle is documented as associating the
+        // clipboard with the current task, which is what a harness wants.
+        let opened = unsafe { OpenClipboard(std::ptr::null_mut()) };
+        if opened != 0 {
+            let out = body();
+            // SAFETY: paired with the successful OpenClipboard above.
+            unsafe {
+                CloseClipboard();
+            }
+            return Some(out);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(OPEN_RETRY_MS));
+    }
+    None
+}
+
+/// The clipboard's text, or `None`.
+///
+/// `None` covers three genuinely different situations and the caller must treat
+/// them as one, because Windows does not distinguish them either: the clipboard
+/// is empty, it holds something that is not text (a bitmap, a file list), or
+/// another process would not let go of it. All three mean *"the operator would
+/// not get text if they pasted"*, which is the question a check is asking.
+#[must_use]
+pub fn clipboard_text() -> Option<String> {
+    with_clipboard(|| {
+        // SAFETY: the clipboard is open; a null return means "no such format",
+        // which is not an error.
+        let handle: HANDLE = unsafe { GetClipboardData(CF_UNICODETEXT) };
+        if handle.is_null() {
+            return None;
+        }
+        // SAFETY: `GlobalLock` on a clipboard handle yields a pointer valid
+        // until the matching `GlobalUnlock`, and the block is a NUL-terminated
+        // UTF-16 string by the definition of CF_UNICODETEXT.
+        let ptr = unsafe { GlobalLock(handle) }.cast::<u16>();
+        if ptr.is_null() {
+            return None;
+        }
+        let mut len = 0usize;
+        // SAFETY: walking to the NUL terminator the format guarantees.
+        while unsafe { *ptr.add(len) } != 0 {
+            len += 1;
+            // A clipboard string is operator text, not a stream. This bound
+            // stops a corrupt or unterminated block from hanging the harness
+            // rather than failing it — 16 MB of UTF-16 is far beyond anything a
+            // copy from a PDF can produce.
+            if len > 8 * 1024 * 1024 {
+                break;
+            }
+        }
+        // SAFETY: `len` units were just walked and found in bounds.
+        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+        let text = String::from_utf16_lossy(slice);
+        // SAFETY: paired with the GlobalLock above.
+        unsafe {
+            GlobalUnlock(handle);
+        }
+        Some(text)
+    })
+    .flatten()
+}
+
+/// Empty the clipboard, reporting whether it was actually emptied.
+///
+/// ★★ **A check that asserts on the clipboard MUST call this first**, and the
+/// reason is the whole shape of defect O18. The failing build left a marker
+/// sentence on the clipboard; a check that copied, read, and found that marker
+/// would fail correctly — but a check that copied *nothing at all* and found a
+/// marker left by an earlier run would fail identically, and one that found
+/// yesterday's correct text would **pass while the application did nothing**.
+///
+/// Clearing first is what makes the read afterwards a statement about this run.
+pub fn clear_clipboard() -> bool {
+    with_clipboard(|| {
+        // SAFETY: the clipboard is open and owned by this task.
+        unsafe { EmptyClipboard() != 0 }
+    })
+    .unwrap_or(false)
+}

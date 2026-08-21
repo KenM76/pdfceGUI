@@ -144,10 +144,20 @@ fn popup(ui: &mut egui::Ui, filter: &mut PickFilter) {
         // everything is already on is a no-op, and a no-op the operator can see
         // is cheaper than a disabled control they have to reason about — R9
         // reserves greying for *temporarily unavailable*, which this is not.
-        if ui.button(t_pick::filter_all()).clicked() {
+        //
+        // ★ Both publish their rects. A driven check needs to reach a KNOWN
+        // filter state without knowing which class the fixture's object
+        // belongs to, and "None then All" is that: it makes the assertion
+        // *the filter is load-bearing* rather than *row 4 is load-bearing*,
+        // which would be a statement about the fixture.
+        let all = ui.button(t_pick::filter_all());
+        crate::diag::ui_rect(super::REGION_FILTER_ALL, all.rect);
+        if all.clicked() {
             *filter = PickFilter::all();
         }
-        if ui.button(t_pick::filter_none()).clicked() {
+        let none = ui.button(t_pick::filter_none());
+        crate::diag::ui_rect(super::REGION_FILTER_NONE, none.rect);
+        if none.clicked() {
             *filter = PickFilter::none();
         }
     });

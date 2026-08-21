@@ -206,6 +206,14 @@ pub mod render_diagnostics;
 /// selection box, so without a priority rule every attempt to shape a curve
 /// moves the whole object instead.
 pub mod bezier_handle;
+/// ★★ **The one assertion no unit test in this workspace can make** — what is
+/// actually on the operating system's clipboard after Ctrl+C.
+///
+/// Defect O18 shipped under 1,628 passing tests because the failure is not in
+/// any function's return value: it is in WHICH OF TWO HANDLERS reached the OS
+/// last. A trace cannot see that either — `text-copy source=selection` can be
+/// emitted truthfully by a frame whose clipboard is then overwritten.
+pub mod clipboard_text;
 /// ★★ **Drag-and-drop**, driven through the one seam that can carry it — a drop
 /// originates in Explorer and cannot be synthesised by moving a mouse, so
 /// without `PDFCE_DIAG_DROP_PATH` this would be the single feature in the shell
@@ -277,6 +285,14 @@ pub mod rotate;
 /// phases and the different wrong build each one catches.
 pub mod save_copy;
 pub mod save_in_place;
+/// ★★ **The selection filter is load-bearing, not decorative** — switching a
+/// class off changes what the next click on the same pixel selects.
+///
+/// Deliberately NOT "the popup opens", which is a unit test and is also the one
+/// claim that stays true of an inert control — this popup shipped on 2026-08-21
+/// with a double toggle that made its button do nothing, under 1,628 passing
+/// tests and a smoke launch confirming the button's rect.
+pub mod select_filter;
 pub mod settings_headings;
 /// ★ **Shift preserves aspect on a resize** — `ui-conventions/drag-moves.md`
 /// D5, found absent from every drag in this shell by the 2026-08-20 sweep.
@@ -655,6 +671,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // every other driving check it does not consult `--pdf` and cannot be
         // aimed at a document that lacks the strings it scans for.
         Box::new(object_clipboard::CopyAndPastePageContent),
+        Box::new(clipboard_text::CtrlCCopiesTextToTheOsClipboard),
+        Box::new(select_filter::SelectFilterChangesWhatAClickHits),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

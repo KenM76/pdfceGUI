@@ -122,3 +122,23 @@ pub fn capture_screen(_region: PixRect) -> Result<Vec<u8>> {
 pub fn with_modifiers<T>(_modifiers: &[u16], body: impl FnOnce() -> T) -> T {
     body()
 }
+
+/// Always `None` — there is no clipboard here.
+///
+/// A check that asserts on the clipboard therefore reports SKIPPED on this
+/// platform, which is the honest answer. Returning `Some(String::new())` would
+/// let a comparison against an expected string fail and be read as a defect in
+/// the application.
+#[must_use]
+pub fn clipboard_text() -> Option<String> {
+    None
+}
+
+/// Always `false` — nothing was cleared, because there is nothing to clear.
+///
+/// `false` rather than `true` so a caller that gates on "did the clear work"
+/// refuses rather than proceeding to assert against a clipboard it never
+/// controlled.
+pub fn clear_clipboard() -> bool {
+    false
+}
