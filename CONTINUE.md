@@ -45,9 +45,13 @@ question on 2026-08-21 and asked for more than `O22` proposed — any corner of
 the page reachable to anywhere on screen — which is `O23`. The pasteboard was
 built that evening, passed 1,634 tests and 17 gates, **broke selection on the
 real application, and was reverted.** `O23` carries the three things measured
-on the way; the one that stopped it is that the page JUMPS a frame after
-opening, which the operator would see on every file. Solve the seeding before
-rebuilding the rest.
+on the way. ⚠️ Its first diagnosis — *"the page jumps a frame after opening"* —
+was **wrong and was never measured**; it compared two builds. Re-measured, the
+pasteboard layout is *steadier* than today's (one stable rect against today's
+two). What actually breaks is that **the canvas receives no pointer input at
+all**, while the page is centred, visible and correctly drawn. Test the INPUT
+path — widget allocation and `visible_rect`'s one-frame-stale offset — before
+touching the arithmetic, which is not what is wrong.
 
 ⚠️ Do not plan around this row's first claim that the eight resize grips share
 the defect. **They do not** — their centres sit ON the box edge, so their inner

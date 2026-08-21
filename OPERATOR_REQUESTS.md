@@ -301,26 +301,64 @@ Measured symptom when it happened: `ui-rect-gone name=canvas-viewport` — the
 canvas region retired entirely and no page was drawn. That is R128 in a new
 place, the same shape as the status bar that drifted 230 % → 224 % → 215 %.
 
-#### 3. ★★★ THE ONE THAT ACTUALLY STOPPED IT: the first-frame transient
+#### 3. ⚠️ THE DIAGNOSIS THIS ROW GAVE FIRST WAS WRONG, AND IT WAS NOT MEASURED
 
-`egui::ScrollArea` owns its offset and starts it at zero. Zero used to mean
-*the top-left of the strip*; with a pasteboard it means the top-left of the
-**content** — one whole viewport above and left of the page. So the document
-opens on blank paper with the sheet off the bottom-right corner, and the
-canvas has to be seeded once.
+This section said the page *"MOVES, one frame later, as the offset settles"*,
+and gave numbers: the page's rect going from `y=143.0` to `y=269.7`.
 
-Seeding works. **What does not work is that the page then MOVES**, one frame
-later, as the offset settles. Measured: the page's own published rect went
-from `y=143.0` to `y=269.7` between the frame the mapping was taken from and
-the frame the click landed on — so a click computed against the app's own
-geometry missed the page entirely, and `canvas-pointer` recorded **zero**
-events because the pointer was never over the canvas.
+**Those two numbers came from two different builds.** 143.0 was the shell
+without a pasteboard; 269.7 was the shell with one. Comparing them and
+calling the difference a per-frame transient is the same unsound inference
+this file has now corrected three times in one day — and it was written
+here, as a measurement, hours after the rule was recorded.
 
-★ That is not a harness problem to be settled away with a longer wait. **The
-operator would see the same jump** every time a document opens. The seed has
-to be applied before the first painted frame, not as a scroll that settles
-after it — which is a different mechanism from the one that was tried.
+**Re-measured properly on 2026-08-21, within a single run**, by counting
+distinct `canvas rect=` lines (the trace is a change log, so one line means
+one stable value):
 
+| build | distinct rects during startup |
+|---|---|
+| without the pasteboard | **two** — `y=139.0` then `y=143.0`, a 4 pt settle |
+| with the pasteboard | **one** — stable from the first frame |
+
+★ So the pasteboard does not merely fail to cause a jump; the layout it
+produces is *steadier* than today's. The seeding works.
+
+#### 3b. ★★★ WHAT ACTUALLY BREAKS, stated as what was observed
+
+**The canvas stops receiving pointer input entirely.** Not a mis-aimed
+click, not a coordinate error — no input at all.
+
+| observation | value |
+|---|---|
+| `canvas-pointer` events in a driven run | **0**, at both `--doc-point`s tried |
+| the page's published rect | `[[296.0 269.7] - [764.0 631.3]]` |
+| the canvas viewport | `[[288.0 139.3] - [772.0 762.0]]` |
+| where the page sits in it | **centred on both axes, wholly inside, fully visible** |
+| rendering | unaffected — an offscreen run reaches `drawn=14` exactly as the baseline does |
+
+So the geometry is right, the page is where it should be, it is drawn, and a
+click computed from the application's own published rect lands inside it —
+and the canvas never sees a pointer.
+
+★★ **That is a much sharper clue than the one this row gave first**, and it
+points somewhere entirely different: at input and widget allocation, not at
+coordinates. The two candidates worth starting from, neither confirmed:
+
+- The scroll content is allocated as one rect with `Sense::hover()`
+  (`canvas/mod.rs:662`) and the pages are placed inside it with `ui.put` /
+  `allocate_rect`. Before the pasteboard, that outer rect was exactly the
+  strip; now it is larger than the strip on every side. Whether that changes
+  which widget egui resolves a press against is the first thing to test.
+- `visible_rect` is built from `doc.last_scroll_offset` — **the previous
+  frame's** offset — and on the frames right after seeding that is still
+  zero, which now names the far corner of the pasteboard rather than the top
+  of the strip. Whether the pages allocated on those frames are the ones the
+  pointer is over is the second thing to test.
+
+★ Both are cheap to test and neither was tested, because the first
+diagnosis was believed. **Test the input path before touching the
+arithmetic again** — the arithmetic is not what is wrong.
 #### 4. What survived, and what it is worth
 
 The pure arithmetic was written and proven before it was reverted, and it is
