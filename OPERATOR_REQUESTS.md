@@ -131,10 +131,26 @@ in read mode, or edit and select text in an edit box in the canvas in edit
 mode, and press ctrl+c to copy, then try to paste in notepad, it doesn't work.
 I get a notice to paste it back into pdfc to place it."*
 
-**Status:** **ROOT CAUSE FOUND 2026-08-21, BY READING THE SOURCE. NOT YET
-FIXED, NOT YET DRIVEN.** Both cases are one defect and the cause is exact, with
-`file:line`. Nothing is fixed as this row is written; the fix is scoped at the
-bottom.
+**Status:** **FIXED 2026-08-21 IN ALL THREE PLACES. NOT VERIFIED — the driven
+check does not exist yet, and no unit test can see the operating system's
+clipboard, which is the thing that was wrong.** Awaiting your verdict.
+
+What changed: `textsel::clipboard::pending_key` reads `Event::Copy` instead of
+a key event that never arrives; `canvas/textedit/` gained Copy, **Cut and
+Paste**, which it had none of; and `canvas::clipboard::text_owns_the_chord`
+makes that module's oldest claim — *"text wins"* — actually true, so the object
+path stands aside instead of writing its marker over the text.
+
+`tools/gates/check-clipboard-chords.sh` now fails the build on any source file
+that asks about `C`, `X` or `V` as a **key**. That gate is the part that
+outlives this row: the real failure here was not the egui-winit quirk, which
+had already been found and written up in capitals a day earlier, but that
+nobody asked who else read the same broken signal.
+
+★ **What to try, and what would still fail.** Sweep text in Read and Ctrl+C;
+select inside a text box in Edit and Ctrl+C, Ctrl+X, Ctrl+V. A multi-line paste
+will arrive as **one line** — the draft is single-line until O15, and that is
+named here rather than left for you to find.
 
 ### The sentence he is seeing, and where it comes from
 
