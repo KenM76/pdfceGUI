@@ -134,9 +134,17 @@ mod redact;
 /// 370 lines, whose call sites are concentrated in `canvas::markup` and
 /// `app::actions::annots`. Written down here so the next person does not have
 /// to re-measure it under deadline.
+/// ★ **Everything that changes page geometry** — delete, the four move verbs,
+/// the Bézier handle and the transform. Split out of [`action`] under R2 on
+/// 2026-08-20; its header carries the one property every variant shares (they
+/// all address paint-order indices into one content stream) and the argument
+/// for why there are two verbs that both "move things".
+pub mod vector;
+
 mod action;
 
 pub use action::Action;
+pub use vector::VectorAction;
 
 // ---------------------------------------------------------------------------
 // ★ EVERYTHING BELOW THIS LINE IS TEST-ONLY, AND THAT IS A GATE REQUIREMENT

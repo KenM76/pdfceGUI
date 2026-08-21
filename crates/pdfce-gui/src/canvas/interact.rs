@@ -33,7 +33,7 @@
 //! reaches through the canvas leaves as an [`Action`] pushed onto `actions` and
 //! applied after the frame, in one place. Delete is the sharp case and it is
 //! visible in [`keys::canvas_keys`]: it removes nothing, it raises
-//! [`Action::DeleteSelection`] carrying the operand list. The zoom a released
+//! [`VectorAction::DeleteSelection.into()`] carrying the operand list. The zoom a released
 //! region marquee asks for is an [`Action`] too, and so is every move a drag
 //! commits.
 //!

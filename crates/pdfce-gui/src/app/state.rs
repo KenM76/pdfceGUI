@@ -502,7 +502,7 @@ pub struct OpenDoc {
     ///
     /// The **edit** that a selection leads to is still an action, and that is
     /// the line: Delete does not remove anything here. It raises
-    /// [`crate::app::actions::Action::DeleteSelection`] carrying the operand
+    /// [`crate::app::actions::VectorAction::DeleteSelection`] carrying the operand
     /// list, applied after the frame through the one funnel, exactly as before
     /// the move. Nothing that touches `EditSession` moved.
     ///

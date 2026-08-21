@@ -20,7 +20,38 @@
 //! unlike two others this project re-checked the same week, both of which had
 //! quietly expired.
 //!
-//! ## ★★ So it is built out of `move_nodes`, and that is the whole idea
+//! ## ★★★ IT IS BUILT OUT OF `transform_objects` NOW — 2026-08-20
+//!
+//! Everything below this block describes how a resize was built out of
+//! `move_nodes` between 2026-08-19 and 2026-08-20, and **it is kept**, because
+//! the reasoning is the record of a substitution that was correct while it
+//! lasted and of the four limits it could not get past. Three of the four are
+//! gone; the fourth turned out to be a decision rather than a limit.
+//!
+//! `EditSession::transform_objects` (`Pass 113.0`) wraps each object's operator
+//! run in `q <cm> … Q`. **That never looks at an operand**, which is what makes
+//! it kind-agnostic — not a match arm per kind that somebody has to remember to
+//! extend. So:
+//!
+//! | was refused | now |
+//! |---|---|
+//! | **text runs** | works. A text object has no nodes, and it does not need any |
+//! | **images** | works |
+//! | **more than one object** | works, in **one** call, one command, one undo entry — the slice is the point |
+//! | **stroke width** | still not scaled, and it is still the right answer: on a CAD drawing a line weight is a *drafting standard*. Now a genuine decision rather than a consequence, and still disclosed |
+//!
+//! ★★ **The matrix is PAGE space and nothing else.** `cm` composes into the CTM
+//! in force at that point in the stream — the object's *user* space — so the
+//! engine emits `X = CTM × M × CTM⁻¹` per object from that object's own captured
+//! CTM. A selection spanning two local spaces gets two different `cm` operands
+//! for one gesture and both land where the operator pointed. Passing anything
+//! but page space from here would be right only where an object's CTM happens to
+//! be the identity and **silently wrong at every scale the producer left in
+//! force**.
+//!
+//! ---
+//!
+//! ## ★★ It used to be built out of `move_nodes`, and that was the whole idea
 //!
 //! **Scaling a path IS moving every one of its nodes.** For an anchor `a` and
 //! factors `(sx, sy)`:
@@ -108,12 +139,12 @@
 use egui::Vec2;
 use pdfce_core::vector::Point;
 
-use crate::app::actions::Action;
+use crate::app::actions::{Action, VectorAction};
 use crate::canvas::gesture::Phase;
 use crate::canvas::handles::Grip;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::SelectionState;
-use crate::panels::objects::provider::{ObjectModelProvider, PartKind};
+use crate::panels::objects::provider::ObjectModelProvider;
 
 /// Why a resize could not be committed.
 ///
@@ -126,13 +157,6 @@ use crate::panels::objects::provider::{ObjectModelProvider, PartKind};
 pub enum Refusal {
     /// Nothing is selected, or the selection names no object on this page.
     NothingSelected,
-    /// More than one object is selected.
-    ///
-    /// `move_nodes` is per object, so this would be N commands and N undo
-    /// entries for one drag. See the module header.
-    ManyObjects,
-    /// The selection is not a path — a text run or an image.
-    NotAPath,
     /// The object model could not be read, so nothing can be verified and
     /// therefore nothing may be promised.
     NoObjectModel,
@@ -143,9 +167,42 @@ pub enum Refusal {
     /// operator cannot have meant, and clamping would silently substitute a
     /// different edit for the one they made.
     Degenerate,
-    /// The object has no nodes to move — an empty path.
-    NoNodes,
 }
+
+// ★★ THE PREFLIGHT IS NOT BUILT, AND THIS IS THE NOTE THAT SAYS SO.
+//
+// `transform_preview` is `&self`, side-effect-free, and shares one body with
+// the verb — so `preview(..).is_ok()` **is** the predicate, and the engine's
+// guidance is explicit about what a shell should do with it:
+//
+// | error | means | UI |
+// |---|---|---|
+// | `DegenerateCtm` | this object cannot be transformed AT ALL — its own CTM is singular | **do not offer a handle** |
+// | `SingularTransform` | this DRAG is degenerate | offer the handle, refuse on release |
+//
+// The second is handled: `is_usable` refuses a collapsing drag before the
+// engine is asked, and anything that gets past it is worded by `vector_edit`'s
+// own channel on release.
+//
+// The first is not. A handle is currently offered for an object that can never
+// be transformed, and the operator finds out by dragging it. That is a real
+// gap and it is a small one — a singular CTM is a producer emitting `0 0 0 0 x
+// y cm`, which is rare — but it is named here rather than left to be
+// discovered.
+//
+// ★ Why it is not built tonight: **the preview decomposes the page.** Measured
+// by the engine on the benchmark drawing, 129,758 objects, **~4 s in a debug
+// build** — and both the verb and the preview pay it. The engine's own advice
+// is *"call `transform_preview` on selection change and on gesture start, not
+// per frame"*, which means a cache keyed on `(page, edit epoch, selection)`,
+// which is a piece of work rather than a line. `app::cache::FormRunCache` is
+// the shape it should take.
+//
+// ★★ A variant WAS added here for it and then removed on the same evening,
+// because `every_refusal_is_still_raised_somewhere` — written in the same hour
+// — failed on its first run: it had a sentence and no call site. That is the
+// test doing exactly what it was written for, and inventing a call site to
+// satisfy it would have been the failure it exists to catch.
 
 /// The scale factors a grip's drag implies, about the anchor opposite it.
 ///
@@ -217,7 +274,7 @@ pub fn is_usable(sx: f32, sy: f32) -> bool {
 ///
 /// Pure, so the whole decision is testable without a window: the selection, the
 /// object model, the anchor in PDF space and the two factors go in, and one
-/// `Action::MoveNodes` or one named refusal comes out.
+/// `VectorAction::MoveNodes.into()` or one named refusal comes out.
 ///
 /// # ★ The anchor arrives in PDF user space, already converted
 ///
@@ -235,23 +292,17 @@ pub fn action(
     if !is_usable(sx, sy) {
         return Err(Refusal::Degenerate);
     }
-    let provider = provider.ok_or(Refusal::NoObjectModel)?;
+    // ★ The provider is still asked for, and it is no longer asked ANYTHING.
+    //
+    // A transform needs no node positions and no kind check — that is the whole
+    // point of the mechanism. What the model is still needed for is the same
+    // guard `handledrag::drag` makes: a gesture on a page whose model could not
+    // be read is a gesture addressing indices nothing has verified, and this
+    // shell will not send those to a verb that rewrites bytes.
+    let _ = provider.ok_or(Refusal::NoObjectModel)?;
     let objects = selection.object_indices_on(page);
-    let object = match objects.as_slice() {
-        [] => return Err(Refusal::NothingSelected),
-        [one] => *one,
-        _ => return Err(Refusal::ManyObjects),
-    };
-    // ★ The same predicate `canvas::moving::context` uses for its own non-path
-    // check, asked of the same provider. A second notion of "is this a path"
-    // would let a resize accept an object the move rung refuses, and the two
-    // gestures share a selection.
-    if provider.part_kind(object) != Some(PartKind::Subpath) {
-        return Err(Refusal::NotAPath);
-    }
-    let nodes = provider.object_node_points(object);
-    if nodes.is_empty() {
-        return Err(Refusal::NoNodes);
+    if objects.is_empty() {
+        return Err(Refusal::NothingSelected);
     }
     // ★★ The computed scale, on the trace channel, from the ONE place that
     // computes it — so the gesture route and the typed route report the same
@@ -268,27 +319,36 @@ pub fn action(
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!(
-            "resize-scale sx={sx:.4} sy={sy:.4} ax={:.2} ay={:.2} object={object}",
-            anchor.x, anchor.y
+            "resize-scale sx={sx:.4} sy={sy:.4} ax={:.2} ay={:.2} objects={}",
+            anchor.x,
+            anchor.y,
+            objects.len()
         )
     });
-    let moves: Vec<(usize, Point)> = nodes
-        .into_iter()
-        .map(|(index, p)| {
-            (
-                index,
-                Point::new(
-                    anchor.x + (p.x - anchor.x) * f64::from(sx),
-                    anchor.y + (p.y - anchor.y) * f64::from(sy),
-                ),
-            )
-        })
-        .collect();
-    Ok(Action::MoveNodes {
+    // ★★ `scale(...).about(anchor)` — the whole arithmetic, in the engine's own
+    // `Matrix`, in PAGE space.
+    //
+    // What this replaced was the same map written out per node:
+    //
+    //     p' = a + (p - a) * (sx, sy)
+    //
+    // and it is worth naming what that cost. `about` is
+    // `translate(a) × M × translate(-a)`, which is that expression exactly — so
+    // this is not a new formula, it is the same one stated once by the crate
+    // that owns matrices instead of once here per point. A shell that kept its
+    // own copy would be the second derivation of one answer, which is the
+    // failure this project has now met four times in coordinate space.
+    //
+    // ★ Page space, not the object's. See the module header: the engine
+    // conjugates by each object's own CTM, and a caller that "helpfully"
+    // pre-multiplied would be right only where that CTM is the identity.
+    let matrix = pdfce_core::vector::Matrix::scale(f64::from(sx), f64::from(sy)).about(anchor);
+    Ok(VectorAction::TransformObjects {
         page,
-        object,
-        moves,
-    })
+        objects,
+        matrix,
+    }
+    .into())
 }
 
 /// The frame's facts about a resize drag in flight.

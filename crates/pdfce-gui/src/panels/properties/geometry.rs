@@ -10,7 +10,7 @@
 //!
 //! And it closes it *because the resize gesture landed first*. Every number in
 //! this section is a call into machinery that already exists and is already
-//! tested: a position change is [`Action::MoveSelection`], the same variant a
+//! tested: a position change is [`VectorAction::MoveSelection.into()`], the same variant a
 //! move drag raises, and a size change is [`crate::canvas::resizing::action`],
 //! the same function the eight grips raise. **This module computes two scale
 //! factors and a delta and contributes no geometry of its own.**
@@ -87,7 +87,7 @@
 use egui::Ui;
 use pdfce_core::vector::Point;
 
-use crate::app::actions::Action;
+use crate::app::actions::{Action, VectorAction};
 use crate::app::state::OpenDoc;
 use crate::canvas::resizing;
 use crate::text::panels::properties as t;
@@ -406,12 +406,15 @@ pub fn section(
     if response.clicked() {
         let plan = plan(draft, bounds);
         if let Some((dx, dy)) = plan.translate {
-            actions.push(Action::MoveSelection {
-                page,
-                objects: vec![object],
-                dx,
-                dy,
-            });
+            actions.push(
+                VectorAction::MoveSelection {
+                    page,
+                    objects: vec![object],
+                    dx,
+                    dy,
+                }
+                .into(),
+            );
         }
         if let Some((pivot, factors)) = plan.scale {
             // ★ Routed through `resizing::action` rather than assembled here,

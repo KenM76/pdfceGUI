@@ -328,98 +328,12 @@ impl PdfceApp {
             Action::NextPage => doc.view.next_page(page_count),
             Action::PrevPage => doc.view.prev_page(page_count),
             Action::GoToPage(index) => doc.view.go_to_page(index, page_count),
-            Action::DeleteSelection { page, objects } => {
-                if !objects.is_empty() {
-                    vector_edit(doc, "delete-objects", page, objects.len(), |session| {
-                        session.delete_objects(page, &objects)
-                    });
-                }
-            }
-            Action::MoveSelection {
-                page,
-                objects,
-                dx,
-                dy,
-            } => {
-                if !objects.is_empty() {
-                    vector_edit(doc, "move-objects", page, objects.len(), |session| {
-                        session.move_objects(page, &objects, dx, dy)
-                    });
-                }
-            }
-            Action::MoveSubpath {
-                page,
-                object,
-                subpath,
-                dx,
-                dy,
-            } => {
-                vector_edit(doc, "move-subpath", page, 1, |session| {
-                    session.move_subpath(page, object, subpath, dx, dy)
-                });
-            }
-            Action::MoveNode {
-                page,
-                object,
-                node,
-                to,
-            } => {
-                vector_edit(doc, "move-node", page, 1, |session| {
-                    session.move_node(page, object, node, to)
-                });
-            }
-            // ★★ A resize, and it is `move_nodes` because there is no scale
-            // verb — see `Action::MoveNodes` and `crate::canvas::resizing`.
-            //
-            // ONE call with every node in it, deliberately: the slice is what
-            // makes a whole resize one command and one undo entry, and a loop
-            // over `move_node` would be neither.
-            //
-            // The count passed to `vector_edit` is the number of NODES, which
-            // is what its trace line reports as the operand size. That is the
-            // honest figure for this edit — one object, many points — and it is
-            // the number a reader comparing a trace against a drag would want.
-            // ★ A handle drag, and the only vector edit in this crate whose
-            // RETURN VALUE is a disclosure rather than a count.
-            //
-            // `move_handle` answers with a list of sentences that is empty
-            // unless a `v`/`y` segment had to be re-spelled as `c` — see the
-            // variant's own docs. The curve draws identically either way, so
-            // this is an inference the operator cannot see, which is exactly
-            // the case rule 4 says still owes an off-canvas report.
-            Action::MoveHandle {
-                page,
-                object,
-                node,
-                handle,
-                to,
-            } => {
-                // `said` is filled by the closure and read after it, because
-                // `vector_edit` owns the borrow of the session and the note has
-                // to be recorded against the epoch the edit produced — which
-                // does not exist until `vector_edit` has returned.
-                let mut said = Vec::new();
-                vector_edit(doc, "move-handle", page, 1, |session| {
-                    let out = session.move_handle(page, object, node, handle, to);
-                    if let Ok(disclosures) = &out {
-                        said.clone_from(disclosures);
-                    }
-                    out
-                });
-                for sentence in said {
-                    crate::app::actions::record_note(doc.edit_epoch, sentence);
-                }
-            }
-            Action::MoveNodes {
-                page,
-                object,
-                moves,
-            } => {
-                let count = moves.len();
-                vector_edit(doc, "move-nodes", page, count, |session| {
-                    session.move_nodes(page, object, &moves)
-                });
-            }
+            // ★ Every geometry verb, routed. The body is in
+            // [`super::vector`], beside the enum, which is the pattern
+            // [`super::dimensions`] already sets one arm below — and it is R2's
+            // answer for this file as much as for `action.rs`: the seven arms
+            // were 120 lines of a match that is otherwise a routing table.
+            Action::Vector(action) => super::vector::apply(doc, action),
             // ★ One markup annotation, through the same four-step protocol
             // every other document change uses.
             //

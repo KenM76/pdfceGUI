@@ -472,7 +472,7 @@ pub fn spec(kind: TextMarkKind, quads: Vec<Quad>, pen: super::pen::Pen) -> Marku
 ///
 /// An [`Action`] is *a complete statement of intent, resolvable after the frame
 /// that raised it* — the same property [`Action::CommitMarkup`] and
-/// `Action::DeleteSelection` are built on. Carrying the selection instead would
+/// `VectorAction::DeleteSelection.into()` are built on. Carrying the selection instead would
 /// mean the apply arm re-reading `doc.text_selection`, which by then may have
 /// been cleared by the same frame's Escape, replaced by a click, or invalidated
 /// by another action applied first. Carrying the quads makes the action a fact

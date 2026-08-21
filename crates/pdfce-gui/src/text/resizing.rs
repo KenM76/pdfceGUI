@@ -41,22 +41,30 @@ pub const fn refusal(reason: Refusal) -> &'static str {
             "Select something first. Click a shape on the page, then drag one of the squares \
              around it to resize it."
         }
-        // ★ Names the alternative that DOES work, which is what makes it a
-        // refusal rather than a shrug: moving a group is supported, and an
-        // operator who wanted to resize several things can still do them one at
-        // a time.
-        Refusal::ManyObjects => {
-            "pdfce resizes one shape at a time. Select just the one you want and drag again — \
-             several shapes can be moved together, but not resized together."
-        }
-        // ★★ The commonest of the six on this operator's documents, and the one
-        // whose wording carries the most. It says what pdfce will not do and
-        // WHY in the operator's terms — not "a text object has no nodes".
-        Refusal::NotAPath => {
-            "pdfce cannot resize text or pictures — only shapes drawn out of lines and curves. \
-             Resizing text would mean changing its size, which is a different edit and is not \
-             built yet."
-        }
+        // ★★★ TWO SENTENCES WERE DELETED HERE ON 2026-08-20, AND BOTH WERE THE
+        // OPERATOR'S COMPLAINT.
+        //
+        // They said:
+        //
+        //   ManyObjects — *"pdfce resizes one shape at a time. Select just the
+        //   one you want and drag again."*
+        //   NotAPath    — *"pdfce cannot resize text or pictures — only shapes
+        //   drawn out of lines and curves."*
+        //
+        // Both were honest and both are now false. `Pass 113.0`'s
+        // `transform_objects` wraps each object's operator run in `q <cm> … Q`,
+        // which never looks at an operand — so it works on text, pictures,
+        // forms and inline images, and it takes a **slice**, so a multi-object
+        // resize is one command and one undo entry rather than N of each.
+        //
+        // ★ Kept as a comment rather than deleted with the strings, because the
+        // shape of the episode is the durable part: **a refusal is a claim with
+        // a date on it.** The `NotAPath` sentence carried *"is not built yet"*
+        // and was right for one day; the `ManyObjects` one carried an
+        // architectural reason (`move_nodes` is per object) that stopped being
+        // true the moment a different verb existed. A refusal nobody re-reads
+        // is a limit that outlives the thing that caused it — decision 058's
+        // failure mode wearing a friendlier face.
         Refusal::NoObjectModel => {
             "pdfce could not read this page's shapes, so it will not guess at what a resize \
              would do to them."
@@ -66,9 +74,6 @@ pub const fn refusal(reason: Refusal) -> &'static str {
         Refusal::Degenerate => {
             "That would flatten the shape to nothing or turn it inside out. Drag back the other \
              way to make it smaller without collapsing it."
-        }
-        Refusal::NoNodes => {
-            "This shape has no corners to move, so there is nothing for a resize to act on."
         }
     }
 }
@@ -113,11 +118,8 @@ mod tests {
     fn every_refusal_says_something() {
         for r in [
             Refusal::NothingSelected,
-            Refusal::ManyObjects,
-            Refusal::NotAPath,
             Refusal::NoObjectModel,
             Refusal::Degenerate,
-            Refusal::NoNodes,
         ] {
             let s = refusal(r);
             assert!(s.len() > 40, "{r:?} needs a real sentence, got {s:?}");
@@ -135,18 +137,17 @@ mod tests {
     /// or a *show operator*, and a refusal phrased in those terms reads as an
     /// internal error rather than as a limit.
     ///
-    /// "corners" is the word this catalogue uses where the engine says "nodes",
-    /// and it is checked for rather than merely permitted — the `NoNodes`
-    /// sentence has to say *something* about them.
+    /// ★ The three that are left all describe the operator's own situation
+    /// rather than the engine's. Everything the ENGINE refuses is worded by the
+    /// engine and reaches the status row through `vector_edit` — see
+    /// `canvas::resizing`'s note on the preflight for why there is no
+    /// shell-side sentence standing in for it.
     #[test]
     fn nothing_is_phrased_in_the_file_formats_vocabulary() {
         for r in [
             Refusal::NothingSelected,
-            Refusal::ManyObjects,
-            Refusal::NotAPath,
             Refusal::NoObjectModel,
             Refusal::Degenerate,
-            Refusal::NoNodes,
         ] {
             let s = refusal(r).to_lowercase();
             for word in [
@@ -162,25 +163,54 @@ mod tests {
                 );
             }
         }
-        assert!(
-            refusal(Refusal::NoNodes).contains("corners"),
-            "the empty-shape refusal must still say what is missing, in a word that means \
-             something on a page"
-        );
     }
 
-    /// ★ **The two refusals that have a working alternative name it.**
+    /// ★ **A refusal that has a working alternative names it.**
     ///
     /// A refusal that does not say what to do instead is a shrug with a capital
-    /// letter — `text::commands`' own rule. These two are the ones where
-    /// something *does* work: select one shape, or move rather than resize.
+    /// letter — `text::commands`' own rule.
+    ///
+    /// ★★ This test used to assert TWO of them, and the other one is gone with
+    /// its sentence. `ManyObjects` said *"select just the one you want"*, which
+    /// was a real alternative to a real limit until `transform_objects` took a
+    /// slice on 2026-08-20. **The assertion outliving the limit is the hazard
+    /// worth naming here**: a test that pins a refusal's wording is a test that
+    /// will keep that refusal alive through the release that made it false,
+    /// which is what happened to the engine's own `NoMatch` message twice
+    /// before it was split.
     #[test]
-    fn the_refusals_with_an_alternative_offer_it() {
-        assert!(
-            refusal(Refusal::ManyObjects).contains("one at a time")
-                || refusal(Refusal::ManyObjects).contains("just the one")
-        );
+    fn the_refusal_with_an_alternative_offers_it() {
         assert!(refusal(Refusal::NothingSelected).contains("Click"));
+    }
+
+    /// ★★ **Every refusal still standing describes a state the shell can
+    /// actually reach.**
+    ///
+    /// The guard against the failure the row above names. Two of the six
+    /// sentences here became false the day a new verb shipped, and nothing in
+    /// this file would have noticed: a refusal is a claim with a date on it,
+    /// and the only thing that dates it is the code path that raises it.
+    ///
+    /// So this asserts the pairing rather than the prose — every variant is
+    /// raised somewhere in `canvas::resizing`, which is the one file allowed to
+    /// raise them. It cannot check that the *reason* is still true, and does
+    /// not pretend to; what it catches is a variant whose call site has gone.
+    #[test]
+    fn every_refusal_is_still_raised_somewhere() {
+        let src = include_str!("../canvas/resizing.rs");
+        for r in [
+            Refusal::NothingSelected,
+            Refusal::NoObjectModel,
+            Refusal::Degenerate,
+        ] {
+            let name = format!("{r:?}");
+            assert!(
+                src.contains(&format!("Refusal::{name}")),
+                "`{name}` has words and no call site — either it is dead and should go with its \
+                 sentence, or the code that raised it was deleted and an operator now gets \
+                 silence where they used to get an explanation"
+            );
+        }
     }
 
     /// The line-weight disclosure names both what happened and what it means.

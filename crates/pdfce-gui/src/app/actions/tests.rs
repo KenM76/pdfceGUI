@@ -4,7 +4,7 @@
 //! ceiling, and the seam is the one `tools/gates/check-file-size.sh` asks for
 //! rather than a size: [`super`] is the **vocabulary** — one enum, and the
 //! argument for every variant in it — and this is what is asserted *about* that
-//! vocabulary. A reader looking up what `Action::MoveNodes` means never needs
+//! vocabulary. A reader looking up what `crate::app::actions::VectorAction::MoveNodes.into()` means never needs
 //! this file, and a reader asking whether the dispatch reaches it never needs
 //! the other 1,400 lines of prose.
 //!

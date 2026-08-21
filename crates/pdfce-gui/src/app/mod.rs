@@ -805,7 +805,7 @@ pub(crate) mod tests {
     // `crate::app::surfaces` on 2026-08-20, and a `use` at module scope that
     // only the test module needs is a `use` that fails the workspace's
     // `-D warnings` clippy gate in a release build.
-    use crate::app::actions::Action;
+    use crate::app::actions::{Action, VectorAction};
     use crate::canvas::selection::{ClickHit, SelectionLevel};
     use crate::canvas::target::TargetId;
     use crate::panels::objects::test_support::engine_fixture;
@@ -986,10 +986,13 @@ pub(crate) mod tests {
         app.dispatch_token(&ctx, delete, &mut actions);
         assert_eq!(
             actions,
-            vec![Action::DeleteSelection {
-                page: 0,
-                objects: vec![0, 2],
-            }],
+            vec![
+                VectorAction::DeleteSelection {
+                    page: 0,
+                    objects: vec![0, 2],
+                }
+                .into()
+            ],
             "one action carrying the whole batch, ascending — `delete_objects` \
              resolves every index before planning, so a second single-object \
              action would renumber the page between them"

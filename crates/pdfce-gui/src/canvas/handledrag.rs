@@ -45,7 +45,7 @@
 //! is that the original bytes are gone and dragging back does not restore them.
 //! That is precisely rule 4's surviving half — *an inference the operator
 //! cannot see still owes an off-canvas report* — and it is why
-//! `Action::MoveHandle`'s apply arm forwards those sentences to the disclosure
+//! `VectorAction::MoveHandle.into()`'s apply arm forwards those sentences to the disclosure
 //! channel rather than discarding them as "no error".
 //!
 //! ## What is deliberately NOT here
@@ -96,7 +96,7 @@
 use egui::{Pos2, Vec2};
 use pdfce_core::vector::{Handle, Point};
 
-use crate::app::actions::Action;
+use crate::app::actions::{Action, VectorAction};
 use crate::canvas::gesture::Phase;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::SelectionState;
@@ -202,7 +202,7 @@ pub struct Frame<'a> {
     pub page: Option<&'a pdfce_core::page_tree::Page>,
 }
 
-/// Run a handle drag, raising [`Action::MoveHandle`] on release.
+/// Run a handle drag, raising [`VectorAction::MoveHandle.into()`] on release.
 ///
 /// Returns the preview to draw while the drag is in flight: the handle's
 /// canvas-space position and the anchor it is tethered to, so the overlay can
@@ -242,13 +242,16 @@ pub fn drag(
             frame.node, frame.handle, to.x, to.y
         )
     });
-    actions.push(Action::MoveHandle {
-        page: frame.page_index,
-        object,
-        node: frame.node,
-        handle: frame.handle,
-        to: Point::new(f64::from(to.x), f64::from(to.y)),
-    });
+    actions.push(
+        VectorAction::MoveHandle {
+            page: frame.page_index,
+            object,
+            node: frame.node,
+            handle: frame.handle,
+            to: Point::new(f64::from(to.x), f64::from(to.y)),
+        }
+        .into(),
+    );
     None
 }
 

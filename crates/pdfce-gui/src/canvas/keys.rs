@@ -238,7 +238,7 @@
 
 use egui::Key;
 
-use crate::app::actions::Action;
+use crate::app::actions::{Action, VectorAction};
 use crate::app::modes::Capabilities;
 use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::canvas::zoom;
@@ -671,10 +671,13 @@ pub(super) fn canvas_keys(
     // frame. Clearing here as well would be a second mechanism for the same
     // outcome, and the two would disagree the first time the engine refused
     // the edit.
-    actions.push(Action::DeleteSelection {
-        page: page_index,
-        objects,
-    });
+    actions.push(
+        VectorAction::DeleteSelection {
+            page: page_index,
+            objects,
+        }
+        .into(),
+    );
 }
 
 #[cfg(test)]
@@ -758,10 +761,13 @@ mod tests {
         let mut selection = object_selected();
         assert_eq!(
             keys_for(key(Key::Delete), &mut selection),
-            vec![Action::DeleteSelection {
-                page: 0,
-                objects: vec![3],
-            }]
+            vec![
+                VectorAction::DeleteSelection {
+                    page: 0,
+                    objects: vec![3],
+                }
+                .into()
+            ]
         );
 
         // Backspace is bound too — a laptop without a Delete key is the

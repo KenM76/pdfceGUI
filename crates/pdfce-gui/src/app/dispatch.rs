@@ -1079,7 +1079,13 @@ impl PdfceApp {
                         let page = doc.view.page_index;
                         let objects = doc.selection.deletable_objects_on(page);
                         if !objects.is_empty() {
-                            actions.push(Action::DeleteSelection { page, objects });
+                            actions.push(
+                                crate::app::actions::VectorAction::DeleteSelection {
+                                    page,
+                                    objects,
+                                }
+                                .into(),
+                            );
                         }
                     }
                 }

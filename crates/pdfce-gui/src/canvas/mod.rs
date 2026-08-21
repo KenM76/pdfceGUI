@@ -91,7 +91,7 @@
 //! frame, from input that only exists during the frame, so deferring it would
 //! make a click land a frame after the operator made it — the same argument as
 //! the two above. The line is unmoved and visible in [`canvas_keys`]: Delete
-//! removes nothing here, it raises [`Action::DeleteSelection`] carrying the
+//! removes nothing here, it raises [`VectorAction::DeleteSelection.into()`] carrying the
 //! operand list, applied after the frame through the one funnel. Nothing that
 //! touches `EditSession` runs from a widget.
 //!

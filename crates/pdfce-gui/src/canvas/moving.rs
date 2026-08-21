@@ -115,7 +115,7 @@ use egui::{Pos2, Vec2};
 use pdfce_core::page_tree::Page;
 use pdfce_core::vector::Point;
 
-use crate::app::actions::Action;
+use crate::app::actions::{Action, VectorAction};
 use crate::canvas::gesture::Phase;
 use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::panels::objects::provider::{ObjectModelProvider, PartKind};
@@ -169,6 +169,20 @@ impl PageDelta {
 /// family the gesture means.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoveSubject {
+    /// Every selected object, moved by a **matrix** rather than by rewriting
+    /// coordinates — the rung a selection containing a text run, an image, a
+    /// form XObject or an inline image takes.
+    ///
+    /// Reaches `EditSession::transform_objects` with `Matrix::translate(dx, dy)`
+    /// in PAGE space. See [`eligible`]'s Object arm for why this is a second
+    /// rung beside [`Self::Objects`] rather than a replacement for it, and
+    /// `VectorAction::TransformObjects.into()` for the page-space contract.
+    Transform {
+        /// The 0-based page.
+        page: usize,
+        /// Paint-order indices, ascending and de-duplicated.
+        objects: Vec<usize>,
+    },
     /// The Object rung: `move_objects`, one command for the whole selection.
     Objects {
         /// The page the indices are positions on.
@@ -373,10 +387,42 @@ pub fn eligible(
             if objects.is_empty() {
                 return Err(Refusal::NothingSelected);
             }
-            if let Some(index) = ctx.non_path {
-                return Err(Refusal::NotAPath(index));
+            // ★★★ THE REFUSAL BECAME A FORK — 2026-08-20, and it is the
+            // operator's *"can I please please please have the capability to
+            // move the text after?"*
+            //
+            // This read:
+            //
+            //     if let Some(index) = ctx.non_path {
+            //         return Err(Refusal::NotAPath(index));
+            //     }
+            //
+            // and it was right: `move_objects` rewrites numeric **operands**,
+            // and a text run and an image carry no coordinate operands at all.
+            // `Pass 113.0`'s `transform_objects` wraps the object's operator run
+            // in `q <cm> … Q`, which never looks at an operand — so it moves
+            // anything.
+            //
+            // ★★ WHY THIS IS A FORK AND NOT A REPLACEMENT, which is the part a
+            // reader will want to argue with.
+            //
+            // Both verbs move things and both are one command and one undo
+            // entry, so the obvious tidy is to route everything through the
+            // transform. That would be worse, and the reason is the FILE rather
+            // than the API: `move_objects` rewrites coordinates in place and
+            // adds nothing, while a transform adds a `q`, a `cm` and a `Q` per
+            // object per gesture. On this operator's drawings a nudge is
+            // something he does dozens of times to hundreds of objects, and the
+            // wrapping accumulates in a file he then sends to somebody.
+            //
+            // So: **the lighter verb where it can express the gesture, the
+            // general one where it cannot.** The predicate is unchanged — it is
+            // the same `ctx.non_path` that used to refuse — which is what makes
+            // this a fork rather than a second notion of "is this a path".
+            match ctx.non_path {
+                None => Ok(MoveSubject::Objects { page, objects }),
+                Some(_) => Ok(MoveSubject::Transform { page, objects }),
             }
-            Ok(MoveSubject::Objects { page, objects })
         }
         SelectionLevel::Part => {
             let (object, entry) = entered(selection, page)?;
@@ -467,31 +513,44 @@ pub fn action(
         return Err(Refusal::NoTravel);
     }
     match subject {
-        MoveSubject::Objects { page, objects } => Ok(Action::MoveSelection {
+        // ★ `translate` in PAGE space, which is what `PageDelta` already is —
+        // `page_delta` did the one canvas → page conversion and this is the
+        // same pair of numbers `MoveSelection` below hands to `move_objects`.
+        // Two rungs, one displacement, no second derivation.
+        MoveSubject::Transform { page, objects } => Ok(VectorAction::TransformObjects {
+            page,
+            objects,
+            matrix: pdfce_core::vector::Matrix::translate(delta.dx, delta.dy),
+        }
+        .into()),
+        MoveSubject::Objects { page, objects } => Ok(VectorAction::MoveSelection {
             page,
             objects,
             dx: delta.dx,
             dy: delta.dy,
-        }),
+        }
+        .into()),
         MoveSubject::Subpath {
             page,
             object,
             subpath,
-        } => Ok(Action::MoveSubpath {
+        } => Ok(VectorAction::MoveSubpath {
             page,
             object,
             subpath,
             dx: delta.dx,
             dy: delta.dy,
-        }),
+        }
+        .into()),
         MoveSubject::Node { page, object, node } => {
             let from = node_at.ok_or(Refusal::NodeNotFound(node))?;
-            Ok(Action::MoveNode {
+            Ok(VectorAction::MoveNode {
                 page,
                 object,
                 node,
                 to: Point::new(from.x + delta.dx, from.y + delta.dy),
-            })
+            }
+            .into())
         }
         MoveSubject::Nodes {
             page,
@@ -512,11 +571,12 @@ pub fn action(
                     .ok_or(Refusal::NodeNotFound(node))?;
                 moves.push((node, Point::new(from.x + delta.dx, from.y + delta.dy)));
             }
-            Ok(Action::MoveNodes {
+            Ok(VectorAction::MoveNodes {
                 page,
                 object,
                 moves,
-            })
+            }
+            .into())
         }
     }
 }
@@ -979,7 +1039,10 @@ mod tests {
         let subject = eligible(&sel, 0, paths()).expect("eligible");
         let raised =
             action(subject, PageDelta { dx: 0.01, dy: 0.0 }, None, &[]).expect("committed");
-        assert!(matches!(raised, Action::MoveSelection { .. }));
+        assert!(matches!(
+            raised,
+            Action::Vector(VectorAction::MoveSelection { .. })
+        ));
     }
 
     /// A non-finite delta is refused rather than authored into a content
@@ -1022,12 +1085,13 @@ mod tests {
         );
         assert_eq!(
             action(subject, PageDelta { dx: 5.0, dy: -2.0 }, None, &[]),
-            Ok(Action::MoveSelection {
+            Ok(VectorAction::MoveSelection {
                 page: 0,
                 objects: vec![0, 1],
                 dx: 5.0,
                 dy: -2.0,
-            })
+            }
+            .into())
         );
     }
 
@@ -1047,19 +1111,60 @@ mod tests {
         assert_eq!(eligible(&sel, 0, paths()), Err(Refusal::NothingSelected));
     }
 
-    /// ★ **A non-path member refuses the WHOLE move, and names the offender.**
+    /// ★★★ **A non-path member ROUTES THE MOVE THROUGH A TRANSFORM** — and
+    /// this test used to assert that it refused the whole drag.
     ///
-    /// The engine does this too, and would do it correctly. Refusing here as
-    /// well is what keeps the *ghost* honest: an outline that slides across the
-    /// page and then snaps back has already told the operator something untrue.
+    /// It read *"a non-path member refuses the WHOLE move, and names the
+    /// offender"*, and the reasoning was sound while it lasted:
+    ///
+    /// > *"The engine does this too, and would do it correctly. Refusing here
+    /// > as well is what keeps the ghost honest: an outline that slides across
+    /// > the page and then snaps back has already told the operator something
+    /// > untrue."*
+    ///
+    /// The ghost obligation stands and is now satisfied the other way round —
+    /// the outline slides **and the release commits**, because `Pass 113.0` gave
+    /// this shell a verb that moves anything. The operator asked for it three
+    /// times: *"can I please please please have the capability to move the text
+    /// after?"*
+    ///
+    /// ★ What is asserted is the **rung**, not the absence of a refusal: a
+    /// build that routed every move through the transform would also stop
+    /// refusing here, and it would be wrong for the reason `eligible`'s own
+    /// comment gives about the file rather than the API.
     #[test]
-    fn a_non_path_in_the_selection_refuses_the_whole_move() {
+    fn a_non_path_in_the_selection_routes_through_a_transform() {
         let sel = two_objects_selected();
         let ctx = MoveContext {
             non_path: Some(1),
             ..paths()
         };
-        assert_eq!(eligible(&sel, 0, ctx), Err(Refusal::NotAPath(1)));
+        assert!(
+            matches!(
+                eligible(&sel, 0, ctx),
+                Ok(MoveSubject::Transform { page: 0, .. })
+            ),
+            "a selection containing a picture or a text run must reach the transform rung"
+        );
+    }
+
+    /// …and an all-path selection still takes the LIGHTER verb.
+    ///
+    /// The other half of the fork, and the half a tidy-up would delete. A
+    /// transform wraps each object in `q <cm> … Q` per gesture; `move_objects`
+    /// rewrites the coordinates in place and adds nothing. On a drawing that is
+    /// nudged dozens of times, the wrapping accumulates in a file somebody then
+    /// sends on.
+    #[test]
+    fn an_all_path_selection_still_reaches_move_objects() {
+        let sel = two_objects_selected();
+        assert!(
+            matches!(
+                eligible(&sel, 0, paths()),
+                Ok(MoveSubject::Objects { page: 0, .. })
+            ),
+            "a selection made only of shapes must not pay for the general verb"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1095,13 +1200,14 @@ mod tests {
         );
         assert_eq!(
             action(subject, PageDelta { dx: 1.5, dy: 2.5 }, None, &[]),
-            Ok(Action::MoveSubpath {
+            Ok(VectorAction::MoveSubpath {
                 page: 0,
                 object: 0,
                 subpath: 1,
                 dx: 1.5,
                 dy: 2.5,
-            })
+            }
+            .into())
         );
     }
 
@@ -1180,12 +1286,13 @@ mod tests {
         );
         assert_eq!(
             raised,
-            Ok(Action::MoveNode {
+            Ok(VectorAction::MoveNode {
                 page: 0,
                 object: 0,
                 node: 4,
                 to: Point::new(110.0, 196.0),
-            })
+            }
+            .into())
         );
     }
 
@@ -1282,7 +1389,7 @@ mod tests {
             .collect();
         let raised = action(subject, PageDelta { dx: 3.0, dy: -7.0 }, None, &points)
             .expect("the plural arm resolves every anchor");
-        let Action::MoveNodes { moves, .. } = raised else {
+        let Action::Vector(VectorAction::MoveNodes { moves, .. }) = raised else {
             panic!("the plural subject must raise ONE MoveNodes, got {raised:?}");
         };
         assert!(moves.len() >= 2, "one command carrying every anchor");
