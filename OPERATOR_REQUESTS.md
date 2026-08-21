@@ -144,8 +144,11 @@ decided against.
    not assert a hit, because whether anything is near that destination is a
    fact about the fixture and not about the build. NOT YET RUN.
 4. Neither a move, a resize nor a handle drag snaps to guides, grid or geometry.
-5. **No rotate handle** anywhere. Blocked on the engine verb, which is accepted
-   and being built.
+5. **No rotate handle** anywhere. ~~Blocked on the engine verb~~ — **the verb
+   shipped 2026-08-20 and rotates**; what is missing is a ninth grip above the
+   selection box to reach it with, a drag that measures an angle rather than a
+   distance, and a preview. **Shell work, unblocked, and the next thing on the
+   list unless you say otherwise.**
 6. **No right-click to add or remove a perimeter point**, though both engine
    verbs and the preflight that greys the menu item already exist.
 7. A zero-travel release still raises an action in three of the four drag paths.
@@ -706,6 +709,33 @@ after the caret and I would rather name the gap than leave it implied.
 
 Shift+arrow, Ctrl+A, and dragging across a draft to select part of it, so that
 typing replaces the selection. Not started.
+
+## Q1 — A question for you, not a request: should a text edit HOLD the rest of the line?
+
+**Raised by the engine, 2026-08-20**, and it is a default that is yours to set
+rather than mine to guess.
+
+When you retype a piece of text and the new words are longer, pdfce has to
+decide what happens to whatever is drawn after it on the same line. Two answers:
+
+- **Push it along** (today's default). Right for a paragraph; the sentence stays
+  a sentence.
+- **Leave it exactly where it is**, and absorb the difference invisibly. Right
+  for a drawing, where a label beside a label is not a sentence and moving one
+  is a change nobody asked for.
+
+pdfce already picks *leave it* automatically in three cases: rotated text,
+right-aligned or centred text, and a line drawn as several separate pieces —
+which is most of a CAD title block. The question is whether **drawing content
+should default to leaving it** rather than relying on those three to catch it.
+
+The engine's own view: *"`Pin` is the safe posture for drawing content … worth
+offering on a per-edit basis rather than as a global preference, since it is
+right for a CAD label and wrong for a paragraph."*
+
+**Nothing is built on this and nothing will be until you answer.** Recorded here
+rather than decided quietly, because it changes what happens to your drawings
+when you type.
 
 ## O5 — Horizontal / vertical dimension constraint, from a drop-down
 
