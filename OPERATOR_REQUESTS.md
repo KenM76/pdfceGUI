@@ -416,12 +416,30 @@ decided against.
     **Clicking the field first always works.** So does everything else about
     the dialog.
 
-    Found by a driven check on 2026-08-21, and the cause is named as far as
-    it goes: the new window is **granted** the keyboard by Windows and then
-    **loses it again** a few frames later, before any keystroke arrives. The
-    program now asks for it repeatedly through that window and it still does
-    not hold. This is not the test harness — that was instrumented and
-    confirmed to be doing nothing during the sequence.
+    Found by a driven check on 2026-08-21, and now **diagnosed exactly**.
+    Both windows report their own focus to the trace, and the sequence is:
+
+    ```
+    dialog-focus  focused=Some(true)      the note window is given the keyboard
+    root-focus    focused=Some(false)
+    …17 idle frames: no resize, no move, no input, nothing asked for…
+    root-focus    focused=Some(true)      Windows hands it BACK to the main window
+    dialog-focus  focused=Some(false)
+    ```
+
+    The program asks for none of that. Asking for the keyboard again, once per
+    frame, for half a second — well past the moment it is taken — **does not
+    hold it**: Windows refuses the foreground to a program that does not
+    already have it, silently, and after the first courtesy grant this one does
+    not. It is not the test harness either; that was instrumented and confirmed
+    to be doing nothing during the sequence.
+
+    ★ **The fix is to make the dialog OWNED by the main window** — the same
+    row already open at item 12 as *"the dialog can fall behind the main
+    window"*. An owned window keeps its place above its owner and keeps the
+    keyboard as a property of that relationship, rather than as a request that
+    can be refused. The toolkit offers no way to say so, but the program can
+    tell Windows directly. **One fix closes both.**
 
     Recorded here rather than left in a red test run, because it is your
     workflow rather than ours: this is the one dialog you reach by drawing on

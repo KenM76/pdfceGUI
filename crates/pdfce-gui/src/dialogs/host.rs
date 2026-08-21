@@ -164,12 +164,69 @@ const FIT_MARGIN: f32 = 8.0;
 
 /// How many passes from opening a dialog goes on asking for the keyboard.
 ///
-/// Measured rather than chosen: one request on the opening pass was granted and
-/// then lost a few passes later, while the window manager was still settling
-/// the new window. Eight is a shade over a tenth of a second at 60 Hz — longer
-/// than that settling and far shorter than a human switching to another
-/// application, which is the thing this must never fight.
+/// # ★★★ Measured, twice, and the second measurement moved it
+///
+/// One request on the opening pass was **granted** — the dialog traced
+/// `focused=Some(true)` — and then lost again. Eight passes was tried next, on
+/// the theory that the window manager was still settling. Also not enough. The
+/// trace says exactly when, with both windows reporting:
+///
+/// ```text
+/// text-annot-open kind=TextBox …
+/// dialog-focus  title="Text box" focused=Some(true)     <- the dialog gains it
+/// root-focus    focused=Some(false)
+/// …17 idle passes, no resize, no reposition, no input…
+/// root-focus    focused=Some(true)                      <- and the ROOT takes it back
+/// dialog-focus  title="Text box" focused=Some(false)
+/// ```
+///
+/// The application asks for none of that: no `Focus` command, no
+/// `SetWindowPos`, nothing between the two. The platform hands the foreground
+/// back to the owner-less main window about a third of a second after the child
+/// appears.
+///
+/// # ★★★ AND FORTY PASSES WAS TRIED AND DOES NOT WORK — the number is back
+/// # at eight because repeating the request buys nothing
+///
+/// Half a second of `ViewportCommand::Focus`, one per pass, covering the
+/// measured moment of the loss with room to spare: **the root still takes the
+/// foreground back and the dialog still ends up without it.** Windows is
+/// refusing the grant, silently, which is the same foreground-lock rule
+/// `tools/ui-verify` documents at length about `SetForegroundWindow` — a
+/// process that does not already hold the foreground cannot take it, and after
+/// the initial courtesy grant this process does not.
+///
+/// So the value is back at eight: long enough for the settling it was written
+/// for, short enough that it cannot fight an operator who switches away. **A
+/// knob must not sit at a value chosen to fix something it does not fix**, and
+/// leaving it at forty would leave a future reader believing the problem was
+/// tuning.
+///
+/// ★ The real fix is **G3, window ownership** — `SetWindowLongPtrW` with
+/// `GWLP_HWNDPARENT` on the child. An owned window stays above its owner and
+/// keeps activation as a property of the relationship rather than as a request
+/// that can be refused. `eframe 0.35` exposes no owner option and no child
+/// handle, but the application can enumerate its own top-level windows exactly
+/// as the harness does. That is the next piece of work, and it closes the
+/// classic "the dialog fell behind the parent" bug in the same stroke.
+///
+/// ★ The bound is not the only guard, and on its own it would be a bad one —
+/// see [`ENGAGED`]. A dialog stops asking the instant the operator touches it,
+/// so the only case this can fight is *clicking away within half a second of a
+/// dialog appearing without having interacted with it*, whose worst outcome is
+/// the dialog coming back to the front once.
 const FOCUS_FRAMES: u64 = 8;
+
+/// Marker written when a dialog first receives input of its own.
+///
+/// ★★ **The real terminator of the focus request**, with [`FOCUS_FRAMES`] as
+/// its backstop rather than the other way round. *"Keep asking for the keyboard
+/// until the operator has used this window"* is the rule that matches intent;
+/// a pass count is only there so a dialog nobody touches stops asking.
+///
+/// Once set it is never cleared for the life of that opening, so a dialog the
+/// operator clicked into and then left never re-seizes the foreground.
+const ENGAGED: bool = true;
 
 /// One dialog's window: what it is called, how big it opens, and where the
 /// operator last left it.
@@ -195,6 +252,9 @@ pub struct Host {
     /// kept, so a **fresh opening** can be told from a continuing one. See
     /// [`Self::show`]'s focus request.
     seen_key: egui::Id,
+    /// Where [`ENGAGED`] is recorded — whether the operator has yet used this
+    /// dialog, which is what stops it asking for the keyboard.
+    engaged_key: egui::Id,
     /// Where the remembered position is kept in `egui::Memory`.
     ///
     /// Derived from the same string as [`Self::id`] and salted, so it cannot
@@ -247,6 +307,8 @@ impl Host {
             fit_key: egui::Id::new(("dialog-host-fit", id)),
             // ui-text-exempt: a memory key, never displayed.
             seen_key: egui::Id::new(("dialog-host-seen", id)),
+            // ui-text-exempt: a memory key, never displayed.
+            engaged_key: egui::Id::new(("dialog-host-engaged", id)),
             title: title.into(),
             default_size,
             min_size,
@@ -386,21 +448,81 @@ impl Host {
             // unavailable (see the module header) this is the only route back
             // to a dialog that has fallen behind the parent.
             .with_taskbar(true);
-        builder = match self.remembered(ctx) {
-            // G6: back where it was left.
-            Some(at) => builder.with_position(at),
-            // First open: inset from the application window rather than centred
-            // on it — see `OPEN_INSET_PT`.
-            None => match ctx.input(|i| i.viewport().outer_rect) {
-                Some(parent) => builder.with_position(parent.min + Vec2::splat(OPEN_INSET_PT)),
-                // No parent rect means egui has not been told where the
-                // application window is, which happens on the first frame and
-                // in a headless harness. Letting the platform place it is the
-                // right answer and not a fallback: it is what every dialog does
-                // when nothing better is known.
-                None => builder,
-            },
+        // ★★ A SHORT WINDOW, not a single frame, and the reason is measured.
+        //
+        // One `Focus` on the opening frame was sent, granted — the dialog
+        // traced `focused=Some(true)` — and **lost again a few frames later**,
+        // before any keystroke arrived. A window that has just been created is
+        // still settling with the window manager, and a single request lands in
+        // the middle of that.
+        //
+        // So the request is repeated for [`FOCUS_FRAMES`] passes from the
+        // opening and then stops for good. Bounded, because a `Focus` sent
+        // forever would seize the foreground back from anything the operator
+        // switched to while the dialog was open — including another
+        // application, which is the behaviour of the worst software on the
+        // machine. `dialogs::textannot`'s own field-focus retry is bounded for
+        // the same reason and says so in the same words.
+        let now = ctx.cumulative_pass_nr();
+        let opened_at = ctx.data(|d| d.get_temp::<(u64, u64)>(self.seen_key));
+        let (opened_at, last) = match opened_at {
+            // ★ A gap means it was closed and reopened: a fresh opening. The
+            // gap is measured against a couple of passes rather than against
+            // `FOCUS_FRAMES`, which is a different quantity and would make a
+            // dialog reopened within half a second look like a continuation.
+            Some((_, last)) if now.saturating_sub(last) > 2 => (now, now),
+            Some((opened, _)) => (opened, now),
+            None => (now, now),
         };
+        if opened_at == now {
+            // A fresh opening has not been engaged with yet.
+            ctx.data_mut(|d| d.remove::<bool>(self.engaged_key));
+        }
+        ctx.data_mut(|d| d.insert_temp(self.seen_key, (opened_at, last)));
+        let engaged = ctx.data(|d| d.get_temp::<bool>(self.engaged_key)) == Some(ENGAGED);
+        let opening = !engaged && now.saturating_sub(opened_at) < FOCUS_FRAMES;
+        // The very first pass of this opening. See the position clause below.
+        let placing = now == opened_at;
+
+        // ★★★ A POSITION IS ASSERTED ONCE, ON THE PASS THE DIALOG OPENS, and
+        // never again while it is open.
+        //
+        // `show_viewport_immediate` DIFFS the builder against the previous
+        // frame's and turns each changed property into a `ViewportCommand`. A
+        // position clause that runs every frame therefore re-asserts a position
+        // every frame — and the position it asserts comes from
+        // [`Self::remembered`], which is written from the window's own
+        // `outer_rect` inside the callback, one frame behind. Any wobble in
+        // that round trip is a `SetWindowPos` per frame at the platform.
+        //
+        // ★ Two things that costs, and the second is the one that was hunted
+        // for an hour. It is G6's original defect in a new form — the window
+        // being dragged back toward where the program thinks it is rather than
+        // where the operator put it — and, because `SetWindowPos` participates
+        // in window ACTIVATION, it is a live suspect for a dialog that was
+        // granted the keyboard on opening and lost it a few passes later.
+        //
+        // Asserting once is also the honest statement of intent: the program
+        // chooses where a dialog OPENS, and after that the window belongs to
+        // the operator. `remembered` is still written every frame, because what
+        // it feeds is the *next* opening.
+        if placing {
+            builder = match self.remembered(ctx) {
+                // G6: back where it was left, including across a close.
+                Some(at) => builder.with_position(at),
+                // First open of the session: inset from the application window
+                // rather than centred on it — see `OPEN_INSET_PT`.
+                None => match ctx.input(|i| i.viewport().outer_rect) {
+                    Some(parent) => builder.with_position(parent.min + Vec2::splat(OPEN_INSET_PT)),
+                    // No parent rect means egui has not been told where the
+                    // application window is, which happens on the first frame
+                    // and in a headless harness. Letting the platform place it
+                    // is the right answer and not a fallback: it is what every
+                    // dialog does when nothing better is known.
+                    None => builder,
+                },
+            };
+        }
 
         // ★★★ A DIALOG THAT OPENS TAKES THE KEYBOARD, and it stopped doing
         // that the day it became an OS window.
@@ -428,31 +550,6 @@ impl Host {
         // number of the last frame this dialog drew tells an opening from a
         // continuation; a gap of more than one frame means it was closed and
         // reopened.
-        // ★★ A SHORT WINDOW, not a single frame, and the reason is measured.
-        //
-        // One `Focus` on the opening frame was sent, granted — the dialog
-        // traced `focused=Some(true)` — and **lost again a few frames later**,
-        // before any keystroke arrived. A window that has just been created is
-        // still settling with the window manager, and a single request lands in
-        // the middle of that.
-        //
-        // So the request is repeated for [`FOCUS_FRAMES`] passes from the
-        // opening and then stops for good. Bounded, because a `Focus` sent
-        // forever would seize the foreground back from anything the operator
-        // switched to while the dialog was open — including another
-        // application, which is the behaviour of the worst software on the
-        // machine. `dialogs::textannot`'s own field-focus retry is bounded for
-        // the same reason and says so in the same words.
-        let now = ctx.cumulative_pass_nr();
-        let opened_at = ctx.data(|d| d.get_temp::<(u64, u64)>(self.seen_key));
-        let (opened_at, last) = match opened_at {
-            // A gap means it was closed and reopened: a fresh opening.
-            Some((_, last)) if now.saturating_sub(last) > FOCUS_FRAMES => (now, now),
-            Some((opened, _)) => (opened, now),
-            None => (now, now),
-        };
-        ctx.data_mut(|d| d.insert_temp(self.seen_key, (opened_at, last)));
-        let opening = now.saturating_sub(opened_at) < FOCUS_FRAMES;
 
         let mut frame = Frame {
             // ★ `EmbeddedWindow`, not `Root`, as the value before egui
@@ -497,9 +594,32 @@ impl Host {
             // desktop.
             let _regions = crate::diag::ViewportScope::enter(self.id);
 
-            // See the note above `opening`.
-            if opening && class == ViewportClass::Immediate {
-                child.send_viewport_cmd_to(self.id, egui::ViewportCommand::Focus);
+            // See the note above `opening`, and [`ENGAGED`].
+            if class == ViewportClass::Immediate {
+                // ★ ONLY AN OPERATOR'S OWN EVENTS COUNT, and the first
+                // version of this test said `!i.events.is_empty()` — which is
+                // true on almost every pass, because a viewport receives
+                // `WindowFocused`, pointer motion and screen-rect changes it
+                // never asked for. The dialog marked itself engaged
+                // immediately and stopped asking for the keyboard on the pass
+                // after it opened, which is the defect this rule exists to
+                // prevent, reintroduced by its own guard.
+                let used = child.input(|i| {
+                    i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key { pressed: true, .. }
+                                | egui::Event::Text(_)
+                                | egui::Event::PointerButton { pressed: true, .. }
+                        )
+                    })
+                });
+                if used {
+                    // The operator has used this window. Stop asking, for good.
+                    child.data_mut(|d| d.insert_temp(self.engaged_key, ENGAGED));
+                } else if opening {
+                    child.send_viewport_cmd_to(self.id, egui::ViewportCommand::Focus);
+                }
             }
             // ★ Whether the PLATFORM has given this window the keyboard, which
             // is a different fact from whether it was asked to and the only one

@@ -111,6 +111,10 @@ impl eframe::App for PdfceApp {
     /// needs it after the panel closure has ended, and `Ui::ctx()` borrows.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::diag::trace_on_change("root-focus", || {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("focused={:?}", ctx.input(|i| i.viewport().focused))
+        });
 
         // ★ Step 0 — install the theme. See `DEFECTS.md` D10.
         //
