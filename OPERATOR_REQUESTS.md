@@ -359,6 +359,70 @@ coordinates. The two candidates worth starting from, neither confirmed:
 ★ Both are cheap to test and neither was tested, because the first
 diagnosis was believed. **Test the input path before touching the
 arithmetic again** — the arithmetic is not what is wrong.
+#### 3c. ★★★ BISECTED 2026-08-21. One suspect cleared, the other located
+
+Three driven runs, each changing **one** thing from the last, all at
+`--doc-point 0,300,500` with `resize_scales_a_shape`:
+
+| # | what was applied | result | `canvas-pointer` events |
+|---|---|---|---|
+| 1 | scroll content **+200 pt** each axis. No seeding, no arithmetic change | **PASS** | 19 |
+| 2 | scroll content **+ a whole viewport** each axis. Still no seeding | SKIP | 9 |
+| 3 | the full change: pasteboard **and** seeding | SKIP | **0** |
+
+**Run 1 clears the allocation suspect outright.** Enlarging the
+hover-sensing content rect so it is no longer exactly the strip does not
+cost the canvas its pointer input — the check passes and the gesture
+completes. Whatever is wrong is not that the pages stopped being the widget
+egui resolves a press against.
+
+**Run 2 explains itself and is not a defect.** With a full pasteboard and no
+seeding, the scroll offset is still zero, which now names the far corner of
+the pasteboard. Measured: the page's rect was
+`[[780.0 761.7] - [1248.0 1123.3]]` against a viewport of
+`[[288.0 143.3] - [772.0 762.0]]` — **the page is entirely outside the view**,
+exactly one pasteboard away, which is precisely what seeding exists to fix.
+
+★ It also turned up something a harness author needs to know: **the
+application publishes `canvas rect=` for a page that is off-screen.** The
+rect is the page's *allocated* rect, not its visible one. A check that maps a
+document point through it will compute a screen point outside the window and
+click on whatever is there — which is what run 2 did, landing at page
+coordinates of `-2529`.
+
+#### 3d. So the remaining mystery is narrow, and it is not geometry
+
+In run 3 the seeding **works**: the page's rect is
+`[[296.0 269.7] - [764.0 631.3]]` inside a viewport of
+`[[288.0 139.3] - [772.0 762.0]]` — centred on both axes, wholly visible.
+And the canvas receives **nothing**.
+
+★★ The new clue, which run 2 makes visible by contrast: in run 3 the trace
+carries **one** `canvas` line and `drawn=0` for the whole run, where run 2
+climbs through `drawn=1 … 10`. **The application barely advances.** An
+offscreen smoke launch with the same seeded build reaches `drawn=14`
+normally, so it is not that seeding freezes the shell — it is something
+about the seeded build *in a driven run*.
+
+So the question to start from next time is **not** "where is the page" but:
+*why does a seeded build stop advancing frames when the window is raised and
+driven?* Candidates worth trying, cheapest first:
+
+1. Call `.scroll_offset()` on **every** frame from the stored view rather
+   than once behind a flag, and see whether input returns. If it does, the
+   one-shot is interacting with `ScrollArea`'s own state rather than seeding
+   it.
+2. Check whether anything is requesting a repaint after the seed. `drawn=0`
+   with pages visible means rasters were requested and never arrived, which
+   is a repaint question, not a layout one.
+3. Seed by writing `doc.view`'s stored offset **before** the scroll area is
+   built, so the existing offset path carries it and no `.scroll_offset()`
+   override is needed at all.
+
+★ Candidate 3 is the one to try first on design grounds: it removes the
+override entirely rather than tuning it, and the override is the only thing
+run 3 has that run 2 does not.
+
 #### 4. What survived, and what it is worth
 
 The pure arithmetic was written and proven before it was reverted, and it is
