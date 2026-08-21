@@ -1,12 +1,35 @@
 ---
 name: always-publish-the-latest-build-to-onedrive
-description: Every build worth keeping must be packaged and mirrored to OneDrive, alternating between the pdfceGUI1 and pdfceGUI2 slots — Ken picks it up from there.
+description: The latest build always goes to OneDrive — verified or not. Ken's slots are the safety net, so "not driven yet" is never a reason to withhold it.
 metadata:
   type: feedback
 ---
 
 **Every time you produce a build worth keeping, package it and mirror it to
 Ken's OneDrive, alternating between the `pdfceGUI1` and `pdfceGUI2` slots.**
+
+## ★★★ AND "IT HAS NOT BEEN VERIFIED" IS NOT A REASON TO WITHHOLD IT
+
+Ken, 2026-08-21, correcting exactly that:
+
+> *"no it doesn't matter if it has been checked or not. I always want the
+> latest build there."*
+
+He said it after a session in which a release was deliberately held back —
+the driven suite could not run because he was at the keyboard, and the build
+carried an engine bump touching the compositing path. The caution was
+defensible and it was **not what he wants**, and the reason it is not is
+already built into the tool: **the other slot holds the previous build.** He
+has a fallback by construction, so the cost of a bad build is a folder swap,
+while the cost of withholding is that he does not have the work at all.
+
+So: **package and publish, and say in the report what has not been checked.**
+The disclosure belongs in the report and in `BUILD-INFO.txt` (`--note`), never
+in a decision to hold the build back.
+
+★ This does not relax R1. Driven verification is still what "done" means and
+still gets run — it is a gate on *claiming a feature works*, not a gate on
+*putting the binary where he can reach it*. Those were being conflated.
 
 ```bash
 python tools/package-portable.py

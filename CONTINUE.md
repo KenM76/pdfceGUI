@@ -200,7 +200,22 @@ document makes the move-between-documents check unrunnable.
 
 Two things are in this tree and are **not** verified against a running binary,
 because Ken came back to the keyboard mid-session and the harness takes the
-cursor. Neither is in the published build.
+cursor. **Both ARE in the published build**, and that is his instruction rather
+than an oversight:
+
+> *"no it doesn't matter if it has been checked or not. I always want the
+> latest build there."* — 2026-08-21
+
+★★ **The correction is worth understanding, not just obeying.** A release was
+held back earlier the same day on exactly this reasoning, and the reason it was
+wrong is already built into the tool: **the other slot holds the previous
+build.** He has a fallback by construction, so the cost of a bad build is a
+folder swap — while the cost of withholding is that he does not have the work
+at all. Driven verification is a gate on *claiming a feature works*, not on
+*putting the binary where he can reach it*; the two were being conflated.
+
+So: publish, and disclose in the report and in `BUILD-INFO.txt` what has not
+been checked. Never in a decision to hold it back.
 
 1. **Drag-select and double-click-a-word inside a text draft.** Unit-tested
    against the real galley, three tests. The driven step is written — step 6 of
@@ -211,15 +226,17 @@ cursor. Neither is in the published build.
    **That is the class of change that alters how every page rasterizes**, and a
    green unit suite is not a substitute for a rendered page.
 
-★ **The first thing to do next session is run the full driven suite**, with the
-machine free:
+★ **The first thing to do next session is still to run the full driven suite**,
+with the machine free — not to gate the release, which has already happened,
+but because he is running unverified code and the sooner that stops being true
+the better:
 
 ```
 ./target/release/ui-verify.exe --pdf D:/Dev/temp/pdfce/SW41177.pdf     --doc-point 0,300,500
 ```
 
-Only then package. `Pass 120.2/120.4` — the engine half of the clipboard work
-already on the list — is in that bump, so picking it up unblocks a row too.
+`Pass 120.2/120.4` — the engine half of the clipboard work already on the list
+— is in that bump, so picking it up unblocks a row too.
 
 ★★ **And do not edit source while the suite runs.** The staleness guard fired
 on 51 of 65 checks during this session for exactly that: a file edited
