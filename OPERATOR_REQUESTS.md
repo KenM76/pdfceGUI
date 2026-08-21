@@ -80,6 +80,103 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O22 — An object near the top of the view cannot be rotated: its handle is off-canvas
+
+**Found:** 2026-08-21, by driving `rotate_handle_turns_a_selection` at a second
+`--doc-point`. **This is the cause of Ken's *"I also can't drag and rotate text
+on the screen yet"*** (`O20`), and it is not about text.
+
+**Status:** **CONFIRMED BY DRIVING, WITH NUMBERS. NOT FIXED.** The fix is a
+convention question and is not being improvised.
+
+### The evidence
+
+```
+--doc-point 0,300,500    rotate_handle_turns_a_selection   PASS
+--doc-point 0,1211,1021  rotate_handle_turns_a_selection   FAIL
+--doc-point 0,1211,1021  resize_scales_a_shape             PASS
+```
+
+Resize passes at the same point that rotate fails, so the object is selected,
+the outline is drawn and the eight resize grips are reachable. Only the ninth is
+not.
+
+### The arithmetic, from the application's own trace
+
+| | |
+|---|---|
+| the canvas viewport | `rect=[[296.0 143.0] - [764.0 504.6]]` |
+| the selection outline | `rect=[[614.1 150.2] - [753.9 224.0]]` |
+| `ROTATE_STEM_PX` | `20.0` (`canvas/handles.rs:335`) |
+| `GRIP_SIZE_PX` | `8.0` (`canvas/handles.rs:100`) |
+
+`Grip::Rotate.anchor()` is `(mid.x, bounds.top() - ROTATE_STEM_PX)` —
+`handles.rs:271` — so the handle's centre is at **y = 150.2 − 20 = 130.2**, and
+its square spans **126.2 → 134.2**.
+
+**The canvas begins at y = 143.0.** The whole handle is 9 pixels above the top
+of the canvas.
+
+### Why it fails twice over
+
+- **It is not visible.** The painter draws into the canvas's clip rect, so the
+  handle is clipped away entirely. The operator sees eight grips and no ninth,
+  and reasonably concludes rotate does not exist — which is precisely what Ken
+  concluded, and what three of our own documents also said.
+- **It is not reachable.** The press never arrives at the canvas widget at all;
+  it lands on whatever occupies that strip of the window, which is the ribbon.
+
+★ So this is convention `handles.md` **H7** — *a handle that cannot act is not
+drawn* — failing in its more dangerous direction: the handle is not drawn **and
+cannot act**, while the feature is present and correct everywhere else. That is
+why it reads as "rotate is missing" rather than as "rotate is broken".
+
+### The general shape
+
+**Any selection whose top edge is within `ROTATE_STEM_PX + GRIP_SIZE_PX / 2` —
+24 pt — of the top of the viewport cannot be rotated.** Nothing to do with what
+kind of object it is. On a CAD sheet scrolled to the top, that is the title
+block, the sheet number and the top row of a BOM: exactly the things an operator
+reaches for first.
+
+It is also why `O20` looked like a text problem. The BOM row that
+`--doc-point 0,1211,1021` names happens to sit at the top of the sheet.
+
+### The fix is a convention question — do not improvise it
+
+Three candidates, and the standing rule is *use the conventional interaction,
+never invent one*:
+
+1. **Flip the handle below the box when there is no room above.** Cheap and
+   local. ★ But it is an **invention** for this gesture: no program in the class
+   flips a rotate handle, and an operator who learned "the rotate handle is
+   above" would find it moving for reasons they cannot see.
+2. **Clamp the handle inside the viewport.** Rejected on sight — it detaches the
+   handle from the box it belongs to, breaking convention **C7** (*the drawn
+   outline and the live target are the same shape*) to fix an H7 violation.
+3. **★ Give the canvas scroll padding, so the page can always be scrolled away
+   from the viewport edge.** This is what Illustrator, Acrobat and Inkscape all
+   do — you can scroll past the edge of the page, and the pasteboard is why a
+   handle at the extreme edge of the sheet is always reachable. It fixes a whole
+   class of edge problems rather than this one symptom, including the eight
+   resize grips on an object flush with the left or bottom edge, which have the
+   same defect and no check yet.
+
+**Recommendation: 3.** It is the conventional answer, it is the only one that
+fixes the resize grips too, and it needs no new rule for the operator to learn.
+The trace shows `off=[0.0 0.0]` — the canvas is scrolled hard against its own
+top with nowhere further to go.
+
+### What it needs
+
+1. Scroll padding around the page in the canvas's scroll area, sized so every
+   affordance of a selection flush with any page edge is reachable.
+2. A driven check per edge — top, bottom, left, right — because the resize grips
+   have the same problem and nothing has ever aimed at them there.
+3. ★ Re-run `rotate_handle_turns_a_selection` at **both** `--doc-point`s
+   afterwards. One point passing is what hid this for a day.
+
+
 ## O21 — Move, resize and rotate ANY object; click nodes, select several, move them — all with live preview
 
 **Asked:** 2026-08-21 — *"I think pdfce implemented the capability to move and
@@ -252,6 +349,13 @@ an absent grip. It needs driving. The candidates, none confirmed:
   — rung 2 of `clicking.rs`'s ladder beats rung 8.
 - **The mode.** Content selection needs `edit_content`; Read and Review have
   no grips because they have no content selection.
+
+★★ **ANSWERED 2026-08-21 by driving: see `O22`.** It is not about text at all.
+The rotate handle sits 20 pt ABOVE the selection box, and the object he was
+aiming at is near the top of the sheet — so the handle is drawn 9 pixels above
+the top of the canvas, where it is clipped away and where a press lands on the
+ribbon instead. Any selection within 24 pt of the top of the view has this,
+whatever kind of object it is.
 
 The superseded text follows.
 
