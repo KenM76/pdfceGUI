@@ -80,6 +80,79 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O21 — Move, resize and rotate ANY object; click nodes, select several, move them — all with live preview
+
+**Asked:** 2026-08-21 — *"I think pdfce implemented the capability to move and
+resize and rotate any object. you'll have to confirm, but that is what I want. I
+should be able to click individual nodes, or select several at once and move
+them too, with live preview of everything if possible."*
+
+**Status:** **RECORDED 2026-08-21. ENGINE CAPABILITY UNDER CONFIRMATION.** He
+asked for it to be confirmed rather than assumed, which is the right instinct —
+this project has already had four recorded claims turn out false in one day, and
+two of them were about what the engine could do.
+
+This row supersedes nothing. It **subsumes** `O20`'s rotate half and `O11`'s
+rotate paragraph, both of which say the same thing more narrowly: the verb
+exists and there is no grip to reach it with.
+
+### The four things asked for, separated because they are in different states
+
+| | what he wants | state |
+|---|---|---|
+| 1 | **Move / resize any object** | move and resize ship (`O11`, `O12`) — *"any"* is the part to verify, not the verb |
+| 2 | **Rotate any object** | the engine verb rotates. **There is no rotate grip on the canvas**, for any object kind. Shell work, unblocked since 2026-08-20 |
+| 3 | **Click individual nodes; select several and move them** | the Node tool (`A`) and a multi-node move both exist. Whether a *multi-node selection* can be built by pointing is the open question |
+| 4 | **Live preview of everything** | move, resize and rotate ghosts exist in `canvas::overlay`. Whether every path has one is the open question |
+
+### ★ On "any object", which is the word to be careful with
+
+*Any* is the operator's word and it is the right requirement. It is also the one
+most likely to be quietly false in a specific place, and this project has the
+shape on record already: `O11` shipped move-and-resize while
+`transform_objects` refused a **degenerate placement matrix**, and the engine
+said in as many words *"do not offer a handle"* — so the shell offers one and
+the operator finds out by dragging it.
+
+So the confirmation must answer, per verb, **which object kinds it refuses and
+why**, not merely whether the verb exists.
+
+### ★★ Live preview is a standing expectation, not a per-feature request
+
+> *"I've never seen a program that doesn't live preview any change, and yet here
+> I am having to ask for all the minute details as if you'd never been trained
+> on it."*
+
+He has now reported the absence on three separate features. Treat *"with live
+preview of everything if possible"* as the default requirement for every drag
+this row touches, not as an optional fourth item — a rotate that only shows its
+result on release is not finished.
+
+★ And `ui-conventions/handles.md` H1 already says it: *selecting something shows
+how to manipulate it*, before any drag.
+
+### What this needs, in order
+
+1. **Confirm the engine, per verb and per object kind**, with `file:line`
+   against `D:\Dev\pdfce` source rather than against `docs/core-api/index.md`,
+   which is a dated snapshot. Report what it refuses.
+2. **The ninth grip** — rotate — painted and hit-tested from **one** predicate.
+   `ui-conventions/handles.md` H7 and C7, and the trap this shell fell into
+   once already: vertex handles painted for a selected dimension that could not
+   be grabbed, because the painter asked about the selection and the hit test
+   asked about a capability the mode lacked.
+3. **Multi-node selection by pointing** — marquee inside an entered object, and
+   Shift+click to add a node — feeding the multi-node move that already exists.
+4. **A preview on every one of those drags**, and a check that each one
+   *renders* rather than merely being constructed.
+5. **The degenerate-matrix preflight**, so a grip that cannot act is not drawn
+   (H7). Named in `O11` as needing a page decomposition cached per selection.
+
+★ **Nothing here may be reported as working on the strength of a passing test.**
+The Select button was green on 1,628 tests, 17 gates and a smoke launch on the
+same day it reached him doing nothing at all.
+
+
 ## O20 — Dragging and rotating TEXT on the canvas
 
 **Asked:** 2026-08-21 — *"I also can't drag and rotate text on the screen yet."*
