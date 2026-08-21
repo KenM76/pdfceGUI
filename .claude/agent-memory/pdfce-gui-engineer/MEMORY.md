@@ -15,3 +15,4 @@
 - [A guard that stops repetition does not stop creep](feedback_a_guard_that_stops_repetition_does_not_stop_creep.md) — a measurement fed back into a size needs a direction bound and a floor, not a "don't ask twice".
 - [A measurement of the wrong surface looks exactly like a broken one](feedback_a_measurement_of_the_wrong_surface_looks_exactly_like_a_broken_one.md) — ask what a failing pixel check SAMPLED before asking what is broken.
 - [Disk is tight and target/ grows unbounded](project_disk_is_tight_and_target_grows_unbounded.md) — 50GB+ of stale cache a week; clear debug/doc routinely, never release.
+- [A backlog row is a record, not evidence](feedback_a_backlog_row_is_a_record_not_evidence.md) — verify absence claims against source; three docs said the rotate grip was missing a day after it shipped.
