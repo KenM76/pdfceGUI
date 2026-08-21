@@ -213,18 +213,79 @@ pub fn fullscreen(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.viewport().fullscreen).unwrap_or(false)
 }
 
-/// The value a press of `view.fullscreen` should ask the viewport for, given
-/// whatever the viewport currently reports.
+/// The `egui::Memory` key the last full-screen **request** is parked under,
+/// with the frame it was made on.
+const PENDING_FULLSCREEN: &str = "pdfce.window.fullscreen-asked"; // ui-text-exempt: memory key.
+
+/// How many frames a full-screen request is believed over the viewport's own
+/// report before the report wins again.
 ///
-/// Split out as a pure function because it is the only part of full screen a
-/// test can observe: `send_viewport_cmd` is answered by the windowing backend,
-/// and a headless [`egui::Context`] has no backend, so the *wiring* is provable
-/// only by driving the real binary. What is provable here is the rule — that
-/// an unreported state counts as windowed, so the first press fills the screen
-/// rather than doing nothing.
+/// ★ Bounded rather than latched, and the bound is the whole safety property. A
+/// request the platform silently refuses — a window manager that does not do
+/// full screen, a compositor that declines — would otherwise leave this shell
+/// permanently convinced of a state the window is not in, and every subsequent
+/// press would toggle a fiction.
+///
+/// Four is generous: `eframe` answers a viewport command on the next frame it
+/// pumps, and this only has to outlast the round trip.
+const PENDING_FRAMES: u64 = 4;
+
+/// The value a press of `view.fullscreen` should ask the viewport for.
+///
+/// `reported` is what `ViewportInfo` says; `pending` is `(frame, state)` for a
+/// request this shell has made and not yet seen confirmed, and `now` is the
+/// current frame.
+///
+/// # ★★★ THIS IS A DEFECT FIX, AND IT LEFT THE OPERATOR'S DISPLAY FILLED
+///
+/// It was one line — `!current.unwrap_or(false)` — reading `ViewportInfo`
+/// directly. The docs immediately below it already stated the reason it could
+/// not work, and stated it as a *labelling* concern rather than as a bug:
+///
+/// > *"the command is queued and answered by the backend, so
+/// > `ViewportInfo::fullscreen` still reports the old value on this frame."*
+///
+/// If the report lags the request, then a **second press before the backend has
+/// caught up reads the pre-first-press state and asks for the same thing
+/// again**. Full screen turns on and will not turn off.
+///
+/// Found by driving, and it is not rare: `read_mode_hides_the_chrome` reported
+/// it on **two of three runs**, and the run it passed on was the one with more
+/// frames between the presses. It was written off as harness flakiness after
+/// the first — which is exactly the reading `D:/dev/rag/egui/`'s chord-matcher
+/// finding warns about, where the same conclusion cost that project its whole
+/// keyboard surface for months. **Three failures in three runs is an
+/// intermittent, and an intermittent is a defect with a timing dependency.**
+///
+/// The failure branch of that check says *"the display has been left filled;
+/// close the window to recover it"*, which is what an operator gets: a program
+/// covering their screen that will not give it back except by being closed.
+///
+/// # The rule
+///
+/// **Trust the report, unless we have an outstanding request it has not yet
+/// reflected.** Once the report agrees with what was asked, the request is
+/// spent and the report wins again — so a full screen the operator triggers
+/// *outside* this shell (a window manager's own key, a double-clicked title
+/// bar) is honoured on the very next press rather than fought.
 #[must_use]
-pub fn next_fullscreen(current: Option<bool>) -> bool {
-    !current.unwrap_or(false)
+pub fn next_fullscreen(reported: Option<bool>, pending: Option<(u64, bool)>, now: u64) -> bool {
+    let current = match pending {
+        // A request this shell made, recently, that the report has not caught
+        // up with. Ours is the truth for now.
+        Some((then, asked))
+            if now.saturating_sub(then) <= PENDING_FRAMES && reported != Some(asked) =>
+        {
+            asked
+        }
+        // Either there is no outstanding request, or the report has confirmed
+        // it, or it has been outstanding too long to believe. In all three the
+        // windowing system's answer is the one to use — and an unreported state
+        // counts as windowed, which is the honest default: it is what a window
+        // that has never been asked to fill the display is.
+        _ => reported.unwrap_or(false),
+    };
+    !current
 }
 
 /// Flip full screen, and report the state that was asked for.
@@ -235,8 +296,25 @@ pub fn next_fullscreen(current: Option<bool>) -> bool {
 /// frame. That distinction is why the trace line the dispatcher writes says
 /// `asked=` rather than `on=` — a reader of a trace from a machine they cannot
 /// see should not be told a window is full screen on the strength of a request.
+///
+/// ★ And it is why the request is **remembered**: see [`next_fullscreen`] for
+/// the defect that reading the lagging report alone produced.
 pub fn toggle_fullscreen(ctx: &egui::Context) -> bool {
-    let next = next_fullscreen(ctx.input(|i| i.viewport().fullscreen));
+    let id = egui::Id::new(PENDING_FULLSCREEN);
+    let now = ctx.cumulative_pass_nr();
+    let pending: Option<(u64, bool)> = ctx.data(|d| d.get_temp(id));
+    let reported = ctx.input(|i| i.viewport().fullscreen);
+    let next = next_fullscreen(reported, pending, now);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        //
+        // ★ It carries BOTH the report and the outstanding request, because the
+        // whole defect was the two disagreeing. A line saying only `asked=true`
+        // is identical for the build that worked and the build that asked for
+        // the same thing twice.
+        format!("fullscreen-toggle reported={reported:?} pending={pending:?} asked={next}")
+    });
+    ctx.data_mut(|d| d.insert_temp(id, (now, next)));
     ctx.send_viewport_cmd(ViewportCommand::Fullscreen(next));
     next
 }
@@ -295,11 +373,75 @@ mod tests {
     #[test]
     fn an_unreported_fullscreen_state_is_read_as_windowed() {
         assert!(
-            next_fullscreen(None),
+            next_fullscreen(None, None, 0),
             "the first press must fill the screen"
         );
-        assert!(next_fullscreen(Some(false)));
-        assert!(!next_fullscreen(Some(true)));
+        assert!(next_fullscreen(Some(false), None, 0));
+        assert!(!next_fullscreen(Some(true), None, 0));
+    }
+
+    /// ★★★ **A second press while the report still lags turns full screen
+    /// OFF**, which is the defect this function was rewritten for.
+    ///
+    /// The sequence, exactly as the driven check performs it:
+    ///
+    /// 1. frame 10, windowed, nothing outstanding → ask for `true`;
+    /// 2. frame 11, **the report still says `false`** because the backend has
+    ///    not answered yet — and the old implementation read that and asked for
+    ///    `true` again, so full screen turned on and would not turn off.
+    ///
+    /// `read_mode_hides_the_chrome` reported this on **two of three runs**, and
+    /// its failure branch says *"the display has been left filled; close the
+    /// window to recover it"* — which is what an operator gets. It was written
+    /// off as harness flakiness after the first, which is the reading
+    /// `D:/dev/rag/egui/`'s chord-matcher finding warns about by name.
+    #[test]
+    fn a_second_press_before_the_backend_answers_still_toggles_off() {
+        // Press one, on frame 10.
+        assert!(next_fullscreen(Some(false), None, 10), "press one fills it");
+        // Press two, on frame 11. The report has not caught up.
+        assert!(
+            !next_fullscreen(Some(false), Some((10, true)), 11),
+            "★ the second press must ask for WINDOWED. Reading the lagging report \
+             instead asks for full screen a second time, and the display never comes back"
+        );
+    }
+
+    /// …and once the report agrees, the request is spent and the report wins.
+    ///
+    /// The other half of the rule, and what makes an **externally** triggered
+    /// full screen — a window manager's own key, a double-clicked title bar —
+    /// honoured on the very next press rather than fought.
+    #[test]
+    fn a_confirmed_request_hands_authority_back_to_the_report() {
+        // We asked for `true` on frame 10 and the report now agrees.
+        assert!(
+            !next_fullscreen(Some(true), Some((10, true)), 12),
+            "a confirmed request must not be believed over the report"
+        );
+        // The window manager took us out of full screen behind our back; the
+        // next press must fill it again rather than "toggling off" a state we
+        // are no longer in.
+        assert!(
+            next_fullscreen(Some(false), Some((10, true)), 20),
+            "a stale request must not outlive its window"
+        );
+    }
+
+    /// ★ **A request the platform never answers expires**, so a shell cannot be
+    /// left permanently convinced of a state its window is not in.
+    ///
+    /// Bounded rather than latched, and the bound is the safety property: a
+    /// window manager that declines full screen outright would otherwise make
+    /// every subsequent press toggle a fiction.
+    #[test]
+    fn an_unanswered_request_expires_rather_than_latching() {
+        // Asked on frame 10; it is now well past the window and the report has
+        // never agreed. The report wins.
+        assert!(
+            next_fullscreen(Some(false), Some((10, true)), 10 + PENDING_FRAMES + 1),
+            "an unanswered request must stop being believed"
+        );
     }
 
     /// The headless context reports no viewport full-screen flag, which is the
