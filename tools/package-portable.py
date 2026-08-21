@@ -756,7 +756,7 @@ def _bash() -> str:
     return shutil.which("bash") or "bash"
 
 
-def mirror(out: Path) -> None:
+def mirror(out: Path, forced: str | None = None) -> None:
     """**Copy a finished build into the older of the two OneDrive slots.**
 
     Called after the package is assembled and verified, so a failed run never
@@ -852,7 +852,21 @@ def mirror(out: Path) -> None:
             return -1.0
         return -1.0
 
-    target_name = min(MIRROR_SLOTS, key=age_key)
+    # ★★ `--slot` OVERRIDES THE ROTATION, and the case it exists for is
+    # RETRACTION.
+    #
+    # The rotation protects the newest build, which is right when the newest
+    # build is good. It is exactly wrong when the newest build is the one being
+    # withdrawn: on 2026-08-20 a published build linked an engine revision whose
+    # reflow could displace 1,676 labels on a text edit, and the replacement run
+    # correctly aimed at the OTHER slot — the day-old fallback — leaving the
+    # hazard in place and destroying the one good copy.
+    #
+    # A rotation cannot know that. "This build is bad" is a fact only the
+    # operator or the person retracting it has, so it is an argument rather than
+    # an inference. `choices=` means a typo is an error rather than a directory
+    # created beside the two real ones.
+    target_name = forced or min(MIRROR_SLOTS, key=age_key)
     # ★ Print BOTH slots' ages and which one is about to go.
     #
     # The rotation is the one part of this script whose correctness the operator
@@ -1083,6 +1097,17 @@ def main() -> int:
         "--note",
         default="",
         help="one-line summary of what this milestone added, for BUILD-INFO.txt",
+    )
+    ap.add_argument(
+        "--slot",
+        default=None,
+        choices=MIRROR_SLOTS,
+        help=(
+            "force which OneDrive slot this build replaces, overriding the "
+            "replace-the-older rotation. For RETRACTING a build: the slot "
+            "holding the bad one is by definition the NEWER, and the rotation "
+            "would protect it and overwrite the good fallback instead."
+        ),
     )
     ap.add_argument(
         "--self-test",
@@ -1545,7 +1570,7 @@ are in the program itself: File > pdfce > About pdfce.
     # Mirroring is the last thing that happens for exactly this reason. Every
     # payload file is on disk by now, and a mirror taken at any earlier point
     # is a copy of a directory that is still being built.
-    mirror(out)
+    mirror(out, forced=args.slot)
 
     # ★ The engine's WORKING TREE is no longer a warning — it cannot reach the
     # binary. What IS worth a console line is the engine being ahead of the
