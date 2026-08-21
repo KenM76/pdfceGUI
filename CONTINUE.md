@@ -56,10 +56,31 @@ matter to Ken:
 4. **The Print dialog is a real OS window**, with Enter as its default. One
    host, so the other thirteen dialogs are one line each.
 5. **Move, resize and rotate ANY object** — `transform_objects` (`Pass 113.0`)
-   landed an hour after the form-text work and closes the request he made three
-   times. Three refusals were **deleted** with it, each true when written.
-   ★ The verb rotates; there is **no rotate handle** to reach it with. That is
-   the next thing.
+   closes the request he made three times. Three refusals were **deleted** with
+   it, each true when written.
+6. **The rotate handle** — the ninth grip, a circle on a stem above the box,
+   Shift stepping by 15°. Driven: `rotate-commit deg=-90.22`.
+7. **Cut, copy and paste of page content** (`Pass 120.0`) — his **oldest** open
+   request, from the first week.
+
+### ★★★ And the finding underneath the last one, which explains two reports
+
+`Ctrl+C`, `Ctrl+X` and `Ctrl+V` **had never once reached the keymap.** He said
+so twice. They were bound on 2026-08-20, which was necessary and not sufficient:
+`egui-winit` pushes `Event::Copy`/`Cut`/`Paste` and **returns before the
+`Event::Key` push**, so the chord matcher saw nothing while the manifest, the
+unit tests and the menus all agreed the binding was there.
+
+**A keymap lookup is not a keystroke.** `Ctrl+V` was worse — `Event::Paste` is
+raised only when the OS clipboard holds non-empty text, so with it empty the
+keystroke vanished and whether paste worked depended on what he had last copied
+*in another application*.
+
+Filed in `D:/dev/rag/egui/`, because every egui project with a data-driven
+keymap has this and does not know it. The general rule is in the last line of
+that file: **any shortcut a toolkit gives special semantic treatment — clipboard,
+IME, Tab, Escape — may never reach a generic handler, and every test written
+against the binding table will agree it works.**
 
 ### ★ The seam to hold on to, because it paid twice in one evening
 
@@ -127,24 +148,25 @@ document makes the move-between-documents check unrunnable.
 
 He approved a three-item list; items 1–3 are done. What is left of it:
 
-1. **The rotate handle.** Unblocked tonight and the one thing he asked for that
-   is still missing: a ninth grip above the selection box, a drag that measures
-   an angle rather than a distance, a preview, and `Matrix::rotate(θ).about(c)`.
-   Everything under it exists.
-2. **The other thirteen dialogs**, now that the host exists. Each is: hold a
+1. **The other thirteen dialogs**, now that the host exists. Each is: hold a
    `Host`, take it out for the draw, call `Host::buttons` in the footer. Watch
    for the borrow — `Host::show` needs `&mut` on the host while the body needs
    `&mut` on the dialog, so the field is an `Option` and is taken for the
    duration, exactly as `canvas::interact` does with the selection.
-3. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
+2. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
    real shape), grapheme clusters in the caret, selection inside a draft,
    right-click to add/remove a perimeter point (both engine verbs exist), the
    zero-travel guard on three of four drag paths.
-4. **The transform preflight**, which is a named gap in `canvas::resizing`:
+3. **The transform preflight**, which is a named gap in `canvas::resizing`:
    an object whose own CTM is singular cannot be transformed at all and the
    engine says *do not offer a handle*. `transform_preview` is the predicate and
    it **decomposes the page** (~4 s debug on the benchmark), so it needs a cache
    keyed on `(page, epoch, selection)` shaped like `app::cache::FormRunCache`.
+4. **The clipboard's two remaining halves**, both named in `OPERATOR_REQUESTS.md`
+   O2: a private Windows clipboard format so a paste works **across two pdfce
+   windows**, and the engine's `Pass 120.2` (selection → standalone one-page
+   PDF) so a paste works **into another program**. Neither blocks anything he
+   has reported.
 5. **Re-run the driven checks** Three features shipped tonight with checks
    written and **not run** — `shift_constrains_a_resize`, the snap assertion in
    `measure_perimeter_traces_and_closes`, and the two new assertions in
