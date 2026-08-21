@@ -196,18 +196,44 @@ document makes the move-between-documents check unrunnable.
 
 ---
 
+## 1c. ★★ WHAT IS BUILT BUT NOT DRIVEN — read this before packaging
+
+Two things are in this tree and are **not** verified against a running binary,
+because Ken came back to the keyboard mid-session and the harness takes the
+cursor. Neither is in the published build.
+
+1. **Drag-select and double-click-a-word inside a text draft.** Unit-tested
+   against the real galley, three tests. The driven step is written — step 6 of
+   `shift_arrows_select_text` — and has never been run.
+2. **The engine pin, bumped 13 commits** to `67ad7ea`. Four of them are
+   `Pass 97`: the compositing formula, non-isolated group backdrops, knockout
+   groups, and soft masks applied once per group instead of once per object.
+   **That is the class of change that alters how every page rasterizes**, and a
+   green unit suite is not a substitute for a rendered page.
+
+★ **The first thing to do next session is run the full driven suite**, with the
+machine free:
+
+```
+./target/release/ui-verify.exe --pdf D:/Dev/temp/pdfce/SW41177.pdf     --doc-point 0,300,500
+```
+
+Only then package. `Pass 120.2/120.4` — the engine half of the clipboard work
+already on the list — is in that bump, so picking it up unblocks a row too.
+
+★★ **And do not edit source while the suite runs.** The staleness guard fired
+on 51 of 65 checks during this session for exactly that: a file edited
+mid-run makes every trace describe code that is not the code under test, and
+the guard is right to refuse. One or the other, never both.
+
 ## 2. What to do next
 
 His standing instruction is *"continue looping through other tasks"*. In the
 order that returns the most:
 
-1. **The note-box focus defect above.** It is the only known
-   operator-visible regression and it is in a gesture he reaches by drawing.
-2. **Drag-select and double-click-a-word inside a text draft.** The keyboard
-   half shipped; the pointer half needs the laid-out galley published where
-   the click ladder can reach it, because the draft is drawn in an editor box
-   in screen space.
-3. **The three gesture-only dialogs nobody has driven** — Insert pages, Set
+1. **Run the full suite and package** — see §1c. Two things are built and
+   unverified and neither is in the operator's hands.
+2. **The three gesture-only dialogs nobody has driven** — Insert pages, Set
    scale, and the unsaved-changes question. They are converted to OS windows
    and nothing has clicked them. `frame_of` and the driver's focus tracking
    are in place, so each is a check rather than an investigation.
