@@ -1,13 +1,15 @@
-# CONTINUE — handoff, 2026-08-20 late evening
+# CONTINUE — handoff, 2026-08-21 early morning
 
-**Clean tree. 16/16 gates. 1,578 tests. Driven suite: 54 passed, 0 failed,
-7 skipped — live, on his own drawing, every skip a fixture fact with its reason
-printed.**
-**Newest build: `OneDrive\pdfceGUI2`, 2026-08-20 23:21.**
-`pdfceGUI1` holds 2026-08-19 17:44. **The fallback is a day old and that is not
-drift** — OneDrive held that slot locked for the whole evening, the packager
-correctly refused it every time, and the last publish used `--slot pdfceGUI2`
-deliberately so the day-old fallback survived rather than the two-hour-old one.
+**Clean tree. 16/16 gates. 1,592 tests. Driven suite: 51 passed, 1 failed,
+12 skipped** on his own drawing at `--doc-point 0,300,500`. **The one failure is
+real and is written up** — see §1's *"what is still broken"* and
+`OPERATOR_REQUESTS.md` row 13b.
+
+**Newest published build: `OneDrive\pdfceGUI2`, 2026-08-20 23:21 — NOT this
+session's work.** Nothing was packaged today, deliberately: the note-box focus
+regression is in a workflow he uses, and the 20:09 retraction of 2026-08-20 is
+the standing argument against publishing over a known fresh defect.
+`pdfceGUI1` holds 2026-08-19 17:44.
 
 The previous edition of this file is in git history at `5221e61`.
 
@@ -39,84 +41,86 @@ in parallel and answers within minutes.
 
 ---
 
-## 1. What happened tonight
+## 1. What happened this session (2026-08-21)
 
-Four things shipped and one build had to be retracted. In the order they
-matter to Ken:
+Six things shipped, one defect was found and fixed the same hour, and one
+is written up as still broken. In the order they matter to Ken:
 
-1. **Form-XObject text editing** — the 99 % case on a CAD sheet. His words:
-   *"I need that editing capability as it is 99% of the text I will want to
-   edit."* The engine shipped it (`Pass 119.0`); this shell's cost was
-   **deleting one match arm**, because the guard asked `TextRun::editability()`
-   instead of modelling the answer and a `#[deprecated]` attribute pointed
-   straight at the line. That is the whole return on a decision made two days
-   earlier, demonstrated end to end.
-2. **Shift constrains every drag** — aspect on a resize, axis on a move, a
-   dimension, a perimeter corner and a Bézier handle. Announced on the status
-   row, because the ghost cannot say *"because you are holding Shift"*.
-3. **A perimeter corner snaps** — same query, same tolerance, same switch the
-   tool that placed it uses. Alt suspends it.
-4. **The Print dialog is a real OS window**, with Enter as its default. One
-   host, so the other thirteen dialogs are one line each.
-5. **Move, resize and rotate ANY object** — `transform_objects` (`Pass 113.0`)
-   closes the request he made three times. Three refusals were **deleted** with
-   it, each true when written.
-6. **The rotate handle** — the ninth grip, a circle on a stem above the box,
-   Shift stepping by 15°. Driven: `rotate-commit deg=-90.22`.
-7. **Cut, copy and paste of page content** (`Pass 120.0`) — his **oldest** open
-   request, from the first week.
+1. **The navigation keys walk the page, not the fragment you clicked.** Down
+   and Up move to the line below and above **including into the next block of
+   text**; End and Home reach the ends of the line he can *see*, however many
+   show operators drew it — four or five on a CAD title-block row. Salvage:
+   the old shell asked `caret_up`, `caret_down` and `line_range_at` and that
+   was its entire contribution; the reassembly was always `pdfce-core`'s.
+   Driven on `SW41177.pdf`: `text-caret-step dir=Down from_run=232 to_run=240`,
+   `text-caret-line end=true from_run=232 to_run=236`.
+2. **Every dialog is its own OS window**, not just Print. All thirteen:
+   title bar, taskbar entry, second monitor. Driven on eight of them through
+   the headless invoke seam, so it needs no pointer.
+3. **There is a selection inside a text draft.** Shift+arrows, Shift+Home/End,
+   Ctrl+A; typing replaces it, Backspace and Delete remove it, and any move
+   without Shift drops it. Closes the conventions sweep's item 11.
+4. **A dialog asks for the keyboard when it opens**, which it stopped doing
+   the moment it became an OS window.
+5. **The harness learned the program has more than one window** — six checks
+   were failing and six skipping, every one clicking hundreds of pixels from
+   the control it named.
+6. **A defect that had shipped: every dialog drew on a BLACK background.**
+   Dark text on near-black. Nothing caught it — the window opened, every
+   control was where it said it was, the driven check for *"it opens in its
+   own OS window"* passed on all eight. **A screenshot showed a black
+   rectangle.**
 
-### ★★★ And the finding underneath the last one, which explains two reports
+### ★★ The three findings worth carrying forward
 
-`Ctrl+C`, `Ctrl+X` and `Ctrl+V` **had never once reached the keymap.** He said
-so twice. They were bound on 2026-08-20, which was necessary and not sufficient:
-`egui-winit` pushes `Event::Copy`/`Cut`/`Paste` and **returns before the
-`Event::Key` push**, so the chord matcher saw nothing while the manifest, the
-unit tests and the menus all agreed the binding was there.
+- **A guard that only stops repetition does not stop creep.** `Host::fit`
+  grows a dialog to fit its body; its first version padded the measurement
+  before comparing, so every frame asked for eight more pixels than the last
+  and the once-per-size guard never fired *because every size was a new one*.
+  About opened at 560x480 and was **1624x746** a few frames later.
+- **A `Key` event's own modifiers can be EMPTY while the frame's are right.**
+  Measured: `ev=Modifiers::NONE frame=Modifiers { shift: true }`, three
+  presses, Shift held throughout. The exact inverse of the chord-matcher
+  finding filed three days earlier, and **both are true** — choose by what the
+  modifier MEANS. A chord is a command and must use the event's alone; a held
+  qualifier must use `event || frame`, because over-reading costs one step and
+  under-reading destroys accumulated state.
+- **A measurement of the wrong surface is indistinguishable from a
+  measurement of a broken one.** Twice in one afternoon: a contrast check
+  capturing the wrong WINDOW (reporting 1.51:1 about two headings that render
+  at 15.07:1), and `ui_rect_visible` publishing the wrong PART of the right
+  one (a heading two points inside a scroll area's bottom edge, measured off
+  the anti-aliased top rows of clipped glyphs).
 
-**A keymap lookup is not a keystroke.** `Ctrl+V` was worse — `Event::Paste` is
-raised only when the OS clipboard holds non-empty text, so with it empty the
-keystroke vanished and whether paste worked depended on what he had last copied
-*in another application*.
+### ⚠ What is still broken, and it is his workflow
 
-Filed in `D:/dev/rag/egui/`, because every egui project with a data-driven
-keymap has this and does not know it. The general rule is in the last line of
-that file: **any shortcut a toolkit gives special semantic treatment — clipboard,
-IME, Tab, Escape — may never reach a generic handler, and every test written
-against the binding table will agree it works.**
+`text_annot_takes_the_keyboard_unclicked` FAILS. Drag out a **Text box** or
+**Sticky note** and type without clicking the field first: the characters may
+go nowhere, and because Accept is gated on the field being non-empty, pressing
+Accept then authors nothing with no message. **Clicking the field first always
+works.**
 
-### ★ The seam to hold on to, because it paid twice in one evening
+The new `dialog-focus` trace says exactly what happens:
 
-Both of tonight's big unblocks cost almost nothing on this side, and for the
-same reason: **the shell had asked the engine rather than modelling it.**
-`TextRun::editability()` started answering `Editable` and a `#[deprecated]`
-attribute pointed at the one line to delete; `transform_objects` took a slice
-and three refusals became false at once. A hand-rolled guard would have outlived
-both. That is decision 058 earning its keep, twice, inside forty-eight hours.
+```
+dialog-focus title="Text box" focused=Some(true)
+dialog-focus title="Text box" focused=Some(false)
+```
 
-### ★★ And the retraction, which is the thing to internalise
+The platform grants the keyboard and takes it away a few passes later, before
+any keystroke arrives, and repeating `ViewportCommand::Focus` through that
+window does not hold it. **The harness is not the cause** — it was
+instrumented and confirmed to raise nothing during the sequence. Next places
+to look: who else calls `focus_window` in `eframe`'s multi-viewport path, and
+whether the main window's own repaint re-activates it.
 
-The 20:09 build was published and withdrawn within the hour. It linked an
-engine revision whose reflow could shift **1,676 labels** on one four-character
-edit — 34,059 changed pixels across a whole sheet — because reflow walked
-forward to a `Td` boundary and **a CAD stream never emits one**.
+### Not published
 
-Three separate lessons, all live:
-
-- **`cargo update` immediately before packaging, and read the output.** The
-  packager runs its own `cargo build --release`, which re-resolves the git
-  dependency. It warned *"the engine MOVED and --verify was not passed"* and
-  the warning was right.
-- **The engine's own advice, taken:** *"if you show one number from an edit
-  report beyond the disclosures, make it `followers_repositioned`."* It is on
-  the diagnostic channel now, and a driven check fails above 64.
-- **A fix can silence a falsifier.** The engine's repair left `proof.rs`'s
-  fixture unable to exhibit the hazard at all, so both falsifying assertions
-  went quiet — and a quiet falsifier is a test that has stopped measuring. The
-  fixture grew a fourth block (two runs on one baseline) and the two old
-  controls were **inverted** into guards on the engine's fix.
-
----
+**No build was packaged to OneDrive this session, deliberately.** The
+regression above is in a workflow he uses — notes drawn on a drawing — and the
+20:09 retraction of 2026-08-20 is the standing argument against handing him a
+build with a known, fresh, operator-visible defect in it. `pdfceGUI2` from
+2026-08-20 23:21 is still the current published build.
 
 ## 1b. The driven suite, run live
 
@@ -171,35 +175,43 @@ document makes the move-between-documents check unrunnable.
 
 ---
 
-## 2. What to do next, in his stated order
+## 2. What to do next
 
-He approved a three-item list; items 1–3 are done. What is left of it:
+His standing instruction is *"continue looping through other tasks"*. In the
+order that returns the most:
 
-1. **The other thirteen dialogs**, now that the host exists. Each is: hold a
-   `Host`, take it out for the draw, call `Host::buttons` in the footer. Watch
-   for the borrow — `Host::show` needs `&mut` on the host while the body needs
-   `&mut` on the dialog, so the field is an `Option` and is taken for the
-   duration, exactly as `canvas::interact` does with the selection.
-2. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry a
-   real shape), grapheme clusters in the caret, selection inside a draft,
-   right-click to add/remove a perimeter point (both engine verbs exist), the
-   zero-travel guard on three of four drag paths.
-3. **The transform preflight**, which is a named gap in `canvas::resizing`:
-   an object whose own CTM is singular cannot be transformed at all and the
-   engine says *do not offer a handle*. `transform_preview` is the predicate and
-   it **decomposes the page** (~4 s debug on the benchmark), so it needs a cache
-   keyed on `(page, epoch, selection)` shaped like `app::cache::FormRunCache`.
-4. **The clipboard's two remaining halves**, both named in `OPERATOR_REQUESTS.md`
-   O2: a private Windows clipboard format so a paste works **across two pdfce
-   windows**, and the engine's `Pass 120.2` (selection → standalone one-page
-   PDF) so a paste works **into another program**. Neither blocks anything he
-   has reported.
-5. **Re-run the driven checks** Three features shipped tonight with checks
-   written and **not run** — `shift_constrains_a_resize`, the snap assertion in
-   `measure_perimeter_traces_and_closes`, and the two new assertions in
-   `text_edit_on_a_real_drawing`. The harness takes the real cursor; ask.
+1. **The note-box focus defect above.** It is the only known
+   operator-visible regression and it is in a gesture he reaches by drawing.
+2. **Drag-select and double-click-a-word inside a text draft.** The keyboard
+   half shipped; the pointer half needs the laid-out galley published where
+   the click ladder can reach it, because the draft is drawn in an editor box
+   in screen space.
+3. **The three gesture-only dialogs nobody has driven** — Insert pages, Set
+   scale, and the unsaved-changes question. They are converted to OS windows
+   and nothing has clicked them. `frame_of` and the driver's focus tracking
+   are in place, so each is a check rather than an investigation.
+4. **The rest of O14**: unfilled-shape hit testing (only ce dimensions carry
+   a real shape), grapheme clusters in the caret, right-click to add or remove
+   a perimeter point (both engine verbs exist), the zero-travel guard on three
+   of four drag paths.
+5. **The transform preflight**, a named gap in `canvas::resizing`: an object
+   whose own CTM is singular cannot be transformed and the engine says *do not
+   offer a handle*. `transform_preview` is the predicate and it decomposes the
+   page, so it needs a cache keyed on `(page, epoch, selection)` shaped like
+   `app::cache::FormRunCache`.
+6. **The clipboard's two remaining halves** (`OPERATOR_REQUESTS.md` O2): a
+   private Windows clipboard format for pasting **across two pdfce windows**,
+   and `Pass 120.2` (selection to a standalone one-page PDF) for pasting
+   **into another program**.
+7. **Turning existing page text into multiple lines** — O15's remainder. That
+   is a reflow, which the engine has and which currently demands the document
+   be saved and reopened first.
 
----
+★ **Run the full suite with `--doc-point 0,300,500`.** It is the historical
+point and the one most checks are calibrated for; `0,1211,1021` aims at a BOM
+row and is right for the text checks and wrong for `rotate_handle_turns_a_selection`.
+Last full run at 300,500: **51 passed, 2 failed, 12 skipped**, and both
+failures were the note dialog — one of which is now fixed.
 
 ## 3. Blocked on the engine
 
