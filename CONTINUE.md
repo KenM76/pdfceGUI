@@ -128,7 +128,7 @@ them were *confident, specific, wrong accusations about working code*:
 |---|---|---|
 | `insert_image_places_a_picture` | *"THE PAGE DID NOT CHANGE"* | the picture was on the page and the sharp oracle had already counted it. The pixel floor was **one in five hundred of the page** — a statement about the FIXTURE. On a 1584 × 1224 pt sheet at 0.3× a 64 × 16 pt picture is 19 × 5 screen pixels, so a *correct* insert changes 90 of 169,416 |
 | `a_shift_drag_between_documents_moves_the_pages` | *"the sheets are now in BOTH documents"* | `--second-pdf` was a **one-page** file. The engine refused to remove its only page, by name and correctly, and the shell had already worded that |
-| `read_mode_hides_the_chrome` | full screen did not restore | **flaky**; passed on re-run with no change. `osk.exe` is up on this machine — the recorded hazard |
+| `read_mode_hides_the_chrome` | full screen did not restore | **A REAL DEFECT, and I called it flaky first.** See below |
 
 Both real checks are repaired: the pixel floor is now derived from the
 **operand** (the fixture's size in points through the page rect against the
@@ -138,6 +138,30 @@ and SKIPS with the engine's sentence quoted.
 ★★ **The rule, third instance in two days:** *a check asserting on an absence
 must first ask whether a different signal explains it*, and *a fact about the
 fixture is not a fact about the build* — which must be SKIP, never FAIL.
+
+### ★★★ And the third one was NOT flaky, which is the lesson of the evening
+
+It failed on **two of three runs** with *"the display has been left filled;
+close the window to recover it"* — and I wrote it off after the first, because
+it passed on re-run and `osk.exe` was up.
+
+`toggle_fullscreen` read `ViewportInfo::fullscreen` to decide what to ask for
+next. A `ViewportCommand` is **queued and answered by the backend**, so a second
+press before it catches up reads the pre-first-press state and asks for full
+screen a second time. It turns on and will not turn off. The run it passed on
+was the one with more frames between the presses.
+
+★ **The doc comment directly beneath the bug already stated the cause** — as a
+*labelling* concern, explaining why a trace should say `asked=` rather than
+`on=`. The fact was known and its consequence was never drawn.
+
+> **An intermittent is a defect with a timing dependency.** Three runs is not a
+> sample; it is three observations of a race. The last time something here
+> looked like harness flakiness, the conclusion drawn was *"this machine cannot
+> type"* — which cost the project its whole keyboard surface for months.
+
+Fixed, four unit tests, and verified PASS three times running. Filed in
+`D:/dev/rag/egui/`.
 
 **Use `--second-pdf D:/Dev/temp/pdfce/big.pdf`** (5 pages). A one-page second
 document makes the move-between-documents check unrunnable.
