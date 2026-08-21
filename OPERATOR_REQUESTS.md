@@ -364,9 +364,26 @@ decided against.
     **Driven:** eight of the thirteen, one launch each, no mouse touched.
     Every one opened at its declared size and none needed to grow.
 
-    **NOT VERIFIED**, named rather than implied: the five reachable only by a
-    gesture — Insert image, Insert pages, Set scale, the note editor and the
-    unsaved-changes question. They are converted; nothing has driven them.
+    ★★ **AND CONVERTING THEM BROKE THE VERIFICATION, WHICH IS WORTH SAYING
+    OUT LOUD.** Six driven checks failed and six more skipped on the next full
+    run — every one of them clicking hundreds of pixels away from the control
+    it named, with no error anywhere, because a dialog in its own window has
+    its own coordinates and the harness was still adding the application
+    window's. All six are fixed and the harness now knows the program has more
+    than one window.
+
+    ★★★ **One of them was a real defect that had shipped: every dialog drew
+    on a BLACK background.** Dark text on near-black, legible only as an
+    outline. Nothing caught it — the window opened, every control was where it
+    said it was, and the driven check for *"a dialog opens in its own OS
+    window"* passed on all eight. **A screenshot showed a black rectangle.**
+    That is the standing rule earning its place again: a rendering defect has
+    exactly one oracle and it is a picture.
+
+    **NOT VERIFIED**, named rather than implied: three of the five reachable
+    only by a gesture — Insert pages, Set scale and the unsaved-changes
+    question. The note editor is now driven, and see the row below for what
+    that found.
 
     **Still open:** one row eframe cannot express — the dialog is not *owned*
     by the main window, so it can fall behind it. There is no owner option in
@@ -388,6 +405,28 @@ decided against.
     without saying whether it is multi-line — and a multi-line field must keep
     the ability to type a newline. So in a dialog whose last control is a
     one-line box, you may need to click out of it first. The fix is per-field.
+13b. ⚠ **OPEN, and it may bite you: a note box may not take your typing
+    until you click it.**
+
+    Drag out a **Text box** or **Sticky note** on the canvas, and type
+    *without clicking into the field first*. The characters may go nowhere —
+    and because Accept is only enabled once the field has something in it,
+    pressing Accept then authors nothing and there is no message.
+
+    **Clicking the field first always works.** So does everything else about
+    the dialog.
+
+    Found by a driven check on 2026-08-21, and the cause is named as far as
+    it goes: the new window is **granted** the keyboard by Windows and then
+    **loses it again** a few frames later, before any keystroke arrives. The
+    program now asks for it repeatedly through that window and it still does
+    not hold. This is not the test harness — that was instrumented and
+    confirmed to be doing nothing during the sequence.
+
+    Recorded here rather than left in a red test run, because it is your
+    workflow rather than ours: this is the one dialog you reach by drawing on
+    the drawing.
+
 14. **PARTIAL, improved 2026-08-21.** Every dialog comes back where you left
     it, and it now **survives closing and reopening** — the position moved out
     of the dialog and into the application's own memory on the same pass that
