@@ -378,7 +378,8 @@ pub fn section(
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!(
-            "geometry-draft x={:.2} y={:.2} w={:.2} h={:.2} bw={:.2} bh={:.2}              changed={changed} usable={usable}",
+            "geometry-draft x={:.2} y={:.2} w={:.2} h={:.2} bw={:.2} bh={:.2} \
+             changed={changed} usable={usable}",
             draft.x,
             draft.y,
             draft.w,

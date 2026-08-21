@@ -458,7 +458,8 @@ fn closes_the_ring(
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         format!(
-            "measure-perimeter-ring-test distance={distance:.1} tolerance={tolerance:.1}              first_canvas={:.1},{:.1} click={:.1},{:.1}",
+            "measure-perimeter-ring-test distance={distance:.1} tolerance={tolerance:.1} \
+             first_canvas={:.1},{:.1} click={:.1},{:.1}",
             first_canvas.x, first_canvas.y, canvas_point.x, canvas_point.y
         )
     });

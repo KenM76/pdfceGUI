@@ -127,7 +127,29 @@ scan() {
                 if (code !~ /[^[:space:]]/) next    # blank or comment-only: hold the arming
                 if (armed) { armed = 0; next }      # the marker above covers THIS line
                 if (code !~ /"/) next
-                if (code ~ /[A-Za-z,.:;)]   +[A-Za-z]/) {
+                # ★ ANY non-space on the left, not an enumerated class.
+                #
+                # This read `[A-Za-z,.:;)]` and had a hole the width of the format syntax of Rust
+                # itself: `}`. A mangled continuation inside
+                #
+                #     "… transformed={transformed}      m=[{:.4} …]"
+                #
+                # has a BRACE before the gap, so the gate passed it, and the
+                # defect shipped into a trace line on 2026-08-20 — where a
+                # driven check then read it back with twenty-six spaces in the
+                # middle. Interpolation is the commonest thing at the end of a
+                # clause in this codebase, which made the omitted character the
+                # likeliest one.
+                #
+                # Enumerating a class is a guess about what precedes a gap.
+                # "Something, then three spaces, then a letter" is the fact.
+                #
+                # ★ Two characters ARE excluded, and both for the same reason:
+                # a gap that begins a literal is INDENTATION, not a lost
+                # continuation. `println!("      default exe: {}")` is a report
+                # laying out a column, and four of them in this harness are the
+                # false positives that widening the class first produced.
+                if (code ~ /[^[:space:]("]   +[A-Za-z]/) {
                     body = code
                     sub(/^[[:space:]]+/, "", body)
                     print "  " FILENAME ":" FNR ": a run of spaces baked into a string literal"
@@ -161,6 +183,14 @@ if [ "$SELF_TEST" = "1" ]; then
     cat > "$tmp/dirty/bad.rs" <<'EOF'
 pub const fn note() -> &'static str {
     "With no line drawn yet, the scale is given as a ratio. To set it by      pointing at a stated length, measure it first."
+}
+EOF
+    # ★ The shape that got PAST this gate on 2026-08-20: the character before
+    # the gap is a closing brace, because the clause ended in an interpolation.
+    # The old pattern enumerated `[A-Za-z,.:;)]` and `}` was not in it.
+    cat > "$tmp/dirty/brace.rs" <<'EOF'
+pub fn line(page: usize, n: u64) -> String {
+    format!("transform-objects page={page} transformed={n}          m=[1 0 0 1 0 0]")
 }
 EOF
     cat > "$tmp/clean/good.rs" <<'EOF'

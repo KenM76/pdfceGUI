@@ -355,7 +355,8 @@ pub fn document_sized(rect: pdfce_core::page_tree::Rect) -> Result<(Document, Ve
     crate::diag::trace(|| {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            "new-document-sized w={:.2} h={:.2} change={change:?} bytes={}              result_w={:.2} result_h={:.2}",
+            "new-document-sized w={:.2} h={:.2} change={change:?} bytes={} \
+             result_w={:.2} result_h={:.2}",
             rect.width(),
             rect.height(),
             written,

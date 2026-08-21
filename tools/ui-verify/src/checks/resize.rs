@@ -58,8 +58,22 @@ const MODE: &str = "edit";
 const COMMIT_EVENT: &str = "resize-commit";
 /// `resize-declined reason=…` — the six worded refusals.
 const DECLINED_EVENT: &str = "resize-declined";
-/// The trace label `vector_edit` traces when `move_nodes` succeeded.
-const APPLIED: &str = "move-nodes";
+/// The trace label `vector_edit` traces when the edit reached the engine.
+///
+/// ★★ **This was `move-nodes` until 2026-08-20**, and the change is the point
+/// rather than a rename. A resize was built out of `move_nodes` — *scaling a
+/// path IS moving every one of its nodes* — because `pdfce-core` had no scale
+/// verb at all. `Pass 113.0` shipped `transform_objects`, which wraps each
+/// object in `q <cm> … Q` and therefore works on **text, pictures and several
+/// objects at once**, none of which a node-move can express.
+///
+/// ★ The stale constant did not make this check pass wrongly; it made it FAIL
+/// against a build where the resize had just got better — reporting *"the
+/// action was raised and its apply arm never ran"* while the trace plainly
+/// carried `transform-objects … transformed=1`. Worth knowing, because a check
+/// that pins a MECHANISM rather than an OUTCOME goes red on the day the
+/// mechanism improves, and the reflex when that happens is to doubt the code.
+const APPLIED: &str = "transform-objects";
 
 /// How far to drag the grip, in screen pixels, on each axis.
 ///
@@ -290,7 +304,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     }
-    report.note("★★ the scaled node positions reached the engine through `move_nodes`");
+    report.note("★★ the scale reached the engine through `transform_objects`");
     Ok(None)
 }
 

@@ -92,8 +92,14 @@ const APPLY_REGION: &str = "properties.geometry.apply";
 const COMMIT_EVENT: &str = "resize-scale";
 /// `resize-declined reason=…`.
 const DECLINED_EVENT: &str = "resize-declined";
-/// The label `vector_edit` traces when `move_nodes` succeeded.
-const APPLIED: &str = "move-nodes";
+/// The label `vector_edit` traces when the edit reached the engine.
+///
+/// ★★ `move-nodes` until 2026-08-20. The typed route shares `resizing::action`
+/// with the grips, so it moved to `transform_objects` with them — which is the
+/// whole reason the two routes share that function, and is what this check's
+/// own header claims. See `resize.rs`'s note on the same constant for why a
+/// check that pins a MECHANISM goes red on the day the mechanism improves.
+const APPLIED: &str = "transform-objects";
 
 /// How far to scrub the Width field, in screen pixels.
 ///
@@ -325,6 +331,6 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     }
-    report.note("★★ the typed width reached the engine through `move_nodes`");
+    report.note("★★ the typed width reached the engine through `transform_objects`");
     Ok(None)
 }

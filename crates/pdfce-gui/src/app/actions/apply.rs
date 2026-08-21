@@ -627,7 +627,8 @@ impl PdfceApp {
                     // `edit-text` line one line below this one; only this line
                     // carries the number that build would get wrong.
                     format!(
-                        "text-edit-plan page={page} run={run} disposition={:?} reason={reason:?}                          pinned={}",
+                        "text-edit-plan page={page} run={run} disposition={:?} reason={reason:?} \
+                         pinned={}",
                         plan.options.disposition,
                         plan.request.pinned_span.is_some()
                     )

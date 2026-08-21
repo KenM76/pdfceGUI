@@ -492,7 +492,8 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
                 // the same argument: a trace line must carry the number a
                 // wrong build would get wrong.
                 format!(
-                    "transform-objects page={page} asked={} transformed={transformed}                          m=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
+                    "transform-objects page={page} asked={} transformed={transformed} \
+                     m=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
                     objects.len(),
                     matrix.a,
                     matrix.b,
