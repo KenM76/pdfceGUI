@@ -121,12 +121,43 @@ follows:
 | *"isn't exactly in the same place as it started"* | the step is the grid, not the drag |
 | *"cross the same area and it jumps back to being correct"* | pure function of position — re-enter the cell, get the cell's rect |
 | *"the image does seem to disappear"* | two steps at once, at a zoom where the grid is most of the window |
-| **"up to 800% things work perfect"** | **★★ below the pixmap ceiling there is no region at all, so the destination is the page's own rect and cannot disagree** |
 
-That last row is the confirmation. 800 % is not a round number anyone chose —
-it is where `viewer::max_zoom_for_page` stops permitting a whole-page raster
-on a Letter sheet and the region tier takes over. A defect that begins exactly
-at the tier boundary is a defect in the tier.
+### ★★★ RETRACTED: "up to 800 % things work perfect" is not evidence
+
+The first version of this entry claimed that row as the confirmation, on the
+reasoning that 800 % is where the whole-page raster gives out and the region
+tier takes over. **That is false and the trace says so.**
+
+The region tier engages at `MAX_PIXMAP_EDGE / page_height` — 16,383 / 792 =
+**about 2,070 %** on a Letter sheet. Below it the raster is whole-page and
+`region=none`. 800 % is nothing but the **old maximum zoom**, and the plain
+reading of his sentence is *"the range that existed before is fine; the new
+range is not"* — a statement about what he had already tested, not about a
+mechanism.
+
+★★ This matters beyond the correction. The driven check was tuned to land at
+1,867 %, just under the real threshold, so every run traced `region=none`, the
+placement cross-check had nothing to compare, and **the check reported PASS
+twice against a binary with the defect deliberately put back in**. The wrong
+reading of the 800 % sentence is what made that look like agreement instead of
+like a check that could not fail.
+
+A sentence was promoted to a measurement because it agreed with a theory. The
+theory happened to be right; the evidence for it was not evidence.
+
+### The actual proof
+
+With the zoom raised to land at **4,155 %** — inside the band where the region
+tier is engaged and the position is still on the `scroll` tier, which is the
+only place this defect can exist — the check:
+
+* **FAILS** on a build with the placement reverted to the wanted region, by
+  **309.5 points** at mid-roll 1, and
+* **PASSES** three runs out of three on the fixed build.
+
+`ui-verify` now refuses to report PASS on a run in which no reading described
+a region raster (`REGION_TIER_REQUIRED`). A check that cannot fail is not
+evidence, and this one was being quoted as evidence.
 
 And the zoom bounce is the same thing seen on a different transient: a zoom
 changes the wanted region wholesale, so the held texture was thrown to a

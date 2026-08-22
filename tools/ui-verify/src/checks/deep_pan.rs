@@ -94,10 +94,42 @@ const POS_EVENT: &str = "canvas-pos";
 
 /// How far to zoom in before the FIRST probe.
 ///
-/// Lands around 100,000 %, which is past the whole-page raster ceiling and on
-/// the `scroll` position tier — the tier the operator was on when he reported
-/// this.
-const PRESSES: usize = 16;
+/// # ★★★ Where this has to land, and how badly it was got wrong
+///
+/// It must land in the band where the **region tier is engaged and the position
+/// is still on the `scroll` tier** — because that band is the only place O24c
+/// can exist, and it is narrower than it looks:
+///
+/// | zoom | raster | position |
+/// |---|---|---|
+/// | below ~2,070 % | whole page | `scroll` |
+/// | ~2,070 % … ~1,000,000 % | **region** | **`scroll`** ← the band |
+/// | above that | region | `deep` |
+///
+/// The lower edge is `MAX_PIXMAP_EDGE / page_height` = 16,383 / 792 on a Letter
+/// sheet. Sixteen notches landed at **1,867 %** — just under it — so every run
+/// traced `region=none`, the placement cross-check had nothing to compare, and
+/// the check reported PASS twice against a binary with the defect deliberately
+/// put back in.
+///
+/// ★★ It was defended with an argument, too: the operator's *"up to 800 %
+/// things work perfect"* was read as evidence that 800 % is a mechanism
+/// boundary. It is not one — 800 % is the **old maximum zoom**, and the plain
+/// reading of his sentence is *"the range that existed before is fine; the new
+/// range is not."* A sentence was promoted to a measurement, and it agreed with
+/// a theory that the actual trace contradicts.
+///
+/// Hence [`REGION_TIER_REQUIRED`]: this check now refuses to pass a run in
+/// which no region raster was ever placed.
+const PRESSES: usize = 20;
+
+/// Refuse to PASS unless a region raster was actually placed.
+///
+/// ★ The single most important line in this file. Without it the check is
+/// satisfied by a run that never reached the tier it is named after — which is
+/// not a hypothetical, it is what happened. A check that cannot fail is not
+/// evidence, and this one was being quoted as evidence.
+const REGION_TIER_REQUIRED: bool = true;
 
 /// How many MORE presses before the second probe.
 ///
@@ -133,6 +165,25 @@ const MORE_PRESSES: usize = 44;
 /// Three notches: small enough to be the "little bit" he described, large
 /// enough that a working build moves visibly.
 const NOTCHES: i32 = -3;
+
+/// How many separate wheel rolls to make, sampling the placement after each.
+///
+/// # ★★★ Why one small roll is not enough, and how that was found out
+///
+/// `render::strategy::region_for` quantises the wanted region to a **half
+/// viewport** grid, and O24c only exists while a *new* cell's raster is in
+/// flight. A single three-notch roll moves about 120 points, stays inside the
+/// cell it started in, requests nothing, and therefore cannot reproduce the
+/// defect at all.
+///
+/// That was not reasoned out — it was measured. With one roll this check passed
+/// **twice out of two** against a binary with the defect deliberately put back
+/// in. A check that green-lights the bug it is named after is worse than no
+/// check, because it is quoted as evidence.
+///
+/// Enough rolls to cross at least one grid line, with a placement reading taken
+/// between each, so whichever roll crosses is sampled inside its transient.
+const ROLLS: usize = 8;
 
 /// The page's own rect, on the `ui-rect` channel.
 const PAGE_REGION: &str = "page";
@@ -363,15 +414,50 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         .unwrap_or(0.0);
     report.note(format!("zoomed to {:.0}%", zoom * 100.0));
 
-    if let Some(bad) = probe(&session, &driver, &frame, canvas, ui_rect, report)? {
+    // Whether any reading, at any tier, described a REGION raster. See
+    // `REGION_TIER_REQUIRED` — a run in which this stays false has not
+    // exercised the thing this check is named after and must not report PASS.
+    let mut saw_region = false;
+
+    if let Some(bad) = probe(
+        &session,
+        &driver,
+        &frame,
+        canvas,
+        ui_rect,
+        &mut saw_region,
+        report,
+    )? {
         return Ok(Some(bad));
+    }
+
+    if REGION_TIER_REQUIRED && !saw_region {
+        return Err(Error::new(
+            "no reading described a REGION raster — every one said `region=none`, so the whole \
+             page was being rasterized throughout, the placement cross-check had nothing to \
+             compare, and the run never reached the tier this check is named after. \
+             The region tier engages above MAX_PIXMAP_EDGE / page_height, which is about \
+             2,070 % on a US Letter sheet. Raise PRESSES until the first probe lands above it, \
+             or drive a larger page, whose threshold is lower. \
+             ★ Reported as SKIPPED rather than passed, and this is not pedantry: with PRESSES \
+             at 16 the first probe landed at 1,867 % and this check reported PASS twice against \
+             a binary that had O24c deliberately put back in.",
+        ));
     }
 
     // …and again on the other side of the deep threshold, where a different
     // mechanism owns the position entirely. See `MORE_PRESSES`.
     driver.scroll_at_held(at_cells, &[VK_CONTROL], 1, MORE_PRESSES)?;
     session.settle(120);
-    if let Some(bad) = probe(&session, &driver, &frame, canvas, ui_rect, report)? {
+    if let Some(bad) = probe(
+        &session,
+        &driver,
+        &frame,
+        canvas,
+        ui_rect,
+        &mut saw_region,
+        report,
+    )? {
         return Ok(Some(bad));
     }
     Ok(None)
@@ -392,6 +478,7 @@ fn probe(
     frame: &crate::coords::WindowFrame,
     canvas: crate::geom::LRect,
     ui_rect: &str,
+    saw_region: &mut bool,
     report: &mut CheckReport,
 ) -> Result<Option<String>> {
     let zoom = session
@@ -408,9 +495,53 @@ fn probe(
         ));
     };
 
+    // ★ The placement is checked BEFORE the wheel as well as after, and this
+    // ordering matters. When the defect was re-introduced deliberately to
+    // falsify this check, the movement assertion below happened to trip first
+    // and the run reported a stuck view — a true failure for the wrong reason,
+    // which would have sent the next reader to the scroll offset instead of to
+    // the paint rectangle. A check that can only fail one way at a time should
+    // fail in the order that names the cause.
+    if let Some(bad) = check_placement("before", &first, rect_first, zoom) {
+        return Ok(Some(bad));
+    }
+
     let (before, tier) = (first.at, first.tier.clone());
 
-    driver.scroll_at(frame.declared_at(canvas, 0.5, 0.5), NOTCHES)?;
+    // ★★★ ROLL REPEATEDLY, SAMPLING THE PLACEMENT AFTER EACH.
+    //
+    // One roll cannot cross `render::strategy::region_for`'s half-viewport
+    // grid, so it cannot reproduce O24c. See `ROLLS`.
+    for roll in 0..ROLLS {
+        driver.scroll_at(frame.declared_at(canvas, 0.5, 0.5), NOTCHES)?;
+        // ★ TWO FRAMES, and the shortness is the point: this reading must land
+        // INSIDE the raster transient. O24c only exists while a new cell's
+        // raster is in flight; once it lands, the held region and the wanted
+        // region agree again and the placement is correct on a broken build as
+        // much as on a fixed one. A twenty-frame wait here walked straight past
+        // a defect that was deliberately present in the binary being driven.
+        session.settle(2);
+        let Some((flight, rect_flight)) = position(session, ui_rect)? else {
+            return Err(Error::new(
+                "the canvas stopped reporting a position. SKIPPED.",
+            ));
+        };
+        *saw_region |= flight.region.is_some();
+        if let Some(bad) = check_placement(&format!("mid-roll {roll}"), &flight, rect_flight, zoom)
+        {
+            return Ok(Some(bad));
+        }
+    }
+
+    // ★★ A SECOND reading, far enough out for the SCROLL to have been applied.
+    //
+    // The two answer different questions and cannot share a moment. `flight`
+    // above must land inside the raster transient or the placement defect has
+    // already healed; this one must land after the view has actually moved, or
+    // the movement assertion reports a stuck view on a build that panned
+    // perfectly — which is what two frames produced on two of four runs when
+    // they were asked to do both jobs. A check that passes on two runs in four
+    // has not measured anything.
     session.settle(20);
     let Some((mid, rect_mid)) = position(session, ui_rect)? else {
         return Err(Error::new(
@@ -463,42 +594,49 @@ fn probe(
         )));
     }
 
-    // ★★★ O24c — THE PIXELS MUST BE A PICTURE OF WHERE THEY ARE DRAWN.
-    //
-    // Checked at all three readings, because the window in which it fails is
-    // exactly the window in which a new region's raster is in flight: check
-    // only the settled one and the defect is invisible, which is how it
-    // shipped. See `placement_error`.
-    //
-    // ★ `scroll` tier only. Above the deep threshold the placement comes from
-    // the `f64` anchor rather than from the page's rect, and this formula does
-    // not describe it — comparing anyway would report a defect that is only a
-    // wrong model.
-    for (when, pos, page_rect) in [
-        ("before", &first, rect_first),
-        ("after", &mid, rect_mid),
-        ("settled", &last, rect_last),
-    ] {
-        if pos.tier != "scroll" {
-            continue;
-        }
-        if let Some((ex, ey)) = placement_error(pos, page_rect)
-            && (ex.abs() > PLACEMENT_TOLERANCE_PT || ey.abs() > PLACEMENT_TOLERANCE_PT)
-        {
-            return Ok(Some(format!(
-                "★★ THE PIXELS ARE IN THE WRONG PLACE ({when} the wheel, at {:.0}%). The raster \
-                 on screen is a picture of page region {:?}, which belongs at the rect this \
-                 harness recomputed, but it was painted {ex:.1},{ey:.1} points away from there. \
-                 This is the operator's \"if I pan a little too far it jumps back in the \
-                 opposite direction\": `canvas::show` is placing the held texture by the region \
-                 the shell wants NEXT rather than by the one those pixels are OF, and the two \
-                 differ by `render::strategy::region_for`'s half-viewport grid step whenever a \
-                 raster is in flight. See `render::worker::RenderKey::region`.",
-                zoom * 100.0,
-                pos.region
-            )));
+    for (when, pos, page_rect) in [("after", &mid, rect_mid), ("settled", &last, rect_last)] {
+        *saw_region |= pos.region.is_some();
+        if let Some(bad) = check_placement(when, pos, page_rect, zoom) {
+            return Ok(Some(bad));
         }
     }
 
     Ok(None)
+}
+
+/// ★★★ O24c — THE PIXELS MUST BE A PICTURE OF WHERE THEY ARE DRAWN.
+///
+/// Checked at every reading, because the window in which it fails is exactly
+/// the window in which a new region's raster is in flight: check only the
+/// settled one and the defect is invisible, which is how it shipped.
+///
+/// ★ `scroll` tier only. Above the deep threshold the placement comes from the
+/// `f64` anchor rather than from the page's rect, and `placement_error`'s
+/// formula does not describe it — comparing anyway would report a defect that
+/// is only a wrong model.
+fn check_placement(
+    when: &str,
+    pos: &Pos,
+    page_rect: crate::geom::LRect,
+    zoom: f32,
+) -> Option<String> {
+    if pos.tier != "scroll" {
+        return None;
+    }
+    let (ex, ey) = placement_error(pos, page_rect)?;
+    if ex.abs() <= PLACEMENT_TOLERANCE_PT && ey.abs() <= PLACEMENT_TOLERANCE_PT {
+        return None;
+    }
+    Some(format!(
+        "★★ THE PIXELS ARE IN THE WRONG PLACE ({when} the wheel, at {:.0}%). The raster on \
+         screen is a picture of page region {:?}, which belongs at the rect this harness \
+         recomputed from the page's own rect — but it was painted {ex:.1},{ey:.1} points away \
+         from there. This is the operator's \"if I pan a little too far it jumps back in the \
+         opposite direction\": `canvas::show` is placing the held texture by the region the \
+         shell wants NEXT rather than by the one those pixels are OF, and the two differ by \
+         `render::strategy::region_for`'s half-viewport grid step whenever a raster is in \
+         flight. See `render::worker::RenderKey::region`.",
+        zoom * 100.0,
+        pos.region
+    ))
 }
