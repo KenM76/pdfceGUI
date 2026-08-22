@@ -129,6 +129,98 @@ roughly a thousand with nothing said.
 accepted, persisted, and then quietly overruled downstream. Shipping the
 setting without the mechanism behind it would be exactly that.
 
+### ★★★ HOW IT GETS THERE — asked 2026-08-21
+
+> *"how do we get to the insanely high limit? … I've seen readers hit over
+> 4000%, and none are limited to a mere 1000%. You should be able to have a
+> new algorithm take over for bigger zooms?"*
+
+**Yes, and it is two changes rather than one — with two different ceilings
+behind them.** The first gets from ~1,000 % to roughly a million percent and
+needs no new position model at all. Only the second needs the *"new
+algorithm"*, and it is not about how pixels are made.
+
+#### Step 1 — render the WINDOW, not the page. Ceiling: ~1,000,000 %
+
+Today the shell rasterizes the whole page and lets the scroll area show part
+of it, so the pixmap grows with the zoom and hits `MAX_PIXMAP_EDGE` at about
+1,034 % on an A1 sheet. **Every reader that reaches 4,000 % does the other
+thing:** it rasterizes only the visible rectangle, so the pixmap is always
+about window-sized and the zoom does not enter its size at all.
+
+★ The engine has already done its half, and its own measurement is the proof
+— commit `71f7055`, a requested 800×600 viewport:
+
+```
+zoom factor      zoom %        raster before    raster after
+          1         100          800x600          800x600
+    100,000  10,000,000          800x592          800x600
+  1,000,000 100,000,000          800x640          800x600
+```
+
+*"the fix is one subtraction moved into `f64`"* — at deep zoom the region's
+device origin is a few billion while the region itself is 800 points, so the
+difference vanishes in `f32`. The large magnitudes now exist only inside
+`f64` and are subtracted out before anything is handed back.
+
+So on the engine side this is **done and measured to 100,000,000 %**. The
+shell has simply never called `render_page_region`.
+
+#### Step 2 — stop letting the scroll area own the position. Ceiling: none
+
+This is the *"new algorithm"*, and it is about **where the viewport's
+position is stored**, not about rendering.
+
+Today the position is an `egui::ScrollArea` offset into a content rectangle
+of `page × zoom`, and those offsets are `f32`. `f32` carries 24 bits of
+mantissa, so it can address about 16.7 million distinct units before the
+spacing between representable values exceeds one:
+
+| content size | smallest addressable step |
+|---|---|
+| 16,700,000 pt | 1 pt |
+| 1,600,000,000 pt | ~128 pt |
+| 16,000,000,000,000 pt | ~1,000,000 pt |
+
+An A1 sheet is ~1,584 pt on its long edge, so the content reaches 16.7
+million at a zoom of about **10,500× — roughly 1,050,000 %**. Past that the
+scroll offset cannot express where you are: panning would jump in steps of
+hundreds and then thousands of points, and the view would judder and then
+stick.
+
+★ **Computed, not estimated.** The three steps above were produced by taking
+the actual `f32` successor of each value: `1.00`, `128.00` and `1,048,576.00`
+points respectively. The threshold for a 1,584 pt page is `16,777,216 / 1584`
+= **10,543×**, i.e. 1,054,300 %.
+
+What is *not* yet measured is the behaviour — that panning really does judder
+and stick there. Worth driving before it is relied on, but the arithmetic is
+not in doubt.
+
+**So above about a million percent the source of truth changes**: the visible
+**page-space rectangle in `f64`** becomes the position, panning adds to that
+rectangle, and the scroll area stops being the thing that remembers where you
+are. That is exactly the shape the engine's `--region` commit describes —
+*"a viewport question instead of a page-size one"* — carried one layer up.
+
+#### What this means for the order of work
+
+| | delivers | needs |
+|---|---|---|
+| **1** | 1,000 % → ~1,000,000 % | region rendering in the canvas. No new position model |
+| **2** | ~1,000,000 % → whatever he types | the viewport rect in `f64` as the position |
+| **3** | the setting | (1) at minimum, or it is a control the shell cannot honour |
+
+★★ **Step 1 alone already beats every reader he has seen.** 4,000 % is
+inside it by two and a half orders of magnitude, and it is the smaller and
+far less invasive of the two changes — it touches the render worker and the
+raster cache, not the canvas's coordinate model. **If only one thing is
+built, build that one.**
+
+★ And it is not speculative: `crates/pdfce-gui/src/render/offpage.rs` already
+drives `render_page_region` and asserts the pixmap matches the region asked
+for. Those tests were written for `O23` and this is the same mechanism.
+
 ### What actually delivers it
 
 **Render the viewport, not the page.** `pdfce_render::render_page_region` takes
