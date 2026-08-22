@@ -157,7 +157,7 @@ pub const MIN_MAX_ZOOM_PERCENT: f32 = 10.0;
 /// ★ It is not a judgement about what is sensible. He was explicit that the
 /// performance trade is his to make; this is about what the shell can put on
 /// the screen.
-pub const MAX_MAX_ZOOM_PERCENT: f32 = 1e11;
+pub const MAX_MAX_ZOOM_PERCENT: f32 = 1e12;
 
 /// Format a percentage for the preferences file without an exponent or a
 /// trailing `.0`.
@@ -1015,24 +1015,22 @@ mod tests {
     /// operator named — `OPERATOR_REQUESTS.md` O24.
     ///
     /// The point of the setting is that the performance trade is his; a ceiling
-    /// exists only because `f32` must stay finite.
+    /// exists only because `f32` must stay finite — and since both precision
+    /// ceilings were removed, the page actually draws there.
     #[test]
-    fn asking_for_a_trillion_percent_gets_the_deepest_that_actually_draws() {
+    fn a_trillion_percent_is_accepted_and_the_page_actually_draws_there() {
         let (prefs, notes) = Prefs::parse(
             "max_zoom_percent = 1000000000000
 ",
         );
-        // ★ Clamped to `MAX_MAX_ZOOM_PERCENT`, and the clamp is REPORTED rather
-        // than silent. He asked for a trillion; a trillion renders cleanly but
-        // shows a blank page, so he gets the deepest zoom confirmed to draw —
-        // and a note saying his number changed, because a value quietly
-        // replaced is the substitution this parser exists to surface.
+        // ★ Accepted in full, and NOT clamped. It was clamped for part of
+        // 2026-08-22, while a trillion percent rendered cleanly and showed a
+        // blank page; removing the two precision ceilings made the figure he
+        // named actually draw, so the clamp went with them.
+        assert!((prefs.max_zoom_percent - 1e12).abs() / 1e12 < 1e-6);
         assert!(
-            (prefs.max_zoom_percent - MAX_MAX_ZOOM_PERCENT).abs() / MAX_MAX_ZOOM_PERCENT < 1e-6
-        );
-        assert!(
-            notes.iter().any(|n| matches!(n, PrefNote::Clamped { .. })),
-            "the operator must be told his number was changed"
+            notes.is_empty(),
+            "a stated maximum the shell can honour must not be second-guessed"
         );
     }
 

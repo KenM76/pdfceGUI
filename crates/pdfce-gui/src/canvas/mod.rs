@@ -883,16 +883,34 @@ fn show_in(
                 // page's own points. The two scales are derived from the
                 // placement rather than from the zoom, so a page whose
                 // placement has been rounded still maps exactly onto itself.
-                let seen = visible_rect.intersect(place);
-                if seen.width() > 0.0 && seen.height() > 0.0 {
-                    let sx = extent.0 / place.width();
-                    let sy = extent.1 / place.height();
-                    let visible_canvas = (
-                        (seen.min.x - place.min.x) * sx,
-                        (seen.min.y - place.min.y) * sy,
-                        (seen.max.x - place.min.x) * sx,
-                        (seen.max.y - place.min.y) * sy,
-                    );
+                // ★★ At tier 3 the visible rect comes from the ANCHOR, for the
+                // same reason the placement does: `place` has a magnitude of
+                // ~10^12 at deep zoom, and `seen.min.x - place.min.x` subtracts
+                // two huge `f32`s to get a small one — losing exactly the
+                // precision the answer needs. `DeepAnchor::visible_rect` does
+                // that subtraction in `f64`.
+                let visible_canvas = if deep {
+                    let anchor = doc
+                        .deep_anchor
+                        .unwrap_or_else(viewer::deep::DeepAnchor::origin);
+                    let r = anchor.visible_rect((avail.x, avail.y), f64::from(doc.view.zoom));
+                    Some((r.0 as f32, r.1 as f32, r.2 as f32, r.3 as f32))
+                } else {
+                    let seen = visible_rect.intersect(place);
+                    if seen.width() > 0.0 && seen.height() > 0.0 {
+                        let sx = extent.0 / place.width();
+                        let sy = extent.1 / place.height();
+                        Some((
+                            (seen.min.x - place.min.x) * sx,
+                            (seen.min.y - place.min.y) * sy,
+                            (seen.max.x - place.min.x) * sx,
+                            (seen.max.y - place.min.y) * sy,
+                        ))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(visible_canvas) = visible_canvas {
                     doc.raster_region = Some((
                         current,
                         crate::render::region::page_region(visible_canvas, extent),
@@ -925,6 +943,30 @@ fn show_in(
             // the destination without cropping the source would stretch the
             // image, which is a subtler wrong than a misplaced one.
             let paint_rect = match doc.region_for(placement.page) {
+                // ★★★ At tier 3 the placement comes from the ANCHOR, not from
+                // this page's screen rect.
+                //
+                // `rect` has a magnitude around 10^12 px at four billion
+                // percent, where an `f32`'s spacing is 131,072 px — coarser
+                // than the entire window — and the thing being drawn is about
+                // 1,400 px across. Deriving the small result from the huge
+                // intermediate inherits an error that never had to exist.
+                //
+                // ★ Which is why the answer to "32-bit strip or 64-bit strip?"
+                // is neither: not forming the number beats carrying it more
+                // precisely, costs nothing, and leaves one code path.
+                Some(region) if deep => {
+                    let anchor = doc
+                        .deep_anchor
+                        .unwrap_or_else(viewer::deep::DeepAnchor::origin);
+                    crate::render::region::region_on_screen_deep(
+                        region,
+                        viewer::page_extent_pts(&doc.pages[placement.page]),
+                        anchor,
+                        f64::from(doc.view.zoom),
+                        outer_rect.min,
+                    )
+                }
                 Some(region) => crate::render::region::region_on_screen(
                     region,
                     viewer::page_extent_pts(&doc.pages[placement.page]),

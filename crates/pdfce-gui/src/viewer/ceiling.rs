@@ -29,19 +29,6 @@
 // how far the operator may go. Moving it would have dragged its tests across a
 // seam they do not belong on.
 use super::{MAX_ZOOM, MIN_ZOOM, max_zoom_for_page};
-/// The largest strip extent — `page × zoom`, in points — at which a page is
-/// still drawn.
-///
-/// `2^35`, chosen inside a measurement rather than derived: driving to the top
-/// of the setting on US Letter drew at a strip extent of 4.1×10^10 points and
-/// did not at 6.1×10^11. This sits between them, nearer the confirmed end.
-///
-/// ★ It is what remains after tier 3. The `f64` anchor took the POSITION off
-/// the `f32` scroll offset and moved the usable ceiling from 2.1 million
-/// percent to 6.7 billion; the strip's own size is still `f32`, and every
-/// page's placement is measured inside it.
-pub(super) const MAX_STRIP_EXTENT: f32 = 34_359_738_368.0;
-
 /// The largest content extent at which an `f32` scroll offset still positions
 /// the view to within one screen pixel — `2^24`, the last integer `f32`
 /// represents exactly.
@@ -113,7 +100,6 @@ pub fn max_zoom_with_regions(limit: f32) -> f32 {
 pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: f32) -> f32 {
     let limit = max_zoom_with_regions(limit_percent / 100.0);
     let whole_page = max_zoom_for_page(page_pts, pixels_per_point);
-    let longest = page_pts.0.max(page_pts.1);
 
     // ★★★ THE DEFAULT MUST CHANGE NOTHING, and a plain `max` breaks that.
     //
@@ -161,30 +147,25 @@ pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: 
     // hands the position to `viewer::deep::DeepAnchor` at exactly the point the
     // cap used to refuse. One number, two uses, and they cannot drift.
 
-    // ★★★ AND CAPPED BY THE STRIP'S OWN EXTENT, which is the limit that
-    // remains after tier 3 — measured 2026-08-22 by driving to the top.
+    // ★★★ AND NOTHING CAPS IT ANY MORE. Two ceilings stood here today and both
+    // are gone, each removed by finding where the precision was ACTUALLY lost:
     //
-    // Tier 3 took the POSITION off the `f32` scroll offset, and that moved the
-    // usable ceiling from 2.1 million percent to **6.7 billion** on US Letter.
-    // What still lives in `f32` is the strip's own size, `page × zoom`, which
-    // every page's placement is measured inside. Drawn at a strip extent of
-    // 4.1×10^10 points; not drawn at 6.1×10^11.
+    // The sub-pixel cap went when `viewer::deep::DeepAnchor` took the position
+    // off the `f32` scroll offset. The strip-extent cap went when the drawn
+    // rect stopped being derived from the page's own screen rect — a value with
+    // a magnitude around 10^12 px at deep zoom, where `f32`'s spacing is 131,072
+    // px and the thing being drawn is 1,400 px across.
     //
-    // ★ So the cap is a **strip extent**, not a zoom — the same shape as the
-    // sub-pixel rule, and page-aware for the same reason: an A0 sheet reaches
-    // any extent at a third the zoom of a business card, and a single zoom
-    // number would be wrong for one of them.
+    // ★ Both fixes are the same move: **do not form the large number**. Neither
+    // needed a wider type anywhere it would cost anything, which is why the
+    // answer to "keep the 32-bit strip or build a 64-bit one?" turned out to be
+    // neither — carrying a huge intermediate more precisely is worse than not
+    // computing it, and it would have left two layout paths to keep in step.
     //
-    // ★★ Removing this means not building the strip in `page × zoom` space at
-    // all above the threshold — the move tier 3 made for the offset, one layer
-    // out. Until then, offering a zoom that renders cleanly and shows a blank
-    // page would be the defect this feature has refused throughout.
-    let strip_limited = if longest > 0.0 && longest.is_finite() {
-        MAX_STRIP_EXTENT / longest
-    } else {
-        MAX_ZOOM
-    };
-    limit.max(whole_page.min(MAX_ZOOM)).min(strip_limited)
+    // Measured after both: a page DRAWN at 10^12 % — the figure the operator
+    // named — on US Letter, with no failed rasters.
+
+    limit.max(whole_page.min(MAX_ZOOM))
 }
 
 /// Whether this page at this zoom needs the `f64` position model — O24 tier 3.

@@ -94,6 +94,54 @@ pub fn region_on_screen(region: Rect, page_pts: (f32, f32), page_screen: egui::R
     )
 }
 
+/// Where a region's raster belongs on screen at **deep zoom**, computed from
+/// the `f64` anchor rather than from the page's own screen rect.
+///
+/// # ★★★ Why the other one stops working, and it is not the strip
+///
+/// [`region_on_screen`] derives its answer from `page_screen` — where the
+/// WHOLE page would be drawn. At four billion percent that rect has a
+/// magnitude around 10^12 screen pixels, where an `f32`'s spacing is **131,072
+/// pixels**. The rect being drawn is about 1,400 pixels across.
+///
+/// So the precision is lost in an **intermediate a thousand times larger than
+/// the result**. The page's full extent is computed, quantised to something
+/// coarser than the whole window, and the region's position is then derived
+/// from it — inheriting an error that never had to exist.
+///
+/// ★ That is why the answer is neither a 32-bit strip nor a 64-bit one. Making
+/// the strip `f64` would carry the huge number more precisely; **not forming
+/// it** is better, costs nothing, and leaves one code path instead of two.
+/// Every large magnitude is subtracted inside `f64` before anything narrows —
+/// the same technique the engine's own deep-zoom commit describes as *"one
+/// subtraction moved into f64"*, and the same one [`DeepAnchor`] itself uses.
+///
+/// [`DeepAnchor`]: crate::viewer::deep::DeepAnchor
+#[must_use]
+pub fn region_on_screen_deep(
+    region: Rect,
+    page_pts: (f32, f32),
+    anchor: crate::viewer::deep::DeepAnchor,
+    zoom: f64,
+    viewport_origin: egui::Pos2,
+) -> egui::Rect {
+    let height = f64::from(page_pts.1);
+    // PDF y-up back to canvas y-down, then anchor-relative, then scaled. The
+    // subtraction happens BEFORE the multiply, so nothing large is ever formed.
+    let to_screen = |cx: f64, cy: f64| {
+        (
+            f64::from(viewport_origin.x) + f64::from(anchor.screen.0) + (cx - anchor.page.0) * zoom,
+            f64::from(viewport_origin.y) + f64::from(anchor.screen.1) + (cy - anchor.page.1) * zoom,
+        )
+    };
+    let (x0, y0) = to_screen(region.llx, height - region.ury);
+    let (x1, y1) = to_screen(region.urx, height - region.lly);
+    egui::Rect::from_min_max(
+        egui::pos2(x0 as f32, y0 as f32),
+        egui::pos2(x1 as f32, y1 as f32),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +224,38 @@ mod tests {
             on_screen.min.x < page_screen.min.x || on_screen.min.y < page_screen.min.y,
             "overscan should reach outside the page: {on_screen:?}"
         );
+    }
+
+    /// ★★★ **The deep placement stays exact where the shallow one cannot.**
+    ///
+    /// At four billion percent the page's own screen rect has a magnitude of
+    /// ~10^12 px, where `f32`'s spacing is 131,072 px — coarser than the whole
+    /// window. The anchor-based path never forms that number, so the rect it
+    /// returns is correct to a fraction of a pixel.
+    ///
+    /// Asserted by placing the anchor ON the region's own corner: the answer
+    /// must then be the viewport origin exactly, at any zoom.
+    #[test]
+    fn the_deep_placement_is_exact_at_zooms_where_f32_is_not() {
+        let region = page_region((300.0, 400.0, 300.1, 400.1), LETTER);
+        let origin = egui::pos2(0.0, 0.0);
+        for zoom in [1.0e6_f64, 1.0e8, 4.3e9, 1.0e11] {
+            // The anchor holds the region's top-left corner at the origin.
+            let anchor = crate::viewer::deep::DeepAnchor {
+                page: (region.llx, f64::from(LETTER.1) - region.ury),
+                screen: (0.0, 0.0),
+            };
+            let r = region_on_screen_deep(region, LETTER, anchor, zoom, origin);
+            assert!(
+                r.min.x.abs() < 0.5 && r.min.y.abs() < 0.5,
+                "at {zoom}x the anchored corner drifted to {:?}",
+                r.min
+            );
+            assert!(
+                r.width() > 0.0 && r.height() > 0.0,
+                "at {zoom}x the rect collapsed: {r:?}"
+            );
+        }
     }
 
     /// A degenerate page yields the page's own rect rather than a division by

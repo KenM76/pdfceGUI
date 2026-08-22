@@ -846,10 +846,9 @@ mod tests {
         // and not the scroll offset. Asking for a trillion percent yields the
         // deepest zoom the page is confirmed to actually draw at.
         let deep = zoom_ceiling(a1, 1.0, 1e12);
-        let expected = ceiling::MAX_STRIP_EXTENT / a1.0.max(a1.1);
         assert!(
-            (deep - expected).abs() / expected < 1e-6,
-            "expected the strip-extent cap {expected}x, got {deep}x"
+            (deep - 1e10).abs() / 1e10 < 1e-6,
+            "a trillion percent must be honoured in full now that nothing caps it: {deep}x"
         );
         assert!(
             deep_position_needed(a1, deep),
@@ -885,7 +884,7 @@ mod tests {
                 // ★ The default asks for the maximum and gets the deepest the
                 // strip can still place a page at — which is what the shell can
                 // actually deliver, on every page size.
-                let wanted = ceiling::MAX_STRIP_EXTENT / page.0.max(page.1);
+                let wanted = crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT / 100.0;
                 assert!(
                     (ceiling - wanted).abs() / wanted < 1e-6,
                     "page {page:?} at {ppp}x: ceiling {ceiling} should be {wanted}"
