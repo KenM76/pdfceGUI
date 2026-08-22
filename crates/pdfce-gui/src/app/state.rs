@@ -487,6 +487,20 @@ pub struct OpenDoc {
     /// part of it — silently, because both are valid rectangles. The index
     /// makes the mismatch impossible rather than merely unlikely.
     pub raster_region: Option<(usize, pdfce_core::page_tree::Rect)>,
+
+    /// ★★ **Where the view is, once the scroll offset can no longer say** —
+    /// O24 tier 3.
+    ///
+    /// `None` below the sub-pixel content extent, where `egui::ScrollArea`'s
+    /// own `f32` offset is authoritative and nothing about the canvas differs
+    /// from before this feature. `Some` above it, where the position is a page
+    /// point in `f64` and the screen pixel it sits under.
+    ///
+    /// ★ Seeded on the way in from wherever the scroll area had settled, and
+    /// cleared on the way out — so crossing the threshold in either direction
+    /// does not move the page under the operator, and re-entering starts from
+    /// the truth rather than from a stale anchor.
+    pub deep_anchor: Option<crate::viewer::deep::DeepAnchor>,
     /// ★ **What the operator has selected on the canvas.**
     ///
     /// # Why it is a field of the document rather than a value in `egui::Memory`
@@ -702,6 +716,7 @@ impl OpenDoc {
             last_scroll_offset: egui::Vec2::ZERO,
             // Whole page until the canvas says otherwise.
             raster_region: None,
+            deep_anchor: None,
             // Empty, like everything else here — and that is the entire
             // mechanism by which a selection can never refer to a previous
             // file. See the field's own docs.

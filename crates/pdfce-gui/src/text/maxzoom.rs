@@ -91,7 +91,7 @@ mod tests {
     /// ★★ **`f32` cannot hold a trillion exactly**, and the label says what is
     /// actually stored rather than what was asked for.
     ///
-    /// `1e12` rounds to `999,999,995,904` — four ten-millionths of one percent
+    /// `1e11` rounds to `99,999,997,952` — two parts in a hundred million
     /// low, unobservable at a zoom where one screen pixel is a millionth of a
     /// point. But the label is read by a person, and a row claiming a round
     /// trillion while the preferences file says otherwise is the kind of small
@@ -105,7 +105,7 @@ mod tests {
     fn the_top_preset_reads_as_what_is_actually_stored() {
         assert_eq!(
             preset(crate::app::prefs::MAX_MAX_ZOOM_PERCENT),
-            "999,999,995,904%"
+            "99,999,997,952%"
         );
     }
 

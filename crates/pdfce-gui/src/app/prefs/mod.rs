@@ -135,14 +135,29 @@ pub const DEFAULT_MAX_ZOOM_PERCENT: f32 = MAX_MAX_ZOOM_PERCENT;
 /// configure a document they cannot magnify at all.
 pub const MIN_MAX_ZOOM_PERCENT: f32 = 10.0;
 
-/// The highest a maximum-zoom setting may be — a trillion percent, which is
-/// the figure the operator named and what the engine's own deep-zoom work is
-/// measured against.
+/// The highest a maximum-zoom setting may be — **a hundred billion percent**,
+/// which is the deepest zoom the page has been confirmed to actually DRAW at.
 ///
-/// ★ A ceiling exists at all only because `f32` must stay finite; it is not a
-/// judgement about what is sensible. He was explicit that the performance
-/// trade is his to make.
-pub const MAX_MAX_ZOOM_PERCENT: f32 = 1e12;
+/// ★★ The operator named a trillion, and a trillion very nearly works: driving
+/// to it renders cleanly with no failed rasters. What it does not do is put a
+/// page on screen. The limit there is no longer the scroll offset — tier 3's
+/// `f64` anchor fixed that — but the **strip's own extent**, which is still
+/// `page × zoom` in `f32` and reaches 6×10^12 points at a trillion percent on
+/// US Letter. Measured by driving: drawn at 8.6×10^9× (859 billion percent),
+/// not drawn at 1×10^10×.
+///
+/// ★ So this is set an order of magnitude inside the confirmed-working range
+/// rather than at the edge of it. Offering a rung that renders without error
+/// and shows a blank page would be the same defect this feature has refused
+/// throughout: a control that accepts a number and then misbehaves.
+///
+/// Removing this needs the strip to stop being built in `page × zoom` space at
+/// deep zoom — the same move tier 3 made for the offset, one layer out.
+///
+/// ★ It is not a judgement about what is sensible. He was explicit that the
+/// performance trade is his to make; this is about what the shell can put on
+/// the screen.
+pub const MAX_MAX_ZOOM_PERCENT: f32 = 1e11;
 
 /// Format a percentage for the preferences file without an exponent or a
 /// trailing `.0`.
@@ -1002,15 +1017,22 @@ mod tests {
     /// The point of the setting is that the performance trade is his; a ceiling
     /// exists only because `f32` must stay finite.
     #[test]
-    fn a_trillion_percent_is_accepted_because_the_trade_is_the_operators() {
+    fn asking_for_a_trillion_percent_gets_the_deepest_that_actually_draws() {
         let (prefs, notes) = Prefs::parse(
             "max_zoom_percent = 1000000000000
 ",
         );
-        assert!((prefs.max_zoom_percent - 1e12).abs() / 1e12 < 1e-6);
+        // ★ Clamped to `MAX_MAX_ZOOM_PERCENT`, and the clamp is REPORTED rather
+        // than silent. He asked for a trillion; a trillion renders cleanly but
+        // shows a blank page, so he gets the deepest zoom confirmed to draw —
+        // and a note saying his number changed, because a value quietly
+        // replaced is the substitution this parser exists to surface.
         assert!(
-            notes.is_empty(),
-            "a stated maximum must not be second-guessed"
+            (prefs.max_zoom_percent - MAX_MAX_ZOOM_PERCENT).abs() / MAX_MAX_ZOOM_PERCENT < 1e-6
+        );
+        assert!(
+            notes.iter().any(|n| matches!(n, PrefNote::Clamped { .. })),
+            "the operator must be told his number was changed"
         );
     }
 

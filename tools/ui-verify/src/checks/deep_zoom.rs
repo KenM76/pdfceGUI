@@ -152,8 +152,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         driver.click_at(plus)?;
         session.settle(10);
     }
-    // The raster is debounced, so give the settled zoom time to be drawn.
-    session.settle(90);
+    // The raster is debounced, and a deep-zoom region render re-interprets the
+    // whole content stream — so the wait is generous. ★ At 90 frames the run
+    // ended with the top rung's raster still in flight, which reads in the
+    // trace as `drawn=0` and is indistinguishable from a page that cannot be
+    // drawn at all. A settle that is too short does not fail the check; it
+    // makes its evidence ambiguous, which is worse.
+    session.settle(240);
 
     let trace = session.trace()?;
     let zoom = trace

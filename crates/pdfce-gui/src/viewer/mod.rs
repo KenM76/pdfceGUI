@@ -139,7 +139,7 @@ pub use display::PageDisplay;
 // Re-exported so every existing `viewer::max_zoom_for_page` /
 // `viewer::zoom_ceiling` call site is untouched by the R2 split — the
 // module boundary is about file size, not about the vocabulary callers use.
-pub use ceiling::{max_zoom_with_regions, zoom_ceiling};
+pub use ceiling::{deep_position_needed, max_zoom_with_regions, zoom_ceiling};
 
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
@@ -838,19 +838,26 @@ mod tests {
             );
         }
 
-        // ★★ …and ABOVE it the cap wins, deliberately. A trillion percent
-        // renders — that was measured — but pans in thousand-pixel jumps,
-        // which is a control that accepts a number and then misbehaves. The
-        // cap is where positioning is still sub-pixel.
-        let capped = zoom_ceiling(a1, 1.0, 1e12);
-        let expected = ceiling::SUB_PIXEL_CONTENT_EXTENT / a1.0.max(a1.1);
+        // ★★ …and a TRILLION percent is honoured too, since tier 3 wired the
+        // `f64` position model. The cap that stood here until then is gone; the
+        // same constant now decides when `DeepAnchor` takes over instead of
+        // when to refuse.
+        // ★★ …and above it the STRIP EXTENT is what binds now, not the raster
+        // and not the scroll offset. Asking for a trillion percent yields the
+        // deepest zoom the page is confirmed to actually draw at.
+        let deep = zoom_ceiling(a1, 1.0, 1e12);
+        let expected = ceiling::MAX_STRIP_EXTENT / a1.0.max(a1.1);
         assert!(
-            (capped - expected).abs() / expected < 1e-6,
-            "a trillion percent should cap at {expected}x, got {capped}x"
+            (deep - expected).abs() / expected < 1e-6,
+            "expected the strip-extent cap {expected}x, got {deep}x"
         );
         assert!(
-            capped > 10_000.0,
-            "the cap must still be far past the 26x that failed before this work: {capped}x"
+            deep_position_needed(a1, deep),
+            "…and at that zoom the f64 anchor must be the one positioning the view"
+        );
+        assert!(
+            deep > 1_000_000.0,
+            "the cap must still be past 100,000,000%: {deep}x"
         );
     }
 
@@ -872,18 +879,20 @@ mod tests {
         for page in [(1584.0_f32, 1224.0), (612.0, 792.0), (306.0, 396.0)] {
             for ppp in [1.0_f32, 1.5, 2.0] {
                 let ceiling = zoom_ceiling(page, ppp, crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT);
-                // ★ The default asks for the maximum and gets the POSITIONAL
-                // cap, which is what the shell can actually deliver. Asserting
-                // it reaches the setting's own number would be asserting a
-                // promise the scroll offset cannot keep.
-                let wanted = ceiling::SUB_PIXEL_CONTENT_EXTENT / page.0.max(page.1);
+                // ★ The default asks for the maximum and now GETS it, on every
+                // page and display scale — which is only honest because tier 3
+                // positions the view past the point an `f32` offset could.
+                // ★ The default asks for the maximum and gets the deepest the
+                // strip can still place a page at — which is what the shell can
+                // actually deliver, on every page size.
+                let wanted = ceiling::MAX_STRIP_EXTENT / page.0.max(page.1);
                 assert!(
                     (ceiling - wanted).abs() / wanted < 1e-6,
                     "page {page:?} at {ppp}x: ceiling {ceiling} should be {wanted}"
                 );
                 assert!(
-                    ceiling > 1_000.0,
-                    "every page must still reach at least 100,000%: {page:?} got {ceiling}x"
+                    ceiling > 1_000_000.0,
+                    "every page must reach past 100,000,000%: {page:?} got {ceiling}x"
                 );
             }
         }
@@ -912,6 +921,46 @@ mod tests {
             "a 300% setting should leave the {whole_page}x pixmap ceiling alone, got {ceiling}"
         );
     }
+    /// ★★★ **The position model changes hands exactly where an `f32` offset
+    /// stops being able to place the view** — O24 tier 3.
+    ///
+    /// One unit of content space is one screen pixel, so `2^24` content points
+    /// is the last extent at which the offset is exact. Below it the scroll
+    /// area is authoritative and the canvas is unchanged; above it
+    /// `viewer::deep::DeepAnchor` is.
+    ///
+    /// ★ Asserted on both sides of the threshold, because a predicate that
+    /// answered `true` everywhere would put the whole shell on the deep path —
+    /// and that path is the one that has never carried ordinary use.
+    #[test]
+    fn the_deep_position_model_takes_over_only_past_the_sub_pixel_extent() {
+        let letter = (612.0_f32, 792.0);
+        let threshold = ceiling::SUB_PIXEL_CONTENT_EXTENT / letter.1;
+
+        assert!(
+            !deep_position_needed(letter, threshold * 0.9),
+            "below the extent the scroll offset must stay authoritative"
+        );
+        assert!(
+            deep_position_needed(letter, threshold * 1.1),
+            "above it the f64 anchor must take over"
+        );
+
+        // Every zoom the shell has ever offered stays on the ordinary path.
+        for zoom in ZOOM_LADDER {
+            assert!(
+                !deep_position_needed(letter, *zoom),
+                "zoom {zoom} left the ordinary position model"
+            );
+        }
+
+        // Degenerate input never claims to need the deep path.
+        for bad in [f32::NAN, f32::INFINITY, 0.0, -1.0] {
+            assert!(!deep_position_needed(letter, bad));
+            assert!(!deep_position_needed((bad, bad), 1.0));
+        }
+    }
+
     /// ★★★ **The page's size stops mattering once regions are available** —
     /// O24.
     ///

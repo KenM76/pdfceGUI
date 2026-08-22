@@ -29,6 +29,19 @@
 // how far the operator may go. Moving it would have dragged its tests across a
 // seam they do not belong on.
 use super::{MAX_ZOOM, MIN_ZOOM, max_zoom_for_page};
+/// The largest strip extent — `page × zoom`, in points — at which a page is
+/// still drawn.
+///
+/// `2^35`, chosen inside a measurement rather than derived: driving to the top
+/// of the setting on US Letter drew at a strip extent of 4.1×10^10 points and
+/// did not at 6.1×10^11. This sits between them, nearer the confirmed end.
+///
+/// ★ It is what remains after tier 3. The `f64` anchor took the POSITION off
+/// the `f32` scroll offset and moved the usable ceiling from 2.1 million
+/// percent to 6.7 billion; the strip's own size is still `f32`, and every
+/// page's placement is measured inside it.
+pub(super) const MAX_STRIP_EXTENT: f32 = 34_359_738_368.0;
+
 /// The largest content extent at which an `f32` scroll offset still positions
 /// the view to within one screen pixel — `2^24`, the last integer `f32`
 /// represents exactly.
@@ -100,6 +113,7 @@ pub fn max_zoom_with_regions(limit: f32) -> f32 {
 pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: f32) -> f32 {
     let limit = max_zoom_with_regions(limit_percent / 100.0);
     let whole_page = max_zoom_for_page(page_pts, pixels_per_point);
+    let longest = page_pts.0.max(page_pts.1);
 
     // ★★★ THE DEFAULT MUST CHANGE NOTHING, and a plain `max` breaks that.
     //
@@ -131,38 +145,65 @@ pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: 
     // constraint and must keep binding — an A1 sheet at a 1.5x display tops out
     // at 690 %, and lifting that would ask the engine for a raster it refuses.
     // Above it, the region tier can render and the page's size stops mattering.
-    // ★★★ AND CAPPED WHERE THE POSITION STOPS BEING EXPRESSIBLE — measured
-    // 2026-08-22 by driving to the top of the setting.
+    // ★★★ THE POSITIONAL CAP IS GONE, because tier 3 replaced it — O24.
     //
-    // The region tier removes the raster limit entirely: rendering succeeded at
-    // 999,999,995,904 % with no failures. What does not survive is the SCROLL
-    // OFFSET, which egui keeps in `f32` over a content space of `page × zoom`
-    // where one unit is one screen pixel:
+    // It stood here from 2026-08-22 morning until the `f64` anchor was wired,
+    // and its reasoning is worth keeping because it is what made the cap
+    // correct AT THE TIME: the scroll offset is an `f32` over a content space
+    // where one unit is one screen pixel, so past 2^24 content points the view
+    // moved in 2-pixel steps, then 512, then 2,048, and above 4×10^10 stopped
+    // being drawn at all. Rendering succeeded to a trillion percent throughout —
+    // **rendering and working parted company four orders of magnitude apart** —
+    // so capping where the picture still appeared would have shipped a range
+    // whose top half pans in thousand-pixel jumps.
     //
-    //     content extent      f32 step = positioning error
-    //         16,777,216            1 px      <- 2^24, the last exact one
-    //      4,294,967,296          512 px
-    //     20,535,312,384        2,048 px      <- still DREW, at 3.3 billion %
-    //     41,070,624,768        4,096 px      <- stopped drawing
+    // `viewer::deep_position_needed` is now the same constant's other use: it
+    // hands the position to `viewer::deep::DeepAnchor` at exactly the point the
+    // cap used to refuse. One number, two uses, and they cannot drift.
+
+    // ★★★ AND CAPPED BY THE STRIP'S OWN EXTENT, which is the limit that
+    // remains after tier 3 — measured 2026-08-22 by driving to the top.
     //
-    // ★ So "it renders" and "it works" part company long before the raster
-    // does. Capping where drawing stops would ship a zoom range whose top half
-    // pans in thousand-pixel jumps — a control that accepts a number and then
-    // misbehaves, which is the defect this feature has guarded against
-    // throughout.
+    // Tier 3 took the POSITION off the `f32` scroll offset, and that moved the
+    // usable ceiling from 2.1 million percent to **6.7 billion** on US Letter.
+    // What still lives in `f32` is the strip's own size, `page × zoom`, which
+    // every page's placement is measured inside. Drawn at a strip extent of
+    // 4.1×10^10 points; not drawn at 6.1×10^11.
     //
-    // The cap is the last extent at which positioning is SUB-PIXEL. On US
-    // Letter that is ~2,700,000 %, on an A1 sheet ~1,050,000 % — against the
-    // 2,382 % that failed outright before this work.
+    // ★ So the cap is a **strip extent**, not a zoom — the same shape as the
+    // sub-pixel rule, and page-aware for the same reason: an A0 sheet reaches
+    // any extent at a third the zoom of a business card, and a single zoom
+    // number would be wrong for one of them.
     //
-    // ★★ Raising it is `viewer::deep::DeepAnchor`'s job — the `f64` position
-    // model, built and unit-tested and NOT yet wired to the canvas. When it is,
-    // this cap is what should be deleted, and nothing else here changes.
-    let longest = page_pts.0.max(page_pts.1);
-    let positional = if longest > 0.0 && longest.is_finite() {
-        SUB_PIXEL_CONTENT_EXTENT / longest
+    // ★★ Removing this means not building the strip in `page × zoom` space at
+    // all above the threshold — the move tier 3 made for the offset, one layer
+    // out. Until then, offering a zoom that renders cleanly and shows a blank
+    // page would be the defect this feature has refused throughout.
+    let strip_limited = if longest > 0.0 && longest.is_finite() {
+        MAX_STRIP_EXTENT / longest
     } else {
         MAX_ZOOM
     };
-    limit.max(whole_page.min(MAX_ZOOM)).min(positional)
+    limit.max(whole_page.min(MAX_ZOOM)).min(strip_limited)
+}
+
+/// Whether this page at this zoom needs the `f64` position model — O24 tier 3.
+///
+/// True exactly where an `f32` scroll offset stops placing the view to within a
+/// screen pixel, which is [`SUB_PIXEL_CONTENT_EXTENT`]. Below it the scroll
+/// area is authoritative and nothing about the canvas changes; above it
+/// [`super::deep::DeepAnchor`] is.
+///
+/// ★ The SAME constant that used to cap the zoom. Before tier 3 was wired the
+/// only honest response to passing it was to refuse to go further; now it is
+/// the point at which the position model changes hands. One number, two uses,
+/// and they cannot drift apart.
+#[must_use]
+pub fn deep_position_needed(page_pts: (f32, f32), zoom: f32) -> bool {
+    let longest = page_pts.0.max(page_pts.1);
+    longest.is_finite()
+        && zoom.is_finite()
+        && longest > 0.0
+        && zoom > 0.0
+        && longest * zoom > SUB_PIXEL_CONTENT_EXTENT
 }

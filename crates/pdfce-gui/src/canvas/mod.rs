@@ -605,7 +605,68 @@ fn show_in(
         );
         vec2(x, y)
     };
-    if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, current_display) {
+    // ★★★ TIER 3 — the `f64` anchor takes over the POSITION.
+    //
+    // `OPERATOR_REQUESTS.md` O24. Below this the scroll offset says where the
+    // view is, and it is an `f32` over a content space of `page × zoom` where
+    // one unit is one screen pixel — so past about 2^24 content points it can
+    // only address every second pixel, then every sixteenth, and the view
+    // judders and sticks. Measured: at a trillion percent it moves in
+    // 2,048-pixel jumps.
+    //
+    // Above it the position becomes `DeepAnchor` — a page point in `f64` and
+    // the screen pixel it sits under — which does not decay with zoom, and
+    // the scroll area stops being asked to hold it. Its content becomes the
+    // viewport, so egui has nothing to scroll and nothing to round.
+    //
+    // ★ Everything below the threshold is untouched, deliberately. This
+    // canvas has twice been broken by a change that meant to affect only deep
+    // zoom, so the tier is a hard branch rather than a re-parameterisation.
+    let deep =
+        viewer::deep_position_needed(viewer::page_extent_pts(&doc.pages[current]), doc.view.zoom);
+    if deep {
+        // Seed on the way in, from where the view already is, so crossing the
+        // threshold does not move the page under the operator.
+        if doc.deep_anchor.is_none() {
+            let seen = geometry::scroll_to_strip(doc.last_scroll_offset.x, display_size.x, vp.x);
+            let seen_y = geometry::scroll_to_strip(doc.last_scroll_offset.y, display_size.y, vp.y);
+            let origin = layout
+                .rect_of(current)
+                .map_or((0.0, 0.0), |r| (r.min.x, r.min.y));
+            let zoom = f64::from(doc.view.zoom);
+            doc.deep_anchor = Some(viewer::deep::DeepAnchor {
+                page: (
+                    f64::from(seen - origin.0) / zoom,
+                    f64::from(seen_y - origin.1) / zoom,
+                ),
+                screen: (0.0, 0.0),
+            });
+        }
+        // ★ Pan and wheel move the ANCHOR now. The scroll area has nothing to
+        // scroll, so routing them to it would be a gesture that silently does
+        // nothing — which is how a deep zoom would come to feel frozen.
+        if let Some(anchor) = doc.deep_anchor {
+            let zoom = f64::from(doc.view.zoom);
+            let mut moved = anchor;
+            if let Some(pan) = pan_delta(ui, active_tool) {
+                moved = moved.panned((pan.x, pan.y), zoom);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            let wheel = ui.input(|i| i.smooth_scroll_delta);
+            if wheel != egui::Vec2::ZERO {
+                moved = moved.panned((wheel.x, wheel.y), zoom);
+            }
+            doc.deep_anchor = Some(moved);
+        }
+    } else if doc.deep_anchor.is_some() {
+        // Left the deep tier: forget the anchor so re-entering seeds afresh
+        // from wherever the scroll area has since settled.
+        doc.deep_anchor = None;
+    }
+
+    if deep {
+        // Nothing for egui to hold: the position is the anchor's.
+    } else if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, current_display) {
         scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
     } else if let Some(offset) = crate::find::take_reveal_offset(doc, current_display, (vp.x, vp.y))
     {
@@ -697,15 +758,53 @@ fn show_in(
         // BEFORE the scroll area is built — never `avail`, which is measured
         // inside it and therefore depends on whether scrollbars are showing,
         // which the pasteboard is what causes. That feedback is R128.
-        let outer = vec2(
-            geometry::content_extent(display_size.x, vp.x).max(avail.x),
-            geometry::content_extent(display_size.y, vp.y).max(avail.y),
-        );
+        // ★★ TIER 3 takes the content down to the viewport. There is then
+        // nothing for egui to scroll and nothing for it to round: the
+        // position is the anchor's, and the strip is placed from it below.
+        let outer = if deep {
+            avail
+        } else {
+            vec2(
+                geometry::content_extent(display_size.x, vp.x).max(avail.x),
+                geometry::content_extent(display_size.y, vp.y).max(avail.y),
+            )
+        };
         let (outer_rect, _) = ui.allocate_exact_size(outer, Sense::hover());
         // The strip's own rect on screen. Every page's rect is this origin
         // plus its strip-space placement, which is what makes the strip the
         // single owner of "where is page N".
-        let strip_rect = Rect::from_center_size(outer_rect.center(), display_size);
+        // ★★★ WHERE THE STRIP SITS, and at tier 3 the anchor decides.
+        //
+        // Below: centred in the content, as it has always been, with the
+        // scroll offset moving the viewport over it.
+        //
+        // Above: the anchor says *this page point is under that screen
+        // pixel*, so the current page's origin lands at
+        // `anchor.screen - anchor.page × zoom` and the strip follows from it.
+        // Every large magnitude is subtracted inside `f64` before anything
+        // narrows — which is the whole technique, and the same one the
+        // engine's own deep-zoom commit describes as "one subtraction moved
+        // into f64".
+        let strip_rect = if deep {
+            let anchor = doc
+                .deep_anchor
+                .unwrap_or_else(viewer::deep::DeepAnchor::origin);
+            let zoom = f64::from(doc.view.zoom);
+            let page_origin = layout
+                .rect_of(current)
+                .map_or((0.0, 0.0), |r| (r.min.x, r.min.y));
+            // The current page's top-left, on screen, from the anchor.
+            let x = f64::from(outer_rect.min.x) + f64::from(anchor.screen.0) - anchor.page.0 * zoom;
+            let y = f64::from(outer_rect.min.y) + f64::from(anchor.screen.1) - anchor.page.1 * zoom;
+            // …and the strip's origin is that, less where the page sits
+            // inside the strip.
+            Rect::from_min_size(
+                Pos2::new(x as f32 - page_origin.0, y as f32 - page_origin.1),
+                display_size,
+            )
+        } else {
+            Rect::from_center_size(outer_rect.center(), display_size)
+        };
         let strip_origin = strip_rect.min.to_vec2();
 
         // The viewport, expressed in strip space — what decides which pages
@@ -722,13 +821,27 @@ fn show_in(
         // this rect a whole pasteboard past the end of the strip — so
         // `layout.visible()` returns nothing and the canvas draws nothing at
         // all.
-        let visible_rect = Rect::from_min_size(
-            Pos2::new(
-                geometry::scroll_to_strip(doc.last_scroll_offset.x, display_size.x, vp.x),
-                geometry::scroll_to_strip(doc.last_scroll_offset.y, display_size.y, vp.y),
-            ),
-            avail,
-        );
+        // ★ At tier 3 the scroll offset is not the position, so asking it
+        // which pages are visible would answer about the wrong place. The
+        // strip's own placement on screen is the truth there: whatever of it
+        // overlaps the viewport is what can be seen.
+        let visible_rect = if deep {
+            Rect::from_min_size(
+                Pos2::new(
+                    outer_rect.min.x - strip_rect.min.x,
+                    outer_rect.min.y - strip_rect.min.y,
+                ),
+                avail,
+            )
+        } else {
+            Rect::from_min_size(
+                Pos2::new(
+                    geometry::scroll_to_strip(doc.last_scroll_offset.x, display_size.x, vp.x),
+                    geometry::scroll_to_strip(doc.last_scroll_offset.y, display_size.y, vp.y),
+                ),
+                avail,
+            )
+        };
 
         // `click_and_drag`, not `hover`, on EVERY page — not only the current
         // one. A press on a page the operator is not currently "on" is how
