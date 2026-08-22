@@ -639,11 +639,21 @@ pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: 
     // has asked for MORE THAN THE SHIPPED DEFAULT. Below that, nothing about
     // the old behaviour is touched — which is the property that makes this
     // feature safe to land.
-    if limit_percent > crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT {
-        limit.max(whole_page)
-    } else {
-        whole_page
-    }
+    // ★★★ The lift is bounded BELOW by `MAX_ZOOM`, not by the default.
+    //
+    // The first version compared against `DEFAULT_MAX_ZOOM_PERCENT`, which
+    // worked while the default was 800 % and became a no-op the moment the
+    // operator raised the default to the maximum — the ceiling would then have
+    // been the whole-page limit always, and the setting inert everywhere. A
+    // guard phrased in terms of a value that can move is a guard that stops
+    // guarding when it moves.
+    //
+    // `MAX_ZOOM` is the right bound because it is what the SHELL offered before
+    // any of this: below it, `max_zoom_for_page`'s pixmap ceiling is a real
+    // constraint and must keep binding — an A1 sheet at a 1.5x display tops out
+    // at 690 %, and lifting that would ask the engine for a raster it refuses.
+    // Above it, the region tier can render and the page's size stops mattering.
+    limit.max(whole_page.min(MAX_ZOOM))
 }
 /// The device-pixel scale to rasterize at for a given logical `zoom`.
 ///
@@ -905,25 +915,56 @@ mod tests {
         }
     }
 
-    /// ★★ **…and the shipped default changes nothing.**
+    /// ★★★ **The default reaches the maximum** — the operator's instruction of
+    /// 2026-08-22, *"Also set the default to be able to hit the maximum zoom."*
     ///
-    /// A fresh install must behave exactly as the shell behaved before this
-    /// setting existed, which is what makes the feature safe to land: the
-    /// whole-page raster limit still binds below the operator's maximum.
+    /// This test previously asserted the opposite: that the default reproduced
+    /// the old ceiling exactly, so a fresh install was unchanged. That was the
+    /// cautious call and he overruled it — a capability you have to find a
+    /// preferences file to switch on is one most of its users never have.
+    ///
+    /// ★ The property is kept, not dropped: **what must not change is the
+    /// PANNING**, which is what he actually cares about. That is asserted by
+    /// `every_zoom_the_shell_offers_today_still_rasterizes_the_whole_page` in
+    /// `render::strategy`, which walks the whole ladder — the ceiling is
+    /// permission, and the strategy is behaviour.
     #[test]
-    fn the_default_setting_reproduces_the_old_ceiling_exactly() {
+    fn the_default_reaches_the_maximum_on_every_page_and_display_scale() {
         for page in [(1584.0_f32, 1224.0), (612.0, 792.0), (306.0, 396.0)] {
             for ppp in [1.0_f32, 1.5, 2.0] {
-                let before = max_zoom_for_page(page, ppp);
-                let after = zoom_ceiling(page, ppp, crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT);
+                let ceiling = zoom_ceiling(page, ppp, crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT);
+                let wanted = crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT / 100.0;
                 assert!(
-                    (before - after).abs() < 1e-4,
-                    "page {page:?} at {ppp}x: {before} became {after}"
+                    (ceiling - wanted).abs() / wanted < 1e-6,
+                    "page {page:?} at {ppp}x: ceiling {ceiling} should be {wanted}"
                 );
             }
         }
     }
 
+    /// ★★ **…and a LOW setting still lets the pixmap ceiling bind.**
+    ///
+    /// The half that survives from the test this replaced, and it is the one
+    /// that stops the change being dangerous: below `MAX_ZOOM` the whole-page
+    /// raster limit is a real constraint — an A1 sheet at 1.5x tops out at
+    /// 690 %, not 800 % — and asking past it would demand a raster the engine
+    /// refuses.
+    #[test]
+    fn a_low_setting_does_not_lift_the_whole_page_raster_limit() {
+        let a1 = (1584.0_f32, 1224.0);
+        let whole_page = max_zoom_for_page(a1, 1.5);
+        assert!(
+            whole_page < MAX_ZOOM,
+            "the premise: {whole_page} < {MAX_ZOOM}"
+        );
+
+        // A setting BELOW the pixmap ceiling must not raise it…
+        let ceiling = zoom_ceiling(a1, 1.5, 300.0);
+        assert!(
+            (ceiling - whole_page).abs() < 1e-4,
+            "a 300% setting should leave the {whole_page}x pixmap ceiling alone, got {ceiling}"
+        );
+    }
     /// ★★★ **The page's size stops mattering once regions are available** —
     /// O24.
     ///

@@ -139,6 +139,13 @@ pub mod images;
 /// what they are, and the only place an operator learns the setting applies to
 /// the **next** mark rather than to one already drawn.
 pub mod markup;
+/// ★ Every word the **maximum-zoom** control says — the popup behind the
+/// status bar's zoom readout (O24).
+///
+/// Its header carries why the copy is unusually plain: the operator settled
+/// the performance question himself, so the control states where the crossover
+/// is and offers no advice about it.
+pub mod maxzoom;
 pub mod measure;
 /// The copy the **context-menu** surface owns, as distinct from the copy
 /// its rows borrow from [`commands`]. Currently empty by construction; its

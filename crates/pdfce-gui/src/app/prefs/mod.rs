@@ -112,9 +112,24 @@ pub use chrome::{DEFAULT_UI_SCALE, MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
 pub use opening::{OpeningFit, PageChrome};
 pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
 
-/// The shipped maximum zoom, as a percentage — today's ceiling, so a fresh
-/// install behaves exactly as the shell did before O24.
-pub const DEFAULT_MAX_ZOOM_PERCENT: f32 = 800.0;
+/// The shipped maximum zoom, as a percentage.
+///
+/// ★★ **The maximum, on the operator's instruction of 2026-08-22** — *"Also
+/// set the default to be able to hit the maximum zoom."*
+///
+/// It was 800 % for one build, chosen so a fresh install behaved exactly as
+/// the shell had before the setting existed. That was the cautious call and he
+/// overruled it, consistently with his earlier one: *"it is up to the user to
+/// determine how much of a performance hit they want to take."* A capability
+/// he has to find a preferences file to switch on is a capability most of its
+/// users never have.
+///
+/// ★ What this does NOT change is the behaviour he cares about. The ceiling is
+/// permission, not policy: `viewer::zoom_ceiling` still lets the whole-page
+/// raster bind wherever it can, so **panning stays instant at every zoom that
+/// could render whole-page before** — the region path engages only above it,
+/// where the alternative is not a slower zoom but no zoom at all.
+pub const DEFAULT_MAX_ZOOM_PERCENT: f32 = MAX_MAX_ZOOM_PERCENT;
 
 /// The lowest a maximum-zoom setting may be. Below this the operator could
 /// configure a document they cannot magnify at all.
@@ -1024,12 +1039,15 @@ mod tests {
         }
     }
 
-    /// The default is today's ceiling, so a fresh install behaves exactly as the
+    /// The default is the MAXIMUM, on the operator's instruction of the
     /// shell behaved before this setting existed.
     #[test]
-    fn the_default_maximum_is_the_shipped_ceiling() {
+    fn the_default_maximum_is_the_highest_available() {
         let (prefs, _) = Prefs::parse("");
-        assert!((prefs.max_zoom_percent - 800.0).abs() < f32::EPSILON);
+        assert!(
+            (prefs.max_zoom_percent - MAX_MAX_ZOOM_PERCENT).abs() < f32::EPSILON,
+            "the operator asked for the default to reach the maximum"
+        );
     }
 
     /// ★ **The file says a whole number, not `1e12`.**

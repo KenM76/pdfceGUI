@@ -529,13 +529,33 @@ impl eframe::App for PdfceApp {
                 // A control that mutated the filter without setting a flag
                 // would persist nothing and look completely correct.
                 let filter_before = self.pick_filter;
+                // ★ Same comparison seam as the filter, for the same reason:
+                // a snapshot of a `Copy` value cannot be forgotten by a future
+                // control added to the popup, where a dirty flag can.
+                let max_zoom_before = self.prefs.max_zoom_percent;
                 crate::app::status::show(
                     ui,
                     &self.status,
                     &mut self.find,
                     &mut self.pick_filter,
+                    &mut self.prefs.max_zoom_percent,
                     &mut actions,
                 );
+                if (self.prefs.max_zoom_percent - max_zoom_before).abs() > f32::EPSILON {
+                    // The preferences file is written whole, and the error is
+                    // traced rather than shown: losing a maximum-zoom choice
+                    // across a restart is an inconvenience, where a modal about
+                    // a preferences file raised at the moment he picked from a
+                    // menu would be worse than what it reports.
+                    if let Err(err) = self.prefs.save() {
+                        crate::diag::trace(|| {
+                            format!(
+                                // ui-text-exempt: diagnostic trace, never displayed.
+                                "prefs-save-failed after=max-zoom err={err}"
+                            )
+                        });
+                    }
+                }
                 if self.pick_filter != filter_before {
                     // Immediately, not debounced: a filter can only change
                     // on a discrete click, so one change is already one

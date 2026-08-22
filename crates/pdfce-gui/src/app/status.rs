@@ -366,6 +366,18 @@ use crate::viewer::FitMode;
 /// does. Its header carries why that earns it both its own file and its own
 /// position at the left edge of the fixed cluster.
 pub(super) mod filter;
+/// ★ The **maximum-zoom** popup, behind the zoom readout — O24, and the
+/// operator's *"put the max zoom setting on the bar at the bottom"*.
+///
+/// Its header carries why the readout rather than a new control: the bar's
+/// height and right-hand cluster are fixed, and a label that turns out to be
+/// a button is already this surface's idiom.
+pub(super) mod maxzoom;
+/// The zoom controls and the maximum-zoom popup the readout opens.
+///
+/// Split out under R2 when the popup pushed this file over 1,500 lines;
+/// its header carries why the seam is a real one rather than arbitrary.
+pub(super) mod zoom;
 
 // ---------------------------------------------------------------------------
 // Geometry — see the ★ R128 section of the module docs
@@ -453,6 +465,14 @@ const REGION_FIT: &str = "status-group:fit"; // ui-text-exempt: trace region nam
 /// `−  ⟨percent⟩  +`.
 const REGION_ZOOM: &str = "status-group:zoom"; // ui-text-exempt: trace region name, never displayed
 
+/// Prefix for one row of the open maximum-zoom popup:
+/// `status-maxzoom-row:<index>`.
+///
+/// Indexed rather than named, for the reason the filter's rows are: a label
+/// is operator copy and gets reworded, an index is stable, and a harness
+/// chooses positionally.
+const REGION_MAXZOOM_ROW: &str = "status-maxzoom-row"; // ui-text-exempt: trace region name, never displayed
+
 /// The Find toggle.
 const REGION_FIND: &str = "status-group:find"; // ui-text-exempt: trace region name, never displayed
 
@@ -522,6 +542,10 @@ pub fn show(
     status: &Status,
     find: &mut FindState,
     filter: &mut PickFilter,
+    // ★ The operator's configured maximum zoom, edited by the popup behind
+    // the zoom readout. Threaded like `filter`, and persisted by the caller
+    // for the same reason — see `app::frame`'s status-bar block.
+    max_zoom_percent: &mut f32,
     actions: &mut Vec<Action>,
 ) {
     // ★ One allocated row, of a height that does not depend on what there is
@@ -700,7 +724,7 @@ pub fn show(
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             page_box::group(ui, doc, actions);
             ui.separator();
-            zoom_group(ui, doc, actions);
+            zoom::group(ui, doc, max_zoom_percent, actions);
             ui.separator();
             fit_group(ui, doc, actions);
             ui.separator();
@@ -990,48 +1014,6 @@ fn fit_group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>) {
     crate::diag::ui_rect(REGION_FIT, rect);
 }
 
-// ---------------------------------------------------------------------------
-// Right — zoom
-// ---------------------------------------------------------------------------
-
-/// `−  ⟨percent⟩  +`.
-///
-/// The readout is a label rather than a field: there is no action that sets
-/// a zoom to a named value (see [`crate::text::status::zoom_percent`]), and
-/// a text box in front of nothing is a placeholder. It is given a fixed
-/// width so that stepping from `100%` to `75%` does not move the − button
-/// out from under the operator's pointer.
-fn zoom_group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>) {
-    let percent = doc.view.zoom_percent();
-    let rect = ui
-        .scope(|ui| {
-            // Right-to-left: added first is drawn rightmost, so the screen
-            // reads `− ⟨percent⟩ +`.
-            if ui
-                .button(t::zoom_in())
-                .on_hover_text(t::zoom_in_tooltip())
-                .clicked()
-            {
-                actions.push(Action::ZoomIn);
-            }
-            ui.add_sized(
-                Vec2::new(ZOOM_READOUT_WIDTH_PTS, ROW_HEIGHT_PTS),
-                egui::Label::new(t::zoom_percent(percent)),
-            )
-            .on_hover_text(t::zoom_percent_tooltip());
-            if ui
-                .button(t::zoom_out())
-                .on_hover_text(t::zoom_out_tooltip())
-                .clicked()
-            {
-                actions.push(Action::ZoomOut);
-            }
-        })
-        .response
-        .rect;
-    crate::diag::ui_rect(REGION_ZOOM, rect);
-}
-
 /// Fixtures the bar's own tests and [`page_box`]'s tests both need.
 ///
 /// A module of its own rather than helpers inside `mod tests`, because two
@@ -1067,8 +1049,16 @@ pub(super) mod test_support {
         // raising an action, so nothing they assert can reach it.
         let mut find = crate::find::FindState::default();
         let mut filter = PickFilter::default();
+        let mut max_zoom = crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT;
         let _ = ctx.run_ui(input, |ui| {
-            show(ui, status, &mut find, &mut filter, &mut actions)
+            show(
+                ui,
+                status,
+                &mut find,
+                &mut filter,
+                &mut max_zoom,
+                &mut actions,
+            )
         });
         actions
     }
@@ -1118,10 +1108,20 @@ pub(super) mod test_support {
         let mut height = f32::NAN;
         let mut find = crate::find::FindState::default();
         let mut filter = PickFilter::default();
+        let mut max_zoom = crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT;
         let output = ctx.run_ui(RawInput::default(), |ui| {
             let mut actions = Vec::new();
             height = ui
-                .scope(|ui| show(ui, status, &mut find, &mut filter, &mut actions))
+                .scope(|ui| {
+                    show(
+                        ui,
+                        status,
+                        &mut find,
+                        &mut filter,
+                        &mut max_zoom,
+                        &mut actions,
+                    )
+                })
                 .response
                 .rect
                 .height();
@@ -1161,10 +1161,20 @@ mod tests {
         let mut height = f32::NAN;
         let mut find = FindState::default();
         let mut filter = PickFilter::default();
+        let mut max_zoom = crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT;
         let _ = ctx.run_ui(RawInput::default(), |ui| {
             let mut actions = Vec::new();
             height = ui
-                .scope(|ui| show(ui, status, &mut find, &mut filter, &mut actions))
+                .scope(|ui| {
+                    show(
+                        ui,
+                        status,
+                        &mut find,
+                        &mut filter,
+                        &mut max_zoom,
+                        &mut actions,
+                    )
+                })
                 .response
                 .rect
                 .height();

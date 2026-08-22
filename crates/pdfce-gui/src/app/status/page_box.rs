@@ -632,6 +632,7 @@ mod tests {
                 &status,
                 &mut crate::find::FindState::default(),
                 &mut crate::canvas::pick::PickFilter::default(),
+                &mut crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT.to_owned(),
                 &mut actions,
             );
         });
@@ -679,6 +680,7 @@ mod tests {
                 &status,
                 &mut crate::find::FindState::default(),
                 &mut crate::canvas::pick::PickFilter::default(),
+                &mut crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT.to_owned(),
                 &mut actions,
             );
         });
@@ -833,6 +835,7 @@ mod tests {
                 &status,
                 &mut crate::find::FindState::default(),
                 &mut crate::canvas::pick::PickFilter::default(),
+                &mut crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT.to_owned(),
                 &mut actions,
             );
         });

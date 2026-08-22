@@ -244,6 +244,13 @@ pub mod first_frame;
 /// those is invisible to every unit test because it is a property of the
 /// SEQUENCE of frames rather than of a function.
 pub mod geometry_fields;
+/// ★★ **The zoom readout is a button now, and buttons must be proved to do
+/// something** — O24.
+///
+/// The Select popup shipped with a double toggle that made its button inert,
+/// green on 1,628 unit tests and a smoke launch confirming its rect. Every one
+/// of those observed the button, which was never the broken part.
+pub mod max_zoom;
 /// ★ Shift-picked anchors move TOGETHER — the row `pdfce`'s own `gui` column
 /// ticked `[x]` and their 2026-08-19 sweep corrected to "objects move together;
 /// nodes one at a time". The capability was in the selection model from the day
@@ -680,6 +687,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(clipboard_text::CtrlCCopiesTextToTheOsClipboard),
         Box::new(select_filter::SelectFilterChangesWhatAClickHits),
         Box::new(scroll_input::ScrollingFarKeepsTheCanvasItsPointerInput),
+        Box::new(max_zoom::TheZoomReadoutOpensTheMaximumZoomPopup),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

@@ -1150,7 +1150,12 @@ mod tests {
             Rect::from_min_max(Pos2::new(50.0, 50.0), Pos2::new(51.0, 51.0)),
             16.0,
             1.0,
-            crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT,
+            // ★ A LOW maximum, deliberately. This test is about the plan
+            // reporting a clamp, so it needs a ceiling that actually clamps —
+            // and since 2026-08-22 the shipped default is the highest
+            // available, which clamps almost nothing. Passing the default here
+            // made the test assert that an unclamped answer was clamped.
+            viewer::MAX_ZOOM * 100.0,
         );
         match plan.outcome {
             ZoomOutcome::Zoomed { requested, applied } => {
