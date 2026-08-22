@@ -160,8 +160,18 @@ and that instance competes for the foreground. `taskkill //IM pdfce-gui.exe
 //F`. Note `taskkill //PID` against a pid from `ps -W` fails — that column is
 Git Bash's pid, not Windows'.
 
-Unattended verification that still works: the offscreen launch
-(`PDFCE_DIAG_VIEWPORT`), which needs no foreground rights.
+★★ **How much is left unattended, measured rather than assumed: `--no-input`
+verifies 4 checks of 68.** Nineteen skip on "this check clicks a mode segment"
+alone. An input-disabled run is not a reduced suite, it is a different and much
+smaller thing.
+
+The refinement worth having: the four that ran include capture and dialog
+checks, so **capture does not need foreground rights — only synthesised input
+does.** The harness is not disabled on an idle desktop; its clicking is.
+
+So the unattended set is: unit tests, the gates, an offscreen launch
+(`PDFCE_DIAG_VIEWPORT`) asserting on the trace, and those four. Everything that
+asserts *a gesture produces a result* needs an attended machine.
 
 ## ★★ A RELEASE IS OWED WHEN O24's STEP 2 LANDS
 
