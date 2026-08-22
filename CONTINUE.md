@@ -55,13 +55,24 @@ That is a different operand, not a changed behaviour, and the pasteboard is
 the likely reason the operand changed: a different scroll position makes a
 different page current in a continuous strip.
 
-★ **It is not being called a pasteboard regression and it is not being
-dismissed.** What it needs is its own run: pick a `--doc-point` that yields
-two anchors on the PRE-pasteboard build and see whether Shift-picking a second
-anchor has ever worked. `SelectionState::pick_within` is the named function.
-If it has never worked, this is a defect the pasteboard merely exposed — and a
-real one, since the check's own words are that a selection the program shows
-and does not honour is worse than not offering it.
+★★ **NARROWED 2026-08-21: the model is correct, so the fault is downstream.**
+Two unit tests were written for the rung nothing had ever covered —
+`shift_picking_a_second_anchor_adds_it_rather_than_replacing` and
+`shift_picking_a_selected_anchor_removes_it` — and **both pass**.
+`SelectionState::pick_within` adds a Shift-picked anchor and toggles one that
+is already picked, and `normalise` only collapses entries that span different
+objects, which two anchors on one subpath do not.
+
+So it is **not a pasteboard regression** (the check had never run before) and
+**not a selection-model defect** (now proven, and guarded). What is left is
+the driven path: either the harness's Shift+click is not delivering the
+modifier, or the shift is not reaching `pick_within` from the real event, or
+the second click resolved to the same anchor. All three are in
+`canvas::clicking` / the harness, not in the model.
+
+★ Worth knowing before chasing it: the check has **never passed**, on any
+build. There is no evidence this ever worked, so treat it as an unbuilt path
+rather than a broken one.
 ### ★★★ AND DRIVING FOUND THE DEFECT KEN IS BLOCKED ON — `O22`
 
 **An object near the top of the view cannot be rotated. Its handle is drawn

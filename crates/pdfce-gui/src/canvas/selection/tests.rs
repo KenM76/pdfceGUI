@@ -521,6 +521,108 @@ fn a_plain_click_replaces_and_a_shift_click_toggles() {
     );
 }
 
+/// ★★★ **SHIFT-PICKING A SECOND ANCHOR ADDS IT** — the model half of the
+/// driven check `multi_node_move_moves_every_picked_anchor`.
+///
+/// # Why this test was written
+///
+/// That check FAILED on 2026-08-21, reproducibly and in isolation:
+///
+/// > *"TWO MARKED ANCHORS WERE CLICKED, THE SECOND WITH SHIFT, AND 1 ENDED UP
+/// > SELECTED."*
+///
+/// It had SKIPPED on every earlier run, for want of a `--doc-point` whose
+/// subpath carried more than one anchor, so the rung had never actually been
+/// exercised — by it or by anything here. `a_plain_click_replaces_and_a_shift_
+/// click_toggles` covers the **Object** rung only, and nothing covered this one.
+///
+/// So the question was whether the *model* is wrong or the driven path is, and
+/// the two need very different fixes. This is the cheap half of that question.
+///
+/// ★ It asserts through [`SelectionState::selected_nodes_on`] as well as
+/// through the entry count, because that accessor is what
+/// `canvas::moving`'s multi-node drag actually reads. A model that held two
+/// entries but reported one node would satisfy a length check and still fail
+/// the operator.
+#[test]
+fn shift_picking_a_second_anchor_adds_it_rather_than_replacing() {
+    let targets = stub(0);
+    let mut sel = SelectionState::default();
+
+    // Descend to the Node rung on object 0, part 1, anchor 4 — the same route
+    // the invariant test above takes.
+    sel.click(0, hit_object(0), false, true);
+    sel.click(
+        0,
+        ClickHit {
+            object: Some(TargetId(0)),
+            part: Some(1),
+            node: Some(4),
+        },
+        false,
+        true,
+    );
+    sel.resolve(Some(&targets), 0, 0);
+    assert_eq!(
+        sel.level(),
+        SelectionLevel::Node,
+        "the rung must be entered"
+    );
+    assert_eq!(sel.selected_nodes_on(0, TargetId(0)), vec![4]);
+
+    // Shift-click a DIFFERENT anchor on the same subpath.
+    sel.click(
+        0,
+        ClickHit {
+            object: Some(TargetId(0)),
+            part: Some(1),
+            node: Some(7),
+        },
+        true,
+        false,
+    );
+
+    assert_eq!(
+        sel.selected_nodes_on(0, TargetId(0)),
+        vec![4, 7],
+        "shift on a second anchor must ADD it — this is what the multi-node \
+         move carries, and a selection the program shows and does not honour is \
+         worse than not offering one"
+    );
+    assert_eq!(sel.len(), 2);
+    assert_eq!(
+        sel.level(),
+        SelectionLevel::Node,
+        "adding a second anchor must not fall back to the Object rung"
+    );
+}
+
+/// ★★ …and shift on an anchor that is already picked REMOVES it, which is the
+/// other half of a toggle and the half a naive fix breaks.
+#[test]
+fn shift_picking_a_selected_anchor_removes_it() {
+    let targets = stub(0);
+    let mut sel = SelectionState::default();
+
+    sel.click(0, hit_object(0), false, true);
+    let at = |node| ClickHit {
+        object: Some(TargetId(0)),
+        part: Some(1),
+        node: Some(node),
+    };
+    sel.click(0, at(4), false, true);
+    sel.resolve(Some(&targets), 0, 0);
+    sel.click(0, at(7), true, false);
+    assert_eq!(sel.selected_nodes_on(0, TargetId(0)), vec![4, 7]);
+
+    sel.click(0, at(7), true, false);
+    assert_eq!(
+        sel.selected_nodes_on(0, TargetId(0)),
+        vec![4],
+        "shift on an anchor that is already picked takes it back out"
+    );
+}
+
 /// A plain click on empty paper clears; a shift click on empty paper does
 /// not. The asymmetry is deliberate — an over-shot shift-click must not
 /// destroy a set that took five clicks to build.
