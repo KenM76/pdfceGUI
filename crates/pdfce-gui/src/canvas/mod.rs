@@ -631,7 +631,35 @@ fn show_in(
         // pan that hits the end of the scroll range is indistinguishable from
         // a pan that is not working.
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if doc.canvas_frames == 1 {
+        // ★★★ SEED ON THE SECOND FRAME, NOT THE FIRST.
+        //
+        // O23. `ScrollArea` starts its offset at zero, which used to mean the
+        // strip's top-left and now means the CONTENT's — one pasteboard above
+        // and left of the page — so the view has to be placed once.
+        //
+        // ★ Doing that on the FIRST frame is what broke the two previous
+        // attempts, and it took four bisecting runs to see. Forcing an offset
+        // before egui has laid the content out once costs the canvas its
+        // pointer input entirely: the page is drawn, centred and correctly
+        // published, and no `canvas-pointer` event is ever emitted again.
+        // Pre-writing `scroll_area::State` fails the same way from the other
+        // side — it is silently clamped against a content size that is not
+        // known yet.
+        //
+        // ★★ It is NOT the magnitude. `scrolling_far_keeps_the_canvas_its_
+        // pointer_input` drives the wheel to 1,600 pt and the canvas keeps
+        // its input, so a large offset is fine once the content is real.
+        //
+        // So: frame 0 lays out with egui's own zero, frame 1 places the view.
+        // One frame of pasteboard is visible at open, which is the cost of
+        // this shape and is named rather than hidden.
+        scroll_area = scroll_area.scroll_offset(to_strip((0.0, 0.0)));
     }
+
+    // How many canvas frames this document has had. Saturating, and only ever
+    // read against a small constant — see the seeding arm above.
+    doc.canvas_frames = doc.canvas_frames.saturating_add(1);
 
     let scroll_output = scroll_area.show(ui, |ui| {
         // Centre the STRIP manually rather than with
@@ -658,7 +686,14 @@ fn show_in(
         // a Response whose `.rect` IS that rect, so every page's screen rect
         // is its true drawn rect by construction rather than by coincidence.
         let avail = ui.available_size();
-        let outer = vec2(display_size.x.max(avail.x), display_size.y.max(avail.y));
+        // ★★ O23's pasteboard. Measured against `vp`, the viewport taken
+        // BEFORE the scroll area is built — never `avail`, which is measured
+        // inside it and therefore depends on whether scrollbars are showing,
+        // which the pasteboard is what causes. That feedback is R128.
+        let outer = vec2(
+            geometry::content_extent(display_size.x, vp.x).max(avail.x),
+            geometry::content_extent(display_size.y, vp.y).max(avail.y),
+        );
         let (outer_rect, _) = ui.allocate_exact_size(outer, Sense::hover());
         // The strip's own rect on screen. Every page's rect is this origin
         // plus its strip-space placement, which is what makes the strip the
@@ -671,8 +706,20 @@ fn show_in(
         // settled offset, which is the best estimate available *before* this
         // frame's is known; a page that appears one frame late during a fast
         // fling is the cost, and it is bounded by one frame.
+        // ★★★ CONVERTED OUT OF CONTENT SPACE FIRST. O23.
+        //
+        // `last_scroll_offset` is where the SCROLL AREA is, measured from the
+        // content's origin; this rect is intersected with the STRIP's layout.
+        // Before the pasteboard those were the same space. With one they
+        // differ by exactly the margin, and feeding the raw offset in puts
+        // this rect a whole pasteboard past the end of the strip — so
+        // `layout.visible()` returns nothing and the canvas draws nothing at
+        // all.
         let visible_rect = Rect::from_min_size(
-            Pos2::new(doc.last_scroll_offset.x, doc.last_scroll_offset.y),
+            Pos2::new(
+                geometry::scroll_to_strip(doc.last_scroll_offset.x, display_size.x, vp.x),
+                geometry::scroll_to_strip(doc.last_scroll_offset.y, display_size.y, vp.y),
+            ),
             avail,
         );
 

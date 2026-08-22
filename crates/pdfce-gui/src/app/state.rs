@@ -369,6 +369,11 @@ pub struct OpenDoc {
     /// [`crate::canvas::strip::page_scroll_offset`], which is its only reader
     /// and carries the full argument.
     pub tracked_page: usize,
+
+    /// How many frames the canvas has drawn for this document, saturating.
+    /// O23: with a pasteboard, egui's initial zero is the content's origin
+    /// rather than the strip's, so the view is seeded once.
+    pub canvas_frames: u8,
     /// What the render worker was rendering when this frame's poll took its
     /// slot.
     ///
@@ -658,6 +663,7 @@ impl OpenDoc {
             // frame — which would scroll a continuous strip on open for no
             // reason the operator asked for.
             tracked_page: 0,
+            canvas_frames: 0,
             render_in_flight: None,
             render_error: None,
             render_worker: RenderWorker::default(),

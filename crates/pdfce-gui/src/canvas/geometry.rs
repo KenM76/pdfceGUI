@@ -50,7 +50,7 @@ pub fn pan_offset(
         if !(last.is_finite() && pan.is_finite() && d.is_finite() && v.is_finite()) {
             return last;
         }
-        (last - pan).clamp(0.0, (d - v).max(0.0))
+        (last - pan).clamp(0.0, (content_extent(d, v) - v).max(0.0))
     }
     (
         axis(last.0, pan.0, display.0, viewport.0),
@@ -70,6 +70,90 @@ pub fn pan_offset(
 #[must_use]
 fn margin(display: f32, viewport: f32) -> f32 {
     (display.max(viewport) - display) / 2.0
+}
+
+/// The pasteboard, as a multiple of the viewport. O23: half a viewport puts
+/// a page corner at the screen's centre, a whole one puts it at the opposite
+/// corner, and the operator asked for the second.
+const PASTEBOARD_FRACTION: f32 = 1.0;
+
+/// The pasteboard on one axis, in logical points. Zero for a degenerate
+/// viewport so a frame measured before layout cannot produce a NaN extent.
+#[must_use]
+fn pasteboard(viewport: f32) -> f32 {
+    if viewport.is_finite() && viewport > 0.0 {
+        viewport * PASTEBOARD_FRACTION
+    } else {
+        0.0
+    }
+}
+
+/// The **scroll content's** extent: the strip plus a pasteboard each side,
+/// never smaller than the viewport. This is what `display.max(viewport)` used
+/// to be at every call site, back when the strip and the content were the
+/// same rectangle.
+#[must_use]
+pub fn content_extent(display: f32, viewport: f32) -> f32 {
+    let out = display.max(viewport) + 2.0 * pasteboard(viewport);
+    if out.is_finite() {
+        out
+    } else {
+        display.max(viewport)
+    }
+}
+
+/// How far the **strip's** origin sits from the **content's**: the centring
+/// margin plus the pasteboard.
+///
+/// ★★ Not the same function as [`margin`], and must not become it. Two
+/// offset spaces exist and only one is padded — the scroll offset egui is
+/// given is measured from the content's origin, the page-local offset the
+/// view stores is measured from the page's. [`strip_offset`] and
+/// [`page_local_offset`] therefore call **one of each**; using the same
+/// margin for both makes the pad cancel and a stored offset of zero scrolls
+/// to blank paper.
+///
+/// `anchor_screen_pos` and `offset_holding_anchor_at` look like scroll-space
+/// functions and are **page-local** — `canvas::mod` converts before building
+/// the `CanvasFrame` — so they keep [`margin`]. Padding them doubles the pad.
+#[must_use]
+fn strip_margin(display: f32, viewport: f32) -> f32 {
+    margin(display, viewport) + pasteboard(viewport)
+}
+
+/// Convert a **scroll offset** back into **strip space** — the inverse of
+/// [`strip_to_scroll`], and the one every consumer that thinks in strip
+/// coordinates needs.
+///
+/// ★★★ Its absence was O23's whole failure, through three attempts. The
+/// canvas builds its visible-region rect from `last_scroll_offset`, which is a
+/// **content-space** offset, and then intersects it with the strip's own
+/// layout. Before the pasteboard those were the same space and the omission
+/// was invisible. With one, the rect lands a whole pasteboard past the end of
+/// the strip, `layout.visible()` returns nothing, and the application draws
+/// **no canvas at all** — it says so itself, as
+/// `canvas-unavailable reason=nothing-visible`.
+///
+/// Every symptom chased for three attempts followed from that one line: no
+/// pointer input, because there was no canvas to point at; a page rect that
+/// looked correct, because it was published before the region went; and
+/// `drawn=0`, because nothing was visible to raster.
+#[must_use]
+pub fn scroll_to_strip(scroll: f32, strip: f32, viewport: f32) -> f32 {
+    let out = scroll - strip_margin(strip, viewport);
+    if out.is_finite() { out } else { 0.0 }
+}
+
+/// Convert a position in **strip space** into the **scroll offset** that puts
+/// it at the viewport's top-left, clamped to what can be reached.
+#[must_use]
+pub fn strip_to_scroll(in_strip: f32, strip: f32, viewport: f32) -> f32 {
+    let out = in_strip + strip_margin(strip, viewport);
+    if out.is_finite() {
+        out.clamp(0.0, (content_extent(strip, viewport) - viewport).max(0.0))
+    } else {
+        0.0
+    }
 }
 
 /// Where the page point at `anchor_frac` currently sits **relative to the
@@ -200,7 +284,7 @@ pub fn page_local_offset(
     viewport: (f32, f32),
 ) -> (f32, f32) {
     fn axis(off: f32, origin: f32, strip: f32, page: f32, v: f32) -> f32 {
-        let out = off - origin - margin(strip, v) + margin(page, v);
+        let out = off - origin - strip_margin(strip, v) + margin(page, v);
         if out.is_finite() { out } else { 0.0 }
     }
     (
@@ -237,9 +321,9 @@ pub fn strip_offset(
     viewport: (f32, f32),
 ) -> (f32, f32) {
     fn axis(off: f32, origin: f32, strip: f32, page: f32, v: f32) -> f32 {
-        let out = off + origin + margin(strip, v) - margin(page, v);
+        let out = off + origin + strip_margin(strip, v) - margin(page, v);
         if out.is_finite() {
-            out.clamp(0.0, (strip - v).max(0.0))
+            out.clamp(0.0, (content_extent(strip, v) - v).max(0.0))
         } else {
             0.0
         }
@@ -398,15 +482,87 @@ mod tests {
         assert_eq!(out, (0.0, 0.0));
     }
 
+    /// ★★ **The far edge is now a whole viewport PAST the page**, which is
+    /// `OPERATOR_REQUESTS.md` O23 stated as a number.
+    ///
+    /// This test asserted `200.0` — `display - viewport` — from the day it was
+    /// written until 2026-08-21, and it was right to: the clamp stopped at the
+    /// page's own edge and the module's header recorded that as a known
+    /// limitation waiting on a UX call. The call was made:
+    ///
+    /// > *"I should also be able to move the view of the corner of the page to
+    /// > the center of the screen, or even all the way vertically to the
+    /// > opposite corner if I want to."*
+    ///
+    /// With a one-viewport pasteboard the content is `1000 + 2×800 = 2600`
+    /// wide, so the last offset that still shows anything is `2600 − 800 =
+    /// 1800`. The pan asks for `700 + 500 = 1200`, which is now inside the
+    /// range and is therefore granted in full.
     #[test]
-    fn panning_stops_at_the_far_edge() {
+    fn panning_stops_a_whole_viewport_past_the_page_edge() {
         let out = pan_offset(
             (700.0, 0.0),
             (-500.0, 0.0),
             (1000.0, 1000.0),
             (800.0, 800.0),
         );
-        assert_eq!(out.0, 200.0, "must not scroll past the end of the page");
+        assert_eq!(
+            out.0, 1200.0,
+            "the pasteboard makes this pan reachable; it used to clamp at 200"
+        );
+
+        // …and the clamp still exists, one viewport further out.
+        let far = pan_offset(
+            (1800.0, 0.0),
+            (-500.0, 0.0),
+            (1000.0, 1000.0),
+            (800.0, 800.0),
+        );
+        assert_eq!(
+            far.0,
+            content_extent(1000.0, 800.0) - 800.0,
+            "there is still an end; it is the end of the PASTEBOARD, not of the page"
+        );
+    }
+
+    /// ★★★ **O23, asserted as the operator's own two sentences.**
+    ///
+    /// The pasteboard's size is not a taste; it is whatever makes these two
+    /// true. If `PASTEBOARD_FRACTION` is ever reduced, this fails and says
+    /// which sentence stopped holding.
+    #[test]
+    fn any_page_corner_can_be_brought_to_the_centre_and_to_the_opposite_corner() {
+        // A page smaller than the window — the hard case, because there is no
+        // scrolling to be had from the page's own size.
+        let (d, v) = (200.0_f32, 800.0_f32);
+        let range = (content_extent(d, v) - v).max(0.0);
+
+        // Where the strip's own origin sits inside the content.
+        let origin = strip_margin(d, v);
+
+        // "the corner of the page to the center of the screen": the offset that
+        // puts the strip's top-left half a viewport in from the view's left.
+        let to_centre = origin - v / 2.0;
+        assert!(
+            (0.0..=range).contains(&to_centre),
+            "a page corner must reach the centre of the screen: {to_centre} not in 0..={range}"
+        );
+
+        // "even all the way … to the opposite corner": the strip's top-left
+        // pushed to the far edge of the view.
+        let to_far_corner = origin - v;
+        assert!(
+            (0.0..=range).contains(&to_far_corner),
+            "a page corner must reach the opposite corner: {to_far_corner} not in 0..={range}"
+        );
+
+        // And the mirror: the page's BOTTOM-RIGHT corner brought back to the
+        // view's top-left, which is the same freedom in the other direction.
+        let bottom_right_to_origin = origin + d;
+        assert!(
+            (0.0..=range).contains(&bottom_right_to_origin),
+            "the far corner must reach the near one: {bottom_right_to_origin} not in 0..={range}"
+        );
     }
 
     // ---- zoom to cursor -----------------------------------------------
@@ -591,6 +747,11 @@ mod tests {
         assert_eq!(
             offset_holding_anchor_at((f32::NAN, 0.5), (10.0, 10.0), (100.0, 100.0), (80.0, 80.0)),
             // y: margin(100,80) = 0, so 0 + 0.5*100 - 10 = 40.
+            //
+            // ★ UNCHANGED by O23's pasteboard, and that is itself the assertion:
+            // this function works in PAGE-LOCAL space, where there is no
+            // pasteboard. If a future edit makes this 120, it has padded a
+            // page-local function — see `strip_margin`'s note.
             (0.0, 40.0)
         );
     }
@@ -607,19 +768,49 @@ mod tests {
     /// where the centring margin is non-zero and a sloppy conversion would
     /// show).
     #[test]
-    fn the_strip_bridge_is_the_identity_for_a_single_page() {
+    fn the_strip_bridge_is_a_pure_pasteboard_shift_for_a_single_page() {
         let v = (800.0_f32, 600.0_f32);
         for &page in &[(400.0_f32, 300.0_f32), (1600.0, 2400.0), (800.0, 600.0)] {
+            let pad = (pasteboard(v.0), pasteboard(v.1));
+            let range = (
+                (content_extent(page.0, v.0) - v.0).max(0.0),
+                (content_extent(page.1, v.1) - v.1).max(0.0),
+            );
             for &off in &[(0.0_f32, 0.0_f32), (120.0, 55.0), (900.0, 1800.0)] {
-                assert_eq!(page_local_offset(off, (0.0, 0.0), page, page, v), off);
-                // The inverse clamps to the strip's range, which for a page
-                // smaller than the viewport is zero — so compare against the
-                // clamp rather than against the raw input.
+                // ★ Going OUT: the page-local offset gains exactly one
+                // pasteboard and nothing else. With one page the strip IS the
+                // page, so the two centring margins are equal and cancel — the
+                // only surviving term is the pad, which is the whole of what
+                // O23 added. Anything else here would mean the centring margin
+                // had leaked into a space that does not have one.
                 let expected = (
-                    off.0.clamp(0.0, (page.0 - v.0).max(0.0)),
-                    off.1.clamp(0.0, (page.1 - v.1).max(0.0)),
+                    (off.0 + pad.0).clamp(0.0, range.0),
+                    (off.1 + pad.1).clamp(0.0, range.1),
                 );
-                assert_eq!(strip_offset(off, (0.0, 0.0), page, page, v), expected);
+                assert_eq!(
+                    strip_offset(off, (0.0, 0.0), page, page, v),
+                    expected,
+                    "page {page:?} offset {off:?}"
+                );
+
+                // …and coming BACK the pad is removed again, so a round trip
+                // through both legs is the identity wherever the clamp did not
+                // bite. **This is the property that matters** — the pad must
+                // not accumulate, or every frame would drift one viewport
+                // further into blank paper.
+                let back = page_local_offset(expected, (0.0, 0.0), page, page, v);
+                if expected.0 > 0.0 && expected.0 < range.0 {
+                    assert!(
+                        (back.0 - off.0).abs() < 0.001,
+                        "x round trip: {off:?} -> {expected:?} -> {back:?}"
+                    );
+                }
+                if expected.1 > 0.0 && expected.1 < range.1 {
+                    assert!(
+                        (back.1 - off.1).abs() < 0.001,
+                        "y round trip: {off:?} -> {expected:?} -> {back:?}"
+                    );
+                }
             }
         }
     }
@@ -644,10 +835,21 @@ mod tests {
                             // Where it really is: the strip's own margin, plus
                             // the page's origin in the strip, plus the point
                             // inside the page, less the scroll offset.
+                            // ★ The strip's origin inside the CONTENT — its
+                            // centring margin plus the pasteboard. Spelled out
+                            // rather than calling `strip_margin`, because a
+                            // test that reuses the function under test agrees
+                            // with it by construction, including when wrong.
                             let truth = (
-                                (strip.0.max(v.0) - strip.0) / 2.0 + origin.0 + frac.0 * page.0
+                                (strip.0.max(v.0) - strip.0) / 2.0
+                                    + v.0 * PASTEBOARD_FRACTION
+                                    + origin.0
+                                    + frac.0 * page.0
                                     - off.0,
-                                (strip.1.max(v.1) - strip.1) / 2.0 + origin.1 + frac.1 * page.1
+                                (strip.1.max(v.1) - strip.1) / 2.0
+                                    + v.1 * PASTEBOARD_FRACTION
+                                    + origin.1
+                                    + frac.1 * page.1
                                     - off.1,
                             );
                             // Where the single-page solves think it is.
@@ -694,7 +896,17 @@ mod tests {
         let strip = (612.0_f32, 4000.0_f32);
         let page = (612.0_f32, 792.0_f32);
         let out = strip_offset((99_000.0, 99_000.0), (0.0, 0.0), strip, page, v);
-        assert_eq!(out, (0.0, strip.1 - v.1));
+        // ★ The ceiling is the CONTENT's range, not the strip's — O23. On x this
+        // used to be 0.0, because a strip narrower than the viewport had nowhere
+        // to scroll; there is now a pasteboard either side of it.
+        assert_eq!(
+            out,
+            (
+                content_extent(strip.0, v.0) - v.0,
+                content_extent(strip.1, v.1) - v.1
+            )
+        );
+        assert!(out.0 > 0.0, "a narrow page must still be pannable sideways");
         let out = strip_offset((-9_000.0, -9_000.0), (0.0, 0.0), strip, page, v);
         assert_eq!(out, (0.0, 0.0));
         assert_eq!(

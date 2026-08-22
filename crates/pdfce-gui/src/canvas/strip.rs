@@ -155,8 +155,18 @@ pub(super) fn page_scroll_offset(
     let rect = strip.rect_of(doc.view.page_index)?;
     doc.tracked_page = doc.view.page_index;
     let size = strip.size();
-    let x = (rect.center().x - viewport.0 / 2.0).clamp(0.0, (size.x - viewport.0).max(0.0));
-    let y = (rect.min.y - viewer::strip::ROW_GAP).clamp(0.0, (size.y - viewport.1).max(0.0));
+    // ★ The rect is STRIP space and the answer is a SCROLL offset; since O23
+    // they differ by the pasteboard. `strip_to_scroll` is the one conversion.
+    let x = crate::canvas::geometry::strip_to_scroll(
+        rect.center().x - viewport.0 / 2.0,
+        size.x,
+        viewport.0,
+    );
+    let y = crate::canvas::geometry::strip_to_scroll(
+        rect.min.y - viewer::strip::ROW_GAP,
+        size.y,
+        viewport.1,
+    );
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         format!(
@@ -231,8 +241,18 @@ mod tests {
         let offset = page_scroll_offset(&mut doc, &strip, viewport)
             .expect("a navigation must move the strip");
         let rect = strip.rect_of(2).expect("page 2 is laid out");
+        // ★ The expected value gained a `strip_to_scroll` since O23: the rect
+        // is in STRIP space and the answer is a SCROLL offset, and the two now
+        // differ by the pasteboard. The property is unchanged — the page's top
+        // lands at the top of the viewport — only the space the number is
+        // expressed in has moved.
+        let want = crate::canvas::geometry::strip_to_scroll(
+            rect.min.y - crate::viewer::strip::ROW_GAP,
+            strip.size().y,
+            viewport.1,
+        );
         assert!(
-            (offset.y - (rect.min.y - crate::viewer::strip::ROW_GAP)).abs() < 0.01,
+            (offset.y - want).abs() < 0.01,
             "the page's top must land at the top of the viewport: {offset:?} vs {rect:?}"
         );
         assert_eq!(doc.tracked_page, 2, "the scroll is spent once");
@@ -256,19 +276,40 @@ mod tests {
         }
     }
 
-    /// The forced offset never leaves the strip's scrollable range, so the
-    /// scroll area is not handed a position it would immediately fight.
+    /// ★★ **The offset stays inside the scrollable range — which is now the
+    /// CONTENT's range, not the strip's.**
+    ///
+    /// This asserted `Vec2::ZERO` until 2026-08-21, on the reasoning that a
+    /// viewport taller than the whole strip has nowhere to scroll. O23 made
+    /// that false on purpose: there is a pasteboard of one viewport on every
+    /// side, so even a document that fits entirely on screen can be moved
+    /// around — which is the operator's *"move the view of the corner of the
+    /// page to the center of the screen"* for a small document.
+    ///
+    /// ★ So the assertion is the INVARIANT rather than the number. Pinning the
+    /// new number would say nothing about whether it is reachable, and this
+    /// function's whole job is that its answer is inside the range egui will
+    /// accept — an offset beyond it is silently clamped, and the page then
+    /// does not appear where the navigation promised.
     #[test]
     fn the_forced_offset_stays_inside_the_scroll_range() {
         let mut doc = open_fixture(FOUR_PAGES);
         doc.view.display = PageDisplay::Continuous;
-        // A viewport taller than the whole strip: every offset must be zero.
         let strip = Strip::new(&doc.pages, doc.view.display, 0, 1.0);
         let viewport = (10_000.0_f32, 10_000.0_f32);
         doc.view.page_index = 3;
-        assert_eq!(
-            page_scroll_offset(&mut doc, &strip, viewport),
-            Some(Vec2::ZERO)
-        );
+        let offset = page_scroll_offset(&mut doc, &strip, viewport)
+            .expect("a navigation must move the strip");
+        let size = strip.size();
+        for (got, extent, v) in [
+            (offset.x, size.x, viewport.0),
+            (offset.y, size.y, viewport.1),
+        ] {
+            let range = (crate::canvas::geometry::content_extent(extent, v) - v).max(0.0);
+            assert!(
+                (0.0..=range).contains(&got),
+                "{got} is outside the scrollable range 0..={range}"
+            );
+        }
     }
 }
