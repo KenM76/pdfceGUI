@@ -13,21 +13,55 @@ popup working. `pdfceGUI1` holds the 15:47 build as the fallback.
 Nothing in it is wrong that was not wrong before — the checks are harness
 work, and O22 is a defect it already had — but it is not the tip.
 
-## ★★★ STATE, MEASURED 2026-08-21 EVENING
+## ★★★ STATE, MEASURED 2026-08-21 LATE
 
-**The driven suite: 54 passed, 0 failed, 13 skipped.** All thirteen skips are
-legitimate — four need `--second-pdf`, three are fixture properties, OCR has no
-models in this build, and `ctrl_c_copies_text_to_the_os_clipboard` correctly
-skips at `0,300,500` because that point is not text.
+**Driven: 55 passed, 1 failed, 12 skipped.** Up one pass from the evening's
+54, and the one failure is **newly exercised rather than newly broken** — read
+the box below before treating it as a regression.
 
-**The afternoon's verification debt is PAID.** Both things published on
-2026-08-21 are driven:
+**O23's first half is IN and driven.** Free navigation works: one whole
+viewport of pasteboard on every side, so any corner of the page reaches any
+point of the screen. It took four attempts and the cause of the first three
+was a single missing coordinate conversion —
+`geometry::scroll_to_strip`, absent from `visible_rect`.
 
-| | |
-|---|---|
-| `ctrl_c_copies_text_to_the_os_clipboard` | PASS — swept 10 chars, the **real Windows clipboard** held those 10 |
-| `select_filter_changes_what_a_click_hits` | PASS — selects, switch off, selects nothing, switch on, selects again |
+★★★ **The lesson, and it is the biggest one of the day: READ WHAT THE
+APPLICATION SAYS ABOUT ITSELF, FIRST.** Every failing trace from the first
+attempt onward carried
 
+```
+pdfce-diag canvas-unavailable reason=nothing-visible
+```
+
+which states the cause exactly. It was never grepped for, because each search
+was for the SYMPTOM — no pointer input, stalled frames, a page rect that
+looked right — and those sent the diagnosis to the arithmetic, then the
+allocation, then the seeding mechanism, then the offset magnitude. All four
+were innocent. **Grep the trace for what the program is reporting before
+grepping it for what you are seeing.**
+
+### ⚠️ THE ONE FAILING CHECK, AND WHY IT IS NOT (EVIDENTLY) A REGRESSION
+
+`multi_node_move_moves_every_picked_anchor` **FAILS**, reproducibly, in
+isolation as well as in the suite.
+
+On the baseline it **SKIPPED**, with *"the subpath has one anchor. Aim
+--doc-point at a polyline."* With the pasteboard it finds **two** anchors,
+clicks both — the second with Shift — and reports that **one** ends up
+selected.
+
+So the check now reaches a rung it could never reach before and fails there.
+That is a different operand, not a changed behaviour, and the pasteboard is
+the likely reason the operand changed: a different scroll position makes a
+different page current in a continuous strip.
+
+★ **It is not being called a pasteboard regression and it is not being
+dismissed.** What it needs is its own run: pick a `--doc-point` that yields
+two anchors on the PRE-pasteboard build and see whether Shift-picking a second
+anchor has ever worked. `SelectionState::pick_within` is the named function.
+If it has never worked, this is a defect the pasteboard merely exposed — and a
+real one, since the check's own words are that a selection the program shows
+and does not honour is worse than not offering it.
 ### ★★★ AND DRIVING FOUND THE DEFECT KEN IS BLOCKED ON — `O22`
 
 **An object near the top of the view cannot be rotated. Its handle is drawn
