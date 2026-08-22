@@ -129,6 +129,82 @@ roughly a thousand with nothing said.
 accepted, persisted, and then quietly overruled downstream. Shipping the
 setting without the mechanism behind it would be exactly that.
 
+### ★★★ THE CONSTRAINT THAT DECIDES THE DESIGN — 2026-08-21
+
+> *"can you build the first step and build the second one and put it as an
+> option to use instead for higher zoom capability? that way I can test out
+> both in case there are performance issues introduced at lower zoom. I don't
+> want to lose our capability to pan around a page and still see high detail
+> as we pan. I don't want the affect that other readers have where you always
+> have to wait for detail to render after panning to a new area."*
+
+★★★ **That sentence rules out the obvious implementation, and it is right
+to.** Region rendering applied everywhere would produce *exactly* the defect
+he is describing — and it would be a regression, not a trade.
+
+Here is why, stated plainly because it is the whole design:
+
+| | today | naive region rendering |
+|---|---|---|
+| what is rasterized | the **whole page**, once per zoom | the **visible rectangle**, once per *position* |
+| what a pan costs | nothing. The texture already exists; the view moves over it | **a new raster every time**, because the rectangle changed |
+| what the operator sees while panning | full detail, immediately | blur, or blank, until the new raster lands |
+
+So the thing he values — *"pan around a page and still see high detail as we
+pan"* — is a **property of rasterizing the whole page**, and it is free
+precisely because the raster does not depend on where you are looking.
+
+#### The design that keeps it: tiers, each used only where the last cannot work
+
+| tier | when | how | panning |
+|---|---|---|---|
+| **A — whole page** | while `page × zoom` fits `MAX_PIXMAP_EDGE` (16,384) | today's path, unchanged | **free, full detail** |
+| **B — region + overscan** | above that, to ~1,000,000 % | rasterize the viewport **plus a margin**, so small pans are already covered | free within the margin; a re-raster only when you leave it |
+| **C — f64 viewport** | above ~1,000,000 % | the visible page rect in `f64` becomes the position | as B |
+
+★★ **Tier A is where he lives, and it does not change at all.** On an A1
+sheet the whole-page raster works to about 1,034 %; today `MAX_ZOOM` stops it
+at 800 % first. So every zoom he uses now, and one more doubling beyond it,
+keeps exactly the panning behaviour he has — **by construction, not by
+tuning.** There is no low-zoom performance question to test, because at low
+zoom nothing is different.
+
+★ And tier B only ever engages **where today the zoom is simply unavailable**.
+Nothing is taken away to pay for it. The worst case is that deep zoom pans
+less smoothly than shallow zoom — which is true of every reader, and is the
+cost he explicitly said is his to accept.
+
+#### The overscan is the part to get right
+
+Rasterizing exactly the viewport means every pixel of pan crosses the edge.
+Rasterizing the viewport **plus half a viewport on each side** costs 4× the
+pixels and makes any pan up to half a screen free. That is the dial, and it
+should be a **named constant with its cost written next to it**, not a magic
+number:
+
+```text
+overscan 0.0  →  1.0x pixels, every pan re-rasters
+overscan 0.5  →  4.0x pixels, pans up to half a screen are free
+overscan 1.0  →  9.0x pixels, pans up to a full screen are free
+```
+
+At tier B the viewport is a few hundred thousand pixels, so 4× is cheap in
+absolute terms — the whole point of tier B is that the raster no longer
+scales with the zoom.
+
+#### What the option actually is
+
+He asked for the second step *"as an option to use instead"* so he can
+compare. Given the tiering, the honest control is **the threshold, not a
+mode**: the setting says how far the whole-page path is allowed to go before
+the region path takes over. Set it low and he is testing tier B at ordinary
+zooms; set it high and he never leaves tier A.
+
+★ That gives him exactly the comparison he asked for, **and** it is the same
+control as the maximum-zoom setting rather than a second one — which is
+better than a checkbox, because a checkbox would have to be explained and a
+threshold explains itself.
+
 ### ★★★ HOW IT GETS THERE — asked 2026-08-21
 
 > *"how do we get to the insanely high limit? … I've seen readers hit over
