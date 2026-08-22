@@ -18,3 +18,4 @@
 - [A backlog row is a record, not evidence](feedback_a_backlog_row_is_a_record_not_evidence.md) — verify absence claims against source; three docs said the rotate grip was missing a day after it shipped.
 - [A check that cannot fail is not evidence](feedback_a_check_that_cannot_fail_is_not_evidence.md) — falsify before quoting green; make it SKIP when it never saw the mechanism.
 - [Ken's sentences are reports, not measurements](feedback_kens_sentences_are_reports_not_measurements.md) — "up to 800%" named an old setting, not a threshold; measure the boundary he names.
+- [When a measurement runs out, read a better instrument](feedback_when_a_measurement_runs_out_read_a_better_instrument.md) — an extreme-end failure is usually the harness's resolution; never widen the tolerance.
