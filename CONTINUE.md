@@ -136,6 +136,33 @@ check failed at step 2, left every class switched off on disk, and its next run
 blamed `--doc-point`.
 ---
 
+## ⚠️ DRIVEN RUNS NEED AN ATTENDED MACHINE — found 2026-08-22
+
+After several hours with no human input, **every driven check began reporting**
+
+```
+the window ... could not be brought to the front. Windows refuses
+SetForegroundWindow to a process without foreground rights
+```
+
+No code change between the working runs and the failing ones; unit tests and
+all 17 gates stayed green. `SetForegroundWindow` is granted only to a process
+that is already foreground, received the last input, or has recent user input
+behind it — and on an idle desktop a background harness has none of those.
+
+★ **So the idle machine that looks like the ideal time to run the suite is the
+one time it cannot run.** Schedule driven runs when he hands the machine over,
+not overnight. And read a window-activation SKIP as an ENVIRONMENT verdict, not
+an application one — it survives re-running, so it reads as a defect.
+
+★ Clean up orphans first: a killed harness run leaves the application running,
+and that instance competes for the foreground. `taskkill //IM pdfce-gui.exe
+//F`. Note `taskkill //PID` against a pid from `ps -W` fails — that column is
+Git Bash's pid, not Windows'.
+
+Unattended verification that still works: the offscreen launch
+(`PDFCE_DIAG_VIEWPORT`), which needs no foreground rights.
+
 ## ★★ A RELEASE IS OWED WHEN O24's STEP 2 LANDS
 
 Ken, 2026-08-21: *"when you complete the step 2 zoom release to git and put on
