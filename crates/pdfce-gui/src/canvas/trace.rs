@@ -431,12 +431,57 @@ pub(super) fn pointer(ui: &egui::Ui, doc: &OpenDoc, image_rect: Rect, extent: (f
 /// moved, and the change gate that [`layout`] uses keys on a formatted string
 /// — which would suppress exactly the sub-threshold movements this exists to
 /// measure if two consecutive positions rounded to the same text.
-pub(super) fn position(at: (f64, f64), tier: &'static str) {
+/// `paint=` — where the acting page's raster was actually DRAWN.
+///
+/// ★★ Below the pixmap ceiling this equals the page's own rect and carries
+/// nothing new. Above it the raster covers a region rather than the page, and
+/// the two part company — which is where `OPERATOR_REQUESTS.md` O24c lived:
+/// the page's rect moved smoothly with the pan the whole time, so `rect=` was
+/// innocent of the lurch the operator could plainly see. Only this field can
+/// witness it.
+/// `region=` and `ext=` — what the drawn pixels are a picture OF.
+///
+/// # ★★★ Why these are here: so the harness can CHECK the placement
+///
+/// `region=` is the page-space rectangle of the raster that was actually
+/// painted, read from the held texture's own key — **not** the region the
+/// shell would like next. `ext=` is the page's extent in the same units.
+///
+/// Together with `rect=` on the `canvas` line they let `ui-verify` recompute
+/// `render::region::region_on_screen` **independently** and compare it against
+/// `paint=`. That is the difference between a test that restates the code and
+/// one that can catch its reversal: if someone changes the placement back to
+/// the *wanted* region — which is O24c, the page lurching backwards mid-pan —
+/// the traced region still describes the pixels, the harness's recomputation
+/// still says where they belong, and the two disagree by the grid step.
+///
+/// ★ The cross-check is only valid on the `scroll` tier. Above the deep
+/// threshold the placement comes from the `f64` anchor rather than from the
+/// page's rect, and reconstructing it would need the anchor too — so the
+/// check restricts itself and says so, rather than comparing against a
+/// formula that does not apply. Both are `None` for a whole-page raster,
+/// where the question does not arise.
+pub(super) fn position(
+    at: (f64, f64),
+    tier: &'static str,
+    paint: (f32, f32),
+    region: Option<pdfce_core::page_tree::Rect>,
+    extent: (f32, f32),
+) {
     crate::diag::trace(|| {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI.
-            "canvas-pos at={:.3},{:.3} tier={tier}",
-            at.0, at.1
+            "canvas-pos at={:.3},{:.3} tier={tier} paint={:.3},{:.3} region={} ext={:.3},{:.3}",
+            at.0,
+            at.1,
+            paint.0,
+            paint.1,
+            region.map_or_else(
+                || "none".to_owned(),
+                |r| format!("{:.4},{:.4},{:.4},{:.4}", r.llx, r.lly, r.urx, r.ury),
+            ),
+            extent.0,
+            extent.1
         )
     });
 }

@@ -80,6 +80,85 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O24c / O24d — The page lurches backwards mid-pan, and bounces when zoomed
+
+**Asked:** 2026-08-22, two reports minutes apart, and they are **one defect**.
+
+> *"As I drag using the middle mouse button the pan will follow and work, but
+> if I pan a little too far it jumps back in the opposite direction I was
+> moving the mouse towards … It isn't exactly in the same place as it started.
+> When I zoom in the image does seem to disappear from the screen sometimes …
+> if I pan the other direction and cross the same area where I experienced the
+> jump the pan location jumps back to being correct."*
+
+> *"Up to 800% things work perfect. Over that … it seems to refresh the image
+> zoom, then reposition to the cursor location, which causes the image to
+> bounce around a bit before settling under the cursor."*
+
+**Status:** **FIXED 2026-08-22.** Unit-tested. ★ Driven confirmation still
+owed — the operator was at the machine and `ui-verify` cannot take the
+foreground from him.
+
+### ★★★ The cause, and the second report is what proves it
+
+The current page's texture is served from its slot **without a staleness
+check**, deliberately: that is what shows the last good picture during a pan
+instead of blank paper, and it is his own requirement — *"I don't want the
+affect that other readers have where you always have to wait for detail to
+render after panning to a new area."*
+
+But the destination rectangle was computed from `OpenDoc::region_for` — the
+region the shell wants **next** — while the pixels were still the previous
+region's. `render::strategy::region_for` quantises the wanted region to a
+half-viewport grid, so the instant a pan crossed a grid line the destination
+jumped a whole grid step while the picture did not change. Every detail
+follows:
+
+| his words | the mechanism |
+|---|---|
+| *"follows for a bit, then jumps back"* | smooth within a grid cell, one step at the boundary |
+| *"the opposite direction I was moving"* | the grid steps against the pan |
+| *"isn't exactly in the same place as it started"* | the step is the grid, not the drag |
+| *"cross the same area and it jumps back to being correct"* | pure function of position — re-enter the cell, get the cell's rect |
+| *"the image does seem to disappear"* | two steps at once, at a zoom where the grid is most of the window |
+| **"up to 800% things work perfect"** | **★★ below the pixmap ceiling there is no region at all, so the destination is the page's own rect and cannot disagree** |
+
+That last row is the confirmation. 800 % is not a round number anyone chose —
+it is where `viewer::max_zoom_for_page` stops permitting a whole-page raster
+on a Letter sheet and the region tier takes over. A defect that begins exactly
+at the tier boundary is a defect in the tier.
+
+And the zoom bounce is the same thing seen on a different transient: a zoom
+changes the wanted region wholesale, so the held texture was thrown to a
+completely different rect for as long as the new raster took — *"bounces
+around a bit before settling"*. His guess in the message (*"maybe what you are
+doing now will fix that behaviour"*) was right.
+
+### ★★ Why rejecting the stale texture would have been the wrong fix
+
+It is the obvious fix and it is worse. Blanking the page on every grid
+crossing is precisely the behaviour he ruled out by name. The fix is to draw
+the stale pixels **where they belong**, so they slide with the page as the pan
+continues and the new raster replaces them in place.
+
+`RenderKey` already carried the region; nothing ever read it back. It does
+now (`RenderKey::region`), the texture and its region travel together to the
+paint site, and the placement asks the pixels rather than the request.
+
+### What was added to make it checkable
+
+`canvas-pos` gained `paint=`, `region=` and `ext=`. `ui-verify` recomputes
+`region_on_screen` from those **independently** and compares — so a future
+change back to the wanted region is caught rather than merely absent from the
+tests. `RenderKey::region`'s round-trip is pinned bit-exact.
+
+★ The check also now zooms with Ctrl+wheel **at the two cells** rather than
+pressing `+`, on his correction: *"Right now you are just zooming into a blank
+area on the canvas."* Zoom-to-cursor keeps them under the pointer, so one aim
+covers every rung.
+
+---
+
 ## O24b — "Can the huge intermediate be fixed? Is that why panning jumped back?"
 
 **Asked:** 2026-08-22 — *"can the huge intermediate be fixed? is that the

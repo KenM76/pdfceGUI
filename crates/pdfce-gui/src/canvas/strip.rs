@@ -46,6 +46,18 @@ pub(crate) struct DrawnPage {
     /// are asked once — during the draw — and a second reading afterwards
     /// could disagree with what the operator is looking at.
     pub(super) has_raster: bool,
+    /// Where its raster was actually PAINTED, which is not [`Self::rect`]
+    /// once the region tier is engaged.
+    ///
+    /// ★★ Recorded so the trace can report it, and the trace reports it
+    /// because `OPERATOR_REQUESTS.md` O24c — the page lurching backwards
+    /// mid-pan — is a defect in the PAINT rectangle and is invisible in every
+    /// other field. `rect=` is the page's own rect and moves smoothly all the
+    /// way through the fault; only this jumps.
+    ///
+    /// Equal to [`Self::rect`] whenever the raster is a whole-page one, which
+    /// is every zoom below the pixmap ceiling.
+    pub(super) paint_rect: Rect,
 }
 
 /// One page and its screen ⟷ canvas map.

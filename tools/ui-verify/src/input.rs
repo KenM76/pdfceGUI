@@ -502,6 +502,48 @@ impl Driver {
         Ok(())
     }
 
+    /// Roll the wheel at `p` with modifiers held — Ctrl+wheel, which in a
+    /// document viewer is **zoom about the pointer**.
+    ///
+    /// # ★★ Why this is not `scroll_at` with a flag
+    ///
+    /// It shares `with_modifiers`' whole-frame lead-in, and that lead-in is
+    /// load-bearing for the same reason [`Self::press_held`]'s is: a modifier
+    /// posted less than a frame before the event it is meant to carry arrives
+    /// in the same batch but *after* it, so egui builds the event with
+    /// `Modifiers::NONE`. A real hand holds Ctrl for tens of frames first. A
+    /// Ctrl+wheel that loses its Ctrl is an ordinary scroll — the view pans
+    /// instead of zooming, and the check reports the zoom as broken.
+    ///
+    /// # ★ Why a check wants this rather than the status bar's `+`
+    ///
+    /// Zoom-to-cursor keeps the point under the pointer fixed, so a check can
+    /// put the pointer on the content it cares about **once** and keep
+    /// rolling — the content stays under it all the way down. The `+` button
+    /// zooms about the viewport centre, which on a page whose interesting
+    /// detail is off-centre magnifies blank paper. The operator's own words,
+    /// 2026-08-22: *"Right now you are just zooming into a blank area on the
+    /// canvas."*
+    pub fn scroll_at_held(
+        &self,
+        p: ScreenPoint,
+        modifiers: &[u16],
+        notches: i32,
+        times: usize,
+    ) -> Result<()> {
+        self.raise_and_confirm()?;
+        self.move_to(p)?;
+        sys::with_modifiers(modifiers, || {
+            std::thread::sleep(MOVE_SETTLE);
+            for _ in 0..times {
+                sys::wheel(notches);
+                std::thread::sleep(MOVE_SETTLE);
+            }
+        });
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
     /// Press and release a virtual key, in the target window.
     ///
     /// # Errors

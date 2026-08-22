@@ -366,6 +366,59 @@ impl RenderKey {
         self
     }
 
+    /// The page-space rectangle this raster actually covers, or `None` if it
+    /// is a whole-page raster.
+    ///
+    /// # ★★★ Why a texture must be placed by ITS OWN region
+    ///
+    /// `OPERATOR_REQUESTS.md` **O24c**, reported 2026-08-22:
+    ///
+    /// > *"As I drag using the middle mouse button the pan will follow and
+    /// > work, but if I pan a little too far it jumps back in the opposite
+    /// > direction I was moving … if I pan the other direction and cross the
+    /// > same area where I experienced the jump the pan location jumps back
+    /// > to being correct."*
+    ///
+    /// The current page's texture is served from its slot **without a
+    /// staleness check** — deliberately, so a zoom or a pan shows the last
+    /// good picture instead of blank paper while the next one renders. That
+    /// is the behaviour the operator asked for by name: *"I don't want the
+    /// affect that other readers have where you always have to wait for
+    /// detail to render after panning to a new area."*
+    ///
+    /// But the destination rectangle was computed from the region the shell
+    /// **now wants**, and `render::strategy::region_for` quantises that to a
+    /// half-viewport grid. So the instant a pan crossed a grid line the
+    /// destination jumped a whole grid step while the pixels were still the
+    /// previous cell's — the picture lurched backwards, held there until the
+    /// new raster landed, and snapped right again when the operator panned
+    /// back over the same line. Every detail of the report follows from that,
+    /// including *"it isn't exactly in the same place as it started"* (the
+    /// step is the grid, not the drag) and the page occasionally leaving the
+    /// screen entirely (two grid steps at once, at a zoom where the grid is
+    /// most of the window).
+    ///
+    /// ★ The fix is **not** to reject the stale texture. That would blank the
+    /// page on every grid crossing — the exact behaviour he ruled out. It is
+    /// to draw the stale pixels *where they belong*, so they slide off
+    /// naturally as the pan continues and the new raster replaces them in
+    /// place. This accessor is what makes that possible: the key already
+    /// carried the region, and nothing ever read it back.
+    ///
+    /// The round-trip through [`f64::to_bits`] is exact, so the rectangle
+    /// returned is bit-identical to the one the request was built from — a
+    /// placement derived from it cannot disagree with the render by a
+    /// rounding step.
+    #[must_use]
+    pub fn region(&self) -> Option<pdfce_core::page_tree::Rect> {
+        self.region_bits.map(|b| pdfce_core::page_tree::Rect {
+            llx: f64::from_bits(b[0]),
+            lly: f64::from_bits(b[1]),
+            urx: f64::from_bits(b[2]),
+            ury: f64::from_bits(b[3]),
+        })
+    }
+
     /// Which page this is a render of.
     ///
     /// Added at Phase 4, and it is what makes a strip's routing correct: a
@@ -1088,5 +1141,75 @@ mod tests {
         worker.cancel_and_wait();
         worker.cancel_and_wait();
         assert!(!worker.is_rendering());
+    }
+}
+
+#[cfg(test)]
+mod region_accessor_tests {
+    use super::RenderKey;
+    use pdfce_core::page_tree::Rect;
+
+    fn key() -> RenderKey {
+        RenderKey::new(0, 1.5, true, 0)
+    }
+
+    /// A whole-page raster has no region, and must say so rather than
+    /// inventing one — the caller switches on exactly this to choose between
+    /// filling the page's rect and placing a sub-rectangle.
+    #[test]
+    fn a_whole_page_key_reports_no_region() {
+        assert_eq!(key().region(), None);
+        assert_eq!(key().with_region(None).region(), None);
+    }
+
+    /// ★★ The round-trip must be EXACT, not close.
+    ///
+    /// The placement is computed from what comes back out, and the render was
+    /// run from what went in. A rounding step between them is a rounding step
+    /// between the pixels and where they are drawn — which at a high zoom is a
+    /// visible offset, and is the class of defect O24c was.
+    #[test]
+    fn the_region_round_trips_bit_exactly() {
+        let awkward = Rect {
+            llx: 0.1 + 0.2,
+            lly: -1.0 / 3.0,
+            urx: 1e12 + 0.5,
+            ury: f64::MIN_POSITIVE,
+        };
+        let back = key().with_region(Some(awkward)).region().expect("a region");
+        assert_eq!(back.llx.to_bits(), awkward.llx.to_bits());
+        assert_eq!(back.lly.to_bits(), awkward.lly.to_bits());
+        assert_eq!(back.urx.to_bits(), awkward.urx.to_bits());
+        assert_eq!(back.ury.to_bits(), awkward.ury.to_bits());
+    }
+
+    /// ★ Two keys that differ only by region are different keys, and each
+    /// reports its own.
+    ///
+    /// This is what lets a held texture be placed by the region it is a
+    /// picture of while the shell is already asking for the next one. If the
+    /// accessor returned the shell's wanted region — or if the builder
+    /// mutated in place and both keys ended up agreeing — the placement would
+    /// silently follow the request instead of the pixels, which is the exact
+    /// shape of the defect this pair exists to prevent.
+    #[test]
+    fn neighbouring_regions_stay_distinguishable() {
+        let a = Rect {
+            llx: 0.0,
+            lly: 0.0,
+            urx: 100.0,
+            ury: 100.0,
+        };
+        let b = Rect {
+            llx: 50.0,
+            lly: 0.0,
+            urx: 150.0,
+            ury: 100.0,
+        };
+        let ka = key().with_region(Some(a));
+        let kb = key().with_region(Some(b));
+        assert_ne!(ka, kb, "two regions of one page must not share a key");
+        assert_eq!(ka.region().expect("a").llx, 0.0);
+        assert_eq!(kb.region().expect("b").llx, 50.0);
     }
 }

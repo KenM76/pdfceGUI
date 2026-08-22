@@ -926,23 +926,59 @@ fn show_in(
             // page's lives in the strip cache. See `render::strip`'s header
             // for why the split exists and why the rule is enforced rather
             // than remembered.
-            let texture = if placement.page == current {
-                doc.page_texture.as_ref().map(|t| t.texture.clone())
+            // ★★★ THE TEXTURE AND THE REGION IT IS A PICTURE OF, TOGETHER.
+            //
+            // `OPERATOR_REQUESTS.md` O24c. The current page's slot is served
+            // WITHOUT a staleness check, on purpose — that is what shows the
+            // last good picture during a pan instead of blank paper, and it is
+            // the operator's explicit requirement that detail never has to be
+            // waited for after moving. The consequence is that these pixels
+            // may be a picture of a DIFFERENT region from the one the shell
+            // now wants, and placing them at the wanted region's rect is what
+            // made the page lurch backwards whenever a pan crossed
+            // `render::strategy::region_for`'s half-viewport grid line.
+            //
+            // So the region travels with the pixels. See
+            // `render::worker::RenderKey::region` for the full report and why
+            // rejecting the stale texture would have been the wrong fix.
+            let held = if placement.page == current {
+                doc.page_texture
+                    .as_ref()
+                    // ★ And only if it is a picture of THIS page. The slot is
+                    // normally kept in step with the current page by
+                    // `render::settle`, but a raster that lands in the same
+                    // frame as a page change would otherwise be placed by a
+                    // region computed for its neighbour — a rectangle that is
+                    // perfectly valid and completely wrong, which is the
+                    // failure mode `OpenDoc::region_for`'s own page check
+                    // exists to prevent one level up.
+                    .filter(|t| t.key.page() == placement.page)
+                    .map(|t| (t.texture.clone(), t.key.region()))
             } else {
                 doc.strip_page_texture(placement.page, key)
-                    .map(|t| t.texture.clone())
+                    .map(|t| (t.texture.clone(), t.key.region()))
             };
-            let has_raster = texture.is_some();
+            let has_raster = held.is_some();
             // ★★ Where the texture goes. A whole-page raster fills the page's
             // rect; a REGION raster covers only part of the page and must be
             // drawn at that part's rect, or the operator sees the right pixels
             // in the wrong place — which reads as the page having jumped.
             //
+            // ★★★ The region read here is the HELD texture's, never
+            // `doc.region_for(..)`. Those differ exactly while a new region's
+            // raster is in flight, which under a pan is most of the time — and
+            // using the wanted one is O24c, the backwards lurch at every grid
+            // crossing. The page's own screen rect and the anchor below are
+            // still the CURRENT ones, which is right: they say where page
+            // space is now, and the held region says which part of page space
+            // these pixels are. Together they slide the stale picture along
+            // with the page instead of pinning it.
+            //
             // The rect is deliberately NOT clamped to the page: the region
             // carries overscan, so it legitimately reaches outside. Clamping
             // the destination without cropping the source would stretch the
             // image, which is a subtler wrong than a misplaced one.
-            let paint_rect = match doc.region_for(placement.page) {
+            let paint_rect = match held.as_ref().and_then(|(_, region)| *region) {
                 // ★★★ At tier 3 the placement comes from the ANCHOR, not from
                 // this page's screen rect.
                 //
@@ -974,8 +1010,8 @@ fn show_in(
                 ),
                 None => rect,
             };
-            let response = match texture {
-                Some(texture) => {
+            let response = match held {
+                Some((texture, _)) => {
                     // ★ The IMAGE goes at `paint_rect`; the page's INTERACTION
                     // stays at `rect`. Allocating the image's rect would give
                     // the page a hit area that reaches off the sheet and
@@ -1026,6 +1062,7 @@ fn show_in(
                 rect,
                 response,
                 has_raster,
+                paint_rect,
             });
         }
 
@@ -1248,7 +1285,33 @@ fn show_in(
             f64::from(scroll_output.inner_rect.min.y - image_rect.min.y),
         )
     };
-    trace::position(pan_at, if deep { "deep" } else { "scroll" });
+    // Where the acting page's raster was actually painted. Equal to
+    // `image_rect` below the pixmap ceiling; the region's rect above it, and
+    // the only field that can witness O24c's lurch.
+    let painted = drawn
+        .iter()
+        .find(|d| d.page == acting)
+        .map_or(image_rect, |d| d.paint_rect);
+    // ★ The region of the raster that was actually PAINTED, taken from the
+    // held texture's own key — the same source the placement used, so the
+    // harness's independent recomputation is checking the placement rather
+    // than agreeing with itself. `None` for a whole-page raster.
+    let painted_region = if acting == current {
+        doc.page_texture
+            .as_ref()
+            .filter(|t| t.key.page() == acting)
+            .and_then(|t| t.key.region())
+    } else {
+        doc.strip_page_texture(acting, doc.render_key_for(acting, raster_scale))
+            .and_then(|t| t.key.region())
+    };
+    trace::position(
+        pan_at,
+        if deep { "deep" } else { "scroll" },
+        (painted.min.x, painted.min.y),
+        painted_region,
+        extent,
+    );
     crate::diag::ui_rect(trace::REGION_PAGE, image_rect);
     crate::diag::ui_rect(trace::REGION_CANVAS_VIEWPORT, scroll_output.inner_rect);
     trace::pointer(ui, doc, image_rect, extent);
