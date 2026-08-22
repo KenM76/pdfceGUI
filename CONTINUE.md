@@ -49,9 +49,18 @@ on the way. ⚠️ Its first diagnosis — *"the page jumps a frame after openin
 was **wrong and was never measured**; it compared two builds. Re-measured, the
 pasteboard layout is *steadier* than today's (one stable rect against today's
 two). What actually breaks is that **the canvas receives no pointer input at
-all**, while the page is centred, visible and correctly drawn. Test the INPUT
-path — widget allocation and `visible_rect`'s one-frame-stale offset — before
-touching the arithmetic, which is not what is wrong.
+all**, while the page is centred, visible and correctly drawn.
+
+★★★ **Bisected to two literals.** It is not the arithmetic, not the
+allocation, and not the seeding mechanism: `.scroll_offset(vec2(484, 492))` —
+a hard-coded constant, no pasteboard anywhere — reproduces it, while
+`vec2(100, 100)` does not. **A large applied scroll offset costs the canvas
+its pointer input**, leaving layout, drawing and the published rects correct.
+
+★ `O23` §3f names the one experiment that decides what this is: drive the
+WHEEL to a similar offset on today's unmodified shell and click. If input dies
+there too, this is a pre-existing defect the operator meets whenever they
+scroll far, and it outranks O23 entirely. Run that before building anything.
 
 ⚠️ Do not plan around this row's first claim that the eight resize grips share
 the defect. **They do not** — their centres sit ON the box edge, so their inner

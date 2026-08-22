@@ -423,6 +423,57 @@ driven?* Candidates worth trying, cheapest first:
 override entirely rather than tuning it, and the override is the only thing
 run 3 has that run 2 does not.
 
+#### 3e. ★★★ BISECTED FURTHER 2026-08-21. It is the SCROLL OFFSET ITSELF
+
+Four more driven runs. Each changes one thing; all at
+`--doc-point 0,300,500` with `resize_scales_a_shape`.
+
+| # | seeding | offset that resulted | frames advance? | `canvas-pointer` | verdict |
+|---|---|---|---|---|---|
+| 4 | write egui's `scroll_area::State` before the area is built | **`[0,0]`** — did not apply | yes, `drawn=10` | 11 | page off-screen |
+| 5 | `.scroll_offset(vec2(100, 100))` | `[100,100]` — applied | yes | 9 | page still off-screen |
+| 6 | `.scroll_offset(vec2(484, 492))` — the magnitude the real seed produces | `[484,492]` — applied | eventually | **0** | **page ON-screen, input dead** |
+
+**Run 4 kills the nominated fix.** Pre-writing `scroll_area::State` does not
+take — egui reports `off=[0,0]` — almost certainly because it clamps a
+restored offset against a content size it does not know on the first frame.
+So *"seed the state instead of overriding"* is not available, and the
+override is not avoidable that way.
+
+**Run 5 clears the override mechanism.** `.scroll_offset(..)` with a small
+value applies cleanly, the application advances, and the canvas keeps its
+pointer input. Nothing about forcing the offset is inherently harmful.
+
+**Run 6 is the whole defect, reproduced from a HARD-CODED CONSTANT.** No
+pasteboard arithmetic is involved in choosing it — it is two literals. The
+page's rect settles at `[[296.0 269.7] - [764.0 631.3]]`, one stable value,
+wholly inside a viewport of `[[288.0 139.3] - [772.0 762.0]]`. A click
+computed from that rect lands at roughly `(385, 484)`, comfortably inside
+both. **The canvas receives nothing.**
+
+★★ So the cause is neither the arithmetic, nor the allocation, nor the
+seeding mechanism. **A large applied scroll offset costs the canvas its
+pointer input**, while leaving layout, drawing and the published rects
+entirely correct. That is a much smaller and much stranger problem than any
+of the three this row has previously blamed.
+
+#### 3f. The next experiment, named so it is not re-derived
+
+**Does a scroll offset reached by the OPERATOR — a wheel or a drag — break
+input the same way?** Drive the wheel until the offset is ~500 with no
+pasteboard and no seeding at all, then click the page.
+
+- If input dies, this is a **pre-existing defect in today's shell** that the
+  pasteboard merely exposes, because today nothing ever reaches an offset
+  that large on a first frame. That would make it a far more serious finding
+  than O23 — the operator scrolls every day.
+- If input survives, the difference is that the offset was *forced* on the
+  frame the content was first laid out, and the fix is to force it one frame
+  later, once egui knows the content size.
+
+★ That single experiment decides between a shell defect and a sequencing
+bug, and nothing should be built until it has been run.
+
 #### 4. What survived, and what it is worth
 
 The pure arithmetic was written and proven before it was reverted, and it is
