@@ -303,6 +303,23 @@ pub struct RenderKey {
     /// genuinely distinct state from "an override that hides nothing" (core
     /// API trap T-12.9).
     layers_generation: u64,
+    /// The page-space rectangle this raster covers, by bit pattern, or
+    /// `None` for a whole-page raster.
+    ///
+    /// ★★ **Part of the key, and it has to be.** O24's region tier
+    /// rasterizes the viewport rather than the page, so two rasters of the
+    /// same page at the same scale can now show *different parts of it*.
+    /// Without this field the cache would serve the first one for every
+    /// position — the operator pans, the picture does not move, and nothing
+    /// reports an error because from the cache's side the request was a hit.
+    ///
+    /// ★ Bit patterns rather than the floats, for the same reason
+    /// `raster_scale_bits` is: `f64` is not `Eq` or `Hash`, and a key that
+    /// compared approximately would make "the same view" a matter of
+    /// tolerance. Two requests for one view produce identical bits because
+    /// `render::strategy::overscanned` is a pure function of the visible
+    /// rect — which is exactly the property its own test pins.
+    region_bits: Option<[u64; 4]>,
 }
 
 impl RenderKey {
@@ -325,7 +342,28 @@ impl RenderKey {
             raster_scale_bits: raster_scale.to_bits(),
             annotations,
             layers_generation,
+            region_bits: None,
         }
+    }
+
+    /// Narrow this key to a **region** of the page.
+    ///
+    /// A builder rather than a second constructor, deliberately: this type's
+    /// own note warns that *"two constructors doing the same arithmetic is
+    /// how the two sides of the staleness comparison drift"*, and a builder
+    /// adds a field without repeating any of it. [`Self::new`] stays the one
+    /// place the base key is computed.
+    #[must_use]
+    pub fn with_region(mut self, region: Option<pdfce_core::page_tree::Rect>) -> Self {
+        self.region_bits = region.map(|r| {
+            [
+                r.llx.to_bits(),
+                r.lly.to_bits(),
+                r.urx.to_bits(),
+                r.ury.to_bits(),
+            ]
+        });
+        self
     }
 
     /// Which page this is a render of.
@@ -389,6 +427,7 @@ impl RenderKey {
             request.annotations,
             request.layers_generation,
         )
+        .with_region(request.region)
     }
 }
 
@@ -498,6 +537,20 @@ pub struct RenderRequest {
     /// How many times the override above has changed — the fourth staleness
     /// key. See [`RenderKey::layers_generation`].
     pub layers_generation: u64,
+    /// ★★ **The page-space rectangle to rasterize, or `None` for the whole
+    /// page.** O24.
+    ///
+    /// `None` is today's path and is what every caller asks for at every
+    /// zoom the shell currently offers — `render::strategy::for_page` only
+    /// answers `Region` above the pixmap ceiling, which `viewer::MAX_ZOOM`
+    /// currently stops the operator reaching. So this field is **dormant**
+    /// until that ceiling is raised, and wiring it changes nothing today.
+    ///
+    /// ★ That dormancy is the point of landing it separately: the region
+    /// path can be built, keyed and reviewed while it is provably unreachable,
+    /// rather than arriving in the same change as the thing that makes it
+    /// reachable.
+    pub region: Option<pdfce_core::page_tree::Rect>,
 }
 
 impl RenderWorker {
@@ -779,8 +832,30 @@ fn render_on_worker(request: &RenderRequest, cancel: &RenderCancel) -> Outcome {
     // that a future statement inserted between them is visibly inside the
     // measurement rather than accidentally so.
     let started = Instant::now();
-    match pdfce_render::render_page_with_view(&view, &request.page, request.raster_scale, &options)
-    {
+    // ★★ O24: the region tier. `None` is the whole-page path this shell has
+    // always taken; `Some` rasterizes only the rectangle asked for, so the
+    // pixmap stops scaling with the zoom.
+    //
+    // ★ The two calls are deliberately adjacent and share everything above
+    // them — the same view, the same options, the same scale, the same clock.
+    // A second assembly path for the region case is how the five settings that
+    // reach this worker would come to reach only one of them.
+    let rendered = match request.region {
+        None => pdfce_render::render_page_with_view(
+            &view,
+            &request.page,
+            request.raster_scale,
+            &options,
+        ),
+        Some(region) => pdfce_render::render_page_region(
+            &view,
+            &request.page,
+            request.raster_scale,
+            region,
+            &options,
+        ),
+    };
+    match rendered {
         Ok(rendered) => Outcome::Done(Box::new(RenderedPixels {
             pixmap: rendered.pixmap,
             diagnostics: rendered.diagnostics,
@@ -877,6 +952,41 @@ mod tests {
             "the layer-override generation must be compared, or the Layers \
              panel's visibility control ticks and redraws nothing — which is \
              the exact defect that kept the checkbox out of the build"
+        );
+    }
+
+    /// ★★★ **TWO REGIONS OF ONE PAGE ARE DIFFERENT KEYS** — O24.
+    ///
+    /// The region tier rasterizes the viewport rather than the page, so two
+    /// rasters of the same page at the same scale can show different parts of
+    /// it. If the region were not in the key the cache would serve the first
+    /// for every position: **the operator pans and the picture does not move**,
+    /// with nothing reporting an error, because from the cache's side every
+    /// request was a hit.
+    ///
+    /// That is the worst shape of defect this project keeps finding — silent,
+    /// and indistinguishable from a frozen canvas.
+    #[test]
+    fn a_region_is_part_of_the_key() {
+        use pdfce_core::page_tree::Rect;
+        let whole = RenderKey::new(3, 2.0, true, 7);
+        let left = whole.with_region(Some(Rect::from_corners(0.0, 0.0, 100.0, 100.0)));
+        let right = whole.with_region(Some(Rect::from_corners(100.0, 0.0, 200.0, 100.0)));
+
+        assert_ne!(whole, left, "a region raster is not the whole-page raster");
+        assert_ne!(
+            left, right,
+            "two different regions are two different rasters"
+        );
+        assert_eq!(
+            left,
+            whole.with_region(Some(Rect::from_corners(0.0, 0.0, 100.0, 100.0))),
+            "the same region must be the same key, or nothing ever caches"
+        );
+        assert_eq!(
+            whole,
+            left.with_region(None),
+            "clearing the region returns the whole-page key"
         );
     }
 

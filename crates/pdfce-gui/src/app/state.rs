@@ -911,6 +911,13 @@ impl OpenDoc {
     ) -> Option<RenderRequest> {
         let page = self.pages.get(page_index)?;
         Some(RenderRequest {
+            // ★ Whole page. O24's region tier is not reachable from any zoom
+            // this shell currently offers — `render::strategy::for_page` only
+            // answers `Region` above the pixmap ceiling, and `viewer::MAX_ZOOM`
+            // stops the operator below it. The canvas will choose this once
+            // that ceiling is raised; until then the field is provably `None`
+            // and the new path is dormant.
+            region: None,
             // The `Arc` is handed over rather than a `DocumentView`, which is
             // what lets the borrow stay local to the worker thread.
             session: Arc::clone(&self.session),
