@@ -80,6 +80,108 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O24 — A setting for the maximum zoom
+
+**Asked:** 2026-08-21 — *"add a setting so the user can set the maximum zoom.
+the pdfce engine has been updated to handle at least 1,000,000,000,000%. I'm not
+concerned about the practicality of offering such a high zoom. it is up to the
+user to determine how much of a performance hit they want to take."*
+
+**Status:** **RECORDED 2026-08-21. NOT STARTED.** ★ The engine claim is
+**verified** — see below — and it changes what this row is. The setting is the
+small half.
+
+### The engine really does do it, and the commits say how
+
+`D:\Dev\pdfce`, both landed since this shell's current lock:
+
+```
+71f7055  Deep zoom now holds its viewport to a trillion percent, and the fix
+         is one subtraction moved into f64
+bd9844d  render-page --region: the flag that makes deep zoom a viewport
+         question instead of a page-size one
+```
+
+That second title is the whole architecture of this row, stated by the engine
+itself: **deep zoom is a viewport question, not a page-size one.**
+
+### ★★★ Why raising a constant will not do it, and where it stops
+
+`viewer::MAX_ZOOM` is `8.0`, and raising it moves the ceiling only until a
+harder one binds. `viewer::max_zoom_for_page` computes:
+
+```rust
+let ceiling = (pdfce_render::MAX_PIXMAP_EDGE - 1) as f32 / (longest * ppp);
+ceiling.clamp(MIN_ZOOM, MAX_ZOOM)
+```
+
+`MAX_PIXMAP_EDGE` is **16,384** and is an engine constant. For an A1 sheet
+(~1,584 pt on its long edge) at 1 device pixel per point that ceiling is
+**≈ 1,034 %**. So today `MAX_ZOOM = 800 %` binds first and the raster ceiling is
+just behind it.
+
+**A setting alone therefore buys about one more doubling and then stops
+dead** — and it stops *silently*, because `max_zoom_for_page` clamps rather
+than refusing, so the operator would set 100,000 % and watch the zoom stop at
+roughly a thousand with nothing said.
+
+★ That is the shape this project keeps finding: a control that is drawn,
+accepted, persisted, and then quietly overruled downstream. Shipping the
+setting without the mechanism behind it would be exactly that.
+
+### What actually delivers it
+
+**Render the viewport, not the page.** `pdfce_render::render_page_region` takes
+an arbitrary page-space rect, and at deep zoom the visible rect is a *tiny*
+fraction of the page — so the pixmap stays small however large the zoom is.
+That is what the engine's `--region` commit means.
+
+★★ This shell **has never called `render_page_region`.** Established
+2026-08-21 while answering `O23`: it appears twice in
+`crates/pdfce-gui/src/`, both times in prose explaining that a tiled path does
+not exist. The render worker uses `render_page_with_view`, whole-page, every
+time.
+
+★ And it is already de-risked. `crates/pdfce-gui/src/render/offpage.rs` drives
+the region path with regions off, straddling and enclosing the page, and
+asserts the pixmap matches the region asked for rather than its overlap with
+the page. Those four tests were written for `O23` and they are the same
+mechanism this row needs.
+
+### So the row is two pieces, and they ship in this order
+
+| | | |
+|---|---|---|
+| 1 | **Region rendering in the canvas** | the real work. The render worker asks for the visible rect at the current zoom instead of the whole page. Wants `display_list::record_page` + `replay_region` rather than N region renders, because a region render re-interprets the whole content stream and a moving view would pay that per frame |
+| 2 | **The setting** | small, and honest only once (1) exists |
+
+★ Doing (2) first is possible and is **not** recommended: it would ship a
+control that accepts a number the shell cannot honour, which is the defect
+class above.
+
+### Two consequences to decide when it is built, not after
+
+- **The zoom readout is 46 pt wide**, sized for four characters
+  (`ZOOM_READOUT_WIDTH_PTS`, with a comment saying so) because
+  `ZOOM_LADDER` tops out at `800%`. `1000000000000%` is fourteen. The readout
+  needs a format — `1e12 %`, or `1.0 Tx` — decided rather than allowed to
+  stretch the status bar.
+- **`ZOOM_LADDER` is a fixed array** the `+`/`−` buttons step through, ending
+  at `8.00`. Beyond it the ladder has to become generated — presumably
+  multiplying by a constant factor per step — or the buttons stop working
+  exactly where the setting starts mattering.
+
+★ Neither is hard. Both are the kind of thing that gets discovered by an
+operator rather than decided by an engineer if they are not written down first.
+
+### And one thing that is genuinely free
+
+Ken's *"it is up to the user to determine how much of a performance hit they
+want to take"* removes the question this would otherwise turn on. The setting
+does **not** need a guard, a warning, or a preflight. It needs to be honest
+about what it does, and to actually do it.
+
+
 ## O23 — Free navigation: any part of the page to anywhere on screen, and objects off the page still reachable
 
 **Asked:** 2026-08-21 — *"also objects should still be reachable even if they are
