@@ -144,7 +144,14 @@ const REGION_TIER_REQUIRED: bool = true;
 /// have missed the operator's actual case, which was on the shallow tier. One
 /// probe per mechanism is the minimum that can honestly claim panning works
 /// "at high zoom".
-const MORE_PRESSES: usize = 44;
+///
+/// ★★ Sized to SATURATE, on the operator's request of 2026-08-22 — *"can you
+/// test up to maximum zoom please?"* A Ctrl+wheel notch multiplies the zoom by
+/// about 1.22, so reaching the default ceiling of 10¹² % from the first probe's
+/// 4,155 % takes roughly a hundred notches. Overshooting costs a few seconds
+/// and is what makes the second probe a statement about the **ceiling** rather
+/// than about some arbitrary depth on the way to it.
+const MORE_PRESSES: usize = 110;
 
 /// How many wheel notches to roll.
 ///

@@ -80,6 +80,78 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O24h — "Can you test up to maximum zoom please?"
+
+**Asked:** 2026-08-22 — *"can you test up to maximum zoom please? If you find
+issues that probably can't be resolved it is ok at that point to say good
+enough. that level of zoom is unheard of in any pdf software commonly available
+and the performance is amazing."*
+
+**Status:** **DONE 2026-08-22. Nothing had to be called good enough.**
+
+### The result
+
+Both driven zoom checks now climb until the application **saturates**, rather
+than to a depth chosen in advance. Measured on `banana.pdf`, whose two cells
+are drawn at life size and are the only thing on the sheet worth magnifying:
+
+| | |
+|---|---|
+| ceiling reached | **1,000,000,000,000 %** — the configured maximum, exactly |
+| stages to get there | 16, of 8 Ctrl+wheel notches each (128 notches) |
+| notches that advanced | 117 of 128; the rest are the tail after saturation |
+| tiers crossed | `scroll` → `deep` |
+| worst per-notch drift of the point under the cursor | **54 % of tolerance** |
+| panning at the ceiling | +960 px asked, +960 px moved, held for 90 frames |
+| renders refused | none |
+
+★ The saturation test asks the **application** where its ceiling is rather than
+comparing against a constant. The maximum is an operator setting, so a check
+that hard-coded 10¹² % would silently stop testing the ceiling the day he
+changed it — the same silently-inert control this whole request began with.
+
+### ★★★ Two harness faults the climb exposed, both of the same kind
+
+Neither was an application defect, and both would have been reported as one.
+
+**1. The instrument ran out before the application did.** `held()` derived the
+page point from the `canvas` line's `rect=` and `zoom=`. At 41,000,000 % a
+Letter page's rect holds a magnitude near 2.5 × 10⁸, where an `f32`'s spacing
+is 32 — so the reading resolved to about 8 × 10⁻⁵ pt while the tolerance at
+that zoom was 3 × 10⁻⁵. The check failed with *"moved 0.0000 pt, where 0.0000
+is the tolerance"* against a build holding the point perfectly.
+
+The tempting fix is to widen the tolerance, which would have hidden a real
+defect at every zoom below that. The `canvas-pos` line already carries the same
+quantity in `f64` — added for O24b for exactly this reason — so the fix was to
+**read the instrument that can still see**. `RESOLUTION_FLOOR` now stops the
+proportional tolerance from ever dropping below what any instrument here can
+resolve: a floor where the proportional tolerance would be smaller, not a
+widening where it is meaningful. Those are different changes and only one of
+them is honest.
+
+**2. A guard phrased as "every notch advances".** The ceiling is reached
+partway through a stage, so the tail of that stage and the whole of the next
+legitimately stand still. The guard exists to catch a wheel that is *panning*
+instead of zooming — which advances on **zero** notches — so it is three
+quarters now, with room to spare.
+
+### And one more, in a check that was not part of this
+
+`measure_hover_shows_what_it_will_take` failed on this fixture, having first
+printed *"legitimate"* about the very condition that made it fail: the sweep
+landed on the banana's outline, a curve has no endpoint to snap to, and the
+assertion below can only be met by a straight run. It now SKIPs with the
+finding named. **A check that fails on correct behaviour is worse than an
+absent one, because its red gets quoted.**
+
+### Full suite
+
+`ui-verify` on `banana.pdf`: **36 verified, 0 failed, 36 skipped** — the skips
+are checks needing a `--doc-point` or a fixture this sheet cannot provide.
+
+---
+
 ## O24e / O24f / O24g — Zoom throws the view away, twice, and `−` undoes a hundredfold
 
 **Asked:** 2026-08-22, one message, three separate faults:

@@ -228,11 +228,32 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let last = entities.last().expect("non-empty by the sweep above");
     report.note(format!("hovering reported: `{}`", last.raw));
     if last.get("segment") != Some("1") {
-        report.note(
-            "the entity under the pointer is not a straight run, so its outline was drawn \
-             instead of a segment — legitimate, and it means the sweep landed on a curve, a \
-              text run or an image rather than on a line",
-        );
+        // ★★ SKIP, not fail. This branch already SAID the case was legitimate
+        // and then fell through to a snap-marker assertion that only a straight
+        // run can satisfy — so on a fixture whose middle is a curve, a text run
+        // or an image, the check reported a defect it had just finished
+        // explaining was not one.
+        //
+        // Found on `banana.pdf`, whose centre is the banana's outline. The
+        // measure tool is correct there: it highlights the entity and offers no
+        // endpoint, because a curve has none to snap to at that point. A check
+        // that fails on correct behaviour is worse than an absent one, because
+        // its red gets quoted.
+        //
+        // ★ Reported as SKIPPED with the finding named, so the run says "this
+        // sheet could not answer the question" rather than "the application is
+        // broken" — and a suite run against a drawing full of straight lines
+        // still exercises it fully.
+        return Err(Error::new(format!(
+            "the entity under the pointer is not a straight run — `{}` — so its outline was \
+             drawn instead of a segment, and there is no endpoint for a snap marker to sit on. \
+             The sweep landed on a curve, a text run or an image rather than on a line, which \
+             is a property of this fixture and not of the application. Drive a fixture with \
+             straight vector geometry near the middle of the page to exercise this. SKIPPED \
+             rather than failed: the assertion below can only be met by a segment, so applying \
+             it here would report correct behaviour as a defect.",
+            last.raw
+        )));
     }
 
     // --- C: and the node, in the same frame --------------------------------
