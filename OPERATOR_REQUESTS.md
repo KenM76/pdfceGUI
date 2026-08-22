@@ -457,23 +457,47 @@ pointer input**, while leaving layout, drawing and the published rects
 entirely correct. That is a much smaller and much stranger problem than any
 of the three this row has previously blamed.
 
-#### 3f. The next experiment, named so it is not re-derived
+#### 3f. ★★★ ANSWERED 2026-08-21: it is a SEQUENCING bug, not a shell defect
 
-**Does a scroll offset reached by the OPERATOR — a wheel or a drag — break
-input the same way?** Drive the wheel until the offset is ~500 with no
-pasteboard and no seeding at all, then click the page.
+The experiment was run, as a permanent check —
+`scrolling_far_keeps_the_canvas_its_pointer_input`:
 
-- If input dies, this is a **pre-existing defect in today's shell** that the
-  pasteboard merely exposes, because today nothing ever reaches an offset
-  that large on a first frame. That would make it a far more serious finding
-  than O23 — the operator scrolls every day.
-- If input survives, the difference is that the offset was *forced* on the
-  frame the content was first laid out, and the fix is to force it one frame
-  later, once egui knows the content size.
+```
+[PASS] scrolling_far_keeps_the_canvas_its_pointer_input
+       before scrolling: 1 pointer event(s)
+       scrolled to an offset of 1600 pt
+       after scrolling: 20 pointer event(s)
+```
 
-★ That single experiment decides between a shell defect and a sequencing
-bug, and nothing should be built until it has been run.
+**1600 pt — more than three times the offset that killed input when it was
+forced — reached with the wheel, and the canvas keeps its pointer.**
 
+So today's shell is fine, the operator is not meeting this, and O23 was not
+being blamed for somebody else's defect. Both good outcomes.
+
+★★ **Which settles the diagnosis by elimination.** It is not the magnitude of
+the offset, not the arithmetic, not the allocation, and not the override
+mechanism. **It is forcing an offset on the frame the content is first laid
+out**, before egui knows how big that content is.
+
+That also explains run 4's failure to take: pre-writing `scroll_area::State`
+was clamped away against an unknown content size. Same cause, other symptom.
+
+#### 3g. The fix, now specific
+
+**Seed one frame late.** Let the first frame lay the content out with egui's
+own offset, and apply the seed on the second, when the content size is known
+and the offset will neither be clamped nor arrive mid-layout.
+
+The cost is one frame showing the unseeded view. At a full-viewport pasteboard
+that frame shows blank paper, which is visible — so the seed wants to be
+**silent**: either the canvas skips its first paint, or the pasteboard starts
+at zero and grows on the second frame. The second is cheaper and has no
+flicker, because a content size that grows under a correct offset moves
+nothing on screen.
+
+★ `canvas_offset_seeded` becomes a small counter rather than a flag, and the
+row's earlier three candidates are all retired.
 #### 4. What survived, and what it is worth
 
 The pure arithmetic was written and proven before it was reverted, and it is

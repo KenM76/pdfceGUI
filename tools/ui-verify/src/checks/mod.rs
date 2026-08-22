@@ -285,6 +285,12 @@ pub mod rotate;
 /// phases and the different wrong build each one catches.
 pub mod save_copy;
 pub mod save_in_place;
+/// ★★★ **Does scrolling a long way cost the canvas its pointer input?**
+///
+/// The experiment that decides whether O23's pasteboard failure is a feature
+/// problem or a defect the operator already meets. It reproduces from an
+/// ordinary wheel scroll with no pasteboard in the build, or it does not.
+pub mod scroll_input;
 /// ★★ **The selection filter is load-bearing, not decorative** — switching a
 /// class off changes what the next click on the same pixel selects.
 ///
@@ -673,6 +679,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(object_clipboard::CopyAndPastePageContent),
         Box::new(clipboard_text::CtrlCCopiesTextToTheOsClipboard),
         Box::new(select_filter::SelectFilterChangesWhatAClickHits),
+        Box::new(scroll_input::ScrollingFarKeepsTheCanvasItsPointerInput),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),
