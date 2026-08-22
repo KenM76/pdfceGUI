@@ -534,6 +534,43 @@ pub fn max_zoom_for_page(page_pts: (f32, f32), pixels_per_point: f32) -> f32 {
     ceiling.clamp(MIN_ZOOM, MAX_ZOOM)
 }
 
+/// The highest zoom this page can reach **when the region tier is
+/// available** — `OPERATOR_REQUESTS.md` O24.
+///
+/// # ★★ Why this is a different function rather than a flag on the old one
+///
+/// [`max_zoom_for_page`] answers a question about a **pixmap**: how far can
+/// this page be magnified before its whole-page raster exceeds
+/// `MAX_PIXMAP_EDGE`? That question is real and its answer is a genuine
+/// ceiling — *for the whole-page tier*.
+///
+/// It is simply **not the question** once the renderer can be asked for a
+/// region. There the pixmap is the size of the window, so the page's own
+/// size stops entering the arithmetic at all and the only remaining limit is
+/// whatever the operator has said they want. Two different questions with
+/// two different answers are two functions; adding a boolean to the first
+/// would have produced one function whose name describes only half of what
+/// it does.
+///
+/// # ★ It is dormant, and deliberately so
+///
+/// Nothing calls this yet. It lands ahead of the canvas change that will,
+/// so that the arithmetic can be reviewed and tested while it cannot affect
+/// a running build — the same staging the render worker's `region` field
+/// took.
+///
+/// `limit` is the operator's own maximum, which becomes a setting. Clamped
+/// to at least [`MIN_ZOOM`] so a nonsensical stored value cannot make the
+/// document unzoomable.
+#[must_use]
+pub fn max_zoom_with_regions(limit: f32) -> f32 {
+    if limit.is_finite() && limit >= MIN_ZOOM {
+        limit
+    } else {
+        MIN_ZOOM
+    }
+}
+
 /// The device-pixel scale to rasterize at for a given logical `zoom`.
 ///
 /// `zoom` is points per PDF user-space unit — what the operator sees as
@@ -730,6 +767,49 @@ fn apply_transform(transform: &Transform, point: Pos2) -> Pos2 {
 #[cfg(test)]
 #[allow(clippy::float_cmp, reason = "ladder rungs are exact f32 literals")] // ui-text-exempt: clippy lint justification, never displayed
 mod tests {
+    /// ★★★ **The page's size stops mattering once regions are available** —
+    /// O24.
+    ///
+    /// This is the whole point of the region tier stated as an assertion. In
+    /// the whole-page tier an A0 sheet hits its ceiling far sooner than a
+    /// business card, because the ceiling is a pixmap size and the page is in
+    /// it. With regions the pixmap is the window, so both pages reach the same
+    /// limit — the operator's.
+    #[test]
+    fn with_regions_the_page_size_no_longer_caps_the_zoom() {
+        let huge = (3370.0_f32, 2384.0); // A0
+        let tiny = (180.0_f32, 252.0); // a business card
+
+        // Whole-page tier: the two pages have very different ceilings.
+        assert!(
+            max_zoom_for_page(tiny, 1.0) > max_zoom_for_page(huge, 1.0),
+            "the whole-page ceiling must depend on the page's size"
+        );
+
+        // Region tier: neither page enters the arithmetic.
+        let limit = 10_000.0_f32;
+        assert!((max_zoom_with_regions(limit) - limit).abs() < f32::EPSILON);
+    }
+
+    /// A stored limit that is nonsense must not make the document unzoomable.
+    #[test]
+    fn a_broken_limit_falls_back_to_the_floor_rather_than_to_zero() {
+        for bad in [f32::NAN, f32::NEG_INFINITY, -5.0, 0.0, MIN_ZOOM / 2.0] {
+            assert!(
+                (max_zoom_with_regions(bad) - MIN_ZOOM).abs() < f32::EPSILON,
+                "{bad} should fall back to MIN_ZOOM"
+            );
+        }
+    }
+
+    /// ★ **Infinity is not a limit**, and is refused rather than passed
+    /// through — an infinite ceiling would propagate into a scroll extent and
+    /// blank the canvas, which is the failure `geometry`'s guards exist for.
+    #[test]
+    fn an_infinite_limit_is_refused() {
+        assert!((max_zoom_with_regions(f32::INFINITY) - MIN_ZOOM).abs() < f32::EPSILON);
+    }
+
     use super::*;
 
     // ---- page-index clamping -------------------------------------
