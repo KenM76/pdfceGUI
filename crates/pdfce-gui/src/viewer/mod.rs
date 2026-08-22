@@ -460,7 +460,26 @@ pub fn ladder_step_up(zoom: f32) -> f32 {
         .iter()
         .copied()
         .find(|&rung| rung > threshold)
-        .unwrap_or(MAX_ZOOM)
+        // ★★★ PAST THE LADDER'S END, KEEP DOUBLING — O24.
+        //
+        // This returned `MAX_ZOOM` and therefore stalled at 800 %, whatever
+        // the operator had configured. `zoom_ceiling` would honour a maximum
+        // of 500,000 % and the `+` button would refuse to climb to it: the
+        // setting honoured by every path except the one he actually uses,
+        // which is the same silently-inert control in a subtler place.
+        //
+        // `OPERATOR_REQUESTS.md` O24 predicted this in its own words — *"the
+        // buttons stop working exactly where the setting starts mattering"* —
+        // and `the_zoom_ladder_can_climb_to_a_configured_maximum` caught it
+        // before it shipped.
+        //
+        // ★ Doubling rather than continuing the hand-tuned 1-2-5 spacing. The
+        // named rungs exist so ordinary zooms land on round percentages a
+        // person recognises; past 800 % there are no round numbers left worth
+        // hitting, and a constant ratio gives a constant NUMBER OF PRESSES per
+        // decade — eleven from 800 % to a million — where a fixed increment
+        // would need thousands.
+        .unwrap_or_else(|| (zoom * 2.0).max(MAX_ZOOM))
 }
 
 /// The next ladder rung strictly below `zoom`, or [`MIN_ZOOM`] if none
@@ -583,6 +602,49 @@ pub fn max_zoom_with_regions(limit: f32) -> f32 {
     }
 }
 
+/// **The zoom ceiling in force**, given the operator's configured maximum.
+///
+/// ★★ The ONE place the two tiers are reconciled, so the two call sites that
+/// need a ceiling — `app::actions::apply` and `canvas::zoom` — cannot answer
+/// the question differently. Their own comments already note that each derives
+/// this per action rather than caching it; deriving it *differently* is the
+/// failure that would follow.
+///
+/// The rule is one sentence: **the whole-page raster limit binds only while the
+/// operator has not asked to go past it.** Below their maximum the pixmap
+/// ceiling is real and is what stops them; above it, the region tier takes over
+/// and the page's size stops entering the arithmetic at all.
+///
+/// `limit_percent` is [`crate::app::prefs::Prefs::max_zoom_percent`]. Passing
+/// the shipped default reproduces the old behaviour exactly, which is what
+/// keeps a fresh install unchanged.
+#[must_use]
+pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: f32) -> f32 {
+    let limit = max_zoom_with_regions(limit_percent / 100.0);
+    let whole_page = max_zoom_for_page(page_pts, pixels_per_point);
+
+    // ★★★ THE DEFAULT MUST CHANGE NOTHING, and a plain `max` breaks that.
+    //
+    // `max_zoom_for_page` can fall BELOW `MAX_ZOOM` on a large page at a high
+    // display scale — an A1 sheet at 1.5x tops out at 690 %, not 800 % —
+    // because the pixmap ceiling bites first. A plain `limit.max(whole_page)`
+    // would then raise that page's ceiling to the operator's default of 800 %
+    // and rasterize a pixmap the engine refuses.
+    //
+    // Caught by `the_default_setting_reproduces_the_old_ceiling_exactly`, which
+    // is exactly why that test walks three page sizes and three display scales
+    // rather than one of each.
+    //
+    // So the region tier is only allowed to lift the ceiling when the operator
+    // has asked for MORE THAN THE SHIPPED DEFAULT. Below that, nothing about
+    // the old behaviour is touched — which is the property that makes this
+    // feature safe to land.
+    if limit_percent > crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT {
+        limit.max(whole_page)
+    } else {
+        whole_page
+    }
+}
 /// The device-pixel scale to rasterize at for a given logical `zoom`.
 ///
 /// `zoom` is points per PDF user-space unit — what the operator sees as
@@ -779,6 +841,89 @@ fn apply_transform(transform: &Transform, point: Pos2) -> Pos2 {
 #[cfg(test)]
 #[allow(clippy::float_cmp, reason = "ladder rungs are exact f32 literals")] // ui-text-exempt: clippy lint justification, never displayed
 mod tests {
+    /// ★★★ **The ladder can actually REACH a configured maximum**, stepping.
+    ///
+    /// `zoom_ceiling` answering a big number is necessary and not sufficient:
+    /// the `+` button walks `ZOOM_LADDER`, which ends at 8.0. If stepping
+    /// stopped there the setting would be honoured by every code path except
+    /// the one the operator actually uses, which is the same silently-inert
+    /// control in a subtler place.
+    ///
+    /// ★ This is the gap `OPERATOR_REQUESTS.md` O24 predicted in its own
+    /// words — *"the buttons stop working exactly where the setting starts
+    /// mattering"* — asserted rather than left to be discovered.
+    #[test]
+    fn the_zoom_ladder_can_climb_to_a_configured_maximum() {
+        let ceiling = zoom_ceiling((1584.0, 1224.0), 1.0, 500_000.0);
+        let mut zoom = 1.0_f32;
+        for _ in 0..200 {
+            let mut view = ViewState {
+                zoom,
+                ..ViewState::default()
+            };
+            view.zoom_in(ceiling);
+            if (view.zoom - zoom).abs() < f32::EPSILON {
+                break;
+            }
+            zoom = view.zoom;
+        }
+        assert!(
+            zoom > 100.0,
+            "stepping stalled at {zoom}x against a ceiling of {ceiling}x — the ladder \
+             cannot reach the configured maximum, so the setting is inert for the +/- \
+             buttons even though `zoom_ceiling` honours it"
+        );
+    }
+
+    /// ★★★ **THE SETTING IS NOT DECORATIVE** — the whole risk of O24.
+    ///
+    /// `OPERATOR_REQUESTS.md` O24 warned in as many words that shipping the
+    /// setting without the mechanism would produce *"a control that is drawn,
+    /// accepted, persisted, and quietly overruled downstream"* — the operator
+    /// types 100,000 % and the zoom stops near a thousand with nothing said.
+    ///
+    /// This is that failure, stated as an assertion. `zoom_ceiling` must
+    /// answer the operator's configured maximum wherever it is higher than
+    /// the whole-page raster limit, on a page large enough that the raster
+    /// limit really does bind.
+    #[test]
+    fn a_configured_maximum_is_honoured_past_the_whole_page_raster_limit() {
+        let a1 = (1584.0_f32, 1224.0);
+        let whole_page = max_zoom_for_page(a1, 1.0);
+        assert!(
+            whole_page < 20.0,
+            "the premise: an A1 sheet's whole-page ceiling is around 1,000% ({whole_page})"
+        );
+
+        for percent in [10_000.0_f32, 1_000_000.0, 1e12] {
+            let ceiling = zoom_ceiling(a1, 1.0, percent);
+            assert!(
+                (ceiling - percent / 100.0).abs() / (percent / 100.0) < 1e-6,
+                "{percent}% was overruled: ceiling {ceiling}, wanted {}",
+                percent / 100.0
+            );
+        }
+    }
+
+    /// ★★ **…and the shipped default changes nothing.**
+    ///
+    /// A fresh install must behave exactly as the shell behaved before this
+    /// setting existed, which is what makes the feature safe to land: the
+    /// whole-page raster limit still binds below the operator's maximum.
+    #[test]
+    fn the_default_setting_reproduces_the_old_ceiling_exactly() {
+        for page in [(1584.0_f32, 1224.0), (612.0, 792.0), (306.0, 396.0)] {
+            for ppp in [1.0_f32, 1.5, 2.0] {
+                let before = max_zoom_for_page(page, ppp);
+                let after = zoom_ceiling(page, ppp, crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT);
+                assert!(
+                    (before - after).abs() < 1e-4,
+                    "page {page:?} at {ppp}x: {before} became {after}"
+                );
+            }
+        }
+    }
+
     /// ★★★ **The page's size stops mattering once regions are available** —
     /// O24.
     ///
@@ -885,12 +1030,40 @@ mod tests {
         }
     }
 
+    /// ★★ **Stepping DOWN saturates; stepping UP no longer does** — O24.
+    ///
+    /// This asserted `ladder_step_up(MAX_ZOOM) == MAX_ZOOM` from the day it was
+    /// written until 2026-08-22, and it was right to: the ladder ended at 800 %
+    /// and there was nowhere above it to go. With a configurable maximum there
+    /// is, and saturating here would make the `+` button inert exactly where
+    /// the setting starts mattering.
+    ///
+    /// ★ So the property changes shape rather than disappearing: **the step
+    /// keeps climbing, and what stops it is the CEILING** — `ViewState::zoom_in`
+    /// clamps against `zoom_ceiling`, which is where the limit belongs. A
+    /// stepper that enforced its own maximum would be a second opinion about
+    /// how far the operator may zoom.
+    ///
+    /// The downward half is unchanged: `MIN_ZOOM` is a floor with nothing
+    /// below it, and 10 % of a page is not a number anybody has asked to go
+    /// under.
     #[test]
-    fn ladder_stepping_saturates_rather_than_wrapping() {
-        assert_eq!(ladder_step_up(MAX_ZOOM), MAX_ZOOM);
-        assert_eq!(ladder_step_up(999.0), MAX_ZOOM);
+    fn ladder_stepping_climbs_past_its_end_and_still_saturates_downward() {
+        assert_eq!(ladder_step_up(MAX_ZOOM), MAX_ZOOM * 2.0);
+        assert_eq!(ladder_step_up(999.0), 1998.0);
         assert_eq!(ladder_step_down(MIN_ZOOM), MIN_ZOOM);
         assert_eq!(ladder_step_down(0.001), MIN_ZOOM);
+
+        // ★ And the ceiling is what actually stops a climb, not the ladder.
+        let mut view = ViewState {
+            zoom: MAX_ZOOM,
+            ..ViewState::default()
+        };
+        view.zoom_in(MAX_ZOOM);
+        assert_eq!(
+            view.zoom, MAX_ZOOM,
+            "with the ceiling at 800% the step must not exceed it"
+        );
     }
 
     #[test]

@@ -194,6 +194,12 @@ pub(super) struct Frame<'a> {
     /// [`crate::canvas::pick`]'s header carries the argument for why those
     /// are two questions with two owners rather than one flag.
     pub(super) pick: PickFilter,
+    /// ★ **The operator's configured maximum zoom**, as a percentage — O24.
+    ///
+    /// The fifth member of the sampled-once-per-frame set, here for the same
+    /// reason as the other four: a marquee-zoom's ceiling must be the one that
+    /// was in force when the gesture started, not one re-read mid-drag.
+    pub(super) max_zoom_percent: f32,
     /// ★ The colour and width the next markup will be authored with.
     ///
     /// Beside `caps` and `tool` because it belongs to the same triple: `tool`
@@ -317,6 +323,7 @@ pub(super) fn interact(
         tool: active_tool,
         caps,
         pick,
+        max_zoom_percent,
         pen,
     } = frame_ctx;
     let (clip, active_tool, caps, pen) = (*clip, *active_tool, *caps, *pen);
@@ -1220,7 +1227,7 @@ pub(super) fn interact(
     // bar's readout states the scale that was actually pinned. See
     // [`zoom::ZoomOutcome::ceiling_changed_the_answer`].
     if let Some(rect) = zoom_region {
-        let _ = zoom::zoom_to_rect(&ctx, doc, rect, CANVAS_MARGIN, actions);
+        let _ = zoom::zoom_to_rect(&ctx, doc, rect, CANVAS_MARGIN, *max_zoom_percent, actions);
     }
 
     // ---- 8. draw --------------------------------------------------------

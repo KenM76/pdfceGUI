@@ -508,6 +508,7 @@ impl PdfceApp {
                         ctx,
                         doc,
                         crate::canvas::CANVAS_MARGIN,
+                        self.prefs.max_zoom_percent,
                         actions,
                     );
                     crate::app::status::decline::record(outcome);

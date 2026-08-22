@@ -112,6 +112,34 @@ pub use chrome::{DEFAULT_UI_SCALE, MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
 pub use opening::{OpeningFit, PageChrome};
 pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
 
+/// The shipped maximum zoom, as a percentage — today's ceiling, so a fresh
+/// install behaves exactly as the shell did before O24.
+pub const DEFAULT_MAX_ZOOM_PERCENT: f32 = 800.0;
+
+/// The lowest a maximum-zoom setting may be. Below this the operator could
+/// configure a document they cannot magnify at all.
+pub const MIN_MAX_ZOOM_PERCENT: f32 = 10.0;
+
+/// The highest a maximum-zoom setting may be — a trillion percent, which is
+/// the figure the operator named and what the engine's own deep-zoom work is
+/// measured against.
+///
+/// ★ A ceiling exists at all only because `f32` must stay finite; it is not a
+/// judgement about what is sensible. He was explicit that the performance
+/// trade is his to make.
+pub const MAX_MAX_ZOOM_PERCENT: f32 = 1e12;
+
+/// Format a percentage for the preferences file without an exponent or a
+/// trailing `.0`.
+///
+/// ★ `1e12` is what `f32::to_string` produces for a trillion, and a file the
+/// operator opens in a text editor should say `1000000000000`. The file is
+/// his to read and edit; a machine-shaped number there is a small rudeness
+/// with a real cost, because he cannot tell at a glance what he set.
+fn format_percent(value: f32) -> String {
+    format!("{value:.0}")
+}
+
 /// The file this store is written to, beside `settings.txt`.
 // ui-text-exempt: a file name, never displayed.
 pub const PREFS_FILE: &str = "preferences.txt";
@@ -147,6 +175,31 @@ pub struct Prefs {
     /// file holds and what the control edits; `render::settle` converts once,
     /// at the one place it is read.
     pub zoom_settle_ms: u64,
+    /// ★★ **The highest zoom the operator wants to be able to reach**, as a
+    /// percentage — `OPERATOR_REQUESTS.md` O24.
+    ///
+    /// > *"add a setting so the user can set the maximum zoom … I'm not
+    /// > concerned about the practicality of offering such a high zoom. it is
+    /// > up to the user to determine how much of a performance hit they want
+    /// > to take."*
+    ///
+    /// That last sentence is why this has no guard, no warning and no
+    /// preflight. The trade is explicitly his; the setting's whole job is to
+    /// be honest about what it does and to actually do it.
+    ///
+    /// ★ It is also the control he asked for to **compare the two rendering
+    /// paths**: the shell rasterizes the whole page while it can and switches
+    /// to the visible region only when it cannot. Set this low and he never
+    /// leaves the whole-page path; set it high and he exercises the region
+    /// path. A threshold rather than a mode, which explains itself where a
+    /// checkbox would have to be explained.
+    ///
+    /// Stored as a percentage because that is what the status bar shows and
+    /// what he said — *"1,000,000,000,000%"*. `f32` is exact to 2^24, so a
+    /// percentage stays whole to 16.7 million; beyond that the stored value
+    /// rounds, which is immaterial at zooms where one screen pixel is a
+    /// millionth of a point.
+    pub max_zoom_percent: f32,
     /// How the first page of a newly opened document is sized to the window.
     ///
     /// ★ Read **once**, by [`Self::seed_view`], in the one place a document is
@@ -201,6 +254,11 @@ impl Default for Prefs {
             render_quality: RenderQuality::default(),
             page_cache: PageCache::default(),
             zoom_settle_ms: DEFAULT_SETTLE_MS,
+            // ★ The shipped default is today's ceiling, so a fresh install
+            // behaves exactly as the shell behaved before this existed.
+            // Raising it is the operator's decision, which is the whole
+            // point of the setting.
+            max_zoom_percent: DEFAULT_MAX_ZOOM_PERCENT,
             opening_fit: OpeningFit::default(),
             chrome: PageChrome::default(),
             ui_scale: DEFAULT_UI_SCALE,
@@ -343,6 +401,29 @@ impl Prefs {
                         line,
                     }),
                 },
+                // ui-text-exempt: a file KEY, matched literally.
+                "max_zoom_percent" => match value.parse::<f32>() {
+                    Ok(pct) if pct.is_finite() => {
+                        let clamped = pct.clamp(MIN_MAX_ZOOM_PERCENT, MAX_MAX_ZOOM_PERCENT);
+                        if (clamped - pct).abs() > f32::EPSILON {
+                            notes.push(PrefNote::Clamped {
+                                key: key.to_owned(),
+                                value: value.to_owned(),
+                                line,
+                            });
+                        }
+                        prefs.max_zoom_percent = clamped;
+                    }
+                    // ★ A non-finite value is a BadValue rather than a clamp.
+                    // `inf` would propagate into a scroll extent and blank the
+                    // canvas, and reporting it as "clamped" would imply the
+                    // operator wrote something reasonable.
+                    _ => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "zoom_settle_ms" => match value.parse::<u64>() {
                     Ok(ms) => {
                         let clamped = ms.clamp(MIN_SETTLE_MS, MAX_SETTLE_MS);
@@ -477,6 +558,28 @@ impl Prefs {
         // ui-text-exempt: a file KEY, as above.
         out.push_str("page_cache = ");
         out.push_str(self.page_cache.key());
+        out.push('\n');
+        out.push_str(
+            "\n\
+             # How long a zoom must stop changing before the page is redrawn\n\
+             # sharply, in milliseconds. 20 to 1000. Lower feels more immediate\n\
+             # and redraws more; higher swallows a whole wheel gesture.\n",
+        );
+        out.push_str(
+            "\n\
+             # The highest zoom you can reach, as a percentage. 800 is the\n\
+             # shipped default and is what earlier versions allowed.\n\
+             #\n\
+             # Above roughly 1000% pdfce stops drawing the whole page and draws\n\
+             # only what is on screen, because a whole-page image would exceed\n\
+             # what can be rasterized. Panning is free below that point and\n\
+             # costs a redraw above it -- so this is also the dial for trying\n\
+             # the two out against each other.\n\
+             # 10 to 1000000000000.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("max_zoom_percent = ");
+        out.push_str(&format_percent(self.max_zoom_percent));
         out.push('\n');
         out.push_str(
             "\n\
@@ -646,6 +749,10 @@ mod tests {
                     render_quality: *quality,
                     page_cache: PageCache::default(),
                     zoom_settle_ms: 275,
+                    // A non-default well past the shipped ceiling, so the
+                    // round trip is proved on a value that MATTERS rather
+                    // than on 800.
+                    max_zoom_percent: 1_000_000.0,
                     opening_fit: *fit,
                     // Deliberately not all-true and not all-false: an assignment
                     // that crossed two of the three fields would survive either.
@@ -874,6 +981,86 @@ mod tests {
         );
     }
 
+    /// ★★★ **A trillion percent is accepted**, which is the figure the
+    /// operator named — `OPERATOR_REQUESTS.md` O24.
+    ///
+    /// The point of the setting is that the performance trade is his; a ceiling
+    /// exists only because `f32` must stay finite.
+    #[test]
+    fn a_trillion_percent_is_accepted_because_the_trade_is_the_operators() {
+        let (prefs, notes) = Prefs::parse(
+            "max_zoom_percent = 1000000000000
+",
+        );
+        assert!((prefs.max_zoom_percent - 1e12).abs() / 1e12 < 1e-6);
+        assert!(
+            notes.is_empty(),
+            "a stated maximum must not be second-guessed"
+        );
+    }
+
+    /// ★★ **A non-finite value is refused, not clamped.**
+    ///
+    /// `inf` would propagate into a scroll extent and blank the canvas, which is
+    /// the failure `canvas::geometry`'s guards exist for. Reporting it as
+    /// *clamped* would also imply the operator wrote something reasonable.
+    #[test]
+    fn an_infinite_maximum_is_a_bad_value_rather_than_a_clamp() {
+        for text in [
+            "max_zoom_percent = inf
+",
+            "max_zoom_percent = NaN
+",
+        ] {
+            let (prefs, notes) = Prefs::parse(text);
+            assert_eq!(
+                prefs.max_zoom_percent, DEFAULT_MAX_ZOOM_PERCENT,
+                "{text:?} must leave the default in place"
+            );
+            assert!(
+                notes.iter().any(|n| matches!(n, PrefNote::BadValue { .. })),
+                "{text:?} should be reported as a bad value"
+            );
+        }
+    }
+
+    /// The default is today's ceiling, so a fresh install behaves exactly as the
+    /// shell behaved before this setting existed.
+    #[test]
+    fn the_default_maximum_is_the_shipped_ceiling() {
+        let (prefs, _) = Prefs::parse("");
+        assert!((prefs.max_zoom_percent - 800.0).abs() < f32::EPSILON);
+    }
+
+    /// ★ **The file says a whole number, not `1e12`.**
+    ///
+    /// The preferences file is the operator's to read and edit; a machine-shaped
+    /// number there means he cannot tell at a glance what he set.
+    ///
+    /// ★★ And it records something the operator will otherwise discover by
+    /// reading his own file: **`f32` cannot hold a trillion exactly.** It
+    /// stores `999,999,995,904` — a rounding of four thousand parts in a
+    /// trillion, four ten-millionths of one percent. At a zoom where one screen
+    /// pixel is a millionth of a point, that difference is unobservable; but a
+    /// value written back as a number he did not type is worth knowing about
+    /// rather than being mistaken for a bug.
+    #[test]
+    fn the_file_writes_a_readable_number_rather_than_an_exponent() {
+        let prefs = Prefs {
+            max_zoom_percent: 1e12,
+            ..Prefs::default()
+        };
+        let text = prefs.write_to_string();
+        assert!(
+            text.contains("max_zoom_percent = 999999995904"),
+            "the file should spell the number out rather than using an exponent: {text}"
+        );
+        assert!(
+            !text.contains("e12"),
+            "no exponent should reach the file: {text}"
+        );
+    }
+
     /// An out-of-range settle is clamped and the clamp is reported.
     ///
     /// Reported, not silent: the operator wrote a number and is getting a
@@ -985,6 +1172,7 @@ mod tests {
             // no `page_cache` key at all.
             page_cache: PageCache::Maximum,
             zoom_settle_ms: 400,
+            max_zoom_percent: 25_000.0,
             opening_fit: OpeningFit::ActualSize,
             chrome: PageChrome {
                 rulers: true,

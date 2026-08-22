@@ -355,6 +355,8 @@ pub struct Sampled {
     /// switching a class on here can never grant a capability the mode
     /// withholds. See [`pick`](mod@pick).
     pub pick: PickFilter,
+    /// ★ The operator's configured maximum zoom, as a percentage (O24).
+    pub max_zoom_percent: f32,
     /// The colour and width the next markup will be authored with.
     pub pen: crate::canvas::markup::pen::Pen,
 }
@@ -428,7 +430,12 @@ fn show_in(
     sampled: Sampled,
     actions: &mut Vec<Action>,
 ) -> (Vec<HandlerToken>, Option<CanvasGeometry>) {
-    let Sampled { caps, pick, pen } = sampled;
+    let Sampled {
+        caps,
+        pick,
+        max_zoom_percent,
+        pen,
+    } = sampled;
     if doc.pages.is_empty() {
         let placeholder = ui.centered_and_justified(|ui| ui.label(crate::text::canvas_no_pages()));
         // Say so on the trace rather than staying silent. A consumer that
@@ -978,6 +985,7 @@ fn show_in(
             tool: active_tool,
             caps,
             pick,
+            max_zoom_percent,
         },
         host,
         find,

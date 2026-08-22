@@ -623,6 +623,11 @@ pub fn plan_framing(
     region: Rect,
     margin: f32,
     pixels_per_point: f32,
+    // ★ O24: the operator's configured maximum, as a percentage. Threaded
+    // rather than read from a global for the same reason `pixels_per_point`
+    // is — this function stays pure with respect to egui and to app state,
+    // which is what keeps it reviewable and unit-testable.
+    max_zoom_percent: f32,
 ) -> FramingPlan {
     let region = framed_region(region);
     let viewport = (
@@ -636,7 +641,7 @@ pub fn plan_framing(
     // derives per action.
     let applied = viewer::clamp_zoom(
         requested,
-        viewer::max_zoom_for_page(frame.extent, pixels_per_point),
+        viewer::zoom_ceiling(frame.extent, pixels_per_point, max_zoom_percent),
     );
     FramingPlan {
         outcome: ZoomOutcome::Zoomed { requested, applied },
@@ -655,10 +660,15 @@ pub fn zoom_to_rect(
     doc: &mut OpenDoc,
     region: Rect,
     margin: f32,
+    // ★ O24: the operator's configured maximum, threaded to `plan_framing`.
+    max_zoom_percent: f32,
     actions: &mut Vec<Action>,
 ) -> ZoomOutcome {
     // ui-text-exempt: trace field value, never displayed
-    trace_outcome("rect", frame_rect(ctx, doc, region, margin, actions))
+    trace_outcome(
+        "rect",
+        frame_rect(ctx, doc, region, margin, max_zoom_percent, actions),
+    )
 }
 
 /// Apply a [`FramingPlan`] to the document — the body both framing verbs
@@ -669,12 +679,20 @@ fn frame_rect(
     doc: &mut OpenDoc,
     region: Rect,
     margin: f32,
+    // ★ O24: the operator's configured maximum, threaded to `plan_framing`.
+    max_zoom_percent: f32,
     actions: &mut Vec<Action>,
 ) -> ZoomOutcome {
     let Some(frame) = last_frame(ctx) else {
         return ZoomOutcome::NoCanvas;
     };
-    let plan = plan_framing(&frame, region, margin, ctx.pixels_per_point());
+    let plan = plan_framing(
+        &frame,
+        region,
+        margin,
+        ctx.pixels_per_point(),
+        max_zoom_percent,
+    );
     doc.zoom_anchor = Some(plan.anchor);
     if let ZoomOutcome::Zoomed { applied, .. } = plan.outcome {
         actions.push(Action::ZoomTo(applied));
@@ -714,13 +732,15 @@ pub fn zoom_to_selection(
     ctx: &Context,
     doc: &mut OpenDoc,
     margin: f32,
+    // ★ O24: the operator's configured maximum, threaded to `plan_framing`.
+    max_zoom_percent: f32,
     actions: &mut Vec<Action>,
 ) -> ZoomOutcome {
     let Some(bounds) = doc.selection.outline_union() else {
         // ui-text-exempt: trace field value, never displayed
         return trace_outcome("selection", ZoomOutcome::NoBounds);
     };
-    let outcome = frame_rect(ctx, doc, bounds, margin, actions);
+    let outcome = frame_rect(ctx, doc, bounds, margin, max_zoom_percent, actions);
     // ui-text-exempt: trace field value, never displayed
     trace_outcome("selection", outcome)
 }
@@ -1130,6 +1150,7 @@ mod tests {
             Rect::from_min_max(Pos2::new(50.0, 50.0), Pos2::new(51.0, 51.0)),
             16.0,
             1.0,
+            crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT,
         );
         match plan.outcome {
             ZoomOutcome::Zoomed { requested, applied } => {
@@ -1153,6 +1174,7 @@ mod tests {
             Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 150.0)),
             16.0,
             1.0,
+            crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT,
         );
         match plan.outcome {
             ZoomOutcome::Zoomed { requested, applied } => {

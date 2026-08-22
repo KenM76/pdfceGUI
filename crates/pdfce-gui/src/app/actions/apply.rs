@@ -262,7 +262,15 @@ impl PdfceApp {
         // page step, a window dragged to a different monitor). Caching it
         // is how a guard passes its tests and still lets the operator zoom
         // into an allocation failure on the one machine that matters.
-        let max_zoom = viewer::max_zoom_for_page(doc.current_extent(), pixels_per_point);
+        // ★★ O24: the ceiling now honours the operator's configured maximum.
+        // `zoom_ceiling` is the one place the whole-page limit and the region
+        // tier are reconciled, so this site and `canvas::zoom` cannot answer
+        // the question differently.
+        let max_zoom = viewer::zoom_ceiling(
+            doc.current_extent(),
+            pixels_per_point,
+            self.prefs.max_zoom_percent,
+        );
         let page_count = doc.pages.len();
 
         // ★ Which zoom changes are DISCRETE, and why that matters.

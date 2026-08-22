@@ -364,7 +364,13 @@ impl PdfceApp {
         let pen = self.pen;
         // The three per-frame samples, bundled — see `canvas::Sampled` for why
         // they belong together and why they are read here rather than inside.
-        let sampled = crate::canvas::Sampled { caps, pick, pen };
+        let max_zoom_percent = self.prefs.max_zoom_percent;
+        let sampled = crate::canvas::Sampled {
+            caps,
+            pick,
+            max_zoom_percent,
+            pen,
+        };
         let find = &self.find;
         if let Status::Open(doc) = &mut self.status {
             let tokens = crate::canvas::show(ui, doc, host.as_ref(), find, sampled, actions);

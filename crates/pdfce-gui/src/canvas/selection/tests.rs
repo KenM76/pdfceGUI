@@ -284,8 +284,14 @@ fn navigating_the_view_never_alters_the_selection() {
 
     // A marquee zoom to a region of the page.
     let region = Rect::from_min_max(Pos2::new(10.0, 10.0), Pos2::new(90.0, 120.0));
-    if let ZoomOutcome::Zoomed { applied, .. } =
-        zoom::plan_framing(&frame, region, 16.0, 1.0).outcome
+    if let ZoomOutcome::Zoomed { applied, .. } = zoom::plan_framing(
+        &frame,
+        region,
+        16.0,
+        1.0,
+        crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT,
+    )
+    .outcome
     {
         view.set_zoom(applied, MAX_ZOOM);
     }
@@ -294,8 +300,14 @@ fn navigating_the_view_never_alters_the_selection() {
     let bounds = sel
         .outline_union()
         .expect("a resolved selection has bounds to frame");
-    if let ZoomOutcome::Zoomed { applied, .. } =
-        zoom::plan_framing(&frame, bounds, 16.0, 1.0).outcome
+    if let ZoomOutcome::Zoomed { applied, .. } = zoom::plan_framing(
+        &frame,
+        bounds,
+        16.0,
+        1.0,
+        crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT,
+    )
+    .outcome
     {
         view.set_zoom(applied, MAX_ZOOM);
     }
