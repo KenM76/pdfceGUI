@@ -980,18 +980,29 @@ fn show_in(
                     let anchor = doc
                         .deep_anchor
                         .unwrap_or_else(viewer::deep::DeepAnchor::origin);
-                    let r = anchor.visible_rect((avail.x, avail.y), f64::from(doc.view.zoom));
-                    Some((r.0 as f32, r.1 as f32, r.2 as f32, r.3 as f32))
+                    // ★★★ HANDED ON IN `f64` — O24i. This used to cast to
+                    // `f32` here, and that one line is what stopped detail
+                    // improving past about 10⁷ %: the rect is a few times
+                    // 10⁻⁸ pt wide at an absolute position near 540, and no
+                    // `f32` holds both magnitudes. See
+                    // `render::strategy::region_for`.
+                    Some(anchor.visible_rect((avail.x, avail.y), f64::from(doc.view.zoom)))
                 } else {
                     let seen = visible_rect.intersect(place);
                     if seen.width() > 0.0 && seen.height() > 0.0 {
                         let sx = extent.0 / place.width();
                         let sy = extent.1 / place.height();
+                        // ★ Widened to `f64`, losslessly. Below the deep
+                        // threshold the `f32` arithmetic was never the
+                        // problem — the rect is a fair fraction of the page
+                        // there — but `page_region` takes one type, and a
+                        // second entry point that narrowed would be the seam
+                        // the defect crawled back through.
                         Some((
-                            (seen.min.x - place.min.x) * sx,
-                            (seen.min.y - place.min.y) * sy,
-                            (seen.max.x - place.min.x) * sx,
-                            (seen.max.y - place.min.y) * sy,
+                            f64::from((seen.min.x - place.min.x) * sx),
+                            f64::from((seen.min.y - place.min.y) * sy),
+                            f64::from((seen.max.x - place.min.x) * sx),
+                            f64::from((seen.max.y - place.min.y) * sy),
                         ))
                     } else {
                         None

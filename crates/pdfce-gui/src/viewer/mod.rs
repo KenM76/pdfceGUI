@@ -427,8 +427,20 @@ impl ViewState {
         dead_code,
         reason = "the zoom readout is a status-bar control and lands at stage S2; kept with the ladder it reports on so the rounding rule cannot be re-derived differently" // ui-text-exempt: clippy lint justification, never displayed
     )]
-    pub fn zoom_percent(&self) -> u32 {
-        (self.zoom * 100.0).round().max(0.0) as u32
+    pub fn zoom_percent(&self) -> f64 {
+        // ★★★ `f64`, not `u32` — `OPERATOR_REQUESTS.md` O24j.
+        //
+        // A saturating `as u32` cast clamps at 4,294,967,295, so the status
+        // bar read **4294967295%** at a trillion percent — u32::MAX presented
+        // as a measurement. Seen in the deep-zoom screenshot gallery, and it
+        // is the kind of number an operator quite reasonably reads as a crash.
+        //
+        // ★ The type was right when `MAX_ZOOM` was 8.0 and every reachable
+        // value fitted in three digits. O24 raised the ceiling to 10¹² and did
+        // not revisit it — which is the recurring shape of this whole request:
+        // a limit lifted in one place while a narrower type downstream keeps
+        // enforcing the old one silently.
+        f64::from(self.zoom * 100.0).max(0.0)
     }
 }
 
@@ -1026,9 +1038,44 @@ mod tests {
     fn zoom_percent_rounds_rather_than_truncating() {
         let mut v = ViewState::default();
         v.set_zoom(0.999_97, MAX_ZOOM);
-        assert_eq!(v.zoom_percent(), 100);
+        assert_eq!(crate::text::status::zoom_percent(v.zoom_percent()), "100%");
         v.set_zoom(0.335, MAX_ZOOM);
-        assert_eq!(v.zoom_percent(), 34);
+        assert_eq!(crate::text::status::zoom_percent(v.zoom_percent()), "34%");
+    }
+
+    /// ★★★ O24j — **the readout must survive the ceiling it now offers.**
+    ///
+    /// `zoom_percent` returned a `u32`, and `as u32` saturates — so at a
+    /// trillion percent the status bar showed **4294967295%**, `u32::MAX`
+    /// presented as a measurement. Found in the deep-zoom screenshot gallery,
+    /// which is the only instrument that reads the number an operator reads.
+    ///
+    /// ★ Asserted against the FORMATTED string, because that is the artefact
+    /// with the defect in it. A test of the numeric value would have passed on
+    /// a build that formatted it through a narrower type further downstream.
+    #[test]
+    fn the_readout_survives_the_whole_configured_range() {
+        let mut v = ViewState::default();
+        for (zoom, want) in [
+            (1.0_f32, "100%"),
+            (8.0, "800%"),
+            (1.0e6, "100000000%"),
+            // ★★ Not "1000000000000%", and the difference is not a defect.
+            // `ViewState::zoom` is an `f32`, so the nearest representable
+            // value to 10¹⁰ is 9,999,999,827,968 / 1000 — and the readout
+            // shows what the view IS rather than what was asked for. Pinned
+            // exactly, so a future change that starts rounding the display
+            // instead of reporting it has to be a deliberate one.
+            (1.0e10, "999999995904%"),
+        ] {
+            v.set_zoom(zoom, f32::MAX);
+            let shown = crate::text::status::zoom_percent(v.zoom_percent());
+            assert_eq!(shown, want, "zoom {zoom} showed {shown}");
+            assert!(
+                !shown.contains("4294967295"),
+                "the readout saturated at u32::MAX"
+            );
+        }
     }
 
     // ---- fit scale -----------------------------------------------

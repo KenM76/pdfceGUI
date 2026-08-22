@@ -613,8 +613,13 @@ pub fn zoom_in_tooltip() -> &'static str {
 /// to a named value, and inventing a text box in front of one would be the
 /// placeholder the project's invariants forbid.
 #[must_use]
-pub fn zoom_percent(percent: u32) -> String {
-    format!("{percent}%")
+pub fn zoom_percent(percent: f64) -> String {
+    // ★ `{:.0}` rather than an integer cast — O24j. The value now spans 10 % to
+    // a trillion percent and no integer type covers it without either
+    // saturating or being wider than the thing it describes. Rounding at the
+    // formatter keeps the readout an exact whole number of percent at every
+    // magnitude, which is what it always showed.
+    format!("{percent:.0}%")
 }
 
 /// Hover text for the zoom readout.
@@ -1131,8 +1136,8 @@ mod tests {
     /// A zoom readout is a percentage.
     #[test]
     fn the_zoom_readout_carries_its_unit() {
-        assert_eq!(zoom_percent(100), "100%");
-        assert_eq!(zoom_percent(8), "8%");
+        assert_eq!(zoom_percent(100.0), "100%");
+        assert_eq!(zoom_percent(8.0), "8%");
     }
 
     /// **The three fit labels are distinct, and so are their tooltips.**

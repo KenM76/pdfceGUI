@@ -67,7 +67,7 @@
 /// terms — which is the entire point of the region tier: **the raster stops
 /// scaling with the zoom**, so a constant multiple of the window is affordable
 /// where a constant multiple of the page would not be.
-pub const OVERSCAN: f32 = 0.5;
+pub const OVERSCAN: f64 = 0.5;
 
 /// What to hand the renderer for one page at one zoom.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -132,7 +132,8 @@ pub fn for_page(page_pts: (f32, f32), raster_scale: f32) -> Strategy {
 /// that grew it differently would produce a cache that never hits, because two
 /// requests for the same view would ask for different rectangles.
 #[must_use]
-pub fn overscanned(visible: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+/// ★★ `f64`, since 2026-08-22 — see [`region_for`] for what `f32` cost here.
+pub fn overscanned(visible: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
     let (x0, y0, x1, y1) = visible;
     let w = (x1 - x0).abs();
     let h = (y1 - y0).abs();
@@ -163,8 +164,37 @@ pub fn overscanned(visible: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
 /// constant in page points would be a different distance on screen at every
 /// zoom, so the redraw cadence would vary with magnification for no reason the
 /// operator could see.
+/// # ★★★ `f64`, and this is the arithmetic that forces it
+///
+/// `OPERATOR_REQUESTS.md` **O24i**. The snap divides a page coordinate by the
+/// grid step:
+///
+/// ```text
+/// snapped_x = (x0 / step_x).floor() * step_x
+/// ```
+///
+/// At a trillion percent the visible extent is about 5 × 10⁻⁸ pt, so `step_x`
+/// is 2 × 10⁻⁸ — while `x0` is an ordinary page coordinate near 540. Their
+/// quotient is **2 × 10¹⁰**, and an `f32`'s last exactly representable integer
+/// is 2²⁴ ≈ 1.7 × 10⁷. The `.floor()` is then applied to a number that has
+/// already lost its integer part, and the snapped origin comes back quantised
+/// to tens of `f32` ULPs.
+///
+/// ★ Measured before it was fixed: from about 10⁷ % the region stopped
+/// shrinking and floored at 2.4414 × 10⁻³ × 3.0213 × 10⁻³ pt — **fifty
+/// thousand times** the 4.8 × 10⁻⁸ × 6.2 × 10⁻⁸ the viewport actually showed.
+/// The raster was still produced and `drawn=1` was still traced, so every
+/// existing check passed; what the operator saw was a fraction of one texel
+/// stretched across the window, which reads as blank paper.
+///
+/// ★★ The magnitudes here are the reason. This function mixes an **absolute
+/// page position** with a **relative extent**, and at deep zoom those differ by
+/// ten orders of magnitude — which is exactly the shape `f32` cannot hold. The
+/// rest of the region path was already `f64` (`page_region` returns a `f64`
+/// rect, `RenderKey` stores `f64` bits); this was the one narrowing left, and
+/// it was narrowing the value the whole tier exists to compute.
 #[must_use]
-pub fn region_for(visible: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+pub fn region_for(visible: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
     let (x0, y0, x1, y1) = visible;
     let w = (x1 - x0).abs();
     let h = (y1 - y0).abs();
@@ -303,16 +333,16 @@ mod tests {
         for zoom in [1.0_f32, 23.82, 1_000.0, 100_000.0] {
             // What the operator can see, in page points, at this zoom.
             let visible_pt = viewport_px / zoom;
-            let r = region_for((0.0, 0.0, visible_pt, visible_pt));
-            let device = (r.2 - r.0) * zoom;
+            let r = region_for((0.0, 0.0, f64::from(visible_pt), f64::from(visible_pt)));
+            let device = (r.2 - r.0) * f64::from(zoom);
             assert!(
-                device <= f64::from(pdfce_render::MAX_PIXMAP_EDGE) as f32,
+                device <= f64::from(pdfce_render::MAX_PIXMAP_EDGE),
                 "at {zoom}x the region would be {device} px, past the {} cap",
                 pdfce_render::MAX_PIXMAP_EDGE
             );
             // …and it is the same size at every zoom, being 2x the window.
             assert!(
-                (device - viewport_px * 2.0).abs() < 1.0,
+                (device - f64::from(viewport_px) * 2.0).abs() < 1.0,
                 "{device} at {zoom}x"
             );
         }
@@ -340,5 +370,86 @@ mod tests {
     fn the_same_view_always_asks_for_the_same_rectangle() {
         let view = (12.5, 33.25, 812.5, 633.25);
         assert_eq!(overscanned(view), overscanned(view));
+    }
+
+    /// ★★★ O24i — **the region must keep shrinking all the way to the
+    /// ceiling.**
+    ///
+    /// The snap divides an absolute page coordinate by the grid step. At a
+    /// trillion percent the step is about 2 × 10⁻⁸ pt and the coordinate is an
+    /// ordinary ~540, so the quotient is 2 × 10¹⁰ — past `f32`'s last exact
+    /// integer of 2²⁴, which made `.floor()` meaningless and floored the
+    /// region at **fifty thousand times** the size the viewport showed.
+    ///
+    /// The raster was still produced and still traced `drawn=1`, so every
+    /// existing check passed while the operator saw a fraction of one texel
+    /// stretched across the window — blank paper.
+    ///
+    /// ★ Asserted as a RATIO against the visible extent rather than against
+    /// absolute sizes: what matters is that the rect stays proportional to
+    /// what is on screen, at every depth, and a test of fixed numbers would
+    /// have to be rewritten the next time `OVERSCAN` moves.
+    #[test]
+    fn the_region_stays_proportional_to_the_view_at_every_depth() {
+        // A page coordinate far from the origin, which is the whole
+        // difficulty: near zero even `f32` would cope.
+        let at = 540.158_756_f64;
+        for zoom in [1.0e3_f64, 1.0e5, 1.0e7, 1.0e9, 1.0e10, 1.0e12] {
+            let w = 484.0 / zoom;
+            let h = 619.0 / zoom;
+            let r = region_for((at, at, at + w, at + h));
+            let got_w = r.2 - r.0;
+            let want_w = w * (1.0 + 2.0 * OVERSCAN);
+            assert!(
+                // ★★ A part in a thousand, and the slack is `f64`'s own.
+                //
+                // The extent is computed as `(x0 + w) - x0` at an absolute
+                // position near 540, where an `f64` ULP is 1.1e-13. At a
+                // trillion percent `w` is 1e-9 pt — about 8,800 ULPs — so the
+                // subtraction returns a relative error near 1e-4 and no
+                // implementation can do better while the position is absolute.
+                //
+                // ★ Which is also the real ceiling of this design, worth
+                // stating: 8,800 representable steps across a 484-pixel
+                // viewport is 18 per pixel, so the arithmetic is still
+                // comfortable at the maximum zoom the shell offers. The tier
+                // below it ran out at 2^24; this one has room left.
+                (got_w / want_w - 1.0).abs() < 1e-3,
+                "at zoom {zoom:e} the region is {got_w:e} pt wide, {:.1}x the {want_w:e} the \
+                 overscanned view needs",
+                got_w / want_w
+            );
+        }
+    }
+
+    /// ★★ …and the snapped origin must stay WITHIN one grid step of the view.
+    ///
+    /// The size test above would pass on an implementation that returned a
+    /// correctly-sized rect somewhere else entirely — which is close to what
+    /// the `f32` version did, since a meaningless `.floor()` corrupts the
+    /// origin rather than the extent. Measured before the fix: the raster was
+    /// placed 18,998,834 window points from the viewport at a trillion
+    /// percent.
+    #[test]
+    fn the_snapped_origin_stays_next_to_the_view_at_every_depth() {
+        let at = 540.158_756_f64;
+        for zoom in [1.0e3_f64, 1.0e5, 1.0e7, 1.0e9, 1.0e10, 1.0e12] {
+            let w = 484.0 / zoom;
+            let h = 619.0 / zoom;
+            let r = region_for((at, at, at + w, at + h));
+            // The snap floors to a half-view grid and the overscan then grows
+            // by half a view, so the origin can legitimately sit one and a
+            // half views below the view's own. Anything beyond that is the
+            // origin having been corrupted rather than quantised.
+            let slack = w * 1.5 + h * 1.5;
+            assert!(
+                (at - r.0).abs() <= slack && (at - r.1).abs() <= slack,
+                "at zoom {zoom:e} the region starts at ({:e}, {:e}), {:e} pt from the view at \
+                 {at} — the snap has lost the coordinate rather than quantised it",
+                r.0,
+                r.1,
+                (at - r.0).abs().max((at - r.1).abs())
+            );
+        }
     }
 }

@@ -1424,7 +1424,7 @@ mod tests {
             t::diagnostics_join(&["a".to_owned(), "b".to_owned()]),
             t::zoom_out().to_owned(),
             t::zoom_in().to_owned(),
-            t::zoom_percent(100),
+            t::zoom_percent(100.0),
             t::fit_actual_size().to_owned(),
             t::fit_width().to_owned(),
             t::fit_page().to_owned(),

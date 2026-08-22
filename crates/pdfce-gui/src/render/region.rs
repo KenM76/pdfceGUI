@@ -52,17 +52,15 @@ use pdfce_core::page_tree::Rect;
 /// why that is the difference between panning smoothly and waiting for a redraw
 /// on every pixel of movement.
 #[must_use]
-pub fn page_region(visible_canvas: (f32, f32, f32, f32), page_pts: (f32, f32)) -> Rect {
+/// ★★ `visible_canvas` is `f64`: at deep zoom it holds a rectangle a few times
+/// 10⁻⁸ pt wide at an absolute position near 540, and `f32` cannot carry both
+/// magnitudes at once. See [`super::strategy::region_for`].
+pub fn page_region(visible_canvas: (f64, f64, f64, f64), page_pts: (f32, f32)) -> Rect {
     let (x0, y0, x1, y1) = super::strategy::region_for(visible_canvas);
     let height = f64::from(page_pts.1);
     // y-down from the top becomes y-up from the bottom, so the two y values
     // also swap ends: the canvas's smaller y is the PDF's larger one.
-    Rect::from_corners(
-        f64::from(x0),
-        height - f64::from(y1),
-        f64::from(x1),
-        height - f64::from(y0),
-    )
+    Rect::from_corners(x0, height - y1, x1, height - y0)
 }
 
 /// Where a region's raster belongs on screen, given where the whole page would
@@ -183,7 +181,7 @@ mod tests {
             (back.3, wanted.3),
         ] {
             assert!(
-                (got - want).abs() < 0.01,
+                (f64::from(got) - want).abs() < 0.01,
                 "round trip lost the rect: {back:?} vs {wanted:?}"
             );
         }

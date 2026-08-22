@@ -80,6 +80,127 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O24i / O24j — Screenshots at maximum zoom, and the two defects they found
+
+**Asked:** 2026-08-22 — *"Can you confirm that rendering on screen is actually
+happening at maximum zoom? zoom in on one of the michocondria structures and
+post screenshots here to confirm. start with the full page first to confirm it
+renders."*
+
+**Status:** **CONFIRMED, and it was not confirming before he asked.**
+
+### ★★★ Why nothing already in the suite could answer this
+
+`zooming_does_not_throw_away_where_the_operator_panned` proves the view stays
+where it is put to a trillion percent. `zooming_past_the_pixmap_ceiling_still_
+renders` proves no raster is refused. **Neither looks at the screen**, and a
+canvas can satisfy both while drawing blank paper: the arithmetic would be
+perfect, the rasters would complete, and the operator would see nothing.
+
+That is exactly what was happening.
+
+### O24i — the region path narrowed to `f32`, and detail stopped at ~10⁷ %
+
+`render::strategy::region_for` snaps the region's origin to a half-view grid:
+
+```rust
+snapped_x = (x0 / step_x).floor() * step_x
+```
+
+At a trillion percent `step_x` is about 2 × 10⁻⁸ pt while `x0` is an ordinary
+page coordinate near 540. Their quotient is **2 × 10¹⁰** — past `f32`'s last
+exactly representable integer of 2²⁴ ≈ 1.7 × 10⁷ — so `.floor()` was applied to
+a number that had already lost its integer part.
+
+**Measured before the fix:** from about 10⁷ % the region stopped shrinking and
+floored at 2.4414 × 10⁻³ × 3.0213 × 10⁻³ pt, **fifty thousand times** the
+4.8 × 10⁻⁸ × 6.2 × 10⁻⁸ the viewport was showing. Its raster was then painted
+18,998,834 window points off the viewport. `drawn=1` was still traced and no
+render failed, so every check passed; the operator saw a fraction of one texel
+stretched across the window.
+
+The whole path is `f64` now — `region_for`, `overscanned`, `page_region`,
+`OVERSCAN`, and the canvas call site that used to cast `DeepAnchor::
+visible_rect`'s `f64` result straight down to `f32`. That cast was the one
+narrowing left in a path whose every other stage was already `f64`, and it was
+narrowing the value the tier exists to compute.
+
+★ The real ceiling of the fixed design, since it is worth knowing: the extent
+is computed as `(x0 + w) − x0` at an absolute position near 540, where an
+`f64` ULP is 1.1 × 10⁻¹³. At the maximum zoom `w` is 10⁻⁹ pt — about **8,800
+ULPs**, or eighteen representable steps per screen pixel. Comfortable. The tier
+below it ran out at 2²⁴; this one has room left.
+
+### O24j — the status bar showed `4294967295%`
+
+`ViewState::zoom_percent` returned a `u32` and `as u32` saturates, so past
+about 42,949,672 % the readout showed **u32::MAX presented as a measurement**.
+Seen in the screenshot gallery, which is the only instrument that reads the
+number an operator reads.
+
+★ The type was right when `MAX_ZOOM` was 8.0 and every reachable value fitted
+in three digits. O24 raised the ceiling to 10¹² and did not revisit it — the
+recurring shape of this whole request: **a limit lifted in one place while a
+narrower type downstream keeps enforcing the old one silently.**
+
+★★ It now reports **999999995904%** at the top, not 1000000000000%, and that
+is correct rather than a rounding failure: `ViewState::zoom` is an `f32`, so
+that is the nearest representable value and it is what the view actually is.
+Pinned exactly, so a future change that starts rounding the display instead of
+reporting it has to be deliberate.
+
+### The gallery
+
+`the_page_still_renders_at_every_decade_of_zoom` — new. Opens the document,
+parks the pointer on a **document coordinate**, climbs by Ctrl+wheel and
+photographs the window at each tier of the fixture's own scale chain. At every
+step it asserts three things, because any two can hold while the third fails:
+
+| assertion | rules out |
+|---|---|
+| the **canvas region** is not near-uniform | a blank page |
+| the canvas traced `drawn ≥ 1` | space reserved with no raster in it |
+| no `outcome=failed` render | a refused rasterization the shell swallowed |
+
+★★ *The canvas region*, not the window. The first version asked
+`capture::window_to_png` — which refuses a near-uniform **window**, and a
+window always contains a ribbon and two panels, so it can never fire for the
+reason this check cares about. It passed a screenshot of blank white paper on
+that technicality. Third instance this session of an assertion aimed at the
+wrong surface.
+
+★ It also **re-aims between tiers**, from the `f64` position line. Zoom-to-
+cursor holds the point to about half a per-notch tolerance, which is excellent
+per notch and still accumulates over the ~120 notches to the ceiling — so
+without it the run wanders off a 3 µm mitochondrion and photographs cytoplasm.
+`CanvasMapping` cannot do the re-aiming: it converts through the `f32` `rect=`,
+whose spacing at the ceiling is half a million points.
+
+### What the screenshots show
+
+| zoom | on screen | distinct tones in the canvas |
+|---|---|---|
+| 114 % | the whole banana | 318 |
+| 2,785 % | the two cells | 293 |
+| 13,794 % | cell labels, organelles | 487 |
+| 45,799 % | labelled organelles, the easter egg | 707 |
+| 504,845 % | one mitochondrion in cytoplasm, cell wall behind | 144 |
+| 3,730,330 % | mitochondria with cristae | 238 |
+| 41,120,084 % | mtDNA nucleoid, mitoribosomes, ATP synthase heads along a crista | 222 |
+| 999,999,995,904 % | mitochondrial matrix — a 0.02 nm field, smaller than an atom | 15 |
+
+★ The last row is a solid fill and that is **correct**: at the ceiling the
+viewport spans 6 × 10⁻⁸ pt, and the fixture has nothing smaller than the 10 nm
+ATP synthase heads. Rendering is still happening; there is simply nothing left
+to draw.
+
+### And an easter egg
+
+`gen_banana.py` gained `easter_egg.py` today. Inside the pulp cell, readable
+from about 100,000 %: **KEN ♡ EMILY — HAPPY 7TH ANNIVERSARY 2026.**
+
+---
+
 ## O24h — "Can you test up to maximum zoom please?"
 
 **Asked:** 2026-08-22 — *"can you test up to maximum zoom please? If you find

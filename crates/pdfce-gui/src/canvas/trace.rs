@@ -478,7 +478,15 @@ pub(super) fn position(
             paint.1,
             region.map_or_else(
                 || "none".to_owned(),
-                |r| format!("{:.4},{:.4},{:.4},{:.4}", r.llx, r.lly, r.urx, r.ury),
+                // ★★ SCIENTIFIC, and with enough digits to survive the deep
+                // tier. Printed as `{:.4}` until 2026-08-22, which cannot
+                // express a region 6e-8 pt tall — at a trillion percent every
+                // field rounded to the same four decimals and the difference
+                // between them read as a constant 2.3e-3, which looks exactly
+                // like the region hitting a floor. It is not; it is the trace
+                // hitting one. Same lesson as `position`'s own header: a
+                // measurement coarser than the thing measured invents a defect.
+                |r| format!("{:.9e},{:.9e},{:.9e},{:.9e}", r.llx, r.lly, r.urx, r.ury),
             ),
             extent.0,
             extent.1
