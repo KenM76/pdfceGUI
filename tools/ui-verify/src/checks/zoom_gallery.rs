@@ -102,6 +102,16 @@ const TIERS: &[f32] = &[
     4_000.0,
     26_000.0,
     350_000.0,
+    // ★ The decade between the fixture tiers and the ceiling. Added when the
+    // gallery was pointed at a molecule drawn at true scale: a benzene ring is
+    // 1.4e-6 pt across, so it frames a window at about 1.4e8x, and jumping
+    // 350,000x -> 1e10x skipped straight past the zoom at which the subject is
+    // actually the size of the screen. The intermediate rungs cost seconds and
+    // are where the interesting pictures are.
+    3_500_000.0,
+    35_000_000.0,
+    350_000_000.0,
+    3_500_000_000.0,
     10_000_000_000.0,
 ];
 
