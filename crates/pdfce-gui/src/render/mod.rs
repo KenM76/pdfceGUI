@@ -69,6 +69,14 @@ pub mod raster;
 /// a property of rasterizing the WHOLE PAGE, and region rendering would cost
 /// it. So the region path engages only above the pixmap ceiling, where the
 /// whole-page path cannot work at all — nothing is taken away to pay for it.
+/// ★★ **Screen ⟷ PDF for a RASTER** — the two conversions the region tier
+/// needs, kept together because they are inverses and the round trip is the
+/// property that matters.
+///
+/// Its header carries the y flip, which is the half that goes wrong: a missed
+/// flip shows the opposite end of the page, which at deep zoom looks like a
+/// blank raster rather than a coordinate error.
+pub mod region;
 pub mod strategy;
 // The per-frame raster decision, and the strip's scheduling.
 pub mod settle;

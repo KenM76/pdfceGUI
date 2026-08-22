@@ -214,6 +214,14 @@ pub mod bezier_handle;
 /// last. A trace cannot see that either — `text-copy source=selection` can be
 /// emitted truthfully by a frame whose clipboard is then overwritten.
 pub mod clipboard_text;
+/// ★★★ **The operator's own MAX_PIXMAP_EDGE failure, driven** — zoom past the
+/// ceiling and assert the page still renders.
+///
+/// Every piece of the region tier had unit tests before he hit this, and all of
+/// them passed while the feature did not exist, because nothing called the
+/// strategy. A complete unreachable mechanism is indistinguishable from a
+/// working one from inside a test suite.
+pub mod deep_zoom;
 /// ★★ **Drag-and-drop**, driven through the one seam that can carry it — a drop
 /// originates in Explorer and cannot be synthesised by moving a mouse, so
 /// without `PDFCE_DIAG_DROP_PATH` this would be the single feature in the shell
@@ -688,6 +696,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(select_filter::SelectFilterChangesWhatAClickHits),
         Box::new(scroll_input::ScrollingFarKeepsTheCanvasItsPointerInput),
         Box::new(max_zoom::TheZoomReadoutOpensTheMaximumZoomPopup),
+        Box::new(deep_zoom::ZoomingPastThePixmapCeilingStillRenders),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

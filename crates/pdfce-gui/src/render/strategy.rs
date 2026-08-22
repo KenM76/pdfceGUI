@@ -141,6 +141,45 @@ pub fn overscanned(visible: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
     (x0 - dx, y0 - dy, x1 + dx, y1 + dy)
 }
 
+/// The page-space rectangle to rasterize for [`Strategy::Region`], **quantised**
+/// so that small pans reuse the same raster.
+///
+/// `visible` is what the operator can see, in page points. The returned rect is
+/// grown by [`OVERSCAN`] on each side and then snapped to a grid, and both
+/// halves matter:
+///
+/// | | |
+/// |---|---|
+/// | **the overscan** | gives margin, so a pan inside it needs no new raster |
+/// | **the quantisation** | makes the SAME view produce the SAME rect, so the cache hits |
+///
+/// ★★ Without the snap the rect would change on every pixel of movement, every
+/// request would be a cache miss, and the operator would wait for a redraw
+/// continuously — which is precisely the *"wait for detail to render after
+/// panning"* he refused. The snap turns that into at most one redraw per half
+/// viewport of travel.
+///
+/// ★ The grid step is half the visible extent rather than a constant: a
+/// constant in page points would be a different distance on screen at every
+/// zoom, so the redraw cadence would vary with magnification for no reason the
+/// operator could see.
+#[must_use]
+pub fn region_for(visible: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x0, y0, x1, y1) = visible;
+    let w = (x1 - x0).abs();
+    let h = (y1 - y0).abs();
+    if !(w.is_finite() && h.is_finite()) || w <= 0.0 || h <= 0.0 {
+        return visible;
+    }
+    // Snap the ORIGIN to a half-viewport grid, then grow from there. Snapping
+    // after growing would move the margin around instead of the window.
+    let step_x = w * 0.5;
+    let step_y = h * 0.5;
+    let snapped_x = (x0 / step_x).floor() * step_x;
+    let snapped_y = (y0 / step_y).floor() * step_y;
+    overscanned((snapped_x, snapped_y, snapped_x + w, snapped_y + h))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +259,62 @@ mod tests {
         for bad in [f32::NAN, f32::INFINITY, 0.0, -1.0] {
             assert_eq!(for_page((A1_LONG_PT, 1100.0), bad), Strategy::WholePage);
             assert_eq!(for_page((bad, bad), 1.0), Strategy::WholePage);
+        }
+    }
+
+    /// ★★★ **A small pan reuses the same raster** — the property the operator's
+    /// constraint turns on.
+    ///
+    /// He refused *"the affect that other readers have where you always have to
+    /// wait for detail to render after panning"*. A region that changed on every
+    /// pixel would do exactly that, because every request would miss the cache.
+    #[test]
+    fn a_small_pan_asks_for_the_same_rectangle() {
+        let base = region_for((1000.0, 1000.0, 1800.0, 1600.0));
+        // Move a tenth of a viewport in each direction.
+        for (dx, dy) in [(80.0, 0.0), (0.0, 60.0), (40.0, 30.0), (-40.0, -30.0)] {
+            let moved = region_for((1000.0 + dx, 1000.0 + dy, 1800.0 + dx, 1600.0 + dy));
+            assert_eq!(
+                base, moved,
+                "a {dx},{dy} pan changed the raster rect, so every pan would redraw"
+            );
+        }
+    }
+
+    /// …and a large pan does ask for a new one, or the operator would be looking
+    /// at a raster that no longer covers the window.
+    #[test]
+    fn a_pan_past_the_margin_asks_for_a_new_rectangle() {
+        let base = region_for((1000.0, 1000.0, 1800.0, 1600.0));
+        let far = region_for((2000.0, 1000.0, 2800.0, 1600.0));
+        assert_ne!(base, far);
+    }
+
+    /// ★★ **The raster is bounded by the WINDOW, not by the zoom** — which is
+    /// the whole reason the region tier exists and the answer to the operator's
+    /// `MAX_PIXMAP_EDGE` failure at 2382 %.
+    ///
+    /// The region's page-space size is the visible extent, which shrinks as the
+    /// zoom rises — so its device size is a constant multiple of the viewport at
+    /// every magnification.
+    #[test]
+    fn the_region_raster_stays_window_sized_at_any_zoom() {
+        let viewport_px = 1400.0_f32;
+        for zoom in [1.0_f32, 23.82, 1_000.0, 100_000.0] {
+            // What the operator can see, in page points, at this zoom.
+            let visible_pt = viewport_px / zoom;
+            let r = region_for((0.0, 0.0, visible_pt, visible_pt));
+            let device = (r.2 - r.0) * zoom;
+            assert!(
+                device <= f64::from(pdfce_render::MAX_PIXMAP_EDGE) as f32,
+                "at {zoom}x the region would be {device} px, past the {} cap",
+                pdfce_render::MAX_PIXMAP_EDGE
+            );
+            // …and it is the same size at every zoom, being 2x the window.
+            assert!(
+                (device - viewport_px * 2.0).abs() < 1.0,
+                "{device} at {zoom}x"
+            );
         }
     }
 

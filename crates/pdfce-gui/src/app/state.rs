@@ -466,6 +466,27 @@ pub struct OpenDoc {
     /// than a frame late — which is the difference between panning that
     /// tracks the hand and panning that lags it.
     pub last_scroll_offset: egui::Vec2,
+
+    /// ★★ **Which page-space rectangle to rasterize, and for which page** —
+    /// `OPERATOR_REQUESTS.md` O24's region tier.
+    ///
+    /// `None` is the whole-page path this shell has always taken. `Some` is
+    /// set by [`crate::canvas::show`] once the page's own raster would
+    /// exceed `MAX_PIXMAP_EDGE` — the failure the operator hit at 2382 %:
+    ///
+    /// > *"requested raster size 14580x18868 is empty or exceeds
+    /// > MAX_PIXMAP_EDGE"*
+    ///
+    /// ★ Written by the canvas rather than derived here, for the same reason
+    /// [`Self::last_scroll_offset`] is: only the canvas knows where the
+    /// operator is looking, and that is what decides the rectangle.
+    ///
+    /// ★★ It carries its **page index**, and that is not decoration. A
+    /// region is in one page's own coordinate space, so applying it to a
+    /// neighbouring page in a continuous strip would rasterize the wrong
+    /// part of it — silently, because both are valid rectangles. The index
+    /// makes the mismatch impossible rather than merely unlikely.
+    pub raster_region: Option<(usize, pdfce_core::page_tree::Rect)>,
     /// ★ **What the operator has selected on the canvas.**
     ///
     /// # Why it is a field of the document rather than a value in `egui::Memory`
@@ -679,6 +700,8 @@ impl OpenDoc {
             edit_epoch: 0,
             objects_traced_for: None,
             last_scroll_offset: egui::Vec2::ZERO,
+            // Whole page until the canvas says otherwise.
+            raster_region: None,
             // Empty, like everything else here — and that is the entire
             // mechanism by which a selection can never refer to a previous
             // file. See the field's own docs.
@@ -892,6 +915,21 @@ impl OpenDoc {
             self.annotations,
             self.layers.generation,
         )
+        .with_region(self.region_for(page_index))
+    }
+
+    /// The region to rasterize for `page_index`, if the canvas set one **for
+    /// that page**.
+    ///
+    /// ★ The page check is the whole of this method's job. Without it a
+    /// region computed for page 4 would be applied to page 5 as well, and
+    /// both rectangles are valid — so the wrong part of the neighbour would
+    /// be rasterized with nothing reporting an error.
+    #[must_use]
+    pub(crate) fn region_for(&self, page_index: usize) -> Option<pdfce_core::page_tree::Rect> {
+        self.raster_region
+            .filter(|(page, _)| *page == page_index)
+            .map(|(_, rect)| rect)
     }
 
     /// Everything a worker needs to rasterize `page_index`, or `None` if there
@@ -911,13 +949,11 @@ impl OpenDoc {
     ) -> Option<RenderRequest> {
         let page = self.pages.get(page_index)?;
         Some(RenderRequest {
-            // ★ Whole page. O24's region tier is not reachable from any zoom
-            // this shell currently offers — `render::strategy::for_page` only
-            // answers `Region` above the pixmap ceiling, and `viewer::MAX_ZOOM`
-            // stops the operator below it. The canvas will choose this once
-            // that ceiling is raised; until then the field is provably `None`
-            // and the new path is dormant.
-            region: None,
+            // ★ O24's region tier, live since 2026-08-22. `None` below the
+            // pixmap ceiling — which is every zoom that can render whole-page,
+            // so panning there is unchanged — and `Some` above it, where the
+            // alternative is the operator's `MAX_PIXMAP_EDGE` failure.
+            region: self.region_for(page_index),
             // The `Arc` is handed over rather than a `DocumentView`, which is
             // what lets the borrow stay local to the worker thread.
             session: Arc::clone(&self.session),

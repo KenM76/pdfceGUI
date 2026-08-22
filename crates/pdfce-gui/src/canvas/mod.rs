@@ -741,6 +741,53 @@ fn show_in(
         // first click never works".
         let sense = Sense::click_and_drag();
         let mut drawn: Vec<strip::DrawnPage> = Vec::new();
+
+        // ★★★ O24's REGION TIER, decided here because only the canvas knows
+        // where the operator is looking.
+        //
+        // The operator, 2026-08-22, at 2382 % on a US Letter page:
+        //
+        // > *"I got a requested raster size 14580x18868 is empty or exceeds
+        // > MAX_PIXMAP_EDGE"*
+        //
+        // 18,868 device pixels against a 16,384 cap. Above that ceiling the
+        // whole-page raster cannot be made at all, so the request becomes the
+        // visible rectangle instead — whose device size is a multiple of the
+        // WINDOW and therefore constant at every zoom.
+        //
+        // ★ Set for the page being acted on only. A region is in one page's
+        // own coordinate space, and `OpenDoc::region_for` refuses it for any
+        // other page rather than rasterizing the wrong part of a neighbour.
+        doc.raster_region = None;
+        if let Some(place) = layout.rect_of(current) {
+            let extent = viewer::page_extent_pts(&doc.pages[current]);
+            if crate::render::strategy::for_page(extent, raster_scale)
+                == crate::render::strategy::Strategy::Region
+                && place.width() > 0.0
+                && place.height() > 0.0
+            {
+                // What is visible OF THIS PAGE, in strip space, then in the
+                // page's own points. The two scales are derived from the
+                // placement rather than from the zoom, so a page whose
+                // placement has been rounded still maps exactly onto itself.
+                let seen = visible_rect.intersect(place);
+                if seen.width() > 0.0 && seen.height() > 0.0 {
+                    let sx = extent.0 / place.width();
+                    let sy = extent.1 / place.height();
+                    let visible_canvas = (
+                        (seen.min.x - place.min.x) * sx,
+                        (seen.min.y - place.min.y) * sy,
+                        (seen.max.x - place.min.x) * sx,
+                        (seen.max.y - place.min.y) * sy,
+                    );
+                    doc.raster_region = Some((
+                        current,
+                        crate::render::region::page_region(visible_canvas, extent),
+                    ));
+                }
+            }
+        }
+
         for placement in layout.visible(visible_rect) {
             let rect = placement.rect.translate(strip_origin);
             let key = doc.render_key_for(placement.page, raster_scale);
@@ -755,13 +802,37 @@ fn show_in(
                     .map(|t| t.texture.clone())
             };
             let has_raster = texture.is_some();
-            let response = match texture {
-                Some(texture) => ui.put(
+            // ★★ Where the texture goes. A whole-page raster fills the page's
+            // rect; a REGION raster covers only part of the page and must be
+            // drawn at that part's rect, or the operator sees the right pixels
+            // in the wrong place — which reads as the page having jumped.
+            //
+            // The rect is deliberately NOT clamped to the page: the region
+            // carries overscan, so it legitimately reaches outside. Clamping
+            // the destination without cropping the source would stretch the
+            // image, which is a subtler wrong than a misplaced one.
+            let paint_rect = match doc.region_for(placement.page) {
+                Some(region) => crate::render::region::region_on_screen(
+                    region,
+                    viewer::page_extent_pts(&doc.pages[placement.page]),
                     rect,
-                    egui::Image::from_texture(&texture)
-                        .fit_to_exact_size(rect.size())
-                        .sense(sense),
                 ),
+                None => rect,
+            };
+            let response = match texture {
+                Some(texture) => {
+                    // ★ The IMAGE goes at `paint_rect`; the page's INTERACTION
+                    // stays at `rect`. Allocating the image's rect would give
+                    // the page a hit area that reaches off the sheet and
+                    // overlaps its neighbours in a continuous strip.
+                    // `Image::paint_at` rather than `painter().image(..)`: the
+                    // latter needs an explicit tint, and the identity tint is a
+                    // raw white that `check-theme-colors` rejects — correctly,
+                    // since a colour with no role in the palette is one a
+                    // restyle cannot reach. This form has no colour at all.
+                    egui::Image::from_texture(&texture).paint_at(ui, paint_rect);
+                    ui.allocate_rect(rect, sense)
+                }
                 None => {
                     // No raster. Reserve the same rect with the same sense so
                     // nothing jumps when one arrives, then SAY what is

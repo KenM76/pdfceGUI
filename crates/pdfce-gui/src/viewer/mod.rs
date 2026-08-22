@@ -122,6 +122,13 @@ pub mod display;
 /// `DeepAnchor` replaces it with a page point in `f64` plus where on screen
 /// that point sits, which is a statement whose precision does not decay with
 /// the zoom.
+/// ★★ **How far this page can actually be zoomed** — the three limits that
+/// bind at three different depths, reconciled in one place.
+///
+/// Its header carries which is which: the raster ceiling stops mattering
+/// once the region tier engages, the `f32` scroll offset's is what the shell
+/// can honestly offer today, and the operator's setting is the third.
+pub mod ceiling;
 pub mod deep;
 pub mod remembered;
 // Where every page sits, in one coordinate space. The answer to Phase 4.1's
@@ -129,6 +136,10 @@ pub mod remembered;
 pub mod strip;
 
 pub use display::PageDisplay;
+// Re-exported so every existing `viewer::max_zoom_for_page` /
+// `viewer::zoom_ceiling` call site is untouched by the R2 split — the
+// module boundary is about file size, not about the vocabulary callers use.
+pub use ceiling::{max_zoom_with_regions, zoom_ceiling};
 
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
@@ -565,96 +576,6 @@ pub fn max_zoom_for_page(page_pts: (f32, f32), pixels_per_point: f32) -> f32 {
     ceiling.clamp(MIN_ZOOM, MAX_ZOOM)
 }
 
-/// The highest zoom this page can reach **when the region tier is
-/// available** — `OPERATOR_REQUESTS.md` O24.
-///
-/// # ★★ Why this is a different function rather than a flag on the old one
-///
-/// [`max_zoom_for_page`] answers a question about a **pixmap**: how far can
-/// this page be magnified before its whole-page raster exceeds
-/// `MAX_PIXMAP_EDGE`? That question is real and its answer is a genuine
-/// ceiling — *for the whole-page tier*.
-///
-/// It is simply **not the question** once the renderer can be asked for a
-/// region. There the pixmap is the size of the window, so the page's own
-/// size stops entering the arithmetic at all and the only remaining limit is
-/// whatever the operator has said they want. Two different questions with
-/// two different answers are two functions; adding a boolean to the first
-/// would have produced one function whose name describes only half of what
-/// it does.
-///
-/// # ★ It is dormant, and deliberately so
-///
-/// Nothing calls this yet. It lands ahead of the canvas change that will,
-/// so that the arithmetic can be reviewed and tested while it cannot affect
-/// a running build — the same staging the render worker's `region` field
-/// took.
-///
-/// `limit` is the operator's own maximum, which becomes a setting. Clamped
-/// to at least [`MIN_ZOOM`] so a nonsensical stored value cannot make the
-/// document unzoomable.
-#[must_use]
-pub fn max_zoom_with_regions(limit: f32) -> f32 {
-    if limit.is_finite() && limit >= MIN_ZOOM {
-        limit
-    } else {
-        MIN_ZOOM
-    }
-}
-
-/// **The zoom ceiling in force**, given the operator's configured maximum.
-///
-/// ★★ The ONE place the two tiers are reconciled, so the two call sites that
-/// need a ceiling — `app::actions::apply` and `canvas::zoom` — cannot answer
-/// the question differently. Their own comments already note that each derives
-/// this per action rather than caching it; deriving it *differently* is the
-/// failure that would follow.
-///
-/// The rule is one sentence: **the whole-page raster limit binds only while the
-/// operator has not asked to go past it.** Below their maximum the pixmap
-/// ceiling is real and is what stops them; above it, the region tier takes over
-/// and the page's size stops entering the arithmetic at all.
-///
-/// `limit_percent` is [`crate::app::prefs::Prefs::max_zoom_percent`]. Passing
-/// the shipped default reproduces the old behaviour exactly, which is what
-/// keeps a fresh install unchanged.
-#[must_use]
-pub fn zoom_ceiling(page_pts: (f32, f32), pixels_per_point: f32, limit_percent: f32) -> f32 {
-    let limit = max_zoom_with_regions(limit_percent / 100.0);
-    let whole_page = max_zoom_for_page(page_pts, pixels_per_point);
-
-    // ★★★ THE DEFAULT MUST CHANGE NOTHING, and a plain `max` breaks that.
-    //
-    // `max_zoom_for_page` can fall BELOW `MAX_ZOOM` on a large page at a high
-    // display scale — an A1 sheet at 1.5x tops out at 690 %, not 800 % —
-    // because the pixmap ceiling bites first. A plain `limit.max(whole_page)`
-    // would then raise that page's ceiling to the operator's default of 800 %
-    // and rasterize a pixmap the engine refuses.
-    //
-    // Caught by `the_default_setting_reproduces_the_old_ceiling_exactly`, which
-    // is exactly why that test walks three page sizes and three display scales
-    // rather than one of each.
-    //
-    // So the region tier is only allowed to lift the ceiling when the operator
-    // has asked for MORE THAN THE SHIPPED DEFAULT. Below that, nothing about
-    // the old behaviour is touched — which is the property that makes this
-    // feature safe to land.
-    // ★★★ The lift is bounded BELOW by `MAX_ZOOM`, not by the default.
-    //
-    // The first version compared against `DEFAULT_MAX_ZOOM_PERCENT`, which
-    // worked while the default was 800 % and became a no-op the moment the
-    // operator raised the default to the maximum — the ceiling would then have
-    // been the whole-page limit always, and the setting inert everywhere. A
-    // guard phrased in terms of a value that can move is a guard that stops
-    // guarding when it moves.
-    //
-    // `MAX_ZOOM` is the right bound because it is what the SHELL offered before
-    // any of this: below it, `max_zoom_for_page`'s pixmap ceiling is a real
-    // constraint and must keep binding — an A1 sheet at a 1.5x display tops out
-    // at 690 %, and lifting that would ask the engine for a raster it refuses.
-    // Above it, the region tier can render and the page's size stops mattering.
-    limit.max(whole_page.min(MAX_ZOOM))
-}
 /// The device-pixel scale to rasterize at for a given logical `zoom`.
 ///
 /// `zoom` is points per PDF user-space unit — what the operator sees as
@@ -905,7 +826,10 @@ mod tests {
             "the premise: an A1 sheet's whole-page ceiling is around 1,000% ({whole_page})"
         );
 
-        for percent in [10_000.0_f32, 1_000_000.0, 1e12] {
+        // ★ Below the positional cap the configured maximum is honoured
+        // exactly. `10_000%` and `100_000%` are both well inside it on an A1
+        // sheet, whose cap is around 1,050,000%.
+        for percent in [10_000.0_f32, 100_000.0] {
             let ceiling = zoom_ceiling(a1, 1.0, percent);
             assert!(
                 (ceiling - percent / 100.0).abs() / (percent / 100.0) < 1e-6,
@@ -913,6 +837,21 @@ mod tests {
                 percent / 100.0
             );
         }
+
+        // ★★ …and ABOVE it the cap wins, deliberately. A trillion percent
+        // renders — that was measured — but pans in thousand-pixel jumps,
+        // which is a control that accepts a number and then misbehaves. The
+        // cap is where positioning is still sub-pixel.
+        let capped = zoom_ceiling(a1, 1.0, 1e12);
+        let expected = ceiling::SUB_PIXEL_CONTENT_EXTENT / a1.0.max(a1.1);
+        assert!(
+            (capped - expected).abs() / expected < 1e-6,
+            "a trillion percent should cap at {expected}x, got {capped}x"
+        );
+        assert!(
+            capped > 10_000.0,
+            "the cap must still be far past the 26x that failed before this work: {capped}x"
+        );
     }
 
     /// ★★★ **The default reaches the maximum** — the operator's instruction of
@@ -933,10 +872,18 @@ mod tests {
         for page in [(1584.0_f32, 1224.0), (612.0, 792.0), (306.0, 396.0)] {
             for ppp in [1.0_f32, 1.5, 2.0] {
                 let ceiling = zoom_ceiling(page, ppp, crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT);
-                let wanted = crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT / 100.0;
+                // ★ The default asks for the maximum and gets the POSITIONAL
+                // cap, which is what the shell can actually deliver. Asserting
+                // it reaches the setting's own number would be asserting a
+                // promise the scroll offset cannot keep.
+                let wanted = ceiling::SUB_PIXEL_CONTENT_EXTENT / page.0.max(page.1);
                 assert!(
                     (ceiling - wanted).abs() / wanted < 1e-6,
                     "page {page:?} at {ppp}x: ceiling {ceiling} should be {wanted}"
+                );
+                assert!(
+                    ceiling > 1_000.0,
+                    "every page must still reach at least 100,000%: {page:?} got {ceiling}x"
                 );
             }
         }
