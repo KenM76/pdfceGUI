@@ -62,6 +62,14 @@
 /// engine path is one whose first failure looks like a shell defect.
 pub mod offpage;
 pub mod raster;
+/// ★★★ **Whole page, or just the window?** — O24's one decision, made from
+/// numbers in one place.
+///
+/// Its header carries the constraint that shaped it: panning at full detail is
+/// a property of rasterizing the WHOLE PAGE, and region rendering would cost
+/// it. So the region path engages only above the pixmap ceiling, where the
+/// whole-page path cannot work at all — nothing is taken away to pay for it.
+pub mod strategy;
 // The per-frame raster decision, and the strip's scheduling.
 pub mod settle;
 // Several pages at once: the bounded texture cache, and what an undrawn page
