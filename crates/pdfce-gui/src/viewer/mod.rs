@@ -111,6 +111,18 @@ pub mod display;
 // so the enum and its on-disk spelling cannot drift — see that module's header
 // for why it is a third file rather than a field in `layout.ron` or
 // `recent.txt`.
+/// ★★★ **Where the view is, when the scroll offset can no longer say** —
+/// O24 step 2.
+///
+/// A scroll offset is `f32` into a content space of `page × zoom`, and one
+/// unit of that space is one screen pixel — so at 1,000,000 % the offset can
+/// only address every other pixel, and at 10,000,000 % it moves in
+/// **sixteen-pixel jumps**. Its header carries the measured table.
+///
+/// `DeepAnchor` replaces it with a page point in `f64` plus where on screen
+/// that point sits, which is a statement whose precision does not decay with
+/// the zoom.
+pub mod deep;
 pub mod remembered;
 // Where every page sits, in one coordinate space. The answer to Phase 4.1's
 // "a page range rather than a single index", expressed as geometry.
