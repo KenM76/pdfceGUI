@@ -977,19 +977,34 @@ mod tests {
         );
     }
 
-    /// ★ **A region near the page's edge saturates rather than centring**, and
-    /// the region is still fully inside the viewport.
+    /// ★★★ **A region at the page's very corner CAN now be centred** — and
+    /// this test is the record of that changing.
     ///
-    /// The framing counterpart of
-    /// `geometry::anchoring_past_the_page_edge_saturates_rather_than_scrolling_into_blank_space`,
-    /// and it is documented as its own case for the same reason that one is:
-    /// this is the one situation where the operator can see that the thing
-    /// they framed is not in the middle of the view, and a future reader could
-    /// mistake it for the feature being broken. Every canvas application in
-    /// the class does exactly this — the alternative is scrolling blank paper
-    /// into view to satisfy a geometric ideal.
+    /// It used to assert the opposite: that framing a region hard against the
+    /// page's top-left saturated at offset zero, *"there is no page to the
+    /// left of or above the origin to scroll to"*, and the operator simply saw
+    /// it off-centre. That was true when the scroll content was the page and
+    /// nothing else.
+    ///
+    /// **O23 made it false on purpose.** The operator asked for exactly this:
+    ///
+    /// > *"I should also be able to move the view of the corner of the page to
+    /// > the center of the screen, or even all the way vertically to the
+    /// > opposite corner if I want to."*
+    ///
+    /// The pasteboard is a viewport of slack on every side, so there IS
+    /// somewhere above and to the left to scroll to, and the solve's negative
+    /// page-local offset is a legitimate position rather than an over-range
+    /// one to be truncated.
+    ///
+    /// ★ It stayed asserting saturation for a while after the pasteboard
+    /// landed, because `geometry::zoom_anchor_offset` was still clamping to
+    /// the page's own range — which is `OPERATOR_REQUESTS.md` O24e, the zoom
+    /// that threw away whatever the operator had panned to. A test that pins
+    /// last year's constraint is how a stale clamp survives a feature
+    /// designed to remove it.
     #[test]
-    fn a_region_near_the_page_edge_saturates_rather_than_centring() {
+    fn a_region_at_the_page_corner_can_be_centred_because_the_pasteboard_is_there() {
         let f = frame(1.0);
         // Hard against the page's top-left corner.
         let region = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(40.0, 60.0));
@@ -1003,17 +1018,48 @@ mod tests {
             anchor.viewport,
             anchor.frac,
         );
-        assert_eq!(
-            (ox, oy),
-            (0.0, 0.0),
-            "there is no page to the left of or above the origin to scroll to"
+        assert!(
+            ox < 0.0 && oy < 0.0,
+            "framing the top-left corner must ask to scroll ABOVE and LEFT of the page; got \
+             ({ox}, {oy})"
         );
-        // …and the region is nevertheless entirely on screen, which is the
-        // property that matters to the operator.
+
+        // …and the ask is honoured: the region lands in the middle of the
+        // viewport, which is what centring means and what the operator asked
+        // for. This is the assertion the old test could not make.
         let landed = geometry::anchor_screen_pos(frac, (ox, oy), display_after, f.viewport);
         assert!(
-            landed.0 > 0.0 && landed.0 < f.viewport.0 && landed.1 > 0.0 && landed.1 < f.viewport.1,
-            "the framed region left the viewport entirely: {landed:?}"
+            (landed.0 - f.viewport.0 / 2.0).abs() < 0.01
+                && (landed.1 - f.viewport.1 / 2.0).abs() < 0.01,
+            "the corner region landed at {landed:?}, not the viewport centre"
+        );
+
+        // ★ And the offset that actually reaches the scroll area is inside the
+        // content, because `strip_offset` clamps against `content_extent` —
+        // the pasteboard included. The saturation the old test protected is
+        // still there; it is just further out.
+        let reached = geometry::strip_offset(
+            (ox, oy),
+            (0.0, 0.0),
+            display_after,
+            display_after,
+            f.viewport,
+        );
+        let range = (
+            geometry::content_extent(display_after.0, f.viewport.0) - f.viewport.0,
+            geometry::content_extent(display_after.1, f.viewport.1) - f.viewport.1,
+        );
+        assert!(
+            reached.0 >= 0.0 && reached.0 <= range.0,
+            "x offset {} outside [0, {}]",
+            reached.0,
+            range.0
+        );
+        assert!(
+            reached.1 >= 0.0 && reached.1 <= range.1,
+            "y offset {} outside [0, {}]",
+            reached.1,
+            range.1
         );
     }
 

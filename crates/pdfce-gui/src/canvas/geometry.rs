@@ -439,15 +439,39 @@ pub fn zoom_anchor_offset(
     }
 
     let held = anchor_screen_pos(anchor_frac, offset_before, display_before, viewport);
-    let solved = offset_holding_anchor_at(anchor_frac, held, display_after, viewport);
-    // The scrollable-range clamp, applied to the offset that is actually
-    // handed to the `ScrollArea` — see the contract above, and
-    // `anchoring_past_the_page_edge_saturates_rather_than_scrolling_into_blank_space`
-    // for the one case where it visibly wins over the anchor.
-    (
-        solved.0.clamp(0.0, (display_after.0 - viewport.0).max(0.0)),
-        solved.1.clamp(0.0, (display_after.1 - viewport.1).max(0.0)),
-    )
+    // ★★★ RETURNED UNCLAMPED — `OPERATOR_REQUESTS.md` O24e.
+    //
+    // This used to clamp to `display_after - viewport`: the range a page has
+    // when the scroll content is the page and nothing else. **The pasteboard
+    // made that false.** `content_extent` now adds a viewport of slack on
+    // every side (O23, so an object off the page is still reachable), so the
+    // real range is `content_extent(strip, viewport) - viewport` and the page
+    // is only part of it.
+    //
+    // The damage was worst exactly where the operator found it. At a fit-page
+    // zoom the page is no LARGER than the viewport, so `display_after -
+    // viewport` is zero or negative, the clamp range collapses to `[0, 0]`,
+    // and every zoom forced the offset to zero — which after
+    // `strip_offset`'s conversion is the centred position. His report,
+    // 2026-08-22:
+    //
+    // > *"if I am zoomed out to about page size, pan the cells to the center
+    // > of the screen, then start to zoom, the page snaps back to near the
+    // > center position."*
+    //
+    // Not "near" by accident: it is the centre, and it is the centre because
+    // zero page-local offset means the page sits centred in the pasteboard.
+    //
+    // ★ The clamp is not gone, it has moved to the one place that can do it
+    // correctly. [`strip_offset`] already clamps to
+    // `content_extent(strip, v) - v` — the true range, pasteboard included —
+    // and it is the value actually handed to the `ScrollArea`. That is the
+    // division of labour this module's header states: *the raw solve is
+    // unclamped and the offset that reaches the widget is not*. Clamping
+    // here as well was a second clamp in the wrong space against the wrong
+    // extent, and the two were not equivalent the moment the pasteboard
+    // existed.
+    offset_holding_anchor_at(anchor_frac, held, display_after, viewport)
 }
 
 #[cfg(test)]
@@ -621,11 +645,17 @@ mod tests {
         );
     }
 
+    /// ★★ **The offset handed to the scroll area never leaves its range** —
+    /// and after O24e that range is the pasteboard's, not the page's.
+    ///
+    /// The assertion used to be made against [`zoom_anchor_offset`], which
+    /// clamped to `display - viewport`. That is the range a page has when the
+    /// scroll content is the page and nothing else, and it stopped being true
+    /// when the pasteboard landed — see that function for what it cost.
     #[test]
     fn the_offset_never_leaves_the_scrollable_range() {
-        // Zooming OUT far enough that the page no longer fills the viewport
-        // must land at 0 rather than at a negative offset the scroll area
-        // would silently fight.
+        // Zooming OUT far enough that the page no longer fills the viewport.
+        // The solve itself is handed back raw…
         let out = zoom_anchor_offset(
             (900.0, 900.0),
             (2000.0, 2000.0),
@@ -633,46 +663,92 @@ mod tests {
             (800.0, 800.0),
             (0.1, 0.1),
         );
-        assert_eq!(
-            out,
-            (0.0, 0.0),
-            "zoomed-out offset must clamp to the origin"
-        );
+        // …and whatever it says, the value that reaches the widget is inside
+        // the content. Both ends checked, because a negative offset is the
+        // failure the original test was written for and it must still be
+        // impossible.
+        let (v, d) = (800.0_f32, 400.0_f32);
+        let range = content_extent(d, v) - v;
+        for probe in [out.0, -5000.0, 0.0, 5000.0] {
+            let reached = strip_offset((probe, probe), (0.0, 0.0), (d, d), (d, d), (v, v));
+            assert!(
+                reached.0 >= 0.0 && reached.0 <= range,
+                "{probe} reached {reached:?}, outside [0, {range}]"
+            );
+            assert!(reached.1 >= 0.0 && reached.1 <= range);
+        }
 
-        // And never past the far edge.
-        let (v, d1) = (800.0_f32, 1000.0_f32);
-        let out = zoom_anchor_offset((900.0, 0.0), (500.0, 500.0), (d1, d1), (v, v), (5.0, 0.0));
+        // And never past the far edge, however extreme the anchor fraction.
+        // ★ Against the CONTENT's range, not the page's — that substitution is
+        // the whole of O24e.
+        let (v2, d2) = (800.0_f32, 1000.0_f32);
+        let solved =
+            zoom_anchor_offset((900.0, 0.0), (500.0, 500.0), (d2, d2), (v2, v2), (5.0, 0.0)).0;
+        let reached = strip_offset((solved, 0.0), (0.0, 0.0), (d2, d2), (d2, d2), (v2, v2)).0;
+        let range2 = content_extent(d2, v2) - v2;
         assert!(
-            out.0 <= d1 - v + 0.01,
-            "offset {} exceeds the maximum scroll {}",
-            out.0,
-            d1 - v
+            reached <= range2 + 0.01,
+            "offset {reached} exceeds the maximum scroll {range2}"
         );
     }
 
-    /// **The clamp wins over the anchor, deliberately.** Documented as its own
-    /// test because it is the one case where zoom-to-cursor visibly does not
-    /// hold the point still, and a future reader could mistake that for the
-    /// bug this feature fixes.
+    /// ★★★ **The anchor solve is unclamped; the SCROLL OFFSET is clamped** —
+    /// and the two are different values in different spaces.
     ///
-    /// Anchoring near an edge can demand an offset past the end of the page.
-    /// Honouring it would scroll blank space into view; every other canvas
-    /// application saturates instead, so the anchored point drifts by exactly
-    /// the amount the range was short. Found by a test that first asserted
-    /// exact preservation here and failed by 60 px — the assertion was wrong,
-    /// not the code.
+    /// This test used to assert that [`zoom_anchor_offset`] saturated at
+    /// `display - viewport`, the range a page has when the scroll content is
+    /// the page and nothing else. The pasteboard (O23) made that false, and
+    /// the stale clamp became `OPERATOR_REQUESTS.md` **O24e**: at a fit-page
+    /// zoom the page is no larger than the viewport, the range collapsed to
+    /// `[0, 0]`, and every zoom threw away whatever the operator had panned to.
+    ///
+    /// ★ The behaviour the old test was protecting is real and still wanted —
+    /// an anchor near an edge must saturate rather than scroll into nothing.
+    /// It just belongs to the value that reaches the widget. So the assertion
+    /// moved to [`strip_offset`], which clamps against `content_extent`, the
+    /// pasteboard included.
     #[test]
-    fn anchoring_past_the_page_edge_saturates_rather_than_scrolling_into_blank_space() {
+    fn the_scroll_offset_saturates_at_the_pasteboard_edge_not_at_the_page_edge() {
         let (v, u) = (800.0_f32, 0.9_f32);
         let (d0, d1) = (600.0_f32, 1000.0_f32);
-        let off1 = zoom_anchor_offset((0.0, 0.0), (d0, d0), (d1, d1), (v, v), (u, u)).0;
-        let want = 0.9 * (d1 - d0) - 100.0; // 260: the unclamped solve
-        let max = d1 - v; // 200: all the range there is
+
+        // 1. The raw solve is handed back whole, over-range and all.
+        let solved = zoom_anchor_offset((0.0, 0.0), (d0, d0), (d1, d1), (v, v), (u, u)).0;
+        let unclamped = 0.9 * (d1 - d0) - 100.0; // 260
         assert!(
-            want > max,
-            "this case must actually be over-range to test it"
+            unclamped > d1 - v,
+            "this case must actually be over-range for the page to test anything"
         );
-        assert_eq!(off1, max, "the offset must saturate at the page edge");
+        assert_eq!(
+            solved, unclamped,
+            "the anchor solve must not clamp: it does not know the real range"
+        );
+
+        // 2. And 260 is REACHABLE, because the pasteboard extends the range
+        //    well past the page's own 200. This is the whole point: the old
+        //    clamp was discarding positions the operator can legitimately be
+        //    at.
+        // ★ Compared against the PAGE's range, not against `unclamped`:
+        // `strip_offset` also applies the strip↔page-local conversion, so the
+        // number it returns is in a different space and is not expected to
+        // equal the solve. What matters is that it was not truncated to the
+        // page's 200 — the position the operator panned to is still reachable.
+        let reached = strip_offset((solved, 0.0), (0.0, 0.0), (d1, d1), (d1, d1), (v, v)).0;
+        assert!(
+            reached > d1 - v,
+            "reached {reached}, which is inside the page's own range of {} — the pasteboard \
+             position was discarded",
+            d1 - v
+        );
+
+        // 3. The saturation itself still happens — at the pasteboard's edge.
+        let far = content_extent(d1, v) * 4.0;
+        let limit = strip_offset((far, 0.0), (0.0, 0.0), (d1, d1), (d1, d1), (v, v)).0;
+        assert_eq!(
+            limit,
+            content_extent(d1, v) - v,
+            "an absurd offset must saturate at the end of the scrollable content"
+        );
     }
 
     /// ★ **The split solve is the closed form it replaced**, checked against
@@ -684,13 +760,16 @@ mod tests {
     /// zoom-to-region can reuse the second half with a different target. This
     /// pins the equivalence over a spread of shapes — including the
     /// page-smaller-than-viewport case the margin term exists for, and the
-    /// over-range case where the clamp bites — so a future edit to either half
+    /// over-range case that used to be clamped here — so a future edit to either
     /// cannot silently change what Ctrl+wheel does.
     #[test]
     fn the_split_solve_is_the_closed_form_it_replaced() {
         fn closed_form(off0: f32, d0: f32, d1: f32, v: f32, u: f32) -> f32 {
             let margin = |d: f32| (d.max(v) - d) / 2.0;
-            (off0 + u * (d1 - d0) + (margin(d1) - margin(d0))).clamp(0.0, (d1 - v).max(0.0))
+            // ★ No clamp: O24e moved it to `strip_offset`, which is the only
+            // caller that knows the pasteboard-extended range. See
+            // `zoom_anchor_offset`.
+            off0 + u * (d1 - d0) + (margin(d1) - margin(d0))
         }
         for &(off0, d0, d1, v) in &[
             (300.0_f32, 1200.0_f32, 1800.0_f32, 800.0_f32),

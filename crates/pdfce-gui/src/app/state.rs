@@ -501,6 +501,24 @@ pub struct OpenDoc {
     /// does not move the page under the operator, and re-entering starts from
     /// the truth rather than from a stale anchor.
     pub deep_anchor: Option<crate::viewer::deep::DeepAnchor>,
+    /// The zoom [`Self::deep_anchor`] was last valid at, or `None` outside the
+    /// deep tier.
+    ///
+    /// ★★ **What makes zoom-to-cursor possible above the threshold.**
+    /// `DeepAnchor::zoomed_about` needs the zoom the anchor was written at, so
+    /// it can read which page point sits under the cursor *before* re-stating
+    /// the anchor at the new scale. The anchor itself deliberately does not
+    /// carry a zoom — it is a statement about page space and screen space, and
+    /// baking a scale into it would make it stale rather than merely
+    /// unfashionable. So the canvas remembers the scale beside it.
+    ///
+    /// `OPERATOR_REQUESTS.md` O24f: without this the anchor never moved on a
+    /// zoom, the anchored page point stayed nailed to the viewport's top-left,
+    /// and everything the operator was looking at expanded off the screen.
+    /// Cleared on leaving the tier so the first frame back inside seeds from
+    /// the scroll area rather than re-anchoring against a scale from minutes
+    /// ago.
+    pub deep_zoom: Option<f64>,
     /// ★ **What the operator has selected on the canvas.**
     ///
     /// # Why it is a field of the document rather than a value in `egui::Memory`
@@ -717,6 +735,7 @@ impl OpenDoc {
             // Whole page until the canvas says otherwise.
             raster_region: None,
             deep_anchor: None,
+            deep_zoom: None,
             // Empty, like everything else here — and that is the entire
             // mechanism by which a selection can never refer to a previous
             // file. See the field's own docs.

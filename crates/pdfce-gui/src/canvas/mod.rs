@@ -625,11 +625,42 @@ fn show_in(
     let deep =
         viewer::deep_position_needed(viewer::page_extent_pts(&doc.pages[current]), doc.view.zoom);
     if deep {
-        // Seed on the way in, from where the view already is, so crossing the
-        // threshold does not move the page under the operator.
+        // ★★★ THE ZOOM ANCHOR IS CONSUMED AT THIS TIER TOO —
+        // `OPERATOR_REQUESTS.md` **O24f**.
+        //
+        // It used to be consumed only on the shallow branch, and both halves
+        // of that were wrong at once:
+        //
+        // 1. **On the way in**, the seed below read `doc.last_scroll_offset` —
+        //    the PREVIOUS frame's settled offset, recorded before this frame's
+        //    zoom landed. Dividing it by the NEW zoom asks where a point is
+        //    using one frame's distance and the next frame's scale, so the
+        //    seeded page point was wrong by the whole zoom ratio. Crossing the
+        //    threshold threw the view to an unrelated part of the sheet.
+        // 2. **Once inside**, the anchor was dropped entirely, so a zoom held
+        //    nothing under the cursor: the anchored page point stayed nailed
+        //    to the viewport's top-left corner and everything the operator was
+        //    looking at expanded off the screen.
+        //
+        // Both surface as the same sentence — *"I do lose the view at 2000000%
+        // magnification"* — and 2,000,000 % is not a number he picked. The
+        // threshold is `SUB_PIXEL_CONTENT_EXTENT / page_height` = 16,777,216 /
+        // 792 ≈ **2,118,000 %** on a Letter sheet. A defect that begins at the
+        // tier boundary is a defect in the tier hand-over.
+        //
+        // ★ Consumed unconditionally, not only when seeding. An anchor left
+        // pending here would fire on whatever frame the operator next dropped
+        // below the threshold, moving the view for a zoom that happened
+        // minutes earlier.
+        let landed = zoom::consume_anchor(ui.ctx(), doc, current_display)
+            .map(|local| to_strip((local.x, local.y)));
         if doc.deep_anchor.is_none() {
-            let seen = geometry::scroll_to_strip(doc.last_scroll_offset.x, display_size.x, vp.x);
-            let seen_y = geometry::scroll_to_strip(doc.last_scroll_offset.y, display_size.y, vp.y);
+            // Prefer the offset the zoom just solved for; fall back to the
+            // last settled one only when no zoom is landing, which is the case
+            // where they agree anyway.
+            let from = landed.unwrap_or(doc.last_scroll_offset);
+            let seen = geometry::scroll_to_strip(from.x, display_size.x, vp.x);
+            let seen_y = geometry::scroll_to_strip(from.y, display_size.y, vp.y);
             let origin = layout
                 .rect_of(current)
                 .map_or((0.0, 0.0), |r| (r.min.x, r.min.y));
@@ -641,7 +672,38 @@ fn show_in(
                 ),
                 screen: (0.0, 0.0),
             });
+        } else if let Some(prev) = doc.deep_zoom
+            && (prev - f64::from(doc.view.zoom)).abs() > f64::EPSILON
+        {
+            // ★★ ZOOM ABOUT THE CURSOR, by re-statement rather than by solving
+            // for an offset. `DeepAnchor::zoomed_about` reads which page point
+            // is under a window point at the OLD zoom and declares that point
+            // anchored there — no large intermediate is formed, so nothing is
+            // lost however deep the zoom goes. That is the operation the whole
+            // `viewer::deep` module exists for, and until O24f nothing called
+            // it.
+            //
+            // ★ The viewport centre when the pointer is elsewhere, matching
+            // what `+`, `−` and Ctrl+0 anchor on at every other zoom. A
+            // keyboard zoom must not lurch toward wherever the mouse happens
+            // to be resting.
+            // ★ `ui.max_rect()` is the canvas's own region — inside the ruler
+            // gutters, and the same rect `input::pan_delta` tests against, so
+            // a pointer over a ruler is treated as "not over the page" by both
+            // and cannot anchor a zoom to a place the operator was not
+            // pointing at. At this tier the scroll area's content IS the
+            // viewport, so its origin and this rect's origin are the same
+            // point — which is what the anchor's `screen` is measured from.
+            let region = ui.max_rect();
+            let at = ui
+                .input(|i| i.pointer.latest_pos())
+                .filter(|p| region.contains(*p))
+                .map_or((vp.x / 2.0, vp.y / 2.0), |p| {
+                    (p.x - region.min.x, p.y - region.min.y)
+                });
+            doc.deep_anchor = doc.deep_anchor.map(|a| a.zoomed_about(at, prev));
         }
+        doc.deep_zoom = Some(f64::from(doc.view.zoom));
         // ★ Pan and wheel move the ANCHOR now. The scroll area has nothing to
         // scroll, so routing them to it would be a gesture that silently does
         // nothing — which is how a deep zoom would come to feel frozen.
@@ -660,12 +722,37 @@ fn show_in(
         }
     } else if doc.deep_anchor.is_some() {
         // Left the deep tier: forget the anchor so re-entering seeds afresh
-        // from wherever the scroll area has since settled.
+        // from wherever the scroll area has since settled, and forget the zoom
+        // it was valid for so the first frame back inside seeds rather than
+        // re-anchors.
         doc.deep_anchor = None;
+        doc.deep_zoom = None;
     }
 
     if deep {
-        // Nothing for egui to hold: the position is the anchor's.
+        // ★★★ FORCE THE SCROLL OFFSET TO ZERO — `OPERATOR_REQUESTS.md` O24f.
+        //
+        // At this tier the content IS the viewport, so zero is the only valid
+        // offset and egui will clamp to it. **One frame later**, which is the
+        // whole problem: on the frame the tier flips, the area is still
+        // carrying the offset it settled on while the position was still
+        // its to hold — measured at 6,264,562 px — and `outer_rect.min` is
+        // inside that scrolled content. The anchor then places the strip
+        // relative to an origin that is itself displaced by the old offset,
+        // so the page lands at roughly TWICE the intended distance and the
+        // view is gone.
+        //
+        // Measured at the hand-over, 2,047,244 % → 2,181,987 %: the position
+        // line said the page origin should be 6,676,376 px left of the
+        // viewport and the page was drawn 12,940,650 px left of it. The
+        // difference is 6,264,274 — the stale scroll offset, to four
+        // significant figures.
+        //
+        // ★ Assigned rather than left to the clamp because a one-frame
+        // discrepancy is not cosmetic here: the raster region is computed
+        // from the same placement, so the frame is not merely misplaced, it
+        // renders a different part of the page.
+        scroll_area = scroll_area.scroll_offset(vec2(0.0, 0.0));
     } else if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, current_display) {
         scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
     } else if let Some(offset) = crate::find::take_reveal_offset(doc, current_display, (vp.x, vp.y))

@@ -326,6 +326,7 @@ pub mod shift_constrains;
 /// steps and three gestures respectively, neither discoverable and neither
 /// resembling any other program. These assert the COUNT: one key, one click.
 pub mod tool_row;
+pub mod zoom_keeps_place;
 
 /// Marking a text selection — underline, strikeout, squiggly. The first
 /// commands in this shell whose operand is **not the pointer**, and therefore
@@ -699,6 +700,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(max_zoom::TheZoomReadoutOpensTheMaximumZoomPopup),
         Box::new(deep_zoom::ZoomingPastThePixmapCeilingStillRenders),
         Box::new(deep_pan::PanningAtDeepZoomStaysWhereItWasPut),
+        Box::new(zoom_keeps_place::ZoomingDoesNotThrowAwayWhereTheOperatorPanned),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

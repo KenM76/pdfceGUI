@@ -80,6 +80,116 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O24e / O24f / O24g — Zoom throws the view away, twice, and `−` undoes a hundredfold
+
+**Asked:** 2026-08-22, one message, three separate faults:
+
+> *"there is a little bug where if I am zoomed out to about page size, pan the
+> cells to the center of the screen, then start to zoom, the page snaps back to
+> near the center position. … I do lose the view at 2000000% magnification.
+> Also clicking the negative button to zoom back snaps me back to 800% when I
+> am over 800%."*
+
+**Status:** **ALL THREE FIXED 2026-08-22.** Driven, and the driven check fails
+on a build with the defects present.
+
+### O24g — the `−` button was not the inverse of `+`
+
+`ladder_step_up` grew a doubling branch when O24 raised the ceiling.
+`ladder_step_down` did not, so a plain reverse search found the highest named
+rung below the current zoom — **8.00** — from anywhere above it. One press
+discarded a hundred-fold magnification.
+
+★ The asymmetry is the defect, more than the snap. `viewer`'s own header
+promises *"zoom-in/zoom-out exactly reversible"*, and two controls that
+disagree about what a step is break the one property an operator relies on to
+explore without losing their place. Pinned as a **round trip** — up then down
+returns to where it started — rather than against fixed numbers, which would
+keep passing if both were changed together in a way that broke it.
+
+The ladder is now its own module (`viewer::ladder`), which R2 forced when
+`viewer/mod.rs` reached 1,540 lines and which is a real seam: everything in it
+answers *what is the next zoom?* and none of it knows what a page is.
+
+### O24e — a stale clamp, in the wrong space, against the wrong extent
+
+`geometry::zoom_anchor_offset` clamped its answer to `display − viewport`: the
+range a page has when the scroll content is the page and **nothing else**. The
+pasteboard (O23) made that false — `content_extent` now adds a viewport of
+slack on every side, so the real range is larger and the page is only part of
+it.
+
+★★ The damage was worst exactly where he found it. At a fit-page zoom the page
+is no **larger** than the viewport, so `display − viewport` is zero or
+negative, the clamp range collapsed to `[0, 0]`, and every zoom forced the
+offset to zero — which after the strip conversion is the centred position. Not
+*"near"* the centre by accident: it **is** the centre.
+
+The clamp has moved to `strip_offset`, the one place that knows the real
+range and the only value actually handed to the `ScrollArea`. That is the
+division of labour the module already stated and had stopped observing.
+
+★ Two tests had to change with it, and both were pinning the pre-pasteboard
+constraint — including one asserting that framing a region at the page's
+corner *cannot* be centred, *"there is no page to the left of or above the
+origin to scroll to"*. O23 was the request to make exactly that possible. **A
+test that pins last year's constraint is how a stale clamp survives the
+feature designed to remove it.**
+
+### O24f — the deep tier's hand-over, in three parts
+
+2,000,000 % is not a number he picked. The threshold is
+`SUB_PIXEL_CONTENT_EXTENT / page_height` = 16,777,216 / 792 ≈ **2,118,000 %**
+on a Letter sheet. Three faults met there:
+
+1. **The seed read the previous frame's scroll offset.** Dividing it by the
+   *new* zoom asks where a point is using one frame's distance and the next
+   frame's scale. The zoom anchor is now consumed at this tier too, and the
+   seed uses the offset it solved for.
+2. **Nothing called `DeepAnchor::zoomed_about`.** The module exists for that
+   one operation and it had no callers: the anchored page point stayed nailed
+   to the viewport's top-left and everything the operator was looking at
+   expanded off screen. It is now called on every zoom while deep, about the
+   pointer — or the viewport centre when the pointer is elsewhere, matching
+   what `+`, `−` and Ctrl+0 anchor on at every other zoom.
+3. **★★★ The scroll area held its old offset for one frame.** The content is
+   the viewport at this tier so zero is the only valid offset, and egui does
+   clamp to it — one frame late. On the frame the tier flips, `outer_rect.min`
+   is still displaced by the stale offset, so the anchor placed the strip
+   relative to a displaced origin and the page landed at roughly **twice** the
+   intended distance.
+
+Measured at the hand-over, 2,047,244 % → 2,181,987 %: the position line said
+the page origin belonged 6,676,376 px left of the viewport; it was drawn
+12,940,650 px left. The difference is 6,264,274 — the stale scroll offset, to
+four significant figures. The offset is now assigned rather than left to the
+clamp, because the raster region is computed from the same placement: the
+frame was not merely misplaced, it rendered a different part of the page.
+
+### What was measured
+
+`ui-verify --check zooming_does_not_throw_away_where_the_operator_panned`.
+Pans off-centre, then Ctrl+wheels **one notch at a time** with the pointer on
+the viewport centre, following the page point under that centre:
+
+| stage | zoom | tier | worst per-notch drift |
+|---|---|---|---|
+| 0 | 76 % → 377 % | scroll | 43 % of tolerance |
+| 1–5 | 377 % → 1,123,552 % | scroll | 52 % |
+| 6 | 1,123,552 % → 5,564,985 % | **deep** | 52 % |
+
+Before the fix it failed at notch 3 of stage 6 — the hand-over — with the
+centred page point moving 556.5 pt against a tolerance of 0.0004.
+
+★ Three properties of that check are deliberate and were each learned the hard
+way today: it **pans first** (the centred position is what O24e snapped *to*,
+so a check that skipped the pan would watch the view "stay" where the bug was
+about to put it); it reads **per notch** (once per eight-notch stage compared
+accumulated rounding against a one-notch budget and failed a correct build);
+and it **refuses to pass** a run that never crossed the tier boundary.
+
+---
+
 ## O24c / O24d — The page lurches backwards mid-pan, and bounces when zoomed
 
 **Asked:** 2026-08-22, two reports minutes apart, and they are **one defect**.

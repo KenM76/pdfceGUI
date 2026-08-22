@@ -111,6 +111,8 @@ pub mod display;
 // so the enum and its on-disk spelling cannot drift — see that module's header
 // for why it is a third file rather than a field in `layout.ron` or
 // `recent.txt`.
+pub mod ceiling;
+pub mod deep;
 /// ★★★ **Where the view is, when the scroll offset can no longer say** —
 /// O24 step 2.
 ///
@@ -128,8 +130,13 @@ pub mod display;
 /// Its header carries which is which: the raster ceiling stops mattering
 /// once the region tier engages, the `f32` scroll offset's is what the shell
 /// can honestly offer today, and the operator's setting is the third.
-pub mod ceiling;
-pub mod deep;
+/// ★ **The zoom levels the `+` and `−` buttons step through**, and the rule
+/// for what happens past the last named rung.
+///
+/// Split out under R2. Its header carries the one property that matters: the
+/// two steps must be exact inverses, above the ladder as well as on it —
+/// O24g was the half that was not.
+pub mod ladder;
 pub mod remembered;
 // Where every page sits, in one coordinate space. The answer to Phase 4.1's
 // "a page range rather than a single index", expressed as geometry.
@@ -140,6 +147,9 @@ pub use display::PageDisplay;
 // `viewer::zoom_ceiling` call site is untouched by the R2 split — the
 // module boundary is about file size, not about the vocabulary callers use.
 pub use ceiling::{deep_position_needed, max_zoom_with_regions, zoom_ceiling};
+// Re-exported for the same reason `ceiling`'s are: the split is about file
+// size, not about the vocabulary callers use.
+pub use ladder::{ZOOM_LADDER, ladder_step_down, ladder_step_up};
 
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
@@ -153,12 +163,6 @@ pub const MIN_ZOOM: f32 = 0.10;
 /// applied: 800%, past which a screen shows a few glyphs at a time and
 /// the pixmap is enormous.
 pub const MAX_ZOOM: f32 = 8.0;
-
-/// The zoom levels the +/− buttons step through. Ascending, and it
-/// contains `1.0` so "actual size" is always reachable by stepping.
-pub const ZOOM_LADDER: &[f32] = &[
-    0.10, 0.25, 0.33, 0.50, 0.67, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00, 6.00, 8.00,
-];
 
 /// How `ViewState::zoom` is being decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -457,53 +461,6 @@ pub fn clamp_zoom(zoom: f32, max: f32) -> f32 {
     // top first and the bottom second would be wrong; take the ceiling
     // last.
     zoom.max(MIN_ZOOM).min(max.max(f32::MIN_POSITIVE))
-}
-
-/// The next ladder rung strictly above `zoom`, or [`MAX_ZOOM`] if none
-/// is (i.e. the caller is already at or past the top).
-#[must_use]
-pub fn ladder_step_up(zoom: f32) -> f32 {
-    // `> zoom + epsilon` rather than `> zoom` so a value that is a
-    // floating-point hair below a rung (0.9999999 vs 1.0) advances past
-    // that rung instead of "stepping up" to a visually identical scale.
-    let threshold = zoom + zoom.abs() * 1e-4;
-    ZOOM_LADDER
-        .iter()
-        .copied()
-        .find(|&rung| rung > threshold)
-        // ★★★ PAST THE LADDER'S END, KEEP DOUBLING — O24.
-        //
-        // This returned `MAX_ZOOM` and therefore stalled at 800 %, whatever
-        // the operator had configured. `zoom_ceiling` would honour a maximum
-        // of 500,000 % and the `+` button would refuse to climb to it: the
-        // setting honoured by every path except the one he actually uses,
-        // which is the same silently-inert control in a subtler place.
-        //
-        // `OPERATOR_REQUESTS.md` O24 predicted this in its own words — *"the
-        // buttons stop working exactly where the setting starts mattering"* —
-        // and `the_zoom_ladder_can_climb_to_a_configured_maximum` caught it
-        // before it shipped.
-        //
-        // ★ Doubling rather than continuing the hand-tuned 1-2-5 spacing. The
-        // named rungs exist so ordinary zooms land on round percentages a
-        // person recognises; past 800 % there are no round numbers left worth
-        // hitting, and a constant ratio gives a constant NUMBER OF PRESSES per
-        // decade — eleven from 800 % to a million — where a fixed increment
-        // would need thousands.
-        .unwrap_or_else(|| (zoom * 2.0).max(MAX_ZOOM))
-}
-
-/// The next ladder rung strictly below `zoom`, or [`MIN_ZOOM`] if none
-/// is.
-#[must_use]
-pub fn ladder_step_down(zoom: f32) -> f32 {
-    let threshold = zoom - zoom.abs() * 1e-4;
-    ZOOM_LADDER
-        .iter()
-        .copied()
-        .rev()
-        .find(|&rung| rung < threshold)
-        .unwrap_or(MIN_ZOOM)
 }
 
 /// The scale at which `page_pts` fits `viewport` under `fit`.
@@ -1040,83 +997,6 @@ mod tests {
         assert_eq!(v.page_index, 0);
         v.prev_page(0);
         assert_eq!(v.page_index, 0);
-    }
-
-    // ---- zoom ladder ---------------------------------------------
-
-    #[test]
-    fn ladder_is_ascending_and_contains_actual_size() {
-        assert!(ZOOM_LADDER.windows(2).all(|w| w[0] < w[1]));
-        assert!(ZOOM_LADDER.contains(&1.0));
-        assert_eq!(ZOOM_LADDER.first().copied(), Some(MIN_ZOOM));
-        assert_eq!(ZOOM_LADDER.last().copied(), Some(MAX_ZOOM));
-    }
-
-    #[test]
-    fn ladder_stepping_is_exactly_reversible() {
-        // The property the fixed ladder exists to guarantee: in-then-out
-        // returns to the same rung, for every rung.
-        for &rung in ZOOM_LADDER {
-            if rung < MAX_ZOOM {
-                assert_eq!(ladder_step_down(ladder_step_up(rung)), rung);
-            }
-            if rung > MIN_ZOOM {
-                assert_eq!(ladder_step_up(ladder_step_down(rung)), rung);
-            }
-        }
-    }
-
-    /// ★★ **Stepping DOWN saturates; stepping UP no longer does** — O24.
-    ///
-    /// This asserted `ladder_step_up(MAX_ZOOM) == MAX_ZOOM` from the day it was
-    /// written until 2026-08-22, and it was right to: the ladder ended at 800 %
-    /// and there was nowhere above it to go. With a configurable maximum there
-    /// is, and saturating here would make the `+` button inert exactly where
-    /// the setting starts mattering.
-    ///
-    /// ★ So the property changes shape rather than disappearing: **the step
-    /// keeps climbing, and what stops it is the CEILING** — `ViewState::zoom_in`
-    /// clamps against `zoom_ceiling`, which is where the limit belongs. A
-    /// stepper that enforced its own maximum would be a second opinion about
-    /// how far the operator may zoom.
-    ///
-    /// The downward half is unchanged: `MIN_ZOOM` is a floor with nothing
-    /// below it, and 10 % of a page is not a number anybody has asked to go
-    /// under.
-    #[test]
-    fn ladder_stepping_climbs_past_its_end_and_still_saturates_downward() {
-        assert_eq!(ladder_step_up(MAX_ZOOM), MAX_ZOOM * 2.0);
-        assert_eq!(ladder_step_up(999.0), 1998.0);
-        assert_eq!(ladder_step_down(MIN_ZOOM), MIN_ZOOM);
-        assert_eq!(ladder_step_down(0.001), MIN_ZOOM);
-
-        // ★ And the ceiling is what actually stops a climb, not the ladder.
-        let mut view = ViewState {
-            zoom: MAX_ZOOM,
-            ..ViewState::default()
-        };
-        view.zoom_in(MAX_ZOOM);
-        assert_eq!(
-            view.zoom, MAX_ZOOM,
-            "with the ceiling at 800% the step must not exceed it"
-        );
-    }
-
-    #[test]
-    fn ladder_snaps_an_off_ladder_zoom_to_a_neighbouring_rung() {
-        // Arriving from ctrl+scroll or a fit mode, 137% steps up to 150%
-        // and down to 125% — never to 137.0001%.
-        assert_eq!(ladder_step_up(1.37), 1.50);
-        assert_eq!(ladder_step_down(1.37), 1.25);
-    }
-
-    #[test]
-    fn a_hair_below_a_rung_still_steps_past_it() {
-        // Guards the epsilon in ladder_step_up: without it, a fit scale
-        // of 0.99999 would "step up" to 1.0, a visually identical zoom,
-        // and the button would look broken.
-        assert_eq!(ladder_step_up(0.999_99), 1.25);
-        assert_eq!(ladder_step_down(1.000_01), 0.75);
     }
 
     // ---- zoom clamping -------------------------------------------
