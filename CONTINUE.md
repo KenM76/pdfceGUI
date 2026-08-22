@@ -3,8 +3,18 @@
 **Type `continue` and start at §2.** Everything above it is state; §2 is the
 work queue, in order.
 
-**Clean tree. 17/17 gates. 1,632 + 385 tests. Driven: 54 passed, 0 failed.**
+**Clean tree. 17/17 gates. 1,650 + 385 tests**, measured at `376fc15`.
 Re-measure before quoting any of that; the commands are in `RESUME.md`.
+
+⚠️ **The driven figure is deliberately not quoted here, because it is stale and
+cannot currently be refreshed.** The last full run — 55 passed, 1 failed, 12
+skipped — predates the three O24 pieces and the engine bump, and driving is
+blocked on an idle desktop (see the box below). **Do not carry that number
+forward as if it described this tree.** Run it when the machine is attended.
+
+★ The one failure in that run was `multi_node_move_moves_every_picked_anchor`,
+which has never passed on any build — an unbuilt path, not a regression, and
+the selection model underneath it is now proven by two unit tests.
 
 **Published: `OneDrive\pdfceGUI2`, built 2026-08-21 16:0x**, with the Select
 popup working. `pdfceGUI1` holds the 15:47 build as the fallback.
