@@ -1226,6 +1226,29 @@ fn show_in(
         drawn.len(),
         drawn.iter().filter(|d| d.has_raster).count(),
     );
+    // ★★ The pan position, in `f64`, from whichever tier owns it.
+    //
+    // `OPERATOR_REQUESTS.md` O24: the operator reported that a small pan at a
+    // high zoom either did nothing or snapped back. Neither symptom can be
+    // measured from the line above, because `rect=` is an `f32` whose spacing
+    // at that depth is larger than the pan — so this is emitted beside it and
+    // says the same thing in double precision. See `trace::position`.
+    let pan_at = if deep {
+        let anchor = doc
+            .deep_anchor
+            .unwrap_or_else(viewer::deep::DeepAnchor::origin);
+        let z = f64::from(doc.view.zoom);
+        (
+            anchor.page.0 * z - f64::from(anchor.screen.0),
+            anchor.page.1 * z - f64::from(anchor.screen.1),
+        )
+    } else {
+        (
+            f64::from(scroll_output.inner_rect.min.x - image_rect.min.x),
+            f64::from(scroll_output.inner_rect.min.y - image_rect.min.y),
+        )
+    };
+    trace::position(pan_at, if deep { "deep" } else { "scroll" });
     crate::diag::ui_rect(trace::REGION_PAGE, image_rect);
     crate::diag::ui_rect(trace::REGION_CANVAS_VIEWPORT, scroll_output.inner_rect);
     trace::pointer(ui, doc, image_rect, extent);

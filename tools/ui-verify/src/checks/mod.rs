@@ -221,6 +221,7 @@ pub mod clipboard_text;
 /// them passed while the feature did not exist, because nothing called the
 /// strategy. A complete unreachable mechanism is indistinguishable from a
 /// working one from inside a test suite.
+pub mod deep_pan;
 pub mod deep_zoom;
 /// ★★ **Drag-and-drop**, driven through the one seam that can carry it — a drop
 /// originates in Explorer and cannot be synthesised by moving a mouse, so
@@ -697,6 +698,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(scroll_input::ScrollingFarKeepsTheCanvasItsPointerInput),
         Box::new(max_zoom::TheZoomReadoutOpensTheMaximumZoomPopup),
         Box::new(deep_zoom::ZoomingPastThePixmapCeilingStillRenders),
+        Box::new(deep_pan::PanningAtDeepZoomStaysWhereItWasPut),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

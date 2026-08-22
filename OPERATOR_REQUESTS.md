@@ -80,6 +80,78 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O24b — "Can the huge intermediate be fixed? Is that why panning jumped back?"
+
+**Asked:** 2026-08-22 — *"can the huge intermediate be fixed? is that the
+challenge I was running into trying to pan over a little bit at high zoom, but
+it would jump back to it's original location I panned from because I couldn't
+pan to the next point?"* — with the clarification that he meant the release
+**before** the deep-zoom one, not the build published on 2026-08-22.
+
+**Status:** **ANSWERED AND MEASURED, 2026-08-22.**
+
+### Both halves, answered
+
+**The intermediate is fixed.** `render::region::region_on_screen_deep` computes
+the drawn rect from the `f64` anchor, so the page's ~10¹²-pixel screen rect is
+never formed. That is the change that took the ceiling from about two million
+percent to a trillion.
+
+**And yes, that is consistent with what he described.** On the previous
+release the view's position lived entirely in an `f32` scroll offset over a
+content space of `page × zoom` where one unit is one screen pixel. Past about
+2²⁴ content points that `f32` can only address every second pixel, then every
+fourth, and so on — so a small pan computes `last - delta`, rounds to the
+nearest representable value, and lands back on `last`. The view does not
+move. From the operator's seat that is indistinguishable from *"it jumped back
+to where I panned from"*, and it is exactly *"I couldn't pan to the next
+point"*.
+
+★ Stated as consistent rather than as proven, deliberately: the build he saw
+it on has been published over and cannot be driven any more. What **is**
+measured is the current one.
+
+### What was measured
+
+`ui-verify --check panning_at_deep_zoom_stays_where_it_was_put`, on
+`banana.pdf`, rolling the wheel three notches and reading the position again
+ninety frames later:
+
+| zoom | tier | before → after → settled |
+|---|---|---|
+| 102,400 % | `scroll` | 405304.625 → 405424.625 → 405424.625 |
+| 999,999,995,904 % | `deep` | 1981027832031.25 → 1981027832151.25 → 1981027832151.25 |
+
+**+120 px asked, +120 px moved, and it stayed** — the same 120 pixels at a
+trillion percent as at a hundred thousand. In `f32` that second row is
+impossible: the representable spacing near 2 × 10¹² is 262,144, so a 120-pixel
+move could not be written down at all, let alone survive ninety frames.
+
+### ★★ A harness defect found on the way, and worth more than the answer
+
+The check's first version drag-panned with the **primary** button and reported
+the view as stuck at 102,400 %. That was wrong. `canvas::input::pan_delta`
+pans on the middle button always and on the primary button only under the hand
+tool; the default tool is Select, so a primary drag correctly rubber-band
+selected and correctly moved nothing. The harness had measured a gesture the
+application never offered and blamed the application for not honouring it.
+
+It is written down because it is the third instance this month of the same
+shape — a measurement of the wrong surface, whose verdict line is
+indistinguishable from a real defect. **Ask what the check sampled before
+asking what is broken.**
+
+### What this added to the shell
+
+`canvas::trace::position` — a `canvas-pos at=… tier=…` line carrying the pan
+position in `f64`. The existing `canvas` line's `rect=` and `off=` are both
+`f32`, and at these depths their own representable spacing exceeds the pan, so
+**neither can measure this**: a check reading either would report a stuck view
+against a perfectly working build. `tier=` names which mechanism produced the
+number, so a failure points at one file rather than two.
+
+---
+
 ## O24 — A setting for the maximum zoom
 
 **Asked:** 2026-08-21 — *"add a setting so the user can set the maximum zoom.

@@ -390,3 +390,53 @@ pub(super) fn pointer(ui: &egui::Ui, doc: &OpenDoc, image_rect: Rect, extent: (f
         )
     });
 }
+
+/// Report the view's **pan position** on the `PDFCE_DIAG` channel, in `f64`.
+///
+/// # ★★ Why [`layout`]'s `rect=` cannot answer this
+///
+/// `rect=` is an `egui::Rect`, so it is `f32`, and at a deep zoom the acting
+/// page's rect holds a number around 10¹². An `f32`'s representable spacing
+/// there is about 65,536 — so a 40-point pan does not change `rect=` at all,
+/// on a build where the pan worked perfectly. A check that read `rect=` would
+/// report *"the pan did nothing"* against a correct application, which is the
+/// worst kind of harness failure: it aims the next reader at a file that is
+/// fine.
+///
+/// This line carries the same quantity computed and printed in `f64`, and it
+/// is the only thing in the trace that can distinguish a pan that was refused
+/// from a pan whose result cannot be written down in single precision.
+///
+/// # The quantity
+///
+/// ```text
+/// pdfce-diag canvas-pos at=1234567890.5,987654321.0 tier=deep
+/// ```
+///
+/// `at=` is **how far the view has been panned from the acting page's
+/// top-left corner, in screen pixels** — the viewport's top-left minus the
+/// page's origin on screen. Screen pixels rather than PDF units deliberately:
+/// at a trillion percent a 40-pixel pan is 4 × 10⁻¹¹ user units, which needs
+/// fifteen significant figures to see, where in screen pixels it is *40* and
+/// a check can compare it against the drag it asked for.
+///
+/// `tier=` says which mechanism produced it — `scroll` for the `f32` scroll
+/// offset that owns the position below the deep threshold, `deep` for the
+/// `f64` [`crate::viewer::deep::DeepAnchor`] above it. A check that finds a
+/// refused pan needs to know which of the two to go and read.
+///
+/// # Emission
+///
+/// Ungated, unlike [`layout`]. It is one short line on frames where the view
+/// moved, and the change gate that [`layout`] uses keys on a formatted string
+/// — which would suppress exactly the sub-threshold movements this exists to
+/// measure if two consecutive positions rounded to the same text.
+pub(super) fn position(at: (f64, f64), tier: &'static str) {
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI.
+            "canvas-pos at={:.3},{:.3} tier={tier}",
+            at.0, at.1
+        )
+    });
+}
