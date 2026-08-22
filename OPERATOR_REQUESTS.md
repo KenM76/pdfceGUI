@@ -129,6 +129,47 @@ roughly a thousand with nothing said.
 accepted, persisted, and then quietly overruled downstream. Shipping the
 setting without the mechanism behind it would be exactly that.
 
+### ★★ THE RELEASE INSTRUCTION — 2026-08-21
+
+> *"when you complete the step 2 zoom release to git and put on OneDrive."*
+
+**On completion of step 2 — the `f64` viewport — and not before:**
+
+| | |
+|---|---|
+| **1** | `git push origin main` |
+| **2** | `python tools/package-portable.py`, which mirrors to the older `OneDrive\pdfceGUI*` slot and leaves the other as the fallback |
+
+★ **This is the first push of the project.** `origin` is
+`github.com/KenM76/pdfceGUI.git` and the local branch is **253 commits
+ahead**; the last tag is `v0.3.0`. So the push is not a routine increment —
+it publishes the whole of this shell's history at once, and it is worth
+doing deliberately rather than as a step in a script.
+
+★★ **Preconditions, because a release is the worst place to discover any of
+them.** Every one has bitten this project already:
+
+1. **Clean tree, 17/17 gates, all tests.** The gates include the four self-
+   tests that prove the gates can still fail.
+2. **The full driven suite**, on his own drawing, with **both** `--doc-point`s
+   — `0,300,500` and `0,1211,1021`. One point passing is what hid `O22` for a
+   day.
+3. **`cargo update -p pdfce-core -p pdfce-render -p pdfce-print` first**, then
+   rebuild and re-run. `O24` depends on two engine commits (`71f7055`,
+   `bd9844d`) that this shell's lock predates, so a release built on a stale
+   pin would ship without the thing it is a release of.
+4. **`FEATURES.md` re-measured against the build**, because he reads it to
+   know what he has, and it has carried a false claim before.
+5. **Anything still failing is named in the release note**, not omitted. At
+   the time of writing that is `multi_node_move_moves_every_picked_anchor`,
+   which has never passed on any build and is an unbuilt path rather than a
+   regression.
+
+★ **Not before step 2.** He named the trigger precisely, and step 1 landing
+on its own is not it — the point of the release is the higher zoom
+capability, and shipping the tiering without the tier that needs it would be
+a release of preparation.
+
 ### ★★★ THE CONSTRAINT THAT DECIDES THE DESIGN — 2026-08-21
 
 > *"can you build the first step and build the second one and put it as an

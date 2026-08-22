@@ -136,6 +136,24 @@ check failed at step 2, left every class switched off on disk, and its next run
 blamed `--doc-point`.
 ---
 
+## ★★ A RELEASE IS OWED WHEN O24's STEP 2 LANDS
+
+Ken, 2026-08-21: *"when you complete the step 2 zoom release to git and put on
+OneDrive."*
+
+**`git push origin main`, then `tools/package-portable.py`.** ★ This would be
+the project's **first push** — `origin` is `github.com/KenM76/pdfceGUI.git` and
+the local branch is 253 commits ahead of it, last tag `v0.3.0`. Not a routine
+increment.
+
+`O24`'s release section carries the five preconditions, every one of which has
+bitten this project already. The two most easily forgotten: **bump the engine
+first** (`O24` depends on two commits this lock predates, so a stale pin ships
+a release without the thing it is a release of), and **drive the suite at BOTH
+`--doc-point`s**, because one point passing is what hid `O22` for a day.
+
+★ **Not on step 1.** He named the trigger precisely.
+
 ## 0. ★★★ READ THESE FIRST, EVERY SESSION
 
 ### `OPERATOR_REQUESTS.md` — the backlog, and the only truth about it
