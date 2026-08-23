@@ -5,10 +5,39 @@ will replace `D:\Dev\pdfce\crates\pdfce-gui\` when complete, built on a
 new reusable `egui-shell` crate that knows nothing about PDF and will be
 extracted for use by other projects.
 
-Started 2026-08-12 as a design workspace, after a comparison of pdfce
-against **Open PDF Studio 1.82.0** (openaec / OpenAEC Foundation, LGPL,
-Tauri 2 + SolidJS over a multi-process PDFium worker pool) installed on
-this machine. It became the code on 2026-08-13.
+Started 2026-08-12 as a design workspace. It became the code on
+2026-08-13.
+
+## Capabilities worth naming
+
+### Deep zoom — to a trillion percent, with the detail actually there
+
+The viewer magnifies to **1,000,000,000,000 %**. Reaching the number is the
+easy half; three things make it usable rather than a setting nobody can
+spend:
+
+| | |
+|---|---|
+| **the raster follows the window, not the page** | past the point where a whole-page raster would exceed the backend's texture limit, only the visible region is rasterized. A viewport is a fixed number of pixels whatever the page behind it is doing, so **render time does not grow with zoom** |
+| **panning stays smooth** | the last good picture is kept and drawn *where it belongs* while the next one renders, so detail never has to be waited for after moving. The region is quantised to a half-viewport grid, so a small pan re-uses the raster it already has |
+| **the position survives the arithmetic** | a scroll offset is `f32` and gives out around 2²⁴ content points — measured, at a trillion percent it moved in 2,048-pixel jumps. Above that threshold the view's position becomes an `f64` anchor: a page point and the screen pixel it sits under, which does not decay with magnification |
+
+**Measured, by driving the release binary rather than by testing the
+arithmetic:** the point under the cursor is held to within half of a
+per-notch tolerance across a climb of 128 wheel notches from page-fit to the
+ceiling, crossing both internal tier hand-overs; a 960-pixel pan at
+999,999,995,904 % moves 960 pixels and stays there.
+
+The maximum is an **operator setting** — the status bar's percentage opens it
+— because how much performance to spend on magnification is not a decision
+this program should be making.
+
+★ There is a limit and it is worth stating plainly: it is not the zoom, it is
+the size of the smallest thing the *renderer* can resolve at a given place on
+the page. Path coordinates are `f32`, whose step near the middle of a letter
+sheet is about 11 nanometres. Content authored as a reusable form and placed
+by a matrix — which is how a drawing program emits repeated detail anyway —
+is not subject to it.
 
 **➡ New session? Read `RESUME.md` first** — measured state, what to do
 next, what not to do, on one screen. `HANDOFF.md` is the long-form record
@@ -165,7 +194,7 @@ program keeps working for the whole life of the project.
 | **`mockups/ribbon.html`** | Open in a browser. Interactive — click a tab to see its band. Colour-coded by whether each command exists today, exists in core/CLI only, or is new. |
 | **`mockups/app.html`** | Six full-window scenes: object selected (Format tab + properties panel + context menu), View ▸ Render options, in-place text editing, the Pages tab, Measure, and placing a revision cloud. |
 | **`mockups/modes.html`** | The same document rendered in Read, Review and Edit, with the selector at the far right of the tab row. |
-| **`BENCHMARK.md`** | Measured rendering performance on a real 5.6 MB CAD site plan, head to head with the competitor. This is the evidence that overturned an earlier, unmeasured claim about whole-page rendering. |
+| **`BENCHMARK.md`** | Measured rendering performance on a real 5.6 MB CAD site plan. This is the evidence that overturned an earlier, unmeasured claim about whole-page rendering. |
 | **`evidence/`** | Screenshots backing every observational claim, plus `bench-gui-diag.txt`, the raw `PDFCE_DIAG` trace. |
 
 ## Evidence index
@@ -173,18 +202,16 @@ program keeps working for the whole life of the project.
 | File | What it shows |
 |---|---|
 | `pdfce_max.png` | pdfce, maximised, the shared test drawing |
-| `ops_max.png` | Open PDF Studio, same window size, same drawing |
+| `ops_max.png` | The comparison product, same window size, same drawing |
 | `crop_settings.png` | pdfce Settings dialog at 3× — the invisible section headings (D2) |
 | `crop_tabs_left.png`, `crop_tabs_right.png` | Dock tab labels at 3× — same defect |
 | `pdfce_settings.png`, `pdfce_panels.png` | Settings dialog and the Objects + Fonts panels in place |
 | `ribbon_*.png` | Every pdfce ribbon tab: edit, review, measure, tools, view |
-| `ops_*.png` | Every Open PDF Studio ribbon tab: view, drawing, annotation, edit & combine, settings |
+| `ops_*.png` | Every comparison-product ribbon tab: view, drawing, annotation, edit & combine, settings |
 
-The shared test document is
-`C:\Program Files\Open PDF Studio\kaders\grootformaat_a1_liggend.pdf` —
-an A1 landscape title-block frame, chosen because both products target
-drawing work and it exercises vector paths, subset fonts and
-annotations.
+The shared test document is `grootformaat_a1_liggend.pdf`, an A1 landscape
+title-block frame, chosen because it exercises vector paths, subset fonts
+and annotations together at drawing scale.
 
 ## Headline findings
 

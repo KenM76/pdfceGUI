@@ -12,10 +12,9 @@ product).
 
 pdfce's engine is ahead of its shell. The Objects panel, the Fonts
 panel and the spec-ambiguity Settings dialog are things no competing
-product has, and the parsing underneath them is demonstrably better than
-the comparison product's — on the same test file, Open PDF Studio
-reported `Pages -`, `Page Size -` and every metadata field blank, while
-pdfce read it correctly.
+product has, and the parsing underneath them is demonstrably better. On a
+shared test file the comparison product reported `Pages -`, `Page Size -`
+and every metadata field blank, while pdfce read it correctly.
 
 What is missing is not capability. It is the layer of ordinary
 conventions a user brings with them: click a thing and press Delete;
@@ -350,7 +349,7 @@ small once Phase 1 has given selection meaning.
 |---|---|
 | **Two-line dimensioning** | Shell only — core and CLI shipped and measured, `pick_line` has no caller. Cheapest real feature in the backlog. |
 | **Area** and **Angular** | The conspicuous absences for takeoff work. |
-| Count tool and a takeoff schedule | Larger; the comparison product's "Staten" is a good reference. |
+| Count tool and a takeoff schedule | Larger; the comparison product has one worth studying. |
 
 The **dimension-group** model — named groups carrying a shared scale and
 drafting standard — is better than what the comparison product offers

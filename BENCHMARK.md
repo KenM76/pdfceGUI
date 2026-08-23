@@ -100,22 +100,22 @@ behaviour, and this page — which is not — never blocks the UI.
 
 Same file, same window size, both at 95 % fit-page zoom.
 
-| | pdfce | Open PDF Studio 1.82.0 |
+| | pdfce | the comparison product |
 |---|---:|---:|
-| Processes | **1** | 5 (`open-pdf-studio` + 4 × `pdfium-worker`) |
+| Processes | **1** | 5 (a UI process + 4 render workers) |
 | Working set | **170 MB** at open, 231 MB after zooming to 4× | **569 MB** total |
 | CPU to steady state | 7.4 s | 5.0 s |
 | Render fidelity | faithful, self-reported and correct | correct |
 
-pdfce uses roughly **2.5× less memory** in a single process. Open PDF
-Studio spends its extra memory on crash isolation — a bad page cannot
+pdfce uses roughly **2.5× less memory** in a single process. The
+comparison product spends its extra memory on crash isolation — a bad page cannot
 take down its UI — which is a real benefit pdfce does not have. Both are
 defensible; neither is free.
 
-### An Open PDF Studio defect, reproduced
+### A comparison-product defect, reproduced
 
-On this file, as on the A1 title-block frame tested earlier, Open PDF
-Studio's Properties panel reports `Pages -`, `Page Size -`, and every
+On this file, as on the A1 title-block frame tested earlier, the comparison
+product's Properties panel reports `Pages -`, `Page Size -`, and every
 metadata field blank, plus `Annotations Total 0`. pdfce reports
 `PDF 1.7, 1 page(s)` correctly. Two different documents, same failure —
 this is not file-specific.
@@ -173,7 +173,7 @@ thing you were trying to split.
 
 ### Why processes specifically are the wrong tool
 
-Processes buy **crash isolation**, not throughput. Open PDF Studio runs
+Processes buy **crash isolation**, not throughput. The comparison product runs
 four `pdfium-worker` processes and pays 569 MB for it — a bad page cannot
 take down its UI, which is a genuine benefit. But pdfce is a single Rust
 binary: threads already share memory for free, while processes would have
