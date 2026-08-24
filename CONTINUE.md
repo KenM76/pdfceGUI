@@ -53,6 +53,28 @@ The operator, after O26 landed:
 
 Both pass twice in a row, which is the property the first defect cost.
 
+### ⚠️ PUBLISHED — `OneDrive\pdfceGUI1`, and a mistake worth not repeating
+
+Built 2026-08-24 18:08, engine `5661d86` (v0.8.0 — a **version-only** bump over
+the `cc053ac` this tree was driven against: two commits, a `Cargo.toml`
+version, a checked-in demo PDF and a librarian filing, so the compiled
+behaviour is the same). `pdfceGUI2` holds the previous build as the fallback.
+
+★★★ **The suite was then pointed at the PUBLISHED exe, and it should not have
+been.** `package-portable.py` deliberately keeps the slot's `userdata/`,
+because that state is the operator's — so every check's side effect landed in
+his copy. It was left with **`wheel_paging = flip` switched on**, which he had
+never asked for, his page-display memory rewritten for his own drawing, and his
+recent-files list full of fixtures. It then reported a **failure** against a
+binary `cmp` proves byte-identical to the one that had just passed: the check
+was measuring a layout the previous check had rewritten.
+
+The slot's `userdata/` has been restored from `pdfceGUI2`'s — genuine operator
+state from that morning — and the packaged binary re-verified from a **scratch
+copy**, where it passes. Filed to `D:/dev/rag/egui/`. **Drive
+`target/release`; copy the artifact elsewhere if you want to prove the
+artifact.**
+
 ### R2 forced four splits
 
 `viewer::fit`, `app::status::fit`, `app::dispatch::zoom`, `canvas::fit` and
