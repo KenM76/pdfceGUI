@@ -220,6 +220,7 @@ pub(super) fn tab() -> Tab {
                     command("view.zoom_actual"),
                     command("view.zoom_fit_page"),
                     command("view.zoom_fit_width"),
+                    command("view.zoom_fit_height"),
                     command("view.zoom_selection"),
                     command("view.zoom_region"),
                 ],

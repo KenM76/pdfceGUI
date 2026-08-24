@@ -1,5 +1,56 @@
 # CONTINUE — handoff
 
+## 2026-08-24 (later) — O28, O29, O30: three asks, all driven
+
+**Clean tree. 17/17 gates. 1,707 + 385 + 144 tests, 0 failing.** Re-measure
+before quoting; the commands are in `RESUME.md`.
+
+The operator, after O26 landed:
+
+> *"If I press the Fit width or fit page button the view should center to the
+> width as well or center the page. Adobe has fit height, so add that too.
+> Also when in single page view there should be an option on screen near the
+> button to scroll or flip through pages, or the current way it is now when the
+> scroll wheel is used."*
+
+| | |
+|---|---|
+| **O28** | a fit now **places the view**, not just the scale. It pins the axes whose extent it decided and keeps the operator's position on the rest, clamped to the page. This is a consequence of O23's pasteboard and the second one: before it, a fitted page had nowhere to be except the middle |
+| **O29** | **Fit height**, end to end — mode, `fit_scale` arm, status-bar button, registered command, ribbon item, context-menu entry, icon, opening-fit preference, on-disk token |
+| **O30** | the **Flip pages** wheel toggle beside the page buttons. Off by default; not drawn at all under a continuous display (R9); takes effect on the very next notch |
+
+### ★★★ Both new checks were falsified, and both found defects in themselves first
+
+* `a_fit_command_puts_the_page_on_screen` pans thirty notches into the
+  pasteboard, **asserts it got there**, then presses each of the three buttons.
+  With the placement disabled it reports *"the vertical margins are 261.5 and
+  −4.4, so the page is not centred"*. ★ Its first draft demanded the page sit
+  flush against the viewport and failed a correct build by exactly
+  `CANVAS_MARGIN` — the application had never promised that.
+* `the_wheel_turns_pages_when_the_operator_asks_it_to` makes five claims, and
+  the first is that the **default is silent**, so a build that flipped
+  unconditionally could not pass. ★★ It found two harness defects before it
+  found anything else: it **mutates a persisted setting and did not normalise
+  at the start**, so its second run accused the shipped default; and its
+  absence claim passed an event count to a helper that wants a line number.
+  Both are standing RAG lessons in new costumes. The application now publishes
+  `wheel=` on its status line so the check can read what it is about to change.
+
+Both pass twice in a row, which is the property the first defect cost.
+
+### R2 forced four splits
+
+`viewer::fit`, `app::status::fit`, `app::dispatch::zoom`, `canvas::fit` and
+`canvas::offset`. The last is the one worth reading: *who decides where the
+view is this frame*, six ranked sources with the argument for each rank, which
+had grown inside `canvas::show` where nobody could see them together.
+
+★ **A caution from doing it**: `git checkout --` on four files, meant as an
+inspection, threw away an hour of uncommitted work that had to be retyped.
+Commit before restructuring.
+
+---
+
 ## 2026-08-24 — O26: zoom out, and the seven reasons the page ended up in a corner
 
 **Clean tree. 17/17 gates. 1,691 + 385 + 144 tests, 0 failing.** Re-measure

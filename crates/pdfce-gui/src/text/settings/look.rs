@@ -677,6 +677,7 @@ pub const fn opening_fit_label(fit: crate::app::prefs::OpeningFit) -> &'static s
     match fit {
         F::Page => "The whole page (pdfce's default)",
         F::Width => "The full width",
+        F::Height => "The full height",
         F::ActualSize => "Actual size",
     }
 }
@@ -701,10 +702,64 @@ pub const fn opening_fit_note(fit: crate::app::prefs::OpeningFit) -> &'static st
              Good for reading down a long sheet; on a wide drawing it is barely \
              different from the whole page."
         }
+        F::Height => {
+            "Fills the window top to bottom and lets the side run off screen. The one for a landscape drawing sheet in a tall window, where fitting the whole page leaves a band across the middle."
+        }
         F::ActualSize => {
             "One dot on screen for one point on the page — the size it would \
              print at, near enough. On an A1 sheet you will be looking at a \
              corner of it."
+        }
+    }
+}
+
+/// What the wheel does on a single page: the setting's name.
+#[must_use]
+pub const fn wheel_paging_title() -> &'static str {
+    "Mouse wheel on a single page"
+}
+
+/// What happens if you never touch it.
+#[must_use]
+pub const fn wheel_paging_silence() -> &'static str {
+    "The wheel scrolls within the page, which is what pdfce has always done."
+}
+
+/// What it costs, and what it does not affect.
+///
+/// ★ The second sentence is the one that matters. Under a continuous display
+/// mode the wheel scrolls the whole document by definition, so this setting
+/// has nothing to change — and an operator who tried it there and saw no
+/// difference would reasonably conclude it was broken.
+#[must_use]
+pub const fn wheel_paging_radius() -> &'static str {
+    "Applies at once, to every open document. Has no effect under a continuous page display, where the wheel scrolls the whole document anyway, and none on Ctrl+wheel, which always zooms."
+}
+
+/// One wheel-paging option's name.
+#[must_use]
+pub const fn wheel_paging_label(paging: crate::app::prefs::WheelPaging) -> &'static str {
+    use crate::app::prefs::WheelPaging as W;
+    match paging {
+        W::Scroll => "Scroll within the page (pdfce's default)",
+        W::FlipPages => "Turn to the next or previous page",
+    }
+}
+
+/// One wheel-paging option's description.
+///
+/// ★ The first names the case where today's behaviour is a **dead control**,
+/// which is the whole reason the choice exists: this shell opens documents at
+/// fit page, and a page that already fits has nothing to scroll.
+#[must_use]
+pub const fn wheel_paging_note(paging: crate::app::prefs::WheelPaging) -> &'static str {
+    use crate::app::prefs::WheelPaging as W;
+    match paging {
+        W::Scroll => {
+            "Moves around inside the sheet. On a page that already fits the window there is nothing to move, so the wheel does nothing."
+        }
+        W::FlipPages => {
+            "One notch, one sheet. The one to pick for a drawing set you read a page at a time; the page buttons and Page Up / Page Down keep working either way."
         }
     }
 }

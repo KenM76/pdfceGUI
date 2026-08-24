@@ -49,7 +49,7 @@ use egui::Ui;
 
 use super::widgets;
 use crate::app::prefs::{
-    MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, PageCache, Prefs, RenderQuality,
+    MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, PageCache, Prefs, RenderQuality, WheelPaging,
 };
 use crate::text::settings as t;
 
@@ -187,6 +187,34 @@ pub fn opening_fit(ui: &mut Ui, prefs: &mut Prefs) {
             *option,
             t::opening_fit_label(*option),
             Some(t::opening_fit_note(*option)),
+        );
+    }
+}
+
+/// What a plain mouse wheel does under a one-page-at-a-time display mode.
+///
+/// # ★ Here as well as on the status bar, and that is not duplication
+///
+/// The status-bar control is the one the operator will use: it sits beside the
+/// page buttons, which is where they are already looking when they are
+/// thinking about pages. This one is how they *find* the choice — and how they
+/// read the two sentences that make it decidable, which a one-word toggle in a
+/// 24-point bar has no room for. Both write the same field, so neither can
+/// drift from the other.
+pub fn wheel_paging(ui: &mut Ui, prefs: &mut Prefs) {
+    widgets::header(
+        ui,
+        t::wheel_paging_title(),
+        t::wheel_paging_silence(),
+        t::wheel_paging_radius(),
+    );
+    for option in WheelPaging::ALL {
+        widgets::option(
+            ui,
+            &mut prefs.wheel_paging,
+            *option,
+            t::wheel_paging_label(*option),
+            Some(t::wheel_paging_note(*option)),
         );
     }
 }

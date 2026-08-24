@@ -927,6 +927,7 @@ mod tests {
             view_zoom_actual(),
             view_zoom_fit_page(),
             view_zoom_fit_width(),
+            view_zoom_fit_height(),
             view_show_annotations(),
             view_show_points(),
             view_rulers(),

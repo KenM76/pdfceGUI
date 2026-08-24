@@ -701,6 +701,15 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::textcopy::handles(id) {
         return Some("handles");
     }
+    // ★ The third membership-test guard, added 2026-08-24 with
+    // `dispatch::zoom`, when O29's third fit mode took `dispatch.rs` past
+    // 1,500 lines. Everything the `pages::handles` paragraph above says
+    // applies unchanged, mitigation included: its partner `dispatch` ends in
+    // an `unreachable!` naming the id, so a member of `handles` missing from
+    // the match panics loudly rather than silently doing nothing.
+    if crate::app::dispatch::zoom::handles(id) {
+        return Some("handles");
+    }
     None
 }
 

@@ -103,6 +103,8 @@ pub enum Icon {
     FitPage,
     /// Fit page width ("frame-fit-width").
     FitWidth,
+    /// Fit page height ("frame-fit-height") - O29, the Acrobat parity mode.
+    FitHeight,
     /// Rotate page counter-clockwise ("rotate-page").
     RotateCcw,
     /// Rotate page clockwise.
@@ -621,6 +623,7 @@ impl Icon {
         Icon::ZoomIn,
         Icon::FitPage,
         Icon::FitWidth,
+        Icon::FitHeight,
         Icon::RotateCcw,
         Icon::RotateCw,
         Icon::Properties,
@@ -727,6 +730,7 @@ impl Icon {
             Icon::ZoomIn => assets::ZOOM_IN,
             Icon::FitPage => assets::FIT_PAGE,
             Icon::FitWidth => assets::FIT_WIDTH,
+            Icon::FitHeight => assets::FIT_HEIGHT,
             Icon::RotateCcw => assets::ROTATE_CCW,
             Icon::RotateCw => assets::ROTATE_CW,
             Icon::Properties => assets::DOCUMENT,
@@ -839,6 +843,8 @@ impl Icon {
             Icon::ZoomIn => "zoom-in",
             Icon::FitPage => "fit-page",
             Icon::FitWidth => "fit-width",
+            // ui-text-exempt: icon key, never displayed
+            Icon::FitHeight => "fit-height",
             Icon::RotateCcw => "rotate-ccw",
             Icon::RotateCw => "rotate-cw",
             Icon::Properties => "properties",
@@ -996,7 +1002,7 @@ mod tests {
         // reader. Prefer that shape for any future count.
         assert_eq!(
             Icon::ALL.len(),
-            91,
+            92,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }

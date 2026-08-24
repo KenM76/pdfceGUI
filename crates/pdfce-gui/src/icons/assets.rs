@@ -441,6 +441,13 @@ pub(super) const FIT_PAGE: &str = include_str!("assets/fit-page.svg");
 /// Authored for pdfce in the header §3 style contract.
 pub(super) const FIT_WIDTH: &str = include_str!("assets/fit-width.svg");
 
+/// `fit-height.svg` - the art for [`super::Icon::FitHeight`].
+///
+/// The exact 90-degree sibling of [`FIT_WIDTH`]: the same corner-bracket
+/// family, rotated, so the ribbon's three fit glyphs read as one set and none
+/// of them is mistaken for another at a glance.
+pub(super) const FIT_HEIGHT: &str = include_str!("assets/fit-height.svg");
+
 /// `floating-panels.svg` — the art for [`super::Icon::FloatingPanels`].
 ///
 /// Authored for pdfce in the header §3 style contract — header §5 addition #7.

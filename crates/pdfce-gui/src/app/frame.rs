@@ -533,15 +533,52 @@ impl eframe::App for PdfceApp {
                 // a snapshot of a `Copy` value cannot be forgotten by a future
                 // control added to the popup, where a dirty flag can.
                 let max_zoom_before = self.prefs.max_zoom_percent;
+                // ★ And the wheel-paging choice, snapshotted for the same
+                // reason and saved by the same branch — O30. Two preferences
+                // reachable from one bar, and the file is written whole, so
+                // one comparison and one save covers both. Adding a second
+                // save call here would write the file twice on the frame a
+                // future control changed both.
+                let wheel_before = self.prefs.wheel_paging;
                 crate::app::status::show(
                     ui,
                     &self.status,
                     &mut self.find,
                     &mut self.pick_filter,
                     &mut self.prefs.max_zoom_percent,
+                    &mut self.prefs.wheel_paging,
                     &mut actions,
                 );
-                if (self.prefs.max_zoom_percent - max_zoom_before).abs() > f32::EPSILON {
+                let wheel_now = self.prefs.wheel_paging;
+                // ★★★ THE WHEEL CHOICE REACHES THE OPEN DOCUMENTS AT ONCE —
+                // O30, and it is the one preference that must not wait for a
+                // Settings apply.
+                //
+                // `OpenDoc::prefs` is a SNAPSHOT, adopted when the Settings
+                // window is applied, and its contract is about values baked
+                // into cached rasters — `render_quality` is the reason it
+                // exists. `wheel_paging` bakes into nothing; it is a live
+                // preference about an input gesture, and the operator who
+                // just pressed the toggle expects the very NEXT notch to obey.
+                // Left to the snapshot, the control would look correct, write
+                // the file correctly, and change nothing on screen until the
+                // Settings window was opened and applied — which is exactly
+                // the shape of a silently-inert control this project has
+                // shipped before.
+                if self.prefs.wheel_paging != wheel_before {
+                    let adopt = |status: &mut crate::app::state::Status| {
+                        if let crate::app::state::Status::Open(doc) = status {
+                            doc.prefs.wheel_paging = wheel_now;
+                        }
+                    };
+                    adopt(&mut self.status);
+                    for parked in &mut self.parked {
+                        adopt(parked);
+                    }
+                }
+                if (self.prefs.max_zoom_percent - max_zoom_before).abs() > f32::EPSILON
+                    || self.prefs.wheel_paging != wheel_before
+                {
                     // The preferences file is written whole, and the error is
                     // traced rather than shown: losing a maximum-zoom choice
                     // across a restart is an inconvenience, where a modal about

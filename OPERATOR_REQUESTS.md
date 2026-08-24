@@ -80,6 +80,111 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O28 — A fit control must place the view, not only set the scale
+
+**Asked:** 2026-08-24 —
+
+> *"If I press the Fit width or fit page button the view should center to the
+> width as well or center the page."*
+
+**Status:** **FIXED 2026-08-24**, and driven —
+`a_fit_command_puts_the_page_on_screen` pans thirty notches into the pasteboard
+before pressing each button, asserts it got there, and then measures the page's
+drawn rect against the canvas's. Measured after Fit page: page
+`296,272 .. 764,633` in a canvas of `288,143 .. 772,762` — margins of 8 and 8
+horizontally, 128.5 and 128.6 vertically. **Falsified**: with the placement
+disabled the same run reports *"part of the page is outside the canvas; the
+vertical margins are 261.5 and −4.4, so the page is not centred"*.
+
+★ **This is a consequence of O23's pasteboard and it is the second one.** Before
+the pasteboard, a page smaller than the viewport had nowhere to be except the
+middle, so "fit" and "centred" were the same act and nobody had to decide which
+one the button meant. The pasteboard added a whole viewport of slack on every
+side — deliberately, so any corner of the page can be brought to any point of
+the screen — and with it the state the operator is reporting: **the scale is
+right and the page is not on screen.**
+
+So `Action::Fit` sets the scale and must now also **place the view**:
+
+| | |
+|---|---|
+| **Fit page** | centred on both axes. The page fits, so there is exactly one honest position for it |
+| **Fit width** | centred horizontally; the vertical position is kept but clamped to the page's own range, so you do not lose your place in a long sheet and cannot be left looking at pasteboard |
+| **Fit height** | the mirror: centred vertically, horizontal kept and clamped |
+
+★ Keeping the other axis rather than resetting it to the top is deliberate.
+"Fit width" on page 12 of a drawing set is a *scale* request; throwing the
+operator back to the top of the sheet would be a navigation they did not ask
+for. Clamping is what makes "kept" safe.
+
+## O29 — Fit height, because Acrobat has it
+
+**Asked:** 2026-08-24 — *"Adobe has fit height, so add that too."*
+
+**Status:** **FIXED 2026-08-24**, and driven in the same check. Measured after
+Fit height on the 1584 × 1224 sheet: page `288,151 .. 1068,754` in a canvas of
+`288,143 .. 772,762` — the full height on screen, and the width overflowing by
+296 points, which is the mode doing exactly what it is for.
+
+A third mode beside Fit page and Fit width: recompute the zoom each frame so
+the page's full **height** is visible. On a landscape CAD sheet in a portrait
+window it is the useful one, and it is the mode this build has been missing
+every time the operator wanted to read a title block down the right-hand edge.
+
+Scope, taken as the whole expected behaviour rather than the sentence:
+
+* the mode itself, recomputed on every window resize like its two siblings;
+* the **status bar** control beside Fit width and Fit page;
+* a **registered command** so it appears wherever the other two do — the ribbon
+  included — because R8 makes registering the command the only way the shell is
+  allowed to learn a capability exists;
+* the **opening-fit preference**, so a document can be opened at fit-height the
+  same way it can be opened at fit-width;
+* the on-disk id, its round trip, and the exhaustive-variant tests that would
+  otherwise pass while silently not covering it.
+
+## O30 — In single-page view, choose what the wheel does
+
+**Asked:** 2026-08-24 —
+
+> *"when in single page view there should be an option on screen near the
+> button to scroll or flip through pages, or the current way it is now when the
+> scroll wheel is used."*
+
+**Status:** **FIXED 2026-08-24**, and driven —
+`the_wheel_turns_pages_when_the_operator_asks_it_to` makes five separate
+claims, in order: the default is **silent** (a build that flipped
+unconditionally could not pass), the toggle is on screen beside the page
+buttons, the **very next** notch turns a page, rolling back returns to the page
+before, and under a continuous display the control is **not drawn at all**.
+
+★ Two defects were found by writing it, and neither was in the feature:
+the check **mutates a persisted setting and did not normalise at the start**,
+so its second run inherited its first run's toggle and accused the shipped
+default; and its absence claim used `declared_since` with an event count where
+that helper wants a line number, reporting a control as drawn when it was not.
+Both are the standing lessons in a new costume. The application now publishes
+`wheel=` on its status line so the check can read the state it is about to
+change.
+
+Two behaviours, chosen by a control **next to the page navigation buttons** in
+the status bar:
+
+| | |
+|---|---|
+| **Scroll the page** | today's behaviour: the wheel moves within the sheet and never leaves it |
+| **Flip pages** | the wheel turns to the next or previous page |
+
+★ **The control renders only where it means something** — R9. Under a
+continuous display mode the wheel scrolls the whole document by definition and
+there is no choice to offer, so nothing is drawn rather than a disabled stub.
+Under Single and Facing it appears beside the page box, which is where the
+operator is already looking when they are thinking about pages.
+
+★ It is an operator setting and therefore persisted, like every other view
+preference: a choice that resets on the next launch is a choice the operator
+has to keep making.
+
 ## O26 — Zoom out throws the page off screen into a corner
 
 **Asked:** 2026-08-24 —

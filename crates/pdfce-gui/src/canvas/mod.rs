@@ -139,6 +139,10 @@ pub mod cursor;
 // the `egui` scroll offset. Its own file because the seam is where the defects
 // are, and O24f and O26e were hundreds of lines apart inside `show`.
 mod deep;
+// Who decides where the view is this frame, in one ranked list -- R2.
+mod offset;
+// Spending a fit command's request to place the view -- O28.
+mod fit;
 pub mod geometry;
 pub mod gesture;
 // Draggable alignment lines: what a guide belongs to, where it lives on disk,
@@ -227,6 +231,8 @@ pub mod overlays;
 /// lives in [`crate::pagedrag`], which is what lets a gesture that began in a
 /// panel — possibly in another document — end here.
 pub mod pagedrop;
+// The wheel as a page turn, under a one-page-at-a-time display mode -- O30.
+mod paging;
 /// ★ Everything the canvas draws, once everything is decided — lifted out of
 /// [`interact`] when that file crossed R2's ceiling. Its header carries the
 /// layer order and the argument for each position in it.
@@ -298,7 +304,6 @@ use egui_shell::HandlerToken;
 use crate::app::actions::Action;
 use crate::app::modes::Capabilities;
 use crate::app::state::OpenDoc;
-use crate::canvas::input::pan_delta;
 // The interaction half, next door. `Frame` is this frame's settled facts on the
 // way in; `interact` is everything that follows from them. Imported by name
 // rather than called as `interact::interact(…)` so the one call site below
@@ -553,6 +558,22 @@ fn show_in(
     // the middle button, implemented below against the offset directly.
     let mut scroll_source = ScrollSource::ALL;
     scroll_source.drag = egui::scroll_area::DragScroll::Never;
+    // ★★★ AND THE WHEEL ITSELF, when it is a page turn — O30.
+    //
+    // The scroll area consumes a plain wheel, so a page-turning wheel has to
+    // be taken away from it BEFORE it is built; reading the delta afterwards
+    // and paging on it as well would scroll and page off one gesture. The
+    // decision and the spending are two places, one frame apart, and they ask
+    // `paging::flips_pages` — one predicate, so they cannot disagree about
+    // which frames are which.
+    //
+    // ★ Only the wheel. The scroll BARS keep working, which matters: with the
+    // wheel turning pages, dragging the bar is how the operator moves within
+    // a sheet that is larger than the window, and a mode that took both away
+    // would have made a zoomed-in page unreachable.
+    if paging::flips_pages(doc) {
+        scroll_source.mouse_wheel = false;
+    }
 
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("page-canvas") // ui-text-exempt: internal widget id, never displayed
@@ -598,41 +619,6 @@ fn show_in(
     // The conversion is exact, and under `Single` it is the identity. See
     // `geometry`'s header for the whole argument.
     let vp = ui.available_size();
-    // ★★★ CONVERTED THROUGH THE PAGE THE SOLVE IS ABOUT, NOT THROUGH THE
-    // CURRENT ONE — `OPERATOR_REQUESTS.md` O26d.
-    //
-    // A page-local offset is measured from ONE page's top-left, and turning it
-    // back into a strip offset means adding THAT page's origin within the
-    // strip. This closure used to add `current_origin` unconditionally, and
-    // the value it was converting had usually been described against a
-    // different frame: the zoom anchor is armed while `show` runs and solved
-    // on the frame after, and the current page tracks the scroll in between.
-    //
-    // ★★ When the two disagree the answer is wrong by whole page pitches. At
-    // 900,000 % a pitch is about 1.1 × 10⁷ points, so the offset lands far
-    // outside the scrollable range, `strip_offset` clamps it to zero, and zero
-    // is the content's top-left corner — the page arrives in a corner of the
-    // screen with the drawing off it. Driven, 2026-08-24, descending at
-    // 970,851 % → 814,325 %: the page point under the viewport centre went
-    // from 1164.82 to **−0.04**, the page's own top edge, and stayed there.
-    //
-    // ★ Each caller now names its page, and each of them knows it: the zoom
-    // anchor carries [`viewer::ZoomAnchor::page`], the reveal is gated on
-    // `reveal.page == view.page_index`, and a live pan is about the page under
-    // the hand this frame. Under `Single` every one of them is page 0 at the
-    // strip's origin and this is the identity it always was.
-    let strip_offset_for = |page: usize, local: (f32, f32)| {
-        let rect = layout.rect_of(page).unwrap_or(current_rect);
-        let (x, y) = geometry::strip_offset(
-            local,
-            (rect.min.x, rect.min.y),
-            (display_size.x, display_size.y),
-            (rect.width(), rect.height()),
-            (vp.x, vp.y),
-        );
-        vec2(x, y)
-    };
-    let to_strip = |local: (f32, f32)| strip_offset_for(current, local);
     // The page the pending zoom anchor was armed against, and that page's
     // drawn size — which is what `zoom::consume_anchor` must compare its
     // recorded size against, for the same reason.
@@ -671,93 +657,39 @@ fn show_in(
         deep,
     );
 
-    if deep {
-        // ★★★ FORCE THE SCROLL OFFSET TO ZERO — `OPERATOR_REQUESTS.md` O24f.
-        //
-        // At this tier the content IS the viewport, so zero is the only valid
-        // offset and egui will clamp to it. **One frame later**, which is the
-        // whole problem: on the frame the tier flips, the area is still
-        // carrying the offset it settled on while the position was still
-        // its to hold — measured at 6,264,562 px — and `outer_rect.min` is
-        // inside that scrolled content. The anchor then places the strip
-        // relative to an origin that is itself displaced by the old offset,
-        // so the page lands at roughly TWICE the intended distance and the
-        // view is gone.
-        //
-        // Measured at the hand-over, 2,047,244 % → 2,181,987 %: the position
-        // line said the page origin should be 6,676,376 px left of the
-        // viewport and the page was drawn 12,940,650 px left of it. The
-        // difference is 6,264,274 — the stale scroll offset, to four
-        // significant figures.
-        //
-        // ★ Assigned rather than left to the clamp because a one-frame
-        // discrepancy is not cosmetic here: the raster region is computed
-        // from the same placement, so the frame is not merely misplaced, it
-        // renders a different part of the page.
-        scroll_area = scroll_area.scroll_offset(vec2(0.0, 0.0));
-    } else if let Some(offset) = deep_handover {
-        // ★ FIRST, above the ordinary anchor: this frame is the one that left
-        // the `f64` tier, and the offset solved above is the position the
-        // anchor was actually holding. See the branch that produced it.
-        scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
-    } else if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, anchor_display) {
-        scroll_area =
-            scroll_area.scroll_offset(strip_offset_for(anchor_page, (offset.x, offset.y)));
-    } else if let Some(offset) = crate::find::take_reveal_offset(doc, current_display, (vp.x, vp.y))
-    {
-        // The other half of `Action::Find`'s navigation: the page change was
-        // applied after the frame that asked for it, and this is the first
-        // frame that is actually showing that page — so it is the first frame
-        // on which the page's real drawn size is known and the offset can be
-        // solved. `crate::find` owns both the gate and the solve; nothing
-        // about a search is decided here.
-        //
-        // The reveal's gate is `reveal.page == view.page_index`, so the page it
-        // solves against is always the current one — which is exactly the page
-        // `to_strip` converts for. A reveal therefore lands on the right page
-        // of a continuous strip without `find::reveal` knowing a strip exists.
-        scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
-        doc.tracked_page = doc.view.page_index;
-    } else if let Some(offset) = strip::page_scroll_offset(doc, &layout, (vp.x, vp.y)) {
+    // ★ Where a fit command puts the view — `OPERATOR_REQUESTS.md` O28, and
+    // the whole of it is in `canvas::fit` because it is a rule about fitting
+    // rather than about this frame's geometry.
+    //
+    // Taken unconditionally, even at the deep tier and even on a frame where
+    // something else wins the offset: a request left pending would fire on
+    // whatever frame the chain next reached it, which is a view that jumps for
+    // a button pressed some seconds ago.
+    let fit_placement = fit::placement(doc, current_rect, current_display, display_size, vp);
+    // ★★★ WHO DECIDES WHERE THE VIEW IS THIS FRAME, in one ranked list.
+    //
+    // Six sources, and the ranking is the whole of the subject — see
+    // `canvas::offset`'s header for each one's argument. It returns an offset
+    // rather than applying it, so the `ScrollArea` is configured in exactly
+    // one place.
+    if let Some(offset) = offset::decide(
+        ui,
+        doc,
+        &layout,
+        active_tool,
+        offset::Frame {
+            deep,
+            deep_handover,
+            fit_placement,
+            anchor_page,
+            anchor_display,
+            current,
+            current_display,
+            display_size,
+            vp,
+        },
+    ) {
         scroll_area = scroll_area.scroll_offset(offset);
-    } else if let Some(pan) = pan_delta(ui, active_tool) {
-        // Panning subtracts the pointer delta: the content follows the hand,
-        // so the page moves WITH the pointer rather than under it.
-        let (x, y) = geometry::pan_offset(
-            (doc.last_scroll_offset.x, doc.last_scroll_offset.y),
-            (pan.x, pan.y),
-            (display_size.x, display_size.y),
-            (vp.x, vp.y),
-        );
-        scroll_area = scroll_area.scroll_offset(vec2(x, y));
-        // The gesture has to look like what it is. Without a cursor change a
-        // pan that hits the end of the scroll range is indistinguishable from
-        // a pan that is not working.
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-    } else if doc.canvas_frames == 1 {
-        // ★★★ SEED ON THE SECOND FRAME, NOT THE FIRST.
-        //
-        // O23. `ScrollArea` starts its offset at zero, which used to mean the
-        // strip's top-left and now means the CONTENT's — one pasteboard above
-        // and left of the page — so the view has to be placed once.
-        //
-        // ★ Doing that on the FIRST frame is what broke the two previous
-        // attempts, and it took four bisecting runs to see. Forcing an offset
-        // before egui has laid the content out once costs the canvas its
-        // pointer input entirely: the page is drawn, centred and correctly
-        // published, and no `canvas-pointer` event is ever emitted again.
-        // Pre-writing `scroll_area::State` fails the same way from the other
-        // side — it is silently clamped against a content size that is not
-        // known yet.
-        //
-        // ★★ It is NOT the magnitude. `scrolling_far_keeps_the_canvas_its_
-        // pointer_input` drives the wheel to 1,600 pt and the canvas keeps
-        // its input, so a large offset is fine once the content is real.
-        //
-        // So: frame 0 lays out with egui's own zero, frame 1 places the view.
-        // One frame of pasteboard is visible at open, which is the cost of
-        // this shape and is named rather than hidden.
-        scroll_area = scroll_area.scroll_offset(to_strip((0.0, 0.0)));
     }
 
     // How many canvas frames this document has had. Saturating, and only ever
@@ -1416,6 +1348,18 @@ fn show_in(
     crate::diag::ui_rect(trace::REGION_PAGE, image_rect);
     crate::diag::ui_rect(trace::REGION_CANVAS_VIEWPORT, scroll_output.inner_rect);
     trace::pointer(ui, doc, image_rect, extent);
+
+    // ★ The plain wheel as a page turn — O30. Before the Ctrl+wheel block
+    // rather than after it, so the two are read in the order egui produced
+    // them; they cannot both fire on one gesture, because a modified wheel
+    // event populates `zoom_delta` and contributes nothing to the scroll
+    // delta this reads.
+    paging::flip(
+        ui,
+        doc,
+        content_hovered || image_response.hovered(),
+        actions,
+    );
 
     // Ctrl+wheel over the canvas: multiply the zoom. Gated on hover so a
     // Ctrl+wheel aimed at some other surface does not zoom the page out from

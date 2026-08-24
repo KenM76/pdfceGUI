@@ -101,9 +101,11 @@ pub mod chrome;
 /// What an operator is shown when a page **first appears** — read once per
 /// document open, never on the hot path.
 pub mod opening;
+// What a plain wheel does when the document is not one long scroll -- O30.
 /// How sharply a page is drawn, and how long zoom waits before drawing it.
 /// The two preferences that change what a **frame costs**.
 pub mod quality;
+pub mod wheel;
 
 use std::path::PathBuf;
 
@@ -111,6 +113,7 @@ pub use cache::PageCache;
 pub use chrome::{DEFAULT_UI_SCALE, MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
 pub use opening::{OpeningFit, PageChrome};
 pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
+pub use wheel::WheelPaging;
 
 /// The shipped maximum zoom, as a percentage.
 ///
@@ -242,6 +245,15 @@ pub struct Prefs {
     ///
     /// Read once, with [`Self::opening_fit`], and for the same reason.
     pub chrome: PageChrome,
+    /// **What a plain mouse wheel does under a one-page-at-a-time display
+    /// mode** -- `OPERATOR_REQUESTS.md` O30.
+    ///
+    /// Unlike the two above this one is consulted **every frame**, not once at
+    /// open: it is a live preference about an input gesture, and an operator
+    /// who changes it from the status bar expects the very next notch to obey.
+    /// See [`WheelPaging`] for why the choice exists only under
+    /// `PageDisplay::Single` and `Facing`.
+    pub wheel_paging: WheelPaging,
     /// **How big the program's own controls are drawn**, as a multiplier on
     /// whatever the operating system already asked for.
     ///
@@ -290,6 +302,7 @@ impl Default for Prefs {
             // point of the setting.
             max_zoom_percent: DEFAULT_MAX_ZOOM_PERCENT,
             opening_fit: OpeningFit::default(),
+            wheel_paging: WheelPaging::default(),
             chrome: PageChrome::default(),
             ui_scale: DEFAULT_UI_SCALE,
         }
@@ -504,6 +517,14 @@ impl Prefs {
                         line,
                     }),
                 },
+                "wheel_paging" => match WheelPaging::from_key(value) {
+                    Some(w) => prefs.wheel_paging = w,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "opening_fit" => match OpeningFit::from_key(value) {
                     Some(f) => prefs.opening_fit = f,
                     None => notes.push(PrefNote::BadValue {
@@ -644,14 +665,28 @@ impl Prefs {
              # the NEXT document opened, not to the one already on screen.\n\
              # ---------------------------------------------------------------\n\
              \n\
-             # How the first page is sized: page | width | actual\n\
+             # How the first page is sized: page | width | height | actual\n\
              # page   = the whole page fits the window. The shipped answer.\n\
              # width  = the full width fits; the bottom may run off screen.\n\
+             # height = the full height fits; the side may run off screen.\n\
              # actual = one page point per screen point, whatever that shows.\n",
         );
         // ui-text-exempt: a file KEY, as above.
         out.push_str("opening_fit = ");
         out.push_str(self.opening_fit.key());
+        out.push('\n');
+        out.push_str(
+            // ui-text-exempt: file comments, never displayed in the UI.
+            "\n\
+             # What the mouse wheel does on a single page: scroll | flip\n\
+             # scroll = move within the sheet. The shipped answer.\n\
+             # flip   = turn to the next or previous page.\n\
+             # Ignored under a continuous display mode, where the wheel\n\
+             # scrolls the whole document by definition.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("wheel_paging = ");
+        out.push_str(self.wheel_paging.key());
         out.push('\n');
         out.push_str(
             "\n\
@@ -784,6 +819,10 @@ mod tests {
                     // than on 800.
                     max_zoom_percent: 1_000_000.0,
                     opening_fit: *fit,
+                    // ★ The non-default, so a writer that emitted no
+                    // `wheel_paging` key at all would fail here rather than
+                    // pass by landing back on `Scroll`.
+                    wheel_paging: WheelPaging::FlipPages,
                     // Deliberately not all-true and not all-false: an assignment
                     // that crossed two of the three fields would survive either.
                     chrome: PageChrome {
@@ -890,6 +929,7 @@ mod tests {
         for (fit, expected) in [
             (OpeningFit::Page, FitMode::Page),
             (OpeningFit::Width, FitMode::Width),
+            (OpeningFit::Height, FitMode::Height),
             (OpeningFit::ActualSize, FitMode::None),
         ] {
             let mut view = ViewState::default();
@@ -1212,6 +1252,7 @@ mod tests {
             zoom_settle_ms: 400,
             max_zoom_percent: 25_000.0,
             opening_fit: OpeningFit::ActualSize,
+            wheel_paging: WheelPaging::FlipPages,
             chrome: PageChrome {
                 rulers: true,
                 grid: true,

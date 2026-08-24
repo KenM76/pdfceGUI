@@ -717,9 +717,57 @@ pub fn fit_page_tooltip() -> &'static str {
      window resizes."
 }
 
+/// The Fit height button's label.
+#[must_use]
+pub fn fit_height() -> &'static str {
+    "Fit height"
+}
+
+/// Hover text for Fit height.
+///
+/// Word for word `crate::text::commands::view_zoom_fit_height`'s tooltip, as
+/// this module's header requires of every status-bar mirror of a ribbon
+/// command — and, like its two siblings, it names no chord, because it has
+/// none.
+///
+/// ★ It says nothing about the page overflowing sideways, deliberately. That
+/// is what *"its full height is visible"* already means on a sheet wider than
+/// the window, and a tooltip that warned about it would be describing the
+/// operator's own document back at them.
+#[must_use]
+pub fn fit_height_tooltip() -> &'static str {
+    "Scale the page so its full height is visible, and keep it fitted as the window resizes."
+}
+
 // ---------------------------------------------------------------------------
 // Page navigation, and the editable page box
 // ---------------------------------------------------------------------------
+
+/// The wheel-paging toggle's label — `OPERATOR_REQUESTS.md` O30.
+///
+/// Two words, because it shares a 24-point bar with the page buttons, the zoom
+/// readout and three fit controls. It names the state the control **turns on**
+/// rather than the state it is in, which is what a pressed/unpressed toggle
+/// already reports: *Flip pages*, lit, means the wheel flips pages.
+#[must_use]
+pub fn wheel_flip_pages() -> &'static str {
+    "Flip pages"
+}
+
+/// Hover text for the wheel-paging toggle.
+///
+/// ★ It states **both** answers, because the label can only state one and the
+/// operator needs to know what turning it off gives them back.
+///
+/// ★★ And it names the two things the setting does **not** touch. Ctrl+wheel
+/// always zooms, and a continuous display always scrolls — an operator who
+/// tried the toggle in a continuous mode and saw no difference would
+/// reasonably conclude it was broken, which is why the control is not drawn
+/// there at all and why this sentence says so.
+#[must_use]
+pub fn wheel_flip_pages_tooltip() -> &'static str {
+    "Turn the mouse wheel into a page turn: one notch, one sheet. Switch it off and the wheel scrolls within the page instead. Ctrl+wheel always zooms, and a continuous page display always scrolls."
+}
 
 /// The previous-page button's label — `⏴` (U+23F4).
 ///

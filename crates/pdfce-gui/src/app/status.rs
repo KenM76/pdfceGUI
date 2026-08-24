@@ -310,6 +310,9 @@
 
 /// Page navigation and the editable page-number box. See this module's
 /// header for the seam, and that one's for the control.
+// The four named zoom levels -- Actual size, Fit width, Fit height, Fit page.
+// Split out under R2 on 2026-08-24; see its header for the layout rule.
+mod fit;
 mod page_box;
 
 /// The worded decline — a command that was invoked and did not run.
@@ -357,7 +360,6 @@ use crate::find::FindState;
 use crate::text::find as t_find;
 use crate::text::forms as t_forms;
 use crate::text::status as t;
-use crate::viewer::FitMode;
 
 /// ★ The **Select** popup — what a click on the page may land on (O17).
 ///
@@ -546,6 +548,7 @@ pub fn show(
     // the zoom readout. Threaded like `filter`, and persisted by the caller
     // for the same reason — see `app::frame`'s status-bar block.
     max_zoom_percent: &mut f32,
+    wheel_paging: &mut crate::app::prefs::WheelPaging,
     actions: &mut Vec<Action>,
 ) {
     // ★ One allocated row, of a height that does not depend on what there is
@@ -722,11 +725,11 @@ pub fn show(
         // wrong; it simply runs out of room, and the notes on the left are
         // what yields.
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            page_box::group(ui, doc, actions);
+            page_box::group(ui, doc, wheel_paging, actions);
             ui.separator();
             zoom::group(ui, doc, max_zoom_percent, actions);
             ui.separator();
-            fit_group(ui, doc, actions);
+            fit::group(ui, doc, actions);
             ui.separator();
             // Added LAST, so it is drawn LEFTMOST of the right-hand cluster —
             // which is where §6 lists it: "Find toggle, actual size, fit
@@ -755,11 +758,20 @@ pub fn show(
         crate::diag::trace_changed(STATUS_SLOT, || {
             format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "status page={} pages={} zoom={} fit={:?}",
+                // ★ `wheel=` carries the O30 preference, because a driven
+                // check that TOGGLES a persisted setting has to be able to
+                // normalise it first. Without it, the second run of such a
+                // check inherits the first run's choice and reports the
+                // default as broken — which is exactly what happened on
+                // 2026-08-24, and the RAG entry it repeated was already
+                // written. A setting a check can change is a setting the
+                // trace must state.
+                "status page={} pages={} zoom={} fit={:?} wheel={}",
                 doc.view.page_index,
                 doc.pages.len(),
                 doc.view.zoom_percent(),
                 doc.view.fit,
+                doc.prefs.wheel_paging.key(),
             )
         });
     }
@@ -963,56 +975,6 @@ fn find_group(ui: &mut egui::Ui, find: &mut FindState) {
 
 // ---------------------------------------------------------------------------
 // Right — fit
-// ---------------------------------------------------------------------------
-
-/// `Actual size · Fit width · Fit page`, mirroring View ▸ Zoom under P1a.
-///
-/// ★ **Two of the three are toggles and one is a button, and that asymmetry
-/// is honest rather than sloppy.** `FitMode::Page` and `FitMode::Width` are
-/// *modes*: they persist, they re-fit on every window resize, and a control
-/// that shows whether you are in one is telling the truth. `FitMode::None`
-/// is the absence of a mode, so a "selected" Actual size would light up at
-/// any pinned zoom — including 73 % — which is the module docs' ★ defect
-/// rendered on screen instead of merely wired. A plain button makes no claim
-/// about state.
-///
-/// Called *last* of the three groups because the layout runs right-to-left;
-/// see [`show`].
-fn fit_group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>) {
-    let fit = doc.view.fit;
-    let rect = ui
-        .scope(|ui| {
-            // Right-to-left: added first is drawn rightmost, so the screen
-            // reads `Actual size · Fit width · Fit page`.
-            if ui
-                .selectable_label(fit == FitMode::Page, t::fit_page())
-                .on_hover_text(t::fit_page_tooltip())
-                .clicked()
-            {
-                actions.push(Action::Fit(FitMode::Page));
-            }
-            if ui
-                .selectable_label(fit == FitMode::Width, t::fit_width())
-                .on_hover_text(t::fit_width_tooltip())
-                .clicked()
-            {
-                actions.push(Action::Fit(FitMode::Width));
-            }
-            // ★ Raises exactly what the ribbon's `view.zoom_actual` raises,
-            // including its defect. See the module docs: the fix is a new
-            // action variant, not a divergent mirror.
-            if ui
-                .button(t::fit_actual_size())
-                .on_hover_text(t::fit_actual_size_tooltip())
-                .clicked()
-            {
-                actions.push(Action::Fit(FitMode::None));
-            }
-        })
-        .response
-        .rect;
-    crate::diag::ui_rect(REGION_FIT, rect);
-}
 
 /// Fixtures the bar's own tests and [`page_box`]'s tests both need.
 ///
@@ -1057,6 +1019,7 @@ pub(super) mod test_support {
                 &mut find,
                 &mut filter,
                 &mut max_zoom,
+                &mut crate::app::prefs::WheelPaging::default(),
                 &mut actions,
             )
         });
@@ -1119,6 +1082,7 @@ pub(super) mod test_support {
                         &mut find,
                         &mut filter,
                         &mut max_zoom,
+                        &mut crate::app::prefs::WheelPaging::default(),
                         &mut actions,
                     )
                 })
@@ -1172,6 +1136,7 @@ mod tests {
                         &mut find,
                         &mut filter,
                         &mut max_zoom,
+                        &mut crate::app::prefs::WheelPaging::default(),
                         &mut actions,
                     )
                 })
@@ -1427,6 +1392,7 @@ mod tests {
             t::zoom_percent(100.0),
             t::fit_actual_size().to_owned(),
             t::fit_width().to_owned(),
+            t::fit_height().to_owned(),
             t::fit_page().to_owned(),
             t::prev_page().to_owned(),
             t::next_page().to_owned(),

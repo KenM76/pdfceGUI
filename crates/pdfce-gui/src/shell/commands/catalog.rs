@@ -623,6 +623,12 @@ pub(super) fn all() -> Vec<Command> {
         command("view.zoom_fit_width", t::view_zoom_fit_width(), 222)
             .with_icon("fit-width")
             .enabled_when("doc.pages"),
+        // ★ O29, "Adobe has fit height, so add that too." 227 is the next
+        // free token in the View band; 223-226 are the zoom verbs and the two
+        // pointer tools.
+        command("view.zoom_fit_height", t::view_zoom_fit_height(), 227)
+            .with_icon("fit-height")
+            .enabled_when("doc.pages"),
         command("view.show_annotations", t::view_show_annotations(), 230)
             .with_icon("comment")
             .enabled_when("doc.pages"),

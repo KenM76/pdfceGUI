@@ -393,6 +393,63 @@ pub fn offset_from_drawn(
     )
 }
 
+/// **Where a fit command puts the view** — `OPERATOR_REQUESTS.md` O28.
+///
+/// # The report, and why a fit is now a position as well as a scale
+///
+/// > *"If I press the Fit width or fit page button the view should center to
+/// > the width as well or center the page."*
+///
+/// Before O23's pasteboard a page no larger than the viewport had nowhere to
+/// be except the middle, so *fit* and *centred* were the same act and the
+/// button never had to choose. The pasteboard added a whole viewport of slack
+/// on every side, and with it the state the operator is describing: the scale
+/// is right and the page is not on screen.
+///
+/// # The rule, per axis
+///
+/// * **Pinned** — the fit has just decided this axis's extent, so there is one
+///   honest position for it and the answer is **zero**. Zero is not an
+///   arbitrary choice: [`anchor_screen_pos`] at `frac = 0` places the page's
+///   top-left at `margin - offset` from the viewport's, and [`margin`] is
+///   *half the slack when the page is smaller than the viewport and exactly
+///   zero once it is larger*. So a page-local offset of zero means **centred
+///   if it fits, flush if it does not** — which is fit-page's answer on both
+///   axes and fit-width's on the horizontal, without a special case for
+///   either.
+/// * **Unpinned** — the operator is still navigating this axis, so their
+///   position is *kept*, clamped to the page's own range `0 ..= display -
+///   viewport`. Keeping it is why "Fit width" on page twelve of a drawing set
+///   does not throw them back to the top of the sheet; clamping it is what
+///   stops "kept" meaning "still looking at pasteboard".
+///
+/// ★ The clamp collapses to `[0, 0]` whenever the page is no larger than the
+/// viewport on that axis — the fit-page case, and the landscape-sheet case —
+/// and `0` is centred there, so the two rules agree at the boundary rather
+/// than fighting over it.
+///
+/// `current` is the page-local offset the view is at now. Non-finite input
+/// yields the pinned answer, because a `NaN` position is not one worth
+/// preserving.
+#[must_use]
+pub fn fit_placement_offset(
+    pinned: (bool, bool),
+    current: (f32, f32),
+    display: (f32, f32),
+    viewport: (f32, f32),
+) -> (f32, f32) {
+    fn axis(pinned: bool, current: f32, display: f32, viewport: f32) -> f32 {
+        if pinned || !current.is_finite() {
+            return 0.0;
+        }
+        current.clamp(0.0, (display - viewport).max(0.0))
+    }
+    (
+        axis(pinned.0, current.0, display.0, viewport.0),
+        axis(pinned.1, current.1, display.1, viewport.1),
+    )
+}
+
 /// **Strip offset → the offset a single-page solve expects.**
 ///
 /// `page_origin` is the current page's top-left in strip space (from
@@ -1188,6 +1245,98 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---- the fit placement (O28) ---------------------------------------
+
+    /// ★★★ **A pinned axis lands centred when the page fits, and flush when it
+    /// does not** — the property the whole of O28 rests on, and the reason the
+    /// pinned answer can be the single constant `0.0`.
+    ///
+    /// Asserted through [`anchor_screen_pos`] rather than by re-stating the
+    /// arithmetic: what matters is not that the function returns zero, it is
+    /// **where the page's top-left ends up on screen** when it does. A test
+    /// that checked for zero would keep passing if [`margin`] were changed
+    /// underneath it, which is exactly the coupling this pins.
+    #[test]
+    fn a_pinned_axis_centres_a_page_that_fits_and_sits_flush_with_one_that_does_not() {
+        let viewport = (800.0_f32, 600.0_f32);
+        // Smaller than the viewport on both axes: fit-page's own case.
+        let small = (500.0_f32, 400.0_f32);
+        let placed = fit_placement_offset((true, true), (123.0, 456.0), small, viewport);
+        let corner = anchor_screen_pos((0.0, 0.0), placed, small, viewport);
+        assert!(
+            (corner.0 - (viewport.0 - small.0) / 2.0).abs() < 1e-3
+                && (corner.1 - (viewport.1 - small.1) / 2.0).abs() < 1e-3,
+            "a page that fits must be centred, not merely at offset zero: {corner:?}"
+        );
+
+        // Exactly the viewport's width, which is what fit-width produces.
+        let wide = (800.0_f32, 2000.0_f32);
+        let placed = fit_placement_offset((true, false), (600.0, 300.0), wide, viewport);
+        let corner = anchor_screen_pos((0.0, 0.0), placed, wide, viewport);
+        assert!(
+            corner.0.abs() < 1e-3,
+            "a page exactly as wide as the viewport must sit flush to its left edge, so the full width shows and no pasteboard does: {corner:?}"
+        );
+    }
+
+    /// An unpinned axis keeps where the operator was — and cannot keep them in
+    /// the pasteboard.
+    ///
+    /// ★ Both halves in one test, because they are one rule. Keeping the
+    /// position is what stops "Fit width" throwing the operator back to the
+    /// top of a long sheet; clamping it is what stops "kept" meaning "still
+    /// looking at nothing".
+    #[test]
+    fn an_unpinned_axis_is_kept_but_clamped_to_the_page() {
+        let viewport = (800.0_f32, 600.0_f32);
+        let tall = (800.0_f32, 2000.0_f32);
+        assert_eq!(
+            fit_placement_offset((true, false), (0.0, 900.0), tall, viewport).1,
+            900.0,
+            "a position inside the page must survive a fit untouched"
+        );
+        assert_eq!(
+            fit_placement_offset((true, false), (0.0, 5000.0), tall, viewport).1,
+            tall.1 - viewport.1,
+            "a position out in the pasteboard must be pulled back onto the page"
+        );
+        assert_eq!(
+            fit_placement_offset((true, false), (0.0, -900.0), tall, viewport).1,
+            0.0,
+            "and so must one above the page's top, which the pasteboard also allows"
+        );
+    }
+
+    /// A page shorter than the viewport has a clamp range of `[0, 0]`, so the
+    /// "kept" rule and the "centred" rule agree rather than fighting.
+    ///
+    /// This is the landscape-sheet-under-fit-width case, and the one where a
+    /// `max(0.0)` on the wrong side would leave the page pinned to the top of
+    /// the window with a gap underneath.
+    #[test]
+    fn an_unpinned_axis_on_a_page_smaller_than_the_viewport_still_centres() {
+        let viewport = (800.0_f32, 600.0_f32);
+        let short = (800.0_f32, 300.0_f32);
+        let placed = fit_placement_offset((true, false), (0.0, 250.0), short, viewport);
+        let corner = anchor_screen_pos((0.0, 0.0), placed, short, viewport);
+        assert!(
+            (corner.1 - (viewport.1 - short.1) / 2.0).abs() < 1e-3,
+            "a page shorter than the viewport must be centred on the free axis too: {corner:?}"
+        );
+    }
+
+    /// A non-finite position cannot survive a fit.
+    #[test]
+    fn a_non_finite_position_falls_back_to_the_pinned_answer() {
+        let out = fit_placement_offset(
+            (false, false),
+            (f32::NAN, f32::INFINITY),
+            (800.0, 2000.0),
+            (800.0, 600.0),
+        );
+        assert_eq!(out, (0.0, 0.0));
     }
 
     /// The two directions round-trip, so an offset handed to a single-page

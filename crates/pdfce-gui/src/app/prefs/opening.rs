@@ -88,6 +88,11 @@ pub enum OpeningFit {
     Page,
     /// The page's full width is visible; its height may run off the bottom.
     Width,
+    /// The page's full height is visible; its width may run off the side.
+    ///
+    /// O29's mirror of [`Self::Width`], and the useful one for a landscape
+    /// drawing sheet in a portrait window.
+    Height,
     /// One page point per screen point, whatever that shows.
     ActualSize,
 }
@@ -96,9 +101,9 @@ impl OpeningFit {
     /// Every value, in the order the settings window lists them.
     ///
     /// Whole-page first because it is the default and the least surprising,
-    /// then width, then actual size — which is *most* zoomed on the drawings
+    /// then the two single-axis fits, then actual size — which is *most* zoomed on the drawings
     /// this shell is for and therefore reads as the far end of a scale.
-    pub const ALL: &'static [Self] = &[Self::Page, Self::Width, Self::ActualSize];
+    pub const ALL: &'static [Self] = &[Self::Page, Self::Width, Self::Height, Self::ActualSize];
 
     /// The token written to the preferences file.
     ///
@@ -111,6 +116,8 @@ impl OpeningFit {
             Self::Page => "page",
             // ui-text-exempt: a file token, never displayed.
             Self::Width => "width",
+            // ui-text-exempt: a file token, never displayed.
+            Self::Height => "height",
             // ui-text-exempt: a file token, never displayed.
             Self::ActualSize => "actual",
         }
@@ -126,8 +133,8 @@ impl OpeningFit {
     ///
     /// # The zoom returned for the two fitting modes is not ignored
     ///
-    /// `FitMode::Page` and `FitMode::Width` are recomputed every frame against
-    /// the viewport, so the zoom handed back for them is only what the state
+    /// `FitMode::Page`, `FitMode::Width` and `FitMode::Height` are recomputed
+    /// every frame against the viewport, so the zoom handed back for them is only what the state
     /// holds until the first frame measures the window. It is `1.0` rather than
     /// `0.0` because a `ViewState` is legal to inspect before any frame has run
     /// — `OpenDoc::assemble` copies it straight into `observed_zoom` — and a
@@ -142,6 +149,7 @@ impl OpeningFit {
         match self {
             Self::Page => (FitMode::Page, 1.0),
             Self::Width => (FitMode::Width, 1.0),
+            Self::Height => (FitMode::Height, 1.0),
             Self::ActualSize => (FitMode::None, 1.0),
         }
     }

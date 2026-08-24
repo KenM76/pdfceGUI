@@ -71,6 +71,14 @@ pub(crate) mod pages;
 /// **same** extraction a canvas selection reads, and why neither raises an
 /// `Action`.
 pub(crate) mod textcopy;
+/// ★ Every `view.zoom_*` command — the two framing verbs, actual size and the
+/// three fit modes.
+///
+/// A module rather than six arms because the family carries the most
+/// reasoning per arm in the whole match, and because O29's third fit mode was
+/// the line that took this file past 1,500. Its header carries the seam and
+/// what deliberately did not move with it.
+pub(crate) mod zoom;
 
 use super::PdfceApp;
 use super::actions::Action;
@@ -472,51 +480,18 @@ impl PdfceApp {
                     }),
                 }
             }
-            // ★ The three Phase 3 navigation verbs.
-            //
-            // Each is one call because the rule each obeys lives in
-            // `canvas::zoom` or `canvas::tool`, not here. This match is a
-            // routing table; the moment it starts computing an anchor or
-            // deciding what a drag means, the same rule exists in two places
-            // and one of them will be the one that gets fixed.
-            // ★ …and this is the one arm whose RETURN VALUE matters.
-            //
-            // `ZoomOutcome` is `#[must_use]` precisely because its declining
-            // variants are the point, and this arm used to discard it with a
-            // `let _ =` — which is how "there is nothing to zoom to" became
-            // "the command did nothing", the difference between a control that
-            // declines and one that looks broken. `FEATURES.md` recorded the
-            // gap as *traced and greyed but never worded*.
-            //
-            // The outcome is now carried into `status::decline`, which decides
-            // whether it is a decline at all (a ceiling-clamped zoom is a
-            // partial grant and is not worded), which sentence it gets, and
-            // how long it lives. This arm decides none of that; it routes.
-            //
-            // The command is gated on `selection.bounds`, so a pressable
-            // control usually has something to frame. The no-bounds answer is
-            // still reachable two ways, and the second is why the sentence
-            // exists: **by chord**, since a keymap reaches any command from any
-            // state, and **in the race** where the bounds evaporate between the
-            // frame that drew the enabled control and the frame that applied
-            // it. In that second case the operator clicked something that was
-            // offered to them and got nothing, which is exactly the situation
-            // that must not be answered with silence.
-            "view.zoom_selection" => {
-                if let Status::Open(doc) = &mut self.status {
-                    let outcome = crate::canvas::zoom::zoom_to_selection(
-                        ctx,
-                        doc,
-                        crate::canvas::CANVAS_MARGIN,
-                        self.prefs.max_zoom_percent,
-                        actions,
-                    );
-                    crate::app::status::decline::record(outcome);
-                }
+            // The zoom verbs, and the three fit modes, split out under R2 --
+            // see `dispatch::zoom`'s header for the seam. `view.tool_hand`
+            // below is the third of the Phase 3 navigation verbs the two
+            // zoom-framing arms used to sit beside; each is one call because
+            // the rule each obeys lives in `canvas::zoom` or `canvas::tool`,
+            // not here. This match is a routing table; the moment it starts
+            // computing an anchor or deciding what a drag means, the same rule
+            // exists in two places and one of them will be the one that gets
+            // fixed.
+            id if crate::app::dispatch::zoom::handles(id) => {
+                crate::app::dispatch::zoom::dispatch(self, ctx, id, actions);
             }
-            // Arms; does not act. The canvas disarms it when the drag ends,
-            // so there is no "turn it off" arm to write.
-            "view.zoom_region" => crate::canvas::zoom::arm_region_zoom(ctx),
             // Toggles, and returns the tool now chosen — which is discarded
             // here because the pressed state is published from `conditions`
             // by asking `tool::selected`, not from a copy kept in the app.
@@ -1055,42 +1030,6 @@ impl PdfceApp {
                     actions.push(Action::ToggleViewChrome(chrome));
                 }
             }
-            // ★ **`view.zoom_in`, `view.zoom_out`, `view.next_page` and
-            // `view.prev_page` had arms here and no longer do.**
-            //
-            // Recorded rather than silently removed, because a reader who finds
-            // `Action::ZoomIn` with no arm should not have to wonder whether one
-            // was forgotten. None of the four ids is registered — no catalog
-            // entry, no manifest item, no `crate::text::commands` copy, no
-            // `RIBBON_IA.md` row — so **no token existed and no operator gesture
-            // ever reached one.** They were the mirror of the defect
-            // `shell::commands::reach` was built for: there, a control with no
-            // arm; here, an arm with no control.
-            //
-            // All four verbs work, by the routes the specification actually puts
-            // them on. `RIBBON_IA.md` §6 assigns *"zoom −/%/+, page ◀ n/N ▶"* to
-            // the **status bar**, and that is where they are: `app::status`'s
-            // zoom group raises `ZoomIn`/`ZoomOut`, `status::page_box` raises
-            // `NextPage`/`PrevPage`, and `app::keyboard` raises all four from
-            // `Ctrl` `+`/`-` and `PageDown`/`PageUp`. Deleting the arms removed
-            // duplicate entrances, not behaviour.
-            //
-            // This arm's own neighbour states the rule they broke, and it is
-            // quoted here rather than paraphrased: `format.delete` refuses an
-            // `edit.delete` arm because it would be *"an arm no token can ever
-            // reach — dead code wearing a design pattern, which is what the
-            // no-placeholders invariant forbids."* Registering the four instead
-            // was the other available answer and is a **ribbon** decision, not a
-            // dispatch one; `shell::commands::reach::UNREACHED_ARMS` carries what
-            // it would take.
-            //
-            // `ZoomTo(1.0)`, not `Fit(FitMode::None)`. The latter only stops the
-            // per-frame re-fit and leaves the zoom where it was, so this
-            // control used to pin whatever magnification happened to be
-            // showing while promising one PDF point per screen point.
-            "view.zoom_actual" => actions.push(Action::ZoomTo(1.0)),
-            "view.zoom_fit_page" => actions.push(Action::Fit(crate::viewer::FitMode::Page)),
-            "view.zoom_fit_width" => actions.push(Action::Fit(crate::viewer::FitMode::Width)),
             // This control was drawn and enabled from the moment the ribbon
             // landed, and did nothing — a live instance of D1's shape: an
             // affordance that looks available and is inert. It became

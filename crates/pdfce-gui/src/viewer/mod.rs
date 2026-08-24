@@ -137,6 +137,10 @@ pub mod deep;
 /// two steps must be exact inverses, above the ladder as well as on it —
 /// O24g was the half that was not.
 pub mod ladder;
+// How the zoom is decided from the viewport: the three fitting modes, the
+// ratio each takes, and which axes each one PLACES the view on. Split out
+// under R2 on 2026-08-24, when O28 and O29 took this file past 1,500 lines.
+pub mod fit;
 pub mod remembered;
 // Where every page sits, in one coordinate space. The answer to Phase 4.1's
 // "a page range rather than a single index", expressed as geometry.
@@ -150,6 +154,10 @@ pub use ceiling::{deep_position_needed, max_zoom_with_regions, zoom_ceiling};
 // Re-exported for the same reason `ceiling`'s are: the split is about file
 // size, not about the vocabulary callers use.
 pub use ladder::{ZOOM_LADDER, ladder_step_down, ladder_step_up};
+// Re-exported for the same reason `ceiling`'s and `ladder`'s are: the split is
+// about file size, not about the vocabulary callers use. Every
+// `viewer::FitMode` and `viewer::fit_scale` in the crate is untouched by it.
+pub use fit::{FitMode, fit_scale};
 
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
@@ -163,19 +171,6 @@ pub const MIN_ZOOM: f32 = 0.10;
 /// applied: 800%, past which a screen shows a few glyphs at a time and
 /// the pixmap is enormous.
 pub const MAX_ZOOM: f32 = 8.0;
-
-/// How `ViewState::zoom` is being decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FitMode {
-    /// The operator pinned an explicit zoom; the viewport no longer
-    /// influences it.
-    None,
-    /// Recompute each frame so the whole page is visible.
-    #[default]
-    Page,
-    /// Recompute each frame so the page's full width is visible.
-    Width,
-}
 
 /// Where the pointer was over the page when a Ctrl+wheel arrived.
 ///
@@ -498,36 +493,6 @@ pub fn clamp_zoom(zoom: f32, max: f32) -> f32 {
     // top first and the bottom second would be wrong; take the ceiling
     // last.
     zoom.max(MIN_ZOOM).min(max.max(f32::MIN_POSITIVE))
-}
-
-/// The scale at which `page_pts` fits `viewport` under `fit`.
-///
-/// Both arguments are in the same unit only by coincidence — `page_pts`
-/// is PDF user-space units and `viewport` is egui logical points — and
-/// the result is the ratio between them, which is exactly the "device
-/// pixels per user-space unit" the renderer wants. (On a HiDPI display
-/// egui's own `pixels_per_point` then multiplies again; that is handled
-/// at the call site, not here, because it is a display property rather
-/// than a document one.)
-///
-/// Returns `1.0` for a degenerate page or viewport rather than dividing
-/// by zero. [`FitMode::None`] also returns `1.0`, though callers are
-/// expected not to ask.
-#[must_use]
-pub fn fit_scale(page_pts: (f32, f32), viewport: (f32, f32), fit: FitMode) -> f32 {
-    let (pw, ph) = page_pts;
-    let (vw, vh) = viewport;
-    if pw <= 0.0 || ph <= 0.0 || vw <= 0.0 || vh <= 0.0 {
-        return 1.0;
-    }
-    match fit {
-        FitMode::None => 1.0,
-        FitMode::Width => vw / pw,
-        // Fit-page is the *smaller* of the two ratios: satisfying the
-        // tighter constraint necessarily satisfies the looser one, and
-        // taking the larger would overflow the other axis.
-        FitMode::Page => (vw / pw).min(vh / ph),
-    }
 }
 
 /// The highest zoom at which this page still rasterizes within
@@ -1101,78 +1066,6 @@ mod tests {
                 "the readout saturated at u32::MAX"
             );
         }
-    }
-
-    // ---- fit scale -----------------------------------------------
-
-    #[test]
-    fn fit_width_uses_the_width_ratio_only() {
-        // A tall page in a wide, short viewport: fit-width overflows
-        // vertically on purpose (that is what scrolling is for).
-        assert_eq!(
-            fit_scale((100.0, 400.0), (300.0, 200.0), FitMode::Width),
-            3.0
-        );
-    }
-
-    #[test]
-    fn fit_page_takes_the_tighter_of_the_two_constraints() {
-        // width ratio 3.0, height ratio 0.5 -> 0.5, so the whole page
-        // fits.
-        assert_eq!(
-            fit_scale((100.0, 400.0), (300.0, 200.0), FitMode::Page),
-            0.5
-        );
-        // And symmetrically when height is the loose axis.
-        assert_eq!(
-            fit_scale((400.0, 100.0), (200.0, 300.0), FitMode::Page),
-            0.5
-        );
-    }
-
-    #[test]
-    fn fit_page_result_never_overflows_either_axis() {
-        // The property, checked over a spread of shapes rather than one
-        // hand-picked case.
-        for &(pw, ph) in &[(612.0, 792.0), (792.0, 612.0), (1.0, 5000.0), (5000.0, 1.0)] {
-            for &(vw, vh) in &[(800.0, 600.0), (300.0, 1200.0), (50.0, 50.0)] {
-                let s = fit_scale((pw, ph), (vw, vh), FitMode::Page);
-                assert!(pw * s <= vw * 1.001);
-                assert!(ph * s <= vh * 1.001);
-            }
-        }
-    }
-
-    #[test]
-    fn degenerate_geometry_falls_back_to_actual_size() {
-        assert_eq!(fit_scale((0.0, 100.0), (300.0, 300.0), FitMode::Page), 1.0);
-        assert_eq!(fit_scale((100.0, 100.0), (0.0, 300.0), FitMode::Width), 1.0);
-        assert_eq!(fit_scale((100.0, 100.0), (300.0, -1.0), FitMode::Page), 1.0);
-    }
-
-    #[test]
-    fn fit_mode_survives_a_viewport_change_but_an_explicit_zoom_does_not() {
-        // "Fit page" is a mode, not a one-shot: resizing the window
-        // re-fits. Pinning a zoom ends that.
-        let mut v = ViewState::default();
-        v.set_fit(FitMode::Page);
-        v.apply_fit((100.0, 100.0), (200.0, 200.0), MAX_ZOOM);
-        assert_eq!(v.zoom, 2.0);
-        v.apply_fit((100.0, 100.0), (400.0, 400.0), MAX_ZOOM);
-        assert_eq!(v.zoom, 4.0);
-
-        v.set_zoom(1.0, MAX_ZOOM);
-        assert_eq!(v.fit, FitMode::None);
-        v.apply_fit((100.0, 100.0), (800.0, 800.0), MAX_ZOOM);
-        assert_eq!(v.zoom, 1.0);
-    }
-
-    #[test]
-    fn zooming_by_a_factor_leaves_fit_mode() {
-        let mut v = ViewState::default();
-        v.set_fit(FitMode::Width);
-        v.zoom_by(1.1, MAX_ZOOM);
-        assert_eq!(v.fit, FitMode::None);
     }
 
     // ---- raster-size ceiling -------------------------------------

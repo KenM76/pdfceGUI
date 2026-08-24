@@ -324,7 +324,7 @@ mod tests {
     /// nowhere, which is the gap
     /// `crate::dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window`
     /// now refuses to compile past.
-    const SETTINGS_COUNT: usize = 20;
+    const SETTINGS_COUNT: usize = 21;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -413,6 +413,11 @@ mod tests {
                 opening_fit_title(),
                 opening_fit_silence(),
                 opening_fit_radius(),
+            ),
+            (
+                wheel_paging_title(),
+                wheel_paging_silence(),
+                wheel_paging_radius(),
             ),
             (chrome_title(), chrome_silence(), chrome_radius()),
             // The theme's twin in the Appearance group — the second setting

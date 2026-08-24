@@ -234,6 +234,7 @@ pub mod dropped_file;
 /// that stays green while the answer goes stale, because a list can be complete
 /// about yesterday's tools and silent about today's.
 pub mod first_frame;
+pub mod fit_places_the_view;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -327,6 +328,7 @@ pub mod shift_constrains;
 /// steps and three gestures respectively, neither discoverable and neither
 /// resembling any other program. These assert the COUNT: one key, one click.
 pub mod tool_row;
+pub mod wheel_flips_pages;
 pub mod zoom_gallery;
 pub mod zoom_keeps_place;
 pub mod zoom_out_keeps_place;
@@ -708,6 +710,15 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // the DOWNWARD hand-over between the f32 scroll offset and the f64
         // anchor had never been driven. O26e.
         Box::new(zoom_out_keeps_place::ZoomingBackOutKeepsTheView),
+        // ★ O28 and O29: a fit sets the scale AND places the view, and there
+        // is a third mode. Pans into the pasteboard first, because the state
+        // the request is about did not exist before O23.
+        Box::new(fit_places_the_view::AFitCommandPutsThePageOnScreen),
+        // ★ O30: the wheel as a page turn, from the status-bar toggle. Asserts
+        // the DEFAULT is silent first, so a build that flipped unconditionally
+        // could not pass — and that the control is absent where the choice
+        // does not exist.
+        Box::new(wheel_flips_pages::TheWheelTurnsPagesWhenTheOperatorAsksItTo),
         Box::new(zoom_gallery::ThePageStillRendersAtEveryDecadeOfZoom),
         Box::new(pan_refresh::PanningPastTheOverscanRendersTheNewArea),
         Box::new(resize::ResizeScalesAShape),

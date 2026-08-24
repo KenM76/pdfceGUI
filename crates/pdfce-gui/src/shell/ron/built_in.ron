@@ -136,6 +136,7 @@
                         Command("view.zoom_actual"),
                         Command("view.zoom_fit_page"),
                         Command("view.zoom_fit_width"),
+                        Command("view.zoom_fit_height"),
                         Command("view.zoom_selection"),
                         Command("view.zoom_region"),
                     ],
@@ -450,6 +451,7 @@
             items: [
                 Command("view.zoom_fit_page"),
                 Command("view.zoom_fit_width"),
+                Command("view.zoom_fit_height"),
                 Command("view.zoom_actual"),
             ],
         ),

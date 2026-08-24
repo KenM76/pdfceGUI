@@ -77,6 +77,7 @@
 use egui::{Align, Id, Key, TextEdit};
 
 use crate::app::actions::Action;
+use crate::app::prefs::WheelPaging;
 use crate::app::state::OpenDoc;
 use crate::text::status as t;
 
@@ -107,6 +108,11 @@ const REGION_PAGE: &str = "status-group:page"; // ui-text-exempt: trace region n
 /// itself, not the field plus two buttons and a possible note.
 const REGION_PAGE_BOX: &str = "status-page-box"; // ui-text-exempt: trace region name, never displayed
 
+/// The wheel-paging toggle, so a driven check can find it and assert that it
+/// is absent under a continuous display mode as well as present under a
+/// single-page one.
+const REGION_WHEEL_PAGING: &str = "status-wheel-paging"; // ui-text-exempt: trace region name, never displayed
+
 /// The page box's `egui` id.
 ///
 /// **Fixed and explicit, not auto-generated.** Three things depend on it
@@ -125,7 +131,12 @@ const PAGE_STATE_ID: &str = "pdfce-status-page-state"; // ui-text-exempt: widget
 /// Omitted entirely for a document with no pages (`/Count 0` is legal PDF):
 /// every input to a page box over such a document is out of range, and a
 /// control whose every answer is "no" is not a control.
-pub(super) fn group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>) {
+pub(super) fn group(
+    ui: &mut egui::Ui,
+    doc: &OpenDoc,
+    wheel_paging: &mut WheelPaging,
+    actions: &mut Vec<Action>,
+) {
     let page_count = doc.pages.len();
     if page_count == 0 {
         return;
@@ -171,6 +182,7 @@ pub(super) fn group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>)
             {
                 actions.push(Action::PrevPage);
             }
+            wheel_toggle(ui, doc, wheel_paging);
             // The note sits at the LEFT end of the group, next to ⏴, so that
             // appearing and disappearing pushes into the empty middle of the
             // bar rather than shifting the buttons the operator is clicking.
@@ -189,6 +201,52 @@ pub(super) fn group(ui: &mut egui::Ui, doc: &OpenDoc, actions: &mut Vec<Action>)
 
     crate::diag::ui_rect(REGION_PAGE, rect);
     ui.ctx().data_mut(|d| d.insert_temp(state_id, state));
+}
+
+/// **What the wheel does on a single page**, offered where the operator is
+/// already thinking about pages — `OPERATOR_REQUESTS.md` O30.
+///
+/// > *"when in single page view there should be an option on screen near the
+/// > button to scroll or flip through pages, or the current way it is now when
+/// > the scroll wheel is used."*
+///
+/// # ★★★ It renders NOTHING under a continuous display mode
+///
+/// R9: an unavailable capability renders nothing, and greying is reserved for
+/// *temporarily* unavailable. Under
+/// [`crate::viewer::PageDisplay::Continuous`] the wheel scrolls the whole
+/// document **by definition** — there is no second answer to offer, so there
+/// is no control. A disabled toggle there would be a permanent apology for a
+/// choice that does not exist.
+///
+/// ★ It sits immediately to the left of `⏴`, inside the page group's own
+/// right-to-left scope, so it is adjacent to the two buttons it is an
+/// alternative to. Placing it in the empty middle of the bar would put the
+/// question a hand's width from its subject.
+///
+/// # A toggle, not a pair of labels
+///
+/// The two answers are not peers: one is what the build has always done and
+/// the other is the departure from it. A pressed/unpressed control says that
+/// — *flipping is on* — where two `selectable_label`s would present them as
+/// equals and cost twice the width in a 24-point bar. The tooltip carries
+/// both sentences, and the settings window carries the full argument for each.
+fn wheel_toggle(ui: &mut egui::Ui, doc: &OpenDoc, wheel_paging: &mut WheelPaging) {
+    if doc.view.display.is_continuous() {
+        return;
+    }
+    let flipping = wheel_paging.flips();
+    let response = ui
+        .selectable_label(flipping, t::wheel_flip_pages())
+        .on_hover_text(t::wheel_flip_pages_tooltip());
+    if response.clicked() {
+        *wheel_paging = if flipping {
+            WheelPaging::Scroll
+        } else {
+            WheelPaging::FlipPages
+        };
+    }
+    crate::diag::ui_rect(REGION_WHEEL_PAGING, response.rect);
 }
 
 /// The editable field itself: draw it, and commit it when it is committed.
@@ -633,6 +691,7 @@ mod tests {
                 &mut crate::find::FindState::default(),
                 &mut crate::canvas::pick::PickFilter::default(),
                 &mut crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT.to_owned(),
+                &mut crate::app::prefs::WheelPaging::default(),
                 &mut actions,
             );
         });
@@ -681,6 +740,7 @@ mod tests {
                 &mut crate::find::FindState::default(),
                 &mut crate::canvas::pick::PickFilter::default(),
                 &mut crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT.to_owned(),
+                &mut crate::app::prefs::WheelPaging::default(),
                 &mut actions,
             );
         });
@@ -836,6 +896,7 @@ mod tests {
                 &mut crate::find::FindState::default(),
                 &mut crate::canvas::pick::PickFilter::default(),
                 &mut crate::app::prefs::DEFAULT_MAX_ZOOM_PERCENT.to_owned(),
+                &mut crate::app::prefs::WheelPaging::default(),
                 &mut actions,
             );
         });

@@ -374,6 +374,20 @@ pub struct OpenDoc {
     /// O23: with a pasteboard, egui's initial zero is the content's origin
     /// rather than the strip's, so the view is seeded once.
     pub canvas_frames: u8,
+    /// **Wheel travel not yet spent on a page turn**, in logical points —
+    /// `OPERATOR_REQUESTS.md` O30.
+    ///
+    /// Only ever non-zero while [`crate::app::prefs::WheelPaging::FlipPages`]
+    /// is on and the display mode is not continuous.
+    ///
+    /// ★ An accumulator rather than "one event, one page", because the two
+    /// devices that produce a wheel do not agree on what an event is. A mouse
+    /// delivers one detent as one large delta; a trackpad delivers a swipe as
+    /// dozens of small ones. Counting events would turn a single trackpad
+    /// gesture into forty page turns, and thresholding an instantaneous delta
+    /// would make a slow, deliberate scroll do nothing at all. Travel is the
+    /// quantity both devices agree on.
+    pub wheel_travel: f32,
     /// What the render worker was rendering when this frame's poll took its
     /// slot.
     ///
@@ -410,6 +424,28 @@ pub struct OpenDoc {
     /// See [`ZoomAnchor`]. Written by the canvas, consumed by the canvas on
     /// the following frame.
     pub zoom_anchor: Option<ZoomAnchor>,
+    /// **A fit command is waiting to have its view placed** —
+    /// `OPERATOR_REQUESTS.md` O28.
+    ///
+    /// Set by `Action::Fit` for any mode that pins an axis, consumed by
+    /// `canvas::show` on the next frame, when the re-fitted zoom has landed
+    /// and the page's new drawn size is known. Exactly the shape
+    /// [`ZoomAnchor`] uses, and for the same reason: the new zoom is not
+    /// known when the command is raised.
+    ///
+    /// ★ It is a **separate** one-shot from the zoom anchor rather than an
+    /// anchor of its own, because the two are answering different questions.
+    /// An anchor says *"hold this page point where it is"*; a fit says
+    /// *"decide where the page goes"*, and on a pinned axis there is no
+    /// previous position worth holding — that is what pinning means. Folding
+    /// it into `ZoomAnchor` would need a per-axis "ignore the anchor" flag,
+    /// which is a second mechanism wearing the first one's name.
+    ///
+    /// ★★ It **outranks** a pending zoom anchor and spends it. A fit is the
+    /// operator's most recent explicit instruction about the view, and a
+    /// wheel anchor armed a frame earlier describes a position the fit has
+    /// just superseded. See the offset-decision chain in `canvas::show`.
+    pub fit_placement: Option<crate::viewer::FitMode>,
     /// **A search hit that has been navigated to and is waiting to be
     /// scrolled into view.** See [`crate::find::Reveal`].
     ///
@@ -717,6 +753,7 @@ impl OpenDoc {
             // reason the operator asked for.
             tracked_page: 0,
             canvas_frames: 0,
+            wheel_travel: 0.0,
             render_in_flight: None,
             render_error: None,
             render_worker: RenderWorker::default(),
@@ -725,6 +762,7 @@ impl OpenDoc {
             zoom_commit_at: Instant::now(),
             zoom_commanded: false,
             zoom_anchor: None,
+            fit_placement: None,
             // Nothing to reveal on a document nobody has searched yet — and,
             // like every other field here, fresh by construction rather than
             // by a reset somebody has to call.

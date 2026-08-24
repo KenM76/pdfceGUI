@@ -331,7 +331,24 @@ impl PdfceApp {
             Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),
             Action::ZoomIn => doc.view.zoom_in(max_zoom),
             Action::ZoomOut => doc.view.zoom_out(max_zoom),
-            Action::Fit(mode) => doc.view.set_fit(mode),
+            // ★ A fit sets the scale AND asks for the view to be placed --
+            // `OPERATOR_REQUESTS.md` O28. The placement cannot happen here:
+            // the re-fitted zoom is computed by `ViewState::apply_fit` from a
+            // viewport this code cannot see, so the page's new drawn size is
+            // not known until the canvas next runs. So the request is
+            // recorded and the canvas spends it, exactly as a discrete zoom
+            // records an anchor and the canvas solves it a frame later.
+            //
+            // `pinned_axes` returns `None` for `FitMode::None`, which changes
+            // no zoom and therefore has no new extent to place against --
+            // moving the view for it would be a jump for a command that did
+            // nothing.
+            Action::Fit(mode) => {
+                doc.view.set_fit(mode);
+                if mode.pinned_axes().is_some() {
+                    doc.fit_placement = Some(mode);
+                }
+            }
             Action::ZoomTo(zoom) => doc.view.set_zoom(zoom, max_zoom),
             Action::NextPage => doc.view.next_page(page_count),
             Action::PrevPage => doc.view.prev_page(page_count),

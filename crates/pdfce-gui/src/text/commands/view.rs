@@ -246,6 +246,20 @@ pub const fn view_zoom_fit_width() -> CommandText {
     )
 }
 
+/// `view.zoom_fit_height`
+///
+/// ★ Deliberately the same sentence as its two siblings with one word
+/// changed. The three fit modes differ in exactly one respect and the copy
+/// says so; three separately-worded tooltips would invite the reader to hunt
+/// for a distinction that is not there.
+#[must_use]
+pub const fn view_zoom_fit_height() -> CommandText {
+    CommandText::new(
+        "Fit height",
+        "Scale the page so its full height is visible, and keep it fitted as the window resizes.",
+    )
+}
+
 /// `view.show_annotations`
 #[must_use]
 pub const fn view_show_annotations() -> CommandText {
