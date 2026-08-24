@@ -1,4 +1,68 @@
-# CONTINUE — handoff, 2026-08-21 evening
+# CONTINUE — handoff
+
+## 2026-08-24 — O26: zoom out, and the seven reasons the page ended up in a corner
+
+**Clean tree. 17/17 gates. 1,691 + 385 + 144 tests, 0 failing.** Re-measure
+before quoting; the commands are in `RESUME.md`.
+
+The operator, 2026-08-24: *"zoom in works flawlessly now. The panning works.
+Zoom out has a small bug where it sometimes seems to reposition the page so
+that it is off screen in the far bottom left corner. This happened when I
+zoomed back from around 2 million% but seems to happen at other junctions
+too."*
+
+**Seven independent causes, all fixed, all with the same symptom.**
+`OPERATOR_REQUESTS.md` O26 has each one with its measurement. The short form:
+
+| | |
+|---|---|
+| **O26a** | `Strip::page_at_view` was fed a **content-space** rect. Usually returned `None` — so scroll-driven current-page tracking has been **inert since the pasteboard landed** and nothing said so. Occasionally returned a page several pitches wrong, which then chose the frame of reference for every position solve. **One wheel notch at 30 % took the view from page 1 to page 8**, confirmed by screenshot |
+| **O26b** | Ctrl+wheel gated on the **acting page's** hover, so the pointer over a neighbouring page, a gap, or the pasteboard did nothing. Turned O26a's jump into a **freeze** |
+| **O26c** | the acting page's **rect** and the acting page's **extent** were different pages whenever the fallback fired. Invisible on a uniform document; `SW41177.pdf` mixes 1584×1224 and 1224×792 sheets |
+| **O26d** | the zoom anchor **did not name its page**, so the frame that solved it added whichever page was current a frame later |
+| **O26e** | `CanvasFrame::offset` was reconstructed from a scroll offset the deep tier **forces to zero** — so every deep frame recorded a fictitious "before", and the first zoom back across the threshold put the page's own origin under the pointer |
+| **O26f** | the exit from the deep tier is now solved in `f64`, on the frame that leaves it |
+| **O26g** | the strip was placed with `Rect::from_center_size`, a catastrophic cancellation at 4.6 × 10⁸ points. Proven equivalent, but **no measured improvement** — do not credit it with one |
+
+### ★★★ The two lessons, and they outrank the fixes
+
+1. **A check that travels in one direction tests one direction.**
+   `zoom_keeps_place` climbs to 10¹² % one notch at a time with a tolerance
+   fine enough to catch a hundredth of a point, and had **never once rolled
+   the wheel the other way**. Its own header calls the tier hand-over *"half
+   of what this check is for"* — true of the upward crossing only. The new
+   `zooming_back_out_keeps_the_view` is the inverse.
+2. **A check that may decline to judge cannot fail.** A "record instead of
+   assert above the measured noise floor" hatch, with a careful written
+   argument for why it was a boundary on the subject rather than a loosened
+   tolerance, **recorded 1,161 pt — the whole page — and reported PASS on its
+   first driven run**, hiding O26d. Removed. Both zoom checks are RED on the
+   O27 residual and that is the correct state.
+
+### ⚠️ Both zoom checks are RED, deliberately — see O27
+
+With all seven fixed, an anchored notch still moves the view **10–35 screen
+pixels** on the `f32` scroll tier above ~130,000 %. On the `deep` tier the same
+measurement is **±0.05 px**. It is bounded jitter, not drift: sixteen readings
+at ~10⁶ % oscillated in a 43 px band and did not accumulate. Cause **not
+established** — the predicted `f32` accumulation is ~±2 px, so something an
+order of magnitude larger is unfound. `OPERATOR_REQUESTS.md` O27.
+
+### What is NOT done
+
+* **The full driven suite has not been run** since these fixes. Only the two
+  zoom checks were driven; the operator returned to the machine. Everything
+  else is unverified against this tree.
+* **Not published.** No `package-portable.py` run — the standing rule says
+  publish after every keeper build, and this one has not been through the
+  suite.
+* `canvas/mod.rs` split three ways to hold R2 (`canvas::deep`, plus the
+  current-page tracker into `canvas::strip`). Largest file is now
+  `canvas/markup.rs` at exactly 1,500.
+
+---
+
+## 2026-08-21 evening
 
 **Type `continue` and start at §2.** Everything above it is state; §2 is the
 work queue, in order.

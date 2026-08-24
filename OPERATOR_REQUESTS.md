@@ -80,6 +80,218 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O26 — Zoom out throws the page off screen into a corner
+
+**Asked:** 2026-08-24 —
+
+> *"the zoom in function works flawlessly now. The panning works. Zoom out has
+> a small bug where it sometimes seems to reposition the page so that it is off
+> screen in the far bottom left corner. This happened when I zoomed back from
+> around 2 million% but seems to happen at other junctions too."*
+
+**Status:** **SEVEN CAUSES FOUND AND FIXED, 2026-08-24**, in two clusters:
+O26a-d below, which relocate the page at ordinary zooms and were never about
+zooming out in particular, and O26e-g, the missing hand-over out of the `f64`
+position tier. Every one of them moves the page by a whole page or more.
+Driven, with pixels for the first. A residual is filed separately as O27.
+
+★★★ *"Seems to happen at other junctions too"* was the load-bearing half of the
+report and it was right. The 2,000,000 % crossing was **one** of seven
+independent faults with the same symptom, and it was the least often reached —
+three of the other six are reachable at 30 %.
+
+### O26a — one wheel notch at 30 % took the view from page 1 to page 8
+
+**★ Found by pixels, in the first thirty seconds of driving**, and it is the
+worst of the four. `Strip::page_at_view` takes a **strip-space** rect. It was
+being handed `scroll_output.state.offset` — a **content-space** offset, which
+since O23's pasteboard sits a whole viewport above and to the left of the
+strip's origin.
+
+**This is the second site of the omission O23 spent four attempts on.**
+`geometry::scroll_to_strip` was added then, for `visible_rect`, and nobody
+swept for the other callers.
+
+Two failure modes, and the silent one had been shipping for longer:
+
+* **No page at all.** The horizontal error is a whole viewport and the strip is
+  only as wide as its widest page, so the displaced box usually misses the
+  strip entirely, `page_at_view` returns `None`, and the branch never runs.
+  **Scroll-driven current-page tracking — Phase 4.3, the whole reason the block
+  exists — has been inert since the pasteboard landed.** Nothing said so; the
+  page number simply stopped following the scroll.
+* **The wrong page**, whenever the strip grows wide enough for the displaced
+  box to clip its right-hand edge. That is a function of the zoom, so it
+  arrives at one particular magnification and not the ones either side of it.
+  **That is the operator's "other junctions".**
+
+And a mis-reported page is not cosmetic, because `current_origin` — the frame
+of reference every single-page solve in `canvas::zoom` and `find::reveal` is
+handed — is *that page's* origin in the strip. Set it to page 7 and the next
+anchored zoom converts its answer back through page 7's origin, so the view
+moves by seven page pitches in one wheel notch.
+
+Measured on `SW41177.pdf` at 30 %, one Ctrl+wheel notch: `page` 0 → 7,
+`off` [484, 490] → [514, 2767], and the status bar read `8 / 36`. Screenshots
+before and after are the evidence; no trace field says *"the wrong page"*.
+
+### O26b — and then the wheel stopped zooming altogether
+
+`if image_response.hovered()` gated Ctrl+wheel on the **acting page's** own
+response. Three ordinary positions were therefore inert: the pointer over a
+*different* visible page, the pointer in the gap between two, and the pointer
+over O23's **pasteboard** — a whole viewport of it on every side, added
+deliberately so any page corner can be brought to any point of the screen, and
+therefore a position the operator is now *expected* to be in.
+
+★★ It is also what turned O26a's catapult from a lurch into a **freeze**. Once
+the tracker had thrown `page_index` seven pages down the strip, the acting page
+was off screen, nothing under the pointer was it, and every subsequent
+Ctrl+wheel did nothing at all — five further notches produced a byte-identical
+trace. A view that jumps is a bug; a view that jumps and then will not zoom
+back is what gets reported.
+
+The gate is now the scroll area's own content response, which covers pages,
+gaps and pasteboard, and which — being a real `Response` — still lets a
+floating window over the canvas swallow the wheel. A `rect.contains` test would
+not have.
+
+### O26c — the acting page's rect and the acting page's extent were different pages
+
+`acting` was `doc.view.page_index`, decided *before* the fallback that picks
+`drawn.first()` when the current page is not among the drawn ones — and then
+never revisited. The next two lines paired **that page's rect** with **the
+current page's extent**.
+
+On a document whose sheets are all one size the mismatch is invisible.
+`SW41177.pdf` mixes 1584 × 1224 sheets with 1224 × 792 ones, and the trace
+caught it exactly:
+
+```text
+canvas rect=[[-5634238.0 681671.0] - [5515170.0 7895993.0]] zoom=9108.99
+canvas-pos … ext=1584.000,1224.000
+```
+
+11,149,400 × 7,214,300 is 1224 × 792 at that zoom while `ext` says 1584 × 1224.
+`PageMapping` is built from both, so the pointer mapped to a page point that
+was not where the pointer was — the same frame reported `page=(618.59, −74.79)`
+for a pointer well inside the sheet — the anchor's `frac` came from that, and
+the next solve asked for an offset far outside the range.
+
+`acting` is now taken from the page that was actually chosen, so the rect and
+the extent always describe the same sheet.
+
+### O26d — the zoom anchor did not name its page
+
+A page-local offset is measured from **one** page's top-left, and converting it
+back into a strip offset means adding **that** page's origin. The canvas added
+whichever page was current on the frame the anchor was *consumed* — and an
+anchor is armed on frame N, while `show` runs and the wheel is seen, and solved
+on frame N+1, once the zoom has landed. The current page tracks the scroll in
+between.
+
+When they disagree the answer is wrong by whole page pitches. At 900,000 % a
+pitch is 1.1 × 10⁷ points, so the offset lands far outside the scrollable
+range, `strip_offset` clamps it to zero — **and zero is the content's top-left
+corner.** Driven, descending 970,851 % → 814,325 %: the page point under the
+viewport centre went from 1164.82 to **−0.04**, the page's own top edge, and
+stayed there for the rest of the descent.
+
+`ZoomAnchor` and `CanvasFrame` now carry `page`, and the conversion uses it.
+Under `PageDisplay::Single` there is one page at the strip's origin and this is
+the identity it always was.
+
+## O26e / O26f / O26g — the hand-over back out of the `f64` tier
+
+**Status:** **FIXED 2026-08-24**, and driven. The operator's *"from around
+2 million %"* is the same number as O24f's, and it is not a number he picked
+either time: `SUB_PIXEL_CONTENT_EXTENT / page_height` is where the position
+hands over between the `f32` scroll offset and the `f64` `DeepAnchor`.
+
+### ★★★ O24f fixed the hand-over IN. There was never one OUT.
+
+A hand-over is two functions. Seeding the anchor from the scroll offset on the
+way in was written; converting it back on the way out was not. Coming down, the
+anchor was discarded and the `f32` machinery resumed from the zero the deep
+tier forces every frame.
+
+**Measured before the fix**, descending through 1,185,799 %: the page point
+under the viewport centre went from (791.93, 1152.34) to **(−0.02, −0.03)** —
+the corner of the sheet, with twelve million pixels of drawing off screen.
+1,152 pt of movement, or about eleven million screen pixels.
+
+★★ **The suite could not see it because `zoom_keeps_place` climbs.** It climbs
+to the ceiling, one notch at a time, with a tolerance fine enough to catch a
+hundredth of a point, and then the run ends without ever rolling the wheel the
+other way. Its own header calls the hand-over *"half of what this check is
+for"*; that sentence was true of the **upward** crossing only. **A check that
+travels in one direction tests one direction.**
+
+Three pieces:
+
+* **O26e — `CanvasFrame::offset` was a lie at the deep tier.** It was
+  reconstructed from the scroll offset, which that tier **forces to zero**, so
+  every deep frame recorded "the page is centred in the pasteboard". Nothing
+  consumed the lie while the tier held; the first zoom that crossed back did,
+  because `offset_before` is that field. It is now **measured from the drawn
+  rect** — `geometry::offset_from_drawn`, `margin − (page_min − viewport_min)`
+  — which is algebraically the same number below the threshold (asserted by a
+  unit test over the same inputs) and the truth above it, because it never
+  mentions the scroll offset at all.
+* **O26f — the exit is solved in `f64`.** `offset_from_drawn` alone took the
+  descent from 1,152 pt out to 0.005 pt out, but 0.005 pt at a million percent
+  is fifty screen pixels: every term being subtracted has a magnitude near 10⁷,
+  where an `f32`'s step is a whole pixel. `DeepAnchor::page_local_offset` forms
+  `page × zoom` in `f64` and narrows once, on the frame that leaves the tier —
+  and re-states the anchor about the pointer first, so the last notch out of
+  deep zoom is not the one notch that fails to hold the cursor.
+* **O26g — the strip is placed from the content's origin, not its centre.**
+  `Rect::from_center_size(outer_rect.center(), display_size)` is the same
+  rectangle and is a catastrophic cancellation: in a continuous mode the strip
+  is `pages × page_height × zoom`, which on a 36-page set at a million percent
+  is 4.6 × 10⁸ points, where an `f32`'s step is **32 points**. It formed
+  `centre − strip/2`, two numbers near 2.3 × 10⁸ whose difference is about 619.
+  `geometry::strip_origin_offset` evaluates the same quantity symbolically — a
+  centring margin that is exactly zero once the strip exceeds the viewport,
+  plus one viewport of pasteboard — so no large intermediate is formed. Proven
+  equivalent by a unit test wherever the plain expression is still exact.
+
+  ★ Honest note: **the measured jitter did not change with this one.** It is
+  justified by the arithmetic and by the equivalence proof, not by an
+  improvement anyone observed. See O27.
+
+## O27 — The `f32` scroll tier jitters above about 100,000 %
+
+**Found:** 2026-08-24, while driving O26. **Not reported by the operator.**
+
+With all four O26a-d causes and all three O26e-g pieces fixed, an anchored zoom
+notch still moves the view by **10–35 screen pixels** on the `scroll` tier
+above roughly 130,000 %. On the `deep` tier the same measurement is **±0.05
+px** across four readings — exact.
+
+It is **bounded jitter, not drift**: sixteen consecutive readings at ~10⁶ %
+oscillated within a band of 43 px and did not accumulate. The view shimmies; it
+does not walk away.
+
+★★ **Both zoom checks are RED on this, deliberately.** An earlier draft gave
+them a "record instead of assert" hatch above a measured jitter zoom, with a
+written argument for why that was a boundary on the subject rather than a
+loosened tolerance. **On its very first driven run the hatch recorded a
+movement of 1,161 pt — the whole page — and reported PASS**, hiding O26d on its
+first outing. The hatch is gone. Two red checks that name a real residual beat
+two green checks that swallowed a page.
+
+★ Cause not established. The predicted `f32` accumulation in the anchor solve
+is about ±2 px, so something an order of magnitude larger is in the chain and
+has not been found; the candidates left are the acting page's own strip origin
+(up to 4.5 × 10⁸ on this document, step 32) and `egui`'s own scroll-area
+arithmetic at that content size. The structural remedy is probably to make
+`viewer::deep_position_needed` test the **view's** magnitude rather than one
+page's — the strip exceeds `f32`'s exact range earlier than the page does, by
+exactly the page count — but that widens the deep tier considerably and this
+canvas has three times been broken by a change that meant to affect only deep
+zoom. Not attempted.
+
 ## O25 — Panning far, or zooming out, leaves the new area blank
 
 **Asked:** 2026-08-23 — *"zoom is working amazing, and panning is fast, but if

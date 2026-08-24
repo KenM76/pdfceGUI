@@ -45,16 +45,16 @@ use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 
 /// `VK_CONTROL`, held while the wheel rolls to make it a zoom.
-const VK_CONTROL: u16 = 0x11;
+pub(crate) const VK_CONTROL: u16 = 0x11;
 
 /// The canvas viewport, whose centre the pointer sits at.
-const CANVAS_REGION: &str = "canvas-viewport";
+pub(crate) const CANVAS_REGION: &str = "canvas-viewport";
 
 /// The canvas's own state line.
-const CANVAS_EVENT: &str = "canvas";
+pub(crate) const CANVAS_EVENT: &str = "canvas";
 
 /// The `f64` position line, which carries the tier.
-const POS_EVENT: &str = "canvas-pos";
+pub(crate) const POS_EVENT: &str = "canvas-pos";
 
 /// Where to roll the wheel to knock the view off its centred position.
 ///
@@ -117,7 +117,7 @@ const MAX_STAGES: usize = 24;
 /// the zoom. Two percent of what is on screen is generous against a defect that
 /// discards the position outright — O24e moved the view by the whole pan, and
 /// O24f by the whole zoom ratio.
-const DRIFT_FRACTION: f64 = 0.02;
+pub(crate) const DRIFT_FRACTION: f64 = 0.02;
 
 /// The smallest drift this check will ever call a failure, in page points.
 ///
@@ -138,7 +138,7 @@ const DRIFT_FRACTION: f64 = 0.02;
 /// tolerance would be smaller — not a widening of it at the zooms where the
 /// proportional one is meaningful. Those are different changes and only one of
 /// them is honest.
-const RESOLUTION_FLOOR: f64 = 1e-4;
+pub(crate) const RESOLUTION_FLOOR: f64 = 1e-4;
 
 /// See the module documentation.
 pub struct ZoomingDoesNotThrowAwayWhereTheOperatorPanned;
@@ -165,15 +165,25 @@ impl Check for ZoomingDoesNotThrowAwayWhereTheOperatorPanned {
 }
 
 /// One reading: the page point under the viewport centre, the zoom, the span.
+///
+/// ★ `pub(crate)` because [`super::zoom_out_keeps_place`] measures the same
+/// quantity on the way back down and must measure it with the **same
+/// instrument**. Two spellings of "where is the view" would drift, and the one
+/// that drifted would be the one whose check went green.
 #[derive(Debug, Clone, Copy)]
-struct Held {
+pub(crate) struct Held {
     /// The page point under the viewport centre, in PDF user-space points.
-    page: (f64, f64),
+    pub(crate) page: (f64, f64),
     /// Logical points per user-space unit.
-    zoom: f64,
+    pub(crate) zoom: f64,
     /// How wide the viewport is in page units — the scale the drift tolerance
     /// is taken against.
-    span: f64,
+    pub(crate) span: f64,
+    /// Whether the reading was taken while the `f64` anchor owned the
+    /// position. Carried on the reading rather than looked up separately so
+    /// that [`judge`] cannot be handed a tier from a different frame than the
+    /// measurement it is judging.
+    pub(crate) deep: bool,
 }
 
 /// Read the page point currently under the centre of the canvas.
@@ -204,7 +214,7 @@ struct Held {
 /// which is the case for a build older than that trace field. ★ The fallback is
 /// SILENT by design at shallow zooms, where the two agree to many decimals, and
 /// is why [`RESOLUTION_FLOOR`] exists as a second guard.
-fn held(session: &Session, canvas: crate::geom::LRect) -> Result<Option<Held>> {
+pub(crate) fn held(session: &Session, canvas: crate::geom::LRect) -> Result<Option<Held>> {
     let trace = session.trace()?;
     let Some(line) = trace.events(CANVAS_EVENT).last() else {
         return Ok(None);
@@ -244,11 +254,16 @@ fn held(session: &Session, canvas: crate::geom::LRect) -> Result<Option<Held>> {
         page,
         zoom: z,
         span: f64::from(canvas.max.x - canvas.min.x) / z,
+        deep: trace
+            .events(POS_EVENT)
+            .last()
+            .and_then(|l| l.get("tier"))
+            .is_some_and(|t| t == "deep"),
     }))
 }
 
 /// Which position tier the canvas last reported.
-fn tier(session: &Session) -> Result<String> {
+pub(crate) fn tier(session: &Session) -> Result<String> {
     let trace = session.trace()?;
     Ok(trace
         .events(POS_EVENT)
@@ -327,6 +342,9 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 
     let mut tiers: Vec<String> = Vec::new();
     let mut worst = 0.0_f64;
+    // How many notches were measured with a `deep` reading on one side and a
+    // `scroll` reading on the other -- the UPWARD hand-over, judged.
+    let mut crossings = 0usize;
     let mut climbed = 0usize;
     let mut saturated = false;
     let mut stage = 0usize;
@@ -352,11 +370,20 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             let drift = (after.page.0 - prev.page.0)
                 .abs()
                 .max((after.page.1 - prev.page.1).abs());
-            let allowed = (prev.span.min(after.span) * DRIFT_FRACTION).max(RESOLUTION_FLOOR);
-            worst = worst.max(if allowed > 0.0 { drift / allowed } else { 0.0 });
+            // ★ `crossings` counts the notches that spanned the tier
+            // boundary — the UPWARD hand-over, which is what O24f broke. It
+            // is counted rather than merely observed because `tiers` records
+            // what the TRACE reported and only a notch measured with a
+            // reading on each side is evidence that the crossing was judged.
+            let crossed = prev.deep != after.deep;
+            if crossed {
+                crossings += 1;
+            }
             if after.zoom > prev.zoom {
                 climbed += 1;
             }
+            let allowed = (prev.span.min(after.span) * DRIFT_FRACTION).max(RESOLUTION_FLOOR);
+            worst = worst.max(if allowed > 0.0 { drift / allowed } else { 0.0 });
 
             if drift > allowed {
                 return Ok(Some(format!(
@@ -452,7 +479,10 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             tiers.first().map_or("?", String::as_str)
         )));
     }
-    report.note(format!("crossed tiers: {}", tiers.join(" to ")));
+    report.note(format!(
+        "crossed tiers: {} -- {crossings} notch(es) spanned the hand-over and were judged",
+        tiers.join(" to ")
+    ));
 
     Ok(None)
 }

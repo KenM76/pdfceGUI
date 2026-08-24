@@ -116,9 +116,67 @@ pub fn content_extent(display: f32, viewport: f32) -> f32 {
 /// `anchor_screen_pos` and `offset_holding_anchor_at` look like scroll-space
 /// functions and are **page-local** — `canvas::mod` converts before building
 /// the `CanvasFrame` — so they keep [`margin`]. Padding them doubles the pad.
+///
+/// ★ `pub` since O26g, because `canvas::show` must place the strip from it
+/// **symbolically** rather than by subtracting two large rectangles. See
+/// [`strip_origin_offset`].
 #[must_use]
-fn strip_margin(display: f32, viewport: f32) -> f32 {
+pub fn strip_margin(display: f32, viewport: f32) -> f32 {
     margin(display, viewport) + pasteboard(viewport)
+}
+
+/// **How far the strip's top-left sits from the scroll content's, on one
+/// axis** — the number `canvas::show` adds to `outer_rect.min` to place the
+/// strip.
+///
+/// # ★★★ Why this is not `(outer − display) / 2`
+///
+/// It *is* that, algebraically. Evaluated that way in `f32` it is a
+/// catastrophic cancellation, and at deep zoom in a continuous mode it is the
+/// **dominant source of error in the whole canvas**.
+///
+/// The strip's height is `pages × page_height × zoom`. On the operator's
+/// 36-page drawing set at 1,045,114 % that is 4.6 × 10⁸ logical points, where
+/// an `f32`'s representable step is **32 points**. `Rect::from_center_size`
+/// forms `content_centre − strip/2` — two numbers near 2.3 × 10⁸ whose
+/// difference is about 619 — so the strip's origin, and therefore every page
+/// rect derived from it, and therefore the zoom anchor's `frac`, the raster
+/// region and the pointer mapping, were all quantised to 32 points.
+///
+/// ★★ Measured, and the arithmetic predicts the measurement: an anchored zoom
+/// notch slid the view 10 points at 292,415 % (strip 1.3 × 10⁸, step 8) and
+/// 16 points at 1,045,114 % (strip 4.6 × 10⁸, step 32). That is why zooming
+/// deep in a *multi-page* document creeps while the same zoom on a single page
+/// does not: `viewer::deep_position_needed` measures the **page's** magnitude,
+/// and it is the **strip's** that overflows `f32`'s exact range — earlier by
+/// exactly the page count.
+///
+/// # The symbolic form
+///
+/// `outer` is `content_extent(display, viewport).max(avail)` per axis, so
+///
+/// * when the content wins — every case that matters, because a strip taller
+///   than the window is what "scroll" means — the difference is
+///   [`strip_margin`]: a centring margin that is **exactly zero** once the
+///   display exceeds the viewport, plus a pasteboard that is one viewport.
+///   Both are small, both are exact, and no large intermediate is formed at
+///   all;
+/// * when `avail` wins — a document smaller than the window, where every
+///   magnitude is a few hundred points — the plain expression is used, and its
+///   precision is not in question there.
+///
+/// The two agree to the last bit wherever the first branch is taken, which
+/// [`tests::the_strip_origin_is_the_plain_expression_wherever_that_expression_is_exact`]
+/// asserts.
+#[must_use]
+pub fn strip_origin_offset(display: f32, viewport: f32, avail: f32) -> f32 {
+    let content = content_extent(display, viewport);
+    let out = if content >= avail {
+        strip_margin(display, viewport)
+    } else {
+        (avail - display) / 2.0
+    };
+    if out.is_finite() { out } else { 0.0 }
 }
 
 /// Convert a **scroll offset** back into **strip space** — the inverse of
@@ -260,6 +318,80 @@ pub fn offset_holding_anchor_at(
 // single-page mode has always had — the clamp is what stops an anchor near an
 // edge from scrolling blank space into view — and applying it per page keeps
 // a zoom about the cursor from throwing the operator onto a different sheet.
+
+/// **The page-local offset, MEASURED from where the page was actually drawn.**
+///
+/// # ★★★ Why this exists beside [`page_local_offset`], which computes the same
+/// number
+///
+/// `page_local_offset` *reconstructs* the offset from the scroll area's own
+/// offset. That is correct exactly while the scroll offset is where the view
+/// is — and above the deep-position threshold it is **not**. There the content
+/// is taken down to the viewport, the scroll offset is forced to `(0, 0)` so
+/// egui has nothing to round, and the position is held by
+/// [`crate::viewer::deep::DeepAnchor`] in `f64`. Reconstructing from a forced
+/// zero yields "the page is centred in the pasteboard", which is a statement
+/// about a page nobody is looking at.
+///
+/// ★★★ **That lie was `OPERATOR_REQUESTS.md` O26e.** `CanvasFrame::offset` is
+/// the `offset_before` of the next zoom, so every frame spent at deep zoom
+/// recorded a fictitious "before". Nothing went wrong while the tier held —
+/// the deep branch does not consult it — but the moment a zoom-out crossed
+/// back, [`zoom_anchor_offset`] solved against it and put the page's **origin**
+/// under the pointer. Driven, 2026-08-24: descending through the boundary at
+/// 1,185,799 % moved the page point under the viewport centre from
+/// (791.93, 1152.34) to **(−0.02, −0.03)** — the corner of the sheet, with
+/// twelve million pixels of drawing off screen. The operator's report was
+/// *"zoom out … repositions the page so that it is off screen in the far
+/// bottom left corner … from around 2 million %"*.
+///
+/// # The measurement
+///
+/// ```text
+///     page_top_left_on_screen = viewport_origin + margin(display, viewport) - offset
+/// ```
+///
+/// which is [`anchor_screen_pos`] at `anchor_frac = 0`, rearranged. So the
+/// offset is `margin − (page_min − viewport_min)`, and every term is a rect
+/// this frame really drew. **It cannot disagree with the pixels, because it is
+/// derived from them.**
+///
+/// ★ It is not an approximation of [`page_local_offset`] and not a second
+/// spelling of it: on the shallow tier the two are *algebraically identical*,
+/// which [`tests::measuring_the_offset_from_the_drawn_rect_matches_the_solved_one`]
+/// asserts against the same inputs rather than trusting this paragraph. What
+/// it buys is that the identity survives the tier change, because it never
+/// mentions the scroll offset at all.
+///
+/// # Arguments
+///
+/// * `page_min` — the current page's top-left **on screen** (`image_rect.min`).
+/// * `viewport_min` — the scroll viewport's top-left on screen
+///   (`inner_rect.min`), which is where a viewport-relative position is
+///   measured from.
+/// * `display` — the page's drawn size, the same one the solve is handed.
+/// * `viewport` — the viewport's size, the same measurement the margin term is
+///   derived against.
+///
+/// Non-finite inputs yield `(0.0, 0.0)`: a `NaN` here would propagate into the
+/// next zoom's `offset_before` and blank the canvas, and "centred" is the only
+/// safe fiction when the true answer is unrepresentable.
+#[must_use]
+pub fn offset_from_drawn(
+    page_min: (f32, f32),
+    viewport_min: (f32, f32),
+    display: (f32, f32),
+    viewport: (f32, f32),
+) -> (f32, f32) {
+    fn axis(page_min: f32, viewport_min: f32, display: f32, viewport: f32) -> f32 {
+        let out = margin(display, viewport) - (page_min - viewport_min);
+        if out.is_finite() { out } else { 0.0 }
+    }
+    (
+        axis(page_min.0, viewport_min.0, display.0, viewport.0),
+        axis(page_min.1, viewport_min.1, display.1, viewport.1),
+    )
+}
 
 /// **Strip offset → the offset a single-page solve expects.**
 ///
@@ -942,6 +1074,117 @@ mod tests {
                             );
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// ★★★ **[`offset_from_drawn`] is [`page_local_offset`], on the shallow
+    /// tier — the same number, from the pixels instead of from the offset.**
+    ///
+    /// This is the claim O26e's fix rests on, and it is the claim that makes
+    /// the change safe: `canvas::show` swapped one for the other on **every**
+    /// frame, not only deep ones, so if they disagreed anywhere below the
+    /// threshold the fix would have traded a rare catastrophe for a constant
+    /// small one.
+    ///
+    /// The shallow tier's geometry is reconstructed here exactly as `show`
+    /// builds it — content origin, strip centring margin, pasteboard, the
+    /// page's place inside the strip, the scroll offset — and then the page's
+    /// screen rect and the viewport's screen rect are handed to
+    /// `offset_from_drawn` the way `show` hands it `image_rect.min` and
+    /// `inner_rect.min`. Spelled out rather than calling `strip_margin`,
+    /// for the reason the sibling test above states: a test that reuses the
+    /// function under test agrees with it by construction, including when
+    /// both are wrong.
+    ///
+    /// ★ What this does **not** claim, deliberately: that they agree at the
+    /// deep tier. They do not, and that is the whole point — there the scroll
+    /// offset is forced to zero and `page_local_offset` describes a page
+    /// nobody is looking at, while `offset_from_drawn` describes the one on
+    /// screen. There is no assertion to write for "one of these is a lie",
+    /// only a driven check: `zooming_back_out_keeps_the_view`.
+    #[test]
+    fn measuring_the_offset_from_the_drawn_rect_matches_the_solved_one() {
+        let v = (800.0_f32, 600.0_f32);
+        // Somewhere non-zero, so an implementation that forgot the viewport
+        // origin cannot pass by it being (0, 0).
+        let viewport_min = (137.0_f32, 91.0_f32);
+        for &strip in &[(612.0_f32, 4000.0_f32), (1200.0, 500.0), (300.0, 200.0)] {
+            for &page in &[(612.0_f32, 792.0_f32), (300.0, 200.0)] {
+                for &origin in &[(0.0_f32, 0.0_f32), (0.0, 1200.0), (294.0, 2400.0)] {
+                    for &off in &[(0.0_f32, 0.0_f32), (100.0, 900.0)] {
+                        // The content's origin on screen: the viewport's, less
+                        // however far the area has been scrolled.
+                        let content_min = (viewport_min.0 - off.0, viewport_min.1 - off.1);
+                        // The page's top-left on screen: the content's origin,
+                        // plus the strip's centring margin and the pasteboard,
+                        // plus the page's own place inside the strip.
+                        let page_min = (
+                            content_min.0
+                                + (strip.0.max(v.0) - strip.0) / 2.0
+                                + v.0 * PASTEBOARD_FRACTION
+                                + origin.0,
+                            content_min.1
+                                + (strip.1.max(v.1) - strip.1) / 2.0
+                                + v.1 * PASTEBOARD_FRACTION
+                                + origin.1,
+                        );
+                        let solved = page_local_offset(off, origin, strip, page, v);
+                        let measured = offset_from_drawn(page_min, viewport_min, page, v);
+                        assert!(
+                            (measured.0 - solved.0).abs() < 1e-2
+                                && (measured.1 - solved.1).abs() < 1e-2,
+                            "strip={strip:?} page={page:?} origin={origin:?} off={off:?}: measured \n                             {measured:?} vs solved {solved:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A non-finite rect cannot poison the next zoom's `offset_before`.
+    ///
+    /// ★ Zero rather than the previous value, because this function has no
+    /// previous value to return — it is a measurement, not a step. "Centred"
+    /// is the safe fiction; a `NaN` propagates into `zoom_anchor_offset` and
+    /// blanks the canvas, which is the one outcome worse than a wrong offset.
+    #[test]
+    fn a_non_finite_drawn_rect_measures_as_centred_rather_than_as_nan() {
+        let out = offset_from_drawn(
+            (f32::NAN, f32::INFINITY),
+            (0.0, 0.0),
+            (612.0, 792.0),
+            (800.0, 600.0),
+        );
+        assert_eq!(
+            out,
+            (0.0, 0.0),
+            "a non-finite rect must not yield a NaN offset"
+        );
+    }
+
+    /// [`strip_origin_offset`] is `(outer − display) / 2` wherever that
+    /// expression can still be evaluated exactly — which is the claim that
+    /// makes replacing one with the other safe.
+    ///
+    /// ★ The magnitudes here are deliberately ordinary. The whole point of the
+    /// symbolic form is that it agrees with the plain one where the plain one
+    /// is trustworthy and continues to be right where it is not, and only the
+    /// first half of that is assertable in `f32` arithmetic — the second half
+    /// is what `zooming_back_out_keeps_the_view` drives.
+    #[test]
+    fn the_strip_origin_is_the_plain_expression_wherever_that_expression_is_exact() {
+        for &vp in &[600.0_f32, 619.0, 1000.0] {
+            for &display in &[100.0_f32, 599.0, 600.0, 1200.0, 40_000.0] {
+                for &avail in &[400.0_f32, 600.0, 5_000.0] {
+                    let outer = content_extent(display, vp).max(avail);
+                    let plain = (outer - display) / 2.0;
+                    let symbolic = strip_origin_offset(display, vp, avail);
+                    assert!(
+                        (plain - symbolic).abs() < 1e-3,
+                        "display={display} vp={vp} avail={avail}: plain {plain} vs symbolic \n                         {symbolic}"
+                    );
                 }
             }
         }

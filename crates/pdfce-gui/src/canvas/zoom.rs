@@ -155,6 +155,16 @@ pub struct CanvasFrame {
     pub viewport_rect: Rect,
     /// The scroll offset the frame settled on.
     pub offset: (f32, f32),
+    /// **The page every other field here describes** — `canvas::show`'s
+    /// acting page for the frame this record was written on.
+    ///
+    /// ★ Under a continuous mode `map`, `extent`, `display` and `offset` are
+    /// all about one page of a strip, and an anchor built from them is only
+    /// meaningful against that same page. Carrying the index is what lets the
+    /// canvas convert the solve's answer back through the **right** page's
+    /// origin a frame later, when the current page may have moved on. See
+    /// [`crate::viewer::ZoomAnchor::page`].
+    pub page: usize,
 }
 
 /// Record this frame's canvas geometry. Called once, at the end of
@@ -230,6 +240,7 @@ pub fn hold(frac: (f32, f32), frame: &CanvasFrame) -> ZoomAnchor {
         offset_before: frame.offset,
         display_before: frame.display,
         viewport: frame.viewport,
+        page: frame.page,
     }
 }
 
@@ -265,6 +276,7 @@ pub fn place_centred(frac: (f32, f32), frame: &CanvasFrame) -> ZoomAnchor {
         ),
         display_before: frame.display,
         viewport: frame.viewport,
+        page: frame.page,
     }
 }
 
@@ -830,6 +842,9 @@ mod tests {
             viewport: (400.0, 400.0),
             viewport_rect: Rect::from_min_size(Pos2::new(20.0, 5.0), vec2(400.0, 400.0)),
             offset: (0.0, 0.0),
+            // The single-page world every test in here builds: one page,
+            // at the strip origin. See `ZoomAnchor::page`.
+            page: 0,
         }
     }
 

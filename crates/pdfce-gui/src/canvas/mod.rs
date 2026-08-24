@@ -135,6 +135,10 @@ pub mod forms;
 // platform's stock crosshair is monochrome and its colour belongs to the
 // operator's pointer scheme, which is how it came to be white on white paper.
 pub mod cursor;
+// The `f64` position tier and, above all, the two hand-overs between it and
+// the `egui` scroll offset. Its own file because the seam is where the defects
+// are, and O24f and O26e were hundreds of lines apart inside `show`.
+mod deep;
 pub mod geometry;
 pub mod gesture;
 // Draggable alignment lines: what a guide belongs to, where it lives on disk,
@@ -288,7 +292,7 @@ pub mod tool;
 // paths that route through it.
 pub mod zoom;
 
-use egui::{PointerButton, Pos2, Rect, Sense, scroll_area::ScrollSource, vec2};
+use egui::{Pos2, Rect, Sense, scroll_area::ScrollSource, vec2};
 use egui_shell::HandlerToken;
 
 use crate::app::actions::Action;
@@ -531,7 +535,6 @@ fn show_in(
     let current_rect = layout
         .rect_of(current)
         .unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, display_size));
-    let current_origin = (current_rect.min.x, current_rect.min.y);
     let current_display = (current_rect.width(), current_rect.height());
     // The scale every page on screen is rasterized at. Derived once, here, and
     // used to look each visible page's raster up: deriving it a second time
@@ -595,16 +598,48 @@ fn show_in(
     // The conversion is exact, and under `Single` it is the identity. See
     // `geometry`'s header for the whole argument.
     let vp = ui.available_size();
-    let to_strip = |local: (f32, f32)| {
+    // ★★★ CONVERTED THROUGH THE PAGE THE SOLVE IS ABOUT, NOT THROUGH THE
+    // CURRENT ONE — `OPERATOR_REQUESTS.md` O26d.
+    //
+    // A page-local offset is measured from ONE page's top-left, and turning it
+    // back into a strip offset means adding THAT page's origin within the
+    // strip. This closure used to add `current_origin` unconditionally, and
+    // the value it was converting had usually been described against a
+    // different frame: the zoom anchor is armed while `show` runs and solved
+    // on the frame after, and the current page tracks the scroll in between.
+    //
+    // ★★ When the two disagree the answer is wrong by whole page pitches. At
+    // 900,000 % a pitch is about 1.1 × 10⁷ points, so the offset lands far
+    // outside the scrollable range, `strip_offset` clamps it to zero, and zero
+    // is the content's top-left corner — the page arrives in a corner of the
+    // screen with the drawing off it. Driven, 2026-08-24, descending at
+    // 970,851 % → 814,325 %: the page point under the viewport centre went
+    // from 1164.82 to **−0.04**, the page's own top edge, and stayed there.
+    //
+    // ★ Each caller now names its page, and each of them knows it: the zoom
+    // anchor carries [`viewer::ZoomAnchor::page`], the reveal is gated on
+    // `reveal.page == view.page_index`, and a live pan is about the page under
+    // the hand this frame. Under `Single` every one of them is page 0 at the
+    // strip's origin and this is the identity it always was.
+    let strip_offset_for = |page: usize, local: (f32, f32)| {
+        let rect = layout.rect_of(page).unwrap_or(current_rect);
         let (x, y) = geometry::strip_offset(
             local,
-            current_origin,
+            (rect.min.x, rect.min.y),
             (display_size.x, display_size.y),
-            current_display,
+            (rect.width(), rect.height()),
             (vp.x, vp.y),
         );
         vec2(x, y)
     };
+    let to_strip = |local: (f32, f32)| strip_offset_for(current, local);
+    // The page the pending zoom anchor was armed against, and that page's
+    // drawn size — which is what `zoom::consume_anchor` must compare its
+    // recorded size against, for the same reason.
+    let anchor_page = doc.zoom_anchor.map_or(current, |a| a.page);
+    let anchor_display = layout
+        .rect_of(anchor_page)
+        .map_or(current_display, |r| (r.width(), r.height()));
     // ★★★ TIER 3 — the `f64` anchor takes over the POSITION.
     //
     // `OPERATOR_REQUESTS.md` O24. Below this the scroll offset says where the
@@ -624,110 +659,17 @@ fn show_in(
     // zoom, so the tier is a hard branch rather than a re-parameterisation.
     let deep =
         viewer::deep_position_needed(viewer::page_extent_pts(&doc.pages[current]), doc.view.zoom);
-    if deep {
-        // ★★★ THE ZOOM ANCHOR IS CONSUMED AT THIS TIER TOO —
-        // `OPERATOR_REQUESTS.md` **O24f**.
-        //
-        // It used to be consumed only on the shallow branch, and both halves
-        // of that were wrong at once:
-        //
-        // 1. **On the way in**, the seed below read `doc.last_scroll_offset` —
-        //    the PREVIOUS frame's settled offset, recorded before this frame's
-        //    zoom landed. Dividing it by the NEW zoom asks where a point is
-        //    using one frame's distance and the next frame's scale, so the
-        //    seeded page point was wrong by the whole zoom ratio. Crossing the
-        //    threshold threw the view to an unrelated part of the sheet.
-        // 2. **Once inside**, the anchor was dropped entirely, so a zoom held
-        //    nothing under the cursor: the anchored page point stayed nailed
-        //    to the viewport's top-left corner and everything the operator was
-        //    looking at expanded off the screen.
-        //
-        // Both surface as the same sentence — *"I do lose the view at 2000000%
-        // magnification"* — and 2,000,000 % is not a number he picked. The
-        // threshold is `SUB_PIXEL_CONTENT_EXTENT / page_height` = 16,777,216 /
-        // 792 ≈ **2,118,000 %** on a Letter sheet. A defect that begins at the
-        // tier boundary is a defect in the tier hand-over.
-        //
-        // ★ Consumed unconditionally, not only when seeding. An anchor left
-        // pending here would fire on whatever frame the operator next dropped
-        // below the threshold, moving the view for a zoom that happened
-        // minutes earlier.
-        let landed = zoom::consume_anchor(ui.ctx(), doc, current_display)
-            .map(|local| to_strip((local.x, local.y)));
-        if doc.deep_anchor.is_none() {
-            // Prefer the offset the zoom just solved for; fall back to the
-            // last settled one only when no zoom is landing, which is the case
-            // where they agree anyway.
-            let from = landed.unwrap_or(doc.last_scroll_offset);
-            let seen = geometry::scroll_to_strip(from.x, display_size.x, vp.x);
-            let seen_y = geometry::scroll_to_strip(from.y, display_size.y, vp.y);
-            let origin = layout
-                .rect_of(current)
-                .map_or((0.0, 0.0), |r| (r.min.x, r.min.y));
-            let zoom = f64::from(doc.view.zoom);
-            doc.deep_anchor = Some(viewer::deep::DeepAnchor {
-                page: (
-                    f64::from(seen - origin.0) / zoom,
-                    f64::from(seen_y - origin.1) / zoom,
-                ),
-                screen: (0.0, 0.0),
-            });
-        } else if let Some(prev) = doc.deep_zoom
-            && (prev - f64::from(doc.view.zoom)).abs() > f64::EPSILON
-        {
-            // ★★ ZOOM ABOUT THE CURSOR, by re-statement rather than by solving
-            // for an offset. `DeepAnchor::zoomed_about` reads which page point
-            // is under a window point at the OLD zoom and declares that point
-            // anchored there — no large intermediate is formed, so nothing is
-            // lost however deep the zoom goes. That is the operation the whole
-            // `viewer::deep` module exists for, and until O24f nothing called
-            // it.
-            //
-            // ★ The viewport centre when the pointer is elsewhere, matching
-            // what `+`, `−` and Ctrl+0 anchor on at every other zoom. A
-            // keyboard zoom must not lurch toward wherever the mouse happens
-            // to be resting.
-            // ★ `ui.max_rect()` is the canvas's own region — inside the ruler
-            // gutters, and the same rect `input::pan_delta` tests against, so
-            // a pointer over a ruler is treated as "not over the page" by both
-            // and cannot anchor a zoom to a place the operator was not
-            // pointing at. At this tier the scroll area's content IS the
-            // viewport, so its origin and this rect's origin are the same
-            // point — which is what the anchor's `screen` is measured from.
-            let region = ui.max_rect();
-            let at = ui
-                .input(|i| i.pointer.latest_pos())
-                .filter(|p| region.contains(*p))
-                .map_or((vp.x / 2.0, vp.y / 2.0), |p| {
-                    (p.x - region.min.x, p.y - region.min.y)
-                });
-            doc.deep_anchor = doc.deep_anchor.map(|a| a.zoomed_about(at, prev));
-        }
-        doc.deep_zoom = Some(f64::from(doc.view.zoom));
-        // ★ Pan and wheel move the ANCHOR now. The scroll area has nothing to
-        // scroll, so routing them to it would be a gesture that silently does
-        // nothing — which is how a deep zoom would come to feel frozen.
-        if let Some(anchor) = doc.deep_anchor {
-            let zoom = f64::from(doc.view.zoom);
-            let mut moved = anchor;
-            if let Some(pan) = pan_delta(ui, active_tool) {
-                moved = moved.panned((pan.x, pan.y), zoom);
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            }
-            let wheel = ui.input(|i| i.smooth_scroll_delta);
-            if wheel != egui::Vec2::ZERO {
-                moved = moved.panned((wheel.x, wheel.y), zoom);
-            }
-            doc.deep_anchor = Some(moved);
-        }
-    } else if doc.deep_anchor.is_some() {
-        // Left the deep tier: forget the anchor so re-entering seeds afresh
-        // from wherever the scroll area has since settled, and forget the zoom
-        // it was valid for so the first frame back inside seeds rather than
-        // re-anchors.
-        doc.deep_anchor = None;
-        doc.deep_zoom = None;
-    }
+    let deep_handover = deep::track(
+        ui,
+        doc,
+        &layout,
+        current,
+        current_display,
+        display_size,
+        vp,
+        active_tool,
+        deep,
+    );
 
     if deep {
         // ★★★ FORCE THE SCROLL OFFSET TO ZERO — `OPERATOR_REQUESTS.md` O24f.
@@ -753,8 +695,14 @@ fn show_in(
         // from the same placement, so the frame is not merely misplaced, it
         // renders a different part of the page.
         scroll_area = scroll_area.scroll_offset(vec2(0.0, 0.0));
-    } else if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, current_display) {
+    } else if let Some(offset) = deep_handover {
+        // ★ FIRST, above the ordinary anchor: this frame is the one that left
+        // the `f64` tier, and the offset solved above is the position the
+        // anchor was actually holding. See the branch that produced it.
         scroll_area = scroll_area.scroll_offset(to_strip((offset.x, offset.y)));
+    } else if let Some(offset) = zoom::consume_anchor(ui.ctx(), doc, anchor_display) {
+        scroll_area =
+            scroll_area.scroll_offset(strip_offset_for(anchor_page, (offset.x, offset.y)));
     } else if let Some(offset) = crate::find::take_reveal_offset(doc, current_display, (vp.x, vp.y))
     {
         // The other half of `Action::Find`'s navigation: the page change was
@@ -856,7 +804,12 @@ fn show_in(
                 geometry::content_extent(display_size.y, vp.y).max(avail.y),
             )
         };
-        let (outer_rect, _) = ui.allocate_exact_size(outer, Sense::hover());
+        // ★★ The response is KEPT, and Ctrl+wheel is gated on it —
+        // `OPERATOR_REQUESTS.md` O26. It covers the whole scroll content:
+        // every page, the gaps between them, and O23's pasteboard. See the
+        // wheel block near the end of `show` for why the current page's own
+        // response was the wrong gate.
+        let (outer_rect, content_response) = ui.allocate_exact_size(outer, Sense::hover());
         // The strip's own rect on screen. Every page's rect is this origin
         // plus its strip-space placement, which is what makes the strip the
         // single owner of "where is page N".
@@ -873,24 +826,33 @@ fn show_in(
         // engine's own deep-zoom commit describes as "one subtraction moved
         // into f64".
         let strip_rect = if deep {
-            let anchor = doc
-                .deep_anchor
-                .unwrap_or_else(viewer::deep::DeepAnchor::origin);
-            let zoom = f64::from(doc.view.zoom);
-            let page_origin = layout
-                .rect_of(current)
-                .map_or((0.0, 0.0), |r| (r.min.x, r.min.y));
-            // The current page's top-left, on screen, from the anchor.
-            let x = f64::from(outer_rect.min.x) + f64::from(anchor.screen.0) - anchor.page.0 * zoom;
-            let y = f64::from(outer_rect.min.y) + f64::from(anchor.screen.1) - anchor.page.1 * zoom;
-            // …and the strip's origin is that, less where the page sits
-            // inside the strip.
+            deep::strip_placement(doc, &layout, current, outer_rect.min, display_size)
+        } else {
+            // ★★★ PLACED FROM THE CONTENT'S ORIGIN, NOT FROM ITS CENTRE —
+            // `OPERATOR_REQUESTS.md` O26g.
+            //
+            // `Rect::from_center_size(outer_rect.center(), display_size)` is
+            // the same rectangle and was a catastrophic cancellation: it forms
+            // `centre − strip/2`, and in a continuous mode the strip is
+            // `pages × page_height × zoom`. On a 36-page drawing set at a
+            // million percent that is 4.6 × 10⁸ logical points, where an
+            // `f32`'s step is **32 points** — so the strip's origin, every
+            // page rect derived from it, the zoom anchor's `frac`, the raster
+            // region and the pointer mapping were all quantised to 32 points.
+            // Measured: an anchored zoom notch slid the view 16 points there,
+            // and 10 points at 292,415 %, both of which the step size predicts.
+            //
+            // `strip_origin_offset` evaluates the same quantity symbolically —
+            // a centring margin that is exactly zero once the strip exceeds
+            // the viewport, plus one viewport of pasteboard — so no large
+            // intermediate is formed and the origin is exact at every zoom.
             Rect::from_min_size(
-                Pos2::new(x as f32 - page_origin.0, y as f32 - page_origin.1),
+                Pos2::new(
+                    outer_rect.min.x + geometry::strip_origin_offset(display_size.x, vp.x, avail.x),
+                    outer_rect.min.y + geometry::strip_origin_offset(display_size.y, vp.y, avail.y),
+                ),
                 display_size,
             )
-        } else {
-            Rect::from_center_size(outer_rect.center(), display_size)
         };
         let strip_origin = strip_rect.min.to_vec2();
 
@@ -913,13 +875,7 @@ fn show_in(
         // strip's own placement on screen is the truth there: whatever of it
         // overlaps the viewport is what can be seen.
         let visible_rect = if deep {
-            Rect::from_min_size(
-                Pos2::new(
-                    outer_rect.min.x - strip_rect.min.x,
-                    outer_rect.min.y - strip_rect.min.y,
-                ),
-                avail,
-            )
+            deep::visible_in_strip(outer_rect.min, strip_rect.min, avail)
         } else {
             Rect::from_min_size(
                 Pos2::new(
@@ -1168,53 +1124,35 @@ fn show_in(
         // zoom-to-cursor solve needs, and it is only knowable in here — the
         // same `avail` that decided `outer` above, so the margin the solve
         // reconstructs is the margin this frame actually drew.
-        (drawn, avail, strip_rect)
+        //
+        // ★ The strip's own rect used to ride out with it, so that
+        // `remember_frame` could subtract it from the page's to recover the
+        // page's place *within the strip*. O26e replaced that reconstruction
+        // with `geometry::offset_from_drawn`, which measures against the
+        // viewport instead and therefore needs nothing from in here that the
+        // pages do not already carry.
+        (drawn, avail, content_response.hovered())
     });
 
-    let (drawn, viewport_size, strip_rect) = scroll_output.inner;
+    let (drawn, viewport_size, content_hovered) = scroll_output.inner;
     // The offset the area settled on THIS frame: the `offset_before` of any
     // zoom step the operator starts now, and the base the next frame's
     // middle-drag pan moves from.
     doc.last_scroll_offset = scroll_output.state.offset;
     let scroll_offset = scroll_output.state.offset;
 
-    // ★ **Which page this frame's input is about**, and the two ways it is
-    // decided. Both write `view.page_index`, which is the fourth item of
-    // per-frame view bookkeeping the canvas is permitted to write (see the
-    // module header): a scroll position cannot be deferred into an `Action`,
-    // because the action would be applied after the frame that has already
-    // drawn from it.
-    //
-    // 1. **the scroll**, under a continuous mode: the page with the greatest
-    //    visible area, per `Strip::page_at_view`. This is `GUI_ROADMAP.md`
-    //    Phase 4.3's scroll-driven current-page tracking, and it is what makes
-    //    the status bar's page box, the Objects panel and the `objects n=`
-    //    trace describe the sheet the operator is actually reading.
-    // 2. **a press**, in any mode: pressing on a page makes it current, so a
-    //    click on the page below acts on the page below rather than missing.
-    //    A press outranks the scroll because it is deliberate, and it is read
-    //    from the pages' own responses so it costs nothing on a frame with no
-    //    input.
-    let view_rect = Rect::from_min_size(Pos2::new(scroll_offset.x, scroll_offset.y), viewport_size);
-    if doc.view.display.is_continuous()
-        && let Some(page) = layout.page_at_view(view_rect)
-    {
-        doc.view.page_index = page;
-        doc.tracked_page = page;
-    }
-    if let Some(page) = drawn
-        .iter()
-        .find(|d| {
-            d.response.drag_started_by(PointerButton::Primary)
-                || d.response.clicked_by(PointerButton::Primary)
-                || d.response.dragged_by(PointerButton::Primary)
-                || d.response.secondary_clicked()
-        })
-        .map(|d| d.page)
-    {
-        doc.view.page_index = page;
-        doc.tracked_page = page;
-    }
+    // ★ **Which page this frame's input is about.** Decided by the strip
+    // module, which owns the question and the two answers to it — the scroll
+    // and a press. See `strip::track_current_page`.
+    strip::track_current_page(
+        doc,
+        &layout,
+        &drawn,
+        (scroll_offset.x, scroll_offset.y),
+        display_size,
+        viewport_size,
+        deep,
+    );
 
     // ★ **A page drag from somewhere else, landing here.**
     //
@@ -1236,10 +1174,9 @@ fn show_in(
     // what keeps `interact` a single-page function — the selection, the hit
     // test and the decomposition all describe one page, and that page is this
     // one.
-    let acting = doc.view.page_index;
     let Some(active) = drawn
         .iter()
-        .find(|d| d.page == acting)
+        .find(|d| d.page == doc.view.page_index)
         .or_else(|| drawn.first())
     else {
         // Nothing was laid out at all: a strip whose visible window fell
@@ -1252,6 +1189,42 @@ fn show_in(
         });
         return (Vec::new(), None);
     };
+    // ★★★ THE ACTING PAGE IS THE ONE WHOSE RECT WE ARE ABOUT TO USE —
+    // `OPERATOR_REQUESTS.md` O26c.
+    //
+    // This used to be `doc.view.page_index`, decided *before* the fallback
+    // above and then never revisited. When the current page was not among the
+    // drawn ones the fallback took `drawn.first()` — a **different page** —
+    // and the next two lines then paired **that page's rect** with **the
+    // current page's extent**.
+    //
+    // ★★ On a document whose sheets are all the same size that mismatch is
+    // invisible. `SW41177.pdf` mixes 1584 × 1224 sheets with 1224 × 792 ones,
+    // and the trace caught it exactly:
+    //
+    // ```text
+    // canvas rect=[[-5634238.0 681671.0] - [5515170.0 7895993.0]] zoom=9108.99
+    // canvas-pos … ext=1584.000,1224.000
+    // ```
+    //
+    // 11,149,400 × 7,214,300 is 1224 × 792 at that zoom, while `ext` says the
+    // page is 1584 × 1224. Every consequence follows from those two lines
+    // disagreeing: [`PageMapping`] is built from both, so the pointer maps to
+    // a page point that is not where the pointer is (the same frame reported
+    // `page=(618.59, −74.79)` for a pointer sitting well inside the sheet),
+    // the zoom anchor's `frac` is taken from that, the next frame's solve asks
+    // for an offset far outside the scrollable range, `strip_offset` clamps it
+    // to zero — and **zero is the content's top-left corner**. The page lands
+    // in a corner of the screen with everything else off it, which is exactly
+    // what the operator described and exactly why it was intermittent: it
+    // needs `drawn.first()` to be a *differently sized* page.
+    //
+    // ★ Taking the page from `active` also makes the frame's whole downstream
+    // truthful rather than merely consistent: `interact`, the hit test, the
+    // selection and `region_for` all describe the page whose rectangle is on
+    // screen, instead of one the operator cannot see. Acting on an invisible
+    // page was never the intent — it was the fallback's silence.
+    let acting = active.page;
     let image_response = active.response.clone();
     let image_rect = active.rect;
     let extent = viewer::page_extent_pts(&doc.pages[acting]);
@@ -1310,6 +1283,30 @@ fn show_in(
     // written for a scroll area holding one page at the origin, and converting
     // here is what lets all of them keep working unchanged over a strip. Under
     // `Single` the conversion is the identity. See `geometry`'s header.
+    //
+    // ★★★ MEASURED FROM THE DRAWN RECT, NOT RECONSTRUCTED FROM THE SCROLL
+    // OFFSET — `OPERATOR_REQUESTS.md` O26e.
+    //
+    // This used to call `geometry::page_local_offset(scroll_offset, …)`, and
+    // on the shallow tier the two are algebraically the same number — a unit
+    // test asserts exactly that, so this is not a behaviour change below the
+    // threshold. Above it they are not the same at all: the deep branch
+    // **forces the scroll offset to zero** (the content is the viewport there,
+    // so zero is the only valid offset) and holds the position in `f64`
+    // instead. Reconstructing from that forced zero recorded "the page is
+    // centred in the pasteboard" on every deep frame.
+    //
+    // Nothing consumed the lie while the tier held. The first zoom that
+    // crossed back **did**: `offset_before` is this field, so
+    // `zoom_anchor_offset` solved the descent against a position the operator
+    // had never been in and put the page's own origin under the pointer.
+    // Driven, 2026-08-24, descending through 1,185,799 %: the page point under
+    // the viewport centre went from (791.93, 1152.34) to (−0.02, −0.03).
+    //
+    // `image_rect` and `inner_rect` are this frame's real screen rects, at
+    // every tier, produced by whichever branch placed the strip. An offset
+    // derived from them cannot disagree with the pixels, and — the point —
+    // needs no knowledge of which mechanism owns the position.
     zoom::remember_frame(
         ui.ctx(),
         zoom::CanvasFrame {
@@ -1318,13 +1315,16 @@ fn show_in(
             display: (image_rect.width(), image_rect.height()),
             viewport: (viewport_size.x, viewport_size.y),
             viewport_rect: scroll_output.inner_rect,
-            offset: geometry::page_local_offset(
-                (scroll_offset.x, scroll_offset.y),
+            // ★ The ACTING page, not `view.page_index`. They are the same on
+            // almost every frame and differ on exactly the frames that broke:
+            // see `acting`'s own note, and `ZoomAnchor::page`.
+            page: acting,
+            offset: geometry::offset_from_drawn(
+                (image_rect.min.x, image_rect.min.y),
                 (
-                    image_rect.min.x - strip_rect.min.x,
-                    image_rect.min.y - strip_rect.min.y,
+                    scroll_output.inner_rect.min.x,
+                    scroll_output.inner_rect.min.y,
                 ),
-                (display_size.x, display_size.y),
                 (image_rect.width(), image_rect.height()),
                 (viewport_size.x, viewport_size.y),
             ),
@@ -1420,7 +1420,36 @@ fn show_in(
     // Ctrl+wheel over the canvas: multiply the zoom. Gated on hover so a
     // Ctrl+wheel aimed at some other surface does not zoom the page out from
     // under the operator.
-    if image_response.hovered() {
+    //
+    // ★★★ THE GATE IS THE CANVAS, NOT THE CURRENT PAGE — `OPERATOR_REQUESTS.md`
+    // O26.
+    //
+    // It used to read `image_response.hovered()`, which is the response of the
+    // **acting page only**. Three ordinary positions were therefore inert:
+    //
+    // * the pointer over a *different* visible page, which under a continuous
+    //   mode is most of the screen whenever more than one page fits;
+    // * the pointer in the gap between two pages;
+    // * the pointer over O23's **pasteboard** — a whole viewport of it on
+    //   every side, added deliberately so any page corner can be brought to
+    //   any point of the screen, and therefore a position the operator is now
+    //   *expected* to be in.
+    //
+    // ★★ It is also what turned O26's page catapult from a lurch into a
+    // freeze. Once the current-page tracker had thrown `page_index` seven
+    // pages down the strip, the acting page was off screen, nothing under the
+    // pointer was it, and **every subsequent Ctrl+wheel did nothing at all**:
+    // driven, 2026-08-24, five further notches produced a byte-identical
+    // trace. A view that jumps is a bug; a view that jumps and then will not
+    // zoom back is the operator's report.
+    //
+    // `content_response` is the scroll area's whole content — pages, gaps and
+    // pasteboard — so this asks *"is the pointer over the canvas?"*, which is
+    // the question the comment above always claimed it was asking. It is a
+    // real egui `Response`, so it still respects layer order and a floating
+    // window over the canvas still swallows the wheel; a `rect.contains`
+    // test would not have.
+    if content_hovered || image_response.hovered() {
         let factor = ui.ctx().input(|i| i.zoom_delta());
         if (factor - 1.0).abs() > f32::EPSILON {
             // Zoom to cursor, half one: remember WHERE on the page the

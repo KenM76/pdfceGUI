@@ -20,8 +20,9 @@
 //! here rather than inline in [`super::show`], where a `Response` in the way
 //! would make them untestable.
 
-use egui::{Rect, Vec2, vec2};
+use egui::{PointerButton, Pos2, Rect, Vec2, vec2};
 
+use crate::canvas::geometry;
 use crate::canvas::mapping::PageMapping;
 
 use crate::app::state::OpenDoc;
@@ -187,6 +188,118 @@ pub(super) fn page_scroll_offset(
         )
     });
     Some(vec2(x, y))
+}
+
+/// **Which page this frame's input is about**, written into `view.page_index`
+/// and `tracked_page`.
+///
+/// One of the four items of per-frame view bookkeeping the canvas is permitted
+/// to write directly (see `canvas`'s module header): a scroll position cannot
+/// be deferred into an `Action`, because the action would be applied after the
+/// frame that has already drawn from it.
+///
+/// Lives here rather than in `canvas::show` because it is a question about the
+/// **strip** — where the viewport falls across a column of pages — and because
+/// R2's line limit is a prompt to find the seam rather than to raise the
+/// limit. Its scroll-space conversion is the same one every other consumer of
+/// `Strip` needs, and having it beside them is what makes the omission that
+/// caused O26 visible next time.
+pub(super) fn track_current_page(
+    doc: &mut OpenDoc,
+    layout: &viewer::strip::Strip,
+    drawn: &[DrawnPage],
+    scroll_offset: (f32, f32),
+    display_size: egui::Vec2,
+    viewport_size: egui::Vec2,
+    deep: bool,
+) {
+    // ★ **Which page this frame's input is about**, and the two ways it is
+    // decided. Both write `view.page_index`, which is the fourth item of
+    // per-frame view bookkeeping the canvas is permitted to write (see the
+    // module header): a scroll position cannot be deferred into an `Action`,
+    // because the action would be applied after the frame that has already
+    // drawn from it.
+    //
+    // 1. **the scroll**, under a continuous mode: the page with the greatest
+    //    visible area, per `Strip::page_at_view`. This is `GUI_ROADMAP.md`
+    //    Phase 4.3's scroll-driven current-page tracking, and it is what makes
+    //    the status bar's page box, the Objects panel and the `objects n=`
+    //    trace describe the sheet the operator is actually reading.
+    // 2. **a press**, in any mode: pressing on a page makes it current, so a
+    //    click on the page below acts on the page below rather than missing.
+    //    A press outranks the scroll because it is deliberate, and it is read
+    //    from the pages' own responses so it costs nothing on a frame with no
+    //    input.
+    //
+    // ★★★ CONVERTED OUT OF CONTENT SPACE FIRST — `OPERATOR_REQUESTS.md` O26,
+    // and the SECOND site of the omission O23 was four attempts long.
+    //
+    // `page_at_view` takes a **strip-space** rect; `scroll_offset` is measured
+    // from the **content's** origin, which since O23's pasteboard sits a whole
+    // viewport above and to the left of the strip's. Feeding the raw offset in
+    // asks *"which page is a viewport-sized box one pasteboard past where I am
+    // looking?"*, and the answer is a page several pitches too far down — or,
+    // far more often, **no page at all**, because the horizontal error is a
+    // whole viewport and the strip is only as wide as its widest page.
+    //
+    // ★★ Both failure modes are damaging and the silent one is worse.
+    //
+    // * *No page* means `page_at_view` returns `None` on nearly every frame,
+    //   the branch does not run, and scroll-driven current-page tracking —
+    //   Phase 4.3, the whole reason this block exists — has been **inert since
+    //   the pasteboard landed**. Nothing said so: the page number simply
+    //   stopped following the scroll, which reads as a feature nobody
+    //   finished.
+    // * *The wrong page* happens whenever the strip grows wide enough for the
+    //   displaced box to clip its right-hand edge — which is a function of the
+    //   zoom, so it arrives at one particular magnification and not the ones
+    //   either side of it. That is the operator's *"seems to happen at other
+    //   junctions too"*.
+    //
+    // ★★★ And the wrong page is not a cosmetic mis-report, because
+    // `current_origin` — the frame of reference every single-page solve in
+    // `canvas::zoom` and `find::reveal` is handed — is *this page's* origin in
+    // the strip. Set it to page 7 and the next anchored zoom converts its
+    // answer back through page 7's origin, so the view moves by seven page
+    // pitches in one wheel notch. Measured on `SW41177.pdf`: one Ctrl+wheel
+    // notch at 30 % took the view from page 1 to page 8, and the status bar
+    // said so.
+    //
+    // ★ Skipped entirely at the deep tier, for the reason `visible_rect` is:
+    // above the threshold the scroll offset is **forced to zero** and says
+    // nothing about where the view is — the `f64` anchor holds that. Asking
+    // this question there would answer about the strip's origin rather than
+    // about the operator, and snap the current page to the first one in the
+    // document from wherever they had zoomed into. At that magnification one
+    // page fills the screen many times over and it is the acting page by
+    // construction, so leaving `page_index` alone is both correct and cheap.
+    let view_rect = Rect::from_min_size(
+        Pos2::new(
+            geometry::scroll_to_strip(scroll_offset.0, display_size.x, viewport_size.x),
+            geometry::scroll_to_strip(scroll_offset.1, display_size.y, viewport_size.y),
+        ),
+        viewport_size,
+    );
+    if !deep
+        && doc.view.display.is_continuous()
+        && let Some(page) = layout.page_at_view(view_rect)
+    {
+        doc.view.page_index = page;
+        doc.tracked_page = page;
+    }
+    if let Some(page) = drawn
+        .iter()
+        .find(|d| {
+            d.response.drag_started_by(PointerButton::Primary)
+                || d.response.clicked_by(PointerButton::Primary)
+                || d.response.dragged_by(PointerButton::Primary)
+                || d.response.secondary_clicked()
+        })
+        .map(|d| d.page)
+    {
+        doc.view.page_index = page;
+        doc.tracked_page = page;
+    }
 }
 
 #[cfg(test)]

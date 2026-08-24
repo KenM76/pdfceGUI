@@ -169,6 +169,81 @@ impl DeepAnchor {
         }
     }
 
+    /// ★★★ **The `f32` page-local scroll offset that reproduces this anchor's
+    /// placement** — the hand-over back out of the deep tier.
+    ///
+    /// # Why this is the last function this module needed
+    ///
+    /// [`crate::canvas::mod`]'s deep branch seeds an anchor from the scroll
+    /// offset on the way **in**. Nothing converted an anchor back into a
+    /// scroll offset on the way **out**, so a zoom-out across the threshold
+    /// dropped the position on the floor and the `f32` machinery resumed from
+    /// the zero the deep tier forces. `OPERATOR_REQUESTS.md` O26e/O26f, reported as
+    /// *"zoom out … repositions the page so that it is off screen in the far
+    /// bottom left corner"*.
+    ///
+    /// # The arithmetic, and where the precision goes
+    ///
+    /// A page-local offset is defined by
+    /// [`crate::canvas::geometry::anchor_screen_pos`]:
+    ///
+    /// ```text
+    ///     screen = margin(display, viewport) + frac × display − offset
+    /// ```
+    ///
+    /// This anchor states `screen` and the page point directly, and
+    /// `frac × display` is `page × zoom` — so
+    ///
+    /// ```text
+    ///     offset = margin(display, viewport) + page × zoom − screen
+    /// ```
+    ///
+    /// ★★ `page × zoom` is formed **in `f64`** and narrowed once, at the end.
+    /// That is the entire reason this lives here rather than being spelled out
+    /// at the call site in `f32`: near the threshold the product is about
+    /// 1.4 × 10⁷, where an `f32`'s representable step is a whole screen pixel,
+    /// and the `f32` route subtracts two such numbers to get one of a few
+    /// hundred. Measured on the descent through 1,185,799 %: the `f32` route
+    /// left the view fifty pixels out, this one is inside the one pixel the
+    /// destination offset can represent at all.
+    ///
+    /// ★ The result is genuinely `f32` and that is not a compromise — it is
+    /// being handed to an `egui` `ScrollArea`, which stores an `f32`. Below
+    /// the threshold that is enough by definition; the threshold is the point
+    /// at which it stops being enough, which is why the tier exists.
+    ///
+    /// `display` is the **current page's** drawn size and `viewport` the
+    /// scroll viewport's, the same two measurements every solve in
+    /// `canvas::geometry` is handed. A non-finite or non-positive `zoom`
+    /// yields `None`: there is no placement to describe, and a `NaN` offset
+    /// blanks the canvas.
+    #[must_use]
+    pub fn page_local_offset(
+        &self,
+        display: (f32, f32),
+        viewport: (f32, f32),
+        zoom: f64,
+    ) -> Option<(f32, f32)> {
+        if !zoom.is_finite() || zoom <= 0.0 {
+            return None;
+        }
+        let axis = |page: f64, screen: f32, display: f32, viewport: f32| -> Option<f32> {
+            // The centring margin, spelled the way `canvas::geometry::margin`
+            // spells it. Zero at any zoom this function is reached at — the
+            // page is millions of pixels across — but carried anyway, so the
+            // identity holds for the unit tests that exercise it at ordinary
+            // sizes rather than only where it is exercised in anger.
+            let margin = f64::from((display.max(viewport) - display) / 2.0);
+            let out = margin + page * zoom - f64::from(screen);
+            let out = out as f32;
+            out.is_finite().then_some(out)
+        };
+        Some((
+            axis(self.page.0, self.screen.0, display.0, viewport.0)?,
+            axis(self.page.1, self.screen.1, display.1, viewport.1)?,
+        ))
+    }
+
     /// The page-space rectangle visible in a viewport of `size` at `zoom` —
     /// what [`crate::render::strategy`]'s region tier asks the renderer for.
     ///

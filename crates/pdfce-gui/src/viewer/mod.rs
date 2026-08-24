@@ -207,6 +207,31 @@ pub struct ZoomAnchor {
     pub display_before: (f32, f32),
     /// The scroll viewport, needed for the centring-margin term.
     pub viewport: (f32, f32),
+    /// **Which page every other field in this struct is about** — the page
+    /// that was being acted on when the anchor was armed.
+    ///
+    /// # ★★★ Why an anchor has to name its page (`OPERATOR_REQUESTS.md` O26d)
+    ///
+    /// `frac`, `offset_before` and `display_before` are all measured against
+    /// **one page**: the anchor says *"the point at this fraction of THAT
+    /// page was at that offset when the page was that size"*. Under a
+    /// continuous mode the canvas then converts the solve's answer back into
+    /// a strip offset by adding the page's origin within the strip — and it
+    /// used to add **whichever page happened to be current on the frame the
+    /// anchor was consumed**.
+    ///
+    /// Those are two different frames and they can name two different pages:
+    /// the anchor is armed on frame N (during `show`, when the wheel is seen)
+    /// and solved on frame N+1 (once the zoom has landed), and the current
+    /// page tracks the scroll in between. When they differ, the answer is
+    /// wrong by whole page pitches — at a million percent that is 10⁷ points,
+    /// the offset clamps to the end of its range, and the page lands in a
+    /// corner of the screen with the rest of the drawing off it.
+    ///
+    /// ★ Under [`PageDisplay::Single`] there is one page at the origin and
+    /// this field is always the current one, so nothing about that path
+    /// changes. It is the strip that made "which page" a question.
+    pub page: usize,
 }
 
 /// Which page is shown, at what scale, how that scale is chosen, and in what

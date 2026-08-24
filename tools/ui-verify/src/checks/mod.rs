@@ -329,6 +329,7 @@ pub mod shift_constrains;
 pub mod tool_row;
 pub mod zoom_gallery;
 pub mod zoom_keeps_place;
+pub mod zoom_out_keeps_place;
 
 /// Marking a text selection — underline, strikeout, squiggly. The first
 /// commands in this shell whose operand is **not the pointer**, and therefore
@@ -703,6 +704,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(deep_zoom::ZoomingPastThePixmapCeilingStillRenders),
         Box::new(deep_pan::PanningAtDeepZoomStaysWhereItWasPut),
         Box::new(zoom_keeps_place::ZoomingDoesNotThrowAwayWhereTheOperatorPanned),
+        // ★ Its inverse. The climb above never rolls the wheel the other way, so
+        // the DOWNWARD hand-over between the f32 scroll offset and the f64
+        // anchor had never been driven. O26e.
+        Box::new(zoom_out_keeps_place::ZoomingBackOutKeepsTheView),
         Box::new(zoom_gallery::ThePageStillRendersAtEveryDecadeOfZoom),
         Box::new(pan_refresh::PanningPastTheOverscanRendersTheNewArea),
         Box::new(resize::ResizeScalesAShape),
