@@ -366,6 +366,40 @@ impl RenderKey {
         self
     }
 
+    /// Whether two keys describe the **same part of the page**.
+    ///
+    /// # ★★★ Why this had to become its own question
+    ///
+    /// `OPERATOR_REQUESTS.md` **O25**, 2026-08-23:
+    ///
+    /// > *"if I pan to far to one side when I am beyond 800% zoom it doesn't
+    /// > always render the new exposed area, and the same thing happens
+    /// > usually when I zoom out."*
+    ///
+    /// The staleness test in `render::settle` asked two things — has a
+    /// **discrete input** changed (page, annotations, layers), and has the
+    /// **scale** changed — and the region was in the key without being in
+    /// either. So a pan that changed nothing but *which part of the page is on
+    /// screen* was not stale by any measure, and **no render was ever
+    /// requested**. The picture the operator had kept being drawn correctly at
+    /// its own region and simply slid off, leaving the newly exposed area
+    /// blank for as long as they cared to look at it.
+    ///
+    /// ★ The zoom-out half is the same fault arriving by a different route. A
+    /// zoom does change the scale, so a render *is* requested — but the
+    /// request is built from whatever region was current when it spawned, and
+    /// by the time it lands the gesture has moved on. Once the scale settles,
+    /// nothing notices the region it arrived with is the wrong one. Both
+    /// symptoms are one missing comparison.
+    ///
+    /// Compares the **stored bits**, not the reconstructed rectangles: `f64`
+    /// is not `Eq`, and a comparison with a tolerance would make "the same
+    /// view" a matter of degree in the one place that must answer yes or no.
+    #[must_use]
+    pub fn same_region(&self, other: &Self) -> bool {
+        self.region_bits == other.region_bits
+    }
+
     /// The page-space rectangle this raster actually covers, or `None` if it
     /// is a whole-page raster.
     ///

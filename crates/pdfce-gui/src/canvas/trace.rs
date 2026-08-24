@@ -461,17 +461,39 @@ pub(super) fn pointer(ui: &egui::Ui, doc: &OpenDoc, image_rect: Rect, extent: (f
 /// check restricts itself and says so, rather than comparing against a
 /// formula that does not apply. Both are `None` for a whole-page raster,
 /// where the question does not arise.
+/// `want=` — the region the shell wants NEXT, beside `region=` which is the one
+/// the pixels on screen are a picture of.
+///
+/// # ★★★ Why both, and what reading only one cost
+///
+/// They differ exactly while a new raster is in flight — and, before
+/// `OPERATOR_REQUESTS.md` O25 was fixed, **for ever**: a pan changed `want` and
+/// nothing asked for a render, so `region` stayed put and the newly exposed
+/// area was blank indefinitely.
+///
+/// ★ A check written against `region` alone cannot see that. On the defective
+/// build the held texture never changes, so its region never changes, and the
+/// check reads *"the view did not move"* — which is indistinguishable from
+/// *"nothing was exposed, so nothing was owed"*. That is exactly what the first
+/// version of `panning_past_the_overscan_renders_the_new_area` reported: a
+/// SKIP, against a binary with the defect deliberately restored.
+///
+/// `want` is the shell's intent and moves the instant the view does; `region`
+/// is what arrived. **The gap between them is the defect**, and it takes two
+/// fields to measure a gap.
 pub(super) fn position(
     at: (f64, f64),
     tier: &'static str,
     paint: (f32, f32),
     region: Option<pdfce_core::page_tree::Rect>,
+    want: Option<pdfce_core::page_tree::Rect>,
     extent: (f32, f32),
 ) {
     crate::diag::trace(|| {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI.
-            "canvas-pos at={:.3},{:.3} tier={tier} paint={:.3},{:.3} region={} ext={:.3},{:.3}",
+            // ui-text-exempt: diagnostic trace, never displayed in the UI.
+            "canvas-pos at={:.3},{:.3} tier={tier} paint={:.3},{:.3} region={} want={} ext={:.3},{:.3}",
             at.0,
             at.1,
             paint.0,
@@ -486,6 +508,12 @@ pub(super) fn position(
                 // like the region hitting a floor. It is not; it is the trace
                 // hitting one. Same lesson as `position`'s own header: a
                 // measurement coarser than the thing measured invents a defect.
+                |r| format!("{:.9e},{:.9e},{:.9e},{:.9e}", r.llx, r.lly, r.urx, r.ury),
+            ),
+            // ★ The same formatting for both, so a check can compare them as
+            // text without either side having to parse.
+            want.map_or_else(
+                || "none".to_owned(),
                 |r| format!("{:.9e},{:.9e},{:.9e},{:.9e}", r.llx, r.lly, r.urx, r.ury),
             ),
             extent.0,

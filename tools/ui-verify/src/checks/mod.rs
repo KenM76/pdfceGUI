@@ -271,6 +271,7 @@ pub mod multi_node;
 /// in the wrong typeface and errors nowhere, so the assertion is a COUNT the
 /// engine reports rather than a picture.
 pub mod object_clipboard;
+pub mod pan_refresh;
 /// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
 /// and a line in the shortcuts reference, and **no dispatch arm** for the whole
 /// life of the project. Its whole behaviour is one `if` in the frame
@@ -703,6 +704,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(deep_pan::PanningAtDeepZoomStaysWhereItWasPut),
         Box::new(zoom_keeps_place::ZoomingDoesNotThrowAwayWhereTheOperatorPanned),
         Box::new(zoom_gallery::ThePageStillRendersAtEveryDecadeOfZoom),
+        Box::new(pan_refresh::PanningPastTheOverscanRendersTheNewArea),
         Box::new(resize::ResizeScalesAShape),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),

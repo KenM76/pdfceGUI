@@ -396,6 +396,29 @@ impl PdfceApp {
         let stale_discrete =
             stale_edit || current.is_none_or(|k| k.discrete_inputs() != wanted.discrete_inputs());
         let stale_scale = current.is_some_and(|k| k.scale_bits() != wanted.scale_bits());
+        // ★★★ …AND WHETHER IT IS A PICTURE OF THE RIGHT PART OF THE PAGE.
+        //
+        // `OPERATOR_REQUESTS.md` O25. Above the pixmap ceiling a raster covers
+        // the visible region rather than the page, so two textures of the same
+        // page at the same scale can show *different places*. Without this
+        // term a pan requested nothing at all — the old picture was drawn
+        // correctly at its own region and slid off, leaving the newly exposed
+        // area blank indefinitely. See `RenderKey::same_region`.
+        //
+        // ★★ Grouped with the SCALE rather than with the discrete inputs, and
+        // the reason is the same debounce argument that put the scale there: a
+        // region changes under a continuous gesture, and a render started on
+        // every frame of a drag would be cancelled by the next one — the
+        // worker is single-slot — so the operator would pan for a second and
+        // receive nothing at the end of it.
+        //
+        // ★ It is already rate-limited in a way the scale is not:
+        // `render::strategy::region_for` snaps to a half-viewport grid, so a
+        // region changes at most once per half-screen of travel however
+        // smoothly the pointer moves. The debounce is the second limiter, not
+        // the only one, which is why the settle interval can stay tuned for
+        // zoom without making a pan feel slow.
+        let stale_region = current.is_some_and(|k| !k.same_region(&wanted));
 
         // A page whose previous render failed must not be retried every frame:
         // the failure is deterministic (same bytes, same code), so retrying
@@ -411,7 +434,7 @@ impl PdfceApp {
             if stale_discrete {
                 let page = doc.view.page_index;
                 doc.rasterize(ctx, page, wanted_scale);
-            } else if stale_scale {
+            } else if stale_scale || stale_region {
                 if now >= doc.zoom_commit_at {
                     let page = doc.view.page_index;
                     doc.rasterize(ctx, page, wanted_scale);

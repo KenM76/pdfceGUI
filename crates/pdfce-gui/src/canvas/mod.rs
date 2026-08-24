@@ -1408,6 +1408,9 @@ fn show_in(
         if deep { "deep" } else { "scroll" },
         (painted.min.x, painted.min.y),
         painted_region,
+        // …and the region the shell WANTS, which moves the instant the view
+        // does. The gap between the two is O25.
+        doc.region_for(acting),
         extent,
     );
     crate::diag::ui_rect(trace::REGION_PAGE, image_rect);

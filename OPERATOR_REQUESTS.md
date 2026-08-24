@@ -80,6 +80,88 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O25 — Panning far, or zooming out, leaves the new area blank
+
+**Asked:** 2026-08-23 — *"zoom is working amazing, and panning is fast, but if
+I pan to far to one side when I am beyond 800% zoom it doesn't always render
+the new exposed area, and the same thing happens usually when I zoom out."*
+
+**Status:** **FIXED 2026-08-23.** Driven, and the check fails on a build with
+the defect restored.
+
+### ★★★ One missing comparison, and it explains both halves
+
+Above the pixmap ceiling a raster covers the **visible region** rather than the
+page, so two textures of the same page at the same scale can be pictures of
+*different places*. `render::settle`'s staleness test asked two questions —
+has a **discrete input** changed (page, annotations, layers), and has the
+**scale** changed — and **the region was in the cache key without being in
+either**.
+
+So a pan that changed nothing but which part of the page is on screen was not
+stale by any measure it applied, and **no render was ever requested**. The
+picture he had kept being drawn correctly at its own region and simply slid
+off, leaving the newly exposed area blank for as long as he cared to look at
+it.
+
+★ The zoom-out half is the same fault by a different route. A zoom *does*
+change the scale, so a render is requested — but the request is built from
+whatever region was current when it spawned, and by the time it lands the
+gesture has moved on. Once the scale settles, nothing notices the region it
+arrived with is the wrong one. **"Usually"** in his sentence is the tell: it
+depends on whether the gesture outran the render.
+
+### Where the new term went, and why not with the discrete ones
+
+`stale_region` is grouped with the **scale**, on the same debounce. A region
+changes under a continuous gesture, and a render started on every frame of a
+drag would be cancelled by the next one — the worker is single-slot — so the
+operator would pan for a second and receive nothing at the end of it.
+
+★ It is already rate-limited in a way the scale is not:
+`render::strategy::region_for` snaps to a half-viewport grid, so a region
+changes at most once per half-screen of travel however smoothly the pointer
+moves. The debounce is the second limiter, not the only one — which is why the
+settle interval can stay tuned for zoom without making a pan feel slow.
+
+### ★★ The check could not see it, and the reason is worth more than the fix
+
+The first version of `panning_past_the_overscan_renders_the_new_area` watched
+`region=` — the region the pixels on screen are a picture of. On the defective
+build **that field never changes**: no render is requested, no new texture
+arrives, so the field describing the texture stands still. The check read *"the
+view did not move"* and reported **SKIP** against a binary with the defect
+deliberately restored.
+
+The trace now carries `want=` beside it — the region the shell wants next,
+which moves the instant the view does. **The gap between the two is the
+defect, and it takes two fields to measure a gap.** With `want=` the check
+fails on the defective build, naming the cause, and passes three runs of three
+on the fixed one.
+
+### What was measured
+
+| | |
+|---|---|
+| pan, 40 wheel notches at 4,155 % | wanted region moves; **2 renders complete**; canvas shows 45–46 distinct tones |
+| then zoom out, 6 Ctrl+wheel notches | wanted region moves; **1 render completes**; canvas shows 46 distinct tones |
+| the same, with `stale_region` removed | wanted region moves; **0 renders**; check FAILS naming `RenderKey::same_region` |
+
+★ The zoom-out half is asserted separately rather than assumed fixed by the
+pan case. They share a cause and they do not share a code path, and *"it is
+probably the same bug"* is how the second half of a two-part report gets
+shipped broken.
+
+### Why nothing else caught it
+
+`panning_at_deep_zoom_stays_where_it_was_put` asks whether the view **moves**
+and whether the pixels are **placed** correctly — both were perfect throughout.
+`the_page_still_renders_at_every_decade_of_zoom` photographs after a **zoom**,
+which changes the scale and therefore does request a render. **Nothing in the
+suite panned far enough to leave the overscan and then looked at the screen.**
+
+---
+
 ## O24i / O24j — Screenshots at maximum zoom, and the two defects they found
 
 **Asked:** 2026-08-22 — *"Can you confirm that rendering on screen is actually
