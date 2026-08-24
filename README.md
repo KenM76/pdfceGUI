@@ -32,12 +32,20 @@ The maximum is an **operator setting** — the status bar's percentage opens it
 — because how much performance to spend on magnification is not a decision
 this program should be making.
 
-★ There is a limit and it is worth stating plainly: it is not the zoom, it is
-the size of the smallest thing the *renderer* can resolve at a given place on
-the page. Path coordinates are `f32`, whose step near the middle of a letter
-sheet is about 11 nanometres. Content authored as a reusable form and placed
-by a matrix — which is how a drawing program emits repeated detail anyway —
-is not subject to it.
+★ **What is actually out of reach**, since the honest version of a claim like
+this needs a boundary: anything inside an atom. A carbon nucleus rendered
+200 pixels across would need about 7 × 10¹⁴ %, roughly 700× past the ceiling;
+a proton needs 4 × 10¹⁵ %. At the maximum zoom one screen point spans 35
+femtometres. **Atoms are comfortable — a benzene molecule drawn at true scale
+is legible on screen at 3.7 × 10¹⁰ % — and their contents are not.**
+
+⚠ **A retraction, kept rather than deleted.** This section shipped on
+2026-08-22 saying the limit was the renderer's own `f32` path precision — 11
+nanometres near the middle of a letter sheet — and stated it as a property of
+the design. It was a property of *that revision*: pdfce removed it the
+following day, and the same molecule that rendered as blank paper now draws
+its bonds. **A measured limit is a fact about a revision, not about a
+design**, and this project has now been wrong in that particular way once.
 
 **➡ New session? Read `RESUME.md` first** — measured state, what to do
 next, what not to do, on one screen. `HANDOFF.md` is the long-form record
