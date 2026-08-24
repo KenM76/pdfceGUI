@@ -5,6 +5,21 @@
 **Clean tree. 17/17 gates. 1,707 + 385 + 144 tests, 0 failing.** Re-measure
 before quoting; the commands are in `RESUME.md`.
 
+**Driven: 66 passed, 3 failed, 8 skipped** — the full suite, run against this
+tree on an unattended machine. Up from the last full run's 55 / 1 / 12, and
+**no failure is new**:
+
+| failing | why it is not a regression |
+|---|---|
+| `zooming_does_not_throw_away_where_the_operator_panned` | O27's residual: the `f32` scroll tier jitters 10–35 screen px per notch above ~130,000 %. Bounded, not accumulating, cause not established, filed |
+| `zooming_back_out_keeps_the_view` | the same residual, met on the way down |
+| `multi_node_move_moves_every_picked_anchor` | has never passed on any build — an unbuilt path, and the selection model under it is proven by two unit tests |
+
+★ The eight skips are fixture and environment, not capability: the `/Rotate`
+fixture clash, no OCR models in this build, a `--doc-point` that lands on no
+text and on no Bézier handle, and one run where a stray window owned the point
+a click was aimed at. Worth a sweep some day; none of it is this change.
+
 The operator, after O26 landed:
 
 > *"If I press the Fit width or fit page button the view should center to the
