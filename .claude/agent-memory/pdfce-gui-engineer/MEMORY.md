@@ -20,3 +20,4 @@
 - [Ken's sentences are reports, not measurements](feedback_kens_sentences_are_reports_not_measurements.md) — "up to 800%" named an old setting, not a threshold; measure the boundary he names.
 - [When a measurement runs out, read a better instrument](feedback_when_a_measurement_runs_out_read_a_better_instrument.md) — an extreme-end failure is usually the harness's resolution; never widen the tolerance.
 - [A measured limit belongs to a revision, not a design](feedback_a_measured_limit_belongs_to_a_revision_not_a_design.md) — date it and name the commit; the engine removed one a day after we shipped it as permanent.
+- ["And at other junctions too" is the load-bearing clause](feedback_a_symptom_at_one_zoom_is_rarely_one_bug.md) — one symptom hid seven causes; keep hunting after the first reproduces.
