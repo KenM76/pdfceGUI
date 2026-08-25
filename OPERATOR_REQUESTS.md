@@ -145,8 +145,14 @@ front ends. Filing five requests would misdescribe it.
 
 ### Still to do
 
-- **Step 2** — the engine hand-off for *restyle an existing text run*, written
-  as one request rather than five. Not yet filed.
+- ✅ **Step 2 done** — the engine hand-off is filed as
+  `request_restyle_an_existing_text_run.md`, deliberately as ONE request. It
+  asks the two questions only the engine can answer: whether a restyle is
+  representable for an arbitrary run at all (swapping Helvetica for
+  Helvetica-Bold changes every advance width, so the run reflows or overruns),
+  and whether the honest scope is narrower — restyling only text pdfce itself
+  authored, where the metrics are already known. If it is narrower, we would
+  rather disclose a narrow capability than ship a wide-looking one.
 - **Step 3** — the IA amendment. pdfce's text lives under Edit ▸ Content and the
   contextual **Format** tab; there is no Home tab, and the Format tab is the
   natural home for anything acting on a selection.
