@@ -1144,3 +1144,109 @@ fn two_ribbons_can_coexist_with_distinct_id_salts() {
         "and the same salt must be stable across constructions"
     );
 }
+
+/// ★★★ **Pressing the right arrow scrolls the band, and the LEFT arrow then
+/// appears** — the round trip, driven.
+///
+/// Written 2026-08-25, within the hour of S4 shipping, because the left arrow
+/// had been **built and never observed**. Every other part of the scroll was
+/// measured offscreen against the running application: the right arrow appears
+/// at 1000 pt and not at 1200, the ladder compacts in the right order, the band
+/// keeps its height. The left arrow only exists once something has scrolled,
+/// nothing had scrolled, and so the one control on that surface with no
+/// evidence behind it went out in a release.
+///
+/// *A check that cannot fail is not evidence*, and neither is a control that
+/// has never been seen to draw. This is the falsification: press the right
+/// arrow, and assert the band moved AND that the way back is on screen.
+///
+/// The second assertion is the one that matters. A scroll that advances with no
+/// way back is not a scrolled band, it is a **trapped** one — every group left
+/// of the fold unreachable for the life of the session, with the ribbon looking
+/// entirely normal.
+#[test]
+fn scrolling_right_moves_the_band_and_offers_the_way_back() {
+    let ctx = egui::Context::default();
+    // ★★ A REAL FONT, pinned. Without it this test passed under
+    // `cargo test -p egui-shell` and failed under `cargo test --workspace`,
+    // because feature unification with `pdfce-gui` changes the ambient font and
+    // therefore every measured width — at which point the fixture's 180 pt was
+    // too narrow to draw any group at all. A layout test whose verdict depends
+    // on which crates happen to be in the build is not a layout test.
+    // `width_tests` has installed this font for exactly this reason since it
+    // was written; this one had to learn it.
+    super::testfont::install(&ctx);
+    let shell = shell();
+    let registry = registry();
+    let mut state = RibbonState::new();
+    state.set_active_tab("view");
+
+    // Narrow enough that the View tab's three groups cannot all fit, so the
+    // right arrow is drawn and there is somewhere to scroll to.
+    let narrow = 180.0;
+
+    let mut rects: Vec<(String, Rect)> = Vec::new();
+    {
+        let mut sink = |name: &str, rect: Rect| rects.push((name.to_owned(), rect));
+        frame(&ctx, narrow, |ui| {
+            let _ = Ribbon::new()
+                .reporting_rects_to(&mut sink)
+                .render(ui, &shell, &registry, &mut state);
+        });
+    }
+
+    let right = rects
+        .iter()
+        .find(|(n, _)| n == report::overflow())
+        .map(|(_, r)| *r)
+        .expect("at this width the band overflows, so the right arrow must be drawn");
+    assert!(
+        !rects.iter().any(|(n, _)| n == "ribbon.scroll.left"),
+        "nothing has scrolled yet, so there is no way back to offer — and R9 says an inapplicable control renders NOTHING rather than greyed"
+    );
+
+    // Press it.
+    let at = right.center();
+    let mut input = egui::RawInput::default();
+    input.events.extend([
+        egui::Event::PointerMoved(at),
+        egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+        egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]);
+    frame_with_input(&ctx, narrow, input, &mut |ui| {
+        let _ = Ribbon::new().render(ui, &shell, &registry, &mut state);
+    });
+
+    // And look again.
+    let mut after: Vec<(String, Rect)> = Vec::new();
+    {
+        let mut sink = |name: &str, rect: Rect| after.push((name.to_owned(), rect));
+        frame(&ctx, narrow, |ui| {
+            let _ = Ribbon::new()
+                .reporting_rects_to(&mut sink)
+                .render(ui, &shell, &registry, &mut state);
+        });
+    }
+
+    // ★ The band having MOVED is not asserted separately, and does not need to
+    // be: `ribbon.scroll.left` is drawn under exactly one condition, `scrolled
+    // > 0`. Its presence IS the proof that the click advanced the band. The
+    // first draft compared the leading group's name before and after, which
+    // needed a group rect to exist and made the test depend on the fixture
+    // being wide enough to draw one — a dependency that broke it under
+    // workspace feature unification and proved nothing the line below does not.
+    assert!(
+        after.iter().any(|(n, _)| n == "ribbon.scroll.left"),
+        "once the band has scrolled, the way back MUST be on screen. Without it the ribbon is not scrolled, it is trapped: every group left of the fold is unreachable for the rest of the session and the band looks entirely normal while it happens"
+    );
+}
