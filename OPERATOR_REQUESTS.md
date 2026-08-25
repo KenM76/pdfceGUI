@@ -80,6 +80,72 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O34 — The print dialog grows for ever after printing
+
+**Asked:** 2026-08-25. **Shipped:** 2026-08-25, commit `deb9853`.
+
+> *"the print dialogue has a bug that when I press print, instead of closing
+> after printing it just keeps expanding its size in little steps to infinity."*
+
+It did. The footer drew its buttons first and the *"Sent N pages"* message
+after — and the button pair uses a right-to-left layout, which anchors to the
+right edge of whatever width it is offered whether it needs the room or not.
+Anything placed after it lands past that edge. The dialog host then grows a
+window whose content is wider than it is, the wider window offers a wider row,
+the message lands past the new edge, and round it goes.
+
+**Measured:** in a 400 pt row the old ordering produced 481.9 pt and the fixed
+ordering produces exactly 400.0. That 81.9 pt was the step, once per frame, for
+as long as the dialog stayed open.
+
+The message now draws first — status left, actions right, which is the Windows
+arrangement anyway. Separately, the dialog host gained a **growth budget**: any
+dialog that asks to grow more than three times stops and records why. Two
+existing guards were satisfied throughout this bug and neither helped, because
+a guard against *repetition* cannot see monotonic creep — creep never repeats.
+
+**Verified:** four unit tests including one that reproduces the overflow in a
+real laid-out frame and fails on the old ordering. **NOT driven** — reproducing
+it end-to-end would mean sending a job to your printer.
+
+## O33 — Does the ribbon get the scroll arrow, and do groups re-wrap?
+
+**Asked:** 2026-08-25. **Partly shipped** 2026-08-25, commit `10877a1`.
+**One decision open — yours.**
+
+Two questions, and they have different answers.
+
+**"Will it wrap tools in their sections onto second lines when the window is
+resized?"** They already wrap onto a second row, but by the *group's own
+content width*, not by the window — and **Word does not re-wrap on resize
+either**. Its Font group keeps the same two rows at 1900 pt and at 1300 pt.
+What Word does instead is collapse whole groups, and that is what shipped
+today: at 1600 one group collapses, at 1100 four do.
+
+**"Does this include replacing the ⏷ N more dropdown with an arrow that shifts
+the ribbon horizontally?"** That is S4 and it is *not* built. It is still the
+plan and Word does exactly it — a `›` at the band's right edge, which appears
+at 460 pt and not before. But the collapse ladder changed the argument, and the
+number is the reason this row exists:
+
+| window width | `⏷ N more` before today | after |
+|---:|---|---|
+| 1600 | yes | **no** |
+| 1200 | yes | **no** |
+| 1100 | yes | **no** |
+| 1050 | yes | yes |
+
+**The dropdown used to appear at 1600 and every width below. It now appears
+only below about 1100.** So S4 would replace an affordance you will rarely see
+— and it would replace it with something *less* informative, because a menu
+names what is hidden and an arrow makes you hunt for it. Against that: the
+arrow is the convention, you have asked for it twice, and a band you can scroll
+never hides a group's caption.
+
+**What I need from you:** say the word and the arrow replaces the dropdown. It
+touches six tests and one driven check, so I would rather do it in a session
+where I can drive the running application to prove it, which needs the machine.
+
 ## O32 — The commands whose tab was decided by mode exposure, not by subject
 
 **Asked:** 2026-08-25 —
