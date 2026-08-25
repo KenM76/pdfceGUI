@@ -48,6 +48,27 @@ every control was icon-plus-label and a group could only vanish, not shrink.
 right about that case. Driving Word showed the argument is about the
 **command**, not the band.
 
+### ✅ Re-verified against engine `6a73c03`: 66 passed, 3 failed, 8 skipped
+
+The packager pulled a newer engine while publishing, and it was **not** a
+version-only bump this time — Pass 122.5 changes rendering. So the suite was
+re-run against it. **66 / 3 / 8, and the three failures are the standing ones**
+(two are O27's residual, `multi_node_move` has never passed). Nothing the
+engine changed shows here.
+
+★ It was run in **ten foreground slices of eight checks**, not as one
+background command: a background run of the whole suite was **killed twice**,
+each time leaving nothing but its header. Slicing also means a kill costs one
+slice rather than the run, and each slice's output is kept beside the whole in
+`evidence/slice-0*.txt`.
+
+★★ And it destroyed the previous result the first time, because `>` truncates
+on open — the committed `evidence/ui-verify-run.txt` was overwritten by a
+three-line header before the first check ran. Recovered with `git checkout`,
+which worked **only because evidence is tracked**. Filed to
+`D:/dev/rag/egui/`: write a long run to a new per-revision path and copy it
+into place on completion.
+
 ### ★★★ The suite caught a defect the sizes introduced, in the one place unit tests could not reach
 
 **Driven: 65 passed, 4 failed, 8 skipped.** Three failures are the standing
