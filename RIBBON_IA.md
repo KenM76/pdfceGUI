@@ -229,10 +229,24 @@ mark. `⌄` means the control is a split button or dropdown.
 | | Keyboard shortcuts | **G** |
 | | About | **N** |
 
-**Moved off this tab:** `Copy this page's text` and `Copy the whole
+~~**Moved off this tab:** `Copy this page's text` and `Copy the whole
 document's text` go to **Edit ▸ Clipboard** — they are content
-operations, not file operations. `Reset layout…` goes to **View ▸
+operations, not file operations.~~ `Reset layout…` goes to **View ▸
 Window** — it resets panel geometry, which is a view concern.
+
+★ **REVERSED by operator decision, 2026-08-14, and corrected here on
+2026-08-25.** The two text-copy commands are `file.copy_page_text` and
+`file.copy_document_text`, on **File ▸ Export**, and have been since that
+date. This paragraph went on saying otherwise for eleven days, which is the
+defect: a settled document that disagrees with the build is worse than an
+unsettled one, because it is read as authority.
+
+What the sentence above got wrong is that *a content operation is not
+necessarily an **authoring** operation*. Copying reads the page and writes to
+the clipboard; it cannot change a byte. What made the difference visible was
+the chord/mode gate refusing `Ctrl+Shift+C` in Read — a mode whose whole
+standard is Acrobat Reader, which copies text. It is the same rule §5.7 states,
+and this is the second of its three instances.
 
 **Why Fonts moves here from View:** the Fonts panel answers "what is
 inside this file", not "what is on my screen". It sits with Properties
@@ -363,8 +377,8 @@ discoverable path, and the rail becomes the fast path.
 | | Group / Ungroup | **N** |
 | | Flip horizontal / vertical | **N** |
 | **Clipboard** | Cut · Copy · Paste · Paste in place | **N** *(object clipboard)* |
-| | Copy page text · Copy document text | **G** *(from File)* |
-| **Forms** | Fill form | **G** |
+| | ~~Copy page text · Copy document text~~ | ★ **NOT HERE — `file.copy_*`, on File ▸ Export.** Operator decision 2026-08-14; see §5.1. *Copying is not authoring* |
+| **Forms** | ~~Fill form~~ | ★ **NOT HERE — `view.panel_forms`, on View ▸ Panels.** Operator decision 2026-08-14: Read fills forms, as Acrobat Reader does, and Read is shown File and View alone. It also stopped being a verb and became a **panel toggle**, which is why it sits with the other panel toggles rather than in a group of its own. *Filling is not authoring* — Edit ▸ Forms keeps create, manage and flatten |
 | | Create field ⌄ | **G** |
 | | Manage fields | **G** |
 | | Flatten | **G** *(in Forms pane)* |
@@ -594,7 +608,7 @@ is dropped.
 |---|---|
 | QAT: Open, Save a copy, Undo, Redo | QAT *(unchanged)* + File ▸ File/Save |
 | File ▸ Document ▸ Properties | File ▸ Document |
-| File ▸ Clipboard ▸ Copy page/document text | **Edit ▸ Clipboard** |
+| File ▸ Clipboard ▸ Copy page/document text | **File ▸ Export** — *corrected 2026-08-25; this row said Edit ▸ Clipboard, which has not been true since 2026-08-14. See §5.1* |
 | File ▸ Export ▸ Export DXF | File ▸ Export |
 | File ▸ Print ▸ Print | File ▸ Print |
 | File ▸ Layout ▸ Reset layout | **View ▸ Window** |
@@ -603,7 +617,7 @@ is dropped.
 | Edit ▸ Pages ▸ Rotate left/right | **Pages ▸ Transform** |
 | Edit ▸ ContentTools ▸ Editing on | Edit ▸ Mode |
 | Edit ▸ ContentTools ▸ Aa / I⁺ Aa / Obj | Edit ▸ Content *(relabelled)* |
-| Edit ▸ Forms ▸ Fill Form | Edit ▸ Forms |
+| Edit ▸ Forms ▸ Fill Form | **View ▸ Panels** — *corrected 2026-08-25; see §5.4* |
 | Edit ▸ BuildForm ▸ Create Field | Edit ▸ Forms |
 | Review ▸ Markup ▸ Rectangle/Ellipse/Arrow line/Highlight band + Colour | **Markup ▸ Shapes / Text markup / Style** |
 | Review ▸ Comments ▸ Comments | Markup ▸ Comments |

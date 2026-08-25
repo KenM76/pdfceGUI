@@ -80,6 +80,100 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O32 — The commands whose tab was decided by mode exposure, not by subject
+
+**Asked:** 2026-08-25 —
+
+> *"the current commands for each are fine as is for now. there were just some
+> commands you made a decision to put in a different tab than where they would
+> normally go because exposure was tab based and not command based."*
+
+**Status:** **FOUND AND LISTED. The operator's decision, per command — nothing
+moved.** The mechanism that forced them is gone; whether each *should* move is
+a `RIBBON_IA.md` question and the IA is his.
+
+### The mechanism, and exactly what changed about it
+
+A mode names **tabs**: Read is `["file", "view"]`. So a command on a tab Read
+does not show is not merely inconvenient there, it is **unreachable** — no tab,
+no band, no control, and `modes::capability::offers_command` refuses its chord
+too. Four commands were therefore homed on File or View instead of where their
+subject says they belong, and the codebase names the pattern and calls it a
+rule:
+
+> *"a command refused in a mode where the operator plainly needs it is evidence
+> that the command's tab is wrong, not that the mode gate needs an exception."*
+> — `RIBBON_IA.md` §5.7
+
+★★★ **What changed, precisely:** `visible_when` (O31) hides an **item**. It
+cannot make a **tab** appear. So on its own it does not undo any of these. What
+undoes them is the pair — `visible_when` plus *a tab with nothing left to show
+is not shown* — which together turn `Mode::tabs` from *"which tabs exist here"*
+into *"which tabs may appear here"*. A mode can now be given a tab generously
+and shown only the part of it that applies.
+
+So the move is buildable now. It was not before, and the cost is no longer
+"Read gains batch merge, split and font embedding" — those would simply be
+hidden.
+
+### The four, and what each would cost to move back
+
+| command | where its subject says | why it is where it is | moving it back would |
+|---|---|---|---|
+| **`file.ocr`** | Tools ▸ Recognise (`RIBBON_IA.md` §5.7) | operator: *"if in read mode ocr should still be available"* | give **Read a Tools tab** showing one command |
+| **`file.copy_page_text`**, **`file.copy_document_text`** | Edit ▸ Clipboard (§5.1, §5.4, §7) | `Ctrl+Shift+C` was refused in Read, *"a mode whose whole standard is Acrobat Reader, which copies text"* | give **Read an Edit tab** showing two commands |
+| **`view.panel_forms`** (was `edit.form_fill`) | Edit ▸ Forms | operator: Read fills forms, because Acrobat Reader does | needs the command **re-invented**: it stopped being a verb and became a *panel toggle*, and panels live on View |
+| **`view.tool_text`** | — | placed on View ▸ Navigate **pre-emptively**, to avoid being the fourth instance | nothing: it is a pointer tool beside select, node and hand, which is a coherent group on its own terms |
+
+### ★ The recommendation, per command — and it is not "move them all"
+
+Because on inspection **each landed somewhere defensible**, and two of them are
+now better placed than the specification's original:
+
+* **`file.ocr` — leave, and amend the spec.** File ▸ Recognise sits beside the
+  verbs that make a document exist and write one out, and OCR's product is a
+  new file. Tools answers *"what do I run **across files**, or configure
+  once?"* — and OCR runs on **this** file. The spec's Tools placement is the
+  weaker of the two, and it was written before the tab questions were.
+* **`file.copy_*` — leave.** *Copying is not authoring*: it reads the page and
+  writes to the clipboard, and cannot change a byte. File ▸ Export groups it
+  with the other verbs whose destination is outside the document. ★★ And the
+  alternative is worse than it sounds: a mode called **Read** showing a tab
+  called **Edit** contradicts the stance the mode exists to state, even if the
+  tab holds nothing but Copy.
+* **`view.panel_forms` — leave.** Not a tab move to undo. It is a panel
+  toggle, and every panel toggle is on View ▸ Panels.
+* **`view.tool_text` — leave.** A pointer tool, in the group of pointer tools.
+  `edit.text` (change text that is already there) is a different verb and is
+  correctly on Edit.
+
+### ★★★ What is genuinely wrong and should be fixed either way
+
+**`RIBBON_IA.md` is internally inconsistent.** It records the OCR move in §5.7
+and names the rule — and §5.1, §5.4 and §7 were never updated for the two
+earlier ones. The spec still says today:
+
+> §5.1: *"**Moved off this tab:** `Copy this page's text` and `Copy the whole
+> document's text` go to **Edit ▸ Clipboard**"*
+> §5.4: `| | Copy page text · Copy document text | **G** *(from File)* |`
+> §5.4: `| **Forms** | Fill form | **G** |`
+> §7: `| Edit ▸ Forms ▸ Fill Form | Edit ▸ Forms |`
+
+Three sections route commands to a tab they have not been on since 2026-08-14.
+Whatever is decided about moving them, the specification should say where they
+**are** — a settled document that disagrees with the build is worse than an
+unsettled one, because it is read as authority.
+
+### One inverse case, for completeness
+
+`markup.underline`, `markup.strikeout`, `markup.squiggly` are the **opposite**
+problem and are already recorded as an accepted inversion: they are on their
+natural tab and were permanently greyed in Edit, *"not fixable by hiding them,
+because the Markup tab is in both Review and Edit and a command has one tab"*.
+★ That is now fixable — `visible_when` is exactly the missing mechanism — but
+the tension closed on its own when `CanvasTool::Text` landed, so there is
+nothing left to fix.
+
 ## O31 — Improve the ribbon: learn from Word
 
 **Asked:** 2026-08-24 —
