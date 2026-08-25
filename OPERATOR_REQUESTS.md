@@ -87,18 +87,73 @@ Two observations that are mine to act on, not his to have to make again:
 > *"We should also have all the font tools available that Word does."*
 
 Deliberately not started alongside the scaling work, because it is a
-**capability** question and not a layout one. The order it needs:
+**capability** question and not a layout one.
 
-1. inventory Word's Home ▸ Font group against what `pdfce-core`'s text editing
-   can actually do;
-2. anything the engine cannot do becomes a hand-off, **not a greyed button** —
-   R9 forbids placeholders;
-3. an IA amendment, since pdfce's text lives under Edit ▸ Content and the
-   contextual Format tab, not a Home tab.
+### ✅ Step 1 done — the inventory, read out of the engine source
 
-★ The target is the capability list, not the pixel layout. *"Everything Word
-lets me do to text, pdfce lets me do to text"* — not a copy of Word's two
-combos and fourteen buttons onto a different selection model.
+★★★ **The headline, and it decides the whole shape of this request: pdfce can
+choose how text looks when it is CREATED, and cannot change how existing text
+looks at all.** `EditSession`'s text verbs are `add_text`, `edit_text` and
+`delete_text_run` — and `edit_text` is find-and-replace that **re-encodes into
+the run's existing font**. There is no restyle verb. (`set_font` exists, but it
+is a low-level content-stream writer, not a session verb.)
+
+| Word ▸ Home ▸ Font | on NEW text | on EXISTING text |
+|---|---|---|
+| Font name | ✅ 14 built-in faces, or embed any donor font | ❌ |
+| Font size | ✅ | ❌ |
+| Grow / shrink font | ✅ (arithmetic on the above) | ❌ |
+| **Bold** | ✅ — as a *face*: Helvetica-Bold, Times-Bold, Courier-Bold | ❌ |
+| *Italic* | ✅ — likewise: Oblique / Italic faces | ❌ |
+| Bold + italic together | ✅ — the four combined faces exist | ❌ |
+| Font colour | ✅ | ❌ |
+| Alignment (L/C/R/Justified) | ✅ per text block | ❌ |
+| Line spacing | ✅ (leading) | ❌ |
+| **Change case** | ✅ | ★ **✅ — and this one is free** |
+| Underline | ❌ as a text attribute | ✅ **as an annotation**, already shipped |
+| Strikethrough | ❌ as a text attribute | ✅ **as an annotation**, already shipped |
+| Highlight colour | ❌ as a text attribute | ✅ **as an annotation**, already shipped |
+| Superscript / subscript | ❌ | ❌ |
+| Character spacing / kerning | ❌ | ❌ |
+| Text effects (shadow, outline, glow) | ❌ | ❌ |
+| Clear formatting | ❌ | ❌ |
+
+### Three findings worth acting on separately
+
+**1. Change case is shippable today, with no engine work.** It is a string
+transform followed by `edit_text` — and `edit_text` re-encoding into the run's
+*existing* font, which is a limitation everywhere else on this table, is
+exactly what makes case changing work: the glyphs stay in the same face. UPPER,
+lower and Sentence case are the three worth having. This is real Word parity
+for one afternoon.
+
+**2. Three of Word's buttons already exist here, as something else.**
+Underline, strikethrough and highlight are **annotations** in pdfce
+(`markup.underline`, `markup.strikeout`, `markup.highlight`) rather than
+character attributes. ★ That is not a lesser answer for a review tool — it is
+arguably the right one, since an annotation is reviewable, attributable and
+removable without touching the page content. But it means *"we should have all
+the font tools Word does"* is already **half true in a way the Font group would
+hide**: putting an Underline button in a Format tab that authored a text
+attribute would create a second, incompatible underline. **Recommend: do not
+add these.** They are on the Markup tab, where they belong.
+
+**3. The real gap is one capability, not fourteen buttons.** Everything marked
+❌-on-existing-text is the same missing verb: *restyle a selected run*. Bold,
+italic, size, face and colour on existing text are one engine feature with five
+front ends. Filing five requests would misdescribe it.
+
+### Still to do
+
+- **Step 2** — the engine hand-off for *restyle an existing text run*, written
+  as one request rather than five. Not yet filed.
+- **Step 3** — the IA amendment. pdfce's text lives under Edit ▸ Content and the
+  contextual **Format** tab; there is no Home tab, and the Format tab is the
+  natural home for anything acting on a selection.
+
+★ The target remains the capability list, not the pixel layout: *"everything
+Word lets me do to text, pdfce lets me do to text"* — not a copy of two combos
+and fourteen buttons onto a different selection model.
 
 ## O36 — Sections re-wrap onto more rows, and the scroll arrow is authorised
 
