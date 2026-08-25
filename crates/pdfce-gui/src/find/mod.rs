@@ -397,6 +397,30 @@ pub struct Results {
     epoch: u64,
     /// Every hit, in document order — page, then position on the page.
     hits: Vec<Hit>,
+    /// **How many fonts in this document carry text no search could reach.**
+    ///
+    /// Type 3 fonts and `Identity-H` fonts with no `/ToUnicode` CMap, summed,
+    /// from `pdfce-core`'s `TextDiagnostics` via `search_text`.
+    ///
+    /// ★★★ Why a Find bar needs this at all. A zero-result search has **two**
+    /// causes that produce an identical empty result: the word is not in the
+    /// document, or *the document's text was never recoverable as Unicode, so
+    /// no word could ever have matched it*. The second is not exotic and it
+    /// does not look broken — the text **renders perfectly**, which is exactly
+    /// what makes it invisible. Answering that with a bare "0 results" is, in
+    /// the engine's own phrase, lying by omission.
+    ///
+    /// ★ Acrobat has the identical limit — its extract/search/copy pipeline for
+    /// Type 3 is gated on the same `/ToUnicode` entry — and answers it by
+    /// giving up silently. Rule 4 forbids that here: an inference the operator
+    /// **cannot see** still owes them an off-canvas report. This is the "still
+    /// owes a report" half of the rule, which is the half that gets forgotten.
+    ///
+    /// Document-wide rather than filtered to the pages that matched, because
+    /// `search_text` returns it that way and deliberately so: a font that
+    /// swallowed the needle on page 40 is precisely the one a caller with zero
+    /// hits needs to hear about.
+    unsearchable_fonts: u64,
     /// Which hit the view is on, as an index into [`Self::hits`].
     ///
     /// Meaningless, and never read, when `hits` is empty.
@@ -592,6 +616,25 @@ impl FindState {
     /// *"Document changed"* rather than *"No matches"* — the second would be
     /// a claim about the current revision that the search never made.
     #[must_use]
+    /// **How many fonts made this document partly unsearchable**, for the
+    /// query the bar currently holds — or `0` when there is nothing to say.
+    ///
+    /// Returns `0` unless the last search is the one the bar is showing, so a
+    /// stale or edited-away result cannot leave a sentence on screen about a
+    /// query the operator has moved on from. Same staleness rules as
+    /// [`Self::readout`], deliberately: two surfaces describing one search must
+    /// not disagree about which search it is.
+    pub fn unsearchable_fonts(&self, epoch: u64) -> u64 {
+        let Some(results) = &self.results else {
+            return 0;
+        };
+        if results.query != self.query || results.options != self.options || results.epoch != epoch
+        {
+            return 0;
+        }
+        results.unsearchable_fonts
+    }
+
     pub fn readout(&self, epoch: u64) -> Readout {
         let Some(results) = &self.results else {
             return Readout::Idle;
@@ -765,10 +808,21 @@ fn search(state: &mut FindState, doc: &mut OpenDoc) {
 
     let options = state.options;
     let started = Instant::now();
-    // ★ `find_text_with`, NEVER `find_text`. See this module's trap section:
+    // ★ `search_text`, NEVER `find_text`. See this module's trap section:
     // `find_text` passes `with_wildcards(true)`, and a Find bar built on it
     // matches every character on the page when the operator types `?`.
-    let matches = session.find_text_with(&query, &options.to_core());
+    //
+    // ★★ `search_text` rather than `find_text_with` since `pdfce-core` v0.11.0.
+    // It runs the IDENTICAL scan and returns the IDENTICAL hits —
+    // `find_text_with` now delegates to it — and additionally hands back the
+    // extraction diagnostics that say whether a zero-result answer can be
+    // trusted. See `Results::unsearchable_fonts`. There is no behavioural
+    // difference in the matching and no new failure mode; the only cost is
+    // holding a `TextDiagnostics` that was previously computed and discarded.
+    let found = session.search_text(&query, &options.to_core());
+    let unsearchable_fonts = found.diagnostics.type3_fonts_without_to_unicode
+        + found.diagnostics.identity_fonts_without_to_unicode;
+    let matches = found.matches;
     let elapsed = started.elapsed();
 
     let hits: Vec<Hit> = matches
@@ -788,6 +842,7 @@ fn search(state: &mut FindState, doc: &mut OpenDoc) {
     state.results = Some(Results {
         query: query.clone(),
         options,
+        unsearchable_fonts,
         epoch: doc.edit_epoch,
         hits,
         current: 0,
@@ -907,6 +962,7 @@ mod tests {
         FindState {
             query: query.to_owned(),
             results: Some(Results {
+                unsearchable_fonts: 0,
                 query: query.to_owned(),
                 options: FindOptions::default(),
                 epoch: 0,

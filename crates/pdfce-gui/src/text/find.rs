@@ -394,3 +394,35 @@ pub fn word_rule_non_space_or_dash_tooltip() -> &'static str {
     "As \"Split at spaces only\", and hyphens and em dashes end a word too: \"A-12/B\" splits at \
      the hyphen but not at the slash, and `well-known` contains `well` and `known`."
 }
+
+/// What a zero-result search says when part of the document could never have
+/// matched.
+///
+/// ★ Worded as a fact about the DOCUMENT, not about the search and not about
+/// pdfce. "No matches" is still the answer to what they asked; the second
+/// clause tells them why the answer may be incomplete. It deliberately does not
+/// say "pdfce cannot read" — Acrobat cannot read it either, the file simply
+/// does not carry the mapping, and phrasing a file's own gap as a tool
+/// limitation invites an operator to go looking for a better tool.
+///
+/// Singular and plural are separate strings rather than "font(s)", because a
+/// parenthesised plural in a sentence an operator reads under pressure is how
+/// software sounds when nobody cared.
+#[must_use]
+pub fn unsearchable_one() -> &'static str {
+    "No matches. One font in this document stores text that cannot be searched, so there may be more."
+}
+
+/// See [`unsearchable_one`].
+#[must_use]
+pub fn unsearchable_many(n: u64) -> String {
+    format!(
+        "No matches. {n} fonts in this document store text that cannot be searched, so there may be more."
+    )
+}
+
+/// The hover explanation behind the sentence above.
+#[must_use]
+pub fn unsearchable_tooltip() -> &'static str {
+    "Some PDFs store text as drawings with no record of which letters they are. It renders correctly and can be printed, but nothing can search or copy it. Recognising the page adds a searchable layer."
+}

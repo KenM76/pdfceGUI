@@ -321,6 +321,23 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState, status: &Status, actions: 
     // dropped (2) would offer to OCR a text PDF every time somebody mistyped a
     // part number.
     let offer_ocr = offer_ocr(state.readout(epoch), || doc.page_has_extractable_text());
+    // ★★★ THE OTHER REASON A SEARCH FINDS NOTHING.
+    //
+    // `pdfce-core` v0.11.0's note, in its own words: *"a zero-result search is
+    // not proof the word is absent"*. Two situations produce an identical empty
+    // result — the needle is not there, or the document's text was never
+    // recoverable as Unicode so no needle could have matched. The second does
+    // not look broken, because the text **renders perfectly**.
+    //
+    // Drawn only on an EMPTY readout: a search that found things has already
+    // answered the operator's question, and a caveat under a successful result
+    // is the nagging the operator objected to. See `find::Results::
+    // unsearchable_fonts` for why this is owed at all under rule 4.
+    let unsearchable = if matches!(state.readout(epoch), Readout::Empty) {
+        state.unsearchable_fonts(epoch)
+    } else {
+        0
+    };
 
     let response = area
         .show(&ctx, |ui| {
@@ -331,6 +348,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState, status: &Status, actions: 
             // prevent.
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 body(ui, state, epoch, actions);
+                if unsearchable > 0 {
+                    unsearchable_note(ui, unsearchable);
+                }
                 if offer_ocr {
                     ocr_offer(ui, actions);
                 }
@@ -1182,7 +1202,7 @@ mod tests {
     /// module may do. The alternative — a constructor on `FindState` that only
     /// tests call — would be a second way to assemble a result set, and the
     /// currency key is exactly the thing that must have one.
-    fn searched(query: &str, hits: usize) -> FindState {
+    pub(super) fn searched(query: &str, hits: usize) -> FindState {
         let mut state = FindState::default();
         state.open();
         state.query_mut().push_str(query);
@@ -1198,6 +1218,7 @@ mod tests {
                 })
                 .collect(),
             current: 0,
+            unsearchable_fonts: 0,
         });
         state
     }
@@ -1317,5 +1338,137 @@ mod tests {
         state.open();
         state.close();
         assert!(!state.is_open());
+    }
+}
+
+/// **Say that part of this document could never have matched.**
+///
+/// # ★★★ Off-canvas, and that is the whole design
+///
+/// Rule 4 as narrowed by pdfce's decision 059: an inference the operator cannot
+/// see still owes them a report, **and the report does not go on the page.** No
+/// badge over the offending run, no tint, no dashed outline, nothing drawn into
+/// the page view at all. Applied content renders exactly as saved content
+/// renders; the disclosure lives in a status line, a results panel, or — here —
+/// the bar's own second row, which already exists for the OCR offer.
+///
+/// That is not fastidiousness. A provisional styling layer is a **second
+/// rendering path for the same content**, and two paths drift. The operator's
+/// own words on the old shell: *"the nagging and red flagging made for a lot of
+/// extra bugs in the visibility when editing."*
+///
+/// # Why it sits beside the OCR offer rather than replacing it
+///
+/// They answer different questions and can be true at once. The OCR offer fires
+/// when **this page** has no extractable text at all — a scan. This fires when
+/// the **document** contains a font whose text is unreachable, which is
+/// perfectly compatible with the current page being ordinary searchable text.
+/// A file with a Type 3 titleblock on page 1 and normal text everywhere else
+/// produces this note and no OCR offer, which is exactly right.
+fn unsearchable_note(ui: &mut egui::Ui, fonts: u64) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(BAR_WIDTH_PTS, ROW_HEIGHT_PTS),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.set_min_size(Vec2::new(BAR_WIDTH_PTS, ROW_HEIGHT_PTS));
+            // Muted, for the reason `ocr_offer` gives: a statement about the
+            // document, not a control. Not `.strong()` — `DEFECTS.md` D11
+            // records that role as unusable in this theme.
+            let theme = egui_shell::theme::Theme::of(ui.ctx());
+            let text = if fonts == 1 {
+                crate::text::find::unsearchable_one().to_owned()
+            } else {
+                crate::text::find::unsearchable_many(fonts)
+            };
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).color(theme.palette.text_muted))
+                    .truncate(),
+            )
+            .on_hover_text(crate::text::find::unsearchable_tooltip());
+        },
+    );
+}
+
+/// ★★★ The unsearchable note answers a DIFFERENT question from the OCR offer,
+/// and both can be true at once.
+///
+/// Written when the note landed, because the two are drawn in the same row and
+/// the obvious mistake is to make one an `else` of the other. They are not
+/// alternatives:
+///
+/// | | OCR offer | unsearchable note |
+/// |---|---|---|
+/// | scope | **this page** | the **whole document** |
+/// | fires when | the page has no extractable text at all — a scan | some font's text is unreachable, anywhere |
+///
+/// A drawing with a Type 3 titleblock on page 1 and ordinary text everywhere
+/// else produces the note and **no** OCR offer, and that is correct: the page
+/// in front of the operator is searchable, and the document still contains
+/// something no search will ever reach.
+#[cfg(test)]
+mod unsearchable_tests {
+    use super::tests::searched;
+    use super::*;
+
+    /// **Nothing is said when nothing is wrong.** The guard that keeps this
+    /// from becoming the nagging the operator objected to in the old shell.
+    #[test]
+    fn a_document_with_no_unreachable_fonts_says_nothing() {
+        let state = crate::find::FindState::default();
+        assert_eq!(
+            state.unsearchable_fonts(0),
+            0,
+            "a bar that has run no search has nothing to disclose"
+        );
+    }
+
+    /// **The two disclosures are independent**, asserted as a truth table so
+    /// that anyone rewriting the row as an if/else has to delete a case.
+    #[test]
+    fn the_ocr_offer_and_the_note_are_not_alternatives() {
+        // OCR offer depends only on the readout and whether the PAGE has text.
+        assert!(
+            offer_ocr(Readout::Empty, || false),
+            "an empty result on a page with no text is the OCR case"
+        );
+        assert!(
+            !offer_ocr(Readout::Empty, || true),
+            "an empty result on a page WITH text is not the OCR case — and it is exactly the case the unsearchable note exists for"
+        );
+        // …and the note depends on neither of those, only on the document's
+        // font diagnostics. The combination in the second assertion above is
+        // the one a file with a Type 3 titleblock produces.
+    }
+
+    /// ★★ **A sentence about one search cannot outlive that search.**
+    ///
+    /// Three ways a result stops describing what the bar is showing, and all
+    /// three must silence the note: the operator edits the query, the operator
+    /// changes an option, or the DOCUMENT is edited (a new epoch). The last is
+    /// the one worth having a test for — an edit does not touch the query, so a
+    /// naive implementation keeps a stale sentence on screen indefinitely while
+    /// the bar beside it has already gone blank.
+    #[test]
+    fn a_result_that_no_longer_describes_the_bar_discloses_nothing() {
+        let mut state = searched("alpha", 0);
+        if let Some(r) = state.results.as_mut() {
+            r.unsearchable_fonts = 2;
+        }
+        assert_eq!(
+            state.unsearchable_fonts(0),
+            2,
+            "the current search DOES have something to say — checked first, so the assertions below cannot pass by the accessor simply always returning zero"
+        );
+
+        // The document was edited: same query, new epoch.
+        assert_eq!(
+            state.unsearchable_fonts(1),
+            0,
+            "an edited document invalidates the hit list, and it invalidates the sentence beside it for the same reason"
+        );
+
+        // The operator typed on.
+        state.query_mut().push('b');
+        assert_eq!(state.unsearchable_fonts(0), 0);
     }
 }
