@@ -80,6 +80,31 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## E1 — Find said "no matches" over text it could never have searched
+
+**Not asked — found by the engine and acted on.** 2026-08-25, commit `9f6ec1b`.
+
+**The defect you would never have reported as a bug**, because it does not look
+like one. A search can return "No matches" for a word that is plainly on the
+page. Two situations produce that identical answer: the word really is not
+there, or **the document stores its text in a way that records no letters** —
+so nothing could ever have matched. The text renders perfectly. It prints. It
+simply cannot be searched, and Find used to answer that with a confident "No
+matches".
+
+Find now says how many fonts in the document store unsearchable text, with a
+hover explaining what that means and that recognising the page fixes it.
+
+★ **Acrobat has exactly the same limit** and says nothing at all. This is a gap
+in the *file*, not in pdfce, and the wording says so — calling a file's own gap
+a tool limitation would send you looking for a better tool that does not exist.
+
+★★ It appears in the Find bar, never as a mark on the page. Marking content that
+renders correctly would be a second way of drawing the same thing, and two ways
+of drawing one thing drift apart.
+
+Engine re-pinned to v0.11.0 for it.
+
 ## O37 — All the font tools Word has
 
 **Asked:** 2026-08-25. **Planned**, not started. `RIBBON_SCALING.md` §6c.
