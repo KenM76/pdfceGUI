@@ -72,7 +72,7 @@
 //! [`super::DIRECTED`], which lists every such entry with the instruction
 //! that put it there, so the exception is visible rather than inferred.
 
-use super::{command, group};
+use super::{command, group, icon_only};
 use crate::text::ribbon;
 use egui_shell::manifest::Tab;
 
@@ -120,10 +120,10 @@ pub(super) fn tab() -> Tab {
                 "page_display",
                 ribbon::group_view_page_display(),
                 [
-                    command("view.page_single"),
-                    command("view.page_continuous"),
-                    command("view.page_facing"),
-                    command("view.page_facing_continuous"),
+                    icon_only("view.page_single"),
+                    icon_only("view.page_continuous"),
+                    icon_only("view.page_facing"),
+                    icon_only("view.page_facing_continuous"),
                 ],
             ),
             // ---------------------------------------------------------------
@@ -196,10 +196,10 @@ pub(super) fn tab() -> Tab {
                 // the operator's eye already knows where to go before they have
                 // read a single label.
                 [
-                    command("view.tool_select"),
-                    command("view.tool_node"),
-                    command("view.tool_text"),
-                    command("view.tool_hand"),
+                    icon_only("view.tool_select"),
+                    icon_only("view.tool_node"),
+                    icon_only("view.tool_text"),
+                    icon_only("view.tool_hand"),
                 ],
             ),
             // ---------------------------------------------------------------
@@ -253,11 +253,11 @@ pub(super) fn tab() -> Tab {
                 "display",
                 ribbon::group_view_display(),
                 [
-                    command("view.show_annotations"),
-                    command("view.show_points"),
-                    command("view.rulers"),
-                    command("view.grid"),
-                    command("view.guides"),
+                    icon_only("view.show_annotations"),
+                    icon_only("view.show_points"),
+                    icon_only("view.rulers"),
+                    icon_only("view.grid"),
+                    icon_only("view.guides"),
                 ],
             ),
             // ---------------------------------------------------------------

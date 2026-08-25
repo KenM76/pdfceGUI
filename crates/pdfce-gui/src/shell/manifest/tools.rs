@@ -98,7 +98,7 @@
 //! open question in `RIBBON_IA.md` §8 rather than a scheduled item, and
 //! [`super::PLANNED`] records it as such.
 
-use super::{command, group};
+use super::{command, group, large};
 use crate::text::ribbon;
 use egui_shell::manifest::Tab;
 
@@ -143,7 +143,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "diagnostics",
                 ribbon::group_tools_diagnostics(),
-                [command("tools.render_diagnostics")],
+                [large("tools.render_diagnostics")],
             ),
         ])
 }

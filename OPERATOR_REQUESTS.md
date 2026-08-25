@@ -80,6 +80,81 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O31 — Improve the ribbon: learn from Word
+
+**Asked:** 2026-08-24 —
+
+> *"can you improve the ribbon bar? if you can learn how word handles when to
+> have text labels, organization on two rows for some commands, and how it
+> handles narrowing the window. for one thing it puts an arrow at the end to
+> press to move over if there isn't room for all commands. also we should have
+> flexibility to show or hide and commands and shift the space used depending
+> on what exists. this would allow greater flexibility of where to place
+> commands for read, review and edit modes, as what remains shown can be mixed
+> on tabs. if you can, drive word as it is installed on this machine."*
+
+**Status:** **RESEARCHED AND STAGED. S1 and S2 done 2026-08-24; S3 and S4
+designed and not built.** The whole of it is `RIBBON_SCALING.md`.
+
+### Word was driven, and it had to be photographed rather than asked
+
+Word's ribbon scaling rules are **not in its object model** — `CommandBars` is
+the 2003 toolbar surface and says nothing about the ribbon, which is RibbonX
+compiled into the product with its behaviour inside the Office UI framework.
+So `tools/word-ribbon-study.ps1` sets a window width, waits for the re-layout
+and captures: twelve widths, 1,884 down to 444, largest first, because Word
+re-lays-out incrementally and a growing series would photograph the *recovery*
+path. `tools/our-ribbon-study.ps1` is its twin, pointed at our own build.
+
+### ★★★ The measurement that decided the work
+
+Groups reachable on the band without opening a menu:
+
+| client width | Word | pdfce, before |
+|---:|---:|---:|
+| 884 | **10** | **3** |
+| 604 | **7** + a scroll chevron | **1** |
+
+**Our overflow was not the problem.** The `⏷ N more` affordance is the arrow he
+is describing, it works, and it is tested at every width. It was starting far
+too early, because every control in the band was icon-plus-label and a group
+had no way to give up space except to vanish.
+
+### What landed
+
+* **Three item sizes** — Large (icon above label, spans the rows), Medium
+  (today's), Small (icon only). Declared per item in the manifest, defaulting
+  to Medium, so a manifest that says nothing renders identically.
+* **Small is earned**: it needs an icon, a tooltip *and* an installed painter,
+  or it falls back to labelled. The tooltip is the icon's accessible name.
+* **`visible_when` on an item** — hidden **before measurement**, so the space
+  is reclaimed and the group re-flows; a group with nothing left is not drawn
+  at all, separator included. That is his second paragraph, and it is what will
+  let one tab definition serve Read, Review and Edit.
+* Applied to pdfce's manifest: icon-only for the four page displays, four
+  pointer tools, five display toggles, two page rotations, cut/copy/paste, four
+  text markups and seven markup shapes; Large for the six one-item groups.
+
+★★ **The File tab is deliberately unchanged**, and that is the finding worth
+keeping. Its commands are *named things* — "Export form data…", "Save a
+copy…" — not iconic ones, and `band.rs`'s original argument was right about
+exactly that case. Driving Word showed the argument is about **the command**,
+not about the band.
+
+### What is designed and not built
+
+`RIBBON_SCALING.md` §5.2 and §6: **per-group collapse in an authored order** —
+each group in turn becoming a single captioned button with its full layout one
+click away, which is what Word actually does — and **scrolling** as the last
+resort beneath it rather than the first. Both touch `plan_band`'s invariants
+(`the_visible_groups_are_a_prefix_and_nothing_is_lost`), which is why they are
+staged rather than rushed.
+
+★ One open question for the operator, and it is his to answer, not this
+project's: **which commands should differ between Read, Review and Edit?**
+`visible_when` is built and tested and nothing uses it yet, because deciding
+what appears where is `RIBBON_IA.md`'s territory and the IA is settled.
+
 ## O28 — A fit control must place the view, not only set the scale
 
 **Asked:** 2026-08-24 —

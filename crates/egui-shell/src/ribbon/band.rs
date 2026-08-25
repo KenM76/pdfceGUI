@@ -202,12 +202,13 @@
 
 use egui::{Align, Atoms, Layout, Rect, RichText, TextStyle, UiBuilder, Vec2, pos2, vec2};
 
-use crate::manifest::{Group, Item};
+use crate::manifest::{Group, Item, ItemSize};
 
 use super::a11y;
 use super::ctx::{Ctx, CustomItem, IconRequest};
-use super::plan::{self, BandPlan, CUSTOM_ITEM_WIDTH, GroupRows, ItemWidths};
+use super::plan::{self, BandPlan, CUSTOM_ITEM_WIDTH, GroupRows};
 use super::report;
+use super::sizing;
 
 /// Vertical gap between a group's control row and its caption.
 ///
@@ -487,6 +488,23 @@ pub(crate) fn render_band(
 
     let gutter = ctx.theme.metrics.gutter;
     let separator = separator_width(ui);
+    // ★★★ A GROUP WITH NOTHING LEFT IS NOT DRAWN AT ALL —
+    // `RIBBON_SCALING.md` §5.3, and R9.
+    //
+    // An item can be hidden by its `visible_when`; a group all of whose items
+    // are hidden is a caption over an empty rectangle, and its separator is a
+    // rule between two things with nothing between them. Filtering here rather
+    // than inside `group_body` is what makes the space **reclaimed**: the
+    // planner never sees the group, so no width is reserved for it, no
+    // separator is drawn beside it, and the groups to its right move left.
+    //
+    // That is the operator's second ask in `O31` — *"shift the space used
+    // depending on what exists"* — and it is what lets one tab definition
+    // serve Read, Review and Edit rather than three near-identical tabs.
+    let groups: Vec<&Group> = groups
+        .iter()
+        .filter(|g| g.items().iter().any(|i| sizing::visible(i, ctx.conditions)))
+        .collect();
     let measured: Vec<(GroupRows, f32)> =
         groups.iter().map(|g| measure_group(ui, ctx, g)).collect();
     let widths: Vec<f32> = measured.iter().map(|(_, w)| *w).collect();
@@ -592,7 +610,7 @@ pub(crate) fn render_band(
                 ui,
                 ctx,
                 tab_id,
-                groups,
+                &groups,
                 &measured,
                 &band_plan,
                 gutter,
@@ -730,24 +748,44 @@ fn group_body(
         // The controls FIRST: the widest row's width is what the
         // caption is then centred within, and that width only exists
         // after the rows have been emitted.
-        let items = group.items();
+        // ★ The same partition `measure_group` planned against, recomputed
+        // from the same inputs rather than threaded through: two call sites
+        // agreeing by construction beats two call sites agreeing by a
+        // parameter somebody can forget to pass.
+        let (large, items) = partition(ctx, group);
         let top = ui.cursor().top();
         let mut widest = 0.0_f32;
-        let mut at = 0_usize;
-        for &count in &rows.counts {
-            let end = (at + count).min(items.len());
-            let row = ui
-                .horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = gutter;
-                    for item in &items[at..end] {
-                        render_item(ui, ctx, tab_id, &group.id, item);
-                    }
-                })
-                .response
-                .rect;
-            widest = widest.max(row.width());
-            at = end;
-        }
+        let content = ui
+            .horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = gutter;
+                // The Large run leads, at the full height of the row area, so
+                // a Large control is exactly as tall as the two rows beside
+                // it rather than as tall as its own content.
+                for item in &large {
+                    render_item_at(ui, ctx, tab_id, &group.id, item, ItemSize::Large, box_.rows);
+                }
+                if !items.is_empty() {
+                    ui.vertical(|ui| {
+                        let mut at = 0_usize;
+                        for &count in &rows.counts {
+                            let end = (at + count).min(items.len());
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = gutter;
+                                for item in &items[at..end] {
+                                    let size = effective_size(ctx, item);
+                                    render_item_at(
+                                        ui, ctx, tab_id, &group.id, item, size, box_.rows,
+                                    );
+                                }
+                            });
+                            at = end;
+                        }
+                    });
+                }
+            })
+            .response
+            .rect;
+        widest = widest.max(content.width());
 
         // ★ The caption is pinned to the bottom of the band's row area,
         // not to the bottom of whatever this group happened to draw. A
@@ -799,7 +837,7 @@ fn render_overflow(
     ui: &mut egui::Ui,
     ctx: &mut Ctx<'_>,
     tab_id: &str,
-    groups: &[Group],
+    groups: &[&Group],
     measured: &[(GroupRows, f32)],
     band_plan: &BandPlan,
     gutter: f32,
@@ -881,14 +919,25 @@ fn render_overflow(
     });
 }
 
-/// Draw one item of a group.
-fn render_item(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, tab_id: &str, group_id: &str, item: &Item) {
+/// Draw one item of a group, at the size it resolved to.
+///
+/// `rows_height` is the height of the band's row area, which only a `Large`
+/// control uses — it spans the rows rather than sitting in one.
+fn render_item_at(
+    ui: &mut egui::Ui,
+    ctx: &mut Ctx<'_>,
+    tab_id: &str,
+    group_id: &str,
+    item: &Item,
+    size: ItemSize,
+    rows_height: f32,
+) {
     match item {
         Item::Separator => {
             ui.separator();
         }
-        Item::Command(id) => {
-            render_command(ui, ctx, id);
+        Item::Command { id, .. } => {
+            render_command(ui, ctx, id, size, rows_height);
         }
         Item::Custom { kind, payload } => {
             let request = CustomItem {
@@ -925,18 +974,39 @@ fn render_item(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, tab_id: &str, group_id: &st
 
 /// Draw one command control, honouring its enable predicate and its
 /// selected condition.
-fn render_command(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, id: &str) {
+fn render_command(
+    ui: &mut egui::Ui,
+    ctx: &mut Ctx<'_>,
+    id: &str,
+    size: ItemSize,
+    rows_height: f32,
+) {
     let Some(command) = ctx.command(id).cloned() else {
         return;
     };
     let enabled = command.is_enabled(ctx.conditions);
     let selected = ctx.conditions.is_set(&selected_condition(&command.id));
 
-    // A band control always shows its label. Icon-only belongs to the
-    // QAT, where the operator has four controls they use constantly and
-    // has learned the glyphs; in the band there are forty and the label
-    // is the only thing that makes one findable.
-    let response = command_button(ui, ctx, &command, true, selected, enabled, false);
+    // ★ The three sizes — `RIBBON_SCALING.md`, and `sizing`'s header for the
+    // measured case.
+    //
+    // This used to be one line passing a hard-coded `shows_label: true`, with
+    // a comment arguing that *"icon-only belongs to the QAT … in the band
+    // there are forty and the label is the only thing that makes one
+    // findable"*. That is right about findability and was wrong about every
+    // control: driving Word at 884 client points put ten groups on the band
+    // where this shell put three, and the difference is that Word mixes sizes
+    // within a group. The label is not what makes `B` findable; its position
+    // in a cluster of type controls is.
+    //
+    // The findability argument survives where it applies: `Medium` is still
+    // the default, and a `Small` that has not earned its icon-only rendering
+    // falls back to it rather than drawing a mystery.
+    let response = match size {
+        ItemSize::Large => sizing::render_large(ui, ctx, &command, selected, enabled, rows_height),
+        ItemSize::Small => command_button(ui, ctx, &command, false, selected, enabled, false),
+        ItemSize::Medium => command_button(ui, ctx, &command, true, selected, enabled, false),
+    };
 
     // ★ **Where this control was drawn** — published on the frame it was
     // drawn, under the stable name [`report::band_item`] builds.
@@ -1078,8 +1148,8 @@ pub(crate) fn command_button(
 /// that would show up as a clipped group and never as anything a reader
 /// would recognise as a bug.
 fn measure_group(ui: &egui::Ui, ctx: &Ctx<'_>, group: &Group) -> (GroupRows, f32) {
-    let widths: Vec<f32> = group
-        .items()
+    let (large, rest) = partition(ctx, group);
+    let widths: Vec<f32> = rest
         .iter()
         .map(|item| measure_item(ui, ctx, item))
         .collect();
@@ -1089,9 +1159,71 @@ fn measure_group(ui: &egui::Ui, ctx: &Ctx<'_>, group: &Group) -> (GroupRows, f32
         plan::GROUP_ROWS,
         plan::GROUP_WRAP_WIDTH,
     );
+    // The Large run leads, then a gutter, then the wrapped rows — the same
+    // order `group_body` draws them in, and it must be, or the band plans
+    // against one width and clips at another.
+    let gutter = ctx.theme.metrics.gutter;
+    let mut lead = 0.0_f32;
+    for item in &large {
+        if lead > 0.0 {
+            lead += gutter;
+        }
+        lead += measure_item(ui, ctx, item);
+    }
+    if lead > 0.0 && !rest.is_empty() {
+        lead += gutter;
+    }
     let caption = text_width(ui, caption_text(group), &TextStyle::Small);
-    let width = plan::group_width(&rows, caption);
+    // ★ `lead + rows.width` is the whole of what the controls occupy: the
+    // Large run, then the wrapped rows beside it. With no Large run this is
+    // exactly what the planner computed before sizes existed, so every width
+    // test that pins the old arithmetic still pins it.
+    let width = plan::group_width(lead + rows.width, caption);
     (rows, width)
+}
+
+/// **Which items lead the group, and which wrap into its rows** — the visible
+/// ones only.
+///
+/// Two rules in one pass, because both change what the group measures and a
+/// second pass could apply one of them and not the other:
+///
+/// * an item whose `visible_when` does not hold is **dropped before
+///   measurement**, so its space is reclaimed rather than reserved for a
+///   control that never draws;
+/// * a `Large` item **leads**. See [`sizing`]'s header for why a Large control
+///   cannot live inside the row wrap, and why leading costs nothing an author
+///   wanted.
+fn partition<'a>(ctx: &Ctx<'_>, group: &'a Group) -> (Vec<&'a Item>, Vec<&'a Item>) {
+    let mut large = Vec::new();
+    let mut rest = Vec::new();
+    for item in group.items() {
+        if !sizing::visible(item, ctx.conditions) {
+            continue;
+        }
+        if effective_size(ctx, item) == ItemSize::Large {
+            large.push(item);
+        } else {
+            rest.push(item);
+        }
+    }
+    (large, rest)
+}
+
+/// The size an item will actually render at — the manifest's ask, after
+/// [`sizing::resolved`] has had its say about whether `Small` was earned.
+///
+/// A separator, a custom item and an unregistered command have one
+/// presentation each and report the default.
+fn effective_size(ctx: &Ctx<'_>, item: &Item) -> ItemSize {
+    match item {
+        Item::Command { id, size, .. } => {
+            ctx.registry.get(id).map_or(ItemSize::Medium, |command| {
+                sizing::resolved(command, *size, ctx.icons.is_some())
+            })
+        }
+        Item::Separator | Item::Custom { .. } => ItemSize::Medium,
+    }
 }
 
 /// The width one item will occupy.
@@ -1123,23 +1255,23 @@ fn measure_item(ui: &egui::Ui, ctx: &Ctx<'_>, item: &Item) -> f32 {
     match item {
         Item::Separator => SEPARATOR_LINE,
         Item::Custom { .. } => CUSTOM_ITEM_WIDTH,
-        Item::Command(id) => match ctx.registry.get(id) {
+        Item::Command { id, size, .. } => match ctx.registry.get(id) {
             // An unknown id draws nothing (see `Ctx::command`), so it must
             // also measure nothing — otherwise the band reserves space for
             // a control that will not appear and the plan is wrong by
             // exactly the width of every stale reference in the manifest.
             None => 0.0,
-            Some(command) => ItemWidths {
-                icon: if command.icon.is_some() {
-                    ctx.theme.metrics.icon_pts
-                } else {
-                    0.0
-                },
-                text: text_width(ui, &command.label, &TextStyle::Button),
-                gap: ui.spacing().icon_spacing,
-                padding: button_padding(ui),
-            }
-            .total(),
+            // ★ Through `sizing::width`, which is the one place the three
+            // sizes are turned into a number, and whose every branch has a
+            // matching branch in `render_command`. Measuring here and drawing
+            // there from two different rules is how a band that claims to fit
+            // clips its last group.
+            Some(command) => sizing::width(
+                ui,
+                ctx,
+                command,
+                sizing::resolved(command, *size, ctx.icons.is_some()),
+            ),
         },
     }
 }

@@ -1,5 +1,89 @@
 # CONTINUE — handoff
 
+## 2026-08-24 (evening) — O31: the ribbon, measured against Word
+
+**Clean tree. 17/17 gates. 1,707 + 394 + 144 tests, 0 failing.** Re-measure
+before quoting.
+
+> *"can you improve the ribbon bar? if you can learn how word handles when to
+> have text labels … how it handles narrowing the window … also we should have
+> flexibility to show or hide and commands and shift the space used depending
+> on what exists."*
+
+**Word was driven.** Its ribbon rules are in no API — `CommandBars` is the 2003
+toolbar surface and the ribbon's scaling lives inside the Office UI framework —
+so `tools/word-ribbon-study.ps1` photographed it at twelve widths and
+`tools/our-ribbon-study.ps1` photographed ours at the same ones. Everything
+below follows from `evidence/word-ribbon/` and `evidence/our-ribbon*/`.
+
+### ★★★ The number that decided the work
+
+Groups reachable on the band, no menu:
+
+| client width | Word | pdfce, before |
+|---:|---:|---:|
+| 884 | **10** | **3** |
+| 604 | **7** + scroll chevron | **1** |
+
+**Our overflow was never the problem.** `⏷ N more` *is* the arrow he described,
+it works, it is tested at every width. It was starting far too early, because
+every control was icon-plus-label and a group could only vanish, not shrink.
+
+### Landed
+
+* **Three item sizes** — Large / Medium / Small — declared per item, defaulting
+  to Medium so a silent manifest renders identically. `Small` is **earned**:
+  icon + tooltip + installed painter, or it falls back to labelled.
+* **`visible_when` on an item**, applied **before measurement**, so the space is
+  reclaimed and an emptied group vanishes with its separator.
+* Applied to the manifest: icon-only for the page displays, pointer tools,
+  display toggles, page rotations, clipboard, text markups and shapes; Large for
+  the six one-item groups.
+* `manifest::tidy` — RON 0.8 breaks every struct variant across three lines and
+  `Item::Command` became one, which would have made the **operator-editable**
+  file half again as long. It is now shorter than before.
+
+★★ **The File tab is unchanged on purpose.** Its commands are *named things*
+— "Export form data…" — not iconic ones, and `band.rs`'s original argument was
+right about that case. Driving Word showed the argument is about the
+**command**, not the band.
+
+### ★★★ The suite caught a defect the sizes introduced, in the one place unit tests could not reach
+
+**Driven: 65 passed, 4 failed, 8 skipped.** Three failures are the standing
+ones (two are O27's residual, `multi_node_move` has never passed). The fourth
+was new and was mine:
+
+> `ribbon.item.file.print` was declared at `y 148.0 .. 148.0`, which has no
+> usable area — the control is laid out and not on screen.
+
+A group drawn in the **overflow menu** uses `GroupBox::NATURAL`, whose row
+height is `0.0` deliberately, so a one-row group in the popup has no hole
+beneath it. `render_large` allocated exactly the height it was handed, so a
+Large control in the menu got a **zero-height rect**: it painted, it reported
+its rect, and it could not be clicked.
+
+★ Every unit test passed, because the band path hands a real row height and
+only the menu path does not — and `file.print` is a one-item group, so making
+it Large put it straight into that path. Fixed (a Large control is never
+shorter than its own content), and `a_large_control_in_the_overflow_menu_is_tall_enough_to_click`
+now drives the popup and holds it. **Falsified**: against the pre-fix code it
+reports `[[13.0 62.0] - [119.7 62.0]]`.
+
+### ★ Designed, not built — and the one question for the operator
+
+`RIBBON_SCALING.md` §5.2/§6: **per-group collapse in an authored order** (each
+group in turn becoming a single captioned button, its full layout one click
+away) and **scrolling as the last resort beneath it**. Both touch `plan_band`'s
+invariants, which is why they are staged rather than rushed.
+
+And: **which commands should differ between Read, Review and Edit?**
+`visible_when` is built and tested and **nothing uses it yet**, because what
+appears where is `RIBBON_IA.md`'s territory and the IA is settled. That is his
+to answer.
+
+---
+
 ## 2026-08-24 (later) — O28, O29, O30: three asks, all driven
 
 **Clean tree. 17/17 gates. 1,707 + 385 + 144 tests, 0 failing.** Re-measure

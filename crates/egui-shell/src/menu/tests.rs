@@ -678,9 +678,9 @@ fn a_customization_layer_changes_what_the_right_click_offers() {
             r#"[
                 // "I never use Cut. Put Delete at the top."
                 Menu(context: "canvas.object", items: [
-                    Command("edit.delete"),
+                    Command(id: "edit.delete"),
                     Separator,
-                    Command("edit.copy"),
+                    Command(id: "edit.copy"),
                 ]),
             ]"#,
         )

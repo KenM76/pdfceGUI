@@ -1005,8 +1005,19 @@ mod tests {
             original
         );
         // And the shapes an operator would search for are legible in it.
+        //
+        // ★ The command spelling is checked on the COMPACT form. RON's pretty
+        // printer breaks a struct variant across three lines, and `Item::Command`
+        // became one when `ItemSize` landed — so a `contains` for the one-line
+        // spelling fails on a pretty document that is perfectly correct. The
+        // context id is still checked on the pretty form, because that is the
+        // string an operator scrolling the file actually looks for.
         assert!(text.contains(CANVAS_OBJECT), "{text}");
-        assert!(text.contains("Command(\"format.delete\")"), "{text}");
+        let compact = original.to_ron().expect("serializes");
+        assert!(
+            compact.contains("Command(id:\"format.delete\")"),
+            "{compact}"
+        );
     }
 
     /// Each menu holds the items this module's header claims it holds.
@@ -1045,7 +1056,9 @@ mod tests {
             // and a document of pure commands is what makes the sweeps above
             // total rather than approximate.
             assert!(
-                menu.items().iter().all(|i| matches!(i, Item::Command(_))),
+                menu.items()
+                    .iter()
+                    .all(|i| matches!(i, Item::Command { .. })),
                 "menu `{context}` holds a non-command item; the sweeps in this file walk \
                  `command_ids()` and would not see it"
             );

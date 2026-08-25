@@ -102,6 +102,10 @@ pub mod plan;
 pub mod qat;
 pub mod render;
 pub mod report;
+// How much room one control asks for, and what it shows -- the three item
+// sizes, the earned-icon-only rule, and the visible_when filter.
+// RIBBON_SCALING.md.
+pub mod sizing;
 pub mod state;
 pub mod strip;
 pub mod tabs;
@@ -124,6 +128,10 @@ mod testfont;
 mod tests;
 #[cfg(test)]
 mod width_tests;
+// Rendered geometry for the three item sizes and the visible_when filter.
+// Separate from `width_tests` only because that file is at the R2 limit.
+#[cfg(test)]
+mod sizing_tests;
 
 pub use band::{SELECTED_CONDITION_PREFIX, selected_condition};
 pub use ctx::{CustomItem, CustomItemRenderer, IconPainter, IconRequest};

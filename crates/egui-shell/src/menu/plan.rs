@@ -156,7 +156,7 @@ pub fn resolve<'a>(
                 kind,
                 payload: payload.as_deref(),
             }),
-            Item::Command(id) => match registry.get(id) {
+            Item::Command { id, .. } => match registry.get(id) {
                 Some(command) => slots.push(Slot::Command {
                     command,
                     enabled: command.is_enabled(conditions),

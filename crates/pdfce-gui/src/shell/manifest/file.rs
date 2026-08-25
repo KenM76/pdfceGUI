@@ -64,7 +64,7 @@
 //! and `Save a copy…` stands alone in the band. `Revert` is absent for the
 //! same reason: it is meaningless without a save point to revert to.
 
-use super::{command, group};
+use super::{command, group, large};
 use crate::text::ribbon;
 use egui_shell::manifest::{Item, Tab};
 
@@ -158,7 +158,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "recognise",
                 ribbon::group_file_recognise(),
-                [command("file.ocr")],
+                [large("file.ocr")],
             ),
             group(
                 "save",
@@ -229,7 +229,7 @@ pub(super) fn tab() -> Tab {
             // ---------------------------------------------------------------
             // Print. Imposition (n-up / booklet / poster) is **C**.
             // ---------------------------------------------------------------
-            group("print", ribbon::group_file_print(), [command("file.print")]),
+            group("print", ribbon::group_file_print(), [large("file.print")]),
             // ---------------------------------------------------------------
             // Document — inspection of what is inside the file.
             //

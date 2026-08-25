@@ -334,7 +334,9 @@ impl Shell {
     ///
     /// As [`Self::to_ron`].
     pub fn to_ron_pretty(&self) -> Result<String, ManifestError> {
-        Ok(ron_options().to_string_pretty(self, pretty_config())?)
+        Ok(tidy(
+            &ron_options().to_string_pretty(self, pretty_config())?,
+        ))
     }
 }
 
@@ -380,6 +382,98 @@ fn ron_options() -> ron::Options {
 /// declares the dialect it is in.
 fn pretty_config() -> ron::ser::PrettyConfig {
     ron::ser::PrettyConfig::default().extensions(ron::extensions::Extensions::IMPLICIT_SOME)
+}
+
+/// The longest line [`tidy`] will produce by joining a block.
+///
+/// Generous, because these lines are nested four levels deep and the whole
+/// point is that a one-field item reads as one thing. Past this, three short
+/// lines really are easier to read than one long one.
+const TIDY_MAX: usize = 100;
+
+/// **Collapse a short multi-line block onto one line.**
+///
+/// # Why a manifest needs this at all
+///
+/// RON 0.8's pretty printer breaks **every** struct and struct variant across
+/// lines, with no option to keep a short one inline — it has
+/// `compact_arrays` and nothing for structs. That was invisible while
+/// [`Item::Command`] was a tuple variant printed as `Command("file.open")`.
+/// The moment it gained [`ItemSize`] and became a struct variant, every one of
+/// pdfce's hundred-odd ribbon items became
+///
+/// ```ron
+/// Command(
+///     id: "file.open",
+/// ),
+/// ```
+///
+/// — three lines and a two-thirds-empty column where there had been one line,
+/// and the file grew by half.
+///
+/// ★★★ That is not a cosmetic complaint. This file's **entire purpose** is to
+/// be read and edited by an operator: it is the customization surface
+/// `SHELL_FRAMEWORK.md` §1 is about. A format that triples the length of its
+/// most common construct has made itself worse at the one job it has.
+///
+/// # What it does, and the two guards on it
+///
+/// A block is joined when its body is one or two `key: value` lines, neither
+/// containing a bracket of its own, and the joined result is under
+/// [`TIDY_MAX`]. Anything nested, anything long, and anything it does not
+/// recognise is left exactly as RON printed it.
+///
+/// ★ It is **safe by construction and by test**: the transform only ever
+/// removes newlines and indentation between tokens RON itself emitted, which
+/// RON's own parser is insensitive to — and
+/// [`tests::a_manifest_round_trips_through_ron`] parses the tidied output
+/// back and compares the whole value, so a transform that broke the document
+/// would fail rather than ship.
+pub(crate) fn tidy(pretty: &str) -> String {
+    let lines: Vec<&str> = pretty.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        // An opener is a line ending in `(` — `Command(`, `Group(`, `Tab(`.
+        let joined = line.trim_end().ends_with('(').then(|| {
+            let mut body: Vec<&str> = Vec::new();
+            let mut j = i + 1;
+            while j < lines.len() && body.len() <= 2 {
+                let inner = lines[j].trim();
+                if inner.starts_with(')') {
+                    // The closer. Join if we collected something usable.
+                    let text = body.join(" ");
+                    let candidate = format!("{}{}{}", line, text.trim_end_matches(','), inner);
+                    return (!body.is_empty() && candidate.len() <= TIDY_MAX)
+                        .then_some((candidate, j));
+                }
+                // Refuse anything that opens a block of its own; joining it
+                // would swallow lines this pass has not looked at.
+                if inner.contains('(') || inner.contains('[') || inner.contains('{') {
+                    return None;
+                }
+                body.push(inner);
+                j += 1;
+            }
+            None
+        });
+        match joined.flatten() {
+            Some((text, closed_at)) => {
+                out.push(text);
+                i = closed_at + 1;
+            }
+            None => {
+                out.push(line.to_owned());
+                i += 1;
+            }
+        }
+    }
+    let mut text = out.join("\n");
+    if pretty.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
 
 /// A named workspace: a label and the tabs it contains.
@@ -603,12 +697,93 @@ impl Group {
     }
 }
 
+/// **How much room a control asks for, and how much of itself it shows.**
+///
+/// `RIBBON_SCALING.md` §5.1, learned by photographing Word at twelve widths.
+/// Word has exactly three sizes and a group mixes them freely — one Large
+/// button beside a column of three Small ones is its Clipboard group — and
+/// that mixing is where its density comes from. Measured: at 884 client points
+/// Word puts **ten** groups on the band and this shell put **three**, because
+/// every control here was Medium and nothing could be narrower.
+///
+/// ★ [`Self::Medium`] is the default **and is exactly the presentation this
+/// shell had before sizes existed**, so a manifest that says nothing renders
+/// identically. That is what makes the vocabulary safe to introduce in one
+/// change rather than behind a flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ItemSize {
+    /// Icon, gap, label, on one row. The default, and every control's
+    /// presentation before `RIBBON_SCALING.md`.
+    #[default]
+    Medium,
+    /// **Icon only.**
+    ///
+    /// ★★ Earned, not asserted. A control renders icon-only only when it names
+    /// an icon, carries a tooltip **and** a painter is installed — the rule
+    /// [`crate::ribbon::qat`] already applies to the quick-access toolbar,
+    /// applied here unchanged. The tooltip is the icon's accessible name;
+    /// without one an icon-only button is an unlabelled rectangle to a screen
+    /// reader and a guess to everybody else. A `Small` that has not earned it
+    /// **falls back to `Medium`** rather than rendering a mystery.
+    Small,
+    /// **Icon above the label**, spanning the band's rows.
+    ///
+    /// The group's headline verb — Word's Paste, Dictate, Editor. Its width is
+    /// the wider of its icon and its label, so a long label makes a wide
+    /// button.
+    Large,
+}
+
+impl ItemSize {
+    /// Whether this is the default, for `skip_serializing_if`.
+    ///
+    /// Keeps `Command(id: "file.open")` in the manifest file rather than
+    /// `Command(id: "file.open", size: Medium)` on every one of a hundred
+    /// lines. The on-disk manifest is meant to be read and edited by an
+    /// operator, and a field that is the default everywhere is noise that
+    /// hides the two places it is not.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Medium)
+    }
+}
+
 /// One entry in a group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Item {
-    /// A command, by id. The id is resolved against the registry; the
-    /// manifest carries nothing else about it.
-    Command(String),
+    /// A command, by id. The id is resolved against the registry; the manifest
+    /// carries nothing else **about the command** — no label, no icon, no
+    /// tooltip. What it does carry is how the command is *presented here*,
+    /// which is a property of this position on this tab rather than of the
+    /// command, and is therefore the manifest's to state.
+    Command {
+        /// The registered command id.
+        id: String,
+        /// How much room it asks for. See [`ItemSize`].
+        ///
+        /// ★ Ignored by menus, which have one row shape and no use for a
+        /// size. `Item` is the shared vocabulary for ribbon groups and menus
+        /// both; the alternative — a second item type for menus — would
+        /// duplicate `visible_when`, which they genuinely do share.
+        #[serde(default, skip_serializing_if = "ItemSize::is_default")]
+        size: ItemSize,
+        /// A condition name. When set, the item is drawn **only** while the
+        /// condition holds — and when it is not, its space is reclaimed
+        /// **before measurement**, so the group re-flows and a group with
+        /// nothing left is not drawn at all.
+        ///
+        /// ★★★ This is visibility, not enablement, and the difference is R9:
+        /// *an unavailable capability renders nothing; greying is reserved for
+        /// **temporarily** unavailable and is always explained on hover.*
+        /// [`crate::commands::Command::enable`] is the greying; this is the
+        /// disappearing.
+        ///
+        /// It is what lets one tab definition serve Read, Review and Edit with
+        /// different contents rather than three near-identical tabs —
+        /// `RIBBON_SCALING.md` §5.3.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        visible_when: Option<String>,
+    },
     /// A vertical rule between neighbours. Presentation only.
     Separator,
     /// Something the application draws itself.
@@ -632,10 +807,54 @@ pub enum Item {
 }
 
 impl Item {
-    /// A command item.
+    /// A command item, at the default size, always visible.
+    ///
+    /// The terse constructor, and the one nearly every call site wants: the
+    /// manifest names a command and says nothing else about it.
     #[must_use]
     pub fn command(id: impl Into<String>) -> Self {
-        Item::Command(id.into())
+        Item::Command {
+            id: id.into(),
+            size: ItemSize::default(),
+            visible_when: None,
+        }
+    }
+
+    /// The same item, at a different size.
+    ///
+    /// A builder rather than a second constructor, so the common form above
+    /// stays the short one and a sized item reads as *"this command, but
+    /// large"* — which is what it is.
+    ///
+    /// ★ A separator and a custom item have no size to set, and this returns
+    /// them untouched rather than panicking. A manifest is **data**, and the
+    /// honest response to nonsense in data is that it does nothing, not that
+    /// the application stops.
+    #[must_use]
+    pub fn sized(self, size: ItemSize) -> Self {
+        match self {
+            Item::Command {
+                id, visible_when, ..
+            } => Item::Command {
+                id,
+                size,
+                visible_when,
+            },
+            other => other,
+        }
+    }
+
+    /// The same item, drawn only while `condition` holds.
+    #[must_use]
+    pub fn shown_when(self, condition: impl Into<String>) -> Self {
+        match self {
+            Item::Command { id, size, .. } => Item::Command {
+                id,
+                size,
+                visible_when: Some(condition.into()),
+            },
+            other => other,
+        }
     }
 
     /// A custom item with no payload.
@@ -651,7 +870,32 @@ impl Item {
     #[must_use]
     pub fn command_id(&self) -> Option<&str> {
         match self {
-            Item::Command(id) => Some(id),
+            Item::Command { id, .. } => Some(id),
+            Item::Separator | Item::Custom { .. } => None,
+        }
+    }
+
+    /// How much room this item asks for. A separator and a custom item have
+    /// one presentation each and report the default.
+    #[must_use]
+    pub fn size(&self) -> ItemSize {
+        match self {
+            Item::Command { size, .. } => *size,
+            Item::Separator | Item::Custom { .. } => ItemSize::default(),
+        }
+    }
+
+    /// The condition this item is shown under, if any.
+    ///
+    /// ★ `None` means *always*, which is what the overwhelming majority of
+    /// items are. A separator and a custom item cannot carry one yet; when one
+    /// needs to, the field moves onto a wrapper rather than being copied into
+    /// three variants, because three copies of a rule is three chances for it
+    /// to drift.
+    #[must_use]
+    pub fn visible_condition(&self) -> Option<&str> {
+        match self {
+            Item::Command { visible_when, .. } => visible_when.as_deref(),
             Item::Separator | Item::Custom { .. } => None,
         }
     }
@@ -799,11 +1043,26 @@ mod tests {
             "the pretty round trip lost or changed something"
         );
 
-        // The shapes the module header advertises must actually appear,
-        // or the documented example is fiction.
-        assert!(pretty.contains("Command(\"file.open\")"), "{pretty}");
+        // The shapes the module header advertises must actually appear, or the
+        // documented example is fiction.
+        //
+        // ★ `Command(id: "…")` since `ItemSize` landed. The spelling changed
+        // once, deliberately, rather than growing a second variant so that the
+        // old spelling could survive beside a new one: two ways to write one
+        // item is two shapes for `merge` to reconcile and two for an operator
+        // editing the file by hand to choose between. `built_in.ron` is
+        // regenerated from the Rust manifest by a test, so the churn cost
+        // nothing.
+        assert!(compact.contains("Command(id:\"file.open\")"), "{compact}");
         assert!(pretty.contains("Separator"), "{pretty}");
         assert!(pretty.contains("\"Ctrl+E\""), "{pretty}");
+        // ★★ And the default size is NOT written. The manifest file is meant
+        // to be read and edited by an operator; `size: Medium` on every one of
+        // a hundred lines is noise that hides the two lines where it is not.
+        assert!(
+            !compact.contains("size:"),
+            "the default size must not be serialised: {compact}"
+        );
     }
 
     /// **An unstated field stays unstated through a round trip.**

@@ -176,9 +176,9 @@ mod tests {
                     Tab(id: "tools"),
                     Tab(id: "file", label: "Document", groups: [
                         Group(id: "file", caption: "Document", items: [
-                            Command("file.open"),
+                            Command(id: "file.open"),
                             Separator,
-                            Command("file.close"),
+                            Command(id: "file.close"),
                         ]),
                     ]),
                 ],
@@ -249,7 +249,7 @@ mod tests {
     fn the_ron_file_reads_as_a_ribbon() {
         let text = built_in_ron();
         for needle in [
-            "Command(\"file.open\")",
+            "Command(id: \"file.open\")",
             "caption: \"Page display\"",
             "id: \"review\"",
             "\"Ctrl+1\": \"mode.read\"",

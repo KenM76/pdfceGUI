@@ -76,7 +76,7 @@
 //! one P3 requires: a button that arms a tool that does not exist is
 //! exactly the placeholder the rule forbids.
 
-use super::{command, group};
+use super::{command, group, icon_only, large};
 use crate::text::ribbon;
 use egui_shell::manifest::{Item, Tab};
 
@@ -113,11 +113,11 @@ pub(super) fn tab() -> Tab {
                 "shapes",
                 ribbon::group_markup_shapes(),
                 [
-                    command("markup.rectangle"),
-                    command("markup.ellipse"),
-                    command("markup.arrow"),
-                    command("markup.polyline"),
-                    command("markup.polygon"),
+                    icon_only("markup.rectangle"),
+                    icon_only("markup.ellipse"),
+                    icon_only("markup.arrow"),
+                    icon_only("markup.polyline"),
+                    icon_only("markup.polygon"),
                     // ★ Directly after Polygon, and that placement is the
                     // teaching. A revision cloud IS a polygon with a cloudy
                     // border — `/Subtype /Polygon` plus `/BE`, Table 181 — and
@@ -126,8 +126,8 @@ pub(super) fn tab() -> Tab {
                     // nothing else to use this. Putting it at the end of the
                     // band, after Freehand, would separate the pair that
                     // explains each other.
-                    command("markup.cloud"),
-                    command("markup.ink"),
+                    icon_only("markup.cloud"),
+                    icon_only("markup.ink"),
                     command("markup.finish"),
                 ],
             ),
@@ -154,10 +154,10 @@ pub(super) fn tab() -> Tab {
                 "text_markup",
                 ribbon::group_markup_text(),
                 [
-                    command("markup.highlight"),
-                    command("markup.underline"),
-                    command("markup.strikeout"),
-                    command("markup.squiggly"),
+                    icon_only("markup.highlight"),
+                    icon_only("markup.underline"),
+                    icon_only("markup.strikeout"),
+                    icon_only("markup.squiggly"),
                 ],
             ),
             // ---------------------------------------------------------------
@@ -196,7 +196,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "comments",
                 ribbon::group_markup_comments(),
-                [command("markup.comments")],
+                [large("markup.comments")],
             ),
         ])
 }

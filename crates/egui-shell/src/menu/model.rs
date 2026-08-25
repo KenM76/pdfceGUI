@@ -372,10 +372,15 @@ impl Menus {
     ///
     /// As [`Self::to_ron`].
     pub fn to_ron_pretty(&self) -> Result<String, MenuError> {
-        Ok(ron_options().to_string_pretty(
+        // ★ Through the manifest's `tidy` for the reason its own doc gives:
+        // RON 0.8 breaks every struct variant across three lines, and
+        // `Item::Command` became one when `ItemSize` landed. A menu document
+        // is edited by hand exactly as a ribbon manifest is, and the two
+        // must not disagree about how a command is spelled on disk.
+        Ok(crate::manifest::tidy(&ron_options().to_string_pretty(
             self,
             ron::ser::PrettyConfig::default().extensions(IMPLICIT_SOME),
-        )?)
+        )?))
     }
 }
 
@@ -610,7 +615,15 @@ mod tests {
 
         // The shapes this module documents must actually appear, or the
         // examples are fiction.
-        assert!(pretty.contains("Command(\"edit.cut\")"), "{pretty}");
+        //
+        // ★ Asserted on the COMPACT form since `ItemSize` made `Item::Command`
+        // a struct variant: RON's pretty printer puts a tuple variant on one
+        // line and breaks a struct variant across three, so a `contains` for
+        // the one-line spelling now fails on the pretty form for a manifest
+        // that is perfectly correct. The compact form is where the spelling
+        // is a single token, and the spelling is what this line is pinning.
+        let compact = original.to_ron().expect("serializes");
+        assert!(compact.contains("Command(id:\"edit.cut\")"), "{compact}");
         assert!(pretty.contains("Separator"), "{pretty}");
         assert!(pretty.contains("canvas.object"), "{pretty}");
     }
@@ -631,7 +644,7 @@ mod tests {
         let menus = Menus::from_ron(
             r#"[
                 // A hand-written file: comments, trailing commas, no `Some(…)`.
-                Menu(context: "canvas.object", items: [ Command("edit.delete") ]),
+                Menu(context: "canvas.object", items: [ Command(id: "edit.delete") ]),
             ]"#,
         )
         .expect("implicit-some, comments and trailing commas must parse");
@@ -875,7 +888,7 @@ mod tests {
         let shell = Shell::from_ron(
             r#"Shell(
                 tabs: [ Tab(id: "view") ],
-                menus: [ Menu(context: "canvas.object", items: [ Command("edit.delete") ]) ],
+                menus: [ Menu(context: "canvas.object", items: [ Command(id: "edit.delete") ]) ],
             )"#,
         )
         .expect("a hand-written document carrying both must parse");

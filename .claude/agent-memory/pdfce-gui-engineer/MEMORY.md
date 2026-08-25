@@ -22,3 +22,4 @@
 - [A measured limit belongs to a revision, not a design](feedback_a_measured_limit_belongs_to_a_revision_not_a_design.md) — date it and name the commit; the engine removed one a day after we shipped it as permanent.
 - ["And at other junctions too" is the load-bearing clause](feedback_a_symptom_at_one_zoom_is_rarely_one_bug.md) — one symptom hid seven causes; keep hunting after the first reproduces.
 - [Never drive the published build](feedback_never_drive_the_published_build.md) — the suite's side effects land in Ken's own saved state; copy the exe to scratch instead.
+- [Learn a reference app by photographing it](feedback_learn_a_reference_app_by_photographing_it.md) — Word/Acrobat are installed and their layout rules are in no API; resize and capture, both apps, same widths.

@@ -107,7 +107,7 @@ mod tests {
             for item in menu.items() {
                 match item {
                     // A command carries an id; its words are the registry's.
-                    Item::Command(_) => {}
+                    Item::Command { .. } => {}
                     // Punctuation. No words.
                     Item::Separator => {}
                     Item::Custom { kind, .. } => panic!(

@@ -85,7 +85,7 @@ mod tools;
 mod view;
 
 use crate::text::ribbon;
-use egui_shell::manifest::{Group, Item, Mode, Shell};
+use egui_shell::manifest::{Group, Item, ItemSize, Mode, Shell};
 
 /// **The complete pdfce shell.**
 ///
@@ -503,8 +503,42 @@ fn group(id: &str, caption: &str, items: impl IntoIterator<Item = Item>) -> Grou
 ///
 /// Named `command` rather than used as `Item::command` so that a tab
 /// module's item lists read as a list of commands, which is what they are.
-fn command(id: &str) -> Item {
+pub(super) fn command(id: &str) -> Item {
     Item::command(id)
+}
+
+/// A command drawn **icon-only** — `RIBBON_SCALING.md` §5.1.
+///
+/// For a tight cluster of peers where the icon is distinctive and the
+/// operator's eye is already in the right group: the four page displays, the
+/// four pointer tools, the two page rotations, cut/copy/paste, the four text
+/// markups. Word's own icon-only clusters are the same shape — bold, italic,
+/// underline; the alignment buttons — and the reason they work is that
+/// **position in a labelled group teaches the meaning**, not the label on each
+/// control.
+///
+/// ★ Safe to ask for even when it cannot be honoured. `sizing::resolved` falls
+/// back to the labelled form unless the command names an icon, carries a
+/// tooltip **and** a painter is installed, so a command that gains or loses an
+/// icon does not need this list audited.
+pub(super) fn icon_only(id: &str) -> Item {
+    Item::command(id).sized(ItemSize::Small)
+}
+
+/// A command drawn **large** — icon above label, spanning the band's rows.
+///
+/// ★★★ Used **only for a group whose single item it is**, and that restriction
+/// is deliberate rather than timid. `sizing`'s layout rule is that Large items
+/// **lead** their group, so marking one item of a multi-item group Large would
+/// hoist it to the front — which is a change to the **order** `RIBBON_IA.md`
+/// settled, and the ribbon IA is not this file's to amend. In a one-item group
+/// hoisting is a no-op, so the size is free.
+///
+/// It is also where it reads best: a lone control in a captioned group looks
+/// stranded at Medium, and Word gives exactly this treatment to its own
+/// one-command groups — Dictate, Editor, Add-ins.
+pub(super) fn large(id: &str) -> Item {
+    Item::command(id).sized(ItemSize::Large)
 }
 
 // ===========================================================================

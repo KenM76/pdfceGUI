@@ -335,7 +335,7 @@ pub fn offers_command(shell: Option<&Shell>, mode_id: Option<&str>, command_id: 
             group
                 .items()
                 .iter()
-                .any(|item| matches!(item, Item::Command(id) if id == command_id))
+                .any(|item| matches!(item, Item::Command { id, .. } if id == command_id))
         })
     });
     let Some(owning_tab) = owning_tab else {

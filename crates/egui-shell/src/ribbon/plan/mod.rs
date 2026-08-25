@@ -524,13 +524,20 @@ impl ItemWidths {
 /// difference. `RIBBON_IA.md` §5 is full of two-word captions over
 /// one-glyph controls, so this is the common case rather than the corner.
 ///
-/// It takes a [`GroupRows`] rather than the raw item widths because a
-/// wrapped group costs its widest row and not the sum of its items — that
-/// substitution is the entire width benefit of wrapping, and routing it
-/// through the type makes it impossible to ask for a group's width without
-/// having first decided how it wraps.
-pub(crate) fn group_width(rows: &GroupRows, caption_width: f32) -> f32 {
-    rows.width.max(caption_width) + GROUP_PADDING * 2.0
+/// `content_width` is what the group's controls occupy: its **widest row**
+/// for a group that wraps, plus the Large run that leads it if it has one.
+/// A wrapped group costs its widest row and not the sum of its items — that
+/// substitution is the entire width benefit of wrapping.
+///
+/// ★ It took a [`GroupRows`] until `ItemSize` landed, so that a caller could
+/// not ask for a group's width without having first decided how it wraps.
+/// That guard stopped being expressible once a group could also have a Large
+/// run *beside* its rows: the content width is then a sum of two things, and
+/// only the caller knows both. The guard it is replaced by is that
+/// `measure_group` is the one caller, and it computes the content width
+/// immediately above the call.
+pub(crate) fn group_width(content_width: f32, caption_width: f32) -> f32 {
+    content_width.max(caption_width) + GROUP_PADDING * 2.0
 }
 
 /// How a band's groups are split between the visible band and the
@@ -802,18 +809,18 @@ mod tests {
         let one_narrow_button = rows(&[24.0]);
         let wide_caption = 90.0;
         assert_eq!(
-            group_width(&one_narrow_button, wide_caption),
+            group_width(one_narrow_button.width, wide_caption),
             wide_caption + GROUP_PADDING * 2.0
         );
 
         let wide_row = rows(&[60.0, 60.0]);
         assert_eq!(
-            group_width(&wide_row, 20.0),
+            group_width(wide_row.width, 20.0),
             60.0 + 4.0 + 60.0 + GROUP_PADDING * 2.0
         );
 
         assert_eq!(
-            group_width(&rows(&[]), 0.0),
+            group_width(rows(&[]).width, 0.0),
             GROUP_PADDING * 2.0,
             "an empty group is its padding, not a negative number"
         );

@@ -65,7 +65,7 @@
 //! Clipboard band to hold, so the band is absent rather than empty.
 //! `Shape ⌄` and `Sanitise…` are **N**.
 
-use super::{command, group};
+use super::{command, group, icon_only, large};
 use crate::text::ribbon;
 use egui_shell::manifest::Tab;
 
@@ -99,7 +99,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "insert",
                 ribbon::group_edit_insert(),
-                [command("edit.insert_image")],
+                [large("edit.insert_image")],
             ),
             // ★★ **Clipboard is BACK, 2026-08-19** — and the note below, which
             // explains why it was deleted, is kept because its reasoning was
@@ -121,9 +121,9 @@ pub(super) fn tab() -> Tab {
                 "clipboard",
                 ribbon::group_edit_clipboard(),
                 [
-                    command("edit.cut"),
-                    command("edit.copy"),
-                    command("edit.paste"),
+                    icon_only("edit.cut"),
+                    icon_only("edit.copy"),
+                    icon_only("edit.paste"),
                 ],
             ),
             // ---------------------------------------------------------------

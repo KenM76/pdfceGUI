@@ -322,7 +322,9 @@ impl Shell {
         for tab in self.all_tabs() {
             for group in tab.groups() {
                 for item in group.items() {
-                    let Item::Command(id) = item else { continue };
+                    let Item::Command { id, .. } = item else {
+                        continue;
+                    };
                     if let Some(first) = owner.insert(id.as_str(), tab.id.as_str()) {
                         return Err(ManifestError::CommandOnTwoTabs {
                             command: id.clone(),
@@ -377,7 +379,7 @@ impl Shell {
         for tab in self.all_tabs() {
             for group in tab.groups() {
                 for item in group.items() {
-                    if let Item::Command(id) = item {
+                    if let Item::Command { id, .. } = item {
                         out.push((
                             Site::Group {
                                 tab: tab.id.clone(),

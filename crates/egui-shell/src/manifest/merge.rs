@@ -497,7 +497,7 @@ fn filter_group_items(
         group: group.id.clone(),
     };
     items.retain(|item| match item {
-        Item::Command(id) if !catalog.contains(id) => {
+        Item::Command { id, .. } if !catalog.contains(id) => {
             report.push(
                 layer,
                 site.clone(),
@@ -507,7 +507,7 @@ fn filter_group_items(
             );
             false
         }
-        Item::Command(_) | Item::Separator | Item::Custom { .. } => true,
+        Item::Command { .. } | Item::Separator | Item::Custom { .. } => true,
     });
 }
 

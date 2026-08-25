@@ -233,7 +233,7 @@ mod tests {
             .flat_map(Group::items)
             .filter_map(|item| match item {
                 Item::Custom { kind, .. } => Some(kind.as_str()),
-                Item::Command(_) | Item::Separator => None,
+                Item::Command { .. } | Item::Separator => None,
             })
             .collect();
 

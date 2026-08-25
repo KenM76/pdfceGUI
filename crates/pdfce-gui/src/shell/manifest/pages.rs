@@ -51,7 +51,7 @@
 //! Crop, Resize, Replace and Insert scan are **N**. All are in
 //! [`super::PLANNED`].
 
-use super::{command, group};
+use super::{command, group, icon_only, large};
 use crate::text::ribbon;
 use egui_shell::manifest::Tab;
 
@@ -69,7 +69,7 @@ pub(super) fn tab() -> Tab {
             group(
                 "insert",
                 ribbon::group_pages_insert(),
-                [command("pages.insert_from_file")],
+                [large("pages.insert_from_file")],
             ),
             // ---------------------------------------------------------------
             // Organise — the existing rail commands, given a ribbon home.
@@ -111,7 +111,10 @@ pub(super) fn tab() -> Tab {
             group(
                 "transform",
                 ribbon::group_pages_transform(),
-                [command("pages.rotate_left"), command("pages.rotate_right")],
+                [
+                    icon_only("pages.rotate_left"),
+                    icon_only("pages.rotate_right"),
+                ],
             ),
         ])
 }
