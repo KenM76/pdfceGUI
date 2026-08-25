@@ -358,6 +358,8 @@ pub fn show(
                     colour::intent(ui, draft);
                     ui.add_space(10.0);
                     colour::polarity(ui, draft);
+                    ui.add_space(10.0);
+                    colour::page_blend_space(ui, draft);
                 });
                 widgets::group(ui, "images", t::group_images(), false, |ui| {
                     images::mask_resample(ui, draft);

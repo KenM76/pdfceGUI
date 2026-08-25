@@ -295,6 +295,72 @@ pub const fn polarity_invert_note() -> &'static str {
 }
 
 // ===========================================================================
+// Colour — where a page's blending space comes from
+// ===========================================================================
+
+/// Where a page's blending colour space comes from: the setting's name.
+///
+/// ★ Worded as the **symptom**, not the mechanism. Nobody arrives at this
+/// window looking for a "page group blending colour space"; they arrive
+/// because a print file's overprinted areas look wrong, or because a file
+/// renders differently than it used to. The title is the sentence that makes
+/// the person with that problem stop scrolling.
+#[must_use]
+pub const fn blend_space_title() -> &'static str {
+    "Overprint in print-ready files"
+}
+
+/// What happens if you never touch it.
+#[must_use]
+pub const fn blend_space_silence() -> &'static str {
+    "A file that declares itself destined for ink renders its overprinted areas the way a print-oriented viewer would."
+}
+
+/// What it costs, and what it does not affect.
+#[must_use]
+pub const fn blend_space_radius() -> &'static str {
+    "Changes how pages are drawn and printed, everywhere. It never changes the file. It has no effect at all on a file with no output intent, which is most files that are not print-ready."
+}
+
+/// One blend-space source's name.
+#[must_use]
+pub const fn blend_space_label(src: pdfce_core::settings::PageBlendSpaceSource) -> &'static str {
+    use pdfce_core::settings::PageBlendSpaceSource as S;
+    match src {
+        S::DeviceNative => "What the standard literally says",
+        S::OutputIntentIfSubtractive => {
+            "Follow the file's print intent, when it has one (pdfce's default)"
+        }
+        S::OutputIntentAlways => "Always follow the file's output intent",
+        // ★ `PageBlendSpaceSource` is `#[non_exhaustive]`, so the engine may
+        // add a source without breaking this build. A new one must not render
+        // as a blank radio label, and it must not be silently mapped onto a
+        // neighbour either -- both would be a control lying about what it
+        // selects. Naming it as unknown is the honest answer and it is
+        // self-reporting: the operator can quote it.
+        _ => "A newer pdfce added this option; this build cannot describe it",
+    }
+}
+
+/// One blend-space source's description.
+#[must_use]
+pub const fn blend_space_note(src: pdfce_core::settings::PageBlendSpaceSource) -> &'static str {
+    use pdfce_core::settings::PageBlendSpaceSource as S;
+    match src {
+        S::DeviceNative => {
+            "Strictly conforming, and it cannot show overprint at all -- on screen an overprinted area simply takes the topmost colour. Pick it to reproduce how pdfce drew pages before this setting existed."
+        }
+        S::OutputIntentIfSubtractive => {
+            "Only files that declare an ink destination are affected; an RGB or greyscale intent is ignored. On the industry's own test suite, 24 of 51 overprint patches come out right this way and wrong the other."
+        }
+        S::OutputIntentAlways => {
+            "Honours the output intent whatever it says. The most literal reading of the standard's annex, and a larger change than the evidence supports -- an RGB intent would start moving pages too."
+        }
+        _ => "Not described by this build.",
+    }
+}
+
+// ===========================================================================
 // Images and transparency — mask resampling
 // ===========================================================================
 

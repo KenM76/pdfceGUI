@@ -192,6 +192,25 @@ pub fn tab_cues(active: bool) -> TabCues {
 ///   presence is decided by application state rather than by
 ///   configuration, which is exactly why [`Shell::contextual_tabs`] is a
 ///   separate field.
+/// - **★★★ A tab with nothing left to show is not shown.** The fifth rule,
+///   added with [`crate::manifest::Item`]'s `visible_when`, and it is the
+///   symmetric completion of the band's own — *a group with nothing left is
+///   not drawn at all*. Without it the two halves disagree: hide every item on
+///   a tab and the groups all vanish, leaving a tab an operator can click and
+///   an empty band beneath it.
+///
+///   ★ It is also what makes a **generous tab list** safe, which is the point.
+///   A mode can name a tab it only sometimes needs, hide the items that do not
+///   apply, and the tab appears exactly when it has something to offer. That
+///   turns `Mode::tabs` from *"which tabs exist here"* into *"which tabs may
+///   appear here"*, and it is the mechanism by which a command can live on the
+///   tab it belongs on rather than the tab a mode happened to be granted —
+///   `RIBBON_IA.md` records three commands that moved for want of it.
+///
+///   ★★ A tab whose items carry **no conditions at all** is never affected:
+///   the question asked is *"is every item conditioned away?"*, and an
+///   unconditioned item answers no. So this cannot hide a tab that a manifest
+///   written before conditions existed would have shown.
 pub(crate) fn visible_tabs<'a>(
     shell: &'a Shell,
     mode_id: Option<&str>,
@@ -204,7 +223,9 @@ pub(crate) fn visible_tabs<'a>(
         Some(mode) if !mode.tabs().is_empty() => {
             for wanted in mode.tabs() {
                 match shell.tabs().iter().find(|t| &t.id == wanted) {
-                    Some(tab) if !tab.is_hidden() => out.push(tab),
+                    Some(tab) if !tab.is_hidden() && has_something_to_show(tab, conditions) => {
+                        out.push(tab);
+                    }
                     Some(_) => {}
                     None => {
                         crate::verify::event("ribbon-mode-names-unknown-tab")
@@ -215,17 +236,46 @@ pub(crate) fn visible_tabs<'a>(
                 }
             }
         }
-        _ => out.extend(shell.tabs().iter().filter(|t| !t.is_hidden())),
+        _ => out.extend(
+            shell
+                .tabs()
+                .iter()
+                .filter(|t| !t.is_hidden() && has_something_to_show(t, conditions)),
+        ),
     }
 
     out.extend(shell.contextual_tabs().iter().filter(|t| {
         !t.is_hidden()
+            && has_something_to_show(t, conditions)
             && t.visible_when
                 .as_deref()
                 .is_some_and(|cond| condition_holds(cond, conditions))
     }));
 
     out
+}
+
+/// Whether any item on `tab` is visible under `conditions`.
+///
+/// ★ **A tab with no groups, or groups with no items, is `true`.** That is
+/// deliberate and is not the case this rule is about: an empty tab is a
+/// manifest under construction, and hiding it would make a half-written
+/// manifest look like a working one with a missing feature. What this
+/// suppresses is a tab whose items exist and are all **conditioned away**,
+/// which is a statement the manifest made on purpose.
+fn has_something_to_show(tab: &Tab, conditions: &ConditionSet) -> bool {
+    let mut saw_item = false;
+    for group in tab.groups() {
+        for item in group.items() {
+            saw_item = true;
+            match item.visible_condition() {
+                None => return true,
+                Some(cond) if condition_holds(cond, conditions) => return true,
+                Some(_) => {}
+            }
+        }
+    }
+    !saw_item
 }
 
 /// Which tab is active: the requested one if it is still on screen,
@@ -485,6 +535,80 @@ pub(crate) fn strip_underline(ui: &mut egui::Ui, ctx: &Ctx<'_>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::manifest::Item;
+    /// ★★★ **A tab every one of whose items is conditioned away is not
+    /// shown at all.**
+    ///
+    /// The symmetric completion of the band's *"a group with nothing left is
+    /// not drawn"*. Without it the two disagree, and the operator gets a tab
+    /// they can click with an empty band beneath it.
+    ///
+    /// ★ This is also the rule that makes a **generous tab list** safe, which
+    /// is the point of having it: a mode can name a tab it only sometimes
+    /// needs and the tab appears exactly when it has something to offer. It is
+    /// what would let a command live on the tab it belongs on rather than the
+    /// tab a mode happened to be granted — `RIBBON_IA.md` records three
+    /// commands that moved for want of exactly this.
+    #[test]
+    fn a_tab_with_every_item_conditioned_away_is_not_shown() {
+        let shell = Shell::new()
+            .with_mode(Mode::new("m", "M", ["a", "b"]))
+            .with_tab(Tab::new("a", "A").with_groups([
+                Group::new("g", "G").with_items([Item::command("x").shown_when("never")]),
+            ]))
+            .with_tab(
+                Tab::new("b", "B")
+                    .with_groups([Group::new("g", "G").with_items([Item::command("y")])]),
+            );
+
+        let off = ConditionSet::new();
+        let shown: Vec<&str> = visible_tabs(&shell, Some("m"), &off)
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(
+            shown,
+            vec!["b"],
+            "a tab whose only item is conditioned away must not be offered"
+        );
+
+        let mut on = ConditionSet::new();
+        on.set("never");
+        let shown: Vec<&str> = visible_tabs(&shell, Some("m"), &on)
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(
+            shown,
+            vec!["a", "b"],
+            "and must come back the moment its condition holds"
+        );
+    }
+
+    /// ★★ A manifest that never uses conditions is untouched by the rule.
+    ///
+    /// The guard that makes it safe to add to a shipped shell: the question
+    /// asked is *"is every item conditioned away?"*, and an unconditioned item
+    /// answers no. An **empty** tab is also still shown — that is a manifest
+    /// under construction, and hiding it would make a half-written manifest
+    /// look like a working one with a feature missing.
+    #[test]
+    fn an_unconditioned_or_empty_tab_is_always_shown() {
+        let shell = Shell::new()
+            .with_mode(Mode::new("m", "M", ["plain", "bare"]))
+            .with_tab(
+                Tab::new("plain", "Plain")
+                    .with_groups([Group::new("g", "G").with_items([Item::command("x")])]),
+            )
+            .with_tab(Tab::new("bare", "Bare").with_groups([]));
+
+        let shown: Vec<&str> = visible_tabs(&shell, Some("m"), &ConditionSet::new())
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(shown, vec!["plain", "bare"]);
+    }
+
     use super::*;
     use crate::manifest::{Group, Mode};
 

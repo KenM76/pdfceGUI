@@ -10,7 +10,7 @@
 //! difference and is deciding whether it is a bug.
 
 use egui::Ui;
-use pdfce_core::settings::{CmykIntent, CmykJpegPolarity};
+use pdfce_core::settings::{CmykIntent, CmykJpegPolarity, PageBlendSpaceSource};
 
 use super::{Draft, widgets};
 use crate::text::settings as t;
@@ -112,5 +112,72 @@ pub fn polarity(ui: &mut Ui, draft: &mut Draft) {
         CmykJpegPolarity::InvertOnApp14,
         t::polarity_invert_label(),
         Some(t::polarity_invert_note()),
+    );
+}
+
+/// Where a page's blending colour space comes from when its own group
+/// declares none — the engine's `PGB-A1`, and the setting that decides
+/// whether **overprint** is simulated at all.
+///
+/// # Why this belongs in the Colour group and not in Images
+///
+/// Because of the symptom that sends somebody looking for it. It is not an
+/// image question; it is *"the overprinted areas in my print file look wrong"*
+/// — or, from the other direction, *"this file renders differently in pdfce
+/// than it did last month."* Both are ink questions, and this is the ink
+/// group.
+///
+/// # What the operator is actually choosing between
+///
+/// ISO 32000-1 §11.4.7 says a page with no declared blending space uses the
+/// **device's native** space. pdfce's pixmap is RGBA8, which is additive — and
+/// in an additive space overprint is not merely unsimulated, it is
+/// **unrepresentable**: §11.7.4.3 makes the blend function return the source
+/// colour for every component *"specified in the current colour space"*, and
+/// in sRGB every component is always specified. The engine measured the
+/// consequence on the Ghent PDF Output Suite: **24 of its 51 patches request
+/// overprint**, and under the literal reading all 24 are wrong.
+///
+/// So the shipped default consults the file's **output intent**, but only when
+/// that intent is subtractive. That conditional is what makes it safe: an RGB
+/// or greyscale intent cannot drag a page into ink, so the only files it moves
+/// are ones that already declare themselves destined for print.
+///
+/// ★ The three options are ordered **strict → shipped → most literal reading
+/// of Annex P**, and the middle one is the default. That is deliberate: an
+/// operator scanning this group meets the conforming-but-degenerate answer
+/// first, so *why is the default not the one the standard says* is answered
+/// before it is asked.
+pub fn page_blend_space(ui: &mut Ui, draft: &mut Draft) {
+    widgets::header(
+        ui,
+        t::blend_space_title(),
+        t::blend_space_silence(),
+        t::blend_space_radius(),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.page_blend_space_source,
+        PageBlendSpaceSource::DeviceNative,
+        t::blend_space_label(PageBlendSpaceSource::DeviceNative),
+        Some(t::blend_space_note(PageBlendSpaceSource::DeviceNative)),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.page_blend_space_source,
+        PageBlendSpaceSource::OutputIntentIfSubtractive,
+        t::blend_space_label(PageBlendSpaceSource::OutputIntentIfSubtractive),
+        Some(t::blend_space_note(
+            PageBlendSpaceSource::OutputIntentIfSubtractive,
+        )),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.page_blend_space_source,
+        PageBlendSpaceSource::OutputIntentAlways,
+        t::blend_space_label(PageBlendSpaceSource::OutputIntentAlways),
+        Some(t::blend_space_note(
+            PageBlendSpaceSource::OutputIntentAlways,
+        )),
     );
 }
