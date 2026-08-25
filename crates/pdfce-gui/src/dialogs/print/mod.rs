@@ -1023,6 +1023,84 @@ impl PrintDialog {
             // Cancel to the LEFT of the affirmative in the right-to-left
             // layout, which is Windows' order and the order every dialog on
             // this machine uses.
+            // ★★★ THE OUTCOME IS DRAWN FIRST, AND THE ORDER IS THE BUG FIX.
+            //
+            // Operator report, 2026-08-25: *"when I press print, instead of
+            // closing after printing it just keeps expanding its size in
+            // little steps to infinity."*
+            //
+            // It did, and the cause was this block sitting AFTER the button
+            // block rather than before it. [`Host::buttons`] lays its pair out
+            // with `Layout::right_to_left`, and a right-to-left child inside a
+            // left-to-right `horizontal` is anchored to the RIGHT EDGE of
+            // whatever space it was offered — so its `min_rect` reaches that
+            // edge whether it needed the room or not. Appending anything after
+            // it therefore places that widget **past the edge of the available
+            // width**, by its own width plus one item spacing.
+            //
+            // On its own that is only an overflowing row. What made it
+            // unbounded is [`crate::dialogs::host::Host::fit`], which grows a
+            // dialog whose content is wider than its window:
+            //
+            // 1. the row overflows by the label's width, `w`;
+            // 2. `fit` grows the window by `w`;
+            // 3. the wider window offers a wider row, the RTL block reaches the
+            //    NEW right edge, and the label is placed `w` past it again;
+            // 4. goto 2, for ever, in steps of exactly `w`.
+            //
+            // ★ Note what this is NOT. It is not the once-per-size guard
+            // failing — every size in the sequence is genuinely new, so the
+            // guard is satisfied every time. It is not `FIT_MARGIN` being too
+            // small — the step is a whole label wide. **It is a measurement fed
+            // back into the size that produced it**, which is R128's shape and
+            // the third time this project has met it. `fit`'s own doc comment
+            // asserted the print dialog was immune because it scrolls; that was
+            // true of its BODY and said nothing about its footer.
+            //
+            // Drawing the outcome first fixes it completely and needs no
+            // arithmetic: the label consumes width from the left, the button
+            // block is then offered what remains and anchors to the right edge
+            // of THAT, and the row ends exactly at the edge. It is also the
+            // conventional arrangement — status left, actions right — which is
+            // what every dialog on this machine does, so the fix costs nothing
+            // in layout terms and gains the Windows idiom.
+            //
+            // ★ `truncate()` is not decoration either: `t::failed` carries a
+            // driver's own error text and can be arbitrarily long. Untruncated
+            // it would push the buttons off the row and re-create the overflow
+            // by a different route — a *bounded* one, since the text does not
+            // grow with the window, but bounded overflow is still overflow.
+            // The full text is not lost; it is what the trace records.
+            match &self.outcome {
+                Some(Ok(report)) => {
+                    ui.add(egui::Label::new(t::sent(report.pages)).truncate());
+                    // ★ The only one of the four `SettingsSource` values that
+                    // is disclosed, and the operator could not learn it any
+                    // other way: the job printed, and everything the driver
+                    // held that pdfce does not model was silently absent from
+                    // it. See `SettingsSource::Synthesised`.
+                    if report.settings_source == SettingsSource::Synthesised {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(t::settings_synthesised())
+                                    .small()
+                                    .weak(),
+                            )
+                            .truncate(),
+                        );
+                    }
+                }
+                Some(Err(detail)) => {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(t::failed(detail))
+                                .color(ui.visuals().error_fg_color),
+                        )
+                        .truncate(),
+                    );
+                }
+                None => {}
+            }
             match job.filter(|j| !j.plans.is_empty()) {
                 Some(job) => {
                     let clipped = job.clipped();
@@ -1045,29 +1123,6 @@ impl PrintDialog {
                         self.close_requested = true;
                     }
                 }
-            }
-            match &self.outcome {
-                Some(Ok(report)) => {
-                    ui.label(t::sent(report.pages));
-                    // ★ The only one of the four `SettingsSource` values that
-                    // is disclosed, and the operator could not learn it any
-                    // other way: the job printed, and everything the driver
-                    // held that pdfce does not model was silently absent from
-                    // it. See `SettingsSource::Synthesised`.
-                    if report.settings_source == SettingsSource::Synthesised {
-                        ui.label(
-                            egui::RichText::new(t::settings_synthesised())
-                                .small()
-                                .weak(),
-                        );
-                    }
-                }
-                Some(Err(detail)) => {
-                    ui.label(
-                        egui::RichText::new(t::failed(detail)).color(ui.visuals().error_fg_color),
-                    );
-                }
-                None => {}
             }
         });
     }

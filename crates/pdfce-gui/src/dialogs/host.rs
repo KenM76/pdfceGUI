@@ -214,6 +214,62 @@ fn owner(ctx: &egui::Context) -> Option<isize> {
 
 const FIT_MARGIN: f32 = 8.0;
 
+/// How many times one dialog may be grown to fit its content before the host
+/// concludes the measurement is circular and stops.
+///
+/// See the growth budget in [`Host::fit`]. The legitimate case settles in one
+/// round trip and two covers a body that re-flows in response to the first;
+/// three is one more than has ever been needed, and it is the difference
+/// between a bounded nuisance and a window that grows for as long as it is
+/// open.
+const FIT_BUDGET: usize = 3;
+
+/// **The size a window should be grown to**, or `None` to leave it alone.
+///
+/// # Why this is a free function
+///
+/// Because the growth branch could not otherwise be tested. `Host::fit` needs
+/// a live viewport to read `inner_rect` and to issue the resize, so the whole
+/// decision was reachable headlessly only in its no-op half — and the adjacent
+/// test said as much in its own doc comment: *"only the no-op half is
+/// reachable headlessly … the growing branch is asserted by the driven check,
+/// which is the only place it can be."*
+///
+/// ★ That was true of the *resize*, and it was never true of the *arithmetic*.
+/// Splitting them costs one function and buys the convergence test that would
+/// have caught the print dialog's runaway before an operator did: feed this
+/// its own output and it must reach a fixed point.
+///
+/// # The contract
+///
+/// * `None` when the content already fits within [`FIT_MARGIN`] on both axes.
+///   The margin is a floor on what is worth acting on — below it the
+///   difference is noise between `min_rect` and a client size the window
+///   manager reports, and acting on noise is what creep is made of.
+/// * Otherwise a size that is **never smaller than the current window** on
+///   either axis, and never smaller than `min_size`. Growth only: shrinking to
+///   content would fight the operator every time they enlarged a window, and
+///   would shrink a scrollable body to its own scroll viewport, which is
+///   circular by construction.
+///
+/// ★★ Note what this function cannot do, and why the budget in [`Host::fit`]
+/// exists as well. Its answer is **idempotent** — feed it a window that has
+/// already been grown to its content and it returns `None` — but idempotence
+/// only holds if `content` stays put when the window changes. When the content
+/// is measured *from* the window, every answer is new and correct in
+/// isolation, and the sequence still runs away. No pure function of
+/// `(inner, content)` can detect that; only a count of how often it has been
+/// asked can.
+fn fit_target(inner: Vec2, content: Vec2, min_size: Vec2) -> Option<Vec2> {
+    if content.x <= inner.x + FIT_MARGIN && content.y <= inner.y + FIT_MARGIN {
+        return None;
+    }
+    Some(Vec2::new(
+        content.x.max(inner.x).max(min_size.x),
+        content.y.max(inner.y).max(min_size.y),
+    ))
+}
+
 /// How many passes from opening a dialog goes on asking for the keyboard.
 ///
 /// # ★★★ Measured, twice, and the second measurement moved it
@@ -302,6 +358,10 @@ pub struct Host {
     /// Where the last size this host ASKED FOR is kept, so it asks once.
     /// See [`Self::fit`].
     fit_key: egui::Id,
+    /// How many times [`Host::fit`] has already grown this window. See the
+    /// growth budget in `fit` for why a count, and not a size, is the thing
+    /// that distinguishes a legitimate fit from a feedback loop.
+    budget_key: egui::Id,
     /// Where the pass number of the last frame this dialog was drawn on is
     /// kept, so a **fresh opening** can be told from a continuing one. See
     /// [`Self::show`]'s focus request.
@@ -359,6 +419,7 @@ impl Host {
             key: egui::Id::new(("dialog-host-position", id)),
             // ui-text-exempt: a memory key, never displayed.
             fit_key: egui::Id::new(("dialog-host-fit", id)),
+            budget_key: egui::Id::new(("dialog-host-fit-budget", id)),
             // ui-text-exempt: a memory key, never displayed.
             seen_key: egui::Id::new(("dialog-host-seen", id)),
             // ui-text-exempt: a memory key, never displayed.
@@ -441,17 +502,64 @@ impl Host {
         let Some(inner) = child.input(|i| i.viewport().inner_rect).map(|r| r.size()) else {
             return;
         };
-        if content.x <= inner.x + FIT_MARGIN && content.y <= inner.y + FIT_MARGIN {
+        let Some(want) = fit_target(inner, content, self.min_size) else {
             return;
-        }
-        let want = Vec2::new(
-            content.x.max(inner.x).max(self.min_size.x),
-            content.y.max(inner.y).max(self.min_size.y),
-        );
+        };
         if child.data(|d| d.get_temp::<Vec2>(self.fit_key)) == Some(want) {
             return;
         }
-        child.data_mut(|d| d.insert_temp(self.fit_key, want));
+
+        // ★★★ THE GROWTH BUDGET — the guard that turns a layout mistake into a
+        // stopped dialog instead of one that grows without limit.
+        //
+        // Added 2026-08-25 after the third instance of R128's shape in this
+        // project, and the first one an operator had to report: the print
+        // dialog's footer overflowed its row by a fixed width every frame, so
+        // every requested size was NEW, the once-per-size guard was satisfied
+        // every time, and the window grew in steps for as long as it was open.
+        //
+        // ★ The point that took three instances to learn: **a guard against
+        // repetition is not a guard against monotonic creep.** Creep never
+        // repeats. Anything that only asks *"have I asked for this before?"*
+        // is blind to it by construction, and so is anything that only asks
+        // *"is the difference big enough to be real?"* — the step here was a
+        // whole label wide and entirely real. The only property that separates
+        // a legitimate fit from a loop is HOW MANY TIMES it happens.
+        //
+        // The legitimate case is bounded and small, and the doc above says so
+        // in its own terms: the window opens at a stated bid, measures its
+        // content once, and settles "after one round trip". Two rounds covers
+        // a body that re-flows in response to the first. [`FIT_BUDGET`] is
+        // three, which is one more than has ever been needed.
+        //
+        // Exceeding it is not recoverable by trying harder, so the dialog
+        // stops resizing and keeps whatever size it reached — a window that is
+        // slightly too small for its content is a nuisance the operator can
+        // fix with the mouse, and a window that grows for ever is not.
+        // ★ It is also RECORDED rather than merely suppressed: silently
+        // capping would leave the underlying layout defect invisible, which is
+        // how a bounded bug survives to become somebody else's afternoon.
+        let spent = child
+            .data(|d| d.get_temp::<usize>(self.budget_key))
+            .unwrap_or(0);
+        if spent >= FIT_BUDGET {
+            if spent == FIT_BUDGET {
+                child.data_mut(|d| d.insert_temp(self.budget_key, spent + 1));
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!(
+                        "dialog-fit-runaway title={:?} budget={FIT_BUDGET} at={:.0}x{:.0} wanted={:.0}x{:.0} \
+                         (content is being measured from the window it sets — a layout defect, not a size)",
+                        self.title, inner.x, inner.y, want.x, want.y
+                    )
+                });
+            }
+            return;
+        }
+        child.data_mut(|d| {
+            d.insert_temp(self.budget_key, spent + 1);
+            d.insert_temp(self.fit_key, want);
+        });
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed.
             format!(
@@ -856,6 +964,10 @@ impl Host {
 
 #[cfg(test)]
 mod tests {
+    /// How many frames the divergence demonstration runs for. Must exceed
+    /// [`FIT_BUDGET`]; see the compile-time assertion below.
+    const DIVERGENCE_ROUNDS: usize = 12;
+
     use super::*;
 
     /// ★ **Two dialogs get two windows**, which is the whole reason the id is
@@ -935,6 +1047,165 @@ mod tests {
         assert!(
             ctx.data(|d| d.get_temp::<Vec2>(h.fit_key)).is_none(),
             "no resize may be requested when the body already fits"
+        );
+    }
+
+    /// **Growing to fit reaches a fixed point in one step, and stays there.**
+    ///
+    /// The half the test above says it cannot reach. It can, now that the
+    /// arithmetic is a free function: grow once, then feed the result back and
+    /// require silence.
+    #[test]
+    fn growing_to_fit_settles_after_one_step() {
+        let min = Vec2::splat(10.0);
+        let inner = Vec2::new(400.0, 300.0);
+        let content = Vec2::new(520.0, 300.0);
+
+        let want =
+            fit_target(inner, content, min).expect("content wider than its window must grow");
+        assert_eq!(want, Vec2::new(520.0, 300.0));
+        assert!(
+            fit_target(want, content, min).is_none(),
+            "a window already grown to its content must ask for nothing further"
+        );
+    }
+
+    /// **A window is never shrunk, on either axis.**
+    #[test]
+    fn fitting_only_ever_grows() {
+        let inner = Vec2::new(800.0, 600.0);
+        // Taller than its window, and much narrower.
+        let want = fit_target(inner, Vec2::new(100.0, 900.0), Vec2::splat(10.0)).unwrap();
+        assert_eq!(
+            want.x, 800.0,
+            "the axis that already fits must be left exactly as it was"
+        );
+        assert_eq!(want.y, 900.0);
+    }
+
+    /// ★★★ **The print dialog's runaway, reproduced as arithmetic — and the
+    /// proof that no pure function could have stopped it.**
+    ///
+    /// Operator report, 2026-08-25: the print dialog *"keeps expanding its size
+    /// in little steps to infinity"* after pressing Print. The cause was a
+    /// footer row whose right-to-left button block reached the right edge of
+    /// whatever width it was offered, with a status label appended AFTER it —
+    /// so the row overflowed by the label's width no matter how wide the
+    /// window became.
+    ///
+    /// This test models exactly that: content that is always `OVERFLOW` wider
+    /// than its window. Every individual answer [`fit_target`] gives is
+    /// correct, every one is a size it has never returned before, and the
+    /// sequence still diverges — which is precisely why the fix is a **count**
+    /// in [`Host::fit`] and not a smarter comparison here.
+    ///
+    /// It is written as a test rather than a comment so that anyone tempted to
+    /// replace the budget with "just check the size is different" has to delete
+    /// an assertion that says why it will not work.
+    #[test]
+    fn content_measured_from_its_own_window_diverges_and_never_repeats() {
+        const OVERFLOW: f32 = 24.0;
+        let min = Vec2::splat(10.0);
+        let mut inner = Vec2::new(800.0, 600.0);
+        let mut seen = Vec::new();
+
+        for _ in 0..DIVERGENCE_ROUNDS {
+            // The defect in one line: the content is a function of the window.
+            let content = Vec2::new(inner.x + OVERFLOW, inner.y);
+            let want = fit_target(inner, content, min)
+                .expect("content wider than its window always asks to grow");
+            assert!(
+                !seen.contains(&want.x),
+                "every requested size is NEW — which is why a once-per-size guard cannot see this, and why FIT_BUDGET counts instead"
+            );
+            seen.push(want.x);
+            inner = want;
+        }
+
+        assert_eq!(
+            inner.x,
+            800.0 + OVERFLOW * DIVERGENCE_ROUNDS as f32,
+            "unbounded, in steps of exactly the overflow — the operator's              'little steps to infinity'"
+        );
+    }
+
+    /// The loop above runs further than the budget allows, on purpose: if
+    /// [`FIT_BUDGET`] were ever raised past it the divergence demonstration
+    /// would stop demonstrating anything, so the relationship is asserted at
+    /// **compile time** rather than inside a test where clippy correctly points
+    /// out that a comparison between two constants is not an assertion.
+    const _: () = assert!(
+        DIVERGENCE_ROUNDS > FIT_BUDGET,
+        "the divergence test must run more rounds than the budget permits"
+    );
+
+    /// ★★★ **The layout half of the print dialog's runaway, measured in a real
+    /// laid-out frame — and it fails on the old ordering.**
+    ///
+    /// The test above models the consequence; this one reproduces the CAUSE,
+    /// which is the part a reader will not believe on assertion alone:
+    ///
+    /// > A `Layout::right_to_left` child inside a left-to-right `horizontal`
+    /// > is anchored to the RIGHT EDGE of the space it was offered, and its
+    /// > `min_rect` reaches that edge **whether or not it needed the room**.
+    /// > Anything appended after it is therefore placed past the edge.
+    ///
+    /// Both orderings are laid out here in the same width, and the assertion is
+    /// on the resulting row width against the width the row was given. Buttons
+    /// first overflows; the status label first does not. That difference is the
+    /// entire fix, and this is where it is proved rather than argued.
+    ///
+    /// ★ Run it against the pre-fix ordering — swap the two blocks in
+    /// [`super::super::print`]'s `footer` — and the first assertion fails. That
+    /// is the falsification, and without it this test would only be describing
+    /// the code it sits next to.
+    ///
+    /// ★ Measured, so the size of the thing is on the record: in a 400 pt row
+    /// the pre-fix ordering produces **481.9 pt** and the fixed ordering
+    /// produces **exactly 400.0**. That 81.9 pt is the step the window grew by
+    /// on every single frame the dialog was open after a print — which is what
+    /// "little steps to infinity" was.
+    #[test]
+    fn a_status_label_after_a_right_to_left_block_overflows_the_row() {
+        const GIVEN: f32 = 400.0;
+
+        fn row_width(ctx: &egui::Context, status_first: bool) -> f32 {
+            let mut measured = 0.0;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.set_max_width(GIVEN);
+                let r = ui.horizontal(|ui| {
+                    if status_first {
+                        ui.label("Sent 3 pages");
+                    }
+                    // The shape `Host::buttons` uses. The layout is what
+                    // matters here, not which widgets are inside it.
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let _ = ui.button("Print");
+                        let _ = ui.button("Close");
+                    });
+                    if !status_first {
+                        ui.label("Sent 3 pages");
+                    }
+                });
+                measured = r.response.rect.width();
+            });
+            measured
+        }
+
+        let ctx = egui::Context::default();
+        // Warm one frame: egui sizes some widgets from the previous pass.
+        let _ = row_width(&ctx, false);
+
+        let buttons_first = row_width(&ctx, false);
+        let status_first = row_width(&ctx, true);
+
+        assert!(
+            buttons_first > GIVEN,
+            "the pre-fix ordering must overflow the row it was given (got {buttons_first} in {GIVEN}) — if this does not overflow, the mechanism behind the operator's runaway has changed and the fix below needs re-deriving, not just keeping"
+        );
+        assert!(
+            status_first <= GIVEN + 0.5,
+            "with the status drawn first the row must fit exactly the width it was given (got {status_first} in {GIVEN}); anything wider is an overflow that `Host::fit` will chase"
         );
     }
 }
