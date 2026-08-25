@@ -23,3 +23,4 @@
 - ["And at other junctions too" is the load-bearing clause](feedback_a_symptom_at_one_zoom_is_rarely_one_bug.md) — one symptom hid seven causes; keep hunting after the first reproduces.
 - [Never drive the published build](feedback_never_drive_the_published_build.md) — the suite's side effects land in Ken's own saved state; copy the exe to scratch instead.
 - [Learn a reference app by photographing it](feedback_learn_a_reference_app_by_photographing_it.md) — Word/Acrobat are installed and their layout rules are in no API; resize and capture, both apps, same widths.
+- [Walk the series, never pick endpoints](feedback_walk_the_series_never_pick_endpoints.md) — two samples either side of a transition look exactly like no transition; Ken caught one that was already disproven on disk.
