@@ -7,7 +7,7 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-19 at `e86dda1`.** For a session
+**Written 2026-08-18, last revised 2026-08-25 at `496d1db`.** For a session
 starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -17,7 +17,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `e86dda1`
+## ★★★ State, as measured at `496d1db` (2026-08-25)
 
 **This table is a reading, not a status.** Every row is what a command printed
 at that commit; the tree has moved since, and the numbers move with it. It is
@@ -25,13 +25,27 @@ here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Tests** | 1,452 (`pdfce-gui`) + 379 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
-| **Gates** | 14 of 14, 0 skipped |
-| **`ui-verify`** | **42 checks declared.** See the two rows below — the count is not the story |
-| **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · **Dimension groups** · **Tool** |
-| **Commands** | 98 registered · 77 `PLANNED` · 14 `SCAFFOLDED` (registered, drawn, inert), five of them P3 breaches |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency. **Read `Cargo.lock`, not this row** — it moved twice in one session, both times because `package-portable.py` re-resolved it |
-| **Latest build** | `OneDrive\pdfceGUI1`, and its `Cargo.lock` is committed. Open **About** and read the Build block rather than trusting this row |
+| **Tests** | 1,707 (`pdfce-gui`) + 397 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Gates** | **17 of 17**, 0 skipped |
+| **`ui-verify`** | **77 checks declared.** Last full driven run: **66 passed · 3 failed · 8 skipped** — see `evidence/ui-verify-run.txt`, committed deliberately because it is the reason a release decision was made |
+| **The three failures** | `zooming_does_not_throw_away_where_the_operator_panned` and `zooming_back_out_keeps_the_view` are both **O27**, the f32 scroll-tier residual above ~130,000 %, deliberately left RED. `multi_node_move_moves_every_picked_anchor` is pre-existing and filed. **None is new and none blocks a release** |
+| **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `81e5aab`. **Read `Cargo.lock`, not this row** — it moves nearly every session, and `package-portable.py` re-resolves it unless you pass `--no-update` |
+| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-25 from shell `db88cc8` / engine `81e5aab`, **with `--verify`**. `pdfceGUI2` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
+
+### ★★ Two things that will otherwise cost you an hour each
+
+**1. Always publish with `--verify`.** The 2026-08-24 23:04 publish omitted it,
+so its tests and gates never ran, and the engine's new `page_blend_space_source`
+setting arrived as a surprise instead of as a packaging failure. Pass
+`--no-update --verify` when the build should be the one you already verified —
+plain `--verify` re-resolves the engine first and can move it under you.
+
+**2. When a driven check says it could not raise the window, read WHICH window
+is holding the foreground** — the harness now prints its class, title and pid.
+On 2026-08-25 nine checks skipped with the "no foreground rights" message and
+the cause was a stray `OpenWith.exe` dialog on the desktop: not the harness and
+not the application. `D:/dev/rag/egui/` carries the finding.
 
 ### ★★★ READ THIS FIRST: R1's debt was paid on 2026-08-19, and re-incurred the same day
 
