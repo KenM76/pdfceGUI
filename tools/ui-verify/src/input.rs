@@ -718,9 +718,14 @@ impl Driver {
                  refuses SetForegroundWindow to a process without foreground rights, and this \
                  harness is a background process. Reported rather than clicked: a click into a \
                  window that is not in front goes wherever IS, and the check would then report \
-                 the feature as broken when nothing was ever pressed at it.",
+                 the feature as broken when nothing was ever pressed at it.\n  \
+                 THE FOREGROUND IS HELD BY: {}.\n  \
+                 If that is not the application under test and not this harness, it is holding \
+                 the desktop and no retry will help — dismiss it and run again. A stray system \
+                 modal (an \"Open With\" dialog, the on-screen keyboard) does exactly this.",
                 p.x(),
-                p.y()
+                p.y(),
+                sys::describe_foreground()
             )));
         }
         Ok(())
@@ -737,9 +742,19 @@ impl Driver {
         self.raise();
         std::thread::sleep(MOVE_SETTLE);
         if !sys::is_foreground(w) && !self.application_has_the_foreground() {
-            return Err(Error::new(
-                "the target window could not be brought to the front, so anything typed now would go to the operator's own window. Windows refuses SetForegroundWindow to a process without foreground rights, and this harness is a background process. Reported rather than typed: sending the keystroke anyway would both corrupt whatever IS in front and make this check report the feature as broken when nothing was ever typed at it.",
-            ));
+            return Err(Error::new(format!(
+                "the target window could not be brought to the front, so anything typed now \
+                 would go to the operator's own window. Windows refuses SetForegroundWindow to \
+                 a process without foreground rights, and this harness is a background process. \
+                 Reported rather than typed: sending the keystroke anyway would both corrupt \
+                 whatever IS in front and make this check report the feature as broken when \
+                 nothing was ever typed at it.\n  \
+                 THE FOREGROUND IS HELD BY: {}.\n  \
+                 If that is not the application under test and not this harness, it is holding \
+                 the desktop and no retry will help — dismiss it and run again. A stray system \
+                 modal (an \"Open With\" dialog, the on-screen keyboard) does exactly this.",
+                sys::describe_foreground()
+            )));
         }
         Ok(())
     }

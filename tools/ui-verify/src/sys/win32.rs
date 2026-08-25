@@ -45,9 +45,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     mouse_event,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOT, GetAncestor, GetClientRect, GetCursorPos, GetForegroundWindow,
-    GetWindowThreadProcessId, IsWindowVisible, SW_MAXIMIZE, SW_SHOW, SWP_NOSIZE, SWP_NOZORDER,
-    SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow, WindowFromPoint,
+    EnumWindows, GA_ROOT, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
+    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SW_MAXIMIZE,
+    SW_SHOW, SWP_NOSIZE, SWP_NOZORDER, SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow,
+    WindowFromPoint,
 };
 
 use crate::coords::WindowFrame;
@@ -443,6 +444,83 @@ pub fn foreground_window() -> Option<WindowHandle> {
     // SAFETY: no pointers, no ownership; returns a handle or null.
     let hwnd = unsafe { GetForegroundWindow() };
     WindowHandle::from_raw(hwnd)
+}
+
+/// **Name whatever currently holds the foreground**, for a refusal message.
+///
+/// # ★★★ Why a refused raise must name the window that refused it
+///
+/// `SetForegroundWindow` fails for exactly one reported reason — *"this
+/// process does not have foreground rights"* — and that sentence is true of
+/// two completely different situations which need opposite responses:
+///
+/// | what is really happening | what to do |
+/// |---|---|
+/// | the harness is a background process and Windows' foreground lock is doing its job | nothing; retry, or run the check when the desktop is free |
+/// | **another window is holding the foreground and will not yield it** | dismiss that window — no amount of retrying will help |
+///
+/// On 2026-08-25 the second one cost forty minutes. Nine driven checks
+/// reported SKIP with the foreground-rights sentence; three raise strategies
+/// were probed against a running build; the harness itself came under
+/// suspicion. The actual cause was a stray **`OpenWith.exe` "Open With"
+/// dialog** sitting on the desktop from some earlier action, holding the
+/// foreground the way a system modal does and yielding it to nothing. One
+/// `taskkill` fixed all nine.
+///
+/// The diagnosis was a `GetForegroundWindow` followed by `GetClassNameW` —
+/// two calls the harness could have made itself, at the moment of failure,
+/// when it already knew something was wrong. **A check that reports a refusal
+/// without naming the refuser has withheld the only fact that distinguishes
+/// "wait" from "act".** That is the same shape as the `osk.exe` finding
+/// recorded against [`window_at`]: an unrelated always-on-top window silently
+/// eating the harness's input, diagnosed only by looking at what was actually
+/// on the screen. This function makes the harness look, so a human does not
+/// have to.
+///
+/// Returns something printable in every case, including no foreground window
+/// at all — which is itself a distinct and diagnosable state (a locked
+/// workstation, or a switch to the secure desktop).
+#[must_use]
+pub fn describe_foreground() -> String {
+    let Some(w) = foreground_window() else {
+        return "nothing at all (no foreground window), which usually means the workstation is locked or the secure desktop is up"
+            .to_string();
+    };
+    let class = window_class(w);
+    let title = window_title(w);
+    let pid = pid_of_window(w).unwrap_or(0);
+    let named = if title.is_empty() {
+        "untitled".to_string()
+    } else {
+        format!("\"{title}\"")
+    };
+    format!("{named} (window class `{class}`, pid {pid})")
+}
+
+/// The window's class name, or `?` if it cannot be read.
+#[must_use]
+fn window_class(w: WindowHandle) -> String {
+    let mut buf = [0u16; 256];
+    // SAFETY: `buf` is a real array and its length is passed honestly; the
+    // call writes at most that many code units and tolerates a stale handle
+    // by returning 0.
+    let n = unsafe { GetClassNameW(w.hwnd(), buf.as_mut_ptr(), buf.len() as i32) };
+    if n <= 0 {
+        return "?".to_string();
+    }
+    String::from_utf16_lossy(&buf[..n as usize])
+}
+
+/// The window's title bar text, empty if it has none.
+#[must_use]
+fn window_title(w: WindowHandle) -> String {
+    let mut buf = [0u16; 512];
+    // SAFETY: as `window_class` above.
+    let n = unsafe { GetWindowTextW(w.hwnd(), buf.as_mut_ptr(), buf.len() as i32) };
+    if n <= 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&buf[..n as usize])
 }
 
 /// Press and release a virtual key **while modifiers are held**.
