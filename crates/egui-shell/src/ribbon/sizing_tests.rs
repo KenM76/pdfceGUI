@@ -305,10 +305,28 @@ fn a_small_that_has_not_earned_it_renders_at_medium_width() {
 /// This drives the same path: a band too narrow for the group, a click on the
 /// affordance, and an assertion about the rect the menu reported.
 #[test]
-fn a_large_control_in_the_overflow_menu_is_tall_enough_to_click() {
+fn a_large_control_in_a_popup_is_tall_enough_to_click() {
     let ctx = context();
     let registry = registry();
-    let shell = shell([Item::command("a.one").sized(ItemSize::Large)]);
+    // ★★ RETARGETED 2026-08-25 from the `⏷ N more` dropdown to a COLLAPSED
+    // GROUP's popup, which S4 left as the only popup that renders groups. The
+    // defect guarded is unchanged and is one of the sharpest in this crate: a
+    // Large control handed `GroupBox::NATURAL` — whose `rows` is 0.0 — used to
+    // allocate a rect of ZERO HEIGHT. It painted, it published its rect, and it
+    // was not clickable, because a zero-height rect has no area to hit.
+    // `ui-verify` found it in the honest way, reporting `ribbon.item.file.print`
+    // at `y 148.0 .. 148.0`. Every unit test passed, because only the popup
+    // path passes a zero.
+    let mut shell = shell([Item::command("a.one").sized(ItemSize::Large)]);
+    if let Some(g) = shell
+        .tabs
+        .iter_mut()
+        .flatten()
+        .flat_map(|t| t.groups.iter_mut().flatten())
+        .next()
+    {
+        g.collapse = Some(1);
+    }
     let mut state = crate::ribbon::RibbonState::new();
     state.set_active_tab("t");
     // Narrow enough that the only group cannot fit beside the affordance.
@@ -336,12 +354,12 @@ fn a_large_control_in_the_overflow_menu_is_tall_enough_to_click() {
     render(&ctx, &mut state, egui::RawInput::default(), &mut rects);
     let affordance = rects
         .iter()
-        .find(|(n, _)| n == "ribbon.overflow")
+        .find(|(n, _)| n == "ribbon.group.t.g.collapsed")
         .map(|(_, r)| *r)
-        .expect("the band is too narrow for the group, so the affordance must be there");
+        .expect("the band is too narrow for the group, so it must have collapsed");
     assert!(
         item_rect(&rects, "a.one").is_none(),
-        "with the menu closed the control must not be on the band, or the assertion below could be satisfied without the menu ever opening"
+        "with the popup closed the control must not be on the band, or the assertion below could be satisfied without the popup ever opening"
     );
 
     // Click the affordance, then let the popup render and settle.

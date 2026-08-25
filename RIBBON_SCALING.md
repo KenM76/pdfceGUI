@@ -221,7 +221,7 @@ almost never appears is a smaller win than it looked before S3 was measured.
 
 ---
 
-## 6a. S5 — groups re-wrap onto MORE rows as the window narrows
+## 6a. S5 ✅ DONE 2026-08-25 — groups re-wrap onto MORE rows as the window narrows
 
 **Operator instruction, 2026-08-25**, and a correction of this document:
 
@@ -260,6 +260,20 @@ already applies, where it sweeps 600 widths instead of checking three.
 | `GROUP_WRAP_WIDTH` is a fixed 440 pt trigger on the group's own content | the row count is chosen from the width the band can actually offer the group |
 | `wrap_group` splits into exactly `GROUP_ROWS` rows | splits into the fewest rows that fit the offered width, capped at 3 |
 
+### As built, measured on the File tab
+
+| window width | Export group | groups collapsed | scroll arrow |
+|---:|---:|---:|---|
+| 2200 | **2 rows** | 0 | no |
+| 1600 | 3 rows | 1 | no |
+| 1200 | **3 rows** | 3 | no |
+| 1000 | — | 4 | **yes** |
+
+★★ **And the band's height is identical at every one of them** — the group box
+is `47 .. 140` at 1200 and at 1600, and the document tab row begins at 144 in
+both. That is the property the whole design is arranged around, and it is why
+the third row needed more than a bigger constant. See below.
+
 ★ **Band height must not move.** R128 governs: the ribbon sits directly above
 the canvas and a band that changed height would move the canvas under a
 fit-to-page zoom, which is the feedback loop this project has already paid for
@@ -287,7 +301,7 @@ sweep test rather than spot checks.
 
 ---
 
-## 6b. S4 — the scroll arrow, authorised
+## 6b. S4 ✅ DONE 2026-08-25 — the scroll arrow
 
 **Operator instruction, 2026-08-25:** *"do the scroll like Word."*
 

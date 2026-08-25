@@ -933,9 +933,20 @@ fn the_mode_selector_moves_with_the_arrow_keys() {
 /// The count is the whole point: with the menu open, **every** group
 /// on the tab has been drawn and every one of them emitted a caption.
 #[test]
-fn groups_in_the_overflow_menu_are_captioned_too() {
+fn a_group_in_a_popup_is_captioned_too() {
     let ctx = egui::Context::default();
-    let shell = shell();
+    // ★★ RETARGETED 2026-08-25, not deleted. This test guarded *"a group drawn
+    // inside a popup still gets its caption"* — the defect the salvage source
+    // actually shipped, twice. Its subject used to be the `⏷ N more` dropdown;
+    // S4 replaced that with a scroll arrow, so the only popup that renders
+    // groups is now a COLLAPSED GROUP'S. The invariant is unchanged and still
+    // reachable, so the test follows it rather than retiring with the
+    // mechanism it happened to be written against.
+    //
+    // A local fixture, because giving the shared one a collapse priority
+    // changes every width in this module and broke two unrelated tests when it
+    // was tried.
+    let shell = collapsing_shell();
     let registry = registry();
     let mut state = RibbonState::new();
     state.set_active_tab("view");
@@ -944,7 +955,7 @@ fn groups_in_the_overflow_menu_are_captioned_too() {
     let mut overflow_rect = None;
     {
         let mut sink = |name: &str, rect: Rect| {
-            if name == report::overflow() {
+            if name == "ribbon.group.view.page_display.collapsed" {
                 overflow_rect = Some(rect);
             }
         };
@@ -955,15 +966,15 @@ fn groups_in_the_overflow_menu_are_captioned_too() {
         });
     }
     let at = overflow_rect
-        .expect("the affordance publishes its rect")
+        .expect("the collapsed group publishes its rect")
         .center();
-    let hidden = state.last_frame().groups_overflowed;
-    assert!(hidden > 0, "the band must actually be overflowing");
-    assert_eq!(
-        state.last_frame().groups_rendered,
-        3 - hidden,
-        "with the menu CLOSED only the band's groups are drawn — checked so the assertion below is not satisfied by a menu that never opened"
-    );
+    // ★ Zero is a legal value here and the first draft asserted otherwise.
+    // A COLLAPSED group deliberately contributes to neither counter while its
+    // popup is shut — see `collapsed`'s note on why there is no `count`
+    // helper — so at a width where the only group on the band is the collapsed
+    // one, nothing has been "rendered" yet. What makes the assertion below
+    // meaningful is not that this is non-zero but that the popup RAISES it.
+    let closed = state.last_frame().groups_rendered;
 
     // Click it, then let the popup render.
     let mut input = egui::RawInput::default();
@@ -994,34 +1005,29 @@ fn groups_in_the_overflow_menu_are_captioned_too() {
     let report = state.last_frame();
     assert_eq!(
         report.groups_rendered, report.captions_emitted,
-        "a group in the overflow menu was drawn without a caption"
+        "a group in a popup was drawn without a caption"
     );
-    assert_eq!(
-        report.groups_rendered,
-        3,
-        "with the menu open every group on the View tab has been drawn: \
-         {} in the band and {} in the menu (the plan moved {} to the menu; \
-         if that number and the menu count disagree, the popup never opened \
-         — which is what a mis-placed affordance looks like from here)",
-        // ★ Both operands come from the SAME counter: `groups_in_band`
-        // is the value `groups_rendered` had reached when the band's
-        // loop finished. A counter is monotonic, so this subtraction
-        // is ordered by construction and cannot underflow.
-        //
-        // What used to be here was `groups_rendered − groups_overflowed`
-        // — a count of what was *drawn* minus a count of what the plan
-        // *intended*. Those are ordered only when the menu is open. On
-        // the failing frame the menu never opened, so the band had
-        // drawn 0 groups while the plan had moved 3, and evaluating the
-        // failure message panicked with an arithmetic underflow before
-        // the real assertion could report the real problem. A
-        // diagnostic that cannot survive the state it diagnoses is
-        // worse than none: it replaced "expected 3, got 0" with
-        // "attempt to subtract with overflow".
-        report.groups_in_band,
-        report.groups_rendered - report.groups_in_band,
-        report.groups_overflowed
+    assert!(
+        report.groups_rendered > closed,
+        "the popup must actually have opened: {} groups drawn with it open against {closed} with it closed",
+        report.groups_rendered
     );
+}
+
+/// A shell whose View tab has a group that collapses, so there is a popup to
+/// open. See [`a_group_in_a_popup_is_captioned_too`].
+fn collapsing_shell() -> Shell {
+    let mut s = shell();
+    if let Some(tab) = s.tabs.iter_mut().flatten().find(|t| t.id == "view")
+        && let Some(g) = tab
+            .groups
+            .iter_mut()
+            .flatten()
+            .find(|g| g.id == "page_display")
+    {
+        g.collapse = Some(1);
+    }
+    s
 }
 
 /// The builder's borrows are ergonomic at a realistic call site: a

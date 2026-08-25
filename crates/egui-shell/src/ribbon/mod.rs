@@ -96,9 +96,11 @@
 pub mod a11y;
 pub mod band;
 pub(crate) mod collapsed;
+pub(crate) mod control;
 pub mod ctx;
 pub mod frame_report;
 pub mod mode_selector;
+pub(crate) mod overflow;
 pub mod plan;
 pub mod qat;
 pub mod render;

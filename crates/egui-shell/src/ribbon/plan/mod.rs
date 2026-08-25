@@ -271,6 +271,27 @@ pub(crate) const GROUP_PADDING: f32 = 6.0;
 /// reading as that row's label.
 pub(crate) const GROUP_ROWS: usize = 2;
 
+/// **The most rows a group may be re-wrapped onto** when the band runs short of
+/// width — S5's ceiling.
+///
+/// Three, from Word: its Font group is two rows at 1900 pt and **three** at
+/// 1000 pt (`evidence/word-ribbon/`). It never goes to four at any width in the
+/// series, including 460, where it collapses instead.
+///
+/// ★ Why the ceiling is not simply "as many as it takes": the band's HEIGHT is
+/// fixed and must stay fixed — R128, and the reason [`GROUP_ROWS`]'s own doc
+/// gives for stopping at two in the first place. A fourth row would either grow
+/// the band, which moves the canvas under a fit-to-page zoom, or shrink the
+/// controls below the size at which their icons are legible. Word reached the
+/// same answer, and reaching it independently is worth more than copying it.
+///
+/// ★★ Note this is a **ceiling, not a target**. `wrap_group` searches for the
+/// narrowest packing that fits within the row limit it is given, so a group
+/// that reaches its narrowest at two rows stays at two even when three are
+/// permitted, and `collapse::Candidate::gains_from` then declines to spend a
+/// rung of the ladder on it.
+pub(crate) const MAX_GROUP_ROWS: usize = 3;
+
 /// **The row width at which a group wraps onto its second row.**
 ///
 /// Taken from `mockups/ribbon.html`, which is this change's specification:

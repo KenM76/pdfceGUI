@@ -1,8 +1,9 @@
-//! # `ribbon::plan::collapse` — the collapse ladder
+//! # `ribbon::plan::collapse` — the compaction ladder
 //!
-//! **S3 of `RIBBON_SCALING.md`.** When a band does not fit, this decides
-//! *which groups give up their rows*, and in what order, before anything is
-//! pushed into the overflow menu at all.
+//! **S5 and S3 of `RIBBON_SCALING.md`, as one mechanism.** When a band does not
+//! fit, this decides how compact each group must be drawn — and in what order
+//! the compactions are applied — before anything is pushed into the overflow
+//! affordance at all.
 //!
 //! ## What Word actually does, measured rather than remembered
 //!
@@ -10,145 +11,201 @@
 //! `evidence/word-ribbon/`, taken at twelve window widths, because a ribbon's
 //! scaling rules are implemented inside the Office UI framework and exposed
 //! through no API — `Application.CommandBars` is the 2003 toolbar surface and
-//! says nothing about any of this. Three readings decide everything here:
+//! says nothing about any of this. Four readings decide everything here:
 //!
 //! | width | what the Home tab shows |
 //! |---:|---|
-//! | 1300 | Clipboard, Font, Paragraph, Styles, Editing … all expanded, Font and Paragraph on two rows |
-//! | 800 | **Font and Paragraph are single captioned buttons with a chevron.** Clipboard is unchanged |
+//! | 1900 | everything expanded; **Font is two rows** |
+//! | 1300 | still all expanded, Font and Paragraph on two rows |
+//! | 1000 | **Font is THREE rows**; Paragraph has collapsed to a button |
 //! | 460 | Font, Paragraph, Styles, Editing all collapsed; **Clipboard still expanded**; a `›` scroll arrow at the band's right edge |
 //!
-//! Three facts follow, and all three are counter-intuitive enough to be worth
-//! stating:
+//! Four facts follow, and every one is counter-intuitive enough to be worth
+//! stating.
 //!
-//! 1. **Groups DO re-wrap onto more rows as the window narrows — and this
-//!    file said the opposite for one day.**
+//! 1. **Groups re-wrap onto MORE rows as the window narrows** — Font is two
+//!    rows at 1900 and three at 1000, the size stepper and the case/clear
+//!    controls dropping to a third row on the way.
 //!
-//!    ★★★ CORRECTED 2026-08-25, by the operator, against evidence that was
-//!    already in the repository. The claim here was *"groups do not re-wrap;
-//!    the row split is a property of the group's own content and does not
-//!    change with the window"*. It is **false**. Word's Font group is **two
-//!    rows at 1900 pt** (`ribbon-1900.png`) and **three rows at 1000 pt**
-//!    (`ribbon-1000.png`) — the size stepper and the case/clear controls move
-//!    down to a third row as the width falls.
+//!    ★★★ This file asserted the *opposite* for one day, and was corrected by
+//!    the operator on 2026-08-25 against evidence already committed to this
+//!    repository. The widths compared when the wrong claim was written were
+//!    1300 and 800 — and **by 800 the group has already collapsed**, so the
+//!    reflow between them appears in neither photograph. A twelve-frame series
+//!    was taken and three frames were read. *Sampling either side of a
+//!    transition and concluding there is no transition* is the shape of the
+//!    mistake; `D:/dev/rag/egui/` carries it as a finding, because it is
+//!    repeatable and it is not carelessness — the two endpoints agreeing is
+//!    exactly what makes the conclusion feel safe.
 //!
-//!    The error is worth recording because of HOW it was made: the widths
-//!    compared were 1300 and 800, and **by 800 the group had already
-//!    collapsed**, so the reflow between them was never on screen in either
-//!    photograph. A twelve-frame series was taken and three frames were read.
-//!    *Sampling two points either side of a transition and concluding there is
-//!    no transition* is the shape of the mistake, and it produced a confident
-//!    sentence in a module header and in a commit message.
+//! 2. **Re-wrapping comes before collapsing, and no group may decline it.**
+//!    Re-wrapping hides nothing: every control stays on the band, labelled.
+//!    Collapsing hides all of them behind a popup. So it is always better to
+//!    re-wrap five groups than to collapse one, and the ladder exhausts the
+//!    re-wrap rung completely before it begins the collapse rung.
 //!
-//!    What is true is narrower: **this shell** does not yet re-wrap by window.
-//!    [`super::GROUP_WRAP_WIDTH`] is a fixed trigger on the group's own
-//!    content and [`super::GROUP_ROWS`] is 2. Re-wrapping to a
-//!    width-dependent row count, up to three, is **S5** in
-//!    `RIBBON_SCALING.md` — and it belongs BEFORE this ladder, because a
-//!    group that can reflow needs less help than one that cannot.
-//! 2. **A group can decline to collapse, and the one that declines is not the
+//! 3. **A group can decline to collapse, and the one that declines is not the
 //!    small one.** Clipboard is wider than Editing and outlives it at every
-//!    width. The property being selected on is *importance*, which is
-//!    editorial, which is why it is [`crate::manifest::Group::collapse`] in
+//!    width down to 460. The property being selected on is *importance*, which
+//!    is editorial, which is why it is [`crate::manifest::Group::collapse`] in
 //!    the manifest and not a heuristic here.
-//! 3. **Collapsing comes before scrolling, and before the overflow menu.** The
-//!    `›` arrow appears at 460 and not at 800, by which point four groups have
-//!    already collapsed. A surface that scrolls first would be hiding commands
-//!    while the space to show them existed.
 //!
-//! ## ★★★ The two `plan_band` invariants, restated
+//! 4. **Collapsing comes before scrolling.** The `›` arrow appears at 460 and
+//!    not at 800, by which point four groups have already collapsed. A surface
+//!    that scrolled first would be hiding commands while the space to show
+//!    them, compacted, was still there.
 //!
-//! `RIBBON_SCALING.md` §6 names this stage's real cost: two invariants that
-//! `super::plan_band` has held since it was written both have to be re-stated
-//! for a world in which a group can **shrink** instead of vanishing.
+//! ## ★★★ The `plan_band` invariants, restated
+//!
+//! `RIBBON_SCALING.md` names this stage's real cost: invariants that
+//! `super::plan_band` has held since it was written have to be re-stated for a
+//! world in which a group can **shrink** instead of vanishing.
 //!
 //! **`the_visible_groups_are_a_prefix_and_nothing_is_lost`.** Still true, and
 //! now says something stronger. The shown groups remain a prefix of the
 //! manifest order; what changes is that a group in that prefix may be present
-//! in *collapsed* form. Nothing is lost either way — a collapsed group's items
-//! are all reachable through its own popup, exactly as a hidden group's are
-//! through the overflow menu. The count that must be conserved is therefore
-//! `shown + hidden == n` regardless of how many of the shown are collapsed,
-//! and [`collapse_to_fit`] never changes `n`.
+//! in a compacted form. Nothing is lost in any of them — a re-wrapped group
+//! draws every control, and a collapsed group's are all reachable through its
+//! own popup, exactly as a hidden group's are through the overflow affordance.
+//! The count that must be conserved is `shown + hidden == n` regardless of how
+//! many of the shown are compacted, and [`fit`] never changes `n`.
 //!
 //! **`widening_the_band_never_hides_a_group_that_was_visible`.** This is the
 //! one that needed real care, because the obvious implementation breaks it.
-//! Monotonicity now has **two** rungs rather than one, and both must hold:
+//! Monotonicity now has **three** rungs and all must hold: widening never
+//! re-wraps a group that was natural, never collapses one that was re-wrapped,
+//! and never hides one that was visible in any form.
 //!
-//! * widening never collapses a group that was expanded, and
-//! * widening never hides a group that was visible **or** collapsed.
-//!
-//! [`collapse_to_fit`] gets this by construction rather than by testing for
-//! it: it always starts from *everything expanded* and collapses forward in a
-//! fixed priority order until it fits. It never starts from the previous
-//! frame's answer. So the set collapsed at width `w` is a pure function of
-//! `w`, and it shrinks as `w` grows — there is no state to drift and no
-//! hysteresis to tune.
+//! [`fit`] gets this by construction rather than by testing for it: it always
+//! starts from *everything natural* and advances forward in a fixed order until
+//! it fits. **It never starts from the previous frame's answer.** So the state
+//! of a group at width `w` is a pure function of `w`, it only ever moves back
+//! up the ladder as `w` grows, and there is no hysteresis to tune.
 //!
 //! ★ That is also why this is a free function over slices rather than a method
 //! on something that remembers. **A layout that remembers what it did last
 //! frame is how a ribbon acquires a width at which it flickers**, and this
-//! project has already paid once for a measurement fed back into a size (see
-//! `dialogs::host`'s growth budget).
+//! project has already paid three times for a measurement fed back into a size
+//! — R128's zoom drift, the About window's creep, and the print dialog's
+//! runaway.
+
+/// How compact one group is being drawn.
+///
+/// Ordered widest-first, which is the order the ladder advances through and the
+/// order [`State::next`] returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum State {
+    /// The group's own natural row split — at most [`super::GROUP_ROWS`] rows.
+    /// What every group gets when the band has room.
+    Natural,
+    /// Re-wrapped onto up to [`super::MAX_GROUP_ROWS`] rows, which is narrower.
+    ///
+    /// ★ **Non-destructive**: every control is still drawn, still labelled,
+    /// still on the band. That is why this rung comes before collapsing and why
+    /// no group is exempt from it.
+    Rewrapped,
+    /// Drawn as a single captioned button, its contents in a popup.
+    ///
+    /// **Destructive** — the controls are no longer on the band — which is why
+    /// a group may decline it. See [`crate::manifest::Group::collapse`].
+    Collapsed,
+}
+
+impl State {
+    /// The next rung down, or `None` at the bottom.
+    #[allow(dead_code)] // Used by the ordering documentation and by tests.
+    fn next(self) -> Option<Self> {
+        match self {
+            Self::Natural => Some(Self::Rewrapped),
+            Self::Rewrapped => Some(Self::Collapsed),
+            Self::Collapsed => None,
+        }
+    }
+}
 
 /// One group, as the ladder needs to see it.
 ///
-/// Deliberately not the manifest's `Group`: the ladder needs three numbers and
-/// nothing else, and keeping it that way is what makes it testable without
-/// building a manifest, a registry and a font.
+/// Deliberately not the manifest's `Group`: the ladder needs three widths and a
+/// priority, and keeping it that way is what makes it testable without building
+/// a manifest, a registry and a font.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Candidate {
-    /// What the group costs with all its rows drawn.
-    pub expanded: f32,
+    /// What the group costs at its natural row split.
+    pub natural: f32,
+    /// What it costs re-wrapped onto up to [`super::MAX_GROUP_ROWS`] rows.
+    ///
+    /// May equal [`Self::natural`] — a group of three items has nowhere to go —
+    /// and the ladder gains nothing by advancing such a group, which [`fit`]
+    /// detects by measuring rather than by asking.
+    pub rewrapped: f32,
     /// What it costs as a single captioned button with a chevron.
-    ///
-    /// Always the smaller of the two in practice; the ladder does not require
-    /// it to be, and simply gains nothing from collapsing a group whose
-    /// collapsed form is no narrower.
     pub collapsed: f32,
-    /// Its rung on the ladder, or `None` for a group that never collapses.
+    /// Its rung on the collapse ladder, or `None` for a group that never
+    /// collapses.
     ///
-    /// Lower collapses first. See [`crate::manifest::Group::collapse`].
+    /// ★ This gates **collapsing only**. Every group re-wraps, including one
+    /// that declines to collapse: Word's Clipboard never collapses, and Font,
+    /// which does, still re-wraps from two rows to three on the way there.
+    /// Re-wrapping hides nothing, so there is nothing to decline.
     pub priority: Option<u32>,
 }
 
-/// **Which groups must collapse for the band to fit.**
+impl Candidate {
+    /// This group's width in a given state.
+    fn width(self, state: State) -> f32 {
+        match state {
+            State::Natural => self.natural,
+            State::Rewrapped => self.rewrapped,
+            State::Collapsed => self.collapsed,
+        }
+    }
+
+    /// Whether advancing to `state` is worth anything at all.
+    ///
+    /// ★ Measured, not assumed. A group whose three-row layout is no narrower
+    /// than its natural one — anything with few enough items — would otherwise
+    /// consume a rung of the ladder, change nothing, and make the band appear
+    /// to stall at one width and jump at the next.
+    fn gains_from(self, state: State) -> bool {
+        match state {
+            State::Collapsed => self.priority.is_some(),
+            _ => self.width(state) < self.width(State::Natural),
+        }
+    }
+}
+
+/// **How compact each group must be for the band to fit.**
 ///
-/// Returns a mask parallel to `groups`: `true` means *draw this one
-/// collapsed*. The mask is a pure function of its inputs, which is the whole
-/// of the monotonicity argument in this module's header.
+/// Returns a state per group, parallel to `groups`. A pure function of its
+/// inputs, which is the whole of the monotonicity argument in this module's
+/// header.
 ///
-/// # The algorithm, and why it stops where it does
+/// # The ladder
 ///
-/// 1. Measure everything expanded. If it fits, collapse nothing — a band that
-///    collapsed a group it had room for would be hiding commands for no gain.
-/// 2. Otherwise collapse the next group in priority order, re-measure, and
-///    repeat.
-/// 3. Stop when it fits, **or when every group that may collapse has**. The
-///    second exit is not a failure: what is left over is handed to
-///    [`super::plan_band`], whose overflow menu is the next rung and was
-///    always going to be the last resort.
+/// 1. Everything at [`State::Natural`]. If it fits, stop — a band that
+///    compacted a group it had room for would be making itself harder to read
+///    for no gain.
+/// 2. **Re-wrap** every group that gets narrower by it, in manifest order.
+///    This rung is exhausted before the next one begins.
+/// 3. **Collapse** in authored priority order, skipping any group that
+///    declines.
+/// 4. Stop when it fits, or when the ladder is exhausted — at which point what
+///    is left over goes to [`super::plan_band`] and its overflow affordance,
+///    which was always going to be the last resort.
 ///
-/// ★ Step 2 re-measures rather than subtracting a precomputed saving, because
-/// the two are not the same once separators are involved and the difference is
-/// exactly the kind of one-group-too-many error that shows up only at one
-/// window width.
-///
-/// # Ties
-///
-/// Equal priorities collapse in manifest order — left to right — because that
-/// is what a reader watching the band narrow would predict. `sort_by_key` is
-/// stable, so this needs no special handling, but it is asserted rather than
-/// assumed.
-pub(crate) fn collapse_to_fit(groups: &[Candidate], available: f32, separator: f32) -> Vec<bool> {
-    let mut mask = vec![false; groups.len()];
+/// ★ Each step re-measures rather than subtracting a precomputed saving,
+/// because the two are not the same once separators are involved, and the
+/// difference is exactly the kind of one-group-too-many error that shows up
+/// only at a single window width.
+pub(crate) fn fit(groups: &[Candidate], available: f32, separator: f32) -> Vec<State> {
+    let mut states = vec![State::Natural; groups.len()];
     if groups.is_empty() {
-        return mask;
+        return states;
     }
 
     // A non-finite or negative width is not a width. Zero makes the degenerate
-    // case the safe one — collapse everything that may collapse — rather than
-    // the dangerous one, an infinite budget that collapses nothing and clips.
+    // case the safe one — compact everything that may compact — rather than the
+    // dangerous one, an infinite budget that compacts nothing and clips.
     let available = if available.is_finite() {
         available.max(0.0)
     } else {
@@ -160,12 +217,24 @@ pub(crate) fn collapse_to_fit(groups: &[Candidate], available: f32, separator: f
         0.0
     };
 
-    if width_of(groups, &mask, separator) <= available {
-        return mask;
+    if width_of(groups, &states, separator) <= available {
+        return states;
     }
 
-    // The ladder, resolved once. `(priority, index)` with a stable sort gives
-    // manifest order within a priority for free.
+    // Rung 2 — re-wrap, in manifest order. No priority: see `Candidate::
+    // priority`. Left to right is what a reader watching the band narrow would
+    // predict.
+    for i in 0..groups.len() {
+        if groups[i].gains_from(State::Rewrapped) {
+            states[i] = State::Rewrapped;
+            if width_of(groups, &states, separator) <= available {
+                return states;
+            }
+        }
+    }
+
+    // Rung 3 — collapse, in authored priority order. `(priority, index)` with a
+    // stable sort gives manifest order within a priority for free.
     let mut ladder: Vec<(u32, usize)> = groups
         .iter()
         .enumerate()
@@ -174,39 +243,35 @@ pub(crate) fn collapse_to_fit(groups: &[Candidate], available: f32, separator: f
     ladder.sort_by_key(|(p, _)| *p);
 
     for (_, i) in ladder {
-        mask[i] = true;
-        if width_of(groups, &mask, separator) <= available {
+        states[i] = State::Collapsed;
+        if width_of(groups, &states, separator) <= available {
             break;
         }
     }
-    mask
+    states
 }
 
-/// What the band costs with this collapse mask applied.
+/// What the band costs with these states applied.
 ///
-/// `n` groups carry `n − 1` separators, and a collapsed group still occupies a
-/// slot — it is narrower, not absent. Conflating "collapsed" with "gone" is
-/// the mistake that would break the conservation half of
+/// `n` groups carry `n − 1` separators, and a compacted group still occupies a
+/// slot — it is narrower, not absent. Conflating "compacted" with "gone" is the
+/// mistake that would break the conservation half of
 /// `the_visible_groups_are_a_prefix_and_nothing_is_lost`.
-fn width_of(groups: &[Candidate], mask: &[bool], separator: f32) -> f32 {
-    let sum: f32 = groups
-        .iter()
-        .zip(mask)
-        .map(|(g, &c)| if c { g.collapsed } else { g.expanded })
-        .sum();
+fn width_of(groups: &[Candidate], states: &[State], separator: f32) -> f32 {
+    let sum: f32 = groups.iter().zip(states).map(|(g, &s)| g.width(s)).sum();
     sum + separator * (groups.len().saturating_sub(1)) as f32
 }
 
 /// The widths [`super::plan_band`] should be given, once the ladder has run.
 ///
-/// A convenience so the caller does not re-derive the same `if` in a third
-/// place — the mask and the widths must agree, and the cheapest way to
+/// A convenience so the caller does not re-derive the same `match` in a third
+/// place — the states and the widths must agree, and the cheapest way to
 /// guarantee that is to produce them together.
-pub(crate) fn widths_after(groups: &[Candidate], mask: &[bool]) -> Vec<f32> {
+pub(crate) fn widths_after(groups: &[Candidate], states: &[State]) -> Vec<f32> {
     groups
         .iter()
-        .zip(mask)
-        .map(|(g, &c)| if c { g.collapsed } else { g.expanded })
+        .zip(states)
+        .map(|(g, &s)| g.width(s))
         .collect()
 }
 
@@ -214,88 +279,155 @@ pub(crate) fn widths_after(groups: &[Candidate], mask: &[bool]) -> Vec<f32> {
 mod tests {
     use super::*;
 
-    /// Three groups, the middle one narrow when collapsed.
+    /// Three groups that each get meaningfully narrower at every rung.
     fn trio() -> Vec<Candidate> {
         vec![
             Candidate {
-                expanded: 100.0,
+                natural: 100.0,
+                rewrapped: 80.0,
                 collapsed: 40.0,
                 priority: Some(2),
             },
             Candidate {
-                expanded: 200.0,
+                natural: 200.0,
+                rewrapped: 140.0,
                 collapsed: 40.0,
                 priority: Some(1),
             },
             Candidate {
-                expanded: 150.0,
+                natural: 150.0,
+                rewrapped: 120.0,
                 collapsed: 40.0,
                 priority: Some(3),
             },
         ]
     }
 
-    /// **A band with room collapses nothing.** The first rung of the ladder is
+    /// **The rungs are ordered widest-first**, which every `<=` comparison in
+    /// the monotonicity sweep depends on.
+    #[test]
+    fn the_ladder_is_ordered_widest_first() {
+        assert!(State::Natural < State::Rewrapped);
+        assert!(State::Rewrapped < State::Collapsed);
+        assert_eq!(State::Natural.next(), Some(State::Rewrapped));
+        assert_eq!(State::Collapsed.next(), None);
+    }
+
+    /// **A band with room compacts nothing.** The first rung of the ladder is
     /// not standing on it.
     #[test]
-    fn a_band_that_fits_collapses_nothing() {
-        let g = trio();
+    fn a_band_that_fits_is_left_alone() {
         // 100 + 200 + 150 + 2 separators of 8 = 466
-        assert_eq!(collapse_to_fit(&g, 500.0, 8.0), vec![false, false, false]);
+        assert_eq!(
+            fit(&trio(), 500.0, 8.0),
+            vec![State::Natural, State::Natural, State::Natural]
+        );
     }
 
-    /// **Lower priority collapses first**, and only as far as it must.
-    #[test]
-    fn the_ladder_is_climbed_in_priority_order_and_stops_when_it_fits() {
-        let g = trio();
-        // Collapsing priority 1 (index 1) saves 160 -> 306. Fits in 320.
-        assert_eq!(collapse_to_fit(&g, 320.0, 8.0), vec![false, true, false]);
-    }
-
-    /// …and keeps going when one is not enough.
-    #[test]
-    fn the_ladder_continues_until_it_fits() {
-        let g = trio();
-        // 306 after the first; collapsing index 0 too saves 60 -> 246.
-        assert_eq!(collapse_to_fit(&g, 250.0, 8.0), vec![true, true, false]);
-    }
-
-    /// ★★ **A group with no priority never collapses, at any width** — the
-    /// Clipboard case, and the whole reason the field is an `Option`.
+    /// ★★★ **Re-wrapping is exhausted before anything collapses.**
     ///
-    /// Asserted at a width far below what the group alone costs, because that
-    /// is the condition under which a well-meaning "collapse everything as a
-    /// last resort" fallback would fire.
+    /// The rung order is the whole of S5, and it is the property most likely to
+    /// be broken by a later "optimisation" that collapses the widest group
+    /// first because that converges faster. It does converge faster and it is
+    /// wrong: re-wrapping keeps every control on the band and collapsing hides
+    /// them all, so five re-wraps beat one collapse however the arithmetic
+    /// comes out.
     #[test]
-    fn a_group_that_declines_to_collapse_survives_any_width() {
+    fn every_group_rewraps_before_any_group_collapses() {
+        // Natural 466. All re-wrapped: 80 + 140 + 120 + 16 = 356.
+        assert_eq!(
+            fit(&trio(), 360.0, 8.0),
+            vec![State::Rewrapped, State::Rewrapped, State::Rewrapped],
+            "a width reachable by re-wrapping alone must not collapse anything"
+        );
+    }
+
+    /// …and one re-wrap is enough when one is enough.
+    #[test]
+    fn the_rewrap_rung_stops_as_soon_as_it_fits() {
+        // Re-wrapping only the first: 80 + 200 + 150 + 16 = 446.
+        assert_eq!(
+            fit(&trio(), 450.0, 8.0),
+            vec![State::Rewrapped, State::Natural, State::Natural]
+        );
+    }
+
+    /// **Collapsing begins only once re-wrapping has run out**, and then goes
+    /// in priority order — and the groups already re-wrapped stay re-wrapped.
+    #[test]
+    fn collapsing_starts_after_the_rewrap_rung_and_follows_priority() {
+        // Fully re-wrapped is 356; collapsing priority 1 (index 1) → 256.
+        assert_eq!(
+            fit(&trio(), 300.0, 8.0),
+            vec![State::Rewrapped, State::Collapsed, State::Rewrapped]
+        );
+    }
+
+    /// ★★ **A group with no priority never collapses — but it still
+    /// re-wraps.** The Clipboard case, and the distinction S5 introduced.
+    #[test]
+    fn a_group_that_declines_to_collapse_still_rewraps() {
         let g = vec![
             Candidate {
-                expanded: 300.0,
+                natural: 300.0,
+                rewrapped: 220.0,
                 collapsed: 40.0,
                 priority: None,
             },
             Candidate {
-                expanded: 200.0,
+                natural: 200.0,
+                rewrapped: 150.0,
                 collapsed: 40.0,
                 priority: Some(1),
             },
         ];
-        let mask = collapse_to_fit(&g, 10.0, 8.0);
+        let states = fit(&g, 10.0, 8.0);
         assert_eq!(
-            mask,
-            vec![false, true],
-            "a group with no collapse priority must keep its rows even when \
-             the band cannot possibly fit — what happens next is the overflow \
-             menu's problem, not the ladder's"
+            states[0],
+            State::Rewrapped,
+            "declining to COLLAPSE is not declining to re-wrap: re-wrapping \
+             hides nothing, so there is nothing for a group to decline"
+        );
+        assert_eq!(states[1], State::Collapsed);
+    }
+
+    /// **A group that gains nothing by re-wrapping is not re-wrapped.**
+    ///
+    /// Otherwise it consumes a rung, changes no width, and the band appears to
+    /// stall at one width and jump at the next.
+    #[test]
+    fn a_group_with_nowhere_to_reflow_is_skipped() {
+        let g = vec![
+            // Three items on one row: the three-row layout is the same width.
+            Candidate {
+                natural: 90.0,
+                rewrapped: 90.0,
+                collapsed: 30.0,
+                priority: None,
+            },
+            Candidate {
+                natural: 300.0,
+                rewrapped: 180.0,
+                collapsed: 40.0,
+                priority: None,
+            },
+        ];
+        assert_eq!(
+            fit(&g, 280.0, 8.0),
+            vec![State::Natural, State::Rewrapped],
+            "a group whose re-wrapped width equals its natural one must be left \
+             at Natural, so every step of the ladder means something"
         );
     }
 
-    /// **Running out of ladder is not a failure.** Everything collapsible is
-    /// collapsed and the remainder is left for the overflow menu.
+    /// **Running out of ladder is not a failure.** Everything compactable is
+    /// compacted and the remainder is left to the overflow affordance.
     #[test]
-    fn exhausting_the_ladder_leaves_the_rest_to_the_overflow_menu() {
-        let g = trio();
-        assert_eq!(collapse_to_fit(&g, 1.0, 8.0), vec![true, true, true]);
+    fn exhausting_the_ladder_leaves_the_rest_to_the_overflow_affordance() {
+        assert_eq!(
+            fit(&trio(), 1.0, 8.0),
+            vec![State::Collapsed, State::Collapsed, State::Collapsed]
+        );
     }
 
     /// **Equal priorities collapse left to right.**
@@ -303,69 +435,76 @@ mod tests {
     fn ties_break_on_manifest_order() {
         let g = vec![
             Candidate {
-                expanded: 100.0,
+                natural: 100.0,
+                rewrapped: 100.0,
                 collapsed: 10.0,
                 priority: Some(5),
             },
             Candidate {
-                expanded: 100.0,
+                natural: 100.0,
+                rewrapped: 100.0,
                 collapsed: 10.0,
                 priority: Some(5),
             },
         ];
-        // Needs exactly one collapsed: 100 + 10 + 8 = 118.
-        assert_eq!(collapse_to_fit(&g, 120.0, 8.0), vec![true, false]);
+        // Neither gains from re-wrapping, so the collapse rung runs. One
+        // collapsed: 10 + 100 + 8 = 118.
+        assert_eq!(fit(&g, 120.0, 8.0), vec![State::Collapsed, State::Natural]);
     }
 
-    /// ★★★ **Widening never re-collapses, and never hides.** The restated
+    /// ★★★ **Widening never compacts further, on any rung.** The restated
     /// monotonicity invariant, swept rather than spot-checked.
     ///
-    /// For every pair of widths `w1 < w2`, every group collapsed at `w2` must
-    /// also have been collapsed at `w1`. Equivalently: the collapsed set only
-    /// ever shrinks as the band grows. A hysteresis bug — the classic
-    /// consequence of planning from the previous frame's answer instead of
-    /// from scratch — shows up here as a width at which the set grows again.
+    /// For every pair of adjacent widths, no group's state may move DOWN the
+    /// ladder as the band grows. A hysteresis bug — the classic consequence of
+    /// planning from the previous frame's answer instead of from scratch —
+    /// shows up here as a width at which some group compacts again.
+    ///
+    /// ★ The sweep is one point at a time, deliberately, and this test is now
+    /// the project's standing example of why: the wrong claim about Word's
+    /// re-wrapping that S5 exists to correct was made by comparing exactly two
+    /// widths. Endpoints agreeing is not evidence about what happens between
+    /// them.
     #[test]
-    fn widening_the_band_never_collapses_a_group_that_was_expanded() {
+    fn widening_the_band_never_compacts_a_group_further() {
         let g = trio();
-        let mut prev: Option<Vec<bool>> = None;
-        // Walk from narrow to wide, one point at a time.
+        let mut prev: Option<Vec<State>> = None;
         for w in 0..600 {
-            let mask = collapse_to_fit(&g, w as f32, 8.0);
+            let states = fit(&g, w as f32, 8.0);
             if let Some(prev) = &prev {
-                for (i, (&now, &before)) in mask.iter().zip(prev).enumerate() {
+                for (i, (&now, &before)) in states.iter().zip(prev).enumerate() {
                     assert!(
-                        !(now && !before),
-                        "group {i} collapsed at width {w} but was expanded at \
-                         {}, which means the band flickers somewhere between \
-                         the two",
+                        now <= before,
+                        "group {i} moved from {before:?} to {now:?} when the band GREW from {} to {w}, which means it flickers between the two",
                         w - 1
                     );
                 }
             }
-            prev = Some(mask);
+            prev = Some(states);
         }
     }
 
-    /// **The mask and the widths agree**, because they are produced together.
+    /// **The states and the widths agree**, because they are produced together.
     #[test]
-    fn widths_after_matches_the_mask() {
+    fn widths_after_matches_the_states() {
         let g = trio();
-        let mask = vec![false, true, false];
-        assert_eq!(widths_after(&g, &mask), vec![100.0, 40.0, 150.0]);
+        let states = vec![State::Natural, State::Rewrapped, State::Collapsed];
+        assert_eq!(widths_after(&g, &states), vec![100.0, 140.0, 40.0]);
     }
 
-    /// A degenerate width does not produce a degenerate band: it collapses
-    /// everything that may collapse, rather than nothing.
+    /// A degenerate width does not produce a degenerate band: it compacts
+    /// everything that may compact, rather than nothing.
     #[test]
     fn a_nonsense_width_is_treated_as_zero_not_as_infinity() {
-        let g = trio();
-        assert_eq!(collapse_to_fit(&g, f32::NAN, 8.0), vec![true, true, true]);
+        assert_eq!(
+            fit(&trio(), f32::NAN, 8.0),
+            vec![State::Collapsed, State::Collapsed, State::Collapsed]
+        );
     }
 
     /// No groups, no work, no panic.
     #[test]
-    fn an_empty_band_collapses_nothing() {
-        assert!(collapse_to_fit(&[], 100.0, 8.0).is_empty());
+    fn an_empty_band_compacts_nothing() {
+        assert!(fit(&[], 100.0, 8.0).is_empty());
     }
 }

@@ -127,6 +127,9 @@ pub fn mode_segment(mode_id: &str) -> String {
 /// Published so a harness can assert `MODES_AND_PANELS.md` Part 2's
 /// failure mode #8 against a running window: at a width where groups are
 /// hidden, this rect must exist and have a positive area.
+pub const OVERFLOW: &str = "ribbon.overflow";
+
+/// See [`OVERFLOW`].
 #[must_use]
 pub fn overflow() -> &'static str {
     "ribbon.overflow"

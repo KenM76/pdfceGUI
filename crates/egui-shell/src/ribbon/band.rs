@@ -200,14 +200,15 @@
 //! exactly the kind of degradation that is invisible until somebody
 //! screenshots it.
 
-use egui::{Align, Atoms, Layout, Rect, RichText, TextStyle, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align, Layout, Rect, RichText, TextStyle, UiBuilder, pos2, vec2};
 
 use crate::manifest::{Group, Item, ItemSize};
 
-use super::a11y;
 use super::collapsed;
-use super::ctx::{Ctx, CustomItem, IconRequest};
-use super::plan::{self, BandPlan, CUSTOM_ITEM_WIDTH, GroupRows};
+use super::control::render_item_at;
+use super::ctx::Ctx;
+use super::overflow;
+use super::plan::{self, CUSTOM_ITEM_WIDTH, GroupRows};
 use super::report;
 use super::sizing;
 
@@ -397,6 +398,62 @@ impl GroupBox {
 /// `super::height_tests::context` now applies the theme for exactly this
 /// reason: `HANDOFF.md` §10's *"a fixture can flatter the thing it
 /// measures"*, arriving through spacing rather than through a curve.
+/// Vertical spacing between rows in a **re-wrapped** group.
+///
+/// Tighter than the theme's, and it has to be: the band's height is fixed
+/// (R128) and three rows must fit the space two normally occupy. See
+/// [`compressed_control_height`] for the arithmetic and for the guard that
+/// stops a group re-wrapping when the result would clip its icons.
+const COMPRESSED_ROW_SPACING: f32 = 2.0;
+
+/// **How tall a control is drawn inside a re-wrapped group**, given the band's
+/// fixed row area.
+///
+/// # ★★★ Why this exists at all — Word's third row is SHORTER
+///
+/// The obvious implementation of S5 is "allow three rows", and it fails
+/// immediately: three rows of `control_height` are half again as tall as two,
+/// so the band grows, so the canvas beneath it moves on every tab click, which
+/// is R128 and is the defect this whole module is arranged around. The height
+/// test caught it on the first build.
+///
+/// Word does not grow its band. Measured in `evidence/word-ribbon/`, its band
+/// is the same height at 1900 pt and at 1000 pt while the Font group goes from
+/// two rows to three — because **its rows are not uniform**. The tall row is
+/// the one with combo boxes in it; the icon rows are shorter. The band is a
+/// fixed budget and rows are packed into it, rather than the band being two
+/// rows tall by definition.
+///
+/// So a re-wrapped group here divides the SAME row area into three, and its
+/// controls are drawn shorter to suit. `Theme::apply` pins
+/// `spacing.interact_size.y` to `control_height`, which is what makes every
+/// control exactly one row tall; overriding it on the group's own `Ui` is what
+/// makes three rows possible without touching the band.
+///
+/// # The guard, and why the eligibility test is a measurement
+///
+/// A control still has to show its icon. With the shipped theme the arithmetic
+/// is `(24 + 4) × 2 / 3 − 2 = 16.7 pt` against a 16 pt icon — it clears, and
+/// only just. Under the Compact preset it is `(28 + 4) × 2 / 3 − 2 = 19.3` pt
+/// against 17 pt. Both work, and neither was assumed: a theme whose numbers did
+/// not clear would make this return less than `icon_pts`, and
+/// `measure_group_rows` then reports the re-wrapped width as no better than the
+/// natural one, so the ladder declines to spend a rung on it and the group
+/// simply never re-wraps. **The feature turns itself off rather than clipping.**
+fn compressed_control_height(ui: &egui::Ui, ctx: &Ctx<'_>) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // single digits
+    let n = plan::MAX_GROUP_ROWS.max(1) as f32;
+    rows_height(ui, ctx) / n - COMPRESSED_ROW_SPACING
+}
+
+/// Whether a group may be drawn re-wrapped at all, under this theme.
+///
+/// See [`compressed_control_height`]. Separated so the plan and the renderer
+/// ask the same question of the same numbers.
+fn rewrap_is_legible(ui: &egui::Ui, ctx: &Ctx<'_>) -> bool {
+    compressed_control_height(ui, ctx) >= ctx.theme.metrics.icon_pts
+}
+
 fn rows_height(ui: &egui::Ui, ctx: &Ctx<'_>) -> f32 {
     #[allow(clippy::cast_precision_loss)] // single digits
     let n = plan::GROUP_ROWS.max(1) as f32;
@@ -518,18 +575,42 @@ pub(crate) fn render_band(
     // commands into a menu while the space to show them, collapsed, was still
     // there. See `plan::collapse`'s header for the three photographs this
     // ordering comes from.
+    // ★ When the theme's numbers cannot fit three legible rows into the band's
+    // fixed row area, the re-wrapped measurement is simply the natural one — so
+    // `Candidate::gains_from` sees no gain, the ladder skips the rung, and no
+    // group is ever drawn with clipped icons. The feature disables itself on a
+    // theme it cannot serve rather than degrading.
+    let rewrap_ok = rewrap_is_legible(ui, ctx);
+    let rewrapped: Vec<(GroupRows, f32)> = groups
+        .iter()
+        .zip(&measured)
+        .map(|(g, natural)| {
+            if rewrap_ok {
+                measure_group_rows(ui, ctx, g, plan::MAX_GROUP_ROWS)
+            } else {
+                natural.clone()
+            }
+        })
+        .collect();
     let candidates: Vec<plan::collapse::Candidate> = groups
         .iter()
         .zip(&measured)
-        .map(|(g, (_, expanded))| plan::collapse::Candidate {
-            expanded: *expanded,
-            collapsed: collapsed::width(ui, g),
-            priority: g.collapse,
-        })
+        .zip(&rewrapped)
+        .map(
+            |((g, (_, natural)), (_, narrow))| plan::collapse::Candidate {
+                natural: *natural,
+                rewrapped: *narrow,
+                collapsed: collapsed::width(ui, g),
+                priority: g.collapse,
+            },
+        )
         .collect();
-    let reserve = plan::overflow_width(groups.len(), button_padding(ui), |s| {
-        text_width(ui, s, &TextStyle::Button)
-    });
+    // S4: the reservation is now a scroll ARROW, not a `⏷ N more` dropdown.
+    // Same discipline — taken from the band's edge before a single group is
+    // laid out, so the affordance can never be the thing that gets squeezed
+    // out — and a much smaller number, because a chevron does not carry a
+    // count. See `overflow`'s header for what was traded away.
+    let reserve = overflow::arrow_width(ctx);
 
     ui.horizontal(|ui| {
         // ★ R128. The band's height is reserved here, from the theme, before
@@ -561,9 +642,25 @@ pub(crate) fn render_band(
         // the collapsed set is a pure function of the width, which is what
         // makes widening monotonic and keeps the band from flickering at any
         // particular size. See `plan::collapse`'s header.
-        let collapse_mask = plan::collapse::collapse_to_fit(&candidates, full.width(), separator);
-        let widths = plan::collapse::widths_after(&candidates, &collapse_mask);
-        let band_plan = plan::plan_band(full.width(), &widths, separator, reserve);
+        let states = plan::collapse::fit(&candidates, full.width(), separator);
+        let widths = plan::collapse::widths_after(&candidates, &states);
+
+        // ★★★ S4 — WHERE THE BAND IS SCROLLED TO, clamped before anything is
+        // drawn.
+        //
+        // The remembered index is an INPUT to layout, so a stale one — left
+        // behind by a widened window — would leave blank space at the band's
+        // right edge with nothing for the operator to press. `overflow::clamp`
+        // answers from the offered width and the group widths alone; it never
+        // reads what was drawn, which is what keeps this from becoming the
+        // measurement-feeding-its-own-size loop this project has paid for three
+        // times.
+        let scrolled =
+            overflow::first(ui, ctx, tab_id).min(overflow::clamp(&widths, full.width(), separator));
+        overflow::set_first(ui, ctx, tab_id, scrolled);
+
+        let visible_widths = &widths[scrolled.min(widths.len())..];
+        let band_plan = plan::plan_band(full.width(), visible_widths, separator, reserve);
 
         // ★ The reservation, taken from the right edge BEFORE any group
         // is drawn. `overflow_rect` is computed from `full.right()` and
@@ -607,15 +704,21 @@ pub(crate) fn render_band(
                 .layout(Layout::left_to_right(Align::Min)),
             |ui| {
                 ui.set_max_width(groups_rect.width());
-                for (index, group) in groups.iter().take(band_plan.shown).enumerate() {
+                for (offset, group) in groups
+                    .iter()
+                    .skip(scrolled)
+                    .take(band_plan.shown)
+                    .enumerate()
+                {
+                    let index = scrolled + offset;
                     // Separator BEFORE the group rather than after, so the
                     // band never ends with a trailing rule and the first
                     // group never starts with one.
-                    if index > 0 {
+                    if offset > 0 {
                         ui.separator();
                     }
-                    if collapse_mask[index] {
-                        collapsed::render(
+                    match states[index] {
+                        plan::collapse::State::Collapsed => collapsed::render(
                             ui,
                             ctx,
                             tab_id,
@@ -624,18 +727,26 @@ pub(crate) fn render_band(
                             &measured[index].0,
                             box_,
                             &mut outcome,
-                        );
-                    } else {
-                        captioned_group(
+                        ),
+                        // ★ The row split handed to the renderer MUST be the
+                        // one the ladder priced. Passing `measured` here while
+                        // the plan spent `rewrapped`'s width is the exact shape
+                        // of the plan/renderer disagreement `GroupRows`' own
+                        // doc comment warns about, and it clips a group.
+                        state => captioned_group(
                             ui,
                             ctx,
                             tab_id,
                             group,
                             gutter,
-                            &measured[index].0,
+                            if state == plan::collapse::State::Rewrapped {
+                                &rewrapped[index].0
+                            } else {
+                                &measured[index].0
+                            },
                             box_,
                             &mut outcome,
-                        );
+                        ),
                     }
                 }
             },
@@ -646,18 +757,51 @@ pub(crate) fn render_band(
         // minus its own earlier value. See `BandOutcome::groups_in_band`.
         outcome.groups_in_band = outcome.groups_rendered;
 
-        if let Some(rect) = overflow_rect {
-            render_overflow(
+        // The arrows. Right when there is anything past the last group drawn,
+        // left when the band has been scrolled off its start. Neither is drawn
+        // disabled: R9 reserves greying for *temporarily* unavailable, and an
+        // arrow with nowhere to go is not that — it is an arrow that does not
+        // apply, and an unavailable capability renders nothing.
+        let past_end = scrolled + band_plan.shown < groups.len();
+        outcome.groups_overflowed = groups.len() - band_plan.shown.min(groups.len());
+        outcome.overflow_visible = past_end || scrolled > 0;
+
+        if let Some(rect) = overflow_rect
+            && past_end
+        {
+            let response = overflow::arrow(
                 ui,
                 ctx,
-                tab_id,
-                &groups,
-                &measured,
-                &band_plan,
-                gutter,
-                &mut outcome,
+                overflow::Direction::Right,
                 rect,
+                plan::overflow_label(groups.len() - (scrolled + band_plan.shown)),
             );
+            // The id a driven check clicks. Carried across from the dropdown
+            // unchanged — see `overflow::arrow`.
+            outcome.overflow_id = Some(response.id);
+            if response.clicked() {
+                overflow::set_first(ui, ctx, tab_id, scrolled + 1);
+            }
+        }
+        if scrolled > 0 {
+            let rect = Rect::from_min_max(
+                full.min,
+                pos2(
+                    (full.left() + reserve).min(full.right()),
+                    full.top() + ctx.theme.metrics.control_height,
+                ),
+            );
+            if overflow::arrow(
+                ui,
+                ctx,
+                overflow::Direction::Left,
+                rect,
+                plan::overflow_label(scrolled),
+            )
+            .clicked()
+            {
+                overflow::set_first(ui, ctx, tab_id, scrolled - 1);
+            }
         }
     });
 
@@ -807,6 +951,48 @@ fn group_body(
                 }
                 if !items.is_empty() {
                     ui.vertical(|ui| {
+                        // ★★★ A RE-WRAPPED GROUP DIVIDES THE SAME ROW AREA INTO
+                        // MORE ROWS — the band's height does not move.
+                        //
+                        // `Theme::apply` pins `spacing.interact_size.y` to
+                        // `control_height`, which is exactly what makes every
+                        // control one row tall and, left alone, would make three
+                        // rows half again as tall as two. Overriding it here —
+                        // on this group's own `Ui`, for this frame — is the
+                        // whole of S5's rendering side.
+                        //
+                        // Deriving the pitch from `rows.counts.len()` rather
+                        // than from a flag is deliberate: the renderer then
+                        // cannot disagree with the plan about how many rows
+                        // there are, which is the failure `GroupRows`' own doc
+                        // comment was written to prevent.
+                        if rows.counts.len() > plan::GROUP_ROWS {
+                            let h =
+                                compressed_control_height(ui, ctx).max(ctx.theme.metrics.icon_pts);
+                            ui.spacing_mut().item_spacing.y = COMPRESSED_ROW_SPACING;
+                            ui.spacing_mut().interact_size.y = h;
+                            // ★ `interact_size` is a FLOOR, not a ceiling. A
+                            // button is as tall as its own text plus
+                            // `button_padding.y` either side, and with the
+                            // shipped theme that is 14 + 2×4 = 22 pt — taller
+                            // than the 16.7 pt row we just asked for, so the
+                            // band grew anyway and the height test said so
+                            // (112 pt against 104). Compressing the row means
+                            // compressing the padding that sets its floor.
+                            //
+                            // ★ And the floor is the ICON, not the text. A
+                            // ribbon button is an `Atom` icon of `icon_pts`
+                            // beside an optional label, so its content height
+                            // is `max(icon, text)` — 16 against 14 with the
+                            // shipped theme. Deriving the padding from the text
+                            // alone left every row two points too tall and the
+                            // band still grew, by exactly the eight points the
+                            // height test reported the second time.
+                            let content = ui
+                                .text_style_height(&TextStyle::Button)
+                                .max(ctx.theme.metrics.icon_pts);
+                            ui.spacing_mut().button_padding.y = ((h - content) / 2.0).max(0.0);
+                        }
                         let mut at = 0_usize;
                         for &count in &rows.counts {
                             let end = (at + count).min(items.len());
@@ -869,313 +1055,6 @@ fn group_body(
     });
 }
 
-/// The "⏷ N more" affordance and the menu behind it.
-///
-/// The rectangle is supplied by the caller, computed from the band's
-/// right edge before any group was laid out — see [`render_band`].
-#[allow(clippy::too_many_arguments)]
-fn render_overflow(
-    ui: &mut egui::Ui,
-    ctx: &mut Ctx<'_>,
-    tab_id: &str,
-    groups: &[&Group],
-    measured: &[(GroupRows, f32)],
-    band_plan: &BandPlan,
-    gutter: f32,
-    outcome: &mut BandOutcome,
-    rect: Rect,
-) {
-    outcome.groups_overflowed = band_plan.hidden;
-
-    let label = plan::overflow_label(band_plan.hidden);
-    let id = ctx.id("overflow", tab_id);
-    let response = ui
-        .scope_builder(
-            UiBuilder::new()
-                .id_salt(id)
-                .max_rect(rect)
-                .layout(Layout::left_to_right(Align::Center)),
-            |ui| {
-                ui.set_max_width(rect.width());
-                // `min_size` fills the reservation, so the control is
-                // exactly as big as the arithmetic promised. `truncate`
-                // is the other half: without it a label wider than the
-                // rect makes the button wider than the rect, and the
-                // affordance would hang off the band's right edge in the
-                // one situation — a band narrower than its own
-                // reservation — where it most needs to be reachable.
-                // Truncating spends the shortfall on characters, which is
-                // recoverable (the tooltip states the count in full),
-                // where spending it on position is not.
-                ui.add(
-                    egui::Button::new(RichText::new(&label))
-                        .min_size(rect.size())
-                        .truncate(),
-                )
-            },
-        )
-        .inner;
-
-    outcome.overflow_visible = true;
-    outcome.overflow_id = Some(response.id);
-    ctx.reporter
-        .report_static(response.rect, report::overflow());
-
-    // The affordance is a real control with a real accessible name: the
-    // count is the information, and "button" would be as useless here as
-    // it is on an icon.
-    let announced = format!("{label} ribbon groups");
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, announced.clone())
-    });
-    let response = response.on_hover_text(format!(
-        "{} group{} do not fit; open them here",
-        band_plan.hidden,
-        if band_plan.hidden == 1 { "" } else { "s" }
-    ));
-
-    egui::Popup::menu(&response).show(|ui| {
-        // Overflowed groups go through the SAME closure as visible ones,
-        // and with the SAME row split, so a group reads identically
-        // whichever side of the affordance it is on. A second, simpler
-        // drawing path for the menu is exactly how the two caption-less
-        // groups in the salvage source happened.
-        //
-        // `rows_height` is 0 here, and deliberately: the band's fixed height
-        // is a fact about the band, and padding a menu entry out to it would
-        // put a hole under every one-row group in the popup.
-        for ((rows, _), group) in measured.iter().zip(groups).skip(band_plan.shown) {
-            captioned_group(
-                ui,
-                ctx,
-                tab_id,
-                group,
-                gutter,
-                rows,
-                GroupBox::NATURAL,
-                outcome,
-            );
-            ui.separator();
-        }
-    });
-}
-
-/// Draw one item of a group, at the size it resolved to.
-///
-/// `rows_height` is the height of the band's row area, which only a `Large`
-/// control uses — it spans the rows rather than sitting in one.
-fn render_item_at(
-    ui: &mut egui::Ui,
-    ctx: &mut Ctx<'_>,
-    tab_id: &str,
-    group_id: &str,
-    item: &Item,
-    size: ItemSize,
-    rows_height: f32,
-) {
-    match item {
-        Item::Separator => {
-            ui.separator();
-        }
-        Item::Command { id, .. } => {
-            render_command(ui, ctx, id, size, rows_height);
-        }
-        Item::Custom { kind, payload } => {
-            let request = CustomItem {
-                kind,
-                payload: payload.as_deref(),
-                tab: tab_id,
-                group: group_id,
-            };
-            // `take` so the borrow of `ctx.custom` does not conflict with
-            // `ctx.invoke`; put back immediately, because a renderer that
-            // vanished after the first custom item would be a very
-            // confusing bug.
-            if let Some(renderer) = ctx.custom.take() {
-                let token = renderer(ui, &request);
-                ctx.custom = Some(renderer);
-                if let Some(token) = token {
-                    ctx.invoke(token);
-                }
-            } else {
-                // No renderer: reserve the space the plan budgeted for
-                // it, so the band's arithmetic stays true and the gap is
-                // visible rather than silently closing up. An application
-                // that put a custom item in its manifest and supplied no
-                // renderer has a defect, and a hole is how it finds out.
-                crate::verify::event("ribbon-custom-item-unrendered")
-                    .kv("kind", kind)
-                    .kv("group", group_id)
-                    .emit();
-                ui.allocate_space(vec2(CUSTOM_ITEM_WIDTH, ctx.theme.metrics.control_height));
-            }
-        }
-    }
-}
-
-/// Draw one command control, honouring its enable predicate and its
-/// selected condition.
-fn render_command(
-    ui: &mut egui::Ui,
-    ctx: &mut Ctx<'_>,
-    id: &str,
-    size: ItemSize,
-    rows_height: f32,
-) {
-    let Some(command) = ctx.command(id).cloned() else {
-        return;
-    };
-    let enabled = command.is_enabled(ctx.conditions);
-    let selected = ctx.conditions.is_set(&selected_condition(&command.id));
-
-    // ★ The three sizes — `RIBBON_SCALING.md`, and `sizing`'s header for the
-    // measured case.
-    //
-    // This used to be one line passing a hard-coded `shows_label: true`, with
-    // a comment arguing that *"icon-only belongs to the QAT … in the band
-    // there are forty and the label is the only thing that makes one
-    // findable"*. That is right about findability and was wrong about every
-    // control: driving Word at 884 client points put ten groups on the band
-    // where this shell put three, and the difference is that Word mixes sizes
-    // within a group. The label is not what makes `B` findable; its position
-    // in a cluster of type controls is.
-    //
-    // The findability argument survives where it applies: `Medium` is still
-    // the default, and a `Small` that has not earned its icon-only rendering
-    // falls back to it rather than drawing a mystery.
-    let response = match size {
-        ItemSize::Large => sizing::render_large(ui, ctx, &command, selected, enabled, rows_height),
-        ItemSize::Small => command_button(ui, ctx, &command, false, selected, enabled, false),
-        ItemSize::Medium => command_button(ui, ctx, &command, true, selected, enabled, false),
-    };
-
-    // ★ **Where this control was drawn** — published on the frame it was
-    // drawn, under the stable name [`report::band_item`] builds.
-    //
-    // The band used to report its groups and their captions and nothing
-    // else, which made every *command* in the ribbon unlocatable from
-    // outside the process. A caption's rect answers "is this label
-    // legible"; it cannot answer "did clicking Rectangle arm anything",
-    // because nothing outside the window could find the Rectangle button
-    // in order to click it. So the only evidence available for a ribbon
-    // click's whole chain — click → dispatch → tool armed → control
-    // renders pressed — was a set of unit tests, one per link, none of
-    // which observes the links being connected. That is precisely the
-    // shape of the icon-painter defect this crate already shipped: every
-    // part tested, the join untested, the join wrong.
-    //
-    // Reported for **every** command, enabled or disabled, selected or
-    // not, in the band and in the overflow menu alike — because the
-    // question a consumer asks is *where is this control*, and a control
-    // that is greyed is still a control that was drawn somewhere. A
-    // report conditioned on state would go quiet in exactly the cases a
-    // harness most wants to look at.
-    //
-    // The shell learns nothing about what the id *means*. It publishes
-    // that a control registered under some id occupied some rectangle;
-    // what `markup.rectangle` is for is the application's business, and
-    // this crate could not name it without becoming a PDF viewer.
-    ctx.reporter
-        .report(response.rect, || report::band_item(&command.id));
-
-    a11y::describe_command(&response, &command, true, enabled);
-    let response = match (&command.tooltip, enabled) {
-        (Some(tip), true) => response.on_hover_text(tip),
-        (Some(tip), false) => response.on_disabled_hover_text(tip),
-        (None, _) => response,
-    };
-
-    if response.clicked() {
-        ctx.invoke(command.handler);
-        crate::verify::event("ribbon-command-invoked")
-            .kv("id", &command.id)
-            .kv("handler", command.handler.get())
-            .emit();
-    }
-}
-
-/// The button itself: an optional icon slot, an optional label, the
-/// selected state, and the icon painting seam.
-///
-/// Shared with [`super::qat`], which is why it lives here and takes
-/// `shows_label`.
-///
-/// # `truncate`
-///
-/// Whether the label may lose characters rather than the button losing
-/// its place. `true` on the tab-strip row, `false` in the band, and the
-/// asymmetry is deliberate:
-///
-/// - A **band** control that does not fit is in a group the plan has
-///   already decided is visible, inside a `Ui` whose `max_rect` stops
-///   before the overflow affordance. Truncating it would hide a command's
-///   name to save a few points that the reservation has already accounted
-///   for.
-/// - A **strip** control has nowhere to go. The QAT is a fixed cost with
-///   no menu behind it, and the active tab is pinned out of the strip's
-///   own menu ([`plan::plan_tab_strip`]). When either is wider than the
-///   room the row can give it, the only alternatives are "truncate" and
-///   "draw off the edge of the window", and the second one is the defect.
-pub(crate) fn command_button(
-    ui: &mut egui::Ui,
-    ctx: &mut Ctx<'_>,
-    command: &crate::commands::Command,
-    shows_label: bool,
-    selected: bool,
-    enabled: bool,
-    truncate: bool,
-) -> egui::Response {
-    let icon_size = ctx.theme.metrics.icon_pts;
-    let icon_slot = command
-        .icon
-        .as_ref()
-        .map(|key| (key.clone(), ctx.id("icon", &command.id)));
-
-    let mut atoms = Atoms::default();
-    if let Some((_, slot_id)) = &icon_slot {
-        atoms.push_right(egui::Atom::custom(*slot_id, Vec2::splat(icon_size)));
-    }
-    if shows_label || icon_slot.is_none() {
-        // The `||` is the accessibility floor: a command with no icon key
-        // draws its label even in an icon-only context, because a control
-        // with neither an icon nor a label is an empty rectangle.
-        atoms.push_right(RichText::new(&command.label));
-    }
-
-    let laid_out = ui
-        .scope(|ui| {
-            if !enabled {
-                ui.disable();
-            }
-            let mut button = egui::Button::new(atoms).selected(selected);
-            if truncate {
-                button = button.truncate();
-            }
-            button.atom_ui(ui)
-        })
-        .inner;
-
-    if let Some((key, slot_id)) = icon_slot
-        && let Some(rect) = laid_out.rect(slot_id)
-        && let Some(painter) = ctx.icons.take()
-    {
-        let visuals = ui.style().interact(&laid_out.response);
-        painter(
-            ui.painter(),
-            &IconRequest {
-                key: &key,
-                rect,
-                tint: visuals.fg_stroke.color,
-                enabled,
-                selected,
-            },
-        );
-        ctx.icons = Some(painter);
-    }
-
-    laid_out.response
-}
-
 // ---------------------------------------------------------------------
 // Measurement
 // ---------------------------------------------------------------------
@@ -1189,6 +1068,28 @@ pub(crate) fn command_button(
 /// that would show up as a clipped group and never as anything a reader
 /// would recognise as a bug.
 fn measure_group(ui: &egui::Ui, ctx: &Ctx<'_>, group: &Group) -> (GroupRows, f32) {
+    measure_group_rows(ui, ctx, group, plan::GROUP_ROWS)
+}
+
+/// The same measurement, at a stated row ceiling.
+///
+/// ★ S5's whole implementation on the measuring side. `wrap_group` already
+/// searches for the **narrowest** packing that fits within the row limit it is
+/// handed, so asking it for three rows instead of two returns the three-row
+/// layout when that is narrower and the two-row one when it is not — no new
+/// packing logic, and no way for the two answers to disagree about how a group
+/// wraps.
+///
+/// Called twice per group per frame, which is affordable: it is arithmetic over
+/// a list of item widths that were going to be measured anyway, and the
+/// alternative — caching last frame's answer — is the feedback-loop shape this
+/// project has paid for three times.
+fn measure_group_rows(
+    ui: &egui::Ui,
+    ctx: &Ctx<'_>,
+    group: &Group,
+    max_rows: usize,
+) -> (GroupRows, f32) {
     let (large, rest) = partition(ctx, group);
     let widths: Vec<f32> = rest
         .iter()
@@ -1197,7 +1098,7 @@ fn measure_group(ui: &egui::Ui, ctx: &Ctx<'_>, group: &Group) -> (GroupRows, f32
     let rows = plan::wrap_group(
         &widths,
         ctx.theme.metrics.gutter,
-        plan::GROUP_ROWS,
+        max_rows,
         plan::GROUP_WRAP_WIDTH,
     );
     // The Large run leads, then a gutter, then the wrapped rows — the same

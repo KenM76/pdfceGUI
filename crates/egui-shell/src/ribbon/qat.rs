@@ -306,7 +306,8 @@ pub(crate) fn render(ui: &mut egui::Ui, ctx: &mut Ctx<'_>, qat: Option<&Qat>) {
         // `truncate: true` — the QAT is a fixed cost with no menu behind
         // it, so a control that does not fit must lose characters rather
         // than lose its place. See `band::command_button`.
-        let response = band::command_button(ui, ctx, &command, with_label, selected, enabled, true);
+        let response =
+            super::control::command_button(ui, ctx, &command, with_label, selected, enabled, true);
 
         a11y::describe_command(&response, &command, with_label, enabled);
         let response = match (&command.tooltip, enabled) {
