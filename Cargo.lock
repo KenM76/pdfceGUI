@@ -146,6 +146,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e76a019e91224d279006ff972f1e984179a6e9feb050adba6ce8274aef23195"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "android-activity"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -468,6 +483,27 @@ dependencies = [
  "futures-io",
  "futures-lite",
  "piper",
+]
+
+[[package]]
+name = "brotli"
+version = "8.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cc91aac060a7a1e25823bdccbfb6af1875b88f17c6daac97894eed8207166b3"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "5.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a32acac15fe1967bc3986b2a6347dffc965602354ea6f450ad07e8bfd253583"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -2336,10 +2372,11 @@ dependencies = [
 
 [[package]]
 name = "pdfce-core"
-version = "0.8.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#81e5aab8e6dc6e2d5ea70136a33b104324a83f0f"
+version = "0.9.0"
+source = "git+file:///D:/Dev/pdfce?branch=main#a73e3be870beb71ff9b9ed8d2d22910958e181f3"
 dependencies = [
  "aes",
+ "brotli",
  "cbc",
  "flate2",
  "hayro-ccitt",
@@ -2374,8 +2411,8 @@ dependencies = [
 
 [[package]]
 name = "pdfce-print"
-version = "0.8.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#81e5aab8e6dc6e2d5ea70136a33b104324a83f0f"
+version = "0.9.0"
+source = "git+file:///D:/Dev/pdfce?branch=main#a73e3be870beb71ff9b9ed8d2d22910958e181f3"
 dependencies = [
  "thiserror 2.0.20",
  "windows",
@@ -2383,8 +2420,8 @@ dependencies = [
 
 [[package]]
 name = "pdfce-render"
-version = "0.8.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#81e5aab8e6dc6e2d5ea70136a33b104324a83f0f"
+version = "0.9.0"
+source = "git+file:///D:/Dev/pdfce?branch=main#a73e3be870beb71ff9b9ed8d2d22910958e181f3"
 dependencies = [
  "pdfce-core",
  "skrifa",

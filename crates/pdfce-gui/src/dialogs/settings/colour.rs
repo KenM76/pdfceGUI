@@ -10,7 +10,7 @@
 //! difference and is deciding whether it is a bug.
 
 use egui::Ui;
-use pdfce_core::settings::{CmykIntent, CmykJpegPolarity, PageBlendSpaceSource};
+use pdfce_core::settings::{CmykIntent, CmykJpegPolarity, MeshPatchPadding, PageBlendSpaceSource};
 
 use super::{Draft, widgets};
 use crate::text::settings as t;
@@ -179,5 +179,50 @@ pub fn page_blend_space(ui: &mut Ui, draft: &mut Draft) {
         Some(t::blend_space_note(
             PageBlendSpaceSource::OutputIntentAlways,
         )),
+    );
+}
+
+/// How a mesh-shading patch record is byte-padded (spec ambiguity `MSH-A1`).
+///
+/// # Why this is in Colour and not in Images
+///
+/// Because the thing that goes wrong is a **gradient**, and a gradient is
+/// colour. The mechanism is a bit-alignment question about a binary stream,
+/// which would file it under nothing an operator can name; the symptom is
+/// *"this smooth fill came out as noise"*, and that is what the title says.
+///
+/// # ★ It is observable in very few files, and the note says so honestly
+///
+/// The two readings agree unless `BitsPerFlag + k·BitsPerCoordinate +
+/// m·BitsPerComponent` fails to be a multiple of 8. Every combination the
+/// engine has measured in real files — 8/32/8 in the print-conformance suite's
+/// type 7 meshes, and the common 8/16/8 — is byte-aligned for every record
+/// shape, so the two render identically. A file with `BitsPerFlag` 2 or 4, or
+/// 12-bit coordinates, is where they diverge, **and there the divergence is
+/// total**: one record out of step desynchronises every record after it.
+///
+/// That is why the second option's note is phrased as a remedy to try rather
+/// than as a preference to hold — an operator will only ever reach this control
+/// because something on screen is already wrong.
+pub fn mesh_patch_padding(ui: &mut Ui, draft: &mut Draft) {
+    widgets::header(
+        ui,
+        t::mesh_padding_title(),
+        t::mesh_padding_silence(),
+        t::mesh_padding_radius(),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.mesh_patch_padding,
+        MeshPatchPadding::PerRecord,
+        t::mesh_padding_record_label(),
+        Some(t::mesh_padding_record_note()),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.mesh_patch_padding,
+        MeshPatchPadding::None,
+        t::mesh_padding_none_label(),
+        Some(t::mesh_padding_none_note()),
     );
 }

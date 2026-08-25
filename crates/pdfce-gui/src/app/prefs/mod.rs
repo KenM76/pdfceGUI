@@ -105,6 +105,7 @@ pub mod opening;
 /// How sharply a page is drawn, and how long zoom waits before drawing it.
 /// The two preferences that change what a **frame costs**.
 pub mod quality;
+pub mod smoothing;
 pub mod wheel;
 
 use std::path::PathBuf;
@@ -240,6 +241,13 @@ pub struct Prefs {
     /// while a document is open must not resize the page the operator is
     /// looking at, because they may have zoomed it deliberately since.
     pub opening_fit: OpeningFit,
+    /// Whether pdfce-gui has already applied its own image-smoothing default.
+    ///
+    /// Bookkeeping, not a preference: it is written once and then only ever
+    /// read. See [`smoothing`] for why the flip has to be a migration rather
+    /// than a different default, and why the marker lives in THIS file rather
+    /// than in the engine's `settings.txt`.
+    pub image_smoothing_default_applied: bool,
     /// Which of the three View ▸ Display overlays are already on when a
     /// document opens.
     ///
@@ -302,6 +310,13 @@ impl Default for Prefs {
             // point of the setting.
             max_zoom_percent: DEFAULT_MAX_ZOOM_PERCENT,
             opening_fit: OpeningFit::default(),
+            // ★ FALSE, and it must stay false. This is what makes a fresh
+            // preferences file — or one written by a build older than the
+            // migration — trigger the flip exactly once. Defaulting it true
+            // would silently skip every installation that has run pdfce
+            // before, which is all of them, and the migration would be
+            // shipped, reported done, and visible to nobody.
+            image_smoothing_default_applied: false,
             wheel_paging: WheelPaging::default(),
             chrome: PageChrome::default(),
             ui_scale: DEFAULT_UI_SCALE,
@@ -537,6 +552,14 @@ impl Prefs {
                 // which field they land in, so the destination is picked first
                 // and the reading is written once. Three near-identical arms is
                 // how the fourth overlay gets a subtly different parser.
+                k if k == smoothing::KEY => match opening::bool_from_key(value) {
+                    Some(on) => prefs.image_smoothing_default_applied = on,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "show_rulers" | "show_grid" | "show_guides" => {
                     let target = match key {
                         "show_rulers" => &mut prefs.chrome.rulers,
@@ -711,6 +734,29 @@ impl Prefs {
             out.push_str(opening::bool_key(value));
             out.push('\n');
         }
+
+        // ★ Bookkeeping rather than a preference, and written last so it reads
+        // as the footnote it is. Without this line the migration in
+        // `smoothing` has no memory and runs on EVERY launch — which is not a
+        // migration but an override, and would silently undo an operator who
+        // went back to point sampling on purpose. `smoothing`'s own
+        // `a_marked_installation_is_never_touched_again` is the assertion; this
+        // is what makes it reachable.
+        out.push_str(
+            "\n\
+             # Bookkeeping, not a setting you need to change.\n\
+             # pdfce-gui smooths images drawn smaller than their own pixel grid,\n\
+             # which the PDF standard does not legislate either way. This records\n\
+             # that the choice has been applied once, so if you change it back in\n\
+             # Settings it stays changed.\n",
+        );
+        // ui-text-exempt: a file KEY, written into preferences.txt and parsed
+        // back out of it. Never displayed.
+        out.push_str(smoothing::KEY);
+        // ui-text-exempt: the file format's own `key = value` separator, never displayed.
+        out.push_str(" = ");
+        out.push_str(opening::bool_key(self.image_smoothing_default_applied));
+        out.push('\n');
         out
     }
 
@@ -811,6 +857,11 @@ mod tests {
         for quality in RenderQuality::ALL {
             for fit in OpeningFit::ALL {
                 let original = Prefs {
+                    // The migration marker round-trips like every other key.
+                    // `true` rather than the default `false`, per this test's
+                    // own rule: a non-default in every field, so no emitted
+                    // value can coincide with what a failed parse left behind.
+                    image_smoothing_default_applied: true,
                     render_quality: *quality,
                     page_cache: PageCache::default(),
                     zoom_settle_ms: 275,
@@ -1242,6 +1293,8 @@ mod tests {
         // A non-default in every field, so no emitted value can coincide with
         // what a failed parse would have left behind.
         let prefs = Prefs {
+            // Non-default, for the reason stated below about every other field.
+            image_smoothing_default_applied: true,
             render_quality: RenderQuality::Sharper,
             // ★ Not the default, deliberately, and this test's own comment says
             // why: "a non-default in every field, so no emitted value can

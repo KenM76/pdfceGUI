@@ -221,6 +221,117 @@ almost never appears is a smaller win than it looked before S3 was measured.
 
 ---
 
+## 6a. S5 — groups re-wrap onto MORE rows as the window narrows
+
+**Operator instruction, 2026-08-25**, and a correction of this document:
+
+> *"put it in the plan to update so that tools within sections will re-wrap
+> onto more rows when I resize... BTW the Font section in Word will wrap tools
+> onto 3 lines when the window is narrowed enough, and other tools wrap in a
+> similar way too."*
+
+### ★★★ The correction, and how the error was made
+
+Until today both this document and `plan::collapse`'s header asserted that
+**Word does not re-wrap groups by window width**. That is **false**, and the
+evidence disproving it was already in `evidence/word-ribbon/` when the claim
+was written:
+
+| photograph | Font group |
+|---|---|
+| `ribbon-1900.png` | **2 rows** — name + size + case + clear on row 1, B/I/U and the rest on row 2 |
+| `ribbon-1000.png` | **3 rows** — name + size alone on row 1, B/I/U on row 2, colour/case/size-step on row 3 |
+
+The widths compared when the claim was made were **1300 and 800**, and by 800
+the group had already *collapsed* — so the reflow between them appears in
+neither frame. A twelve-frame series was taken and three frames were read.
+
+**The lesson is not "look harder".** It is that *sampling either side of a
+transition and concluding there is no transition* is a specific, repeatable
+error, and the guard against it is to walk the series rather than to pick
+endpoints — the same discipline the collapse ladder's own monotonicity test
+already applies, where it sweeps 600 widths instead of checking three.
+
+### What has to change
+
+| today | S5 |
+|---|---|
+| `GROUP_ROWS` is a constant **2** | rows become a **range**, 1..=3 |
+| `GROUP_WRAP_WIDTH` is a fixed 440 pt trigger on the group's own content | the row count is chosen from the width the band can actually offer the group |
+| `wrap_group` splits into exactly `GROUP_ROWS` rows | splits into the fewest rows that fit the offered width, capped at 3 |
+
+★ **Band height must not move.** R128 governs: the ribbon sits directly above
+the canvas and a band that changed height would move the canvas under a
+fit-to-page zoom, which is the feedback loop this project has already paid for
+three times. Word's band is a fixed height at every width in the series, and it
+achieves 3 rows by stacking *small* controls where 2 rows held *medium* ones.
+So the height stays derived from the theme, and the row count is a property of
+what is packed into it — never the other way round.
+
+★★ **S5 goes BEFORE S3 in the ladder, not after.** A group that can reflow
+needs collapsing less often, so re-wrapping first strictly reduces how often a
+group loses its labels. The full ladder becomes:
+
+1. item sizes (S1, done)
+2. per-item visibility (S2, done)
+3. **re-wrap to more rows (S5)** ← new, and first among the width responses
+4. collapse whole groups in authored order (S3, done)
+5. scroll (S4)
+
+### Invariant to restate again
+
+`widening_the_band_never_hides_a_group_that_was_visible` gains a third rung:
+**widening never increases a group's row count.** Same construction as S3 —
+compute from the width alone, never from the previous frame — and the same
+sweep test rather than spot checks.
+
+---
+
+## 6b. S4 — the scroll arrow, authorised
+
+**Operator instruction, 2026-08-25:** *"do the scroll like Word."*
+
+Settled, no longer a question. Word's `›` appears at the right end of the band
+at 460 pt (`ribbon-0460.png`) and shifts the band horizontally; it is the
+**last** resort, after collapsing, and it replaces the `⏷ N more` dropdown
+rather than joining it. Two affordances for one job is a defect.
+
+**Known cost, to be paid deliberately:** six unit tests and one driven check
+(`print_dialog_reaches_the_spooler`, which reaches Print *through* the overflow
+menu) assume the dropdown exists. They are rewritten as part of S4, not
+worked around.
+
+**A note on ordering:** S3 moved the dropdown's first appearance from 1600 pt
+down to below 1100. S5 will push it lower still. So S4 should be built
+**after** S5, when the width at which it appears is known and stable — building
+it now would mean tuning a scroll step against a threshold that is about to
+move.
+
+---
+
+## 6c. Font tools — parity with Word
+
+**Operator instruction, 2026-08-25:** *"We should also have all the font tools
+available that Word does."*
+
+Scoped separately from the scaling work because it is an **IA and capability**
+question, not a layout one: it adds commands, and `RIBBON_IA.md` decides where
+a command lives. Tracked in `OPERATOR_REQUESTS.md`; it needs, in order:
+
+1. an inventory of Word's Home ▸ Font group against what `pdfce-core`'s text
+   editing can actually do — a control for a capability the engine lacks is a
+   placeholder, and R9 forbids those;
+2. anything missing written up as an engine hand-off rather than stubbed;
+3. an IA amendment, because pdfce's text lives under **Edit ▸ Content** and the
+   contextual **Format** tab, not under a Home tab that does not exist here.
+
+★ The parity target is the **capability list**, not the pixel layout. Word's
+Font group is two combos and fourteen icon buttons; copying that arrangement
+onto a PDF editor whose selection model is different would be cargo cult. What
+is owed is *"everything Word lets me do to text, pdfce lets me do to text"*.
+
+---
+
 ## 7. What was deliberately not copied
 
 * **Galleries that shrink by showing fewer tiles.** Word's Styles gallery drops

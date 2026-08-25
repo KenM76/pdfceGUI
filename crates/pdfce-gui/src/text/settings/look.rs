@@ -1012,3 +1012,43 @@ pub const fn page_cache_note(cache: crate::app::prefs::PageCache) -> &'static st
         }
     }
 }
+
+/// Title for the mesh patch-padding setting.
+///
+/// ★ Filed by the SYMPTOM, not the mechanism. Nobody goes looking for
+/// *"type 6/7 mesh shading patch record byte alignment"*. Somebody whose
+/// gradient came out as garbage goes looking for *gradient*, so that is the
+/// first word.
+pub const fn mesh_padding_title() -> &'static str {
+    "A gradient fill that comes out scrambled"
+}
+
+/// What the standard leaves open here.
+pub const fn mesh_padding_silence() -> &'static str {
+    "Smooth gradient fills come in several kinds. Two of them store their data in a way the standard describes only by pointing at the rule for a different kind — and that rule is written in terms of a part those two kinds do not have. Both readings survive the wording, and the 2.0 edition repeats it unchanged, so this is permanent rather than something waiting to be clarified."
+}
+
+/// The radius line.
+pub const fn mesh_padding_radius() -> &'static str {
+    "Affects what you see and what you print. Does not change the file."
+}
+
+/// Label for the per-record reading.
+pub const fn mesh_padding_record_label() -> &'static str {
+    "Start each patch on a fresh byte (pdfce's default)"
+}
+
+/// Note for the per-record reading.
+pub const fn mesh_padding_record_note() -> &'static str {
+    "Reads the cross-reference as meaning something. Most files are unaffected either way: the two readings differ only when a file's numbers do not happen to fill whole bytes. When they do differ, they differ completely — one patch out of step scrambles every patch after it."
+}
+
+/// Label for the continuous reading.
+pub const fn mesh_padding_none_label() -> &'static str {
+    "Read straight through without a break"
+}
+
+/// Note for the continuous reading.
+pub const fn mesh_padding_none_note() -> &'static str {
+    "Reads the cross-reference as importing nothing. Try this if a gradient fill renders as noise, banding or the wrong shape and the rest of the page is fine."
+}

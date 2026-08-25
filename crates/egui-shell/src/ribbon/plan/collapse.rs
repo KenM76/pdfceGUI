@@ -21,13 +21,31 @@
 //! Three facts follow, and all three are counter-intuitive enough to be worth
 //! stating:
 //!
-//! 1. **Groups do not re-wrap onto more rows as the window narrows.** The row
-//!    split is a property of the group's own content — see
-//!    [`super::GROUP_WRAP_WIDTH`] — and it does not change with the window.
-//!    Narrowing collapses whole groups instead. This is the answer to *"will
-//!    it wrap tools in their sections onto second lines when the window is
-//!    resized?"*: it already wraps, by content, and Word does not re-wrap by
-//!    window either.
+//! 1. **Groups DO re-wrap onto more rows as the window narrows — and this
+//!    file said the opposite for one day.**
+//!
+//!    ★★★ CORRECTED 2026-08-25, by the operator, against evidence that was
+//!    already in the repository. The claim here was *"groups do not re-wrap;
+//!    the row split is a property of the group's own content and does not
+//!    change with the window"*. It is **false**. Word's Font group is **two
+//!    rows at 1900 pt** (`ribbon-1900.png`) and **three rows at 1000 pt**
+//!    (`ribbon-1000.png`) — the size stepper and the case/clear controls move
+//!    down to a third row as the width falls.
+//!
+//!    The error is worth recording because of HOW it was made: the widths
+//!    compared were 1300 and 800, and **by 800 the group had already
+//!    collapsed**, so the reflow between them was never on screen in either
+//!    photograph. A twelve-frame series was taken and three frames were read.
+//!    *Sampling two points either side of a transition and concluding there is
+//!    no transition* is the shape of the mistake, and it produced a confident
+//!    sentence in a module header and in a commit message.
+//!
+//!    What is true is narrower: **this shell** does not yet re-wrap by window.
+//!    [`super::GROUP_WRAP_WIDTH`] is a fixed trigger on the group's own
+//!    content and [`super::GROUP_ROWS`] is 2. Re-wrapping to a
+//!    width-dependent row count, up to three, is **S5** in
+//!    `RIBBON_SCALING.md` — and it belongs BEFORE this ladder, because a
+//!    group that can reflow needs less help than one that cannot.
 //! 2. **A group can decline to collapse, and the one that declines is not the
 //!    small one.** Clipboard is wider than Editing and outlives it at every
 //!    width. The property being selected on is *importance*, which is

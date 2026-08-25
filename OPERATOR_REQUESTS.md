@@ -80,6 +80,87 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O37 — All the font tools Word has
+
+**Asked:** 2026-08-25. **Planned**, not started. `RIBBON_SCALING.md` §6c.
+
+> *"We should also have all the font tools available that Word does."*
+
+Deliberately not started alongside the scaling work, because it is a
+**capability** question and not a layout one. The order it needs:
+
+1. inventory Word's Home ▸ Font group against what `pdfce-core`'s text editing
+   can actually do;
+2. anything the engine cannot do becomes a hand-off, **not a greyed button** —
+   R9 forbids placeholders;
+3. an IA amendment, since pdfce's text lives under Edit ▸ Content and the
+   contextual Format tab, not a Home tab.
+
+★ The target is the capability list, not the pixel layout. *"Everything Word
+lets me do to text, pdfce lets me do to text"* — not a copy of Word's two
+combos and fourteen buttons onto a different selection model.
+
+## O36 — Sections re-wrap onto more rows, and the scroll arrow is authorised
+
+**Asked:** 2026-08-25. **Planned**, not started. `RIBBON_SCALING.md` §6a, §6b.
+
+> *"put it in the plan to update so that tools within sections will re-wrap
+> onto more rows when I resize, and do the scroll like Word. BTW the Font
+> section in Word will wrap tools onto 3 lines when the window is narrowed
+> enough, and other tools wrap in a similar way too."*
+
+★★★ **He corrected a factual claim of mine, and he was right.** I had written —
+in this file's O33 row, in a module header and in a commit message — that Word
+does not re-wrap groups by window width. It does: the Font group is 2 rows at
+1900 pt and 3 rows at 1000 pt, and **both photographs were already in
+`evidence/word-ribbon/`** when I wrote the opposite. I had compared 1300 with
+800, and by 800 the group has already collapsed, so the reflow appears in
+neither frame. Sampling either side of a transition and concluding there is no
+transition. O33's answer is corrected on the record rather than quietly edited.
+
+**Scroll arrow: settled, no longer a question.** It replaces the `⏷ N more`
+dropdown rather than joining it. Sequenced *after* the re-wrap, because
+re-wrapping will move the width at which the dropdown appears again and there
+is no sense tuning a scroll step against a threshold that is about to change.
+
+## O35 — Image quality worse than Acrobat on normal pages
+
+**Asked:** 2026-08-25. **Shipped:** 2026-08-25.
+
+> *"there was also an update to an image quality setting to discard smaller
+> details than the screen sees a while ago that I think has been enabled by
+> default because image quality is a little worse on normal pages than it was
+> whereas before it was on par with acrobat reader — this setting should be an
+> option in our settings and disabled by default."*
+
+**You named the mechanism exactly.** Images drawn smaller than their own pixel
+grid were point-sampled: one texel per output pixel, the rest discarded. That
+is every scan and every CAD raster at anything under 1:1, and the engine's own
+note on it says *"aliasing, shimmer, dropped hairlines"*.
+
+**One half of the report was a hypothesis and it was wrong, which is worth
+saying because it would have sent me hunting.** It was not enabled recently —
+it has been the shipped default all along, and wiring the setting through the
+GUI changed nothing, because the render options and the settings file carry the
+*same* default. So there is no regression commit to find; there is a default to
+decide, and that decision is yours and is now made.
+
+It was already an option (Settings ▸ Images, *"Shrinking a large image to
+fit"*). What was wrong was the default. Changing only the default would have
+fixed **nobody**: every real installation already contains an explicit
+`image_minify = point_sample`, written by our own save into the engine's
+generated template — both of your settings files did. So it ships as a
+**one-time migration** with a marker in `preferences.txt`: flipped once,
+recorded, and if you ever set it back it stays back.
+
+**Verified by driving** three cases: unmarked installation flips and records;
+second launch does nothing; marker present plus a deliberate `point_sample`
+survives untouched.
+
+**Engine hand-off filed** — `pdfce-core` grades its own default "a guess" and
+names the exact evidence that would flip it: a viewer-behaviour comparison.
+You just supplied one, against Acrobat, on your own drawings.
+
 ## O34 — The print dialog grows for ever after printing
 
 **Asked:** 2026-08-25. **Shipped:** 2026-08-25, commit `deb9853`.

@@ -760,7 +760,51 @@ impl PdfceApp {
         } else {
             pdfce_core::settings::resolve_store()
         };
-        let (settings, _report) = pdfce_core::settings::Settings::load(settings_store.clone());
+        let (mut settings, _report) = pdfce_core::settings::Settings::load(settings_store.clone());
+
+        // ★★ pdfce-gui's own answer to image minification, applied ONCE.
+        //
+        // Operator report, 2026-08-25: image quality on normal pages was worse
+        // than Acrobat Reader's, and he named the cause correctly — pdfce
+        // discards the detail an output pixel covers instead of averaging it.
+        // The engine's default is `PointSample` and its own doc grades that a
+        // guess, naming the exact evidence that would flip it; he has now
+        // supplied that evidence.
+        //
+        // This cannot be a mere default change, because `Settings::save` writes
+        // every key and the engine's store generates a fully commented
+        // template, so every real installation already contains an explicit
+        // `image_minify = point_sample` that nobody chose. See
+        // `prefs::smoothing` for the whole argument, and for why the marker
+        // that stops this happening twice lives in preferences.txt rather than
+        // in the engine's file.
+        //
+        // Skipped entirely under `cfg(test)` along with everything else here:
+        // the store is `None` there, so there is nothing to migrate and nothing
+        // to save.
+        // Hoisted above the migration below, which needs to read and then
+        // write its marker. Same `cfg(test)` reasoning as the settings and the
+        // recent list: a suite that read the developer's own preferences would
+        // pass on this machine and fail on another because somebody had chosen
+        // `faster`.
+        let mut prefs = if cfg!(test) {
+            prefs::Prefs::default()
+        } else {
+            prefs::Prefs::load().0
+        };
+
+        if !cfg!(test) && !prefs.image_smoothing_default_applied {
+            let outcome =
+                crate::app::prefs::smoothing::apply(&mut settings, &settings_store, false);
+            let _ = outcome;
+            prefs.image_smoothing_default_applied = true;
+            if let Err(e) = prefs.save() {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("image-smoothing-marker save-failed detail={e:?}")
+                });
+            }
+        }
 
         Self {
             status: Status::default(),
@@ -807,11 +851,7 @@ impl PdfceApp {
             // reason the settings and the recent list above are: a suite that
             // read the developer's own preferences would pass on this machine
             // and fail on another because somebody had chosen `faster`.
-            prefs: if cfg!(test) {
-                prefs::Prefs::default()
-            } else {
-                prefs::Prefs::load().0
-            },
+            prefs,
         }
     }
 }

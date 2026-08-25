@@ -324,7 +324,7 @@ mod tests {
     /// nowhere, which is the gap
     /// `crate::dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window`
     /// now refuses to compile past.
-    const SETTINGS_COUNT: usize = 22;
+    const SETTINGS_COUNT: usize = 23;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -357,6 +357,11 @@ mod tests {
                 blend_space_title(),
                 blend_space_silence(),
                 blend_space_radius(),
+            ),
+            (
+                mesh_padding_title(),
+                mesh_padding_silence(),
+                mesh_padding_radius(),
             ),
             (mask_title(), mask_silence(), mask_radius()),
             (minify_title(), minify_silence(), minify_radius()),
