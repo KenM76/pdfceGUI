@@ -661,6 +661,35 @@ pub struct Group {
     /// The items in this group, in display order.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<Item>>,
+    /// **When this group gives up its rows**, as the band runs out of width.
+    ///
+    /// `None` — the default, and the meaning of an absent key — is *"this
+    /// group never collapses"*. That is deliberately the safe answer for a
+    /// manifest written before this field existed: such a manifest keeps
+    /// exactly the behaviour it had, and the ladder simply has nothing to
+    /// spend.
+    ///
+    /// `Some(n)` enters the group in the ladder at priority `n`, and **lower
+    /// collapses first**. Ties break on manifest order, so two groups at the
+    /// same priority collapse left to right, which is the order a reader would
+    /// predict.
+    ///
+    /// # ★★ Why a manifest field and not a heuristic
+    ///
+    /// Because the right answer is editorial and cannot be measured. Word
+    /// keeps **Clipboard** expanded at every width down to 460 pt while Font,
+    /// Paragraph, Styles and Editing all collapse to single buttons — not
+    /// because Clipboard is narrow (it is not) but because it carries the verb
+    /// the operator came to the tab for. A width-based or item-count-based
+    /// rule gets that exactly backwards, and no amount of tuning fixes a rule
+    /// that is measuring the wrong property.
+    ///
+    /// ★ It is also the field that keeps `egui-shell` domain-free (R7). The
+    /// shell cannot know which group matters on a PDF editor's Markup tab; the
+    /// application says so in its manifest, in the same place it says
+    /// everything else about its ribbon, and the shell just reads a number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapse: Option<u32>,
 }
 
 impl Group {
@@ -671,7 +700,18 @@ impl Group {
             id: id.into(),
             caption: Some(caption.into()),
             items: Some(Vec::new()),
+            collapse: None,
         }
+    }
+
+    /// The same group, entered into the collapse ladder at `priority`.
+    ///
+    /// Lower collapses first. A group that never calls this never collapses,
+    /// which is the Clipboard case — see [`Group::collapse`].
+    #[must_use]
+    pub fn collapses_at(mut self, priority: u32) -> Self {
+        self.collapse = Some(priority);
+        self
     }
 
     /// A group reference for a layer: names the id and overrides nothing.

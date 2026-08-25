@@ -205,6 +205,7 @@ use egui::{Align, Atoms, Layout, Rect, RichText, TextStyle, UiBuilder, Vec2, pos
 use crate::manifest::{Group, Item, ItemSize};
 
 use super::a11y;
+use super::collapsed;
 use super::ctx::{Ctx, CustomItem, IconRequest};
 use super::plan::{self, BandPlan, CUSTOM_ITEM_WIDTH, GroupRows};
 use super::report;
@@ -354,16 +355,16 @@ pub(crate) fn caption_text(group: &Group) -> &str {
 /// band, and padding a popup entry out to it would put a hole under every
 /// one-row group in the menu.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-struct GroupBox {
+pub(crate) struct GroupBox {
     /// Height the control rows are padded out to, before the caption.
-    rows: f32,
+    pub(crate) rows: f32,
     /// Height the whole group — rows, gap and caption — is padded out to.
-    total: f32,
+    pub(crate) total: f32,
 }
 
 impl GroupBox {
     /// Pad to nothing: the group is as tall as what it drew.
-    const NATURAL: Self = Self {
+    pub(crate) const NATURAL: Self = Self {
         rows: 0.0,
         total: 0.0,
     };
@@ -507,7 +508,25 @@ pub(crate) fn render_band(
         .collect();
     let measured: Vec<(GroupRows, f32)> =
         groups.iter().map(|g| measure_group(ui, ctx, g)).collect();
-    let widths: Vec<f32> = measured.iter().map(|(_, w)| *w).collect();
+
+    // ★★★ S3 — THE COLLAPSE LADDER, run before the overflow planner.
+    //
+    // The order is the whole point and it is Word's, measured rather than
+    // assumed: at 800 pt Word's Font and Paragraph are single captioned
+    // buttons and every group is still ON the band; the scroll affordance does
+    // not appear until 460. A surface that overflowed first would be hiding
+    // commands into a menu while the space to show them, collapsed, was still
+    // there. See `plan::collapse`'s header for the three photographs this
+    // ordering comes from.
+    let candidates: Vec<plan::collapse::Candidate> = groups
+        .iter()
+        .zip(&measured)
+        .map(|(g, (_, expanded))| plan::collapse::Candidate {
+            expanded: *expanded,
+            collapsed: collapsed::width(ui, g),
+            priority: g.collapse,
+        })
+        .collect();
     let reserve = plan::overflow_width(groups.len(), button_padding(ui), |s| {
         text_width(ui, s, &TextStyle::Button)
     });
@@ -535,6 +554,15 @@ pub(crate) fn render_band(
             offered.min,
             pos2(offered.right(), offered.top() + height.max(0.0)),
         );
+        // The ladder needs the band's real width, which is only known here —
+        // `entitled_bounds` negotiates it — so the mask is computed inside the
+        // horizontal rather than beside the measurement. Note it is computed
+        // from `full.width()` and from nothing that the previous frame decided:
+        // the collapsed set is a pure function of the width, which is what
+        // makes widening monotonic and keeps the band from flickering at any
+        // particular size. See `plan::collapse`'s header.
+        let collapse_mask = plan::collapse::collapse_to_fit(&candidates, full.width(), separator);
+        let widths = plan::collapse::widths_after(&candidates, &collapse_mask);
         let band_plan = plan::plan_band(full.width(), &widths, separator, reserve);
 
         // ★ The reservation, taken from the right edge BEFORE any group
@@ -586,16 +614,29 @@ pub(crate) fn render_band(
                     if index > 0 {
                         ui.separator();
                     }
-                    captioned_group(
-                        ui,
-                        ctx,
-                        tab_id,
-                        group,
-                        gutter,
-                        &measured[index].0,
-                        box_,
-                        &mut outcome,
-                    );
+                    if collapse_mask[index] {
+                        collapsed::render(
+                            ui,
+                            ctx,
+                            tab_id,
+                            group,
+                            gutter,
+                            &measured[index].0,
+                            box_,
+                            &mut outcome,
+                        );
+                    } else {
+                        captioned_group(
+                            ui,
+                            ctx,
+                            tab_id,
+                            group,
+                            gutter,
+                            &measured[index].0,
+                            box_,
+                            &mut outcome,
+                        );
+                    }
                 }
             },
         );
@@ -679,7 +720,7 @@ pub(crate) fn render_band(
 /// the content would make "is there padding" unanswerable from outside the
 /// process, which is the question that produced this change.
 #[allow(clippy::too_many_arguments)]
-fn captioned_group(
+pub(crate) fn captioned_group(
     ui: &mut egui::Ui,
     ctx: &mut Ctx<'_>,
     tab_id: &str,
@@ -1398,6 +1439,7 @@ mod tests {
             id: "window".to_owned(),
             caption: Some("   ".to_owned()),
             items: None,
+            collapse: None,
         };
         assert_eq!(
             caption_text(&blank),
@@ -1408,6 +1450,7 @@ mod tests {
             id: String::new(),
             caption: None,
             items: None,
+            collapse: None,
         };
         assert_eq!(caption_text(&nameless), "(unnamed group)");
 
@@ -1421,6 +1464,7 @@ mod tests {
                 id: String::new(),
                 caption: Some(String::new()),
                 items: None,
+                collapse: None,
             },
         ] {
             assert!(!caption_text(&g).trim().is_empty(), "{g:?}");

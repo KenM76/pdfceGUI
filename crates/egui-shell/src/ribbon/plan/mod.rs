@@ -144,6 +144,8 @@
 //! under any future workspace membership. A new width rule added to this
 //! module belongs there as well as here.
 
+pub(crate) mod collapse;
+
 pub(crate) mod row;
 
 // Re-exported so every call site reads `plan::…` and the split between

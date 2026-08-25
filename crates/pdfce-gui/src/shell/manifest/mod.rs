@@ -78,6 +78,7 @@
 mod edit;
 mod file;
 mod format;
+mod ladder;
 mod markup;
 mod measure;
 mod pages;
@@ -398,6 +399,19 @@ pub fn built_in() -> Shell {
     // something to offer.
     // -------------------------------------------------------------------
     shell.menus = Some(super::menus::built_in());
+
+    // -------------------------------------------------------------------
+    // THE COLLAPSE LADDER — S3 of `RIBBON_SCALING.md`.
+    //
+    // Applied last, over the finished tab list, because a collapse
+    // priority is a RANKING OF GROUPS AGAINST EACH OTHER and the only way
+    // to review a ranking is to see all of it in one place. See
+    // `ladder`'s header for the rule the ranking follows (Word's: the
+    // group that never collapses is the one carrying the verb the
+    // operator came to the tab for, not the smallest one) and for the two
+    // tests that keep the table honest as the tabs move under it.
+    // -------------------------------------------------------------------
+    ladder::apply(&mut shell);
     shell
 }
 

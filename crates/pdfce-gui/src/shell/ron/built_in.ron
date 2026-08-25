@@ -57,6 +57,7 @@
                     items: [
                         Command(id: "file.ocr", size: Large),
                     ],
+                    collapse: 4,
                 ),
                 (
                     id: "save",
@@ -75,6 +76,7 @@
                         Command(id: "file.copy_page_text"),
                         Command(id: "file.copy_document_text"),
                     ],
+                    collapse: 3,
                 ),
                 (
                     id: "print",
@@ -90,6 +92,7 @@
                         Command(id: "file.properties"),
                         Command(id: "file.fonts"),
                     ],
+                    collapse: 2,
                 ),
                 (
                     id: "pdfce",
@@ -99,6 +102,7 @@
                         Command(id: "file.shortcuts"),
                         Command(id: "file.about"),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),
@@ -116,6 +120,7 @@
                         Command(id: "view.page_facing", size: Small),
                         Command(id: "view.page_facing_continuous", size: Small),
                     ],
+                    collapse: 4,
                 ),
                 (
                     id: "navigate",
@@ -149,6 +154,7 @@
                         Command(id: "view.grid", size: Small),
                         Command(id: "view.guides", size: Small),
                     ],
+                    collapse: 2,
                 ),
                 (
                     id: "panels",
@@ -163,6 +169,7 @@
                         Command(id: "view.panel_objects"),
                         Command(id: "view.panel_forms"),
                     ],
+                    collapse: 3,
                 ),
                 (
                     id: "window",
@@ -175,6 +182,7 @@
                         Command(id: "view.fullscreen"),
                         Command(id: "view.reset_layout"),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),
@@ -189,6 +197,7 @@
                     items: [
                         Command(id: "pages.insert_from_file", size: Large),
                     ],
+                    collapse: 2,
                 ),
                 (
                     id: "organise",
@@ -209,6 +218,7 @@
                         Command(id: "pages.rotate_left", size: Small),
                         Command(id: "pages.rotate_right", size: Small),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),
@@ -232,6 +242,7 @@
                     items: [
                         Command(id: "edit.insert_image", size: Large),
                     ],
+                    collapse: 4,
                 ),
                 (
                     id: "clipboard",
@@ -241,6 +252,7 @@
                         Command(id: "edit.copy", size: Small),
                         Command(id: "edit.paste", size: Small),
                     ],
+                    collapse: 3,
                 ),
                 (
                     id: "forms",
@@ -250,6 +262,7 @@
                         Command(id: "edit.form_manage_fields"),
                         Command(id: "edit.form_flatten"),
                     ],
+                    collapse: 2,
                 ),
                 (
                     id: "protect",
@@ -258,6 +271,7 @@
                         Command(id: "edit.redact"),
                         Command(id: "edit.redact_apply"),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),
@@ -289,6 +303,7 @@
                         Command(id: "markup.strikeout", size: Small),
                         Command(id: "markup.squiggly", size: Small),
                     ],
+                    collapse: 3,
                 ),
                 (
                     id: "notes",
@@ -298,6 +313,7 @@
                         Command(id: "markup.sticky_note"),
                         Command(id: "markup.stamp"),
                     ],
+                    collapse: 2,
                 ),
                 (
                     id: "style",
@@ -305,6 +321,7 @@
                     items: [
                         Custom(kind: "colour_swatch"),
                     ],
+                    collapse: 4,
                 ),
                 (
                     id: "comments",
@@ -312,6 +329,7 @@
                     items: [
                         Command(id: "markup.comments", size: Large),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),
@@ -339,6 +357,7 @@
                         Command(id: "measure.set_scale"),
                         Command(id: "measure.manage_groups"),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),
@@ -354,6 +373,7 @@
                         Command(id: "tools.merge_files"),
                         Command(id: "tools.split_files"),
                     ],
+                    collapse: 3,
                 ),
                 (
                     id: "fonts",
@@ -363,6 +383,7 @@
                         Command(id: "tools.embed_fonts"),
                         Command(id: "tools.unembed_fonts"),
                     ],
+                    collapse: 2,
                 ),
                 (
                     id: "diagnostics",
@@ -370,6 +391,7 @@
                     items: [
                         Command(id: "tools.render_diagnostics", size: Large),
                     ],
+                    collapse: 1,
                 ),
             ],
         ),

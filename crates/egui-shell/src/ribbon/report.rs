@@ -78,6 +78,19 @@ pub fn group(tab_id: &str, group_id: &str) -> String {
     format!("{PREFIX}.group.{tab_id}.{group_id}")
 }
 
+/// The name under which a **collapsed** group's single button is published.
+///
+/// ★ A distinct name from [`group`], deliberately. A collapsed group is on the
+/// band and its items are not, which is a third state — the other two being
+/// *expanded on the band* and *in the overflow menu* — and a driven check that
+/// could not tell them apart would report a collapse as a disappearance. The
+/// suffix means an existing check asserting `ribbon.group.<tab>.<id>` keeps
+/// meaning exactly what it meant: **this group is drawn, expanded**.
+#[must_use]
+pub fn group_collapsed(tab_id: &str, group_id: &str) -> String {
+    format!("{PREFIX}.group.{tab_id}.{group_id}.collapsed")
+}
+
 /// The name under which one group's **caption** is published.
 ///
 /// This is the rect a legibility assertion wants: the caption is the

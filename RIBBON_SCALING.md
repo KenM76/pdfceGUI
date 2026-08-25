@@ -187,10 +187,37 @@ command does not apply here".
 |---|---|---|
 | **S1** | item sizes | The single change that moves the 884-point number. Nothing else needs it first, and every stage after it benefits from the narrower controls |
 | **S2** | per-item `visible_when` | Small, and independent of S1. The operator's second ask |
-| **S3** | the collapse ladder | The largest, and the one that touches `plan_band`'s invariants — `the_visible_groups_are_a_prefix_and_nothing_is_lost` and `widening_the_band_never_hides_a_group_that_was_visible` both have to be restated for a world where a group can shrink instead of vanishing |
+| **S3** ✅ **DONE 2026-08-25** | the collapse ladder | The largest, and the one that touches `plan_band`'s invariants — `the_visible_groups_are_a_prefix_and_nothing_is_lost` and `widening_the_band_never_hides_a_group_that_was_visible` both have to be restated for a world where a group can shrink instead of vanishing |
 | **S4** | scroll instead of a menu at the bottom of the ladder | Only worth having once S3 exists; until then the menu *is* the right last resort |
 
-★ S1 and S2 are in this change. S3 and S4 are designed here and not built.
+★ S1 and S2 were in the first change. **S3 landed 2026-08-25**; S4 is designed
+here and not built.
+
+### S3 as built, measured on the File tab
+
+`plan::collapse` runs **before** `plan_band`, so a group gives up its rows
+before anything is pushed into a menu. Priorities live in one table
+(`shell::manifest::ladder`) rather than on each group, because a collapse
+priority is a *ranking of groups against each other* and a ranking can only be
+reviewed all at once.
+
+Measured offscreen against the shipped build, `SW41177.pdf`, File tab:
+
+| window width | groups collapsed | `⏷ N more` dropdown |
+|---:|---:|---|
+| 1600 | 1 | **no** (before this change: yes) |
+| 1400 | 2 | no |
+| 1200 | 3 | **no** (before: yes) |
+| 1100 | 4 | no |
+| 1050 | 4 | yes |
+
+★ **The headline is the last column.** The dropdown used to appear at 1600 and
+at every width below it. It now appears only below about 1100. S4 — the scroll
+arrow that replaces it — is therefore a *rare-case* affordance rather than the
+everyday one, which changes the argument for building it: the menu names what
+is hidden and an arrow does not, so replacing a discoverable affordance that
+almost never appears is a smaller win than it looked before S3 was measured.
+**Operator decision, not an engineering one.**
 
 ---
 
