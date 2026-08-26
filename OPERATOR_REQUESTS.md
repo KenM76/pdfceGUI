@@ -80,6 +80,62 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O41 — Colours change with the zoom level
+
+**Asked:** 2026-08-26. **Cause found and disclosed the same day; the real fix is
+filed with the engine.**
+
+> *"seems I get different results depending on Zoom level. The [shading] boxes
+> for example on zoom out the colors between our rendering and the references
+> don't match, but they do when I am zoomed in. up to 474% they are mismatched,
+> but at 579% they match. There's little problems like this in the rendering in
+> others too, so probably all of them are related to one bug hopefully."*
+
+**Your hunch was right — it is one bug, and your bracket contained it.**
+
+pdfce blends a page that uses transparency in *print* colours (CMYK), which is
+the correct way to do it. That takes a big working buffer, and the engine caps
+it at 256 MB. Past the cap it falls back to blending in screen colours instead.
+On an A4 page the cap is reached at **zoom 534 %** — between the 474 % where you
+saw a mismatch and the 579 % where you saw agreement. Measured: crossing it
+moves those patches by up to 16 levels out of 255.
+
+**What you get today:** the status bar now tells you when it has happened —
+*"Colours are approximate at this zoom … zoom out to see the exact colours."*
+Nothing is marked on the page itself.
+
+**What is still to come:** pdfce should never have asked for a page raster that
+big. It renders just the visible part above a *different*, much higher limit,
+and a visible-part render stays under the colour cap at any zoom — proved. So
+the repair is to move our switch-over point down to the colour cap, and then the
+colours stop depending on the zoom at all. It needs one number the engine
+currently keeps private; that is filed.
+
+**Verified:** driven — `ui-verify blend_space` zooms past the crossing and
+checks the line appears, and that it is absent below it.
+
+## O40 — Only one standard was selectable in Settings
+
+**Asked:** 2026-08-26. **Shipped:** 2026-08-26.
+
+> *"in the settings for the standards compatibility I can only select
+> (ISO15930-1, -4). I want to be able to select all of them and especially
+> PDF/X-4 (ISO 15930-7)."*
+
+**You were describing it exactly.** The control worked out which preset was
+selected by comparing your settings against each one — and all eight of the
+PDF/X and PDF/A presets set *identical* rendering answers. So whichever you
+clicked, it matched PDF/X-1a first and the dot jumped back there. All nine are
+selectable now.
+
+★ **But it will not change what you see, and the window now says so.** Those
+standards differ in what they require of the *file* — embedded fonts, an output
+intent, whether transparency is allowed — which is a preflight question. What
+they ask of a *renderer* is the same, so pdfce gives them the same answers.
+Switching between them changes nothing on screen. Worth knowing before you use
+it to compare against the conformance tests.
+
+
 ## O39 — All the form buttons working, and clicking a field shows its properties
 
 **Asked:** 2026-08-26. **Shipped:** 2026-08-26.
