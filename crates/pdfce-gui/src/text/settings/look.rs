@@ -1052,3 +1052,32 @@ pub const fn mesh_padding_none_label() -> &'static str {
 pub const fn mesh_padding_none_note() -> &'static str {
     "Reads the cross-reference as importing nothing. Try this if a gradient fill renders as noise, banding or the wrong shape and the rest of the page is fine."
 }
+
+/// The presets row's own heading.
+pub const fn preset_title() -> &'static str {
+    "Start from a known set of answers"
+}
+
+/// What the presets row is for.
+///
+/// ★ States the two facts an operator needs before clicking something that
+/// changes several settings at once: what it will do, and that it is not a
+/// lock. The second is the one that makes it safe to try.
+pub const fn preset_silence() -> &'static str {
+    "Sets everything below in one go. You can still change any of them afterwards, and nothing is applied until you press Save."
+}
+
+/// Label for pdfce's own recommended answers.
+pub const fn preset_pdfce_label() -> &'static str {
+    "pdfce recommended"
+}
+
+/// Note for the same.
+///
+/// ★ Worded for the operator who has been experimenting and wants out. That is
+/// the reported use — *"touching some of our presets caused some test to show
+/// up as failed"* — and it is a person looking for a way back, not a person
+/// choosing a philosophy.
+pub const fn preset_pdfce_note() -> &'static str {
+    "What pdfce ships with, including the two answers you chose personally: neutral black for line art, and smoothing pictures that are shrunk to fit. Use this to get back after experimenting."
+}

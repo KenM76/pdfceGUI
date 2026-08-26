@@ -110,6 +110,7 @@
 
 pub mod appearance;
 pub mod colour;
+mod preset;
 
 /// ★ The eighth group, and the only one not about the PDF standard: how pdfce
 /// draws, as distinct from what it draws. Two settings out of seven that were
@@ -341,6 +342,17 @@ pub fn show(
                 // the file — three orders that the source let drift apart,
                 // which is how `theme` ended up emitted between the two
                 // image settings and splitting them.
+                // ★ The presets row, above every group because it sets all of
+                // them. Operator request O38: *"a preset setting for rendering
+                // things to what the [conformance] page needs"* — and, in the
+                // same message, the plainer need underneath it: he had changed
+                // several settings while investigating and wanted a way back.
+                // See `preset`'s header for why PDF/X-4 is not among the
+                // entries yet and why its absence is the design rather than a
+                // gap.
+                preset::row(ui, draft);
+                ui.add_space(10.0);
+                ui.separator();
                 widgets::group(ui, "appearance", t::group_appearance(), false, |ui| {
                     appearance::theme(ui, draft);
                     // ★ The group's second member, and the two belong

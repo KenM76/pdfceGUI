@@ -138,7 +138,29 @@ same mechanism with more than one entry, and that is how it should be built:
   personally (neutral black, and now image smoothing)
 - **PDF/X-4 (ISO 15930-7)** — the conformance answers
 
-### ⛔ The blocker, and it is deliberate
+### ✅ The mechanism is BUILT (2026-08-25), on your instruction to proceed
+
+Settings ▸ top of the window, above every group because it sets all of them.
+One entry today — **pdfce recommended** — which is the half of your request that
+was never blocked: you had changed several settings while investigating and
+wanted a way back.
+
+★ It restores the two answers **you** ruled on personally rather than reverting
+to the engine's defaults: neutral black for line art (2026-08-08) and smoothing
+shrunk pictures (2026-08-25). A "recommended" preset that quietly undid your own
+decisions would be resetting, not restoring, and there is a test that fails on
+the day the engine adopts either — so the restatement can be removed rather than
+silently becoming a no-op.
+
+★★ **PDF/X-4 appears by adding one entry to a list, and nothing else.** No
+control to write, no layout to touch. Until its values exist it is *absent*
+rather than greyed — R9 — because a greyed row labelled with a standard's name
+would carry that standard's authority with none of its content.
+
+Verified on screen, offscreen: the row publishes `settings.presets` at
+`614 × 117 pt` at the top of the window.
+
+### ⛔ What is still blocked, and it is deliberate
 
 **I will not invent the conformant values.** Which setting vector a conformance
 page actually needs is a claim about a standard and about a licensed test suite,
