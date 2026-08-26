@@ -208,6 +208,38 @@ And the image-smoothing change from this morning is **gone as a special case**:
 the engine adopted it as its own default, so the one-time migration deleted
 itself exactly as designed.
 
+## M1 — Your machine: OneDrive is holding 349,000 file handles, and it makes pdfce crash on startup
+
+**Found 2026-08-26 while testing. Not a pdfce bug — but it bites pdfce.**
+
+Roughly a third of my automated tests could not start the program at all. It
+dies before showing a window, with a Windows error about **"not enough memory
+resources"** coming from the accessibility layer.
+
+**Measured cause:**
+
+| process | open handles |
+|---|---:|
+| **OneDrive** | **349,208** |
+| Outlook | 51,751 |
+| Explorer | 12,206 |
+
+349,000 handles in one process is roughly a hundred times normal. Windows starts
+refusing to hand out the resources a new window needs, and pdfce is simply the
+next program that asks.
+
+★ **It is intermittent, not constant** — three launches in a row gave two
+successes and one crash, and pausing between them helped. So you may have seen
+pdfce fail to open occasionally and put it down to bad luck. It probably was not.
+
+★★ **What it costs you:** any program can hit this, not just pdfce. A restart of
+OneDrive (or of the machine) will clear it. I have not touched it — that is your
+sync and your call.
+
+★ Worth saying that I may be contributing: I have published eight builds into
+OneDrive folders today, roughly 35 MB each. If the leak scales with sync churn,
+that is on me, and I can publish less often if you would rather.
+
 ## E3 — OCR put every word in the wrong place on rotated pages
 
 **Not asked — found by the engine and fixed.** 2026-08-26, commit `fe087c4`.
