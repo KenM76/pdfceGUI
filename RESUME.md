@@ -31,7 +31,7 @@ here so you know roughly where you are, not so you can quote it.
 | **The three failures** | `zooming_does_not_throw_away_where_the_operator_panned` and `zooming_back_out_keeps_the_view` are both **O27**, the f32 scroll-tier residual above ~130,000 %, deliberately left RED. `multi_node_move_moves_every_picked_anchor` is pre-existing and filed. **None is new and none blocks a release** |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `9a4fb18` (**v0.13.0**). **Read `Cargo.lock`, not this row.** ★ Deliberately NOT on `d3b4f5a`/v0.14.0 — see the note below |
-| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 from shell `f8af161`. `pdfceGUI1` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 16:33 from shell `f32a265` on engine `9a4fb18` — the rotated-text build. `pdfceGUI1` holds the 12:48 build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ★★ The engine is one version behind ON PURPOSE, and the next session's first job
 
