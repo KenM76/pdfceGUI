@@ -356,6 +356,28 @@ Found **2026-08-19**, while answering the `pdfce` session's `gui`-column re-base
 It is listed separately from the table above because it is a different kind of
 thing, and because it is the most serious entry in this document.
 
+## ✅ CLOSED 2026-08-26 — the recovery report is surfaced
+
+`Document::recovery()` is now read at open. The counters ride along with the
+`open ok` trace line, and **File ▸ Properties** carries the operator-facing
+disclosure: how many objects were recovered by scanning, how many were defined
+more than once so pdfce had to choose, and how many needed repairing.
+
+★ Verified by damaging a real file — corrupting its `startxref` offset so the
+loader must scan — and confirming the disclosure fires (`recovered=1
+objects=388`) while the healthy original says nothing.
+
+★★ Off-canvas, in Properties, deliberately not a badge over the page. What is in
+doubt is how the file was *assembled*, not how it is *drawn*; marking the page
+would be a second rendering path for content that is fine, and it would nag on
+every document ever touched by a careless writer.
+
+**Open question for the operator:** whether this also deserves a status-bar line,
+so a repaired file is visible without opening Properties. Left as his call rather
+than decided here — it is the difference between a disclosure and a nag.
+
+### The original entry
+
 **A document whose cross-reference table pdfce REBUILT BY SCANNING opens with
 no indication whatsoever.**
 

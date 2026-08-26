@@ -194,6 +194,7 @@ pub fn section(ui: &mut Ui, doc: &OpenDoc, drafts: &mut InfoDrafts, actions: &mu
             .small()
             .weak(),
     );
+    recovery_note(ui, doc);
     ui.add_space(4.0);
 
     facts(ui, doc);
@@ -408,6 +409,57 @@ fn row(
     if current.is_some_and(|info| !info.exact) {
         ui.weak(t::properties_info_not_exact());
     }
+}
+
+/// **Say when pdfce had to rebuild this file's index to open it at all.**
+///
+/// # ★★★ The last silence of the family, and the quietest one
+///
+/// A PDF carries a cross-reference table: an index saying where every object
+/// lives. When it is wrong — truncated download, a writer that crashed, a disc
+/// error, a tool that appended badly — `pdfce-core` does not refuse the file.
+/// It **scans the whole thing and rebuilds the index from what it finds**, and
+/// the document then opens and looks completely normal.
+///
+/// `Document::recovery()` has carried the report of that since the engine
+/// landed and **this shell never called it**. `NO_SURFACE.md` §3b recorded it as
+/// unreachable on 2026-08-17 and it was still unreachable today.
+///
+/// It is the same shape as the two silences `pdfce-core` broke this week — a
+/// search that found nothing, and a redaction that marked nothing, over text
+/// that was never readable. In every case the screen looks right and the
+/// operator has no way to know. Rule 4's less-remembered half: **an inference
+/// the operator cannot see still owes them a report.**
+///
+/// ★ Why it matters more for a CAD drawing than for a letter. A rebuilt index
+/// is a *best reading of damaged bytes*. `last_wins_collisions` counts objects
+/// that were defined more than once, where pdfce had to pick one — and on a
+/// drawing, a wrong pick is a line in the wrong place, on a page that renders
+/// perfectly. Nobody proofreads a titleblock against a file they believe is
+/// intact.
+///
+/// ★★ Off-canvas, in Properties, and **not** a banner over the page. The
+/// document is not in doubt as *drawn*; what is in doubt is how it was
+/// *assembled*. A badge on the page would be a second rendering path for
+/// content that is fine — the bug class decision 059 narrows rule 4 to prevent
+/// — and it would nag on every document that had ever been touched by a bad
+/// writer, which is a great many of them.
+fn recovery_note(ui: &mut Ui, doc: &OpenDoc) {
+    let Some(report) = doc.session.document().recovery() else {
+        return;
+    };
+    ui.label(egui::RichText::new(t::recovered_heading()).color(ui.visuals().warn_fg_color));
+    ui.label(
+        egui::RichText::new(t::recovered_detail(
+            report.file_level_objects + report.objstm_objects,
+            report.last_wins_collisions,
+            report.stream_lengths_recovered + report.missing_endobj_recovered,
+        ))
+        .small()
+        .weak(),
+    )
+    .on_hover_text(t::recovered_tooltip());
+    ui.add_space(4.0);
 }
 
 #[cfg(test)]

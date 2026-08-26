@@ -445,7 +445,31 @@ impl PdfceApp {
             let kind = match &self.status {
                 Status::Empty => "empty",
                 Status::Open(d) => {
-                    return format!("open ok pages={} path={:?}", d.pages.len(), d.path);
+                    // ★ The recovery counters ride along with the open line, so
+                    // a trace records that this file's index was REBUILT rather
+                    // than read. Without it the only evidence a document was
+                    // repaired lives in a panel the operator may never open,
+                    // and a support conversation about a drawing that "looks
+                    // wrong" has nothing to go on. See
+                    // `panels::properties::info::recovery_note` for the
+                    // operator-facing half and for why it is not a page badge.
+                    let recovered = d
+                        .session
+                        .document()
+                        .recovery()
+                        .map_or_else(String::new, |r| {
+                            format!(
+                                " recovered=1 objects={} collisions={} repaired={}",
+                                r.file_level_objects + r.objstm_objects,
+                                r.last_wins_collisions,
+                                r.stream_lengths_recovered + r.missing_endobj_recovered,
+                            )
+                        });
+                    return format!(
+                        "open ok pages={} path={:?}{recovered}",
+                        d.pages.len(),
+                        d.path
+                    );
                 }
                 Status::Failed { .. } => "failed",
                 Status::Unsupported { .. } => "unsupported",

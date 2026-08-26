@@ -831,6 +831,43 @@ pub const fn geometry_too_small() -> &'static str {
      value would collapse the object onto a line."
 }
 
+/// Heading for the recovered-file disclosure.
+///
+/// ★ Plain, and about the FILE rather than about pdfce. "pdfce had to repair
+/// this file" would read as pdfce struggling; the file is the thing that is
+/// damaged, and the operator's next question is about the file.
+#[must_use]
+pub const fn recovered_heading() -> &'static str {
+    "This file's index was damaged, and pdfce rebuilt it to open it"
+}
+
+/// The detail line: what the rebuild involved.
+///
+/// ★★ Three numbers, and only the middle one is a warning. Objects recovered
+/// says how big the job was; **objects defined more than once** is the one that
+/// can put a line in the wrong place, because pdfce had to choose; and repaired
+/// says how much else needed inference. Naming them separately lets an operator
+/// tell "large but clean" from "small and ambiguous", which a single "recovered
+/// N objects" cannot.
+#[must_use]
+pub fn recovered_detail(objects: usize, collisions: usize, repaired: usize) -> String {
+    format!(
+        "{objects} objects were recovered by scanning the file. {collisions} were defined more than once, so pdfce chose one of each. {repaired} needed repairing."
+    )
+}
+
+/// The hover explanation.
+///
+/// ★★★ States the consequence in the operator's terms and stops. It does not
+/// tell them to do anything, because there is nothing reliable to tell them:
+/// the file may be perfectly fine, and the only real remedy is a good copy from
+/// whoever produced it. Inventing an action would be worse than naming the
+/// uncertainty.
+#[must_use]
+pub const fn recovered_tooltip() -> &'static str {
+    "Every PDF carries an index saying where its contents are. This one's was wrong or missing — usually an interrupted download, a crashed writer, or a tool that appended to it badly — so pdfce scanned the whole file and rebuilt the index from what it found. The document opens and prints normally. Where something was defined more than once pdfce had to pick one, so if anything looks out of place, check it against the original before relying on it."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
