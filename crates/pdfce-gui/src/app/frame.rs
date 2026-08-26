@@ -71,30 +71,57 @@ use super::{PdfceApp, REGION_CENTRAL_PANEL, keyboard, modes, window};
 /// would prove that a *different* path works. What this substitutes is the
 /// keystroke, not the dispatch.
 ///
-/// # Why one command and not a script
+/// # Why a list of ids and not a script
 ///
-/// Because a grammar is a language and this is a doorbell. `diag`'s own header
+/// Because a grammar is a language and these are doorbells. The variable takes
+/// a comma-separated list, rung one per frame in order — `mode.edit,
+/// edit.form_text_field` — and that is the whole of it: no arguments, no
+/// conditionals, no state. Each id is one the command registry already
+/// publishes, dispatched through the same choke point a chord reaches. `diag`'s own header
 /// records that the old shell's 800-line `PDFCE_DIAG_SCRIPT` harness was
 /// deliberately not salvaged — *"salvaging a script grammar before there is a
 /// harness to run it would be shipping a language with no speakers"* — and
 /// `tools/ui-verify` is that harness now. What it lacks is a way in on a
 /// machine whose desktop is occupied, and one command id is the whole of that.
 fn scripted_invoke() -> Option<String> {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    /// ★ Consumed ONCE. Without this the variable would fire the command on
-    /// every frame for the life of the process — `app::dropped`'s
-    /// `DROPPED_ONCE` exists for the identical reason and made the identical
-    /// point: an env var is not an event, and turning one into an event needs
-    /// a latch.
-    static DONE: AtomicBool = AtomicBool::new(false);
-    if !crate::diag::enabled() || DONE.load(Ordering::Relaxed) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    /// ★ How many of the listed commands have been rung.
+    ///
+    /// Was an `AtomicBool` while the variable held one id. It became a counter
+    /// on 2026-08-26 for the reason in the header's *"one command and not a
+    /// script"* section, which is still the governing argument and is not
+    /// weakened by this: **a list of doorbells is not a grammar.** There is no
+    /// syntax to learn, no arguments, no conditionals and no state — the ids
+    /// are the same ids the registry already publishes, and each is dispatched
+    /// through the same `dispatch_command` a keystroke reaches.
+    ///
+    /// What forced it: **a capability can take two commands to reach.** Arming
+    /// a form-field tool needs Edit mode first, because the arm declines
+    /// without `edit_content`. With a single-shot variable, every feature gated
+    /// behind a mode was unreachable headlessly — implemented, unit-tested and
+    /// never once exercised in a running window, which is precisely the state
+    /// R1 exists to forbid.
+    static RUNG: AtomicUsize = AtomicUsize::new(0);
+    if !crate::diag::enabled() {
         return None;
     }
-    let id = std::env::var("PDFCE_DIAG_INVOKE")
+    let list = std::env::var("PDFCE_DIAG_INVOKE")
         .ok()
         .filter(|s| !s.is_empty())?;
-    DONE.store(true, Ordering::Relaxed);
-    Some(id)
+    // ★ ONE PER FRAME, not all at once. The commands are ordered because they
+    // depend on each other — mode, then the tool the mode permits — and a mode
+    // change is applied by draining the action queue, which happens at the end
+    // of the frame that raised it. Ringing both in one frame would ask the
+    // second command a question the first has not yet answered, and it would
+    // decline for a reason that looks exactly like the feature being broken.
+    let n = RUNG.load(Ordering::Relaxed);
+    let id = list
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .nth(n)?;
+    RUNG.store(n.saturating_add(1), Ordering::Relaxed);
+    Some(id.to_owned())
 }
 
 impl eframe::App for PdfceApp {

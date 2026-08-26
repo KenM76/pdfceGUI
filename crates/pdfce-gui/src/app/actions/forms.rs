@@ -110,6 +110,199 @@ pub(super) fn adopt(doc: &mut OpenDoc, page: usize, widget: ObjId, name: Option<
     });
 }
 
+/// Every field name the document already carries.
+///
+/// ★★ Read fresh from the session rather than cached, and the reason is a
+/// hazard rather than tidiness: the answer decides what the next field is
+/// **named**, a name that collides makes the new widget a second view of an
+/// existing field (see [`author`]'s header), and the set changes under any
+/// undo, any redo, any page insert and every previous placement. A cache would
+/// be correct until the first Ctrl+Z and silently wrong afterwards.
+///
+/// A document with no `/AcroForm` returns an empty list rather than declining —
+/// which is the common case, since most drawings have no form at all, and the
+/// first field placed on one has nothing to collide with.
+pub(super) fn field_names(doc: &OpenDoc) -> Vec<String> {
+    let view = doc.session.view();
+    pdfce_core::forms::parse_acroform(&view)
+        .map(|form| {
+            form.fields
+                .iter()
+                .map(|f| f.fully_qualified_name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// **Author one new form control** from the draft the dialog accepted.
+///
+/// The single narrowing point between this shell's one `Draft` and
+/// `pdfce-core`'s five spec types — see [`crate::canvas::formfield::draft`]'s
+/// header for why the shell holds one struct and the engine five. Every field
+/// a kind does not have is simply not read here, which is what makes that
+/// asymmetry cost one `match` instead of five dialogs.
+///
+/// ## ★★ The tooltip is the whole reason this verb was thought impossible
+///
+/// `TooltipChoice` has three states and the default is `Undecided`, which every
+/// one of these five verbs **refuses**: an interactive control owes a screen
+/// reader a name, and the engine will not invent one silently. That refusal was
+/// recorded in this project's own backlog as *"core's STRUCTURAL certification
+/// gate"* and parked the feature for nine days. It is not a gate; it is a
+/// required field of the dialog above.
+///
+/// So an empty tooltip becomes `TooltipChoice::Declined` rather than being left
+/// `Undecided`. The two are not the same and the difference is the point:
+/// `Declined` is the operator saying *"this control needs no name"*, which is a
+/// decision and is sometimes correct — a decorative button beside a labelled
+/// one. `Undecided` is nobody having been asked.
+///
+/// ## ★ Rule 4 — the outcome is disclosed, off-canvas, in full
+///
+/// `FieldAuthorOutcome` carries four things the operator **cannot see on the
+/// page**, and the one that matters most is `merged`: a name that matches an
+/// existing field makes this widget a second *view* of that field, so typing in
+/// one changes the other. Nothing about the rendered page says so, and a
+/// screenshot of it would be identical either way. That is precisely the half
+/// of rule 4 that survives decision 059 — *render normally; report separately* —
+/// so every flag the engine raises becomes a status line and none of them
+/// becomes a mark on the canvas.
+pub(super) fn author(
+    doc: &mut OpenDoc,
+    page: usize,
+    rect: pdfce_core::page_tree::Rect,
+    draft: &crate::canvas::formfield::Draft,
+) {
+    use crate::canvas::formfield::FormFieldKind as K;
+    use pdfce_core::edit::{
+        BorderSpec, BorderStyle, ChoiceOption, NewCheckBox, NewChoiceField, NewPushButton,
+        NewRadioButton, NewTextField, TooltipChoice,
+    };
+
+    let name = draft.name.trim().to_owned();
+    // ★ Empty means DECLINED, not undecided. See the header — this one line is
+    // the difference between a feature and a nine-day blocker.
+    let tooltip = if draft.tooltip.trim().is_empty() {
+        TooltipChoice::Declined
+    } else {
+        TooltipChoice::Text(draft.tooltip.trim().to_owned())
+    };
+    // A zero width is how PDF spells "no border", so the operator's choice
+    // travels as a number rather than as a second boolean that could disagree
+    // with it.
+    let border = BorderSpec {
+        style: BorderStyle::Solid,
+        width: draft.border_width.max(0.0),
+    };
+    let kind = draft.kind;
+
+    super::apply::vector_edit(doc, "add-form-field", page, 1, |session| {
+        let outcome = match kind {
+            K::Text => {
+                let mut spec = NewTextField::new(page, name, rect);
+                spec.value = draft.value.clone();
+                spec.max_len = draft.max_len;
+                spec.tooltip = tooltip;
+                spec.multiline = draft.multiline;
+                spec.password = draft.password;
+                // ★ Gated on `comb_ok` rather than on the flag alone, so the
+                // dialog's rule and the authored field cannot disagree: comb
+                // divides the width into `max_len` cells, and without a
+                // maximum there is nothing to divide by.
+                spec.comb = draft.comb && draft.comb_ok();
+                spec.read_only = draft.read_only;
+                spec.required = draft.required;
+                spec.border = border;
+                session.add_text_field(&spec)
+            }
+            K::CheckBox => {
+                let mut spec = NewCheckBox::new(page, name, rect);
+                spec.on_state = draft.export_value.clone();
+                spec.checked = draft.checked;
+                spec.tooltip = tooltip;
+                spec.read_only = draft.read_only;
+                spec.required = draft.required;
+                spec.border = border;
+                session.add_check_box(&spec)
+            }
+            K::Radio => {
+                let mut spec = NewRadioButton::new(page, name, rect, draft.export_value.clone());
+                spec.selected = draft.checked;
+                spec.tooltip = tooltip;
+                // `no_toggle_to_off` and `radios_in_unison` are left at the
+                // engine's defaults rather than exposed: they are properties of
+                // a GROUP, not of the widget being placed, so offering them
+                // per-widget would let two members of one group carry
+                // contradictory answers. They belong on a group editor, which
+                // is the properties pane's business.
+                spec.read_only = draft.read_only;
+                spec.required = draft.required;
+                spec.border = border;
+                session.add_radio_button(&spec)
+            }
+            K::Choice => {
+                // Export value and display text the same, deliberately — which
+                // is what `ChoiceOption::plain` means. They differ only when a
+                // form is submitted to a system that wants a code rather than a
+                // label, which is a second column this dialog does not offer
+                // and must not guess at.
+                let options: Vec<ChoiceOption> = draft
+                    .options()
+                    .into_iter()
+                    .map(ChoiceOption::plain)
+                    .collect();
+                let mut spec = NewChoiceField::new(page, name, rect, options);
+                spec.combo = draft.combo;
+                spec.editable = draft.editable;
+                spec.multi_select = draft.multi_select;
+                spec.sort = draft.sort;
+                spec.tooltip = tooltip;
+                spec.read_only = draft.read_only;
+                spec.required = draft.required;
+                spec.border = border;
+                session.add_choice_field(&spec)
+            }
+            K::PushButton => {
+                let mut spec = NewPushButton::new(page, name, rect, draft.caption.clone());
+                spec.tooltip = tooltip;
+                spec.read_only = draft.read_only;
+                spec.border = border;
+                session.add_push_button(&spec)
+            }
+        };
+        outcome.map(|o| disclosures(&o, kind))
+    });
+}
+
+/// The status lines one authoring outcome owes the operator.
+///
+/// A free function so the rule-4 obligation is testable without a session, a
+/// document or a frame — and so that a new flag on `FieldAuthorDisclosures`
+/// appearing in a future engine build has one obvious place to be handled and
+/// one test that notices it was not.
+///
+/// ★ Order is deliberate: **`merged` first**, because it is the only one that
+/// changes what the operator believes they just made. The rest are advisory.
+fn disclosures(
+    outcome: &pdfce_core::edit::FieldAuthorOutcome,
+    kind: crate::canvas::formfield::FormFieldKind,
+) -> Vec<String> {
+    let mut lines = vec![crate::text::forms::form_field_added(&kind.noun())];
+    if outcome.merged {
+        lines.push(crate::text::forms::form_field_merged());
+    }
+    if outcome.disclosures.tooltip_declined {
+        lines.push(crate::text::forms::form_field_no_tooltip());
+    }
+    if outcome.disclosures.has_no_options {
+        lines.push(crate::text::forms::form_field_no_options());
+    }
+    if outcome.disclosures.tagged_document || outcome.disclosures.structure_tab_order {
+        lines.push(crate::text::forms::form_field_tagged_document());
+    }
+    lines
+}
+
 /// Which refusals the operator can do something about.
 ///
 /// A free function taking `&EditError` so it is testable without an

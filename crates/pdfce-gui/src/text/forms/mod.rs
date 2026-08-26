@@ -56,7 +56,14 @@
 /// Re-exported below, so this split is invisible at every call site — see that
 /// module's header for why this is the seam R2 forced and why it was the right
 /// one anyway.
+mod authoring;
 mod tab_order;
+
+pub use authoring::{
+    form_field_added, form_field_merged, form_field_no_options, form_field_no_tooltip,
+    form_field_tagged_document, form_noun_check_box, form_noun_choice, form_noun_push_button,
+    form_noun_radio, form_noun_text,
+};
 
 pub use tab_order::*;
 

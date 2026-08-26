@@ -523,6 +523,31 @@ impl PdfceApp {
             // application to do arrives here as an `Action`, and "open a
             // window" is no exception to that just because it touches no
             // document.
+            // ★ Placing a form control CHANGES NOTHING, exactly as placing a
+            // text-bearing annotation does one arm down. It opens the dialog,
+            // and the details decide whether anything is authored.
+            //
+            // The document is read HERE rather than at the canvas, because
+            // generating the field's name needs the existing ones and a gesture
+            // has no business parsing an `/AcroForm`.
+            Action::BeginFormField { page, kind, rect } => {
+                let existing = crate::app::actions::forms::field_names(doc);
+                let draft = self.form_defaults.next(kind, &existing);
+                self.dialogs
+                    .open_form_field(&self.status, page, rect, draft);
+            }
+            // …and this is the one that reaches the document, through the same
+            // `vector_edit` funnel every other authoring verb uses.
+            //
+            // ★★ The settings are remembered on the way past — the operator's
+            // *"remember last settings"* — and remembered HERE rather than in
+            // the dialog, because this is the point at which they were
+            // ACCEPTED. Remembering at the dialog would remember a draft the
+            // operator then cancelled.
+            Action::CommitFormField { page, rect, draft } => {
+                self.form_defaults.remember(&draft);
+                crate::app::actions::forms::author(doc, page, rect, &draft);
+            }
             Action::BeginTextAnnot { page, kind, rect } => {
                 self.dialogs.open_text_annot(&self.status, page, kind, rect);
             }

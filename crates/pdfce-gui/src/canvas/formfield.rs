@@ -42,6 +42,10 @@
 //! document until the operator presses OK, which is what makes Escape free and
 //! what stops a mis-drag leaving a stray field behind.
 
+pub mod draft;
+
+pub use draft::{Draft, Remembered};
+
 use crate::canvas::markup::MarkupKind;
 
 /// The five kinds of form control pdfce can author.
@@ -138,6 +142,48 @@ impl FormFieldKind {
             Self::Text | Self::Choice => (160.0, 20.0),
             Self::CheckBox | Self::Radio => (14.0, 14.0),
             Self::PushButton => (80.0, 22.0),
+        }
+    }
+
+    /// What to call this kind in a sentence to the operator.
+    ///
+    /// ★ Returns the **text function**, not a string, so the words themselves
+    /// stay in `crate::text` where `check-ui-strings.sh` can see them. The
+    /// contrast with [`Self::name_prefix`] two functions down is the whole
+    /// point and is easy to get backwards: that one is a PDF `/T` written into
+    /// the file and must never be translated; this one is prose in a status
+    /// line and must always be.
+    #[must_use]
+    pub fn noun(self) -> String {
+        match self {
+            Self::Text => crate::text::forms::form_noun_text(),
+            Self::CheckBox => crate::text::forms::form_noun_check_box(),
+            Self::Radio => crate::text::forms::form_noun_radio(),
+            Self::Choice => crate::text::forms::form_noun_choice(),
+            Self::PushButton => crate::text::forms::form_noun_push_button(),
+        }
+    }
+
+    /// The stem an auto-generated field name is built from.
+    ///
+    /// ★★ **A PDF name, not UI copy, and the distinction is load-bearing** —
+    /// which is why these are literals here rather than in `crate::text`. This
+    /// string is written into the file as the field's `/T`, is what a
+    /// form-filling script keys on, and is what an FDF import matches against.
+    /// Translating it would rename every field in a document opened by an
+    /// operator running a different language, and the renaming would be
+    /// invisible until the data import failed.
+    ///
+    /// The prefixes are Acrobat's own, so a form authored here and a form
+    /// authored there are named alike.
+    #[must_use]
+    pub const fn name_prefix(self) -> &'static str {
+        match self {
+            Self::Text => "Text", // ui-text-exempt: a PDF /T field-name stem written into the file
+            Self::CheckBox => "Check Box", // ui-text-exempt: a PDF /T field-name stem written into the file
+            Self::Radio => "Group",
+            Self::Choice => "Dropdown",
+            Self::PushButton => "Button",
         }
     }
 

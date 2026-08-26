@@ -81,6 +81,8 @@ pub(crate) mod textcopy;
 pub(crate) mod zoom;
 
 use super::PdfceApp;
+mod forms;
+
 use super::actions::Action;
 use super::state::Status;
 
@@ -982,27 +984,20 @@ impl PdfceApp {
                     let _ = crate::canvas::tool::arm_text_annot(ctx, kind);
                 }
             }
-            // ★★★ THE FIVE FORM-FIELD COMMANDS. Arming only — nothing is
-            // authored here and nothing is authored on release either; the
-            // release opens a dialog, and the field exists once the operator
-            // presses OK. See `canvas::formfield` for why that indirection is
-            // the feature rather than an extra step.
+            // ★★★ THE FIVE FORM-FIELD COMMANDS, in `dispatch::forms`.
+            //
+            // The route is one line; what is in that file is the *reasoning* —
+            // in particular why a greyed command declines in words here rather
+            // than being swallowed by a blanket guard at the top of this
+            // function. That guard was written, and two tests refused it.
             id if crate::shell::commands::form_for_command(id).is_some() => {
-                // ui-text-exempt: a panic message for an unreachable branch,
-                // never displayed — the guard one line above already matched.
+                // The `let else` rather than an `expect`: the guard one line
+                // above already matched, so this cannot fail, and a panic
+                // message would be an unreachable string in the catalog's way.
                 let Some(kind) = crate::shell::commands::form_for_command(id) else {
                     return;
                 };
-                if !self.capabilities().edit_content {
-                    // ★ `edit_content`, not `author_markup`: a form field is a
-                    // change to the document's own content, and Review mode
-                    // places no controls.
-                    crate::diag::trace(|| {
-                        format!("command-declined id={id} reason=mode-cannot-edit-content")
-                    });
-                } else {
-                    let _ = crate::canvas::tool::arm_form(ctx, kind);
-                }
+                forms::arm(self, ctx, id, kind);
             }
             id if crate::shell::commands::markup_for_command(id).is_some() => {
                 if !self.capabilities().author_markup {

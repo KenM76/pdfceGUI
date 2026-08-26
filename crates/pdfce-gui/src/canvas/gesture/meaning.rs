@@ -38,6 +38,7 @@
 //! consumed it. A gesture means what it meant when it started.
 
 use crate::app::modes::Capabilities;
+use crate::canvas::formfield::FormFieldKind;
 use crate::canvas::handles::Grip;
 use crate::canvas::markup::MarkupKind;
 use crate::canvas::tool::CanvasTool;
@@ -235,6 +236,21 @@ pub enum DragKind {
     /// discarded by the format, so it is placed with a click and takes the
     /// click branch beside the measure and caret tools.
     TextAnnot(crate::canvas::textannot::TextAnnotKind),
+    /// Dragging out the **rectangle a form control will occupy**.
+    ///
+    /// [`Self::TextAnnot`]'s twin in shape and in completion rule: the release
+    /// opens a dialog and authors nothing. It is a separate variant for the
+    /// same reason that one is — an arm asking *"does this release author?"*
+    /// gets one answer per variant rather than a predicate — and separate from
+    /// **it** because the dialog is a different dialog and the kind is a
+    /// different enum.
+    ///
+    /// ★ There is no click/drag split here, unlike the text-annotation family:
+    /// **every** form kind is placed either way. A click means "the default
+    /// size for this kind, here", which is a real answer because a form control
+    /// has a conventional size — see [`FormFieldKind::default_size_pt`]. A
+    /// text box's default size, by contrast, would be a number nobody chose.
+    Form(FormFieldKind),
 }
 
 /// What a press means, given the tool, what it landed on and what is armed —
@@ -500,6 +516,32 @@ pub fn press_kind(
     // `is_dragged` is the predicate the whole family branches on, so the two
     // shapes cannot drift apart here from the way they are authored — the same
     // welding `uses_gallery` does for the stamp's text.
+    // ★★ A FORM tool, and it is placed BOTH ways at once — which is why it
+    // needs no `is_dragged` predicate of its own.
+    //
+    // The operator, 2026-08-26: *"when I click one I should be able to click on
+    // the canvas to place the position or drag a box for size"*. Both, for every
+    // kind, and the click is not a degenerate drag that happens to be tolerated
+    // — it is the primary gesture for a check box, whose conventional size is
+    // 14 pt square and which nobody wants to drag out by hand.
+    //
+    // ★ It sits ABOVE the text-annotation rung rather than below, and the
+    // ordering is currently unobservable: the two tools cannot both be armed,
+    // because `CanvasTool` is one value. It is written in a fixed order anyway
+    // so that the precedence is a decision on the page rather than an accident
+    // of which rung someone appended to last.
+    //
+    // The capability is `edit_content`, NOT `author_markup`: a form field is a
+    // change to the document's own content rather than an annotation over it,
+    // which is the same reasoning that put these commands in Edit mode. Pairing
+    // it with markup would let a reviewer author form fields, and authoring an
+    // interactive control is not a review activity.
+    if let CanvasTool::Form(kind) = tool {
+        return PressMeaning {
+            drag: caps.edit_content.then_some(DragKind::Form(kind)),
+            click: caps.edit_content,
+        };
+    }
     if let CanvasTool::TextAnnot(kind) = tool {
         return PressMeaning {
             drag: kind.is_dragged().then_some(DragKind::TextAnnot(kind)),

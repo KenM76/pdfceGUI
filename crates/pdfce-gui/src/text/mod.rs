@@ -130,6 +130,7 @@ pub mod files;
 /// Consumed by `crate::find::bar` and `crate::app::status`.
 pub mod find;
 /// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
+pub mod formfield;
 pub mod forms;
 pub mod images;
 /// Every word the Markup ▸ Style group shows — three tooltips and a unit.

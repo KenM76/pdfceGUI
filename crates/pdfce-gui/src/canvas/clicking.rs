@@ -402,6 +402,40 @@ pub fn click(
             doc.current_page(),
             actions,
         );
+    } else if let crate::canvas::tool::CanvasTool::Form(kind) = active_tool {
+        // ★★ A CLICK places a form control at its conventional size.
+        //
+        // The operator, 2026-08-26: *"I should be able to click on the canvas
+        // to place the position or drag a box for size"*. Both, and this is the
+        // first half.
+        //
+        // Unlike the sticky note one arm below, the size here is a REAL promise
+        // about what is drawn: a `/Widget`'s `/Rect` is its extent, not a
+        // discarded hint, so a 14 pt square really is a 14 pt check box. That is
+        // why the numbers live on the kind with their reasoning
+        // (`FormFieldKind::default_size_pt`) rather than being one shared
+        // constant — a check box and a text field are not the same shape, and
+        // sizing them alike would make every click need a resize afterwards.
+        //
+        // The click point is the LOWER-LEFT corner rather than the centre. Both
+        // are defensible; lower-left is chosen because it matches what the drag
+        // does — the press is one corner and the control grows from it — so the
+        // two gestures agree about what the pointer meant.
+        if let Some(page) = doc.current_page()
+            && let Some((at, _)) = super::markup::band::endpoints(point, point, page)
+        {
+            let (w, h) = kind.default_size_pt();
+            actions.push(Action::BeginFormField {
+                page: page_index,
+                kind,
+                rect: pdfce_core::page_tree::Rect {
+                    llx: at.0,
+                    lly: at.1,
+                    urx: at.0 + w,
+                    ury: at.1 + h,
+                },
+            });
+        }
     } else if let crate::canvas::tool::CanvasTool::TextAnnot(kind) = active_tool {
         // ★ The STICKY's whole placing gesture: one click, one point.
         //

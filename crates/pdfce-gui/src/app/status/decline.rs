@@ -292,6 +292,29 @@ pub(crate) enum Declined {
     /// the old one. The sentence says so, because an operator told they had
     /// "restored" a radio button would go looking for its group.
     WidgetHasNoName,
+    /// **A button was asked for, and pdfce cannot give one anything to do.**
+    ///
+    /// `edit.form_push_button` is `enabled_when` a condition nothing sets, so
+    /// its ribbon item is greyed. This is what happens when the command arrives
+    /// anyway — by a chord, the QAT, a context menu or the harness seam — and
+    /// it is the reason greying alone was never enough.
+    ///
+    /// ★★ **The alternative was silence, and silence was measured to be worse.**
+    /// A blanket refusal at the top of `dispatch_command` was written first and
+    /// the test suite rejected it, because the same change would have made
+    /// `Ctrl+Z` on an empty stack do nothing AND say nothing. Greying is a hint;
+    /// a sentence is an answer. See `app::dispatch`'s form arm for the full
+    /// account.
+    ///
+    /// # ★ Retired by the operator's next act, and by nothing else
+    ///
+    /// [`Self::still_true`] answers `true` unconditionally, like the two failed
+    /// writes above and unlike the four with a live predicate. There is no state
+    /// to re-ask: pdfce will not learn to run a PDF action between two frames,
+    /// so the sentence cannot stop being true on its own. What retires it is the
+    /// next thing the operator does, which is the right lifetime for a sentence
+    /// about one press.
+    PushButtonInert,
     NothingToUndo,
     /// **`edit.redo` was invoked with an empty redo stack.**
     ///
@@ -374,7 +397,7 @@ impl Declined {
             // which `retire` catches. See the variant's own docs; the two
             // parameters are deliberately ignored rather than being joined by a
             // third that would always be `true`.
-            Self::SaveFailed | Self::SettingsNotSaved => true,
+            Self::SaveFailed | Self::SettingsNotSaved | Self::PushButtonInert => true,
             // ★ Same ruling, third and fourth cases. A name is not going to
             // stop being taken, and a widget is not going to grow a `/T`,
             // between one frame and the next. Both are corrected by the
@@ -408,6 +431,7 @@ impl Declined {
             Self::NothingToRedo => t::redo_declined_empty(),
             Self::FieldNameTaken => t::adopt_declined_name_taken(),
             Self::WidgetHasNoName => t::adopt_declined_no_name(),
+            Self::PushButtonInert => t::push_button_inert(),
         }
     }
 }
@@ -493,6 +517,21 @@ pub(crate) fn record(outcome: ZoomOutcome) {
 /// what they just did. Two saves in a row, one failing and one succeeding, are
 /// still handled — the second press retires the first's sentence through
 /// [`retire`] before its own arm runs.
+/// Record that a push button was asked for and pdfce cannot make a working one.
+///
+/// Called from `crate::app::dispatch`'s form arm, in the **dispatch** phase
+/// like [`record`] rather than in apply — the command never reaches a document,
+/// so there is no apply to decline in.
+///
+/// ★ It exists as its own function rather than joining [`record`] for the
+/// reason that one's neighbours already show: [`record`] converts a
+/// `ZoomOutcome`, and this has no outcome to convert. A constructor per source
+/// of truth is what keeps the enum from acquiring a `From` impl for every type
+/// in the crate.
+pub(crate) fn record_push_button_inert() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::PushButtonInert));
+}
+
 pub(crate) fn record_save_failure() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::SaveFailed));
 }
@@ -611,6 +650,22 @@ pub(super) fn live(ctx: &egui::Context, doc: &OpenDoc) -> Option<Declined> {
         slot.filter(|d| d.still_true(has_bounds, canvas_has_drawn, history))
             .to_owned()
     })
+}
+
+/// **The raw store, for tests only.**
+///
+/// [`live`] is the bar's read and applies the retirement filter, which needs a
+/// document and a context. A test asserting that a *dispatcher* recorded a
+/// decline is asking a narrower question — did the sentence get written down? —
+/// and routing it through the filter would make the assertion depend on zoom
+/// bounds and canvas state that have nothing to do with what it is testing.
+///
+/// ★ `cfg(test)` rather than `pub(crate)` unconditionally, so nothing in the
+/// shipped build can read the store without the retirement rule.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn recorded_for_test() -> Option<Declined> {
+    LAST.with_borrow(|slot| *slot)
 }
 
 // ---------------------------------------------------------------------------

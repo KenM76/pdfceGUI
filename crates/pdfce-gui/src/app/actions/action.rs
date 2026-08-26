@@ -1122,6 +1122,47 @@ pub enum Action {
     /// the action is the same rule `CommitMarkup` follows for its pen: an
     /// `Action` is plain data describing what the operator did, and what they
     /// did was draw a box.
+    /// **A form control has been placed and now needs its details.**
+    ///
+    /// Raised by the canvas on the click or release that finishes the placing
+    /// gesture, and by nothing else. It **changes no document** — it opens
+    /// `crate::dialogs::formfield`, which is where the operator names the
+    /// field.
+    ///
+    /// ★★ The geometry travels and the details do not, for the reason
+    /// [`Self::BeginTextAnnot`] gives at length: the rectangle is a choice the
+    /// operator made *now*, on the page they were looking at, and the details
+    /// are made later in a dialog and may never be made at all.
+    ///
+    /// ★ There is deliberately no `name` on it. The name is generated when the
+    /// dialog opens, because generating it requires reading the document's
+    /// existing field names, and the canvas has no business parsing an
+    /// `/AcroForm`.
+    BeginFormField {
+        /// The 0-based page the control will be authored onto.
+        page: usize,
+        /// Which of the five kinds is being placed.
+        kind: crate::canvas::formfield::FormFieldKind,
+        /// The rectangle, in PDF user space, already normalised.
+        rect: pdfce_core::page_tree::Rect,
+    },
+    /// **Author the form control the dialog just accepted.**
+    ///
+    /// Raised by `crate::dialogs::formfield` and by nothing else. This is the
+    /// one that reaches the document, through the same `vector_edit` funnel
+    /// every other authoring verb uses.
+    ///
+    /// ★ The whole draft travels, for the reason [`Self::CommitTextAnnot`]
+    /// states: by the time the queue drains the dialog is closed and its fields
+    /// are gone, so reading them at apply time is not fragile but impossible.
+    CommitFormField {
+        /// The 0-based page.
+        page: usize,
+        /// The rectangle, in PDF user space, already normalised.
+        rect: pdfce_core::page_tree::Rect,
+        /// Everything the operator chose, including which kind it is.
+        draft: Box<crate::canvas::formfield::Draft>,
+    },
     BeginTextAnnot {
         /// The 0-based page the annotation will be authored onto.
         page: usize,

@@ -920,6 +920,48 @@ pub(super) fn interact(
                 }
             }
         }
+        // ★★ A FORM CONTROL's rectangle, and it behaves exactly as the
+        // text-annotation band above: the same band pixels, and a release that
+        // AUTHORS NOTHING.
+        //
+        // That last property is the feature rather than an implementation
+        // detail. Nothing exists in the document until the operator presses OK
+        // in the dialog, which is what makes Escape free and what stops a
+        // mis-drag leaving a stray field behind — and a stray form field is
+        // worse than a stray rectangle, because it is invisible on a printed
+        // page and swallows every keystroke aimed near it.
+        //
+        // The rect is normalised HERE, once, at the point it becomes a page
+        // rect — the same rule the text-annotation arm states — so the band the
+        // operator watched and the control that is authored cannot disagree
+        // about which corner was the anchor.
+        GestureOutcome::FormField {
+            kind,
+            from,
+            to,
+            phase,
+        } => {
+            band = Some(markup::band::Preview {
+                kind: kind.drag_shape(),
+                from,
+                to,
+            });
+            if phase == crate::canvas::gesture::Phase::Complete
+                && let Some(page) = doc.current_page()
+                && let Some((start, end)) = markup::band::endpoints(from, to, page)
+            {
+                actions.push(Action::BeginFormField {
+                    page: page_index,
+                    kind,
+                    rect: pdfce_core::page_tree::Rect {
+                        llx: start.0.min(end.0),
+                        lly: start.1.min(end.1),
+                        urx: start.0.max(end.0),
+                        ury: start.1.max(end.1),
+                    },
+                });
+            }
+        }
         // ★★ A resize drag COMMITS, as of 2026-08-19.
         //
         // The comment that stood here read *"a resize drag is CONSUMED and

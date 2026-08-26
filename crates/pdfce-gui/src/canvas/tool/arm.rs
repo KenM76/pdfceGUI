@@ -91,9 +91,14 @@ pub fn cursor_for(
             // tells the operator it will hold text rather than a comment is the
             // pressed ribbon control, off-canvas, where a mode indicator
             // belongs.
+            // ★ …and a form control's band is the fifth, for the reason the
+            // four above share: it is a rubber band being dragged out, and what
+            // says which of the five kinds is armed is the pressed ribbon
+            // control, off-canvas.
             DragKind::Marquee(_)
             | DragKind::Markup(_)
             | DragKind::TextAnnot(_)
+            | DragKind::Form(_)
             | DragKind::TextBox => CursorIcon::Crosshair,
             DragKind::Move => CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),

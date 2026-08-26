@@ -523,6 +523,21 @@ pub struct PdfceApp {
     /// why it is also not in the settings file.
     pub pen: crate::canvas::markup::pen::Pen,
 
+    /// ★★ **The last form-field settings the operator accepted**, for the next
+    /// placement — their *"remember last settings"* of 2026-08-26.
+    ///
+    /// Beside the pen and for the same reason: this is a **tool setting**, so
+    /// it belongs to the operator and their session, not to a document. Someone
+    /// who turns the border off expects the next field to have no border
+    /// whatever file they place it in, exactly as a pen does not change colour
+    /// when you turn the page.
+    ///
+    /// ★ …and, like the pen, deliberately **not** written to `userdata`. See
+    /// `canvas::formfield::draft::Remembered`: a remembered setting that
+    /// survived a restart would silently govern a different document days
+    /// later, which is the shape of a setting nobody can find the source of.
+    pub form_defaults: crate::canvas::formfield::Remembered,
+
     /// ★ **The shell's own preferences** — render quality and the zoom settle
     /// delay. See [`prefs`] for why these are not in the engine's settings
     /// store, and for the five commissioned neighbours that turned out to have
@@ -812,6 +827,7 @@ impl PdfceApp {
             // starting value and is what a test-built app keeps.
             window: None,
             pen: crate::canvas::markup::pen::Pen::default(),
+            form_defaults: crate::canvas::formfield::Remembered::default(),
             // ★ Loaded for real EXCEPT under `cfg(test)`, for exactly the
             // reason the settings and the recent list above are: a suite that
             // read the developer's own preferences would pass on this machine

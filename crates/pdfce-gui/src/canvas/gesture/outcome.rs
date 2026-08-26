@@ -278,6 +278,22 @@ pub enum GestureOutcome {
         /// Draw the band, or ask for the words.
         phase: Phase,
     },
+    /// A **form control's** rectangle is being dragged out.
+    ///
+    /// [`Self::TextAnnot`]'s twin: the band draws identically and
+    /// `Phase::Complete` opens a dialog rather than authoring. It is separate
+    /// because the dialog and the kind are both different, and because a form
+    /// control's release has to carry which of the five kinds it is.
+    FormField {
+        /// Which of the five kinds, sampled at the press.
+        kind: crate::canvas::formfield::FormFieldKind,
+        /// Canvas-space position of the press — one corner of the control.
+        from: Pos2,
+        /// Canvas-space position of the pointer now — the opposite corner.
+        to: Pos2,
+        /// Draw the band, or ask for the details.
+        phase: Phase,
+    },
 }
 
 /// A primary-button drag in flight.
@@ -363,6 +379,16 @@ impl Drag {
             // rect, so a preview and an authored box cannot come from two
             // different normalisations.
             DragKind::TextAnnot(kind) => GestureOutcome::TextAnnot {
+                kind,
+                from: self.origin,
+                to: self.latest,
+                phase,
+            },
+            // Raw and in drag order, for the reason the two bands above give:
+            // the rectangle is normalised exactly once, where it becomes a page
+            // rect, so the band the operator watched and the control that is
+            // authored cannot come from two different normalisations.
+            DragKind::Form(kind) => GestureOutcome::FormField {
                 kind,
                 from: self.origin,
                 to: self.latest,

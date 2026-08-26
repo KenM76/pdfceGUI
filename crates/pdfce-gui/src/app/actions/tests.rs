@@ -68,3 +68,88 @@ fn the_history_commands_raise_actions() {
         );
     }
 }
+
+/// ★★★ **A greyed command that is invoked anyway declines IN WORDS.**
+///
+/// The regression test for a hole this project carried since the registry
+/// gained `enabled_when`: **the greying was drawn, never enforced.** `egui`
+/// refuses a click on a disabled widget and that is the whole of what greying
+/// does — a chord, the QAT, a context menu or the `PDFCE_DIAG_INVOKE` seam all
+/// reach `dispatch_command` without passing the ribbon at all.
+///
+/// Found by driving the release binary, not by reading:
+/// `PDFCE_DIAG_INVOKE=mode.edit,edit.form_push_button` traced
+/// `form-tool-armed kind=PushButton`, arming a tool whose control is greyed.
+///
+/// ## What this test asserts, and the thing it deliberately does NOT
+///
+/// It asserts **two** facts, and the second is the one worth having:
+///
+/// 1. the tool is not armed — a greyed command does not do its thing;
+/// 2. a decline is **recorded**, so the operator gets a sentence.
+///
+/// The second is what stopped the obvious repair. A blanket refusal at the top
+/// of `dispatch_command` was written, and it satisfied (1) for all ninety-nine
+/// `enabled_when` commands at once — and the suite rejected it, because it also
+/// removed the words. `the_history_commands_raise_actions` says so in its own
+/// header: *"the dispatcher must not consult one … the apply arm declines an
+/// empty stack IN WORDS."* Greying is a hint; a sentence is the answer.
+///
+/// So a test that only checked "nothing happened" would have passed against the
+/// change this project rejected, which is the shape of a check that cannot fail
+/// for the right reason.
+#[test]
+fn a_greyed_push_button_declines_in_words_rather_than_arming() {
+    let ctx = egui::Context::default();
+    let mut app = crate::app::tests::opened();
+    // Reached through the dispatcher rather than by writing the field, so the
+    // mode is entered exactly as an operator's Ctrl+3 enters it.
+    app.dispatch_command(&ctx, "mode.edit", &mut Vec::new());
+    crate::app::status::decline::retire();
+
+    let mut actions = Vec::new();
+    app.dispatch_command(&ctx, "edit.form_push_button", &mut actions);
+
+    assert!(
+        !matches!(
+            crate::canvas::tool::active(&ctx),
+            crate::canvas::tool::CanvasTool::Form(_)
+        ),
+        "a greyed command must not arm its tool" // ui-text-exempt: test assertion message
+    );
+    assert_eq!(
+        crate::app::status::decline::recorded_for_test(),
+        Some(crate::app::status::decline::Declined::PushButtonInert),
+        "…and it must SAY so — a command that silently does nothing is \
+         indistinguishable from one with no arm, and the two want opposite fixes"
+    );
+}
+
+/// **The other four form commands still arm**, so the guard above is a guard
+/// and not a blanket refusal.
+///
+/// ★ The positive control. Without it, a mistake that declined every form
+/// command would leave the test above passing and the whole feature dead — the
+/// standing rule that a check which cannot fail is not evidence, applied to its
+/// own neighbour.
+#[test]
+fn the_four_useful_form_commands_still_arm() {
+    use crate::canvas::formfield::FormFieldKind;
+    let ctx = egui::Context::default();
+    let mut app = crate::app::tests::opened();
+    app.dispatch_command(&ctx, "mode.edit", &mut Vec::new());
+
+    for kind in FormFieldKind::ALL {
+        if !kind.is_useful_once_placed() {
+            continue;
+        }
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, kind.command_id(), &mut actions);
+        assert_eq!(
+            crate::canvas::tool::active(&ctx),
+            crate::canvas::tool::CanvasTool::Form(kind),
+            "{} must arm its tool", // ui-text-exempt: test assertion message
+            kind.command_id()
+        );
+    }
+}

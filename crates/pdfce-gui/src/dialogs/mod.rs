@@ -77,6 +77,7 @@ pub mod diagnostics;
 /// `pdfce-core`: every generic PDF-to-DXF converter exports at paper scale and
 /// says nothing, so a 1:2 detail arrives at half size **looking plausible**.
 pub mod export_dxf;
+pub mod formfield;
 /// ★★ **A dialog is an OS window** — the operator's report of 2026-08-20, and
 /// `ui-conventions/dialogs.md` G1. One host, so the path of least resistance
 /// and the right answer are the same call; its header carries what an OS
@@ -202,6 +203,12 @@ pub struct DialogsState {
     /// The open text-annotation dialog, if a text box, sticky or stamp has
     /// just been placed.
     text_annot: Option<textannot::TextAnnotDialog>,
+    /// The form-field placement dialog, if one is open.
+    ///
+    /// `None` is both "closed" and "nothing placed"; `Some` is both "open" and
+    /// "here is the draft", which is the one-field idiom every dialog in this
+    /// struct follows.
+    form_field: Option<formfield::FormFieldDialog>,
 
     /// The Apply-redactions dialog, when one is open.
     ///
@@ -471,6 +478,29 @@ impl DialogsState {
         self.text_annot = Some(textannot::TextAnnotDialog::open(page, kind, rect));
     }
 
+    /// **Open the placement dialog for a form control just put on the page.**
+    ///
+    /// Raised by `Action::BeginFormField`, which the canvas pushes on the click
+    /// or drag-release that finishes placing, and by nothing else.
+    ///
+    /// ★ It REPLACES an open dialog rather than refusing, for the reason
+    /// [`Self::open_text_annot`] gives: a second placing gesture is the operator
+    /// plainly saying they want a control somewhere else, and refusing would
+    /// leave them looking at a window describing a rectangle they have moved on
+    /// from. What it costs is the abandoned draft, which authored nothing.
+    pub fn open_form_field(
+        &mut self,
+        status: &Status,
+        page: usize,
+        rect: pdfce_core::page_tree::Rect,
+        draft: crate::canvas::formfield::Draft,
+    ) {
+        if !matches!(status, Status::Open(_)) {
+            return;
+        }
+        self.form_field = Some(formfield::FormFieldDialog::open(page, rect, draft));
+    }
+
     pub fn open_diagnostics(&mut self, status: &Status) {
         if !matches!(status, Status::Open(_)) {
             return;
@@ -676,6 +706,9 @@ impl DialogsState {
         // nothing from the open document at all.
         if self.scale.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.scale = None;
+        }
+        if self.form_field.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.form_field = None;
         }
         if self.text_annot.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.text_annot = None;
