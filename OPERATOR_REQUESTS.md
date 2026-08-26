@@ -80,6 +80,52 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O39 — All the form buttons working, and clicking a field shows its properties
+
+**Asked:** 2026-08-26. **Shipped:** 2026-08-26.
+
+> *"can you get all the form buttons on the ribbon working next along with
+> adding all the form feature buttons. when I click one I should be able to
+> click on the canvas to place the position or drag a box for size then a pop up
+> lets me set the details for the feature."*
+>
+> *"remember last settings and leave push buttons on the ribbon but greyed out
+> for now. also don't forget that when I click on an existing form field on the
+> page it's properties should come up in our side pane for editing it's
+> properties."*
+
+**What you get.** Five buttons on Edit ▸ Forms — text field, check box, radio
+button, drop-down, button. Click one, then click the page to place it at its
+usual size, or drag a box for an exact one. A window asks for its details.
+Nothing is added until you press Add, so a mis-drag costs nothing. The settings
+you accept carry over to the next field you place. Click a field that is already
+on the page and its properties appear in the Properties pane, where you can
+rename it or delete it.
+
+**The push button is greyed**, as you asked. If you reach it another way — a
+keyboard shortcut, say — it now tells you why instead of doing nothing.
+
+**Three things worth knowing:**
+
+1. **In Edit mode, clicking a field selects it rather than filling it.** That is
+   how every program that both fills and authors forms behaves, and it is the
+   only way one click can mean both things. Filling on the page still works in
+   Read and Review, and the Forms panel fills in every mode.
+2. **Names must be different, and radio buttons are the exception.** Two fields
+   sharing a name are ONE field with two boxes — type in either and both change.
+   pdfce numbers new fields so that cannot happen by accident. Radio buttons in
+   one set are *supposed* to share a name, so those keep theirs and get
+   different values instead.
+3. **Required, read-only, the tooltip and the border can only be set when a
+   field is placed.** The engine has no way to change them afterwards yet. The
+   Properties pane says so rather than leaving you hunting, and the request is
+   filed.
+
+**Verified:** driven. `ui-verify form_field` launches the real program, arms the
+tool, clicks the page, watches the field get created, then clicks an existing
+field and checks the Properties pane actually drew.
+
+
 ## O38 — A rendering preset for PDF/X-4 (ISO 15930-7) conformance, and a standards selector
 
 **Asked:** 2026-08-25. **Investigated, not yet built.**
