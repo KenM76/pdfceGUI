@@ -32,3 +32,15 @@ Restore the source immediately — a defective binary left in `target/release` i
 one `package-portable.py` away from shipping. See
 [[a-backlog-row-is-a-record-not-evidence]] and
 [[a-measurement-of-the-wrong-surface-looks-exactly-like-a-broken-one]].
+
+★★ **A test can also fail for the wrong reason and look like proof.** 2026-08-26:
+a test asserting *"an empty models directory is refused"* passed against the very
+resolver it was written to condemn — because the path it built was wrong, so
+resolution failed for a reason unrelated to emptiness. Falsifying showed nothing,
+because the test failed under both. **The fix is a positive control**: assert
+that the same directory *with* the files in it succeeds. That second assertion is
+what makes the first one mean "because it was empty" rather than "because the
+path was wrong".
+
+Generalised: whenever a test asserts *"X is rejected"*, ask what else would also
+be rejected, and add the case that must be **accepted**.
