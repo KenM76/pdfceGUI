@@ -350,6 +350,22 @@ fn marking_controls(
             .small()
             .weak(),
     );
+    // ★ Off-canvas, in the panel that authored the marks — never a badge on the
+    // page. The content this warns about renders correctly and is not in doubt;
+    // marking it would be a second rendering path for text that is fine, which
+    // is the class of bug decision 059 narrows rule 4 to prevent.
+    // ★ Read from the DOCUMENT, not from panel state. It is a fact about this
+    // file's fonts, so it follows the file — parked with it, and, the case that
+    // decides the placement, never shown against a different document when the
+    // operator switches tabs.
+    if doc.last_redaction_unreadable_fonts > 0 {
+        ui.label(
+            egui::RichText::new(t::unreadable_warning(doc.last_redaction_unreadable_fonts))
+                .small()
+                .color(ui.visuals().error_fg_color),
+        )
+        .on_hover_text(t::unreadable_tooltip());
+    }
 }
 
 /// The census line and the control that opens the apply report.

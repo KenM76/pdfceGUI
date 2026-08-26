@@ -408,6 +408,25 @@ pub struct OpenDoc {
     /// rect, because one bad sheet in a forty-page set must not replace the
     /// other thirty-nine with a message.
     pub render_error: Option<String>,
+    /// **How many fonts the last mark-by-search in this document could not
+    /// read**, or 0 — Pass 127.1's disclosure.
+    ///
+    /// ★★★ Why a redaction owes this. An empty match list has two causes with
+    /// one appearance: the term is not in the document, or the document's text
+    /// was never recoverable as Unicode so no term could ever have matched it.
+    /// For a search that ambiguity wastes a minute. **For a redaction it fails
+    /// in the direction nobody catches** — the operator asked for every
+    /// occurrence of a name to be removed, the run reported success, the file
+    /// still contains it, and then they send it. Both populations render
+    /// perfectly, which is exactly what makes it invisible.
+    ///
+    /// ★ On the DOCUMENT rather than on the redact panel, and that placement is
+    /// the decision rather than a convenience. It is a fact about *this file's
+    /// fonts*, so it must follow the file: parked with it, restored with it,
+    /// and — the case that decides it — **not shown against a different
+    /// document** when the operator switches tabs. Panel state would have
+    /// leaked one document's warning onto another's.
+    pub last_redaction_unreadable_fonts: u64,
     /// The single-slot background rasterizer.
     pub render_worker: RenderWorker,
     /// The zoom seen at the end of the previous frame, used to detect that
@@ -756,6 +775,8 @@ impl OpenDoc {
             wheel_travel: 0.0,
             render_in_flight: None,
             render_error: None,
+            // Nothing has been marked yet, so there is nothing to disclose.
+            last_redaction_unreadable_fonts: 0,
             render_worker: RenderWorker::default(),
             // In the past, so the first zoom change commits at once rather
             // than waiting out a debounce nobody started.

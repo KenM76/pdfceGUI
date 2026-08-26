@@ -80,6 +80,11 @@ pub fn apply(doc: &mut OpenDoc, action: Action) {
                     "redact-mark-search"
                 };
                 let before = crate::panels::redact::mark_ids(&doc.session).len();
+                // How many fonts in this document store text no search could
+                // reach. Set inside the closure below; see the note there for
+                // why a redaction owes this disclosure and a search merely
+                // benefits from it.
+                let mut unreadable: u64 = 0;
                 vector_edit(doc, label, page, 1, |session| {
                     // ★ Case-INSENSITIVE, always, and it is not a missing
                     // control. Over-marking is the safe direction of error
@@ -97,17 +102,47 @@ pub fn apply(doc: &mut OpenDoc, action: Action) {
                     // one. A control honoured on some marks and silently
                     // dropped on others is worse than no control, on the
                     // one operation that cannot be undone.
-                    if pattern {
-                        session.mark_redactions_by_pattern_styled(&query, true, &appearance)
+                    // ★★★ `search_and_mark_redactions_styled`, NOT
+                    // `mark_redactions_by_search_styled` — Pass 127.1, wired
+                    // 2026-08-25.
+                    //
+                    // The two run the identical scan and author the identical
+                    // marks. The difference is that this one also hands back
+                    // the extraction diagnostics, and on THIS operation that is
+                    // not a nicety.
+                    //
+                    // `Vec<ObjId>` coming back empty has two causes with one
+                    // appearance: the term is not in the document, or the
+                    // document's text was never recoverable as Unicode so no
+                    // term could ever have matched it. For a search that
+                    // ambiguity wastes a minute. **For a redaction it fails in
+                    // the direction nobody catches**: the operator asked for
+                    // every occurrence of a name to be removed, the run
+                    // reported success, the file still contains it — and then
+                    // they send it.
+                    //
+                    // ★ Both populations RENDER PERFECTLY, which is what makes
+                    // it invisible. Nothing on the page looks unredacted.
+                    let marked = if pattern {
+                        session
+                            .mark_redactions_by_pattern_styled(&query, true, &appearance)
+                            .map(|created| (created, None))
                     } else {
-                        session.mark_redactions_by_search_styled(
-                            &query,
-                            &pdfce_core::edit::TextSearchOptions::default()
-                                .with_case_insensitive(true),
-                            &appearance,
-                        )
-                    }
-                    .map(|_| Vec::new())
+                        session
+                            .search_and_mark_redactions_styled(
+                                &query,
+                                &pdfce_core::edit::TextSearchOptions::default()
+                                    .with_case_insensitive(true),
+                                &appearance,
+                            )
+                            .map(|m| (m.created, Some(m.diagnostics)))
+                    };
+                    marked.map(|(_, diagnostics)| {
+                        unreadable = diagnostics.map_or(0, |d| {
+                            d.type3_fonts_without_to_unicode + d.identity_fonts_without_to_unicode
+                        });
+                        Vec::new()
+                    })
                 });
                 // ★ Reported AFTER the edit, from the same census the panel
                 // lists from, so the number on the trace and the number of
@@ -117,14 +152,18 @@ pub fn apply(doc: &mut OpenDoc, action: Action) {
                 // — `crate::text::redact::search_hint` is the sentence that
                 // warns about it, and this is how a reader of a trace sees
                 // it happen.
+                // ★ Recorded on the document BEFORE the trace, so a reader of
+                // the trace and a reader of the panel see the same number.
+                doc.last_redaction_unreadable_fonts = unreadable;
                 let after = crate::panels::redact::mark_ids(&doc.session).len();
                 crate::diag::trace(|| {
                     format!(
                         // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "redact-marked mode={} created={} total={}",
+                        "redact-marked mode={} created={} total={} unreadable_fonts={}",
                         if pattern { "pattern" } else { "literal" },
                         after.saturating_sub(before),
-                        after
+                        after,
+                        unreadable
                     )
                 });
             }

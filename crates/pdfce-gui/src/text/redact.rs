@@ -754,6 +754,34 @@ pub const fn overlay_bound() -> &'static str {
      small mark ends up tiny."
 }
 
+/// What a mark-by-search says when part of the document could not be read.
+///
+/// ★★★ The strongest wording anywhere in this catalogue, and deliberately so.
+/// Every other disclosure in pdfce reports something the operator can take or
+/// leave. This one reports that **an operation they believe completed may not
+/// have**, on the one action with no undo and the one whose failure they will
+/// discover after sending the file.
+///
+/// It does not say "0 results". It says what was searched and what could not be
+/// searched, and it says the consequence in the operator's own terms — the text
+/// is still there — rather than in the mechanism's.
+#[must_use]
+pub fn unreadable_warning(fonts: u64) -> String {
+    if fonts == 1 {
+        "One font in this document stores text that cannot be searched. Any matches inside it were NOT marked and are still in the file.".to_owned()
+    } else {
+        format!(
+            "{fonts} fonts in this document store text that cannot be searched. Any matches inside them were NOT marked and are still in the file."
+        )
+    }
+}
+
+/// The hover behind [`unreadable_warning`].
+#[must_use]
+pub const fn unreadable_tooltip() -> &'static str {
+    "Some PDFs store text as drawings with no record of which letters they are. It looks and prints normally, but nothing can search it — so searching for a word cannot find it, and marking every match will miss it. Check those areas by eye, or mark them by drawing a box."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
