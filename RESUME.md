@@ -96,18 +96,40 @@ a do-nothing control). Restarting OneDrive dropped it to 1,179 — **and the cra
 rate did not change.** Real leak, real fix, wrong mechanism.
 
 
-### ★★★ Colours change with zoom, and it is a ceiling we can see and not read
+### ★★★ Colours change with zoom — the ceiling is now READABLE, and two of our own numbers were wrong
 
-`pdfce-render` composites transparency in a CMYK buffer capped at 256 MiB =
-**13,421,772 px**; past it, blending falls back to sRGB and the colours move (up
-to 16/255, measured). On A4 that is **zoom 534 %**.
+`pdfce-render` composites transparency in a CMYK buffer whose *default* cap is
+256 MiB = **13,421,772 px**; past it, blending falls back to sRGB and the
+colours move (up to 16/255, measured). On **real A4 (595 × 842 pt)** that is
+**zoom 518 %**.
 
-**Our part:** `render::strategy` switches to the region tier at
-`MAX_PIXMAP_EDGE` — zoom 2071 % on A4 — so between 534 % and 2071 % we ask for a
-raster the engine cannot composite properly. A region render below the ceiling
-composites in CMYK at any zoom (proved), so the repair is to move our switch
-down. It needs `MAX_CMYK_BUFFER_BYTES`, which is `pub(crate)`. **Filed; do not
-hardcode 13,421,772.**
+★ **`534 %` was ours and it was mislabelled**, in this file, in
+`OPERATOR_REQUESTS.md` and in the request. The page we bisected on —
+`Ghent_PDF-Output-Test-V50_ALL_X4.pdf`, `596 × 791 pt` — is neither A4 nor US
+Letter, so every percentage derived from it is right for that file and wrong as
+an "A4" figure. The engine repeated it for a day in a settings paragraph before
+a doc sweep caught it, and its test now has a five-point band where the wide one
+is precisely why it passed while the sentence was wrong. Corrected 2026-08-26.
+
+★★ **And "about 5 GB is the maximum possible" understates it, in the unsafe
+direction.** The ceiling bounds **one buffer**, and a page can hold several
+page-sized ones at once — the page buffer, a transparency group's child, the
+retained spare a sibling reuses, and a full backdrop copy for a knockout group.
+Peak resident memory is up to about **4×** the ceiling on a page with nested
+transparency. The honest sentence for the Settings control is *"up to about four
+times this on a page with nested transparency"*.
+
+**Our part, unchanged and now unblocked:** `render::strategy` switches to the
+region tier at `MAX_PIXMAP_EDGE` — zoom **1946 %** on real A4 — so between
+518 % and 1946 % we ask for a raster the engine cannot composite properly. A
+region render below the ceiling composites in CMYK at any zoom (proved), so the
+repair is to move our switch down.
+
+**It needed a number the engine kept private. It is public now** — v0.14.0, see
+the engine-pin note above. Use
+`pdfce_render::will_composite_in_cmyk(w, h, max_bytes)`, **never** a hardcoded
+13,421,772: the predicate keeps the 20-B/px arithmetic on their side of the
+boundary, which is the whole reason the request refused to hardcode it.
 
 Until then the status bar discloses it (`status-group:blend-space`), and
 `ui-verify blend_space` asserts both halves.

@@ -152,22 +152,35 @@ one change there before the setting can exist.**
 > *"can the size of the buffer be increased? Allow the user to set the size up
 > to the maximum possible?"*
 
-**Yes, and it should be your number, not ours** — the same call you made about
-the zoom limit. The engine owns the cap and keeps it private, so it has to
-expose it first; that is filed, asking for it to be both readable and settable.
+**Yes — and the engine shipped it the same afternoon.** v0.14.0, 2026-08-26:
+the cap is now both readable and settable, uncapped, with no guard and no
+preflight, exactly the treatment you chose for the zoom limit. **The control is
+not built yet**; that is the next piece of work and this row stays open until
+you have used it.
 
-**What it would cost, measured:**
+**What it would cost, measured** — corrected 2026-08-26, see below:
 
-| you want correct colours up to… | memory |
+| you want correct colours up to… | one buffer |
 |---|---|
 | 579 % (the zoom you were testing) | 302 MB — barely above today's 256 MB |
-| 800 % | 576 MB |
-| 1200 % | 1.3 GB |
-| every zoom pdfce allows on A4 (2071 %) | **3.8 GB**, plus 0.8 GB for the page image |
+| 800 % | 641 MB |
+| 1035 % | 1.0 GB |
+| 1200 % | 1.4 GB |
+| every zoom pdfce allows on A4 (1946 %) | **4.0 GB**, plus the page image beside it |
 
-So *"the maximum possible"* is about **5 GB** on the largest page pdfce will
-render whole. Not absurd on this machine — but a number you should pick rather
-than meet by surprise.
+**★ Two corrections to what I told you earlier, and both are mine.**
+
+**(1) The percentages were labelled A4 and were not.** The page I measured on is
+`596 × 791 pt`, which is neither A4 (`595 × 842`) nor Letter (`612 × 792`). The
+mechanism and the bisection stand exactly as measured; only the label moves. On
+real A4 the cap is reached at **518 %**, not 534 %, and the top of the whole-page
+tier is **1946 %**, not 2071 %.
+
+**(2) *"About 5 GB is the maximum"* is too low, which is the dangerous
+direction.** That figure is for **one** buffer. A page with nested transparency
+can hold several page-sized ones at once, so **peak memory can be about four
+times the number you choose**. Pick with that in mind — the Settings control
+will say so on its own line rather than leaving you to find out.
 
 It also costs **about 50 % more time**: measured on the same page at the same
 pixel count, blending in print colours took 1.4 s against 0.9 s. Correct colours
@@ -210,8 +223,17 @@ Nothing is marked on the page itself.
 big. It renders just the visible part above a *different*, much higher limit,
 and a visible-part render stays under the colour cap at any zoom — proved. So
 the repair is to move our switch-over point down to the colour cap, and then the
-colours stop depending on the zoom at all. It needs one number the engine
-currently keeps private; that is filed.
+colours stop depending on the zoom at all.
+
+**The number that blocked it is public as of 2026-08-26** (engine v0.14.0), so
+this is now ordinary shell work rather than a wait. ★ And note the correction in
+O42: on a 1440p or larger monitor the visible-part render *already* needs more
+than the default cap, so moving the switch is necessary and **not sufficient** —
+the setting has to exist too.
+
+★ **`534 %` in the paragraph above was mislabelled as A4.** On real A4 it is
+**518 %**. The bracket you gave — mismatch at 474 %, agreement at 579 % — still
+contains it, and nothing about the diagnosis changes.
 
 **Verified:** driven — `ui-verify blend_space` zooms past the crossing and
 checks the line appears, and that it is absent below it.
