@@ -488,12 +488,59 @@ pub fn declared_or_in_overflow(
     if let Some(rect) = declared(&trace, ui_rect, name) {
         return Ok(Some(rect));
     }
+
+    // ★★★ A COLLAPSED GROUP IS A THIRD PLACE A COMMAND CAN BE, and until
+    // 2026-08-26 this helper knew about two.
+    //
+    // S3 gave the band a middle rung: when it runs short of width a whole group
+    // folds into a single captioned button, its items reachable through that
+    // button's popup. They are on the ribbon, they are one click away — and
+    // they **publish no rect**, exactly like an overflowed group's, which is
+    // why this helper existed at all.
+    //
+    // `export_dxf_writes_the_pages_geometry` went red on it and the failure
+    // read as a lost command: *"the File tab declares no
+    // `ribbon.item.file.export_dxf`, on the band or in the overflow."* The
+    // command was not lost. The harness was asking about two of the three
+    // places it could be, and the window the harness opens is 1,100 pt wide —
+    // precisely the width at which the Export group collapses.
+    //
+    // ★ Tried BEFORE the scroll affordance below, because it is
+    // non-destructive: opening a popup and reading it changes nothing about
+    // the band, whereas scrolling moves it and every rect measured afterwards.
+    for group in collapsed_groups(&trace, ui_rect) {
+        driver.click_at(session.frame()?.declared_center(group))?;
+        session.settle(16);
+        if let Some(rect) = declared(&session.trace()?, ui_rect, name) {
+            return Ok(Some(rect));
+        }
+        // Shut it again, so the next candidate is not clicked through an open
+        // popup — and so a caller that goes on to measure the band sees the
+        // band rather than a menu lying over it.
+        driver.press(crate::sys::vk::ESCAPE)?;
+        session.settle(8);
+    }
+
     let Some(overflow) = declared(&trace, ui_rect, OVERFLOW) else {
         return Ok(None);
     };
     driver.click_at(session.frame()?.declared_center(overflow))?;
     session.settle(16);
     Ok(declared(&session.trace()?, ui_rect, name))
+}
+
+/// Every collapsed group's button on the current tab, in the order reported.
+///
+/// A collapsed group publishes `ribbon.group.<tab>.<id>.collapsed` — a
+/// deliberately distinct name from the expanded `ribbon.group.<tab>.<id>`, so
+/// that a check can tell *"on the band, collapsed"* from *"on the band"* and
+/// from *"gone"*. This is the consumer that distinction was created for.
+fn collapsed_groups(trace: &Trace, ui_rect: &str) -> Vec<LRect> {
+    declared_names(trace, ui_rect, "ribbon.group.")
+        .into_iter()
+        .filter(|n| n.ends_with(".collapsed"))
+        .filter_map(|n| declared(trace, ui_rect, &n))
+        .collect()
 }
 
 pub fn shell_trace(session: &Session) -> Result<Trace> {
