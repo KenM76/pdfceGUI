@@ -958,6 +958,40 @@ pub fn push_button_inert() -> &'static str {
     "pdfce cannot give a button something to do yet, so it will not place one."
 }
 
+/// ★★★ **This page's colours are approximate at this zoom.**
+///
+/// Shown when the renderer reports `cmyk_buffer_refused` — the page's raster
+/// grew past the size the engine will composite in subtractive CMYK, so
+/// blending fell back to sRGB and the colours moved.
+///
+/// # ★★ Every word of this was chosen against a specific misreading
+///
+/// **"at this zoom"**, not "on this page". The operator's report was
+/// *"different results depending on Zoom level"*, and the thing that must land
+/// is that the page has not changed — the view has. A sentence blaming the
+/// document would send him looking at the file.
+///
+/// **"zoom out"** rather than "reduce the zoom", because it is the instruction,
+/// and it is the opposite of what somebody chasing a colour difference tries.
+/// Measured on an A4 page the boundary is 534 %; naming a number here would be
+/// worse than useless, because it depends on the page size and on the display
+/// density, and would be wrong on the next document.
+///
+/// **"approximate"**, not "wrong". The fallback is a known, counted
+/// approximation that pdfce has shipped for its whole life and that most pages
+/// never reach; calling it wrong would overstate it and invite a bug report
+/// about a page that is fine.
+///
+/// ★ It does not apologise and does not promise a fix. What it owes the
+/// operator is the fact and the remedy, and it gives both in one line that fits
+/// a status bar.
+#[must_use]
+pub fn blend_space_status_line() -> String {
+    "Colours are approximate at this zoom \u{2014} the page is too large to blend in print \
+     colours here. Zoom out to see the exact colours."
+        .to_owned()
+}
+
 /// The status-bar line for a document whose index pdfce had to rebuild.
 ///
 /// ★★★ One sentence, stating the fact and where to look, and stopping. It does

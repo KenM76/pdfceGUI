@@ -31,8 +31,8 @@
 use egui::{Align, Layout, Vec2};
 
 use super::{
-    NOTES_WIDTH_FRACTION, REGION_EDIT_DISCLOSURE, REGION_FILL_DISCLOSURE, REGION_RECOVERED,
-    ROW_HEIGHT_PTS,
+    NOTES_WIDTH_FRACTION, REGION_BLEND_SPACE, REGION_EDIT_DISCLOSURE, REGION_FILL_DISCLOSURE,
+    REGION_RECOVERED, ROW_HEIGHT_PTS,
 };
 use crate::app::state::OpenDoc;
 use crate::text::forms as t_forms;
@@ -234,9 +234,79 @@ fn recovered_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
     disclosure_line(ui, REGION_RECOVERED, t::recovered_status_line());
 }
 
+/// ★★★ **The page's colours are approximate at this zoom**, because the raster
+/// grew past the size the engine will composite in CMYK.
+///
+/// # What the operator sees without this, and why it reads as a bug
+///
+/// Reported 2026-08-26: *"seems I get different results depending on Zoom
+/// level. The [shading] boxes … on zoom out the colors between our
+/// rendering and the references don't match, but they do when I am zoomed in.
+/// up to 474% they are mismatched, but at 579% they match."*
+///
+/// Measured the same day, and his bracket contains the answer exactly.
+/// `pdfce-render` composites a page with transparency in a **subtractive CMYK
+/// buffer** — the correct space for it — and that buffer has a documented
+/// ceiling of 256 MiB at 20 B/px, i.e. **13,421,772 pixels**. Past it the
+/// renderer falls back to compositing in sRGB and counts that it did
+/// (`cmyk_buffer_refused`, `blends_in_wrong_space`).
+///
+/// On an A4 page that ceiling is crossed at **zoom 534 %**, dead centre of the
+/// 474–579 % band he bracketed. Either side of it the same page renders
+/// different colours: measured on the conformance suite's composite page, up to
+/// **16 levels out of
+/// 255** in the transparency patches, by box-averaging every pixel of both
+/// renders into a common grid so that resampling could not masquerade as the
+/// effect.
+///
+/// # ★★ Why this is a disclosure and not just a fix
+///
+/// It is *both*, and the fix is not ours to make alone. The engine's ceiling is
+/// deliberate — `ARCHITECTURE.md` §10 forbids an untrusted-input-sized
+/// allocation without one — and its fallback is honest. What is wrong is where
+/// **this shell** stops asking for whole-page rasters: `render::strategy`
+/// switches to the region tier at `MAX_PIXMAP_EDGE`, which for A4 is zoom
+/// 2071 %. Between 534 % and 2071 % the GUI asks for a raster the engine cannot
+/// composite properly, and that four-times band of zoom is entirely this
+/// shell's choice.
+///
+/// Measured, so the fix is known to work: a **region** render below the ceiling
+/// composites in CMYK at any zoom (`--region 0,60,596,260 --scale 8` →
+/// `cmyk_buffer=1`). The buffer is sized to the region, not to the page. So the
+/// repair is for `strategy::for_page` to respect the pixel ceiling as well as
+/// the edge ceiling — which needs `MAX_CMYK_BUFFER_BYTES` to be public, and it
+/// is `pub(crate)` today. That is filed as an engine request rather than
+/// guessed at with a hardcoded 13,421,772, which would be a measured limit
+/// copied into a second place to rot.
+///
+/// Until then the operator is **told**, which is rule 4's surviving half doing
+/// exactly its job: this is an inference the operator cannot see — a screenshot
+/// of the page says nothing about which space it was composited in — so it owes
+/// an off-canvas report. Nothing is marked on the canvas.
+///
+/// ★ It names **zooming out** as the remedy, because that is the one that
+/// works, is instant, and is the opposite of what an operator chasing a colour
+/// difference would try.
+fn blend_space_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
+    let Some(texture) = doc.page_texture.as_ref() else {
+        return;
+    };
+    // ★ `cmyk_buffer_refused`, not `blends_in_wrong_space`. The first says
+    // *the correct buffer was not available*, which is true of the whole page
+    // and is what changes with zoom. The second counts the blends that then
+    // happened in the wrong space, and is zero on a page whose transparency is
+    // outside the rendered region — so keying on it would go quiet exactly
+    // where the operator scrolled away from the affected patch and back.
+    if texture.diagnostics.cmyk_buffer_refused == 0 {
+        return;
+    }
+    disclosure_line(ui, REGION_BLEND_SPACE, &t::blend_space_status_line());
+}
+
 /// Draw all three, in the order the parent expects.
 pub(super) fn all(ui: &mut egui::Ui, doc: &OpenDoc) {
     fill_disclosure(ui, doc);
     edit_disclosure(ui, doc);
     recovered_disclosure(ui, doc);
+    blend_space_disclosure(ui, doc);
 }

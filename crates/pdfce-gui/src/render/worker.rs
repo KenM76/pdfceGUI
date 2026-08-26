@@ -943,15 +943,43 @@ fn render_on_worker(request: &RenderRequest, cancel: &RenderCancel) -> Outcome {
         ),
     };
     match rendered {
-        Ok(rendered) => Outcome::Done(Box::new(RenderedPixels {
-            pixmap: rendered.pixmap,
-            diagnostics: rendered.diagnostics,
-            // The key is derived from the request the render was actually
-            // run from, so the texture cannot be labelled with anything but
-            // the inputs that produced it.
-            key: RenderKey::of(request),
-            elapsed: started.elapsed(),
-        })),
+        Ok(rendered) => {
+            // ★★★ **The compositing space, published per raster.**
+            //
+            // Added 2026-08-26. The operator reported colours changing with
+            // zoom; the cause is that `pdfce-render` composites a page with
+            // transparency in a subtractive CMYK buffer only while that buffer
+            // fits under `MAX_CMYK_BUFFER_BYTES`, and falls back to sRGB above.
+            // Which side of that a given raster landed on is **invisible in a
+            // screenshot** and is the single most useful fact about why two
+            // renders of one page disagree.
+            //
+            // It is traced here rather than inferred from the scale, because
+            // the ceiling is on the buffer the renderer actually tried to
+            // allocate — which for a REGION render is the region's size, not
+            // the page's. Deriving it from the zoom would be a second
+            // derivation of a rule this shell cannot even read.
+            crate::diag::trace_on_change("raster-blend-space", || {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "cmyk_buffer={} refused={} wrong_space={} scale={:.3}",
+                    rendered.diagnostics.cmyk_buffer_engaged,
+                    rendered.diagnostics.cmyk_buffer_refused,
+                    rendered.diagnostics.blends_in_wrong_space,
+                    request.raster_scale
+                )
+            });
+            Outcome::Done(Box::new(RenderedPixels {
+                pixmap: rendered.pixmap,
+                diagnostics: rendered.diagnostics,
+                // The key is derived from the request the render was actually
+                // run from, so the texture cannot be labelled with anything but
+                // the inputs that produced it.
+                key: RenderKey::of(request),
+                elapsed: started.elapsed(),
+            }))
+        }
         Err(e) if cancel.is_cancelled() => {
             // Deliberate abandonment, not a defect. Checking the token
             // rather than matching the error variant keeps this correct

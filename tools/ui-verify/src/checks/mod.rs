@@ -108,6 +108,7 @@
 //! declare its regions and the old binary cannot count its objects — and in
 //! both cases the check says in its own output which one it used.
 
+pub mod blend_space;
 pub mod delete_key;
 /// The Manage-dimension-groups window: it opens, it creates a group, and the
 /// group comes back joinable.
@@ -556,6 +557,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // and a canvas click — so a failure in either would be reported there
         // first, where the cause is, rather than here where the symptom is.
         Box::new(form_field::FormFieldPlaceAndSelect),
+        // ★ The blend-space disclosure. After the zoom checks, because it
+        // climbs with Ctrl+wheel and a wheel that does not reach the canvas is
+        // `zoom_gallery`'s failure to report, not this one's.
+        Box::new(blend_space::BlendSpaceFallbackIsDisclosed),
         // Beside it, because it is the same shape of check on the same
         // surface — a ribbon control that arms a canvas tool — and a reader
         // comparing the two verdicts wants them adjacent. It goes second

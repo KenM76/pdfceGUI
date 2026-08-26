@@ -168,6 +168,71 @@ fn apply_pdfce(s: &mut Settings) {
     *s = Settings::default();
 }
 
+/// Which preset the control should show as selected.
+///
+/// The operator's own choice while it still describes the working settings,
+/// and otherwise the derived reading. See [`row`]'s ★★★ comment for why the
+/// order is that way round and not the other.
+fn live_choice(draft: &Draft) -> Option<&'static str> {
+    draft
+        .chosen_preset
+        .filter(|id| still_holds(id, &draft.working))
+        .or_else(|| matching(&draft.working))
+}
+
+/// Whether `id`'s preset still describes `settings`.
+///
+/// ★ Asked against the preset rather than remembered as a flag, because the
+/// operator can change any control in the window after choosing a preset and
+/// nothing tells this module when they do. A flag would need every other
+/// control to remember to clear it — the shape of a guard that is correct until
+/// somebody adds a widget.
+fn still_holds(id: &str, settings: &Settings) -> bool {
+    choices().into_iter().any(|c| {
+        c.id() == id && {
+            let mut probe = Settings::default();
+            c.apply(&mut probe);
+            same(&probe, settings)
+        }
+    })
+}
+
+/// **How many other conformance presets set exactly the same render answers.**
+///
+/// ★★★ Measured on demand, never stated as a fact in prose. As of 2026-08-26
+/// this returns 7 for every one of the eight PDF/X and PDF/A presets: they
+/// agree on all six values pdfce renders differently for. That is not a defect
+/// — the standards genuinely make the same demands of a *renderer*, and differ
+/// in what they demand of a **file**, which is a preflight question and not a
+/// rendering one.
+///
+/// It is disclosed because the operator's reason for wanting the control was
+/// *"especially PDF/X-4 … to see how far we are along with matching the
+/// [conformance suite's] tests"*, and switching to it will change nothing on screen. Discovering that
+/// by staring at an unchanged page costs an hour and reads as the setting being
+/// broken. Saying it costs a line.
+///
+/// ★ Computed rather than written down, so the day a standard's answers diverge
+/// the sentence corrects itself instead of becoming a stale claim — which is
+/// this file's own recorded lesson: *read the value, not the prose about the
+/// value.*
+fn identical_siblings(id: &str) -> usize {
+    let Some(mine) = choices().into_iter().find(|c| c.id() == id) else {
+        return 0;
+    };
+    let mut probe = Settings::default();
+    mine.apply(&mut probe);
+    choices()
+        .into_iter()
+        .filter(|c| c.id() != id && matches!(c, Choice::Standard(_)))
+        .filter(|c| {
+            let mut other = Settings::default();
+            c.apply(&mut other);
+            same(&other, &probe)
+        })
+        .count()
+}
+
 /// Which preset the given settings currently match, if any.
 ///
 /// ★ Returns `None` for "none of them", which is the **normal** state once an
@@ -242,11 +307,29 @@ pub fn row(ui: &mut egui::Ui, draft: &mut Draft) {
                 // down.
                 "",
             );
-            let current = matching(&draft.working);
+            // ★★★ **The operator's CHOICE outranks the reading of the
+            // values**, and this two-line rule is the whole of the fix for the
+            // defect reported as *"I can only select (ISO15930-1, -4)"*.
+            //
+            // `matching` finds the FIRST choice whose settings equal the
+            // current ones. Measured 2026-08-26: all eight PDF/X and PDF/A
+            // presets apply byte-identical render settings, so it always found
+            // PDF/X-1a and the dot jumped back there from wherever it was
+            // clicked. Deriving a selection from values can only ever show as
+            // many states as there are distinct values.
+            //
+            // ★★ The choice is authoritative **only while it remains true**.
+            // `still_holds` re-asks whether the working settings are still that
+            // preset's, so adjusting any control by hand drops the selection
+            // back to the derived reading rather than leaving a dot claiming an
+            // intent the settings no longer express. That is what keeps this
+            // from becoming a label that lies.
+            let current = live_choice(draft);
             for c in choices() {
                 let selected = current == Some(c.id());
                 if ui.radio(selected, c.label()).clicked() && !selected {
                     c.apply(&mut draft.working);
+                    draft.chosen_preset = Some(c.id());
                 }
                 if selected {
                     detail(ui, c);
@@ -322,6 +405,24 @@ fn detail(ui: &mut egui::Ui, choice: Choice) {
         // avoid.
         for line in preset.disclosures() {
             ui.label(egui::RichText::new(line).small().weak());
+        }
+
+        // ★★★ **How many other standards give the same answers**, measured
+        // rather than asserted. See `identical_siblings`: today every one of
+        // the eight conformance presets returns 7, so choosing between them
+        // changes nothing pdfce renders — which is exactly what the operator
+        // is about to test for and would otherwise spend an hour discovering.
+        //
+        // Placed after the evidence weight and before the left-alone list,
+        // because it is a statement about THIS preset's answers and belongs
+        // beside the other two.
+        let siblings = identical_siblings(choice.id());
+        if siblings > 0 {
+            ui.label(
+                egui::RichText::new(crate::text::settings::preset_same_as_others(siblings))
+                    .small()
+                    .weak(),
+            );
         }
 
         let untouched = preset.left_alone();
@@ -573,5 +674,95 @@ mod tests {
             );
             let _ = graded;
         }
+    }
+
+    /// ★★★ **Every preset in the list can be selected**, which is the defect
+    /// the operator reported as *"I can only select (ISO15930-1, -4)"*.
+    ///
+    /// Drives the real rule — click a radio, then ask what the control would
+    /// show — for all ten choices. Before the fix, eight of them answered
+    /// `pdf-x1a` and one answered `pdfce`, because `matching` returns the
+    /// FIRST choice whose settings equal the current ones and all eight
+    /// conformance presets apply byte-identical settings.
+    ///
+    /// ★★ It asserts the property the operator cares about — *can I choose
+    /// this?* — rather than the mechanism. A test that asserted
+    /// `chosen_preset == Some(id)` would pass against a version that stored the
+    /// choice and still drew the dot somewhere else.
+    #[test]
+    fn every_preset_in_the_list_can_actually_be_selected() {
+        for c in choices() {
+            let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
+            // Exactly what `row` does on a click, in the same order.
+            c.apply(&mut draft.working);
+            draft.chosen_preset = Some(c.id());
+            assert_eq!(
+                live_choice(&draft),
+                Some(c.id()),
+                "choosing {:?} left the control showing something else — the operator \
+                 cannot express this choice",
+                c.label()
+            );
+        }
+    }
+
+    /// ★★ **Adjusting a control by hand drops the chosen preset**, so the dot
+    /// cannot go on claiming a standard the settings no longer describe.
+    ///
+    /// The other half of the fix, and the reason the choice is filtered through
+    /// `still_holds` rather than simply believed. Without this a window could
+    /// read *"PDF/X-4"* over settings that are nobody's.
+    #[test]
+    fn changing_a_setting_by_hand_retires_the_chosen_preset() {
+        let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
+        let x4 = choices()
+            .into_iter()
+            .find(|c| c.id() == "pdf-x4")
+            .expect("pdf-x4 must be offered"); // ui-text-exempt: test panic
+        x4.apply(&mut draft.working);
+        draft.chosen_preset = Some(x4.id());
+        assert_eq!(live_choice(&draft), Some("pdf-x4"));
+
+        // The operator turns image smoothing back on, one screen down.
+        draft.working.image_minify = pdfce_core::settings::MinifyFilter::Smooth;
+        assert_ne!(
+            live_choice(&draft),
+            Some("pdf-x4"),
+            "the settings are no longer PDF/X-4's, so the control must not say they are"
+        );
+    }
+
+    /// ★★★ **The eight conformance presets really are identical today** — the
+    /// measurement the disclosure is built on, pinned so it cannot rot.
+    ///
+    /// This is not asserting that they SHOULD be identical. It records what is
+    /// true of the engine this build links, so that if a standard's answers
+    /// ever diverge, this test fails and whoever reads it learns that the
+    /// sentence under the radio has become interesting rather than routine.
+    ///
+    /// ★ It is also the falsification for the test above: with the presets all
+    /// distinct, `every_preset_in_the_list_can_actually_be_selected` would pass
+    /// against the OLD code, and would have proved nothing.
+    #[test]
+    fn the_conformance_presets_give_the_same_render_answers_today() {
+        let standards: Vec<Choice> = choices()
+            .into_iter()
+            .filter(|c| matches!(c, Choice::Standard(_)))
+            .collect();
+        assert!(
+            standards.len() >= 8,
+            "the engine offers fewer standards than it did"
+        );
+
+        let identical = standards
+            .iter()
+            .filter(|c| identical_siblings(c.id()) > 0)
+            .count();
+        assert!(
+            identical >= 8,
+            "only {identical} preset(s) share their answers with another. If the standards \
+             have started to differ, that is good news — update the disclosure's reasoning \
+             and this expectation, and check the operator is told what changed"
+        );
     }
 }

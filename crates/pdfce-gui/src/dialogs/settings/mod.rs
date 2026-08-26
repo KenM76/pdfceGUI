@@ -193,6 +193,33 @@ pub struct Draft {
     /// They are two stores because they answer different questions — see
     /// `crate::app::prefs`' header — and that is an implementation fact the
     /// operator has no business meeting.
+    /// ★★★ **Which preset the operator CHOSE**, as distinct from which one
+    /// their settings happen to match.
+    ///
+    /// Added 2026-08-26, and it fixes a defect the operator reported in exactly
+    /// the right words: *"in the settings for the standards compatibility I can
+    /// only select (ISO15930-1, -4)"*.
+    ///
+    /// The control used to derive its selection from the **values** —
+    /// `preset::matching` returns the first choice whose settings equal the
+    /// current ones. Measured on 2026-08-26: **all eight of the PDF/X and PDF/A
+    /// presets apply byte-identical render settings**, differing only in PDF/UA
+    /// which leaves `image_minify` alone. So clicking PDF/X-4 applied PDF/X-4's
+    /// answers, `matching` then found PDF/X-1a first, and the dot jumped back
+    /// to the top of the list. Every one of the eight was unselectable and the
+    /// program looked broken while behaving exactly as written.
+    ///
+    /// ★★ A choice is not a value, and a control that derives one from the
+    /// other can only ever show as many states as there are distinct values.
+    /// That is fine while the presets differ and silently wrong the moment two
+    /// agree — which is not a rare accident here but the **normal** case, since
+    /// the standards genuinely make the same demands of a renderer.
+    ///
+    /// ★ It is deliberately NOT persisted. What is saved is the settings, which
+    /// is what actually governs a render; on reopening, `preset::matching` is
+    /// the honest fallback — *"your settings look like this one"* — and cannot
+    /// claim an intent nobody expressed in this sitting.
+    pub chosen_preset: Option<&'static str>,
     pub working_prefs: crate::app::prefs::Prefs,
     /// What the preferences were when the window opened.
     pub original_prefs: crate::app::prefs::Prefs,
@@ -210,6 +237,9 @@ impl Draft {
         Self {
             working: current.clone(),
             original: current.clone(),
+            // Nothing chosen yet in this sitting; `preset::matching` supplies
+            // the fallback reading of whatever was loaded from disk.
+            chosen_preset: None,
             working_prefs: prefs.clone(),
             original_prefs: prefs.clone(),
         }

@@ -462,6 +462,11 @@ pub(super) const REGION_EDIT_DISCLOSURE: &str = "status-group:edit-disclosure"; 
 
 /// See [`recovered_disclosure`].
 pub(super) const REGION_RECOVERED: &str = "status-group:recovered"; // ui-text-exempt: trace region name, never displayed
+/// The blend-space disclosure's rect, for `ui-verify`.
+///
+/// ★ A published region name is a cross-repo stability contract with the
+/// harness: renaming it turns a check into a skip rather than a failure.
+pub(super) const REGION_BLEND_SPACE: &str = "status-group:blend-space"; // ui-text-exempt: trace region name, never displayed
 
 /// `Actual size · Fit width · Fit page`.
 const REGION_FIT: &str = "status-group:fit"; // ui-text-exempt: trace region name, never displayed

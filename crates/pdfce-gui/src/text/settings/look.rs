@@ -1082,6 +1082,37 @@ pub const fn preset_pdfce_note() -> &'static str {
     "What pdfce ships with, including the two answers you chose personally: neutral black for line art, and smoothing pictures that are shrunk to fit. Use this to get back after experimenting."
 }
 
+/// ★★★ **This standard's render answers are the same as N others'.**
+///
+/// Shown under a selected conformance preset when its six values match another
+/// preset's exactly — which, measured on 2026-08-26, is true of all eight of
+/// the PDF/X and PDF/A presets.
+///
+/// It exists because the operator asked for the control in order to *"see how
+/// far we are along with matching the [conformance suite's] tests"*, and
+/// switching to PDF/X-4
+/// will change nothing on screen. Finding that out by comparing two identical
+/// renders costs an hour and reads as the setting being broken.
+///
+/// ★★ It says **why**, and the why is the part that stops it sounding like a
+/// bug: the standards differ in what they demand of a *file* — fonts embedded,
+/// an output intent present, transparency allowed or not — and those are
+/// preflight questions. What they ask of a **renderer** is the same, so pdfce
+/// giving them the same answers is agreement rather than laziness.
+///
+/// ★ The number is counted at the moment of drawing, so if a standard's answers
+/// ever diverge this sentence corrects itself. See
+/// `crate::dialogs::settings::preset`'s `identical_siblings`.
+#[must_use]
+pub fn preset_same_as_others(others: usize) -> String {
+    format!(
+        "The same render answers as {others} other preset(s) here. These standards differ in \
+         what they require of the FILE — embedded fonts, an output intent, whether transparency \
+         is allowed — which is a preflight question. What they ask of a renderer is the same, so \
+         switching between them changes nothing on screen."
+    )
+}
+
 /// What a standard does NOT specify, listed by name.
 ///
 /// ★ Named rather than left blank. Roughly a third of the grid is axes a
