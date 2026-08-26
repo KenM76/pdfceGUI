@@ -168,7 +168,22 @@ of six values but an API, with **every value graded for evidence quality**.
 **Ten choices** now: pdfce's own answers, plus PDF/X-1a, X-3, X-4, X-5g, X-6,
 PDF/A-1, A-2, A-4 and PDF/UA-1.
 
-★★★ **The important part is not the dropdown.** Only **one** of PDF/X-4's six
+★★★ **The important part is not the dropdown — and here is what it says.**
+Choosing a standard now tells you how much of itself it can actually back up:
+
+| standard | stated by the standard | inferred | chosen by pdfce |
+|---|---:|---:|---:|
+| PDF/X-1a | 4 | 0 | 2 |
+| **PDF/X-4** | **1** | 2 | 3 |
+| PDF/A-2 | 1 | 0 | 5 |
+| PDF/UA-1 | *sets nothing — that is its answer* | | |
+
+**Exactly one of PDF/X-4's six answers is stated by the standard it is named
+after.** Anyone pressing a button marked ISO 15930-7 would reasonably assume
+six. It also names what each standard does *not* reach — in the same words as
+the controls further down the window, so you can go and look.
+
+ Only **one** of PDF/X-4's six
 answers is a claim about the standard at all, and even that one is *implied*
 rather than *sourced*. So choosing a standard also shows what it does **not**
 say — by name, not blank — and any disclosure it owes you, quoted from the
