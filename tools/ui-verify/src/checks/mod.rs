@@ -297,6 +297,12 @@ pub mod ribbon_captions;
 /// the wrong verb, and why the sign of the committed angle is the assertion
 /// that matters.
 pub mod rotate;
+
+/// **Text that does not run along the page's x axis** — the operator's
+/// 2026-08-26 report about a vertical stamp in a title block, driven end to
+/// end: it must select as one line, band as one box, turn the I-beam, and reach
+/// the OS clipboard without a newline in it.
+pub mod rotated_text;
 /// ★ `file.save_copy` — the command that was registered, drawn, on the
 /// quick-access toolbar and bound to `Ctrl+S` with **no dispatch arm**, so
 /// nothing this shell could author could reach a disk. The only check in the
@@ -791,6 +797,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // under it, and every candidate costs four clicks.
         Box::new(read_mode::ReadModeRefusesCanvasEdits),
         Box::new(text_selection::TextSelectionSweepsAndCopies),
+        // ★ Directly after the sweep it depends on. This one asserts EXACT
+        // character and box counts on its own committed fixture, where the
+        // check above asserts liveness on whatever `--pdf` names — so a run in
+        // which the sweep gesture is broken at all should report THAT here
+        // first, and this one's more specific failure second.
+        Box::new(rotated_text::RotatedTextSelectsAndCopiesAsOneLine),
         // Directly after it, and the order is a dependency rather than a
         // preference: this one *begins* by making a text selection, so a run
         // where the sweep itself is broken should report that as the sweep's

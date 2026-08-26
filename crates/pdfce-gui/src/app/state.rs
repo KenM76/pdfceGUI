@@ -1314,9 +1314,42 @@ pub(crate) fn open_fixture(rel: &str) -> OpenDoc {
     OpenDoc::new(path, EditSession::new(doc), pages)
 }
 
+/// Open a fixture from **this** repository's `fixtures/`, the same way
+/// [`open_fixture`] opens one of the engine's.
+///
+/// Two openers rather than one taking a root, because the two roots mean
+/// different things and the difference is the project's governing rule:
+/// `D:\Dev\pdfce\fixtures` is READ-ONLY and is the engine's own corpus, while
+/// `fixtures/` here holds the pages this shell had to author because no engine
+/// fixture exercised the condition — right-aligned text, a node-draggable
+/// polyline, an image-only scan, and now a page of rotated strings. A single
+/// function with a flag would let a call site pick the wrong tree by getting a
+/// boolean backwards; two named functions cannot.
+#[cfg(test)]
+pub(crate) fn open_local_fixture(rel: &str) -> OpenDoc {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures")
+        .join(rel);
+    assert!(
+        path.exists(),
+        "this repository's fixture {rel} is missing at {}",
+        path.display()
+    );
+    let doc = Document::load(&path).expect("the fixture loads");
+    let pages = pdfce_core::page_tree::pages(&doc).expect("a page tree");
+    OpenDoc::new(path, EditSession::new(doc), pages)
+}
+
 /// A four-page document, three objects on every page.
 #[cfg(test)]
 pub(crate) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
+
+/// One page carrying the same words at 0°, 90°, 180°, 270° and 30° — the page
+/// `canvas::textsel`'s §8 rules are asserted on. See
+/// [`crate::canvas::textsel::fixture`] for what each string is for and why it
+/// is set in capitals.
+#[cfg(test)]
+pub(crate) const ROTATED_TEXT: &str = "rotated-text.pdf";
 /// Four optional-content groups: 4 and 7 on by default, 5 and 6 off.
 #[cfg(test)]
 pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";

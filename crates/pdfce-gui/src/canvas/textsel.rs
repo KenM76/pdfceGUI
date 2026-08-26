@@ -328,7 +328,42 @@
 //! a mechanism, not a line. What the operator loses is one re-sweep to underline
 //! *and* strike out the same words.
 //!
-//! ## 8. Where the rest of this module is
+//! ## 8. ★★ Text that does not run along the page's x axis
+//!
+//! The operator, 2026-08-26, on a vertical file-path stamp in `SW41177.pdf`'s
+//! title block: *"the I cursor doesn't reorient and it pastes each letter onto
+//! its own line."*
+//!
+//! One cause, and it is upstream of this module: **`pdfce-core` publishes a
+//! glyph's advance as a length and never publishes its direction**, so the
+//! extraction's line segmentation — which breaks whenever the baseline y moves
+//! — puts every letter of a 90° line on a line of its own. [`writing`] is the
+//! full argument and the recovery; what matters *here* is which of this
+//! module's rules changed and which did not.
+//!
+//! | rule | rotated text |
+//! |---|---|
+//! | §5, one derivation | **unchanged, and it is what makes the fix safe.** The regrouping is consulted once, inside [`resolve`], and both the boxes and the string are built from it in the same walk |
+//! | §4, content order | **unchanged.** Nothing is reordered; a rotated line is the same glyphs in the same order, banded differently |
+//! | box shape | a rotated line's glyph cells are accumulated **in the line's own frame** and emitted as one banded [`Quad`], where a horizontal line's are accumulated in page axes exactly as before |
+//! | the copied string | a `DerivedLineBreak` run the regrouping proves is *internal to* a rotated line copies as nothing; every other break survives untouched — [`writing::adjacent`] |
+//!
+//! ★ **A page with no rotated text never reaches any of it.**
+//! [`writing::lines`] answers with an empty [`writing::Rotated`] after one pass
+//! over the run list, and every branch below is keyed on that being non-empty.
+//! That is deliberate and structural rather than incidental: the alternative —
+//! one grouping rule that handles both — would have put every ordinary
+//! document's selection through new code to fix a case that arises on a
+//! minority of drawing sheets.
+//!
+//! ★ The canvas wash is a `Rect`, so for a **quadrant** rotation (90°, 180°,
+//! 270° — every rotated stamp a CAD exporter emits) the band is axis-aligned in
+//! page space and the wash covers it exactly. At an arbitrary angle the band is
+//! a parallelogram and the wash is its bounding box, which over-covers at the
+//! corners. The authored `/QuadPoints` are the true parallelogram either way,
+//! because [`TextSelection::page_quads`] carries corners rather than bounds.
+//!
+//! ## 9. Where the rest of this module is
 //!
 //! The two chords (`Ctrl+A`, `Ctrl+C`), the guard in front of them and the one
 //! function that writes the clipboard live in [`clipboard`], re-exported flat so
@@ -343,14 +378,28 @@ use egui::{Pos2, Rect};
 use pdfce_core::annot_author::Quad;
 use pdfce_core::page_tree::{Page, Rect as PdfRect};
 use pdfce_core::text_edit::{BlockRecognitionOptions, EditableTextModel, TextPosition};
-use pdfce_core::text_extract::PageText;
+use pdfce_core::text_extract::{ExtractOptions, PageText};
 
-/// The two keyboard verbs and the clipboard write. See §8.
+use bands::{Accum, Band};
+
+/// The two keyboard verbs and the clipboard write. See §9.
 pub mod clipboard;
 
 /// **Who owns the primary button** — the mode gate and the whole argument for
 /// it. See §3.
 pub mod gate;
+
+/// **How a selection's glyph cells become the boxes it paints and marks** — the
+/// accumulation half of §5, in the two frames §8 made necessary.
+mod bands;
+
+/// **The rotated-text page §8's rules are tested on** — test-only.
+#[cfg(test)]
+pub mod fixture;
+
+/// **The writing direction the extraction drops**, recovered from the glyphs
+/// themselves. See §9 and that module's header.
+pub mod writing;
 
 pub use clipboard::{TextKey, apply_key, copy, pending_key};
 
@@ -591,6 +640,19 @@ pub struct PageContext<'a> {
     /// The revision the extraction describes, stamped onto any selection this
     /// produces. Module header §7.
     pub epoch: u64,
+    /// ★ **The options `text` was extracted with** — from
+    /// `crate::app::settings::SettingsExt::extract_options`, never
+    /// `ExtractOptions::default()`.
+    ///
+    /// Read by [`writing::lines`] and by nothing else. It is here rather than
+    /// fetched there because the three ratios it needs — word gap, line gap,
+    /// backward jump — are what *segmented the runs in `text`*, and a
+    /// regrouping that used different ones would be judging the engine's output
+    /// by a rule the engine did not apply. `app::settings`' header names that
+    /// exact failure as the reason the funnel exists; carrying the value
+    /// alongside the extraction is how a second call site is prevented from
+    /// reaching for a bare default.
+    pub opts: &'a ExtractOptions,
 }
 
 /// **Update the selection from a drag** — press at `from`, pointer now at `to`,
@@ -728,7 +790,71 @@ fn model<'a>(ctx: &PageContext<'a>) -> EditableTextModel<'a> {
 /// begun in the margin selects from the nearest text rather than from nothing.
 fn hit(model: &EditableTextModel<'_>, ctx: &PageContext<'_>, canvas: Pos2) -> Option<TextPosition> {
     let pdf = crate::viewer::canvas_to_pdf_space(canvas, ctx.page)?;
-    model.hit_test(f64::from(pdf.x), f64::from(pdf.y))
+    // ★ §8. A rotated band answers first, because the engine's line boxes are
+    // built on the same axis-aligned assumption its segmentation is: for a 90°
+    // glyph the box is hung off the wrong corner and overlaps the ink by about
+    // a third, so a press on the middle of the letter misses every box and the
+    // nearest-line fallback decides. That is not a theory — it produced a sweep
+    // one letter short and a sweep that selected nothing, both of which are on
+    // record in `writing::Rotated::position_at`.
+    //
+    // `None` from the band means the point is not on rotated text at all, and
+    // the engine's answer is then the right one — including its nearest-line
+    // fallback, which is deliberate and is Acrobat's behaviour: a drag begun in
+    // the margin selects from the nearest text rather than from nothing.
+    writing::lines(ctx.text, ctx.opts)
+        .position_at(ctx.text, pdf.x, pdf.y)
+        .or_else(|| model.hit_test(f64::from(pdf.x), f64::from(pdf.y)))
+}
+
+/// ★★ **Which way the text under `canvas` runs**, in CANVAS space, as an angle
+/// in degrees from the horizontal — or `None` where the pointer is not over
+/// rotated text.
+///
+/// The cursor's whole question, and the reason it is answered here rather than
+/// in `canvas::cursor`: turning the I-beam needs the page's **extraction**, and
+/// `cursor` is a bitmap generator that must not learn what a PDF is.
+///
+/// # The two hops, and why the second one cannot be skipped
+///
+/// [`writing`] measures directions in **PDF user space** — Y-up, from the
+/// un-rotated CropBox's lower-left. The cursor lives in **canvas space** —
+/// Y-down, page top-left, with the page's `/Rotate` applied. A direction is not
+/// a point, so it cannot be projected by [`crate::viewer::pdf_space_to_canvas`]
+/// directly; what is projected is the **two ends of a short segment along it**,
+/// and the direction is their difference.
+///
+/// Doing it that way rather than by adding `/Rotate` to the angle by hand is
+/// the same decision `hit` makes for the same reason: `viewer` inverts the
+/// renderer's own device transform, so the cursor and the picture agree by
+/// construction instead of by two implementations happening to match. A page
+/// with `/Rotate 90` turns its vertical stamp into a horizontal one on screen,
+/// and the I-beam has to follow the picture, not the file.
+///
+/// # ★ `None` is the common answer and is not a failure
+///
+/// Ordinary horizontal text answers `None`, because the upright beam is already
+/// right for it and saying so would mean every ordinary page paying for a
+/// bitmap lookup to be told nothing changed. Blank paper answers `None` for the
+/// stronger reason given on [`writing::Rotated::direction_at`]: containment,
+/// not nearest-line, so the beam does not lie sideways over the empty inches
+/// below a vertical stamp.
+#[must_use]
+pub fn tilt_at(ctx: &PageContext<'_>, canvas: Pos2) -> Option<f32> {
+    let pdf = crate::viewer::canvas_to_pdf_space(canvas, ctx.page)?;
+    let dir = writing::lines(ctx.text, ctx.opts).direction_at(ctx.text, pdf.x, pdf.y)?;
+    // One point on the direction and one a short way along it. The length is
+    // arbitrary — only the difference is used — but it is a whole point rather
+    // than an epsilon so the subtraction below is nowhere near `f32`
+    // cancellation at page coordinates.
+    let from = crate::viewer::pdf_space_to_canvas(egui::pos2(pdf.x, pdf.y), ctx.page)?;
+    let to =
+        crate::viewer::pdf_space_to_canvas(egui::pos2(pdf.x + dir.0, pdf.y + dir.1), ctx.page)?;
+    let step = to - from;
+    if step.length_sq() < f32::EPSILON {
+        return None;
+    }
+    Some(step.y.atan2(step.x).to_degrees())
 }
 
 /// ★ **The one derivation** — module header §5.
@@ -762,6 +888,12 @@ fn resolve(
         return None;
     }
 
+    // ★ §8. The page's rotated lines, recovered from the glyphs' own geometry
+    // because the extraction does not publish a writing direction. Empty — and
+    // measured in one pass over the run list — for every page whose text runs
+    // along x, which is what keeps the ordinary path below untouched.
+    let rotated = writing::lines(ctx.text, ctx.opts);
+
     // Which line the engine clustered each glyph onto. Built from
     // `model.lines()` rather than by re-clustering on baseline y: the engine's
     // lines already account for the backward-jump split that separates two
@@ -778,42 +910,56 @@ fn resolve(
     // are in the same content order as its text. `Vec` rather than a map keyed
     // on the line index: the count is one per line of the selection, so a linear
     // scan is cheaper than hashing, and the order is the point.
-    let mut boxes: Vec<(usize, PdfRect)> = Vec::new();
+    let mut boxes: Vec<(Band, Accum)> = Vec::new();
     for gref in &covered {
         let Some(glyph) = model.glyph(*gref) else {
             continue;
         };
-        // The engine's own approximation of a glyph box, with the ascent and
-        // descent fractions chosen in the module header §5.
-        let (x0, x1) = (glyph.x, glyph.x + glyph.advance);
-        let cell = PdfRect::from_corners(
-            f64::from(x0.min(x1)),
-            f64::from(glyph.y - glyph.size * GLYPH_DESCENT),
-            f64::from(x0.max(x1)),
-            f64::from(glyph.y + glyph.size * GLYPH_ASCENT),
-        );
+        // ★ Which frame this glyph's cell is measured in. A glyph on a rotated
+        // line is banded with its own line, in that line's axes; every other
+        // glyph keeps the engine's line and the engine's axes, byte for byte as
+        // before. The two never mix, because a `Band` carries which it is.
+        //
         // A glyph the line clustering did not claim still has to be drawn, or a
-        // selection would silently highlight less than it copies. `usize::MAX`
-        // keyed per glyph would merge them all into one band, so unclaimed
-        // glyphs get a box each — visibly correct, and rare enough that the
-        // cost is not worth a second clustering rule.
-        let key = line_of
-            .get(&(gref.run, gref.glyph))
-            .copied()
-            .unwrap_or(usize::MAX);
-        match boxes
-            .iter_mut()
-            .find(|(k, _)| *k == key && key != usize::MAX)
-        {
-            Some((_, r)) => {
-                *r = PdfRect::from_corners(
-                    r.llx.min(cell.llx),
-                    r.lly.min(cell.lly),
-                    r.urx.max(cell.urx),
-                    r.ury.max(cell.ury),
-                );
+        // selection would silently highlight less than it copies. `Band::Loose`
+        // keyed per glyph gives those a box each — visibly correct, and rare
+        // enough that the cost is not worth a second clustering rule.
+        let band = match rotated.line_of(*gref) {
+            Some(line) => Band::Rotated(line),
+            None => match line_of.get(&(gref.run, gref.glyph)) {
+                Some(line) => Band::Engine(*line),
+                None => Band::Loose(gref.run, gref.glyph),
+            },
+        };
+        let cell = match band {
+            // The engine's own approximation of a glyph box, with the ascent
+            // and descent fractions chosen in the module header §5.
+            Band::Engine(_) | Band::Loose(..) => {
+                let (x0, x1) = (glyph.x, glyph.x + glyph.advance);
+                Accum::Page(PdfRect::from_corners(
+                    f64::from(x0.min(x1)),
+                    f64::from(glyph.y - glyph.size * GLYPH_DESCENT),
+                    f64::from(x0.max(x1)),
+                    f64::from(glyph.y + glyph.size * GLYPH_ASCENT),
+                ))
             }
-            None => boxes.push((key, cell)),
+            // The same box, in the line's frame: one advance along the writing
+            // direction, and the same ascender/descender span across it. For a
+            // horizontal direction this reduces to the expression above, which
+            // is the check that it is a generalisation and not a second rule.
+            Band::Rotated(line) => {
+                let dir = rotated.lines[line].dir;
+                Accum::Frame {
+                    dir,
+                    origin: (glyph.x, glyph.y),
+                    along: (0.0, glyph.advance),
+                    perp: (-glyph.size * GLYPH_DESCENT, glyph.size * GLYPH_ASCENT),
+                }
+            }
+        };
+        match boxes.iter_mut().find(|(k, _)| *k == band && k.merges()) {
+            Some((_, accum)) => accum.absorb(&cell),
+            None => boxes.push((band, cell)),
         }
     }
 
@@ -837,6 +983,19 @@ fn resolve(
         } else {
             run.text.len()
         };
+        // ★ §8. A derived line break that falls INSIDE a rotated line is an
+        // artefact of the extraction's axis-aligned baseline test — the letters
+        // either side of it were proved adjacent along their own direction — so
+        // it copies as nothing, which is what the engine would have emitted had
+        // it been measuring in the right frame.
+        //
+        // Every other run takes its slice unchanged, including every break the
+        // regrouping declined to claim. That is what makes today's behaviour
+        // the floor: this branch can only ever remove a separator it has
+        // positively identified as spurious.
+        if rotated.is_artefact(index) {
+            continue;
+        }
         if let Some(slice) = run.text.get(lo..hi) {
             text.push_str(slice);
         }
@@ -858,8 +1017,8 @@ fn resolve(
     // frame).
     let mut quads: Vec<Rect> = Vec::with_capacity(boxes.len());
     let mut page_quads: Vec<Quad> = Vec::with_capacity(boxes.len());
-    for (_, rect) in boxes {
-        let quad = Quad::from_rect(rect);
+    for (_, accum) in boxes {
+        let quad = accum.quad();
         if let Some(canvas) = crate::find::reveal::quad_to_canvas(&quad, ctx.page) {
             quads.push(canvas);
             page_quads.push(quad);
@@ -934,360 +1093,17 @@ pub fn keys(
         && takes_the_press(active_tool, caps)
         && let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
     {
+        let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
         let text_ctx = PageContext {
             text: &page_text,
             page,
             index: page_index,
             epoch: doc.edit_epoch,
+            opts: &opts,
         };
         apply_key(ctx, &text_ctx, key, selection);
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::app::state::{FOUR_PAGES, OpenDoc, open_fixture};
-
-    /// Run `body` against page 0 of a fixture, with the real extraction.
-    ///
-    /// Everything below drives a **real** `PageText`: `PageText`, `TextRun` and
-    /// `ExtractedGlyph` are all `#[non_exhaustive]`, so this crate cannot build
-    /// one — which is a constraint worth naming rather than working around,
-    /// because it means every assertion here is about the engine's actual output
-    /// on an actual file.
-    fn on_page<R>(body: impl FnOnce(&PageContext<'_>) -> R) -> R {
-        let doc: OpenDoc = open_fixture(FOUR_PAGES);
-        let text = doc.page_text().expect("the fixture's first page extracts");
-        let page = doc.pages.first().expect("the fixture has pages");
-        body(&PageContext {
-            text: &text,
-            page,
-            index: 0,
-            epoch: doc.edit_epoch,
-        })
-    }
-
-    /// The canvas point at the centre of the first glyph the page draws.
-    ///
-    /// Derived from the extraction rather than guessed, for the reason
-    /// `ui-verify`'s `coords` module gives about guessed points: a coordinate
-    /// that misses is symptom-identical to a hit test that is broken, and this
-    /// project has already filed one retracted defect on exactly that.
-    fn first_glyph_centre(ctx: &PageContext<'_>) -> Pos2 {
-        let run = ctx
-            .text
-            .runs
-            .iter()
-            .find(|r| !r.glyphs.is_empty())
-            .expect("the fixture's page draws glyphs");
-        let g = run.glyphs.first().expect("checked non-empty");
-        let pdf = egui::pos2(g.x + g.advance / 2.0, g.y + g.size * 0.25);
-        crate::viewer::pdf_space_to_canvas(pdf, ctx.page).expect("a real page projects")
-    }
-
-    // =======================================================================
-    // ★ One derivation — module header §5
-    // =======================================================================
-
-    /// ★ **What is highlighted is what is copied.**
-    ///
-    /// The brief's own requirement, asserted the only way it can be asserted
-    /// from outside: select every character on the page, and check that the
-    /// value carries *both* halves and that they describe the same thing —
-    /// non-empty text, at least one box, and a box count that cannot exceed the
-    /// number of lines the engine derived.
-    ///
-    /// The last clause is what makes this more than "something was produced": a
-    /// build whose grouping key was wrong would emit one box per **glyph**, and
-    /// a page of text has far more glyphs than lines.
-    #[test]
-    fn a_selection_carries_its_text_and_its_boxes_from_one_pass() {
-        on_page(|ctx| {
-            let all = select_all(ctx).expect("the fixture's page has text");
-            assert!(!all.text.is_empty(), "select-all copied nothing");
-            assert!(!all.quads.is_empty(), "select-all highlighted nothing");
-            let lines = model(ctx).lines().len();
-            assert!(
-                all.quads.len() <= lines.max(1),
-                "{} boxes for {lines} derived lines — the per-line grouping is not grouping",
-                all.quads.len()
-            );
-            assert_eq!(all.page, 0);
-            assert!(all.live(ctx.epoch));
-        });
-    }
-
-    /// ★ **The boxes exist in both spaces, index for index** — module header
-    /// §5.1.
-    ///
-    /// The property the text-markup kinds rest on: the wash the operator sees
-    /// and the `/QuadPoints` written into the file are the same boxes, so a
-    /// build where one vector was filtered and the other was not would mark
-    /// glyphs it never highlighted. Asserted as an equal length **and** as a
-    /// per-entry correspondence of *width* — a length check alone would pass on
-    /// a build that pushed the right number of wrong quads.
-    ///
-    /// The width comparison is deliberately loose about units: canvas space is
-    /// scaled by nothing here (it is page points, Y-down) so on an upright page
-    /// the two widths are equal, and the assertion is written as "both
-    /// non-degenerate and within a point" rather than as equality, because a
-    /// rotated fixture would legitimately swap the axes.
-    #[test]
-    fn every_painted_box_has_the_page_space_quad_a_markup_would_use() {
-        on_page(|ctx| {
-            let all = select_all(ctx).expect("the fixture's page has text");
-            assert!(!all.page_quads.is_empty(), "no quads to author from");
-            assert_eq!(
-                all.quads.len(),
-                all.page_quads.len(),
-                "the wash and the mark must describe the same boxes"
-            );
-            for (canvas, quad) in all.quads.iter().zip(&all.page_quads) {
-                let quad_width = (quad.ur.0 - quad.ul.0).abs();
-                let quad_height = (quad.ul.1 - quad.ll.1).abs();
-                assert!(
-                    quad_width > 0.0 && quad_height > 0.0,
-                    "a degenerate quad marks nothing: {quad:?}"
-                );
-                assert!(
-                    (f64::from(canvas.width()) - quad_width).abs() < 1.0
-                        || (f64::from(canvas.height()) - quad_width).abs() < 1.0,
-                    "the painted box {canvas:?} and the authored quad {quad:?} are not the \
-                     same box"
-                );
-            }
-            // …and `marks` is the accessor that enforces the revision, exactly
-            // as `highlights` does for the painted half.
-            assert_eq!(all.marks(ctx.epoch).len(), all.page_quads.len());
-            assert!(
-                all.marks(ctx.epoch + 1).is_empty(),
-                "a stale selection must not author an annotation over glyphs that may have moved"
-            );
-        });
-    }
-
-    /// ★ **An edit makes a selection stale, and a stale selection paints
-    /// nothing** — module header §7.
-    ///
-    /// Both halves, because the second is the one rule 4 turns on: a stored quad
-    /// after an edit may be over different glyphs, and drawing it anyway is the
-    /// thing `crate::find`'s staleness section calls out as forbidden outright.
-    #[test]
-    fn an_edit_makes_a_selection_stale_and_stops_the_highlight() {
-        on_page(|ctx| {
-            let all = select_all(ctx).expect("the fixture's page has text");
-            assert!(!all.highlights(0, ctx.epoch).is_empty());
-            assert!(!all.live(ctx.epoch + 1), "one edit later");
-            assert!(
-                all.highlights(0, ctx.epoch + 1).is_empty(),
-                "a quad recorded before an edit may cover different glyphs after it"
-            );
-            assert!(
-                all.highlights(1, ctx.epoch).is_empty(),
-                "…and a selection describes one page, so another page's overlay gets nothing"
-            );
-        });
-    }
-
-    // =======================================================================
-    // The gestures
-    // =======================================================================
-
-    /// ★ **A double-click selects a word, and a triple-click selects at least as
-    /// much.**
-    ///
-    /// The two emphatic gestures, asserted *against each other* rather than
-    /// separately: a build where triple-click fell through to the word case
-    /// would pass two independent "selects something" tests and fail this one.
-    /// A word is also asserted to contain no whitespace, which is what
-    /// distinguishes it from a line on any page whose lines have more than one
-    /// word — and the test says so rather than assuming it.
-    #[test]
-    fn a_double_click_takes_a_word_and_a_triple_click_takes_at_least_the_line() {
-        on_page(|ctx| {
-            let at = first_glyph_centre(ctx);
-            let word = click(ctx, None, at, false, true, false)
-                .expect("a double-click on a glyph selects its word");
-            let line = click(ctx, None, at, false, false, true)
-                .expect("a triple-click on a glyph selects its line");
-            assert!(!word.text.is_empty());
-            assert!(
-                !word.text.trim().contains(char::is_whitespace),
-                "a word must not span a space: {:?}",
-                word.text
-            );
-            assert!(
-                line.text.len() >= word.text.len(),
-                "a line ({:?}) cannot be shorter than a word inside it ({:?})",
-                line.text,
-                word.text
-            );
-        });
-    }
-
-    /// ★ **A plain click clears** — Acrobat, Inkscape and SolidWorks alike.
-    ///
-    /// Expressed as `None` rather than as an empty selection, which is the
-    /// invariant `TextSelection`'s own docs rest on: the field on the document
-    /// is a two-state question.
-    #[test]
-    fn a_plain_click_clears_the_selection() {
-        on_page(|ctx| {
-            let at = first_glyph_centre(ctx);
-            assert!(
-                click(ctx, None, at, false, false, false).is_none(),
-                "a click collapses the range, and an empty range is no selection"
-            );
-        });
-    }
-
-    /// ★ **A drag selects the range between its ends, and it is
-    /// direction-blind.**
-    ///
-    /// Dragging right-to-left must select exactly what dragging left-to-right
-    /// selected — the case a naive implementation gets wrong by assuming the
-    /// press is the earlier position, and the same class of error
-    /// `GestureOutcome::Markup`'s docs record for a normalised rect.
-    #[test]
-    fn a_drag_selects_the_same_range_in_both_directions() {
-        on_page(|ctx| {
-            let all = select_all(ctx).expect("the fixture's page has text");
-            // Two points well inside the selection's own first box, so the drag
-            // is known to be over glyphs rather than guessed to be.
-            let box_ = all.quads[0];
-            let left = egui::pos2(box_.min.x + 1.0, box_.center().y);
-            let right = egui::pos2(box_.max.x - 1.0, box_.center().y);
-
-            let forward = drag(ctx, left, right).expect("a drag across a line selects it");
-            let backward = drag(ctx, right, left).expect("…and so does the same drag reversed");
-            assert_eq!(
-                forward.text, backward.text,
-                "a gesture must mean the same thing in both directions"
-            );
-            assert_eq!(forward.quads, backward.quads);
-            assert!(!forward.text.is_empty());
-        });
-    }
-
-    /// Shift+click extends from the anchor rather than starting again — and with
-    /// nothing selected it behaves as a plain click, because there is no anchor
-    /// to extend from.
-    #[test]
-    fn shift_click_extends_from_the_anchor_and_needs_one() {
-        on_page(|ctx| {
-            let all = select_all(ctx).expect("the fixture's page has text");
-            let box_ = all.quads[0];
-            let start = egui::pos2(box_.min.x + 1.0, box_.center().y);
-            let end = egui::pos2(box_.max.x - 1.0, box_.center().y);
-
-            // A quarter of the way across the line, not one canvas unit: a
-            // one-unit sweep can begin and end inside the same glyph, which
-            // resolves both ends onto the *same* caret boundary and therefore
-            // covers nothing. That is correct behaviour and a useless fixture —
-            // and it is what the first draft of this test did.
-            let quarter = egui::pos2(box_.min.x + box_.width() / 4.0, box_.center().y);
-            let seed = drag(ctx, start, quarter).expect("a quarter-line sweep selects glyphs");
-            let extended = click(ctx, Some(&seed), end, true, false, false)
-                .expect("shift+click extends to the pointer");
-            assert!(
-                extended.text.len() > seed.text.len(),
-                "extending must grow the range: {:?} then {:?}",
-                seed.text,
-                extended.text
-            );
-
-            assert!(
-                click(ctx, None, end, true, false, false).is_none(),
-                "shift+click with nothing selected has no anchor, so it clears like a plain click"
-            );
-        });
-    }
-
-    /// Ctrl+A takes the whole page and nothing beyond it — the range is clamped
-    /// by `resolve_range`, so the last run's end is a real boundary rather than
-    /// a byte past one.
-    ///
-    /// ★ Compared against **`plain_text()`**, not `sourced_text()`, and the
-    /// difference is a lesson worth keeping: the first draft of this test split
-    /// `sourced_text()` on whitespace and looked for the words in the copy, and
-    /// it failed with `select-all dropped "OneChapter"`. `sourced_text()`
-    /// deliberately omits every derived space and line break — it is the honest
-    /// lower bound on *what the file provides* — so on this fixture it runs
-    /// `Page One` and `Chapter 1` together into a token that exists in no
-    /// selection anyone could make.
-    ///
-    /// That is exactly the distinction a copy has to get right in the other
-    /// direction: [`resolve`] walks the **runs**, derived-whitespace runs
-    /// included, which is what makes a copied paragraph paste as a paragraph.
-    /// Asserting against `plain_text()` is asserting against the same
-    /// segmentation the operator can see on the page.
-    #[test]
-    fn select_all_takes_every_character_on_the_page() {
-        on_page(|ctx| {
-            let all = select_all(ctx).expect("the fixture's page has text");
-            let plain = ctx.text.plain_text();
-            assert!(
-                plain.split_whitespace().count() >= 4,
-                "vacuous unless the fixture really has several words: {plain:?}"
-            );
-            for word in plain.split_whitespace() {
-                assert!(
-                    all.text.contains(word),
-                    "select-all dropped {word:?} from {:?}",
-                    all.text
-                );
-            }
-            // …and the separators came too, or the copy would paste as one word.
-            assert!(
-                all.text.contains(char::is_whitespace),
-                "a copy that drops the derived spaces pastes as one word: {:?}",
-                all.text
-            );
-        });
-    }
-
-    /// A drag that touches no glyph selects nothing.
-    ///
-    /// Asserted at a point far outside the page box, because
-    /// `EditableTextModel::hit_test` deliberately falls back to the *nearest*
-    /// line rather than answering `None` — so the clearing has to come from the
-    /// range covering no glyphs, and a build that had "nearest line" leak into a
-    /// selection would fail here rather than in front of an operator.
-    #[test]
-    fn a_degenerate_drag_selects_nothing() {
-        on_page(|ctx| {
-            let far = egui::pos2(-10_000.0, -10_000.0);
-            assert!(
-                drag(ctx, far, far).is_none(),
-                "a zero-length drag covers no glyphs, wherever it is"
-            );
-        });
-    }
-
-    // =======================================================================
-    // Ordering
-    //
-    // The two keyboard verbs and the cost gate in front of them moved to
-    // `clipboard.rs` with their tests — see this module's §8.
-    // =======================================================================
-
-    /// The ordering helper puts the earlier position first, on both axes of the
-    /// key — the run before the offset, which is the order content is in.
-    #[test]
-    fn positions_order_by_run_then_offset() {
-        let a = TextPosition::new(1, 5);
-        let b = TextPosition::new(1, 9);
-        let c = TextPosition::new(2, 0);
-        assert_eq!(ordered(a, b), (a, b));
-        assert_eq!(
-            ordered(b, a),
-            (a, b),
-            "the same pair reversed must order the same way"
-        );
-        // Across runs, the run index decides regardless of the offsets — a
-        // position at byte 0 of run 2 is after byte 5 of run 1.
-        assert_eq!(ordered(c, a), (a, c));
-        assert_eq!(ordered(a, c), (a, c));
-    }
-}
+mod tests;

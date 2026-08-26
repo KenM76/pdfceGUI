@@ -181,7 +181,96 @@ pub fn crosshair(pixels_per_point: f32) -> CustomCursorImage {
     image
 }
 
-/// The two-tone I-beam, cached per pixel size exactly as [`crosshair`] is.
+/// **How far the I-beam is turned from upright**, in whole degrees, folded into
+/// `0..180` and quantised.
+///
+/// # ★★ Why the cursor has an angle at all
+///
+/// The operator, 2026-08-26, on a vertical stamp in a title block:
+///
+/// > *"In Adobe when I hover over it the I cursor re-orients itself to match
+/// > the text orientation […] as it is now the I cursor doesn't reorient."*
+///
+/// Acrobat is right and this is the convention, not an embellishment: the
+/// I-beam's whole job is to say *"text flows this way and the caret will land
+/// between two glyphs"*, and over a 90° stamp an upright beam says it about the
+/// wrong axis.
+///
+/// # ★ Why pdfce can do this at all, where most applications cannot
+///
+/// `egui::CursorIcon` has no rotated I-beam and neither does Win32 —
+/// `IDC_IBEAM` is one fixed monochrome bitmap. Acrobat ships its own artwork
+/// for each orientation, and so, as it happens, does this shell: the module
+/// already generates its I-beam as an RGBA bitmap for
+/// `Context::set_cursor_image`, because the platform's was invisible on white
+/// paper. **The rotation is free on top of a mechanism that had to exist
+/// anyway.** Had this application still been asking the platform for
+/// `CursorIcon::Text`, the operator's request would have been unbuildable.
+///
+/// # The quantisation, and the two reasons for it
+///
+/// Five degrees. Each distinct angle is a separate generated bitmap held in a
+/// cache, and each is uploaded to the OS as a platform cursor handle the first
+/// time it is used, so an unquantised angle would mean a new handle every time
+/// the pointer crossed a slightly different line. Five degrees is also below
+/// what anyone can see in a 32-pixel glyph: at that size one degree moves the
+/// beam's tip by a quarter of a pixel.
+///
+/// Folded into `0..180` because the glyph is symmetric under a half turn — a
+/// beam at 200° and one at 20° are the same pixels — which halves the cache for
+/// nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Tilt(u16);
+
+impl Tilt {
+    /// The default: an upright beam, for text that runs along the page.
+    pub const UPRIGHT: Self = Self(0);
+
+    /// The quantisation step, in degrees. See the type's docs.
+    const STEP: u16 = 5;
+
+    /// The tilt nearest `degrees`, folded and quantised.
+    ///
+    /// Takes any real angle — including negative ones, which is what an
+    /// `atan2` in a Y-down space produces for text running up the page — so no
+    /// caller has to normalise before asking.
+    ///
+    /// A non-finite angle answers [`Self::UPRIGHT`] rather than panicking: it
+    /// can only arise from a degenerate page transform, and an upright cursor
+    /// on a broken page is a far better outcome than a crash in the middle of a
+    /// pointer move.
+    #[must_use]
+    pub fn nearest(degrees: f32) -> Self {
+        if !degrees.is_finite() {
+            return Self::UPRIGHT;
+        }
+        let folded = degrees.rem_euclid(180.0);
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "folded is in 0..180 and the quotient is in 0..36" // ui-text-exempt: lint justification, never displayed
+        )]
+        let steps = (folded / f32::from(Self::STEP)).round() as u16;
+        // 180° rounds up to step 36, which is 0° again — the fold, applied once
+        // more after rounding rather than trusted to have survived it.
+        Self((steps * Self::STEP) % 180)
+    }
+
+    /// The angle in degrees.
+    #[must_use]
+    pub const fn degrees(self) -> u16 {
+        self.0
+    }
+
+    /// Whether this is the ordinary upright beam.
+    #[must_use]
+    pub const fn is_upright(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// The two-tone I-beam at `tilt`, cached per `(pixel size, tilt)` exactly as
+/// [`crosshair`] is cached per pixel size.
 ///
 /// # ★ Why an I-beam and not simply a smaller crosshair
 ///
@@ -189,10 +278,13 @@ pub fn crosshair(pixels_per_point: f32) -> CustomCursorImage {
 /// crosshair says *"the point under the intersection is what you are picking"*;
 /// an I-beam says *"text flows this way, and the caret will land between two
 /// glyphs"*. Its serifs are not decoration — they are what makes a one-pixel
-/// vertical bar findable on a page of vertical strokes, which a CAD drawing is
-/// entirely made of.
+/// bar findable on a page of one-pixel strokes, which a CAD drawing is entirely
+/// made of.
+///
+/// And it is exactly *because* the shape carries that meaning that it has to
+/// turn: see [`Tilt`].
 #[must_use]
-pub fn ibeam(pixels_per_point: f32) -> CustomCursorImage {
+pub fn ibeam(pixels_per_point: f32, tilt: Tilt) -> CustomCursorImage {
     let scale = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
         pixels_per_point
     } else {
@@ -209,27 +301,55 @@ pub fn ibeam(pixels_per_point: f32) -> CustomCursorImage {
     let mut cache = cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((_, img)) = cache.iter().find(|(key, _)| *key == size) {
+    if let Some((_, _, img)) = cache
+        .iter()
+        .find(|(key, angle, _)| *key == size && *angle == tilt)
+    {
         return img.clone();
     }
-    let img = render_ibeam(size, scale);
-    cache.push((size, img.clone()));
+    let img = render_ibeam(size, scale, tilt);
+    cache.push((size, tilt, img.clone()));
     img
 }
 
 /// Cache for [`ibeam`], separate from the crosshair's.
 ///
 /// Two caches rather than one keyed by shape: each holds at most a handful of
-/// sizes, and a shared one would need a compound key for no saving. The cost of
-/// getting a compound key wrong is handing back the wrong glyph.
-static IBEAM_CACHE: OnceLock<Mutex<Vec<(u32, CustomCursorImage)>>> = OnceLock::new();
+/// entries, and a shared one would need a compound key for no saving. The cost
+/// of getting a compound key wrong is handing back the wrong glyph.
+///
+/// ★ Keyed by `(size, tilt)` since 2026-08-26. **A cache keyed only by size
+/// would be worse than no cache at all**: the first angle asked for would be
+/// stored and every later angle would silently receive it, so the cursor would
+/// appear to reorient once and then never again — a defect that looks like the
+/// feature half-working rather than like a cache bug.
+///
+/// Unbounded, and that is safe rather than lucky: [`Tilt`] quantises to five
+/// degrees and folds into a half turn, so there are at most 36 angles, and in
+/// practice a document has one or two.
+static IBEAM_CACHE: OnceLock<Mutex<Vec<(u32, Tilt, CustomCursorImage)>>> = OnceLock::new();
 
-/// Draw the I-beam: a dark bar with serifs, haloed in light.
+/// Draw the I-beam: a dark bar with serifs, haloed in light, turned by `tilt`.
 ///
 /// Halo first then core, for the reason [`render`] gives — drawing them the
 /// other way round leaves a light glyph with a dark outline, which is thinner
 /// in its dark part than its light one and reads as blurry.
-fn render_ibeam(size: u32, scale: f32) -> CustomCursorImage {
+///
+/// # ★ Drawn by inverse rotation, not by rotating a drawn bitmap
+///
+/// Each destination pixel is mapped **back** into the beam's own upright frame
+/// and tested for membership there. Rotating an already-drawn bitmap forward
+/// would leave unpainted pixels wherever two source pixels landed on the same
+/// destination — a beam full of holes at every angle that is not a multiple of
+/// 90° — and closing them would mean resampling, which on a two-tone glyph
+/// whose entire value is a crisp one-pixel core is precisely the wrong tool.
+///
+/// The membership test is the same shape the upright version drew directly: a
+/// bar `width` across and `2 × half_height` along, plus a serif slab `width`
+/// deep at each end. Substituting `tilt = 0` gives back the original glyph
+/// pixel for pixel, which is the check that this generalises rather than
+/// replaces it.
+fn render_ibeam(size: u32, scale: f32, tilt: Tilt) -> CustomCursorImage {
     let mut rgba = vec![0u8; (size as usize) * (size as usize) * 4];
     let px = |pts: f32| (pts * scale).round().max(1.0) as i32;
     #[allow(
@@ -247,6 +367,9 @@ fn render_ibeam(size: u32, scale: f32) -> CustomCursorImage {
     let core = px(IBEAM_CORE_PTS).max(1);
     let halo = core + 2;
 
+    let radians = f32::from(tilt.degrees()).to_radians();
+    let (sin, cos) = radians.sin_cos();
+
     let mut put = |x: i32, y: i32, white: bool| {
         if x < 0 || y < 0 || x >= n || y >= n {
             return;
@@ -258,18 +381,54 @@ fn render_ibeam(size: u32, scale: f32) -> CustomCursorImage {
         rgba[at + 2] = value;
         rgba[at + 3] = 0xFF;
     };
+    // ★★ How wide a pixel is, measured across the beam's own axes.
+    //
+    // **Without it a tilted hairline comes out dotted.** The core is one device
+    // pixel wide at ordinary scales (deliberately — see below), so a bare test
+    // of `|across| <= 0` selects at most one pixel per scanline; where the beam
+    // is not axis-aligned, consecutive scanlines can then step two columns
+    // apart and the line breaks into dashes.
+    //
+    // ★ The value is derived rather than fudged, and the derivation is what
+    // stops it being too generous. Walking one step along the beam's dominant
+    // axis changes `across` by `max(|cos|, |sin|)`, so a tolerance of **half
+    // that** guarantees at least one pixel per scanline and nothing more:
+    //
+    // | tilt | `max(\|cos\|,\|sin\|)` | spread | a one-pixel core comes out as |
+    // |---|---|---|---|
+    // | 0° / 90° | 1.0 | 0.5 | one pixel — exactly the columns the upright version drew |
+    // | 45° | 0.707 | 0.354 | one pixel per anti-diagonal: a clean 1-px staircase |
+    //
+    // The first draft used `0.5 × (|cos| + |sin|)` — the pixel's full projected
+    // width — and it is 41 % too big at 45°: the ASCII preview showed a
+    // three-pixel-thick core where the upright glyph has a hairline, which
+    // defeats the whole reason the core is a hairline (see below). That is why
+    // `preview::ibeam_ascii` exists.
+    let spread = 0.5 * cos.abs().max(sin.abs());
     let mut bar = |width: i32, white: bool| {
-        let half = width / 2;
-        for y in (centre - half_height)..=(centre + half_height) {
-            for x in (centre - half)..=(centre + half) {
-                put(x, y, white);
-            }
-        }
-        // The serifs, top and bottom.
-        for dy in 0..width.max(1) {
-            for x in (centre - serif)..=(centre + serif) {
-                put(x, centre - half_height + dy, white);
-                put(x, centre + half_height - dy, white);
+        let half = (width / 2) as f32;
+        // Where the serif slab begins, as a distance from the centre: the
+        // outermost `width` rows at each end, which is what the upright version
+        // drew by counting `dy in 0..width` inwards from the tip.
+        let serif_from = f32::from(i16::try_from((half_height - width + 1).max(0)).unwrap_or(0));
+        for y in 0..n {
+            for x in 0..n {
+                // Into the beam's own upright frame. Offsets are whole pixels
+                // from the hotspot, exactly as the upright version indexed
+                // them, so the glyph stays centred on the hotspot at every
+                // angle rather than drifting half a pixel.
+                let dx = (x - centre) as f32;
+                let dy = (y - centre) as f32;
+                let across = dx.mul_add(cos, dy * sin);
+                let along = dx.mul_add(-sin, dy * cos);
+                let within_length = along.abs() <= half_height as f32 + spread;
+                let in_bar = across.abs() <= half + spread && within_length;
+                let in_serif = across.abs() <= serif as f32 + spread
+                    && within_length
+                    && along.abs() >= serif_from - spread;
+                if in_bar || in_serif {
+                    put(x, y, white);
+                }
             }
         }
     };
@@ -458,8 +617,15 @@ static LAST_APPLIED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32
 pub enum Shape {
     /// The picking crosshair, for an armed tool.
     Crosshair,
-    /// The text I-beam, for selecting or editing text on the page.
-    Ibeam,
+    /// The text I-beam, for selecting or editing text on the page, **turned to
+    /// match the text under the pointer**.
+    ///
+    /// The angle rides on the variant rather than beside it because a shape and
+    /// its orientation are one answer to one question: [`apply`] keys its cache
+    /// and its change detection on the whole `Shape`, and a tilt stored
+    /// separately would let the two disagree — the classic form of which is a
+    /// cursor that turns once and then never again. See [`Tilt`].
+    Ibeam(Tilt),
 }
 
 impl Shape {
@@ -468,7 +634,12 @@ impl Shape {
     pub const fn of(icon: egui::CursorIcon) -> Option<Self> {
         match icon {
             egui::CursorIcon::Crosshair => Some(Self::Crosshair),
-            egui::CursorIcon::Text => Some(Self::Ibeam),
+            // Upright, always: this function knows only which *stock* icon the
+            // frame asked for, and nothing about what is under the pointer. The
+            // tilt is applied afterwards by the one caller that has the page's
+            // text — `canvas::interact` — because turning the beam requires an
+            // extraction and a pure icon mapping must not reach for one.
+            egui::CursorIcon::Text => Some(Self::Ibeam(Tilt::UPRIGHT)),
             _ => None,
         }
     }
@@ -478,7 +649,18 @@ impl Shape {
         match self {
             // ui-text-exempt: diagnostic trace values, never displayed
             Self::Crosshair => "crosshair",
-            Self::Ibeam => "ibeam",
+            Self::Ibeam(_) => "ibeam",
+        }
+    }
+
+    /// How far this shape is turned from upright, in degrees.
+    ///
+    /// Zero for the crosshair, which is rotationally symmetric to within its
+    /// own arms and would say nothing by turning.
+    const fn degrees(self) -> u16 {
+        match self {
+            Self::Crosshair => 0,
+            Self::Ibeam(tilt) => tilt.degrees(),
         }
     }
 }
@@ -488,7 +670,7 @@ impl Shape {
 pub fn image(shape: Shape, pixels_per_point: f32) -> CustomCursorImage {
     match shape {
         Shape::Crosshair => crosshair(pixels_per_point),
-        Shape::Ibeam => ibeam(pixels_per_point),
+        Shape::Ibeam(tilt) => ibeam(pixels_per_point, tilt),
     }
 }
 
@@ -499,11 +681,19 @@ pub fn apply(ctx: &egui::Context, wanted: Option<Shape>) {
         let image = image(shape, ctx.pixels_per_point());
         let size = u32::from(image.size[0]);
         ctx.set_cursor_image(Some(image));
-        // The shape rides in the low bits beside the size so a change of
-        // SHAPE at one size is still a change — otherwise switching from
-        // crosshair to I-beam at the same scale would trace nothing, and the
-        // reader would see a cursor that never changed.
-        size * 2 + u32::from(shape == Shape::Ibeam)
+        // The shape AND its angle ride in the low bits beside the size, so a
+        // change of either at one scale is still a change. Without the shape
+        // bit, switching from crosshair to I-beam at the same scale would trace
+        // nothing; without the angle, an I-beam turning from upright to 90°
+        // would trace nothing — and the angle is the half a screenshot cannot
+        // check, because Windows composites the pointer separately and
+        // `ui-verify`'s window capture contains no cursor at any price.
+        //
+        // `+ 1` on the shape bit rather than a bare boolean, so the whole
+        // packed value stays non-zero for any real cursor: zero is reserved for
+        // "none wanted", and an upright crosshair at a zero-width scale must
+        // not collide with it.
+        (size * 512 + u32::from(shape.degrees()) * 2) + u32::from(matches!(shape, Shape::Ibeam(_)))
     } else {
         // Deliberately does NOT clear: `crate::app::frame` has already done it
         // for this frame, before anything drew. Clearing again here would be a
@@ -518,9 +708,10 @@ pub fn apply(ctx: &egui::Context, wanted: Option<Shape>) {
             None => "cursor-custom off".to_owned(),
             Some(shape) => format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "cursor-custom on shape={} px={}",
+                "cursor-custom on shape={} deg={} px={}",
                 shape.label(),
-                size / 2
+                shape.degrees(),
+                size / 512
             ),
         });
     }
@@ -542,7 +733,7 @@ mod tests {
     /// and reproduce the bug exactly.
     #[test]
     fn the_ibeam_core_is_dark_and_its_halo_is_light() {
-        let img = ibeam(1.0);
+        let img = ibeam(1.0, Tilt::UPRIGHT);
         let n = usize::from(img.size[0]);
         let at = |x: usize, y: usize| {
             let i = (y * n + x) * 4;
@@ -572,7 +763,7 @@ mod tests {
     /// caret lands between two glyphs.
     #[test]
     fn the_ibeam_is_a_bar_and_not_a_blob() {
-        let img = ibeam(1.0);
+        let img = ibeam(1.0, Tilt::UPRIGHT);
         let n = usize::from(img.size[0]);
         let opaque = |x: usize, y: usize| img.rgba[(y * n + x) * 4 + 3] == 0xFF;
         let c = n / 2;
@@ -596,7 +787,12 @@ mod tests {
             Shape::of(egui::CursorIcon::Crosshair),
             Some(Shape::Crosshair)
         );
-        assert_eq!(Shape::of(egui::CursorIcon::Text), Some(Shape::Ibeam));
+        assert_eq!(
+            Shape::of(egui::CursorIcon::Text),
+            Some(Shape::Ibeam(Tilt::UPRIGHT)),
+            "the stock icon maps to an UPRIGHT beam; the tilt is applied later, \
+             by the caller that knows what the pointer is over"
+        );
         for stock in [
             egui::CursorIcon::Default,
             egui::CursorIcon::PointingHand,
@@ -718,6 +914,148 @@ mod tests {
         );
     }
 
+    // =======================================================================
+    // ★★ The tilt — the operator's 2026-08-26 report
+    // =======================================================================
+
+    /// The quantiser folds, rounds and refuses nonsense.
+    ///
+    /// Each row is a case that would produce a visible defect on its own: an
+    /// unfolded angle doubles the cache and uploads a duplicate cursor to the
+    /// OS; a 180° that survived rounding would be a distinct entry drawing
+    /// identical pixels; and a non-finite angle — reachable from a degenerate
+    /// page transform — must not panic in the middle of a pointer move.
+    #[test]
+    fn the_tilt_quantises_and_folds() {
+        for (given, expect) in [
+            (0.0_f32, 0),
+            (2.0, 0),
+            (3.0, 5),
+            (89.0, 90),
+            (90.0, 90),
+            (92.4, 90),
+            // A half turn is the same glyph, so it folds to upright.
+            (180.0, 0),
+            (185.0, 5),
+            // Negative, which is what an `atan2` in a Y-down space gives for
+            // text running UP the page — the operator's own case.
+            (-90.0, 90),
+            (-5.0, 175),
+            (f32::NAN, 0),
+            (f32::INFINITY, 0),
+        ] {
+            assert_eq!(
+                Tilt::nearest(given).degrees(),
+                expect,
+                "Tilt::nearest({given}) should be {expect}°"
+            );
+            assert!(
+                Tilt::nearest(given).degrees() < 180,
+                "every tilt must fold into 0..180"
+            );
+        }
+    }
+
+    /// ★★★ **A 90° I-beam is a HORIZONTAL bar**, which is the whole of what the
+    /// operator asked for.
+    ///
+    /// The upright test above this one asserts `tall > wide * 2`; this asserts
+    /// the exact reverse on the same glyph at 90°. Asserting both is what makes
+    /// the pair evidence: a renderer that ignored the tilt would pass the first
+    /// and fail this, and one that rotated everything unconditionally would do
+    /// the opposite.
+    #[test]
+    fn a_quarter_turned_ibeam_is_a_horizontal_bar() {
+        let img = ibeam(1.0, Tilt::nearest(90.0));
+        let n = usize::from(img.size[0]);
+        let opaque = |x: usize, y: usize| img.rgba[(y * n + x) * 4 + 3] == 0xFF;
+        let c = n / 2;
+        let tall = (0..n).filter(|&y| opaque(c, y)).count();
+        let wide = (0..n).filter(|&x| opaque(x, c)).count();
+        assert!(
+            wide > tall * 2,
+            "a 90° I-beam should lie on its side: {tall} tall against {wide} wide"
+        );
+    }
+
+    /// ★★ **And it keeps its dark core**, at every angle.
+    ///
+    /// The operator's *other* cursor report — *"the I cursor turns white for
+    /// text selection so I cant see it on a white background"* — is a property
+    /// of the glyph, not of its orientation, and a rotation implemented by
+    /// resampling would soften exactly this pixel into grey. Checked at four
+    /// angles including one that is not a multiple of 90°, because that is
+    /// where a resampling implementation would first show.
+    #[test]
+    fn the_core_stays_dark_at_every_angle() {
+        for degrees in [0.0_f32, 30.0, 90.0, 135.0] {
+            let img = ibeam(1.0, Tilt::nearest(degrees));
+            let n = usize::from(img.size[0]);
+            let c = n / 2;
+            let i = (c * n + c) * 4;
+            assert_eq!(
+                (img.rgba[i], img.rgba[i + 3]),
+                (0x00, 0xFF),
+                "the core must be opaque black at {degrees}°"
+            );
+        }
+    }
+
+    /// ★★★ **The cache tells two angles apart.**
+    ///
+    /// This is the test for the failure the cache's own header names: keyed by
+    /// size alone, the first angle asked for would be stored and every later
+    /// angle would silently receive it — so the cursor would appear to reorient
+    /// **once** and then never again. That reads as the feature half-working
+    /// rather than as a cache bug, which is exactly the kind of defect that
+    /// survives a manual look.
+    ///
+    /// The positive half is the same claim `the_same_scale_returns_the_same_
+    /// allocation` makes for the crosshair: `egui-winit` dedupes its upload to
+    /// the OS by `Arc::as_ptr`, so a fresh `Arc` per frame would convert a
+    /// bitmap to a platform cursor handle sixty times a second.
+    #[test]
+    fn the_ibeam_cache_is_keyed_by_angle_as_well_as_size() {
+        let upright = ibeam(1.0, Tilt::UPRIGHT);
+        let again = ibeam(1.0, Tilt::UPRIGHT);
+        assert!(
+            Arc::ptr_eq(&upright.rgba, &again.rgba),
+            "one angle at one scale must share its cached buffer"
+        );
+        let turned = ibeam(1.0, Tilt::nearest(90.0));
+        assert!(
+            !Arc::ptr_eq(&upright.rgba, &turned.rgba),
+            "a different angle must be a different bitmap, or the cursor turns once and never again"
+        );
+        assert_ne!(
+            &*upright.rgba, &*turned.rgba,
+            "and the pixels must actually differ, not merely the allocation"
+        );
+    }
+
+    /// A turned I-beam is still a valid cursor bitmap.
+    ///
+    /// The length invariant again, at an angle: `CustomCursor::from_rgba`
+    /// rejects a buffer whose length is not `w * h * 4` and egui-winit's
+    /// response to a rejection is to fall back to the platform cursor — i.e.
+    /// silently back to the white-on-white defect this module exists to fix. A
+    /// rotation that resized the buffer would look exactly like the tilt not
+    /// being wired up.
+    #[test]
+    fn a_turned_bitmap_still_matches_the_size_it_declares() {
+        for degrees in [0.0_f32, 45.0, 90.0, 175.0] {
+            for ppp in [1.0_f32, 2.0] {
+                let image = ibeam(ppp, Tilt::nearest(degrees));
+                let (w, h) = (usize::from(image.size[0]), usize::from(image.size[1]));
+                assert_eq!(
+                    image.rgba.len(),
+                    w * h * 4,
+                    "the buffer must be exactly w * h * 4 at {degrees}° and {ppp}x"
+                );
+            }
+        }
+    }
+
     /// A nonsense scale lands on the clamp rather than on an allocation.
     ///
     /// Not defensive programming for its own sake: `pixels_per_point` is
@@ -738,6 +1076,8 @@ mod tests {
 
 #[cfg(test)]
 mod preview {
+    use super::Tilt;
+
     /// Dump the raw bitmap so a human can look at it. `--ignored`.
     #[test]
     #[ignore]
@@ -747,6 +1087,50 @@ mod preview {
             let name = std::env::temp_dir().join(format!("crosshair-{}.rgba", image.size[0]));
             std::fs::write(&name, &*image.rgba).expect("write");
             println!("{} {}x{}", name.display(), image.size[0], image.size[1]);
+        }
+    }
+
+    /// ★ **Print the I-beam as ASCII at several angles**, so a human can check
+    /// the shape with their eyes. `--ignored`.
+    ///
+    /// This exists because of the constraint `apply`'s docs set out: **a cursor
+    /// cannot be verified by screenshot.** Windows composites the pointer
+    /// separately from window contents, so `BitBlt` and `PrintWindow` — the two
+    /// ways `ui-verify` captures a window — return an image with no cursor in
+    /// it at any price. R1's usual answer, *drive it and look at the picture*,
+    /// has no picture to look at here.
+    ///
+    /// The unit tests assert the properties that can be stated as numbers — the
+    /// core is dark, a 90° beam is wider than tall, the cache tells angles
+    /// apart. What they cannot assert is whether the glyph *looks like an
+    /// I-beam* at 30°, and this is how that is checked: by eye, deliberately,
+    /// on demand.
+    ///
+    /// `cargo test -p pdfce-gui --lib canvas::cursor::preview::ibeam_ascii -- \
+    ///  --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn ibeam_ascii() {
+        for degrees in [0.0_f32, 30.0, 45.0, 90.0, 135.0] {
+            let img = super::ibeam(1.0, Tilt::nearest(degrees));
+            let n = usize::from(img.size[0]);
+            println!(
+                "\n--- {degrees}° ({}°) ---",
+                Tilt::nearest(degrees).degrees()
+            );
+            for y in 0..n {
+                let row: String = (0..n)
+                    .map(|x| {
+                        let i = (y * n + x) * 4;
+                        match (img.rgba[i + 3], img.rgba[i]) {
+                            (0, _) => ' ',
+                            (_, 0) => '#',
+                            _ => '.',
+                        }
+                    })
+                    .collect();
+                println!("{row}");
+            }
         }
     }
 }

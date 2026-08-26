@@ -347,11 +347,17 @@ pub fn click(
         });
     } else if super::textsel::takes_the_press(active_tool, caps) {
         if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) {
+            // ★ The SAME options the extraction ran with, through the funnel —
+            // `textsel::PageContext::opts` documents why a bare
+            // `ExtractOptions::default()` here would be a defect rather than a
+            // shortcut.
+            let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
             let text_ctx = super::textsel::PageContext {
                 text: &page_text,
                 page,
                 index: page_index,
                 epoch: doc.edit_epoch,
+                opts: &opts,
             };
             *text_selection = super::textsel::click(
                 &text_ctx,

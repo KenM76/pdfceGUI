@@ -797,11 +797,15 @@ pub(super) fn interact(
         // benchmark sheet decomposes nothing.
         GestureOutcome::TextSelect { from, to, phase } => {
             if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) {
+                // ★ The SAME options the extraction ran with — see
+                // `textsel::PageContext::opts`.
+                let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
                 let text_ctx = textsel::PageContext {
                     text: &page_text,
                     page,
                     index: page_index,
                     epoch: doc.edit_epoch,
+                    opts: &opts,
                 };
                 text_selection = textsel::drag(&text_ctx, from, to);
             }
@@ -1392,7 +1396,62 @@ pub(super) fn interact(
     // application a screenshot cannot contain: Windows composites the pointer
     // separately, so `ui-verify`'s window capture returns an image with no
     // cursor in it at any price.
-    crate::canvas::cursor::apply(&ctx, icon.and_then(crate::canvas::cursor::Shape::of));
+    // ★★ …and where that answer is an I-BEAM, turn it to match the text under
+    // the pointer.
+    //
+    // The operator, 2026-08-26: *"In Adobe when I hover over it the I cursor
+    // re-orients itself to match the text orientation […] as it is now the I
+    // cursor doesn't reorient."* Acrobat is right — the I-beam's meaning is
+    // *"text flows this way"*, and over a 90° title-block stamp an upright one
+    // says it about the wrong axis. `canvas::cursor::Tilt` carries the argument
+    // and the reason this shell can do it at all where most applications
+    // cannot.
+    //
+    // ★ **The cost question answers itself here, and that is why the tilt is
+    // applied at this point and not in `tool::cursor_for`.** Turning the beam
+    // needs the page's EXTRACTION — 355 ms on the benchmark sheet the first
+    // time, cached on `(page, edit epoch)` thereafter — and `arm.rs` records at
+    // length why this canvas refuses to hit-test the extraction on hover in
+    // general: it would be paid on every reading canvas, which is most of them.
+    //
+    // That objection does not reach this line, because `icon` is only ever
+    // `Text` in the two situations where the extraction is wanted anyway:
+    //
+    //   * the **Text or Caret tool is armed**, which is the operator saying
+    //     outright that the next press is about text, and whose very next press
+    //     builds the extraction regardless; or
+    //   * a **text sweep is already in flight**, in which case it is built.
+    //
+    // A reader in Read mode who never touches text never reaches here, gets no
+    // extraction, and pays nothing — which is exactly the property `arm.rs`
+    // protects.
+    let shape = icon
+        .and_then(crate::canvas::cursor::Shape::of)
+        .map(|shape| {
+            let crate::canvas::cursor::Shape::Ibeam(_) = shape else {
+                return shape;
+            };
+            let tilt = screen_pos
+                .filter(|p| clip.contains(*p))
+                .and_then(|p| {
+                    let page = doc.pages.get(page_index)?;
+                    let page_text = doc.page_text()?;
+                    let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
+                    let text_ctx = textsel::PageContext {
+                        text: &page_text,
+                        page,
+                        index: page_index,
+                        epoch: doc.edit_epoch,
+                        opts: &opts,
+                    };
+                    textsel::tilt_at(&text_ctx, map.to_page(p))
+                })
+                .map_or(crate::canvas::cursor::Tilt::UPRIGHT, |degrees| {
+                    crate::canvas::cursor::Tilt::nearest(degrees)
+                });
+            crate::canvas::cursor::Shape::Ibeam(tilt)
+        });
+    crate::canvas::cursor::apply(&ctx, shape);
 
     let count = selection.len();
     // Back onto the document, by value. Moved rather than cloned: a marquee

@@ -17,7 +17,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `f8af161` (2026-08-26)
+## ★★★ State, as measured on 2026-08-26, after the rotated-text work
 
 **This table is a reading, not a status.** Every row is what a command printed
 at that commit; the tree has moved since, and the numbers move with it. It is
@@ -25,13 +25,54 @@ here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Tests** | 1,761 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Tests** | 1,783 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | **18 of 18**, 0 skipped |
-| **`ui-verify`** | **78 checks declared** (`form_field` added 2026-08-26 and PASSING). Last full driven run: **66 passed · 3 failed · 8 skipped** — see `evidence/ui-verify-run.txt`, committed deliberately because it is the reason a release decision was made |
+| **`ui-verify`** | **81 checks declared** — counted from a `--no-input` run, which reports every check as it skips, not from a grep. `rotated_text_selects_and_copies_as_one_line` added 2026-08-26 and **NOT YET DRIVEN**: he was using the PC. Last full driven run predates it: **66 passed · 3 failed · 8 skipped**, `evidence/ui-verify-run.txt` |
 | **The three failures** | `zooming_does_not_throw_away_where_the_operator_panned` and `zooming_back_out_keeps_the_view` are both **O27**, the f32 scroll-tier residual above ~130,000 %, deliberately left RED. `multi_node_move_moves_every_picked_anchor` is pre-existing and filed. **None is new and none blocks a release** |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `81e5aab`. **Read `Cargo.lock`, not this row** — it moves nearly every session, and `package-portable.py` re-resolves it unless you pass `--no-update` |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `9a4fb18` (**v0.13.0**). **Read `Cargo.lock`, not this row.** ★ Deliberately NOT on `d3b4f5a`/v0.14.0 — see the note below |
 | **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 from shell `f8af161`. `pdfceGUI1` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
+
+### ★★ The engine is one version behind ON PURPOSE, and the next session's first job
+
+`cargo update -p pdfce-core -p pdfce-render -p pdfce-print` takes the pin from
+`9a4fb18` (v0.13.0) to `d3b4f5a` (**v0.14.0**), and v0.14.0 is the engine's
+answer to **O42** — the CMYK compositing ceiling is now both readable and
+settable, exactly as asked. Read
+`FeatureRequests\pdfce_FeatureRequests\open\reply_cmyk_buffer_ceiling.md` and
+the new `docs/core-api/03-capabilities.md` §7.3a, which was written for us.
+
+**Taking the bump turns one test red immediately**, and correctly:
+
+```
+dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window
+  `Settings::max_cmyk_buffer_bytes` is honoured by the engine and has NO control
+  in this window
+```
+
+That is the settings-completeness gate doing its job on the very first build
+after the engine grew a setting. The pin was reverted rather than the test
+appeased, so that the rotated-text commit is coherent and green on the revision
+it was actually verified against — **not** because the bump is unwelcome.
+
+**What taking it up properly means, in order:**
+
+1. `RenderOptions::with_max_cmyk_buffer_bytes` into
+   `app::settings::SettingsExt::render_options` — the funnel, so raising the
+   ceiling actually reaches the renderer;
+2. a Settings control for `max_cmyk_buffer_bytes`, with the memory and time
+   costs stated per value (they are measured, in `O42`);
+3. end the whole-page render tier at the ceiling rather than at
+   `MAX_PIXMAP_EDGE`, using the engine's new
+   `will_composite_in_cmyk(w, h, max_bytes)` predicate — **not** a hardcoded
+   pixel count, which is the thing the request explicitly refused to do;
+4. keep the existing `status-group:blend-space` disclosure for the case where
+   his chosen ceiling is still exceeded.
+
+★ Note from the request that changes the shape of step 3: with this shell's
+50 % overscan, the **region** tier already exceeds 256 MB on a 1440p monitor
+and by 2.5× on a 4K one. Moving the switch down is right and is **not
+sufficient on its own** — which is the strongest argument for the setting.
 
 ### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 

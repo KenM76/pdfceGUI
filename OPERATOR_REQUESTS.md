@@ -80,6 +80,70 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O43 — Vertical text should behave like vertical text
+
+**Asked:** 2026-08-26. **Shipped the same day. Driven check written and NOT YET
+RUN** — see the status below, which says so in those words.
+
+> *"I have text placed vertically on the bottom left corner of the SW41177.pdf.
+> In Adobe when I hover over it the I cursor re-orients itself to match the text
+> orientation, and when I select the text it shades each letter as part of the
+> same block. when I copy and paste into notepad, I get the text on one line as
+> expected. I need pdfcegui to have the same behaviour. as it is now the I
+> cursor doesn't reorient and it pastes each letter onto its own line."*
+>
+> *"The last page has the vertical text."*
+
+### ★★★ Three symptoms, one cause, and the cause is in the engine
+
+`pdfce-core` places every glyph by the §9.4.4 text rendering matrix and then
+publishes four numbers out of it: the origin `x`, `y` — exact — plus the
+`advance` and the `size`, **both of which are lengths**. The two basis
+*vectors* are reduced to their magnitudes, so **which way the text runs is never
+published at all**. Its own rustdoc still calls the advance *"horizontal"*.
+
+Everything downstream then assumes the missing vector is `(1, 0)`:
+
+| symptom | mechanism |
+|---|---|
+| *"pastes each letter onto its own line"* | the extraction breaks a line whenever the baseline y moves. Text advancing in **y** changes baseline at every glyph, so it inserts a line break between every letter — **71 of them** in your stamp |
+| *"shades each letter as part of the same block"* not happening | a glyph box is taken as `x … x+advance` across. For 90° text that is the right size turned the wrong way and hung off the wrong corner, so the wash sits *beside* the letters |
+| the I-beam does not turn | nothing the cursor can ask knows the direction |
+
+There is a fourth you did not report and would have hit next: **clicking on a
+vertical letter lands on the wrong one.** The engine's hit-test boxes are built
+the same wrong way, so a press in the middle of a letter is outside every box
+and the nearest-line fallback decides. Found by driving it: a sweep down a
+six-letter string selected five, and a sweep along an upside-down one selected
+nothing at all.
+
+### What was done here, and what was asked of the engine
+
+The direction is **recovered from the glyphs themselves**, and the measurement
+is exact rather than a guess: a *chain* of three or more consecutive glyphs each
+sitting exactly one advance from the last, along a common direction off the
+page's x axis, is not a coincidence available to horizontal text — within a
+line every step is horizontal, and the jumps *between* lines are separated by a
+whole line, so they can never be consecutive.
+
+★ **A page with no rotated text on it never reaches any of the new code.** That
+is structural, not incidental: the direction census comes back empty and every
+branch is keyed on it. Asserted against a real drawing sheet.
+
+The engine request is filed —
+`open/request_extraction_drops_the_writing_direction.md` — asking for
+direction-aware segmentation and for the direction to be published. When that
+lands, the shell-side recovery becomes a fallback and then deletes.
+
+### Status, stated honestly
+
+| | |
+|---|---|
+| your own file | **verified.** The stamp on page 36 of `SW41177.pdf` comes back as one line: `W:\Engineering\Products\SAM\SW41177 Toyota Pick up ROPS\SW41177-WELDED FOPS.SLDDRW`. Run it yourself: `cargo test -p pdfce-gui --lib the_operators_own_vertical_stamp -- --ignored --nocapture` |
+| unit tests | 22 new, against real extractions of a real fixture at 0°, 90°, 180°, 270° and 30°. Falsified in both directions before being quoted |
+| **the driven check** | **WRITTEN, NOT RUN.** `ui-verify rotated_text_selects_and_copies_as_one_line` drives the release binary, sweeps the string, asserts `chars=6 quads=1`, asserts the cursor traced `deg=90`, and reads the OS clipboard from outside the process. It needs the pointer and the foreground, and you were using the PC. **Say when and it runs.** |
+| the 30° case | the band it *marks* is a true parallelogram; the wash it *paints* is that band's bounding box, so it over-covers at the corners. Named rather than discovered. Quadrant rotations — every one a CAD exporter emits — are exact |
+
 ## O42 — Let me set the colour-blending buffer size myself
 
 **Asked:** 2026-08-26. **Measured and filed with the engine the same day; needs
