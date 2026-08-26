@@ -1,6 +1,20 @@
 # pdfce GUI rebuild — project plan
 
-**Status:** proposal for review. **Nothing has been built.**
+**Status:** ★ **BUILT AND SHIPPING.** This file was written on 2026-08-13 as a
+proposal and opened with *"Nothing has been built"*; it said so for thirteen
+days after that stopped being true, which is the drift this project has now
+corrected in three separate documents. Last reconciled against the tree on
+**2026-08-26**.
+
+The shell is a working application the operator uses on real drawings, published
+as a portable build. **159 capabilities are ticked in `FEATURES.md`**, the stage
+table below is current, and the only stages still open are the last two — the
+parity audit and the fold-in, both of which are deliberate scheduling decisions
+rather than unfinished work.
+
+★★ What has NOT changed is the governing rule: `D:\Dev\pdfce` remains
+**read-only** until fold-in day. Every engine change since has gone through the
+request channel and come back as a released revision.
 **Written:** 2026-08-12
 
 The charter for the `pdfce-gui-engineer` agent
@@ -182,13 +196,13 @@ where the crate is a pile of modules that does not launch.
 |---|---|---|
 | ✅ **S0 — Skeleton** | Workspace, three crates, CI gates, bootstrap, `diag`. Opens a PDF, renders page 1 via salvaged `render_worker` + `raster` + `viewer`. | **DONE 2026-08-13.** Renders the benchmark drawing in 1,193 ms; 6/6 gates green; 113 tests pass. Theme and icons deferred to S2 (both are ribbon/panel-facing). |
 | ✅ **S1 — ui-verify** | The harness, before any UI is built. Drives the release binary, scripts input, captures the window, asserts on the trace **and** pixels. | **DONE 2026-08-13.** `delete_key_after_canvas_click` and `settings_headings_legible` both **FAIL against the old binary** — the acceptance criterion. `ribbon_group_captions_legible` reports SKIPPED pending §4.3 requirement 2, never a false pass. |
-| **S2 — Shell** | Ribbon per `RIBBON_IA.md` — all seven tabs, groups, captions, ownership test. QAT, status bar with editable page box, dock with persistence. Commands wired where they already exist. | Every command in the IA's migration map reachable. |
+| ✅ **S2 — Shell** | Ribbon per `RIBBON_IA.md` — all seven tabs, groups, captions, ownership test. QAT, status bar with editable page box, dock with persistence. Commands wired where they already exist. | Every command in the IA's migration map reachable. — **DONE.** Ribbon, tabs, QAT, theme and icons all shipped; the band has since gained the full width ladder (re-wrap → collapse → scroll) documented in `RIBBON_SCALING.md`. |
 | ✅ **S3 — Panels** | Pages (grid thumbnails), Objects, Properties, Bookmarks, Layers, Signatures, Fonts, Comments, Forms. Salvaged bodies, new hosting. **Plus the flexible-dock foundation** — see §4.2. | `FEATURES.md` gui column: every panel-reachable capability works; layout survives a restart. |
 | | **Done 2026-08-13.** Dock + layout persistence (7,274 lines, 130 tests): columns per side, stacks, tabs, reserved-space tab overflow (**the two-pane cap is retired** — nine panels in one stack, tested), per-item fail-soft loading, named workspaces, scoped reset. Built **without `egui_tiles`** — decision recorded in `MODES_AND_PANELS.md` Part 2. Six panels salvaged and wired. **571 tests, 6/6 gates.** Verified in the running app on the benchmark drawing: left dock Bookmarks∣Layers, right dock Objects reporting **129,758 objects — 129,515 paths, 242 text, 1 form**. | |
-| **S3b — Modes** | The Read / Review / Edit selector (`MODES_AND_PANELS.md` Part 1), built on S3's named-workspace mechanism. | All three modes render; switching preserves undo and unsaved work; a signed document opens in Read with a reason. |
-| **S4 — Selection** | `GUI_ROADMAP` Phase 1. Context menus, handles, `/Rect` move-and-resize, object clipboard, Format contextual tab. Editing master toggle removed. | Place a rectangle → click away → click it → drag → resize → type a width → recolour → right-click → delete. Every step. |
-| **S5 — Tools** | Text, vector, measure, markup, forms, redact — salvaged and rehosted. Includes Phase 5a text correctness fixes. | Parity with the old GUI on all tool capabilities. |
-| **S6 — Viewer** | Phase 3: cursor-anchored zoom, hand tool, zoom-to-selection/region, recent files, rulers/grid. | ui-verify: anchor drift under 3 px. |
+| ✅ **S3b — Modes** | The Read / Review / Edit selector (`MODES_AND_PANELS.md` Part 1), built on S3's named-workspace mechanism. | All three modes render; switching preserves undo and unsaved work; a signed document opens in Read with a reason. — **DONE.** Read / Review / Edit ship as one control, tab sets nested by capability, `Ctrl+1/2/3`. |
+| ✅ **S4 — Selection** | `GUI_ROADMAP` Phase 1. Context menus, handles, `/Rect` move-and-resize, object clipboard, Format contextual tab. Editing master toggle removed. | Place a rectangle → click away → click it → drag → resize → type a width → recolour → right-click → delete. Every step. — **DONE.** Handles, move/resize/rotate, node editing, object clipboard, context menus and the Format contextual tab are all in `FEATURES.md` and driven by `ui-verify`. |
+| ✅ **S5 — Tools** | Text, vector, measure, markup, forms, redact — salvaged and rehosted. Includes Phase 5a text correctness fixes. | Parity with the old GUI on all tool capabilities. — **DONE.** Text, vector, measure, markup, forms and redaction all rehosted, with disclosure surfaces the old shell did not have. |
+| ✅ **S6 — Viewer** | Phase 3: cursor-anchored zoom, hand tool, zoom-to-selection/region, recent files, rulers/grid. | ui-verify: anchor drift under 3 px. — **DONE, and past the original scope.** Cursor-anchored zoom, hand tool, zoom to selection and region, rulers, grid and guides — plus deep zoom to 10¹² % on an `f64` anchor, which was not in this plan. |
 | **S7 — Parity audit** | Line-by-line `FEATURES.md` gui column audit against the old GUI. Fill every gap or get an operator decision to drop it. | §7.1 checklist complete. |
 | **S8 — Fold-in** | §7. | Ships. |
 
