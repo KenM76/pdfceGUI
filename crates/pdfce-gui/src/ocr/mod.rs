@@ -415,7 +415,30 @@ pub fn resolve_models(
     exe_dir: Option<&Path>,
     user_data: Option<&Path>,
 ) -> Result<models::ModelSource, models::ModelsNotFound> {
-    models::resolve_model_dir(MODEL_DIR, None, exe_dir, user_data)
+    // ★★★ `_with`, NAMING THE FILES — adopted 2026-08-26, and it closes a
+    // shadowing hazard rather than tidying a call.
+    //
+    // The plain `resolve_model_dir` asks only `is_dir()`. So an **empty**
+    // `models/ocrs` beside the executable RESOLVES — and, worse, it wins the
+    // search order, so an operator's own good copy further down is never
+    // reached. The failure then surfaces later and in the wrong vocabulary: the
+    // engine reports a missing model file after this shell has already told
+    // them the models were found.
+    //
+    // ★ The filenames are the engine's own published constants, not string
+    // literals invented here. A shell that spelled them itself would keep
+    // resolving successfully on the day the engine renamed one, and would fail
+    // one layer down with a message about a file nobody asked for.
+    models::resolve_model_dir_with(
+        MODEL_DIR,
+        None,
+        exe_dir,
+        user_data,
+        &[
+            pdfce_core::ocr::engine_ocrs::DETECTION_MODEL,
+            pdfce_core::ocr::engine_ocrs::RECOGNITION_MODEL,
+        ],
+    )
 }
 
 /// The directory the running executable is in, if it can be determined.
@@ -951,5 +974,58 @@ mod tests {
         assert_eq!(err.engine, MODEL_DIR);
         assert_eq!(err.searched.len(), 1);
         assert!(err.to_string().contains("ocrs"));
+    }
+
+    /// ★★★ **An EMPTY `models/ocrs` does not resolve, and so cannot shadow a
+    /// good copy further down the search order.**
+    ///
+    /// The hazard `pdfce-core` built `resolve_model_dir_with` for, and it is
+    /// nastier than a plain "not found". Resolution asking only `is_dir()`
+    /// means an empty directory beside the executable **wins**: this shell
+    /// tells the operator the models were found, their own good copy is never
+    /// reached, and the failure surfaces one layer down in the engine's
+    /// vocabulary — a missing model file, after we said there was not one.
+    ///
+    /// ★ Realistic rather than contrived. A part-finished extraction, an
+    /// antivirus quarantine that took the weights and left the folder, or an
+    /// operator creating the directory by hand before copying into it all
+    /// produce exactly this state.
+    ///
+    /// ★★ The positive half is asserted too, and it is what makes this test
+    /// discriminate. Its first draft checked only that an empty directory
+    /// fails — which the OLD resolver also does when the path is wrong, so the
+    /// test passed against the very code it was written to condemn. Putting a
+    /// file in and requiring success is what proves the failure above was about
+    /// EMPTINESS rather than about the path.
+    #[test]
+    fn an_empty_model_directory_is_rejected_but_a_filled_one_resolves() {
+        let root = std::env::temp_dir().join("pdfce-empty-models-9f3b");
+        let dir = root.join("models").join(MODEL_DIR);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+
+        // Empty: must be refused, or it shadows.
+        let err = resolve_models(Some(&root), None)
+            .expect_err("an empty models directory must NOT resolve, or it shadows a good one");
+        assert_eq!(err.engine, MODEL_DIR);
+        assert!(
+            !err.searched.is_empty(),
+            "the directory must be REPORTED as searched, so the message names a place the operator can go and look"
+        );
+
+        // Filled: must be accepted — otherwise the assertion above proves
+        // nothing about emptiness.
+        for f in [
+            pdfce_core::ocr::engine_ocrs::DETECTION_MODEL,
+            pdfce_core::ocr::engine_ocrs::RECOGNITION_MODEL,
+        ] {
+            std::fs::write(dir.join(f), b"not a real model, but a real file").expect("write");
+        }
+        assert!(
+            resolve_models(Some(&root), None).is_ok(),
+            "a directory containing both model files must resolve"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
