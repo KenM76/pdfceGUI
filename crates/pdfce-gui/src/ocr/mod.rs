@@ -138,47 +138,68 @@ use pdfce_core::page_tree::{self, Rect};
 /// an accuracy figure rather than an impression. Recognised tokens of three or
 /// more characters were compared against the page's own extracted text:
 ///
-/// # ⚠ EVERY NUMBER IN THIS TABLE IS RETRACTED — 2026-08-25
+/// # ★★★ RE-MEASURED 2026-08-26, against a detector that works
 ///
-/// **They were measured against a text-detection model that did not work.**
-/// `pdfce-core`'s bundled detector had been broken since the engine landed —
-/// not degraded, broken: on a clean 150 dpi render of 12 pt Helvetica it
-/// returned sixteen fragments clustered at the right margin plus one "word"
-/// whose bounding box was the whole page. The recognition model was always
-/// fine; the detection build was the wrong one for `ocrs` 0.12.2. Fixed in
-/// `181d9bd` (Pass 129.0), reported on the shared channel.
+/// The first version of this table was produced by a text-detection model that
+/// **did not work** — `pdfce-core`'s bundled build had been broken since the
+/// engine landed, returning fragments clustered at a page margin plus one
+/// "word" the size of the page. Every number in it was therefore a measurement
+/// of how *noise* varies with resolution, and it was retracted rather than
+/// adjusted. Fixed engine-side in Pass 129.0; re-run here against
+/// `text-detection.rten` **2,510,284 B / `f15cfb56…`**, verified by hash before
+/// measuring, because measuring the same broken thing twice is the obvious way
+/// to waste the exercise.
 ///
-/// ★★★ So this is not a curve with error bars on it. **It is a curve of how
-/// noise varies with resolution**, and the 44.7 % below is very likely the
-/// artefact rather than the ceiling. For scale, the engine now reads a
-/// synthetic 200 dpi scan — blurred, skewed 0.35°, sensor noise, grey paper —
-/// at **47 of 47 words**.
+/// `SW41177.pdf` page 1, 130 ground-truth tokens of 3+ characters:
 ///
-/// ★★ The table is kept rather than deleted, and marked rather than quietly
-/// corrected, because the *reasoning* around it is probably still right and a
-/// reader needs to see what it was derived from. `ocrs` resizes to a fixed
-/// model input, so **total pixel count governs rather than DPI as such** —
-/// that is a property of the crate, not of the weights. Expect the shape to
-/// hold and the values to move.
+/// | DPI | raster | Mpx | recognised ≥3 chars | exactly in ground truth | was (noise) |
+/// |---:|---|---:|---:|---|---:|
+/// | 72 | 1584×1224 | 1.9 | 207 | 117 (56.5 %) | 34.8 % |
+/// | **100** | **2200×1700** | **3.7** | **210** | **119 (56.7 %)** | 20.0 % |
+/// | 150 | 3300×2550 | 8.4 | 191 | 104 (54.5 %) | 44.7 % |
+/// | 200 | 4400×3400 | 15.0 | 191 | 103 (53.9 %) | 53.9 % ← was 27.5 |
+/// | 300 | 6600×5100 | 33.7 | 191 | **67 (35.1 %)** | 3.3 % |
 ///
-/// [`TARGET_PIXELS`] is therefore **provisional**: derived from a real
-/// argument applied to unreal numbers. Re-running the sweep against the fixed
-/// detector is the outstanding work; until it completes, treat the constant as
-/// unmeasured rather than as measured-and-slightly-off.
+/// ## What survived the retraction, and what did not
 ///
-/// | DPI | raster | Mpx | tokens ≥3 chars | exactly in ground truth |
-/// |---:|---|---:|---:|---|
-/// | 72 | 1584×1224 | 1.9 | 23 | 8 (34.8 %) |
-/// | 100 | 2200×1700 | 3.7 | 15 | 3 (20.0 %) |
-/// | **150** | **3300×2550** | **8.4** | **47** | **21 (44.7 %)** |
-/// | 200 | 4400×3400 | 15.0 | 40 | 11 (27.5 %) |
-/// | 300 | 6600×5100 | 33.7 | 30 | **1 (3.3 %)** |
+/// **Survived: more resolution is not better, and the conventional answer is
+/// the worst one.** 300 DPI — the scanning standard, and what this module's
+/// first implementation used — is still clearly the poorest row, now by 21
+/// points rather than by 41. The mechanism the old table was explained by is
+/// unchanged and is a property of the crate rather than of the weights: `ocrs`
+/// resizes every image to its model's fixed input, so **pixel count governs,
+/// not resolution**, and past a point more pixels only means more downscaling
+/// before the model ever sees them.
+///
+/// **Did not survive: the sharp peak at 150.** The real curve is a *plateau*
+/// from 72 to 200 — 56.5, 56.7, 54.5, 53.9, a spread of under three points,
+/// which is inside the noise of a 130-token sample — and then a cliff. The old
+/// curve's jagged shape (34.8 → 20.0 → 44.7 → 27.5) was the detector failing
+/// differently at each size, and reading a maximum out of it was reading a
+/// maximum out of noise.
+///
+/// ★★ **That is why [`TARGET_PIXELS`] does not move.** 8.4 Mpx puts the
+/// benchmark sheet at 150 DPI, which is inside the plateau and 2.2 points off
+/// the nominal best — a difference this sample cannot resolve. The constant was
+/// right for a wrong reason and is now right for a measured one, which is worth
+/// distinguishing: nothing about the code changed, and everything about what is
+/// *known* about it did.
+///
+/// ## What this is still not
+///
+/// Two documents, one of them small. `fixtures/a1-titleblock.pdf` has 16
+/// ground-truth tokens and produced 11.1 / 0.0 / 10.0 / 33.3 / 20.0 % across the
+/// same sweep — too few tokens for any row to mean anything individually,
+/// though it agrees that 300 is not the answer. A defensible *general* figure
+/// needs a corpus of real scans rather than two CAD sheets, and that is
+/// outstanding.
 ///
 /// **The first implementation of this module used 300 DPI**, on the entirely
 /// conventional reasoning that 300 is the scanning standard and that more
-/// resolution cannot hurt. On this engine it is catastrophic: 3.3 %, an order
-/// of magnitude worse than 72 DPI. The conventional answer was not merely
-/// suboptimal, it was the worst of the five.
+/// resolution cannot hurt. It is the worst row on the table — 35.1 % against
+/// 56.7 % — and it was the worst row on the broken table too. That finding has
+/// now been made twice, by two different detectors, which is about as much
+/// confirmation as a single-document measurement can offer.
 ///
 /// 8,400,000 is the 150-DPI row, expressed as the quantity that actually
 /// governs. A small scanned page therefore gets *more* DPI than 150 and a large
@@ -187,13 +208,13 @@ use pdfce_core::page_tree::{self, Rect};
 ///
 /// # What this figure is and is not
 ///
-/// It is one document, of one kind — dense CAD linework, which is adversarial
-/// for a model trained on photographs and document pages. **44.7 % was never a
-/// quality claim for pdfce's OCR**, and since the retraction above it is not a
-/// measurement of pdfce at all — it is what a broken detector produced on the
-/// hardest material this project has. See `ocr::fixture` for what
-/// is and is not established about recognition quality, and the report to the
-/// operator for the plain-English version.
+/// It is two documents, both CAD — dense linework, which is adversarial for a
+/// model trained on photographs and document pages. **56.7 % is not a quality
+/// claim for pdfce's OCR on ordinary material**: on a synthetic scan of
+/// ordinary text at 200 dpi, blurred and skewed with sensor noise, the engine
+/// reads 47 of 47 words. These figures are the hard end, not the typical one.
+/// See `ocr::fixture` for what is and is not established about recognition
+/// quality, and the report to the operator for the plain-English version.
 pub const TARGET_PIXELS: u64 = 8_400_000;
 
 /// The most resolution a page is ever rasterized at, in DPI.
