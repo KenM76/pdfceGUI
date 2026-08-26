@@ -220,3 +220,61 @@ mod tests {
         assert!(!t::adopted("A", true, false).contains("had no interactive form"));
     }
 }
+#[cfg(test)]
+mod authoring_is_available {
+    /// ★★★ **Field authoring is NOT blocked, and this is the test that settled
+    /// it.**
+    ///
+    /// `shell::commands::reach::register` recorded `edit.form_create_field` as
+    /// *"blocked on core's STRUCTURAL certification gate"*. **There is no such
+    /// gate.** What the engine refuses is a spec whose tooltip is `Undecided` —
+    /// `TooltipDecisionRequired`, an accessibility requirement rather than a
+    /// permission: a form control owes a screen reader a name, and the engine
+    /// will not default one silently. It is a field of the dialog the command
+    /// needs anyway.
+    ///
+    /// ★★ This is the **fourth** blocker recorded in this project that turned
+    /// out to be stale, which is why the standing rule is *a backlog row is a
+    /// record, not evidence* and why the first move was to probe the engine
+    /// rather than to re-read the note.
+    ///
+    /// The test asserts both halves, and the second is what makes the first
+    /// meaningful: authoring **succeeds** with a tooltip, and **fails with
+    /// exactly `TooltipDecisionRequired`** without one. Without that pair it
+    /// would not distinguish "authoring works" from "authoring happens to work
+    /// on this fixture".
+    #[test]
+    fn a_field_can_be_authored_and_only_the_tooltip_is_required() {
+        let path = std::path::Path::new("D:/Dev/temp/pdfce/SW41177.pdf");
+        if !path.exists() {
+            return; // fixture-dependent; the driven checks cover the real path
+        }
+        let rect = pdfce_core::page_tree::Rect {
+            llx: 100.0,
+            lly: 100.0,
+            urx: 300.0,
+            ury: 130.0,
+        };
+
+        // Without a tooltip: refused, and refused for the ONE stated reason.
+        let doc = pdfce_core::document::Document::load(path).expect("load");
+        let mut session = pdfce_core::edit::EditSession::new(doc);
+        let bare = pdfce_core::edit::NewTextField::new(0, "probe".to_owned(), rect);
+        match session.add_text_field(&bare) {
+            Err(pdfce_core::edit::EditError::TooltipDecisionRequired { .. }) => {}
+            other => panic!(
+                "expected the accessibility refusal and got {other:?} — if this is now Ok, the engine defaults a tooltip silently and the dialog no longer has to ask"
+            ),
+        }
+
+        // With one: authored.
+        let doc = pdfce_core::document::Document::load(path).expect("load");
+        let mut session = pdfce_core::edit::EditSession::new(doc);
+        let spec = pdfce_core::edit::NewTextField::new(0, "probe".to_owned(), rect)
+            .with_tooltip("Probe field");
+        assert!(
+            session.add_text_field(&spec).is_ok(),
+            "authoring a text field is not blocked; if this fails, a REAL gate has appeared and the register entry needs rewriting again"
+        );
+    }
+}

@@ -146,10 +146,25 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     ),
     (
         "edit.form_create_field",
-        "Blocked on a different engine gate from the one filling passes. `panels/forms/rows.rs`: \
-         these are “Edit ▸ Forms AUTHORING commands… they answer to core's STRUCTURAL \
-         certification gate rather than the fill gate… They land with the commands that name \
-         them.” Filling a field and creating one are different permissions on the document.",
+        // ui-text-exempt: a developer-facing note in the reach register, printed
+        // only by the coverage gate itself and never shown to an operator.
+        //
+        // ★★★ CORRECTED 2026-08-26 by probing the engine rather than re-reading
+        // this note. The row used to claim a STRUCTURAL CERTIFICATION GATE.
+        // There is no such gate: `EditSession::add_text_field` authors a field
+        // on a real document today, verified by
+        // `app::actions::forms::authoring_is_available`.
+        //
+        // What the engine refuses is a spec whose tooltip is `Undecided`,
+        // returning `TooltipDecisionRequired` — an ACCESSIBILITY requirement
+        // and not a permission. A form control owes a screen reader a name and
+        // the engine will not default one silently, so the "blocker" is a
+        // field of the very dialog this command needs anyway.
+        //
+        // Five types are available: text, check box, radio button, choice and
+        // push button. ★★ This is the FOURTH recorded blocker in this project
+        // to turn out stale — a backlog row is a record, not evidence.
+        "Not blocked after all: the engine authors fields today. See the comment above.",
     ),
     (
         "edit.form_manage_fields",
@@ -168,15 +183,15 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // `no_scaffolded_entry_is_stale`'s middle assertion exists to force. The
     // pair read:
     //
-    //     edit.redact — "Salvage. `FEATURES.md`: 'Redaction — mark, review,
-    //     apply, with the true-removal proof that exists only in the old
-    //     shell.' `SALVAGE.md`'s row for `redact_apply.rs` is stronger still:
-    //     '★ This file is currently the ONLY place the proof exists.' Marking
-    //     without the proof would be the worse half to ship first."
+    // edit.redact — "Salvage. `FEATURES.md`: 'Redaction — mark, review,
+    // apply, with the true-removal proof that exists only in the old
+    // shell.' `SALVAGE.md`'s row for `redact_apply.rs` is stronger still:
+    // '★ This file is currently the ONLY place the proof exists.' Marking
+    // without the proof would be the worse half to ship first."
     //
-    //     edit.redact_apply — "The other half of the one unsalvaged unit
-    //     above… This is the verb the true-removal proof belongs to, and the
-    //     proof is the part that has not crossed over."
+    // edit.redact_apply — "The other half of the one unsalvaged unit
+    // above… This is the verb the true-removal proof belongs to, and the
+    // proof is the part that has not crossed over."
     //
     // The proof has crossed over. `crate::redact` carries it whole, and
     // `crate::redact::sealed` asserts that the engine's removal is called from
