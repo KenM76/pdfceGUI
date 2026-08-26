@@ -55,6 +55,22 @@ a do-nothing control). Restarting OneDrive dropped it to 1,179 — **and the cra
 rate did not change.** Real leak, real fix, wrong mechanism.
 
 
+### ★★★ Colours change with zoom, and it is a ceiling we can see and not read
+
+`pdfce-render` composites transparency in a CMYK buffer capped at 256 MiB =
+**13,421,772 px**; past it, blending falls back to sRGB and the colours move (up
+to 16/255, measured). On A4 that is **zoom 534 %**.
+
+**Our part:** `render::strategy` switches to the region tier at
+`MAX_PIXMAP_EDGE` — zoom 2071 % on A4 — so between 534 % and 2071 % we ask for a
+raster the engine cannot composite properly. A region render below the ceiling
+composites in CMYK at any zoom (proved), so the repair is to move our switch
+down. It needs `MAX_CMYK_BUFFER_BYTES`, which is `pub(crate)`. **Filed; do not
+hardcode 13,421,772.**
+
+Until then the status bar discloses it (`status-group:blend-space`), and
+`ui-verify blend_space` asserts both halves.
+
 ### ★★ Where the forms work got to, 2026-08-26
 
 All three of the operator's asks are **shipped and driven**: the five ribbon
