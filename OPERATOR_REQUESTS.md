@@ -208,7 +208,21 @@ identical to a page with every word right. The only symptom is that searching or
 selecting picks the wrong thing — which anyone would blame on the recognition,
 not the geometry.
 
-**And the OCR accuracy figures I gave you are withdrawn.** The engine's bundled
+**★ RE-MEASURED 2026-08-26, and the answer is better than the retracted one.**
+Against the benchmark drawing's own text: 72 → 56.5 %, 100 → 56.7 %, 150 →
+54.5 %, 200 → 53.9 %, 300 → **35.1 %**. So the headline you were given
+originally is *confirmed* — **more scanning resolution makes OCR worse, and the
+conventional 300 DPI is the worst of the five** — but the "150 is the sweet
+spot" part was noise. The truth is that anything from 72 to 200 performs the
+same, and then it falls off a cliff. pdfce's setting sits inside that flat
+range, so nothing needed changing; it was right for the wrong reason and is now
+right for a measured one.
+
+These are still dense CAD drawings, which are the hardest thing to read. On
+ordinary text the engine now reads a blurred, skewed, noisy scan at **47 of 47
+words**.
+
+**The original OCR accuracy figures were withdrawn.** The engine's bundled
 text-detection model had never worked. The numbers I reported — including "150
 DPI is the sweet spot at 44.7 %" — were measurements of noise, not of pdfce.
 They are marked as retracted rather than quietly corrected, because the
