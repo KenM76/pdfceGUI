@@ -20,28 +20,42 @@
 //! `settings.txt`, and no way for a preset to express something the individual
 //! controls cannot. A preset that could would be a second source of truth.
 //!
-//! ## ★★★ Why PDF/X-4 is not in this file yet, and why that is the feature
+//! ## ★★★ Where the values came from, and why every one of them is graded
 //!
-//! Because **nobody here knows the values**, and a control labelled
-//! *ISO 15930-7* carries that standard's authority whether or not it was meant
-//! to. Writing a plausible vector and shipping it under a standard's name is
-//! precisely the failure the claim-bearing-copy rule exists to prevent: the
-//! operator would reasonably read it as *what the standard requires*, when it
-//! would in fact be one engineer's best guess about a licensed test suite he
-//! cannot run.
+//! Not from here. A control labelled *ISO 15930-7* carries that standard's
+//! authority whether or not it was meant to, so the vector was **asked for**
+//! and the engine answered with an API rather than a table
+//! (`settings::presets`, Pass 128.1). Its reply quoted this project's own
+//! reason back at it, and then made the sharper point:
 //!
-//! The engine team runs that suite, owns the parity instrument, and already
-//! grades every one of these settings for evidence quality. The vector has been
-//! **asked for** (`request_the_conformant_setting_vector_for_iso_15930_7.md`).
+//! > *"The interesting column is not the value. It is how much weight the
+//! > value can bear, and for most of these axes the answer is less than the
+//! > button implies."*
 //!
-//! ★★ So the mechanism ships now and the entry appears when its values exist —
-//! and it appears **by being added to [`PRESETS`], with no other change at
-//! all**. That is R8's rule applied to presets rather than to commands:
-//! *registering it is the only way the GUI learns it exists.* A preset with no
-//! vector is not registered, so it is not drawn, so there is no greyed-out
-//! *"PDF/X-4 (coming soon)"* row — which R9 forbids outright, and which would
-//! be the worst of both worlds: the standard's authority with none of its
-//! content.
+//! Only **one** of PDF/X-4's six answers is a claim about the standard at all,
+//! and it is graded `implied` rather than `sourced`. So the row shows the
+//! grading beside the choice; a row that showed the name and hid the grade
+//! would be the over-claim this whole request was careful to avoid.
+//!
+//! ★★ Three consequences the engine had to spell out, all of which shape this
+//! file:
+//!
+//! 1. **Not every standard binds a renderer.** PDF/A and PDF/UA both put
+//!    *"operational details of rendering"* outside their own scope. `PdfUa1`
+//!    exists and correctly **sets nothing** — surfaced as an answer, not
+//!    hidden as an omission, because *"nothing, and here is the measurement"*
+//!    cannot be mistaken for unfinished work.
+//! 2. **A third of the grid is axes a standard does not reach.** No PDF/X part
+//!    contains a shading clause, so none of them says anything about mesh
+//!    padding. `PresetAction::LeaveAlone` is a real state and is rendered as
+//!    one — blank would read as missing data, a value would assert a
+//!    requirement that does not exist.
+//! 3. **`cmyk_intent` has no conformant value.** Every PDF/X level guarantees a
+//!    *colorimetric* definition of device colour, and `CmykIntent` selects
+//!    among fixed built-in tables, which is not one. The preset takes the
+//!    least-wrong value and **discloses that the file's own output intent was
+//!    not applied** — mandatory under rule 4, because a colour transform that
+//!    did not happen leaves nothing on screen to notice.
 //!
 //! ## What DOES ship today, and why it is not a consolation prize
 //!
@@ -54,77 +68,102 @@
 //! that was never blocked.
 
 use pdfce_core::settings::Settings;
+use pdfce_core::settings::presets::{RenderPreset, RenderStandard};
 
 use super::Draft;
 
-/// One named set of answers.
+/// One thing the operator can choose from the presets row.
 ///
-/// ★ `apply` is a function rather than a data table on purpose. Several of
-/// these settings are `#[non_exhaustive]` enums from `pdfce-core`, so a table of
-/// literals here would need updating every time the engine adds a variant,
-/// silently going stale in between. A function that assigns named variants
-/// fails to compile when one is removed and keeps working when one is added.
-pub struct Preset {
-    /// Stable id. Never displayed; used for the radio's identity and by tests.
-    pub id: &'static str,
-    /// What the operator sees.
-    pub label: fn() -> &'static str,
-    /// One sentence on when to choose it.
-    pub note: fn() -> &'static str,
-    /// Write this preset's answers into a settings struct.
-    ///
-    /// Takes `&mut Settings` rather than returning one because `Settings` is
-    /// `#[non_exhaustive]`: it cannot be constructed by struct expression
-    /// outside its own crate, so every caller would have to start from
-    /// `default()` and assign — which is exactly what this does, once.
-    pub apply: fn(&mut Settings),
+/// Two kinds, and the distinction is the whole model:
+///
+/// * [`Choice::Recommended`] — pdfce's own shipped answers. **We** are the
+///   authority, so it can say what it does without qualification.
+/// * [`Choice::Standard`] — a published standard's answers, from
+///   `pdfce_core::settings::presets`. **We are not the authority**, so every
+///   value carries the engine's own evidence grade and the row shows it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Choice {
+    /// Restore what pdfce ships with.
+    Recommended,
+    /// Render as a published standard specifies — as far as it specifies
+    /// anything at all.
+    Standard(RenderStandard),
 }
 
-/// **Every preset the operator may choose.**
+impl Choice {
+    /// A stable id for the radio's identity and for tests.
+    fn id(self) -> &'static str {
+        match self {
+            Self::Recommended => "pdfce",
+            Self::Standard(s) => s.as_str(),
+        }
+    }
+
+    /// What the operator sees.
+    fn label(self) -> String {
+        match self {
+            Self::Recommended => crate::text::settings::preset_pdfce_label().to_owned(),
+            Self::Standard(s) => s.title().to_owned(),
+        }
+    }
+
+    /// Write this choice's answers into a settings struct.
+    fn apply(self, settings: &mut Settings) {
+        match self {
+            Self::Recommended => apply_pdfce(settings),
+            // ★ A standard's preset is applied ON TOP of pdfce's defaults, not
+            // onto whatever the operator last had. Otherwise "PDF/X-4" would
+            // mean something different depending on what was set before it,
+            // which is the one thing a named preset must not do.
+            Self::Standard(s) => {
+                apply_pdfce(settings);
+                let _ = RenderPreset::for_standard(s).apply(settings);
+            }
+        }
+    }
+}
+
+/// **Everything the presets row offers**, in display order.
 ///
-/// ★★★ THE REGISTRATION RULE. This list is the only thing that decides what the
-/// window offers. Adding PDF/X-4 when its values arrive is one entry here and
-/// nothing else — no control to write, no layout to change, no condition to
-/// wire. Until then it is absent rather than disabled, which is R9: an
-/// unavailable capability renders **nothing**, and greying is reserved for a
-/// *temporarily* unavailable one the operator can act their way out of.
-pub const PRESETS: &[Preset] = &[Preset {
-    id: "pdfce",
-    label: crate::text::settings::preset_pdfce_label,
-    note: crate::text::settings::preset_pdfce_note,
-    apply: apply_pdfce,
-}];
+/// ★★★ pdfce's own answers first, then every standard the engine knows about.
+/// The list is *derived* from `RenderStandard::all()` rather than restated, so
+/// a standard the engine adds appears here with no change at all — R8's
+/// registration rule, reached through the crate boundary instead of through a
+/// command registry.
+#[must_use]
+pub fn choices() -> Vec<Choice> {
+    std::iter::once(Choice::Recommended)
+        .chain(RenderStandard::all().iter().copied().map(Choice::Standard))
+        .collect()
+}
 
 /// pdfce's own recommended answers.
 ///
 /// # ★★★ It is `Settings::default()`, and getting here took two corrections
 ///
-/// The first draft restated two values explicitly, on the belief that pdfce-gui
-/// diverged from the engine on both. **Neither was true**, and the test written
-/// to catch exactly this caught both, one build apart:
+/// The first draft restated two values explicitly, believing pdfce-gui diverged
+/// from the engine on both. **Neither was true**, and the test written to catch
+/// exactly this caught both, an hour apart:
 ///
 /// * **`image_minify`** genuinely diverged — for one day. The engine adopted
 ///   `Smooth` on 2026-08-25 (Pass 128.0) on the strength of the operator's
 ///   Acrobat comparison, and the restatement became a no-op that same evening.
 /// * **`cmyk_intent`** never diverged at all. `NeutralBlack` has been the
-///   engine's *shipped default* since the operator's ruling of 2026-08-08 was
+///   engine's *shipped default* since the operator's 2026-08-08 ruling was
 ///   adopted there. What the engine's doc records is a divergence **in
-///   reasoning** — it is knowingly not the best-evidenced answer — and that was
-///   misread here as a divergence in **value**.
+///   reasoning** — it says openly that its default is knowingly not the
+///   best-evidenced answer — and that was misread here as a divergence in
+///   **value**.
 ///
-/// ★ The second is the more instructive mistake, and it is why this comment is
-/// long. A doc comment asserting a difference that does not exist is worse than
-/// no comment: it invites the next reader to preserve a line that does nothing,
-/// and it makes a *deliberate* divergence indistinguishable from a copied one.
-/// The lesson is the project's own, met again — **read the value, not the prose
-/// about the value.**
+/// ★ The second is the more instructive mistake. A doc comment asserting a
+/// difference that does not exist is worse than no comment: it invites the next
+/// reader to preserve a line that does nothing, and it makes a *deliberate*
+/// override indistinguishable from a copied one. **Read the value, not the
+/// prose about the value.**
 ///
 /// So this assigns nothing. Every answer is the engine's, taken by *not
-/// assigning it*, which means a default the engine changes tomorrow arrives
-/// here for free and cannot rot into a stale literal. If pdfce-gui ever does
-/// need to override one, it goes here — and
-/// [`tests::the_recommended_preset_is_the_engines_defaults`] will need
-/// amending, deliberately, which is the point.
+/// assigning it*, so a default the engine changes tomorrow arrives here for
+/// free and cannot rot into a stale literal.
 fn apply_pdfce(s: &mut Settings) {
     *s = Settings::default();
 }
@@ -138,10 +177,10 @@ fn apply_pdfce(s: &mut Settings) {
 /// answers would be lying about the thing it exists to report.
 #[must_use]
 pub fn matching(settings: &Settings) -> Option<&'static str> {
-    PRESETS.iter().find_map(|p| {
+    choices().into_iter().find_map(|c| {
         let mut probe = Settings::default();
-        (p.apply)(&mut probe);
-        same(&probe, settings).then_some(p.id)
+        c.apply(&mut probe);
+        same(&probe, settings).then_some(c.id())
     })
 }
 
@@ -166,22 +205,30 @@ fn same(a: &Settings, b: &Settings) -> bool {
 /// **Draw the presets row.**
 ///
 /// Above the groups rather than inside one, because it acts on all of them —
-/// and `widgets::group`'s own convention is that a group holds settings that
-/// share a subject, which a preset does not: it shares a *purpose*.
+/// `widgets::group`'s convention is that a group holds settings sharing a
+/// *subject*, and a preset shares a *purpose*.
 ///
-/// ★ Nothing is drawn at all when only one preset is registered and it is
-/// already selected? **No** — it is drawn regardless, and that is deliberate.
-/// The reported use is an operator who has changed several things and wants a
-/// way back; a control that hides itself precisely when the settings are
-/// pristine is a control that is missing every time somebody looks for it
-/// *before* experimenting, and then cannot be found *after*.
+/// ## ★★★ What is shown BESIDE the choice, and why it is not decoration
+///
+/// The engine's reply that supplied these values spent most of its length on
+/// one point: *"the interesting column is not the value, it is how much weight
+/// the value can bear."* Only one of PDF/X-4's six answers is a claim about the
+/// standard at all, and that one is `implied` rather than `sourced`. A row that
+/// showed the name and hid the grading would be exactly the over-claim the
+/// whole request was careful to avoid.
+///
+/// So a selected standard shows:
+///
+/// * **its disclosures**, verbatim from the engine. These are not advisory —
+///   `cmyk_intent` has no conformant value at all, so choosing a PDF/X preset
+///   means a colour transform did *not* happen, and rule 4 requires saying so
+///   because nothing on screen would reveal it.
+/// * **what it leaves alone**, named. Roughly a third of the grid is axes a
+///   standard does not reach — no PDF/X part contains a shading clause, so none
+///   of them says anything about mesh padding. Showing those as blank would
+///   read as missing data; showing them as values would assert a requirement
+///   that does not exist.
 pub fn row(ui: &mut egui::Ui, draft: &mut Draft) {
-    // ★ The rect comes from a `scope`'s own response rather than from
-    // arithmetic over `cursor()` and `min_rect()`. The first draft did the
-    // arithmetic, produced a rect with no usable area, and `ui_rect_visible`
-    // correctly suppressed it — so the row published nothing, which from
-    // outside is indistinguishable from the row never having drawn. Let egui
-    // report what it actually laid out.
     let rect = ui
         .scope(|ui| {
             super::widgets::header(
@@ -191,22 +238,19 @@ pub fn row(ui: &mut egui::Ui, draft: &mut Draft) {
                 // Deliberately no radius line: a preset's radius is the union
                 // of the radii of what it sets, and restating "affects what you
                 // see" here while each setting states its own would be a
-                // second, vaguer copy of information that is already precise
-                // one screen down.
+                // second, vaguer copy of something already precise one screen
+                // down.
                 "",
             );
             let current = matching(&draft.working);
-            for p in PRESETS {
-                let selected = current == Some(p.id);
-                if ui
-                    .radio(selected, (p.label)())
-                    .on_hover_text((p.note)())
-                    .clicked()
-                    && !selected
-                {
-                    (p.apply)(&mut draft.working);
+            for c in choices() {
+                let selected = current == Some(c.id());
+                if ui.radio(selected, c.label()).clicked() && !selected {
+                    c.apply(&mut draft.working);
                 }
-                ui.label(egui::RichText::new((p.note)()).small().weak());
+                if selected {
+                    detail(ui, c);
+                }
             }
         })
         .response
@@ -221,6 +265,46 @@ pub fn row(ui: &mut egui::Ui, draft: &mut Draft) {
     crate::diag::ui_rect_visible(REGION, rect, ui.clip_rect());
 }
 
+/// What a selected choice says about itself.
+///
+/// Indented under its radio, muted, and **only for the selected one** — the
+/// full grid for nine standards at once would be a wall of text nobody reads,
+/// and the operator only needs the caveats for the answer they have chosen.
+fn detail(ui: &mut egui::Ui, choice: Choice) {
+    let Choice::Standard(standard) = choice else {
+        ui.label(
+            egui::RichText::new(crate::text::settings::preset_pdfce_note())
+                .small()
+                .weak(),
+        );
+        return;
+    };
+    let preset = RenderPreset::for_standard(standard);
+    ui.indent(standard.as_str(), |ui| {
+        // ★ Verbatim from the engine, never paraphrased. These sentences carry
+        // clause citations and one of them is quoted word-for-word out of
+        // ISO 15930; rewording them here would put our phrasing behind a
+        // standard's authority, which is the failure this whole feature was
+        // shaped to avoid.
+        for line in preset.disclosures() {
+            ui.label(egui::RichText::new(line).small().weak());
+        }
+        let untouched = preset.left_alone();
+        if !untouched.is_empty() {
+            let names: Vec<&str> = untouched.iter().map(|k| k.as_str()).collect();
+            ui.label(
+                egui::RichText::new(crate::text::settings::preset_leaves_alone(
+                    // ui-text-exempt: a list separator, not a sentence. The
+                    // sentence around it lives in `text::settings`.
+                    &names.join(", "),
+                ))
+                .small()
+                .weak(),
+            );
+        }
+    });
+}
+
 /// The published region name for the presets row.
 ///
 /// A cross-repo stability contract with `tools/ui-verify`: renaming it is
@@ -232,25 +316,66 @@ pub const REGION: &str = "settings.presets";
 mod tests {
     use super::*;
 
-    /// **Applying a preset then asking which one matches gives it back.**
+    /// **Applying a choice leaves the settings matching a choice with the same
+    /// answers** — and that is deliberately weaker than "matching itself".
     ///
-    /// The round trip is the whole contract, and it is what a radio's selected
-    /// state depends on. If it failed, choosing a preset would move the
-    /// settings and then immediately show nothing selected — which reads as the
-    /// click not having worked.
+    /// ★★★ Because **two standards can mean the same thing to pdfce**, and two
+    /// of them do: applying `pdf-x3` leaves settings that `matching` reports as
+    /// `pdf-x1a`. That is not a defect in either — it is a fact about the
+    /// domain. PDF/X-1a and PDF/X-3 differ in what colour spaces a *file* may
+    /// contain, and pdfce's render-radius settings cannot see that difference,
+    /// so the two produce an identical vector.
+    ///
+    /// The first version of this test asserted the stronger property and failed
+    /// on the second standard it tried. Weakening it was the right response
+    /// rather than adding state to remember which button was pressed: the radio
+    /// reflects **what the settings are**, not what was last clicked, and a
+    /// remembered choice could disagree with `settings.txt` — which is the one
+    /// thing this feature's design set out to make impossible.
+    ///
+    /// What must hold is the round trip that the radio actually depends on: the
+    /// settings after applying a choice are the settings of *whatever* choice
+    /// is reported, so the selection shown is never a lie about the values.
     #[test]
-    fn applying_a_preset_makes_it_the_matching_one() {
-        for p in PRESETS {
-            let mut s = Settings::default();
-            (p.apply)(&mut s);
-            assert_eq!(
-                matching(&s),
-                Some(p.id),
-                "applying `{}` must make `{}` the preset that matches",
-                p.id,
-                p.id
+    fn applying_a_choice_leaves_settings_that_match_an_equivalent_one() {
+        for c in choices() {
+            let mut applied = Settings::default();
+            c.apply(&mut applied);
+
+            let id = matching(&applied)
+                .unwrap_or_else(|| panic!("applying `{}` must match SOME choice", c.id()));
+
+            let equivalent = choices()
+                .into_iter()
+                .find(|o| o.id() == id)
+                .expect("`matching` returns an id from `choices`");
+            let mut reapplied = Settings::default();
+            equivalent.apply(&mut reapplied);
+            assert!(
+                same(&applied, &reapplied),
+                "applying `{}` reported `{id}`, but `{id}`'s own answers differ from what was applied — the radio would be showing a selection that does not describe the settings",
+                c.id()
             );
         }
+    }
+
+    /// ★★ **At least two standards share a vector**, recorded so that the
+    /// weakened assertion above is understood as describing the domain rather
+    /// than as a concession.
+    ///
+    /// If this ever fails — because pdfce gains a setting that distinguishes
+    /// them — the test above can be strengthened back, and this is the note
+    /// that says so.
+    #[test]
+    fn some_standards_are_indistinguishable_from_the_settings_alone() {
+        let mut a = Settings::default();
+        let mut b = Settings::default();
+        Choice::Standard(RenderStandard::PdfX1a).apply(&mut a);
+        Choice::Standard(RenderStandard::PdfX3).apply(&mut b);
+        assert!(
+            same(&a, &b),
+            "PDF/X-1a and PDF/X-3 now differ in pdfce's render settings, so `applying_a_choice_leaves_settings_that_match_an_equivalent_one` can go back to asserting each choice matches ITSELF"
+        );
     }
 
     /// ★★ **pdfce's recommended answers ARE the engine's defaults**, and this
@@ -274,7 +399,7 @@ mod tests {
             "pdfce-gui now overrides one of the engine's rendering defaults. \
              That may be right — but say WHY in `apply_pdfce`'s doc comment \
              before changing this assertion, or the next reader cannot tell a \
-             deliberate override from a stale restatement"
+ deliberate override from a stale restatement"
         );
     }
 
@@ -289,7 +414,7 @@ mod tests {
             matching(&s),
             None,
             "an operator who has adjusted a render setting is on no preset, and \
-             the control must say so rather than claiming the closest one"
+ the control must say so rather than claiming the closest one"
         );
     }
 
@@ -305,7 +430,7 @@ mod tests {
             matching(&s),
             before,
             "picking a dark theme is not a rendering decision, and must not \
-             clear a rendering preset"
+ clear a rendering preset"
         );
     }
 
@@ -315,10 +440,11 @@ mod tests {
     /// the second arrives.
     #[test]
     fn presets_are_distinct() {
-        for (i, a) in PRESETS.iter().enumerate() {
-            for b in PRESETS.iter().skip(i + 1) {
-                assert_ne!(a.id, b.id);
-                assert_ne!((a.label)(), (b.label)());
+        let all = choices();
+        for (i, a) in all.iter().enumerate() {
+            for b in all.iter().skip(i + 1) {
+                assert_ne!(a.id(), b.id());
+                assert_ne!(a.label(), b.label());
             }
         }
     }

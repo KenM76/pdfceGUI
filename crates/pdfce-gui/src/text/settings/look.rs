@@ -1081,3 +1081,14 @@ pub const fn preset_pdfce_label() -> &'static str {
 pub const fn preset_pdfce_note() -> &'static str {
     "What pdfce ships with, including the two answers you chose personally: neutral black for line art, and smoothing pictures that are shrunk to fit. Use this to get back after experimenting."
 }
+
+/// What a standard does NOT specify, listed by name.
+///
+/// ★ Named rather than left blank. Roughly a third of the grid is axes a
+/// standard does not reach — no PDF/X part contains a shading clause at all —
+/// and a blank cell reads as missing data, while a value would assert a
+/// requirement that does not exist.
+#[must_use]
+pub fn preset_leaves_alone(keys: &str) -> String {
+    format!("This standard says nothing about: {keys}. Those keep whatever you have set.")
+}
