@@ -131,6 +131,9 @@ mod testfont;
 mod tests;
 #[cfg(test)]
 mod width_tests;
+
+#[cfg(test)]
+mod scroll_tests;
 // Rendered geometry for the three item sizes and the visible_when filter.
 // Separate from `width_tests` only because that file is at the R2 limit.
 #[cfg(test)]

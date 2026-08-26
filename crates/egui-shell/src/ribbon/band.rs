@@ -689,10 +689,32 @@ pub(crate) fn render_band(
             )
         });
 
+        // ★★★ THE LEFT ARROW'S RESERVATION, taken before any group is laid
+        // out — exactly as the right one's is, and for the identical reason.
+        //
+        // Added 2026-08-25 after the sweep below found the defect: `groups_rect`
+        // began at `full.min`, the left arrow's rect is `full.min ..
+        // full.left() + reserve`, and the arrow is drawn AFTER the groups. They
+        // overlapped precisely, and at 237 pt `ribbon.group.view.window` was
+        // measured at `[[0.0 31.0] - [169.5 100.0]]` under an arrow occupying
+        // `0 .. 24`.
+        //
+        // What that costs is worse than an overlap: **the arrow wins the hit
+        // test**, so on a scrolled band the leading control is unreachable and
+        // clicking it scrolls the ribbon instead. A control drawn normally,
+        // looking normal, doing something else entirely.
+        //
+        // ★ Note the asymmetry that hid it. The right-hand affordance has had
+        // `no_visible_group_overlaps_the_overflow_affordance` since the band was
+        // written, and that test sweeps every width — but it renders a FRESH,
+        // UNSCROLLED band each time, and there is no width at which an
+        // unscrolled band draws a left arrow. The guard existed, swept
+        // correctly, and could not see this by construction.
+        let left_reserve = if scrolled > 0 { reserve } else { 0.0 };
         let groups_rect = Rect::from_min_max(
-            full.min,
+            pos2((full.left() + left_reserve).min(full.right()), full.top()),
             pos2(
-                (full.left() + band_plan.group_budget).min(full.right()),
+                (full.left() + left_reserve + band_plan.group_budget).min(full.right()),
                 full.bottom(),
             ),
         );
