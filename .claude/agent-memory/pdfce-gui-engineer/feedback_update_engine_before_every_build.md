@@ -34,4 +34,21 @@ correctly while the rebuild did not — the reverse of what anyone expects.
 - `BUILD-INFO.txt` records the revision actually linked, read from `Cargo.lock`
   rather than from the engine tree's HEAD. Those differ.
 
-Related: [[ui-verify-competes-for-the-machine]].
+**★ The one exception, and the shape it actually takes (2026-08-26).** The
+update can turn a test red *because it is working*: v0.14.0 added
+`Settings::max_cmyk_buffer_bytes`, and this shell's
+`every_setting_the_store_carries_has_a_control_in_this_window` immediately
+failed because a setting the engine honours has no control in the Settings
+window. That is the completeness gate doing its job on the first build after
+the engine grew a setting — not a broken engine and not a broken shell.
+
+When that happens in the middle of unrelated work: **hold the pin with
+`cargo update --precise <old-sha>`, ship the unrelated work coherent and green
+on the revision it was verified against, and write the bump up in `RESUME.md`
+as the next session's first job** — with the ordered list of what taking it up
+properly means. Do not appease the test to make the bump fit, and do not ship a
+red tree. Then `package-portable.py --no-update`, or it re-resolves the lock
+mid-package and undoes the hold.
+
+Related: [[ui-verify-competes-for-the-machine]],
+[[the-engine-session-runs-in-parallel-and-answers-within-the-hour]].
