@@ -193,6 +193,46 @@ And the image-smoothing change from this morning is **gone as a special case**:
 the engine adopted it as its own default, so the one-time migration deleted
 itself exactly as designed.
 
+## E3 — OCR put every word in the wrong place on rotated pages
+
+**Not asked — found by the engine and fixed.** 2026-08-26, commit `fe087c4`.
+
+Scanned pages are usually rotated by the *scanner driver* writing a rotation
+flag rather than by turning the pixels. pdfce honoured that flag when drawing
+the page and **not** when placing the recognised words — so on any quarter-turn
+page, every word ended up on the wrong axis at the wrong scale.
+
+★ You could never have reported this, because there is nothing to see. The text
+layer OCR adds is invisible by design, so a page with every word misplaced looks
+identical to a page with every word right. The only symptom is that searching or
+selecting picks the wrong thing — which anyone would blame on the recognition,
+not the geometry.
+
+**And the OCR accuracy figures I gave you are withdrawn.** The engine's bundled
+text-detection model had never worked. The numbers I reported — including "150
+DPI is the sweet spot at 44.7 %" — were measurements of noise, not of pdfce.
+They are marked as retracted rather than quietly corrected, because the
+*reasoning* behind them is probably still sound even though the values are not.
+For scale, the fixed engine now reads a realistic synthetic scan at **47 of 47
+words**. A proper re-measurement is outstanding.
+
+## E2 — "Redact every match" could report success and leave the text in the file
+
+**Not asked — found by the engine and fixed.** 2026-08-26, commit `a2518e5`.
+
+The sibling of E1 below, and the dangerous one. Some PDFs store text with no
+record of which letters it is — it renders and prints perfectly, and nothing can
+search it. Ask pdfce to redact every occurrence of a name in such a file and it
+would mark nothing, report success, and leave the name in the document. Then you
+send it.
+
+The redact panel now says so, in the strongest wording anywhere in pdfce: how
+many fonts could not be read, and that any matches inside them **were not marked
+and are still in the file**.
+
+★ It is worded as a consequence rather than a mechanism, because on this one
+operation there is no undo and no second chance to notice.
+
 ## E1 — Find said "no matches" over text it could never have searched
 
 **Not asked — found by the engine and acted on.** 2026-08-25, commit `9f6ec1b`.
