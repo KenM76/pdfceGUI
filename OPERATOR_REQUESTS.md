@@ -80,6 +80,76 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O38 — A rendering preset for PDF/X-4 (ISO 15930-7) conformance, and a standards selector
+
+**Asked:** 2026-08-25. **Investigated, not yet built.**
+
+> *"I'd like a preset setting for rendering things to what the [print
+> conformance suite] page needs to render correctly. We can't call it [that],
+> but since it is for conformance to PDF/X-4 (ISO 15930-7)... I noticed touching
+> some of our presets caused some test to show up as failed... maybe we should
+> have a dropdown to select view options between the different standards."*
+
+### ✅ Done immediately: the suite is no longer named here
+
+We were naming it in two places. Both scrubbed, and
+`tools/check-suite-name-absent.py` now fails the build if it comes back —
+carried across from the engine, which had already made the same ruling. 18 gates.
+
+### ★★★ MEASURED: the rendering settings change this file on every page
+
+Not a theoretical concern. Rendering all six pages twice, changing **one**
+setting — how images are sampled when drawn smaller than their pixel grid:
+
+| page | pixels differing by >8 | worst channel delta |
+|---:|---:|---:|
+| 1 | 0.04 % | 95 |
+| 2 | 0.27 % | 98 |
+| 3 | 0.93 % | 139 |
+| 4 | 0.31 % | 99 |
+| 5 | 0.19 % | 64 |
+| 6 | 1.02 % | 100 |
+
+**Every page differs.** And the shape of the difference is the diagnostic part:
+a *small area* changing by a *large amount*. That is not anti-aliasing spread
+thinly over a page — it is specific patches shifting colour, which is exactly
+what you described.
+
+★ **Disclosure: I changed that setting today.** Image minification went from
+point-sampling to smoothing this morning (O35), on your instruction, and this
+measurement says that change moves every page of this file. Your report that
+"touching some of our presets caused some test to show up as failed" may be
+about your own change or about mine — the numbers above cannot tell us which,
+but they do say the effect is real and worth pinning. **If you want it back the
+way it was, it is one control in Settings ▸ Images and it stays changed.**
+
+### What a preset is, and why it is the right shape
+
+Not a new rendering mode — a **named bundle of settings that already exist**.
+About seven of the twenty-three settings have a *render* radius, and each one
+exists because the standard is genuinely silent and pdfce had to choose. A
+preset says: *for this standard, choose these.* Everything stays individually
+editable afterwards.
+
+Your "dropdown to select view options between the different standards" is the
+same mechanism with more than one entry, and that is how it should be built:
+
+- **pdfce (recommended)** — today's defaults, including the two you ruled on
+  personally (neutral black, and now image smoothing)
+- **PDF/X-4 (ISO 15930-7)** — the conformance answers
+
+### ⛔ The blocker, and it is deliberate
+
+**I will not invent the conformant values.** Which setting vector a conformance
+page actually needs is a claim about a standard and about a licensed test suite,
+and the rule against writing claim-bearing copy from plausible defaults applies
+exactly here — a preset labelled *ISO 15930-7* that is merely my best guess
+would be worse than no preset, because it would carry the standard's authority.
+
+The engine team runs that suite, owns the parity instrument, and grades every
+one of these settings for evidence quality already. **Asked them for the
+authoritative vector**; the mechanism gets built when the values arrive.
+
 ## E1 — Find said "no matches" over text it could never have searched
 
 **Not asked — found by the engine and acted on.** 2026-08-25, commit `9f6ec1b`.
