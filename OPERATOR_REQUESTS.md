@@ -80,6 +80,44 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O42 — Let me set the colour-blending buffer size myself
+
+**Asked:** 2026-08-26. **Measured and filed with the engine the same day; needs
+one change there before the setting can exist.**
+
+> *"can the size of the buffer be increased? Allow the user to set the size up
+> to the maximum possible?"*
+
+**Yes, and it should be your number, not ours** — the same call you made about
+the zoom limit. The engine owns the cap and keeps it private, so it has to
+expose it first; that is filed, asking for it to be both readable and settable.
+
+**What it would cost, measured:**
+
+| you want correct colours up to… | memory |
+|---|---|
+| 579 % (the zoom you were testing) | 302 MB — barely above today's 256 MB |
+| 800 % | 576 MB |
+| 1200 % | 1.3 GB |
+| every zoom pdfce allows on A4 (2071 %) | **3.8 GB**, plus 0.8 GB for the page image |
+
+So *"the maximum possible"* is about **5 GB** on the largest page pdfce will
+render whole. Not absurd on this machine — but a number you should pick rather
+than meet by surprise.
+
+It also costs **about 50 % more time**: measured on the same page at the same
+pixel count, blending in print colours took 1.4 s against 0.9 s. Correct colours
+are slower, which is the actual trade.
+
+**★★ And a finding that changes what I told you earlier.** I said the better fix
+was for pdfce to render only the visible part above that limit, which needs no
+extra memory. That is true on a small screen and **not true on yours if it is
+1440p or bigger**: the visible part plus the margin pdfce renders around it
+already needs 281 MB at 1440p and 633 MB at 4K — both over today's cap. So the
+cap has to grow *as well*, or a big monitor gets approximate colours at every
+zoom. Both changes are needed, not one.
+
+
 ## O41 — Colours change with the zoom level
 
 **Asked:** 2026-08-26. **Cause found and disclosed the same day; the real fix is
