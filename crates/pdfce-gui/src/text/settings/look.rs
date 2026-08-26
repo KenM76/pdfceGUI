@@ -1092,3 +1092,36 @@ pub const fn preset_pdfce_note() -> &'static str {
 pub fn preset_leaves_alone(keys: &str) -> String {
     format!("This standard says nothing about: {keys}. Those keep whatever you have set.")
 }
+
+/// How much weight a standard's answers can bear.
+///
+/// ★★★ The sentence that stops this feature being a dropdown. The engine grades
+/// every value it supplies, and its own framing is that *the interesting column
+/// is not the value, it is how much weight the value can bear.* For PDF/X-4,
+/// exactly one of six answers is a claim about the standard at all.
+///
+/// Worded so the weakest category is unmistakable. "pdfce chose" is not a
+/// hedge — it is the honest description of an axis the standard is silent on,
+/// and an operator reading it should understand that switching standards will
+/// not change that answer for a reason the standard requires.
+#[must_use]
+pub fn preset_weight(sourced: usize, inferred: usize, chosen: usize) -> String {
+    // ★★★ A standard that specifies NOTHING gets a sentence, not three zeroes.
+    //
+    // PDF/UA is the case: nine rendering terms across all 197 of its rules,
+    // zero hits, and it hands colour contrast explicitly to WCAG. "Of its
+    // answers: 0 stated, 0 inferred, 0 chosen" is arithmetically true and reads
+    // as a control that failed to load.
+    //
+    // The engine asked for exactly this and gave the reason: *"a variant that
+    // answers 'nothing, and here is the measurement' cannot be mistaken for an
+    // unfinished one. Please surface it that way rather than hiding the
+    // entry."* An empty tally would have hidden it in plain sight.
+    if sourced == 0 && inferred == 0 && chosen == 0 {
+        return "This standard does not say how a page should be rendered — it sets nothing here, and that is its answer rather than a gap."
+            .to_owned();
+    }
+    format!(
+        "Of its answers: {sourced} stated by the standard, {inferred} inferred from it, {chosen} chosen by pdfce where it is silent."
+    )
+}

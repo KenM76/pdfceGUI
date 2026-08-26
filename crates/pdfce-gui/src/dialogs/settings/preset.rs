@@ -68,7 +68,7 @@
 //! that was never blocked.
 
 use pdfce_core::settings::Settings;
-use pdfce_core::settings::presets::{RenderPreset, RenderStandard};
+use pdfce_core::settings::presets::{Evidence, PresetKey, RenderPreset, RenderStandard};
 
 use super::Draft;
 
@@ -281,28 +281,96 @@ fn detail(ui: &mut egui::Ui, choice: Choice) {
     };
     let preset = RenderPreset::for_standard(standard);
     ui.indent(standard.as_str(), |ui| {
+        // ★★★ THE WEIGHT LINE, and it is the reason this feature is not just a
+        // dropdown. The engine's own framing: *"the interesting column is not
+        // the value, it is how much weight the value can bear, and for most of
+        // these axes the answer is less than the button implies."* For PDF/X-4
+        // exactly ONE of six answers is a claim about the standard at all.
+        //
+        // Summarised rather than tabulated: a six-row grid per standard, times
+        // ten standards, is a wall nobody reads, and burying the choice under
+        // it would trade one over-claim for an unusable control. One sentence
+        // carries the same fact.
+        let mut sourced = 0_usize;
+        let mut inferred = 0_usize;
+        let mut chosen = 0_usize;
+        for e in preset.entries() {
+            match e.evidence {
+                Evidence::Sourced => sourced += 1,
+                Evidence::Implied => inferred += 1,
+                Evidence::BestEffort => chosen += 1,
+                // Counted through `left_alone` below instead, where it is
+                // named rather than tallied — "does not apply" is a different
+                // kind of fact from "we chose", and adding them together would
+                // be the arithmetic that makes a preset look better sourced
+                // than it is.
+                _ => {}
+            }
+        }
+        ui.label(
+            egui::RichText::new(crate::text::settings::preset_weight(
+                sourced, inferred, chosen,
+            ))
+            .small()
+            .weak(),
+        );
+
         // ★ Verbatim from the engine, never paraphrased. These sentences carry
-        // clause citations and one of them is quoted word-for-word out of
-        // ISO 15930; rewording them here would put our phrasing behind a
-        // standard's authority, which is the failure this whole feature was
-        // shaped to avoid.
+        // clause citations and one is quoted word-for-word out of ISO 15930;
+        // rewording them here would put our phrasing behind a standard's
+        // authority, which is the failure this whole feature was shaped to
+        // avoid.
         for line in preset.disclosures() {
             ui.label(egui::RichText::new(line).small().weak());
         }
+
         let untouched = preset.left_alone();
         if !untouched.is_empty() {
-            let names: Vec<&str> = untouched.iter().map(|k| k.as_str()).collect();
+            // ★★ Named with the titles the operator already reads one screen
+            // down, NOT with the engine's key names. `mesh_patch_padding` is a
+            // field identifier; "A gradient fill that comes out scrambled" is
+            // the control they would go looking for. Printing the identifier
+            // would be leaking our vocabulary into their window, and the
+            // ui-strings gate would be right to object.
+            let names: Vec<&str> = untouched.iter().map(|k| operator_title(*k)).collect();
             ui.label(
                 egui::RichText::new(crate::text::settings::preset_leaves_alone(
                     // ui-text-exempt: a list separator, not a sentence. The
                     // sentence around it lives in `text::settings`.
-                    &names.join(", "),
+                    &names.join("; "),
                 ))
                 .small()
                 .weak(),
             );
         }
     });
+}
+
+/// The operator-facing title for a settings key.
+///
+/// ★ The engine names these `mesh_patch_padding`, `image_minify` and so on —
+/// field identifiers, correct for an API and wrong for a window. Every one of
+/// them already has a title in [`crate::text::settings`], written by the
+/// symptom that would send somebody looking for it, and this is the one place
+/// the two vocabularies meet.
+///
+/// A `PresetKey` the engine adds later falls through to its own name rather
+/// than to a placeholder: an unfamiliar identifier is ugly and honest, whereas
+/// a guessed title would be a sentence pdfce never wrote.
+fn operator_title(key: PresetKey) -> &'static str {
+    use crate::text::settings as t;
+    match key {
+        PresetKey::PageBlendSpaceSource => t::blend_space_title(),
+
+        PresetKey::MeshPatchPadding => t::mesh_padding_title(),
+        PresetKey::MaskResample => t::mask_title(),
+        PresetKey::ImageMinify => t::minify_title(),
+        PresetKey::CmykIntent => t::cmyk_intent_title(),
+        PresetKey::Separations => t::separations_title(),
+        // ui-text-exempt: the engine's own key name, shown only when this shell
+        // has not yet been taught a title for a key the engine added.
+        other => other.as_str(),
+    }
 }
 
 /// The published region name for the presets row.
@@ -434,10 +502,7 @@ mod tests {
         );
     }
 
-    /// **Every registered preset has distinct copy and a distinct id.**
-    ///
-    /// Cheap now with one entry, and the point is that it is already here when
-    /// the second arrives.
+    /// **Every choice has a distinct copy and a distinct id.**
     #[test]
     fn presets_are_distinct() {
         let all = choices();
@@ -446,6 +511,67 @@ mod tests {
                 assert_ne!(a.id(), b.id());
                 assert_ne!(a.label(), b.label());
             }
+        }
+    }
+
+    /// ★★ **Every key a standard leaves alone is named in the operator's own
+    /// words**, not in the engine's field identifiers.
+    ///
+    /// `mesh_patch_padding` is correct for an API and wrong for a window. The
+    /// fallback arm exists so a key the engine adds later degrades to an
+    /// unfamiliar identifier — ugly and honest — rather than to a guessed
+    /// title, which would be a sentence pdfce never wrote appearing under a
+    /// standard's name.
+    ///
+    /// This fails when the engine adds a `PresetKey`, which is the point: the
+    /// failure is the prompt to write a title for it.
+    #[test]
+    fn every_key_a_standard_leaves_alone_has_an_operator_facing_title() {
+        let mut seen = 0_usize;
+        for standard in RenderStandard::all() {
+            for key in RenderPreset::for_standard(*standard).left_alone() {
+                seen += 1;
+                assert_ne!(
+                    operator_title(key),
+                    key.as_str(),
+                    "`{}` is shown to the operator with its ENGINE key name. Give it a title in `text::settings` and add the arm to `operator_title`",
+                    key.as_str()
+                );
+            }
+        }
+        assert!(
+            seen > 0,
+            "no standard left any key alone, so this test asserted nothing — either the engine changed shape or the presets are not loading"
+        );
+    }
+
+    /// **The weight line adds up to the answers that carry a value.**
+    ///
+    /// ★ `NotApplicable` is deliberately excluded from the tally and named in
+    /// the left-alone list instead. *"Does not apply"* is a different kind of
+    /// fact from *"we chose"*, and adding them together is the arithmetic that
+    /// would make a preset look better sourced than it is.
+    #[test]
+    fn the_weight_tally_excludes_what_the_standard_does_not_reach() {
+        for standard in RenderStandard::all() {
+            let preset = RenderPreset::for_standard(*standard);
+            let graded = preset
+                .entries()
+                .iter()
+                .filter(|e| !matches!(e.evidence, Evidence::NotApplicable))
+                .count();
+            let left = preset.left_alone().len();
+            let not_applicable = preset
+                .entries()
+                .iter()
+                .filter(|e| matches!(e.evidence, Evidence::NotApplicable))
+                .count();
+            assert!(
+                left >= not_applicable,
+                "{}: {not_applicable} entries are marked not-applicable but only {left} keys are reported as left alone, so the summary would count an axis twice",
+                standard.as_str()
+            );
+            let _ = graded;
         }
     }
 }
