@@ -160,17 +160,38 @@ would carry that standard's authority with none of its content.
 Verified on screen, offscreen: the row publishes `settings.presets` at
 `614 × 117 pt` at the top of the window.
 
-### ⛔ What is still blocked, and it is deliberate
+### ✅ SHIPPED 2026-08-25 — ten standards, and each says how much it can back up
 
-**I will not invent the conformant values.** Which setting vector a conformance
-page actually needs is a claim about a standard and about a licensed test suite,
-and the rule against writing claim-bearing copy from plausible defaults applies
-exactly here — a preset labelled *ISO 15930-7* that is merely my best guess
-would be worse than no preset, because it would carry the standard's authority.
+The engine answered within the hour, and answered better than asked: not a table
+of six values but an API, with **every value graded for evidence quality**.
 
-The engine team runs that suite, owns the parity instrument, and grades every
-one of these settings for evidence quality already. **Asked them for the
-authoritative vector**; the mechanism gets built when the values arrive.
+**Ten choices** now: pdfce's own answers, plus PDF/X-1a, X-3, X-4, X-5g, X-6,
+PDF/A-1, A-2, A-4 and PDF/UA-1.
+
+★★★ **The important part is not the dropdown.** Only **one** of PDF/X-4's six
+answers is a claim about the standard at all, and even that one is *implied*
+rather than *sourced*. So choosing a standard also shows what it does **not**
+say — by name, not blank — and any disclosure it owes you, quoted from the
+standard rather than paraphrased. A row that showed the name and hid the grading
+would be exactly the over-claim this request was careful to avoid.
+
+★★ **Your black-generation question turned out to be the wrong question, in a
+useful way.** I filed it as *contentious* — your 2026-08-08 ruling versus a
+conformance render. The engine's answer: **no setting of it is conformant**,
+because every PDF/X level guarantees a measured definition of ink and this
+control picks among fixed built-in tables. So the two were never in tension.
+It is one control standing in for something pdfce cannot do yet, and the preset
+says so on screen rather than leaving a colour conversion that silently did not
+happen.
+
+★ **PDF/UA is listed and correctly changes nothing** — measured, not assumed:
+zero rendering requirements across all 197 of its rules. Listed rather than
+hidden, because *"nothing, and here is the measurement"* cannot be mistaken for
+unfinished work, whereas a missing entry can.
+
+And the image-smoothing change from this morning is **gone as a special case**:
+the engine adopted it as its own default, so the one-time migration deleted
+itself exactly as designed.
 
 ## E1 — Find said "no matches" over text it could never have searched
 
