@@ -155,6 +155,19 @@ run "check-conventions"  bash "$HERE/check-conventions.sh"
 # certified green by tests injecting the key event winit never sends.
 run "check-clipboard-chords" bash "$HERE/check-clipboard-chords.sh"
 
+# `check-suite-name-absent` keeps a LICENSED print-conformance suite's name out
+# of this repository entirely -- contents and file names -- per the operator's
+# ruling of 2026-08-25. Carried across from `D:/Dev/pdfce/tools/`, where it was
+# written, rather than re-derived: it already carries the fixes for two defects
+# that a careful reader makes anyway.
+#
+# ★ It looks odd on purpose. Its needles are base64-encoded, because a gate for
+# "this word must never appear" that greps for the word in plain text becomes
+# its own first violation. And its failure output is MASKED, because a path can
+# itself be the violation -- the engine's version once printed a violating file
+# name into a public CI log, which is an artifact that outlives the fix.
+run "check-suite-name-absent" python "$ROOT/tools/check-suite-name-absent.py"
+
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #
 # Both are wrapped in a workspace-loadability probe. If a member crate listed
