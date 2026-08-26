@@ -7,7 +7,7 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-25 at `496d1db`.** For a session
+**Written 2026-08-18, last revised 2026-08-26 at `f8af161`.** For a session
 starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -17,7 +17,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured at `496d1db` (2026-08-25)
+## ★★★ State, as measured at `f8af161` (2026-08-26)
 
 **This table is a reading, not a status.** Every row is what a command printed
 at that commit; the tree has moved since, and the numbers move with it. It is
@@ -25,13 +25,13 @@ here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Tests** | 1,707 (`pdfce-gui`) + 397 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
-| **Gates** | **17 of 17**, 0 skipped |
-| **`ui-verify`** | **77 checks declared.** Last full driven run: **66 passed · 3 failed · 8 skipped** — see `evidence/ui-verify-run.txt`, committed deliberately because it is the reason a release decision was made |
+| **Tests** | 1,761 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Gates** | **18 of 18**, 0 skipped |
+| **`ui-verify`** | **78 checks declared** (`form_field` added 2026-08-26 and PASSING). Last full driven run: **66 passed · 3 failed · 8 skipped** — see `evidence/ui-verify-run.txt`, committed deliberately because it is the reason a release decision was made |
 | **The three failures** | `zooming_does_not_throw_away_where_the_operator_panned` and `zooming_back_out_keeps_the_view` are both **O27**, the f32 scroll-tier residual above ~130,000 %, deliberately left RED. `multi_node_move_moves_every_picked_anchor` is pre-existing and filed. **None is new and none blocks a release** |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `81e5aab`. **Read `Cargo.lock`, not this row** — it moves nearly every session, and `package-portable.py` re-resolves it unless you pass `--no-update` |
-| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-25 from shell `db88cc8` / engine `81e5aab`, **with `--verify`**. `pdfceGUI2` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 from shell `f8af161`. `pdfceGUI1` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 
@@ -53,6 +53,35 @@ be false.
 publishing builds was measurably feeding it (~27,000 per build, established with
 a do-nothing control). Restarting OneDrive dropped it to 1,179 — **and the crash
 rate did not change.** Real leak, real fix, wrong mechanism.
+
+
+### ★★ Where the forms work got to, 2026-08-26
+
+All three of the operator's asks are **shipped and driven**: the five ribbon
+buttons place a field by click or drag, a dialog collects the details and
+remembers them for the next one, and clicking an existing field in Edit mode
+opens its properties in the side pane. `ui-verify form_field` proves the whole
+sequence against the release binary and was falsified in both directions.
+
+**Two things a cold session should not rediscover:**
+
+1. **`edit.form_create_field`'s "structural certification gate" never existed.**
+   It was recorded as a blocker for nine days. What the engine actually refuses
+   is `TooltipChoice::Undecided`, which is an accessibility requirement and is a
+   field of the very dialog the feature needed. **Fourth stale blocker in this
+   project** — a backlog row is a record, not evidence.
+2. **`enabled_when` greys a ribbon item and enforces nothing.** Ninety-nine
+   commands carry one, and every non-ribbon route reaches the dispatcher without
+   consulting it. Do **not** "fix" this with a blanket guard at the top of
+   `dispatch_command`: it was written, and two tests refused it because it makes
+   `Ctrl+Z` on an empty stack do nothing *and say nothing*. Greying is a hint;
+   the worded decline is the answer. Only arms that act unconditionally need the
+   check, and they must say why.
+
+**What is filed and waiting:** `request_field_property_edit.md` in the request
+channel — the engine has no verb to change an existing field's required,
+read-only, tooltip or border. The properties pane discloses the limit and names
+the remedy; do not build around it quietly.
 
 ### ★★ Two things that will otherwise cost you an hour each
 
