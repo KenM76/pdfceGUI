@@ -97,28 +97,36 @@ pub const PRESETS: &[Preset] = &[Preset {
 
 /// pdfce's own recommended answers.
 ///
-/// # ★ Not simply `Settings::default()`, and the difference matters
+/// # ★★★ It is `Settings::default()`, and getting here took two corrections
 ///
-/// Two of these deliberately diverge from what `pdfce-core` ships, both by the
-/// operator's own explicit ruling, and a "recommended" preset that quietly
-/// reverted them would be undoing decisions rather than restoring them:
+/// The first draft restated two values explicitly, on the belief that pdfce-gui
+/// diverged from the engine on both. **Neither was true**, and the test written
+/// to catch exactly this caught both, one build apart:
 ///
-/// * **`cmyk_intent = NeutralBlack`** — his ruling of 2026-08-08 (*"flip it"*),
-///   made after seeing what the calibrated answer does to pure-K line art. The
-///   engine's own doc records this as a knowing divergence from the
-///   best-sourced answer rather than as agreement with it, which is exactly why
-///   it has to be restated here instead of inherited.
-/// * **`image_minify = Smooth`** — his ruling of 2026-08-25, after comparing
-///   against Acrobat on his own drawings. `pdfce-core` still defaults to
-///   `PointSample`; pdfce-gui migrates it once. See `app::prefs::smoothing`.
+/// * **`image_minify`** genuinely diverged — for one day. The engine adopted
+///   `Smooth` on 2026-08-25 (Pass 128.0) on the strength of the operator's
+///   Acrobat comparison, and the restatement became a no-op that same evening.
+/// * **`cmyk_intent`** never diverged at all. `NeutralBlack` has been the
+///   engine's *shipped default* since the operator's ruling of 2026-08-08 was
+///   adopted there. What the engine's doc records is a divergence **in
+///   reasoning** — it is knowingly not the best-evidenced answer — and that was
+///   misread here as a divergence in **value**.
 ///
-/// Everything else is the engine's default, taken by *not assigning it* rather
-/// than by copying the value — so a default the engine changes tomorrow arrives
-/// here for free, and cannot drift into a stale literal.
+/// ★ The second is the more instructive mistake, and it is why this comment is
+/// long. A doc comment asserting a difference that does not exist is worse than
+/// no comment: it invites the next reader to preserve a line that does nothing,
+/// and it makes a *deliberate* divergence indistinguishable from a copied one.
+/// The lesson is the project's own, met again — **read the value, not the prose
+/// about the value.**
+///
+/// So this assigns nothing. Every answer is the engine's, taken by *not
+/// assigning it*, which means a default the engine changes tomorrow arrives
+/// here for free and cannot rot into a stale literal. If pdfce-gui ever does
+/// need to override one, it goes here — and
+/// [`tests::the_recommended_preset_is_the_engines_defaults`] will need
+/// amending, deliberately, which is the point.
 fn apply_pdfce(s: &mut Settings) {
     *s = Settings::default();
-    s.cmyk_intent = pdfce_core::settings::CmykIntent::NeutralBlack;
-    s.image_minify = crate::app::prefs::smoothing::GUI_DEFAULT;
 }
 
 /// Which preset the given settings currently match, if any.
@@ -245,24 +253,28 @@ mod tests {
         }
     }
 
-    /// ★★ **pdfce's recommended answers are NOT the engine's defaults**, and
-    /// this test exists to fail loudly on the day that stops being true.
+    /// ★★ **pdfce's recommended answers ARE the engine's defaults**, and this
+    /// test is the guard on the day that stops being true.
     ///
-    /// Two settings diverge by the operator's explicit rulings. If the engine
-    /// adopts either — the request asking it to adopt the second is already
-    /// filed — this fails, and that failure is the reminder to delete the
-    /// corresponding line from `apply_pdfce` rather than leave a restatement
-    /// that has quietly become a no-op.
+    /// Its predecessor asserted the opposite and failed twice in one evening,
+    /// which is the whole reason this one is worded as it is. See
+    /// [`super::apply_pdfce`] for what those two failures taught.
+    ///
+    /// If a real divergence is ever added, this fails — and that failure is the
+    /// prompt to state the reason in `apply_pdfce`'s doc comment *before*
+    /// amending the assertion, so an override always arrives with its
+    /// justification attached rather than as a bare line somebody later deletes
+    /// as redundant.
     #[test]
-    fn the_recommended_preset_still_diverges_from_the_engine() {
+    fn the_recommended_preset_is_the_engines_defaults() {
         let mut ours = Settings::default();
         apply_pdfce(&mut ours);
-        let theirs = Settings::default();
         assert!(
-            !same(&ours, &theirs),
-            "pdfce's recommended answers now equal pdfce-core's defaults, so \
-             `apply_pdfce`'s explicit assignments are restating rather than \
-             diverging — remove the ones that have become redundant"
+            same(&ours, &Settings::default()),
+            "pdfce-gui now overrides one of the engine's rendering defaults. \
+             That may be right — but say WHY in `apply_pdfce`'s doc comment \
+             before changing this assertion, or the next reader cannot tell a \
+             deliberate override from a stale restatement"
         );
     }
 

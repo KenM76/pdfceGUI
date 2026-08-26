@@ -458,7 +458,7 @@ pub const fn minify_radius() -> &'static str {
 /// The default.
 #[must_use]
 pub const fn minify_point_label() -> &'static str {
-    "Take one pixel in each area (pdfce's default)"
+    "Take one pixel in each area"
 }
 
 /// ★ **The guess disclosure the old window omitted.**
@@ -483,7 +483,7 @@ pub const fn minify_point_note() -> &'static str {
 /// The alternative.
 #[must_use]
 pub const fn minify_smooth_label() -> &'static str {
-    "Average the area"
+    "Average the area (pdfce's default)"
 }
 
 /// What it buys and costs.
