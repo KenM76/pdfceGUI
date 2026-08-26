@@ -138,6 +138,56 @@ a second pass at that point would close several of these and is the cheapest
 next thing this harness can be asked to do.
 
 
+SECOND PASS AT THE TEXT POINT — THREE MORE PASSED
+=================================================
+Run immediately after, on the same free machine, at the text point
+`CONTINUE.md` records:
+
+    --doc-point 0,1211,1021
+
+  ctrl_c_copies_text_to_the_os_clipboard   PASS
+  select_filter_changes_what_a_click_hits  PASS
+  arrow_keys_walk_between_blocks           PASS
+
+So the honest tally for the build is **58 passed**, and the three above were
+skipped by a calibration choice rather than by anything about the application.
+`0,300,500` is the point calibrated for `rotate_handle_turns_a_selection`;
+`0,1211,1021` aims at a BOM row and is the one the text checks need. Neither is
+wrong — the suite needs two passes, and that should probably be a runner flag
+rather than a thing a reader has to know.
+
+
+AND ONE SKIP CHASED TO THE END, BECAUSE IT LOOKED LIKE A LOST COMMAND
+=====================================================================
+`text_annot_places_and_authors` and `text_annot_takes_the_keyboard_unclicked`
+both skipped with *"no `ribbon.item.markup.text_box` region on the Markup tab"*,
+listing twelve items that stop at `markup.squiggly`. A command missing from a
+tab is precisely the defect class this project exists to prevent — panels that
+shipped unreachable in real builds with every gate green — so it was chased
+rather than filed.
+
+**It is not lost.** `shell/manifest/markup.rs` declares it in the `notes` group,
+and the trace publishes:
+
+    ui-rect name=ribbon.group.markup.notes.collapsed rect=[[605.5 47.0] - [660.0 135.3]]
+
+At the harness's window width the notes group **collapses into a popover**, so
+Text Box, Sticky note and Stamp are one click deeper and publish no rects until
+it is opened. `markup.style` and `markup.comments` do the same. Word behaves
+identically and this is the designed response to a narrow ribbon.
+
+★ So this is a **harness** limitation: the check aims at items and does not know
+how to open a collapsed group first. `D:/dev/rag/egui/` already carries the
+sibling finding — a collapsed `CollapsingHeader` never runs its body, so nothing
+inside it publishes a rect. Worth teaching `driving::click_ribbon_item` to fall
+back to the group's `.collapsed` rect, which would close these two and any
+future check that aims past the fold.
+
+`redaction_removes_and_proves_it` and `shortcuts_reference_is_live` skipped for
+the same reason on the File tab, whose `export`, `document` and `pdfce` groups
+were all collapsed at that width. Same fix closes all four.
+
+
 RAW OUTPUT FOLLOWS
 ==================
 ui-verify — profile `pdfce-gui` (the application this project is building (crates/pdfce-gui))
