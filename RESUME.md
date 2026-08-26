@@ -27,8 +27,8 @@ here so you know roughly where you are, not so you can quote it.
 |---|---|
 | **Tests** | 1,783 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | **18 of 18**, 0 skipped |
-| **`ui-verify`** | **81 checks declared** — counted from a `--no-input` run, which reports every check as it skips, not from a grep. `rotated_text_selects_and_copies_as_one_line` added 2026-08-26 and **NOT YET DRIVEN**: he was using the PC. Last full driven run predates it: **66 passed · 3 failed · 8 skipped**, `evidence/ui-verify-run.txt` |
-| **The three failures** | `zooming_does_not_throw_away_where_the_operator_panned` and `zooming_back_out_keeps_the_view` are both **O27**, the f32 scroll-tier residual above ~130,000 %, deliberately left RED. `multi_node_move_moves_every_picked_anchor` is pre-existing and filed. **None is new and none blocks a release** |
+| **`ui-verify`** | **81 checks declared** — counted from a `--no-input` run, not from a grep. Full driven run 2026-08-26: **55 passed · 9 failed · 17 skipped**, and ★ **every one of the 81 launched** — the first run in this project's history with no `accesskit` handle failures at all. `evidence/ui-verify-run-2026-08-26-rotated.txt` categorises all nine: one was the harness (fixed), two are O27, two are blank paper on a CAD sheet, **four are real and now filed as O44** |
+| **The nine failures** | Read the evidence file's own table before re-diagnosing any of them. **None is the rotated-text work** — that check passed, falsified in two directions first — and the argument for that claim is in the evidence file rather than asserted here. Two are **O27**'s residual, deliberately red. Four are **O44**, found by this run and never reported by the operator; the one he would feel is the status bar going off screen at `ui_scale = 1.80` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `9a4fb18` (**v0.13.0**). **Read `Cargo.lock`, not this row.** ★ Deliberately NOT on `d3b4f5a`/v0.14.0 — see the note below |
 | **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 16:33 from shell `f32a265` on engine `9a4fb18` — the rotated-text build. `pdfceGUI1` holds the 12:48 build as the fallback. Open **About** and read the Build block rather than trusting this row |
@@ -105,7 +105,7 @@ colours move (up to 16/255, measured). On **real A4 (595 × 842 pt)** that is
 
 ★ **`534 %` was ours and it was mislabelled**, in this file, in
 `OPERATOR_REQUESTS.md` and in the request. The page we bisected on —
-`Ghent_PDF-Output-Test-V50_ALL_X4.pdf`, `596 × 791 pt` — is neither A4 nor US
+the industry print-conformance suite's composite page, `596 × 791 pt` — is neither A4 nor US
 Letter, so every percentage derived from it is right for that file and wrong as
 an "A4" figure. The engine repeated it for a day in a settings paragraph before
 a doc sweep caught it, and its test now has a five-point band where the wide one

@@ -321,11 +321,56 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
 
+    // ★★★ THE PRECONDITION THAT IS ABOUT THE FIXTURE, NOT THE BUILD — and it has
+    // to be asked BEFORE the verdict below, because its absence is
+    // symptom-identical to the defect.
+    //
+    // Everything above this line is arithmetic on the page's dimensions: at
+    // scale `crossing` a whole-page raster exceeds the CMYK buffer's pixel
+    // ceiling. That says the buffer *would* be refused — **if the page asked
+    // for one at all.** A page with no transparency on it never engages the
+    // buffer, so it is never refused, so `blends_in_wrong_space` is zero, so
+    // there is correctly nothing to disclose and the application is right to
+    // say nothing.
+    //
+    // ★ This is not hypothetical. On 2026-08-26 the full suite was run against
+    // `SW41177.pdf` — a SOLIDWORKS drawing set, which is the operator's own
+    // document and the harness's usual `--pdf` — and this check reported FAIL
+    // with a report that read as *"the page's colours have changed and nothing
+    // on screen says so"*. Every `raster-blend-space` line in that run said
+    // `cmyk_buffer=false refused=0 wrong_space=0`, at every scale up to 3.26.
+    // Nothing had changed and nothing was owed. Re-run against
+    // the industry print-conformance suite's composite page, the file this check was written
+    // for, it passed with the disclosure appearing exactly at the crossing.
+    //
+    // **A CAD drawing is line work.** The fixture the operator's suite runs on
+    // is the one least likely to use transparency, so left unguarded this check
+    // is a standing false red on every routine run — and a standing false red
+    // is worse than no check, because it trains a reader to skip the section.
+    // `crate::report`'s three-state model exists for exactly this: PRECONDITION
+    // ABSENT is a SKIP, and it names what was missing.
+    if !buffer_was_refused(&trace) {
+        return Err(Error::new(format!(
+            "the zoom passed the {:.0}% crossing and the renderer never engaged the CMYK \
+             compositing buffer at all — every `{BLEND_EVENT}` line reports `refused=0`. That \
+             is a fact about the FIXTURE, not the build: a page with no transparency on it \
+             composites nothing, so nothing falls back to sRGB and there is correctly nothing \
+             to disclose. Line-work drawings are the common case. SKIPPED rather than failed, \
+             because a page that cannot change colour cannot demonstrate that the shell would \
+             say so. Point --pdf at a document that uses transparency — this check was written \
+             against the industry print-conformance suite's composite page, which needs `--page-size 596x791` \
+             since its page box cannot be read from the file. Trace: {}.",
+            crossing * 100.0,
+            session.trace_path().display()
+        )));
+    }
+
     if !ever_declared(&trace, ui_rect) {
         return Ok(Some(format!(
             "at zoom {:.0}%, past the {:.0}% at which the renderer refuses the CMYK compositing \
-             buffer, no `{REGION}` line was declared. The page's colours have changed and \
-             nothing on screen says so — which is the whole of what was reported. Trace: {}.",
+             buffer, no `{REGION}` line was declared — and the renderer DID refuse it, so the \
+             page's colours have changed and nothing on screen says so, which is the whole of \
+             what was reported. Trace: {}.",
             reached * 100.0,
             crossing * 100.0,
             session.trace_path().display()
@@ -333,4 +378,25 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note("the disclosure appeared once the page's colours became approximate");
     Ok(None)
+}
+
+/// `raster-blend-space cmyk_buffer=… refused=… wrong_space=… scale=…` — the
+/// renderer's own report of which space it composited in.
+const BLEND_EVENT: &str = "raster-blend-space";
+
+/// **Whether the renderer ever actually refused the CMYK buffer.**
+///
+/// The precondition the verdict rests on — see its call site for the run that
+/// made it necessary. `refused` counts the times a composite fell back to sRGB
+/// because the buffer would have exceeded its ceiling; a page that never asks
+/// for the buffer reports `refused=0` at every scale, and so does a page whose
+/// zoom never crossed the ceiling.
+///
+/// The second of those is already excluded above by the `rastered < crossing`
+/// guard, so reaching here with `refused=0` everywhere means the first: **the
+/// page has no transparency on it.**
+fn buffer_was_refused(trace: &crate::trace::Trace) -> bool {
+    trace
+        .events(BLEND_EVENT)
+        .any(|l| l.get("refused").is_some_and(|n| n != "0"))
 }

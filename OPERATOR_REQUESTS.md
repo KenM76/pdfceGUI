@@ -80,6 +80,81 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O44 — Four defects the first COMPLETE driven run found, none of them reported by you
+
+**Found:** 2026-08-26, by the first `ui-verify` run in this project's history in
+which **every declared check actually launched**. Not asked for; filed here
+because this file is where work that has not been done goes.
+
+### Why this run saw things the others could not
+
+Every previous full run lost roughly a third of its checks to
+`accesskit_windows` panicking before a window appeared — the handle-exhaustion
+story. This one lost **none**. 81 checks, 81 launches, 55 passed. So the
+failures below are the first complete picture the suite has produced, and four
+of them had simply never been looked at.
+
+Evidence: `evidence/ui-verify-run-2026-08-26-rotated.txt`, with every failure
+categorised and the two that are **not** defects argued rather than dismissed.
+
+### O44a — ★ The status bar's controls are unreachable at high UI scale
+
+**The one you would feel.** At `ui_scale = 1.80`, five declared regions lie
+outside the window's client area — `status-group:zoom`, `status-group:fit`,
+`status-group:find`, `status-group:filter`, and the status bar itself. Two of
+them are at **negative x**, i.e. off the left edge entirely.
+
+So at a large UI scale the zoom control, the fit buttons, Find and the selection
+filter are all off screen with no way to reach them. This is the
+redaction-apply defect's exact shape — a control declared outside the body it
+lives in — reached by *scaling* rather than by adding text, which is why no
+layout test saw it.
+
+**Not verified against your own scale setting yet.** If you run at 100 % you
+have never met this.
+
+### O44b — Typing a size in the properties panel and pressing Apply does nothing
+
+`geometry_fields_resize_a_shape`: the Width field was scrubbed by 80 pixels and
+Apply **committed nothing and declined nothing** — no change, and no message
+saying why. The check names three candidates in the order worth checking; only
+the first is a defect you would notice, and it is that Apply stays greyed
+because the draft is compared against a value that was re-seeded underneath it.
+
+### O44c — Shift-dragging pages between two open documents completes and moves nothing
+
+`a_shift_drag_between_documents_moves_the_pages`: the release raises a
+cross-document insert and reports one page copied, and then no page arrives. The
+gesture looks like it worked and both documents are unchanged, which is the
+worst of the available failures — a silent no-op is indistinguishable from
+success until you look.
+
+### O44d — The Settings window publishes no headings
+
+`settings_theme_takes_effect`: the window opens and declares no
+`settings.heading.*` regions at all. Either it stopped publishing them or the
+names moved. Cosmetically invisible; it means the harness can no longer verify
+that a theme change reaches the window, and it also blocks
+`settings_headings_legible`, which SKIPped for want of them.
+
+### Two more failures that are NOT defects, argued rather than dismissed
+
+* **`blend_space` was the harness being wrong**, and it is fixed. It reported
+  *"the page's colours have changed and nothing on screen says so"* against
+  `SW41177.pdf` — a page with **no transparency on it at all**, which never asks
+  for the colour buffer, never has it refused, and is correctly owed no
+  disclosure. Every trace line said `refused=0`. The check now SKIPs naming the
+  missing precondition, and still passes on the <the conformance suite> page it was written for.
+  Left alone it would have been a permanent false red on every run against your
+  own drawings.
+* **Two "the canvas is blank" failures are blank paper.** Both report the
+  identical pixel statistic, which is the tell. The screenshot was opened: the
+  window, the ribbon and the page thumbnails are all drawn, and the canvas is
+  white because at 17,782 % the visible region of a D-size sheet is a few points
+  across and a CAD sheet is mostly empty between its lines. They belong to
+  **O27**, because what changed is where the view lands after a climb, not
+  whether the page renders.
+
 ## O43 — Vertical text should behave like vertical text
 
 **Asked:** 2026-08-26. **Shipped the same day. Driven check written and NOT YET

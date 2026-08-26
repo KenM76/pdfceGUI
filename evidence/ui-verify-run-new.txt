@@ -1,3 +1,0 @@
-ui-verify — profile `pdfce-gui` (the application this project is building (crates/pdfce-gui))
-  NOTE: this harness drives the REAL cursor and keyboard. It raises the target window, moves the pointer, and types into it. The pointer is put back where it was when the run ends. Pass --no-input to disable (checks that need input then report SKIPPED, never PASS).
-
