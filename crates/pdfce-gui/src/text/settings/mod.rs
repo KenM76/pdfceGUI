@@ -316,7 +316,7 @@ mod tests {
     /// meaningful without the other: a catalog can describe a setting nobody
     /// draws, and a dialog can draw one nobody described.
     ///
-    /// 14 answers to a silent standard, plus **6** preferences of the shell's
+    /// 15 answers to a silent standard, plus **6** preferences of the shell's
     /// own.
     ///
     /// ★ Was 13 + 5 until 2026-08-19, when `quad_point_order` acquired a
@@ -324,7 +324,14 @@ mod tests {
     /// nowhere, which is the gap
     /// `crate::dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window`
     /// now refuses to compile past.
-    const SETTINGS_COUNT: usize = 23;
+    ///
+    /// ★★ And 23 → **24** on 2026-08-26, when `max_cmyk_buffer_bytes` acquired
+    /// one. The same gap, caught by the same test, on the very first build
+    /// after the engine grew the setting — which is the whole reason that test
+    /// is a `#[test]` and not a note. The engine shipped it in v0.14.0 at this
+    /// shell's own request; the number moved in the same session the control
+    /// was written, which is the property this constant exists to guarantee.
+    const SETTINGS_COUNT: usize = 24;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -357,6 +364,11 @@ mod tests {
                 blend_space_title(),
                 blend_space_silence(),
                 blend_space_radius(),
+            ),
+            (
+                cmyk_ceiling_title(),
+                cmyk_ceiling_silence(),
+                cmyk_ceiling_radius(),
             ),
             (
                 mesh_padding_title(),

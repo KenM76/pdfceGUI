@@ -683,6 +683,33 @@ pub struct OpenDoc {
     pub base_texture: Option<crate::render::raster::PageTexture>,
     /// The edit epoch [`Self::base_texture`] was rasterised under.
     pub base_texture_epoch: u64,
+    /// ★★ **Which pages have been SEEN compositing in ink**, by page index.
+    ///
+    /// The observation `crate::render::strategy::Ink` rests on, and that type's
+    /// docs carry the argument for why it is observed rather than assumed —
+    /// including the measurement that made assuming it unacceptable: on the
+    /// operator's own D-size sheet the ink ceiling falls at 263 % zoom, and
+    /// that sheet has no transparency on it at all.
+    ///
+    /// Written in exactly one place, [`Self::absorb_render`], from the
+    /// renderer's own `cmyk_buffer_engaged` / `cmyk_buffer_refused` counters.
+    /// **Either** being non-zero is the signal: engaged means the buffer was
+    /// used, refused means it was wanted and too large, and both mean *this
+    /// page asked to be blended in ink*.
+    ///
+    /// # It only ever grows, and that is correct
+    ///
+    /// A page's blending space is a property of its `/Group` dictionary, not of
+    /// the zoom, so an observation cannot become false by scrolling or
+    /// magnifying. An **edit** could in principle change a page group, which is
+    /// why this is a fact about the open document rather than a persisted one —
+    /// it is rebuilt from scratch on the next open, and a stale entry costs at
+    /// worst one region raster where a whole-page one would have done.
+    ///
+    /// A `HashSet` rather than a per-page flag on a struct: it is empty for
+    /// virtually every document, since about 0.4 % of real files declare a
+    /// subtractive page group.
+    pub ink_pages: std::collections::HashSet<usize>,
     pub selected_field: Option<SelectedField>,
     /// ★ **The operator's guide lines**, per page, in canvas space.
     ///
@@ -858,6 +885,7 @@ impl OpenDoc {
             selected_field: None,
             base_texture: None,
             base_texture_epoch: 0,
+            ink_pages: std::collections::HashSet::new(),
             // Read above, before `path` was moved into the struct.
             guides,
             page_objects: PageObjectCache::default(),
@@ -1291,6 +1319,33 @@ impl OpenDoc {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             format!("objects-unavailable page={page_index} reason=decompose-failed detail={detail}")
         });
+    }
+}
+
+impl OpenDoc {
+    /// ★ **What the render tier needs to know about `page`'s colour** — the one
+    /// reader of [`Self::ink_pages`].
+    ///
+    /// Two facts in one value, because they are only ever wanted together and
+    /// separating them would let a call site pair the observation with the
+    /// wrong ceiling: *has this page been seen compositing in ink*, and *what
+    /// ceiling has the operator set*. See [`crate::render::strategy::Ink`].
+    ///
+    /// The ceiling is `Settings::max_cmyk_buffer_bytes` read **through the
+    /// document's own settings**, which is where the settings window's Apply
+    /// lands — so raising it in the window moves the tier on the next frame,
+    /// with no reopen and no second copy of the value anywhere.
+    ///
+    /// It is NOT taken from `SettingsExt::render_options`, which would be the
+    /// tempting spelling: that builder produces the options a *render* is run
+    /// with, and this question is asked before there is a render to run.
+    #[must_use]
+    pub fn ink_at(&self, page: usize) -> crate::render::strategy::Ink {
+        if self.ink_pages.contains(&page) {
+            crate::render::strategy::Ink::Subtractive(self.settings.max_cmyk_buffer_bytes)
+        } else {
+            crate::render::strategy::Ink::Additive
+        }
     }
 }
 

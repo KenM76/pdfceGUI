@@ -227,11 +227,22 @@ one change there before the setting can exist.**
 > *"can the size of the buffer be increased? Allow the user to set the size up
 > to the maximum possible?"*
 
-**Yes — and the engine shipped it the same afternoon.** v0.14.0, 2026-08-26:
-the cap is now both readable and settable, uncapped, with no guard and no
-preflight, exactly the treatment you chose for the zoom limit. **The control is
-not built yet**; that is the next piece of work and this row stays open until
-you have used it.
+**Shipped, 2026-08-26.** Settings ▸ Colour ▸ **"Colours changing when you
+zoom"**. Type `default`, or a size — `512mib`, `1.5gb`, or a plain number of
+bytes. It is uncapped, with no guard and no preflight, exactly the treatment you
+chose for the zoom limit; the window states the cost and does not prevent the
+choice.
+
+★ **And you will very likely never need it**, because O41 below is fixed as
+well: pdfce now stops asking for a page image bigger than the colour buffer can
+handle, so the colours no longer change with the zoom at all. The setting is
+there for the case the automatic fix cannot cover — a very large monitor, where
+even the visible-part render can exceed the default.
+
+**Driven:** `ui-verify blend_space`, and the funnel that carries the number to
+the renderer has its own test — falsified by breaking the one line that carries
+it, because a settings field that saves a number and changes nothing would be
+worse than not offering it.
 
 **What it would cost, measured** — corrected 2026-08-26, see below:
 
@@ -294,17 +305,36 @@ moves those patches by up to 16 levels out of 255.
 *"Colours are approximate at this zoom … zoom out to see the exact colours."*
 Nothing is marked on the page itself.
 
-**What is still to come:** pdfce should never have asked for a page raster that
-big. It renders just the visible part above a *different*, much higher limit,
-and a visible-part render stays under the colour cap at any zoom — proved. So
-the repair is to move our switch-over point down to the colour cap, and then the
-colours stop depending on the zoom at all.
+**FIXED, 2026-08-26, and the colours no longer depend on the zoom.**
 
-**The number that blocked it is public as of 2026-08-26** (engine v0.14.0), so
-this is now ordinary shell work rather than a wait. ★ And note the correction in
-O42: on a 1440p or larger monitor the visible-part render *already* needs more
-than the default cap, so moving the switch is necessary and **not sufficient** —
-the setting has to exist too.
+pdfce should never have asked for a page image that big. Above a *different*,
+much higher limit it already renders just the visible part instead — and a
+visible-part render stays under the colour cap at any zoom. So the switch-over
+now happens at the **colour** cap as well, and the page keeps its ink all the way
+up.
+
+**Driven, on the file that shows it.** At 801 % zoom — well past the 534 % where
+this same page used to lose its ink — the trace now reads
+`cmyk_buffer=true refused=0`. Before the change it read `refused=1` and the
+status bar apologised. `ui-verify blend_space` asserts it, and its assertion was
+falsified by disabling the mechanism and watching it go red.
+
+### ★★★ The part worth knowing: it does NOT apply to your drawings
+
+The obvious version of this fix applies the colour cap to every page, and it
+would have been a serious regression **for you specifically**:
+
+* on your own D-size sheet (1584 × 1224 pt) the cap falls at **263 % zoom** —
+  well inside the range you work in;
+* and that sheet is line work with **no transparency on it at all**, so it never
+  asks for the colour buffer and nothing whatever would have been gained;
+* about **0.4 %** of real documents use the buffer at all — 15 of 4,012 in the
+  engine's own corpus.
+
+So pdfce **learns** instead: the renderer reports, on every page image, whether
+it blended in ink, and only a page that has been seen doing so gets the lower
+cap. Your drawings keep free panning at every zoom, exactly as they do today,
+and a print-ready file gets its colours fixed. Asserted both ways.
 
 ★ **`534 %` in the paragraph above was mislabelled as A4.** On real A4 it is
 **518 %**. The bracket you gave — mismatch at 474 %, agreement at 579 % — still

@@ -28,7 +28,7 @@
 //!
 //! | tier | when | panning |
 //! |---|---|---|
-//! | [`Strategy::WholePage`] | while the page's raster fits `MAX_PIXMAP_EDGE` | **free, full detail** |
+//! | [`Strategy::WholePage`] | while the page's raster fits `MAX_PIXMAP_EDGE` — **and, on a page blended in ink, while it still composites in ink** ([`Ink`]) | **free, full detail** |
 //! | [`Strategy::Region`] | only above that | free within the overscan; a re-raster on leaving it |
 //!
 //! ★★ **The tier he works in does not change at all.** On an A1 sheet the
@@ -103,8 +103,72 @@ pub enum Strategy {
 /// correct and would be easy to get wrong: `raster_scale` already includes
 /// `pixels_per_point`, so a 150 % display reaches the ceiling at two-thirds the
 /// zoom, exactly as it should.
+/// ★★ **Whether this page is blended in ink, and at what ceiling** — the
+/// second thing that ends the whole-page tier.
+///
+/// # Why the tier has two ceilings now
+///
+/// The operator, 2026-08-26: *"seems I get different results depending on Zoom
+/// level … up to 474 % they are mismatched, but at 579 % they match."*
+///
+/// A page whose group declares a subtractive blending space (§11.4.7) is
+/// composited in a four-colorant buffer at 20 bytes a pixel. Above a ceiling
+/// the engine refuses that buffer and composites in sRGB instead — correctly,
+/// and it says so — and the colours move, measured at up to 16 levels of 255.
+///
+/// That ceiling is **much lower than [`pdfce_render::MAX_PIXMAP_EDGE`]**: on A4
+/// the default is reached at about 518 % zoom against the edge ceiling's
+/// 1946 %, a factor of 3.76. Every whole-page raster in between comes back with
+/// approximate colours — and a **region** raster of the same view does not,
+/// because the buffer is sized to the region. So ending the whole-page tier at
+/// whichever ceiling bites first is the repair, and it needs no new tier.
+///
+/// # ★★★ Why it is OBSERVED and not assumed, which is the whole design
+///
+/// The obvious implementation applies the ink ceiling to every page. It would
+/// be a serious regression, and the numbers say so plainly:
+///
+/// * the engine measured **13 of 51** files in the print-conformance suite and
+///   **15 of 4,012** in its external corpus as declaring a subtractive page
+///   group — about 0.4 % of real documents;
+/// * on the operator's own D-size drawing sheet (1584 × 1224 pt) the default
+///   ceiling is crossed at **263 % zoom**, which is well inside the range he
+///   works in every day;
+/// * and that sheet is line work with **no transparency on it at all** — it
+///   never asks for the buffer, so nothing would have been gained.
+///
+/// Applying the ink ceiling unconditionally would therefore have taken free
+/// panning away from the operator's normal working zoom, on his own documents,
+/// to fix a problem those documents do not have.
+///
+/// So the shell **learns**: `pdfce-render` reports `cmyk_buffer_engaged` and
+/// `cmyk_buffer_refused` on every raster, and either being non-zero means *this
+/// page asked to be blended in ink*. `OpenDoc::absorb_render` records it, and
+/// only a page that has been seen doing so gets [`Ink::Subtractive`]. A
+/// document opens at a fit zoom and renders once before any zoom is possible,
+/// so the observation is in hand before it can matter.
+///
+/// ★ The engine cannot be asked directly: `interpret::page_blend_space` is
+/// private, and the shell asked. Reported on the request channel rather than
+/// worked around silently — see `docs/core-api/03-capabilities.md` §7.3a, which
+/// is the reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ink {
+    /// This page has never been observed compositing in a subtractive space, so
+    /// the ink ceiling is irrelevant to it and only `MAX_PIXMAP_EDGE` applies.
+    ///
+    /// **The overwhelming majority of pages, and every page of a CAD drawing.**
+    Additive,
+    /// This page HAS been observed compositing in ink. The value is the
+    /// operator's ceiling from `Settings::max_cmyk_buffer_bytes`, passed
+    /// verbatim — `None` means the engine's own default, which every one of its
+    /// four public helpers already understands, so there is nothing to resolve
+    /// here and no second place for a default to be decided.
+    Subtractive(Option<usize>),
+}
+
 #[must_use]
-pub fn for_page(page_pts: (f32, f32), raster_scale: f32) -> Strategy {
+pub fn for_page(page_pts: (f32, f32), raster_scale: f32, ink: Ink) -> Strategy {
     let longest = page_pts.0.max(page_pts.1);
     if !longest.is_finite() || longest <= 0.0 || !raster_scale.is_finite() || raster_scale <= 0.0 {
         // A degenerate page or scale cannot be reasoned about, and the
@@ -117,7 +181,35 @@ pub fn for_page(page_pts: (f32, f32), raster_scale: f32) -> Strategy {
         reason = "MAX_PIXMAP_EDGE is 16384; f32 is exact to 2^24" // ui-text-exempt: clippy lint justification, never displayed
     )]
     let ceiling = (pdfce_render::MAX_PIXMAP_EDGE - 1) as f32;
-    if longest * raster_scale <= ceiling {
+    if longest * raster_scale > ceiling {
+        return Strategy::Region;
+    }
+
+    // ★ The ink ceiling, second, and only for a page that has been seen asking
+    // for it. See [`Ink`].
+    let Ink::Subtractive(max_bytes) = ink else {
+        return Strategy::WholePage;
+    };
+    // The raster the whole-page tier would actually ask for. Rounded UP, the
+    // same direction the renderer rounds when it allocates: a raster half a
+    // pixel over the ceiling is over it.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "both edges are below MAX_PIXMAP_EDGE by the guard above, and both are positive" // ui-text-exempt: clippy lint justification, never displayed
+    )]
+    let (w, h) = (
+        (page_pts.0 * raster_scale).ceil() as u32,
+        (page_pts.1 * raster_scale).ceil() as u32,
+    );
+    // ★★ `will_composite_in_cmyk`, NOT a pixel count computed here. The
+    // engine's request reply is explicit about why: *"the predicate exists so
+    // the 20-B/px arithmetic stays on this side of the crate boundary; a copy
+    // of a measured limit is a copy that rots the next time the buffer's
+    // element type changes."* This shell's own request refused to hardcode
+    // 13,421,772 for the same reason, and that refusal is what produced the
+    // predicate.
+    if pdfce_render::will_composite_in_cmyk(w, h, max_bytes) {
         Strategy::WholePage
     } else {
         Strategy::Region
@@ -227,7 +319,7 @@ mod tests {
     fn every_zoom_the_shell_offers_today_still_rasterizes_the_whole_page() {
         for zoom in crate::viewer::ZOOM_LADDER {
             assert_eq!(
-                for_page((A1_LONG_PT, 1100.0), *zoom),
+                for_page((A1_LONG_PT, 1100.0), *zoom, Ink::Additive),
                 Strategy::WholePage,
                 "zoom {zoom} left the whole-page tier on an A1 sheet"
             );
@@ -242,9 +334,12 @@ mod tests {
         let ceiling = (pdfce_render::MAX_PIXMAP_EDGE - 1) as f32;
         let exact = ceiling / A1_LONG_PT;
 
-        assert_eq!(for_page((A1_LONG_PT, 1100.0), exact), Strategy::WholePage);
         assert_eq!(
-            for_page((A1_LONG_PT, 1100.0), exact * 1.01),
+            for_page((A1_LONG_PT, 1100.0), exact, Ink::Additive),
+            Strategy::WholePage
+        );
+        assert_eq!(
+            for_page((A1_LONG_PT, 1100.0), exact * 1.01, Ink::Additive),
             Strategy::Region,
             "just past the ceiling the region tier must take over"
         );
@@ -258,9 +353,9 @@ mod tests {
         let small = (306.0_f32, 396.0); // a quarter-letter slip
         let zoom = 20.0_f32; // 2,000 %
 
-        assert_eq!(for_page(big, zoom), Strategy::Region);
+        assert_eq!(for_page(big, zoom, Ink::Additive), Strategy::Region);
         assert_eq!(
-            for_page(small, zoom),
+            for_page(small, zoom, Ink::Additive),
             Strategy::WholePage,
             "a small page should not be pushed into the region tier by a zoom it can afford"
         );
@@ -278,8 +373,14 @@ mod tests {
         let zoom_at_1x = ceiling / A1_LONG_PT;
 
         // The same zoom on a 1.5x display is 1.5x the raster scale.
-        assert_eq!(for_page(page, zoom_at_1x), Strategy::WholePage);
-        assert_eq!(for_page(page, zoom_at_1x * 1.5), Strategy::Region);
+        assert_eq!(
+            for_page(page, zoom_at_1x, Ink::Additive),
+            Strategy::WholePage
+        );
+        assert_eq!(
+            for_page(page, zoom_at_1x * 1.5, Ink::Additive),
+            Strategy::Region
+        );
     }
 
     /// Degenerate input never answers `Region`, because a nonsense rectangle
@@ -287,8 +388,14 @@ mod tests {
     #[test]
     fn degenerate_input_falls_back_to_the_whole_page() {
         for bad in [f32::NAN, f32::INFINITY, 0.0, -1.0] {
-            assert_eq!(for_page((A1_LONG_PT, 1100.0), bad), Strategy::WholePage);
-            assert_eq!(for_page((bad, bad), 1.0), Strategy::WholePage);
+            assert_eq!(
+                for_page((A1_LONG_PT, 1100.0), bad, Ink::Additive),
+                Strategy::WholePage
+            );
+            assert_eq!(
+                for_page((bad, bad), 1.0, Ink::Additive),
+                Strategy::WholePage
+            );
         }
     }
 
@@ -449,6 +556,183 @@ mod tests {
                 r.0,
                 r.1,
                 (at - r.0).abs().max((at - r.1).abs())
+            );
+        }
+    }
+
+    // =======================================================================
+    // ★★ The ink ceiling — the operator's "colours change with zoom"
+    // =======================================================================
+
+    /// A4 in points, which is what every figure the engine published about this
+    /// ceiling is stated against.
+    ///
+    /// ★ Written out rather than reused from a fixture because the *label* is
+    /// the thing that went wrong once: every "A4" percentage in this project's
+    /// request and in the engine's first reply was computed on a 596 × 791 pt
+    /// page, which is neither A4 (595 × 842) nor US Letter (612 × 792). The
+    /// mechanism was right and the label was not, and it propagated for a day
+    /// through both repositories. This constant is the label, pinned.
+    const A4: (f32, f32) = (595.0, 842.0);
+
+    /// ★★★ **An additive page is not touched by any of this.**
+    ///
+    /// The regression guard, and the reason [`Ink`] exists as a two-state value
+    /// instead of the ceiling simply being applied. About 0.4 % of real files
+    /// declare a subtractive page group; the other 99.6 % must reach exactly
+    /// the same tier at exactly the same zoom as they did before this argument
+    /// was added.
+    ///
+    /// Asserted at a scale that is *far* past the ink ceiling and comfortably
+    /// under the pixmap one — 12×, where A4 wants 68 megapixels and the default
+    /// colour ceiling admits 13.4 — so a build that applied the ceiling
+    /// unconditionally cannot pass it.
+    #[test]
+    fn an_additive_page_ignores_the_colour_ceiling_entirely() {
+        assert_eq!(
+            for_page(A4, 12.0, Ink::Additive),
+            Strategy::WholePage,
+            "a page that is not blended in ink must reach the pixmap ceiling and nothing else"
+        );
+    }
+
+    /// ★★★ **A page blended in ink switches to the region tier at the colour
+    /// ceiling**, which is far below the pixmap one.
+    ///
+    /// This is the whole repair: between the two ceilings, a whole-page raster
+    /// comes back with approximate colours and a region raster of the same view
+    /// does not, because the buffer is sized to the region.
+    ///
+    /// The two scales are found by search rather than written down, for the
+    /// reason the label constant above records — a hardcoded 5.18 would be a
+    /// second copy of a measured limit, which is exactly what this project's
+    /// request to the engine refused to accept and what
+    /// `will_composite_in_cmyk` exists to prevent.
+    #[test]
+    fn a_page_blended_in_ink_leaves_the_whole_page_tier_at_the_colour_ceiling() {
+        // Walk up in fine steps and find where the answer changes. Walking
+        // rather than probing two chosen points: two samples either side of a
+        // transition look exactly like no transition at all if the transition
+        // is not where it was assumed to be.
+        let mut switch = None;
+        let mut scale = 1.0_f32;
+        while scale < 20.0 {
+            if for_page(A4, scale, Ink::Subtractive(None)) == Strategy::Region {
+                switch = Some(scale);
+                break;
+            }
+            scale += 0.01;
+        }
+        let switch = switch.expect(
+            "a subtractive A4 page must leave the whole-page tier somewhere below 2000 % zoom",
+        );
+
+        // The engine's published figure for real A4 at the default ceiling is
+        // about 518 %. This asserts the neighbourhood rather than the digits:
+        // the exact value is the engine's to move, and pinning it here would be
+        // the copy this design refuses to make.
+        assert!(
+            (4.8..5.4).contains(&switch),
+            "a subtractive A4 page left the whole-page tier at {:.0} %, and the engine's default \
+             ceiling is about 518 %",
+            switch * 100.0
+        );
+
+        // ★ And the pixmap ceiling is a long way above it — the gap is the
+        // band that used to come back with approximate colours.
+        assert_eq!(
+            for_page(A4, switch - 0.02, Ink::Subtractive(None)),
+            Strategy::WholePage,
+            "the step below the switch must still be whole-page, or the search found a cliff \
+             that is not the one this test is about"
+        );
+        assert_eq!(
+            for_page(A4, switch * 3.0, Ink::Additive),
+            Strategy::WholePage,
+            "the same raster is comfortably inside the PIXMAP ceiling, which is what makes the \
+             band this repair closes exist at all"
+        );
+    }
+
+    /// ★★ **Raising the operator's ceiling moves the switch up**, which is the
+    /// entire point of the setting existing.
+    ///
+    /// Without this, the Colour group's control could be wired to the renderer
+    /// (which `app::settings` asserts) and still change nothing about *when the
+    /// colours go approximate*, because the tier would switch first and hand
+    /// the operator a region raster before their larger buffer was ever asked
+    /// for.
+    ///
+    /// Four ceilings, each a real quantity of memory, asserted as an ordering
+    /// rather than as four thresholds: a bigger allowance must never move the
+    /// switch DOWN, and the exact numbers belong to the engine.
+    #[test]
+    fn a_larger_ceiling_keeps_the_whole_page_tier_for_longer() {
+        let switch_for = |max_bytes: Option<usize>| {
+            let mut scale = 1.0_f32;
+            while scale < 40.0 {
+                if for_page(A4, scale, Ink::Subtractive(max_bytes)) == Strategy::Region {
+                    return scale;
+                }
+                scale += 0.01;
+            }
+            f32::INFINITY
+        };
+        let default = switch_for(None);
+        let half_gig = switch_for(Some(512 * 1024 * 1024));
+        let one_gig = switch_for(Some(1024 * 1024 * 1024));
+        let two_gig = switch_for(Some(2048 * 1024 * 1024));
+
+        assert!(
+            default < half_gig && half_gig < one_gig && one_gig < two_gig,
+            "raising the ceiling must postpone the switch: default {default:.2}, 512 MiB \
+             {half_gig:.2}, 1 GiB {one_gig:.2}, 2 GiB {two_gig:.2}"
+        );
+        // And the ordering is not merely strict — it is worth something. Double
+        // the memory buys √2 the linear scale, because a raster is
+        // two-dimensional; a build that moved the switch by a rounding error
+        // would satisfy the ordering above and would be useless.
+        assert!(
+            one_gig > default * 1.5,
+            "four times the default ceiling should buy about twice the linear scale, not \
+             {:.2}x",
+            one_gig / default
+        );
+    }
+
+    /// A ceiling so small that no useful raster fits still answers, and answers
+    /// the safe way.
+    ///
+    /// `Some(0)` is reachable: the settings field is uncapped in both
+    /// directions and `0` parses. It must produce a region raster rather than a
+    /// panic or a whole-page one — the region path is the one that copes,
+    /// because its buffer is sized to the window rather than to the page.
+    #[test]
+    fn an_absurdly_small_ceiling_falls_to_the_region_tier_rather_than_failing() {
+        assert_eq!(
+            for_page(A4, 1.0, Ink::Subtractive(Some(0))),
+            Strategy::Region
+        );
+    }
+
+    /// Degenerate input is still refused before the ink question is reached.
+    ///
+    /// The existing guard answers `WholePage` for a non-finite page or scale,
+    /// and it must keep doing so on a subtractive page: casting a NaN scale to
+    /// `u32` for the predicate would be undefined-ish rather than merely wrong,
+    /// and the early return is what makes it unreachable.
+    #[test]
+    fn degenerate_input_is_refused_before_the_ink_ceiling_is_consulted() {
+        for bad in [f32::NAN, f32::INFINITY, 0.0, -1.0] {
+            assert_eq!(
+                for_page(A4, bad, Ink::Subtractive(None)),
+                Strategy::WholePage,
+                "a scale of {bad} reached the ink predicate"
+            );
+            assert_eq!(
+                for_page((bad, bad), 1.0, Ink::Subtractive(None)),
+                Strategy::WholePage,
+                "a page of {bad} pt reached the ink predicate"
             );
         }
     }

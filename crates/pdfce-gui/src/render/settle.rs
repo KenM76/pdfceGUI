@@ -172,6 +172,36 @@ impl OpenDoc {
             Ok(pixels) => {
                 let page = pixels.key.page();
                 let key = pixels.key;
+                // A page blended in ink, recorded before anything else is done
+                // with the result. The ONE write to `OpenDoc::ink_pages`, and
+                // the observation `render::strategy::Ink` rests on -- see that
+                // type for why the shell learns this rather than assuming it.
+                //
+                // **Either counter**: `engaged` means the colorant buffer was
+                // used, `refused` means it was wanted and would have exceeded
+                // its ceiling. Both mean the page ASKED to be blended in ink,
+                // and it is the asking that decides the tier. Keying on
+                // `engaged` alone would be self-defeating in the exact case
+                // this exists for: a page already past the ceiling reports
+                // `engaged = 0`, so the tier would never move down and the
+                // colours would never come back.
+                // `engaged` is a bool and `refused` is a count; they are
+                // spelled differently because they answer differently-shaped
+                // questions, and mixing that up is a compile error rather than
+                // a silent one.
+                if pixels.diagnostics.cmyk_buffer_engaged
+                    || pixels.diagnostics.cmyk_buffer_refused > 0
+                {
+                    // Traced on the transition only. This runs on every
+                    // completed raster, and a line per raster would bury the
+                    // one that matters.
+                    if self.ink_pages.insert(page) {
+                        crate::diag::trace(move || {
+                            // ui-text-exempt: diagnostic trace, never displayed in the UI
+                            format!("ink-page page={page}")
+                        });
+                    }
+                }
                 let texture = raster::texture_from_pixels(ctx, &pixels);
                 if page == self.view.page_index {
                     // ★★★ **PROMOTE IT TO THE BACKDROP** if it is a small

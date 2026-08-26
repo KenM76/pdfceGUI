@@ -201,6 +201,101 @@ pub fn toggle(ui: &mut Ui, value: &mut bool, label: &str, note: Option<&str>) {
     }
 }
 
+/// ★★ **A free-text setting, with the parse shown rather than enforced.**
+///
+/// The window's only non-radio, non-checkbox control, added 2026-08-26 for the
+/// CMYK buffer ceiling. Everything else here is a choice between named options;
+/// this one is a *quantity*, and a quantity the operator was explicitly given
+/// the right to choose without a cap:
+///
+/// > *"can the size of the buffer be increased? Allow the user to set the size
+/// > up to the maximum possible?"*
+///
+/// # Why it does not validate as you type, and does not refuse
+///
+/// `parse` is run on every frame and its result is **shown**, not imposed. A
+/// field that rejected keystrokes would make `2` untypeable on the way to
+/// `256mib`, and one that reverted on blur would silently discard what was
+/// typed. So:
+///
+/// * **parses** → the value is written to the draft and the parsed form is
+///   echoed back (`= 256 MiB`), which is how an operator learns that `0.25gb`
+///   and `256mb` are the same number here;
+/// * **does not parse** → the draft is left ALONE and the field says so. The
+///   last good value stands, so Apply cannot commit a half-typed string.
+///
+/// ★ There is no upper bound and that is the operator's ruling, the same one
+/// that governs the maximum zoom. A ceiling the machine cannot honour is not a
+/// crash — the engine allocates fallibly and refuses down its ordinary disclosed
+/// path — so this states the cost and does not prevent the choice.
+///
+/// `format` and `parse` are the CALLER's, and in the one use they are
+/// `pdfce_core::settings::format_byte_size` / `parse_byte_size` — the same pair
+/// `settings.txt` itself uses. That is the point: the window and the file accept
+/// and show identical strings, so an operator who reads one and types into the
+/// other is never surprised. Writing a second parser here would have been the
+/// obvious shortcut and the one thing guaranteed to drift.
+pub fn text_value<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    id: &str,
+    value: &mut T,
+    label: &str,
+    note: Option<&str>,
+    format: impl Fn(&T) -> String,
+    parse: impl Fn(&str) -> Option<T>,
+) {
+    ui.label(label);
+    // The buffer lives in `egui::Memory` keyed on this control's id, not in the
+    // draft: the draft holds a parsed VALUE and this holds the operator's
+    // keystrokes, and the two are legitimately different while a number is
+    // half-typed. Seeded from the value the first time the control is drawn, so
+    // reopening the window shows what is stored rather than an empty box.
+    let id = egui::Id::new(id);
+    let mut buffer = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(|| format(value));
+    let response = ui.add(egui::TextEdit::singleline(&mut buffer).desired_width(140.0));
+    if response.changed()
+        && let Some(parsed) = parse(&buffer)
+    {
+        *value = parsed;
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(id, buffer.clone()));
+
+    match parse(&buffer) {
+        Some(parsed) => {
+            let echo = format(&parsed);
+            // Echoed only when the operator's spelling and the canonical one
+            // differ. `256 MiB` typed back as `256 MiB` is noise; `0.25gb`
+            // answered with `256 MiB` is the whole reason this line exists.
+            if echo != buffer {
+                ui.label(
+                    RichText::new(crate::text::settings::parsed_as(&echo))
+                        .small()
+                        .weak(),
+                );
+            }
+        }
+        None => {
+            ui.label(
+                RichText::new(crate::text::settings::unparsed_value_note())
+                    .small()
+                    // `notice` rather than `danger`: nothing is broken and
+                    // nothing was lost — the stored value still stands and the
+                    // operator is mid-keystroke. `danger` is for an act that
+                    // destroys something.
+                    .color(egui_shell::theme::Theme::of(ui.ctx()).palette.notice),
+            );
+        }
+    }
+    if let Some(note) = note
+        && !note.is_empty()
+    {
+        ui.label(RichText::new(note).small().weak());
+    }
+}
+
 /// A sentence the operator must see but that belongs to the **setting**, not to
 /// any one of its options.
 ///

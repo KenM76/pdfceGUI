@@ -298,6 +298,89 @@ pub const fn polarity_invert_note() -> &'static str {
 // Colour — where a page's blending space comes from
 // ===========================================================================
 
+/// ★★ **The ceiling on the buffer pages are blended in** — the answer to his
+/// 2026-08-26 question.
+///
+/// > *"can the size of the buffer be increased? Allow the user to set the size
+/// > up to the maximum possible?"*
+///
+/// # Why this is worded as a SYMPTOM and not as a buffer
+///
+/// Nobody arrives at this window looking for a compositing buffer. They arrive
+/// because *"the colours in this file change when I zoom"* — which is exactly
+/// how it was reported, and which is what the title says. The mechanism is in
+/// the note, underneath, for the reader who wants it.
+///
+/// # The three numbers this copy owes, and why each is here
+///
+/// All measured by the engine, not estimated:
+///
+/// * **20 bytes a pixel**, which is what makes the memory figure predictable;
+/// * **about 50 % slower** than blending on screen at the same pixel count
+///   (1.4 s against 0.9 s at the boundary) — the trade is *correct colours are
+///   slower*, and an operator raising a ceiling deserves to know that before
+///   they notice it;
+/// * ★ **up to about four times the number chosen**, because the ceiling bounds
+///   ONE buffer and a page with nested transparency holds several page-sized
+///   ones at once — the page buffer, a group's child, a retained spare, and a
+///   whole backdrop copy for a knockout group.
+///
+/// The third is the one that must not be left out. The first version of the
+/// advice given to the operator said "about 5 GB is the maximum possible",
+/// which is right per buffer and **four times too low as a memory figure** —
+/// and too low is the direction he could act on.
+#[must_use]
+pub const fn cmyk_ceiling_title() -> &'static str {
+    "Colours changing when you zoom"
+}
+
+/// What happens if you never touch it.
+#[must_use]
+pub const fn cmyk_ceiling_silence() -> &'static str {
+    "A print-ready page is blended in ink up to about 500 % zoom on A4, and on screen colours above it — so its colours shift slightly as you zoom past that. The status bar says when it has happened."
+}
+
+/// What it costs, and what it does not affect.
+#[must_use]
+pub const fn cmyk_ceiling_radius() -> &'static str {
+    "Changes how pages are drawn and printed. It never changes the file, and it has no effect at all on a page that is not blended in ink — which is nearly every page that is not print-ready, including CAD line work."
+}
+
+/// The field's own label.
+#[must_use]
+pub const fn cmyk_ceiling_label() -> &'static str {
+    "Most memory to use for ink blending"
+}
+
+/// The field's note — the mechanism, the cost, and the four-times warning.
+#[must_use]
+pub const fn cmyk_ceiling_note() -> &'static str {
+    "Type `default`, or a size such as `512mib` or `1.5gb`. Blending in ink costs 20 bytes for every pixel of the page image, so a bigger allowance buys exact colours at higher zoom: about 640 MB reaches 800 % on A4, and 1.5 GB reaches about 1200 %. Two things worth knowing before you raise it — blending in ink takes roughly half again as long, and a page with layered transparency can need up to about four times the figure you set here, because it holds several of these at once. Nothing stops you setting a number this machine cannot supply; if that happens the page simply blends on screen instead and the status bar says so, exactly as it does today."
+}
+
+/// Shown beside a free-text setting whose typed form and canonical form differ.
+///
+/// The whole line is `= 256 MiB`, and it appears **only** when the operator's
+/// spelling is not the canonical one — `256 MiB` echoed back as `256 MiB` is
+/// noise, while `0.25gb` answered with `256 MiB` is the reason the line exists.
+/// It is how somebody learns, without being told, that this field speaks binary
+/// megabytes.
+#[must_use]
+pub fn parsed_as(canonical: &str) -> String {
+    format!("= {canonical}")
+}
+
+/// Shown beside a free-text setting whose contents do not parse.
+///
+/// Deliberately says what is still true rather than what is wrong: the stored
+/// value stands, nothing has been lost, and the operator is very likely
+/// mid-keystroke. A message that read like a rejection would be false — the
+/// field accepts every keystroke and always will.
+#[must_use]
+pub const fn unparsed_value_note() -> &'static str {
+    "Not a size pdfce recognises yet — the saved value is unchanged. Try `default`, `512mib`, `1.5gb`, or a plain number of bytes."
+}
+
 /// Where a page's blending colour space comes from: the setting's name.
 ///
 /// ★ Worded as the **symptom**, not the mechanism. Nobody arrives at this

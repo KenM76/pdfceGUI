@@ -165,6 +165,19 @@ impl SettingsExt for Settings {
             .with_image_minify(self.image_minify)
             .with_cmyk_jpeg_polarity(self.cmyk_jpeg_polarity)
             .with_missing_as(self.missing_as)
+            // ★ Added 2026-08-26, engine v0.14.0, and it is the ONLY thing that
+            // makes the Colour group's ceiling control do anything. The setting
+            // reaches `CmykBuffer::new` through this call and through no other
+            // route, so a build that added the control and not this line would
+            // present an operator with a number that changes nothing — which is
+            // worse than not offering it, because they would conclude the
+            // colours cannot be fixed.
+            //
+            // `Option<usize>` passed VERBATIM: `None` means the engine's own
+            // default and every one of its four public helpers takes the same
+            // shape, so there is nothing for this shell to resolve and no
+            // second place for a default to be decided.
+            .with_max_cmyk_buffer_bytes(self.max_cmyk_buffer_bytes)
     }
 
     /// Every save in the application starts here — **except one, on purpose.**
@@ -238,6 +251,10 @@ mod tests {
         s.missing_as = MissingAppearanceState::FirstEntry;
         s.xref_entry_eol = XrefEntryEol::CrLf;
         s.trailing_eol = TrailingEol::None;
+        // ★ 2026-08-26, engine v0.14.0. A distinctive value rather than a round
+        // one, so the assertion below cannot be satisfied by some other field
+        // that happens to print the same digits.
+        s.max_cmyk_buffer_bytes = Some(777_000_000);
         s
     }
 
@@ -284,6 +301,22 @@ mod tests {
             "Smooth",
             "InvertOnApp14",
             "FirstEntry",
+            // ★★ The CMYK ceiling, and this is the assertion that stops the
+            // Colour group's control being a number that changes nothing.
+            //
+            // The setting reaches `CmykBuffer::new` through
+            // `with_max_cmyk_buffer_bytes` and through NO other route, so a
+            // build that shipped the control and forgot the builder call would
+            // present the operator with a field that accepts a size, saves it,
+            // shows it back — and leaves the colours exactly as they were. That
+            // is worse than not offering it, because they would conclude the
+            // problem cannot be fixed.
+            //
+            // It is asserted as a raw digit string rather than through a getter
+            // because `RenderOptions` publishes none; the debug rendering is
+            // what is available from outside, which the block above already
+            // explains.
+            "777000000",
         ] {
             assert!(
                 moved.contains(expected),

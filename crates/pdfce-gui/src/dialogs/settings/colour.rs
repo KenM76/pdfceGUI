@@ -186,6 +186,55 @@ pub fn page_blend_space(ui: &mut Ui, draft: &mut Draft) {
     );
 }
 
+/// ★★ **How much memory ink blending may use** — the ceiling that decides
+/// whether a page's colours change with the zoom.
+///
+/// # Why it is in Colour, and why its title is not "buffer"
+///
+/// The symptom that sends somebody looking for it, in the operator's own words:
+///
+/// > *"seems I get different results depending on Zoom level … up to 474 % they
+/// > are mismatched, but at 579 % they match."*
+///
+/// That is an ink question, so it is in the ink group, beside the two settings
+/// that decide *whether* a page is blended in ink at all. And it is titled
+/// *"Colours changing when you zoom"* rather than anything about a buffer,
+/// because nobody has ever gone looking for a buffer.
+///
+/// # The only free-text control in this window
+///
+/// Every other setting here is a choice among named options. This one is a
+/// quantity, and the operator asked for it to be a quantity *"up to the maximum
+/// possible"* — so it is [`widgets::text_value`], uncapped, with the cost
+/// stated and no guard. That is the same ruling that governs the maximum zoom,
+/// and the engine built its side to match: the allocation is fallible, so a
+/// ceiling this machine cannot honour refuses down the ordinary disclosed path
+/// rather than aborting. **State the cost; do not prevent the choice.**
+///
+/// ★ It parses with `pdfce_core::settings::parse_byte_size` and displays with
+/// `format_byte_size` — the engine's own pair, which is what `settings.txt`
+/// uses. So the window and the file accept and show identical strings, and
+/// `256mb` and `256mib` both mean 1,048,576 × 256 here, deliberately: every
+/// figure pdfce reports about this buffer is binary, and an operator who types
+/// `512mb` after reading "256 MB" should get double rather than 488 MiB.
+pub fn cmyk_ceiling(ui: &mut Ui, draft: &mut Draft) {
+    widgets::header(
+        ui,
+        t::cmyk_ceiling_title(),
+        t::cmyk_ceiling_silence(),
+        t::cmyk_ceiling_radius(),
+    );
+    widgets::text_value(
+        ui,
+        "settings.colour.cmyk_ceiling",
+        &mut draft.working.max_cmyk_buffer_bytes,
+        t::cmyk_ceiling_label(),
+        Some(t::cmyk_ceiling_note()),
+        |v| pdfce_core::settings::format_byte_size(*v),
+        |s| pdfce_core::settings::parse_byte_size(s).ok(),
+    );
+}
+
 /// How a mesh-shading patch record is byte-padded (spec ambiguity `MSH-A1`).
 ///
 /// # Why this is in Colour and not in Images

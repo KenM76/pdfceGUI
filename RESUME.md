@@ -25,54 +25,79 @@ here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Tests** | 1,783 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Tests** | 1,788 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | **18 of 18**, 0 skipped |
 | **`ui-verify`** | **81 checks declared** — counted from a `--no-input` run, not from a grep. Full driven run 2026-08-26: **55 passed · 9 failed · 17 skipped**, and ★ **every one of the 81 launched** — the first run in this project's history with no `accesskit` handle failures at all. `evidence/ui-verify-run-2026-08-26-rotated.txt` categorises all nine: one was the harness (fixed), two are O27, two are blank paper on a CAD sheet, **four are real and now filed as O44** |
 | **The nine failures** | Read the evidence file's own table before re-diagnosing any of them. **None is the rotated-text work** — that check passed, falsified in two directions first — and the argument for that claim is in the evidence file rather than asserted here. Two are **O27**'s residual, deliberately red. Four are **O44**, found by this run and never reported by the operator; the one he would feel is the status bar going off screen at `ui_scale = 1.80` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `9a4fb18` (**v0.13.0**). **Read `Cargo.lock`, not this row.** ★ Deliberately NOT on `d3b4f5a`/v0.14.0 — see the note below |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `ffe9d4c` (**v0.14.0**) — the release that made the CMYK ceiling readable and settable at this shell's request. **Read `Cargo.lock`, not this row** |
 | **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 16:33 from shell `f32a265` on engine `9a4fb18` — the rotated-text build. `pdfceGUI1` holds the 12:48 build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
-### ★★ The engine is one version behind ON PURPOSE, and the next session's first job
+### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 
-`cargo update -p pdfce-core -p pdfce-render -p pdfce-print` takes the pin from
-`9a4fb18` (v0.13.0) to `d3b4f5a` (**v0.14.0**), and v0.14.0 is the engine's
-answer to **O42** — the CMYK compositing ceiling is now both readable and
-settable, exactly as asked. Read
-`FeatureRequests\pdfce_FeatureRequests\open\reply_cmyk_buffer_ceiling.md` and
-the new `docs/core-api/03-capabilities.md` §7.3a, which was written for us.
+**It is the machine, not the program** — settled 2026-08-26 by the operator
+testing the identical portable build on his laptop, where it is fine. Do not
+diagnose it again.
 
-**Taking the bump turns one test red immediately**, and correctly:
+The symptom is a panic before any window appears, from `accesskit_windows`,
+reporting `HRESULT 0x80070008 "Not enough memory resources"` on a machine with
+plenty of memory.
 
-```
-dialogs::settings::tests::every_setting_the_store_carries_has_a_control_in_this_window
-  `Settings::max_cmyk_buffer_bytes` is honoured by the engine and has NO control
-  in this window
-```
+★ **What it costs you:** `ui-verify` launches a fresh process per check, so on
+this PC roughly a third of the suite cannot start and reports SKIPPED. Those are
+environmental, not product defects — read the skip reason before chasing one. A
+run on this machine is therefore always partial, and reporting it as a pass would
+be false.
 
-That is the settings-completeness gate doing its job on the very first build
-after the engine grew a setting. The pin was reverted rather than the test
-appeased, so that the rotated-text commit is coherent and green on the revision
-it was actually verified against — **not** because the bump is unwelcome.
+★★ A red herring on the way: OneDrive was found holding 404,000 handles, and
+publishing builds was measurably feeding it (~27,000 per build, established with
+a do-nothing control). Restarting OneDrive dropped it to 1,179 — **and the crash
+rate did not change.** Real leak, real fix, wrong mechanism.
 
-**What taking it up properly means, in order:**
 
-1. `RenderOptions::with_max_cmyk_buffer_bytes` into
-   `app::settings::SettingsExt::render_options` — the funnel, so raising the
-   ceiling actually reaches the renderer;
-2. a Settings control for `max_cmyk_buffer_bytes`, with the memory and time
-   costs stated per value (they are measured, in `O42`);
-3. end the whole-page render tier at the ceiling rather than at
-   `MAX_PIXMAP_EDGE`, using the engine's new
-   `will_composite_in_cmyk(w, h, max_bytes)` predicate — **not** a hardcoded
-   pixel count, which is the thing the request explicitly refused to do;
-4. keep the existing `status-group:blend-space` disclosure for the case where
-   his chosen ceiling is still exceeded.
+### ★★★ Colours no longer change with zoom — SHIPPED 2026-08-26
 
-★ Note from the request that changes the shape of step 3: with this shell's
-50 % overscan, the **region** tier already exceeds 256 MB on a 1440p monitor
-and by 2.5× on a 4K one. Moving the switch down is right and is **not
-sufficient on its own** — which is the strongest argument for the setting.
+`pdfce-render` composites transparency in a CMYK buffer whose *default* cap is
+256 MiB = **13,421,772 px**; past it, blending falls back to sRGB and the
+colours move (up to 16/255, measured). On **real A4 (595 x 842 pt)** that is
+**zoom 518 %** — against **1946 %** for `MAX_PIXMAP_EDGE`, a factor of 3.76.
+Every whole-page raster in that band came back with approximate colours.
+
+**Both halves are now done.**
+
+1. **`render::strategy::for_page` takes a third argument**, `Ink`, and ends the
+   whole-page tier at the colour ceiling as well as the pixmap one. A region
+   raster stays under the ceiling at any zoom because its buffer is sized to the
+   region. Driven: at 801 % on the conformance composite page the trace reads
+   `cmyk_buffer=true refused=0`, where it previously read `refused=1`.
+2. **Settings > Colour > "Colours changing when you zoom"** carries
+   `max_cmyk_buffer_bytes`, uncapped, parsed and formatted with the engine's own
+   `parse_byte_size` / `format_byte_size` so the window and `settings.txt` speak
+   the same strings.
+
+### ★★★ …and the ONE thing not to undo about it: the tier switch is OBSERVED
+
+The obvious implementation applies the colour ceiling to every page. **Do not.**
+Measured, and the numbers are the whole argument:
+
+| | |
+|---|---|
+| files declaring a subtractive page group | **15 of 4,012** in the engine's corpus — about 0.4 % |
+| where the default ceiling falls on the operator's own D-size sheet | **263 % zoom** — inside his daily working range |
+| transparency on that sheet | **none at all**, so nothing would have been gained |
+
+So `OpenDoc::ink_pages` records which pages have been *seen* compositing in ink,
+from the renderer's own `cmyk_buffer_engaged` / `cmyk_buffer_refused` on every
+raster, written in exactly one place (`absorb_render`, traced as `ink-page`).
+Only an observed page gets `Ink::Subtractive`. `interpret::page_blend_space` is
+private so the engine cannot be asked directly; that is on the request channel.
+
+★ `ui-verify blend_space` has **three outcomes** now, and the distinction is
+load-bearing: SKIP when the fixture has no transparency (a CAD drawing — it used
+to FAIL there, falsely, on every routine run), PASS when the ink survived, PASS
+when the fallback engaged *and was disclosed*. The one assertion that can fail
+either way is that `ink-page` was traced — falsified by disabling the
+observation and watching it go red.
 
 ### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 

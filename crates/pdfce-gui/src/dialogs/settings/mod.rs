@@ -402,6 +402,16 @@ pub fn show(
                     colour::polarity(ui, draft);
                     ui.add_space(10.0);
                     colour::page_blend_space(ui, draft);
+                    ui.add_space(10.0);
+                    // ★ Directly after `page_blend_space`, and the order is an
+                    // argument rather than a preference: that setting decides
+                    // WHETHER a page is blended in ink, and this one decides how
+                    // far up the zoom range it stays that way. An operator who
+                    // has just read the first has the context for the second,
+                    // and the reverse order would present a ceiling before the
+                    // thing it is a ceiling on.
+                    colour::cmyk_ceiling(ui, draft);
+                    ui.add_space(10.0);
                     colour::mesh_patch_padding(ui, draft);
                 });
                 widgets::group(ui, "images", t::group_images(), false, |ui| {

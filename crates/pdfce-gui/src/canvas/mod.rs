@@ -851,7 +851,14 @@ fn show_in(
         doc.raster_region = None;
         if let Some(place) = layout.rect_of(current) {
             let extent = viewer::page_extent_pts(&doc.pages[current]);
-            if crate::render::strategy::for_page(extent, raster_scale)
+            // ★ The THIRD argument, added 2026-08-26: whether this page is
+            // blended in ink, and at what ceiling. It ends the whole-page tier
+            // at the colour ceiling as well as the pixmap one — but only for a
+            // page that has been observed asking for ink, which on a CAD sheet
+            // is never. `render::strategy::Ink` carries the whole argument,
+            // including the 263 % measurement that made the unconditional
+            // version unacceptable.
+            if crate::render::strategy::for_page(extent, raster_scale, doc.ink_at(current))
                 == crate::render::strategy::Strategy::Region
                 && place.width() > 0.0
                 && place.height() > 0.0

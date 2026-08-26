@@ -1,4 +1,5 @@
-//! `blend_space` — **a page whose colours change with zoom says so.**
+//! `blend_space` — **a page blended in ink keeps its ink at every zoom, and
+//! says so on the rare occasion it cannot.**
 //!
 //! The driven assertion for the operator's report of 2026-08-26:
 //!
@@ -32,6 +33,52 @@
 //! removed **the gradients**, which are the thing the operator is looking at.
 //! Only a full box average is stable for flat patches, gradients and text
 //! alike.
+//!
+//! # ★★★ WHAT THIS CHECK NOW ASSERTS FIRST, AND WHY IT CHANGED — 2026-08-26
+//!
+//! Everything above is still true of `pdfce-render`. What changed is the
+//! **shell**, and it changed in the direction that makes the operator's report
+//! not happen at all rather than be apologised for.
+//!
+//! `render::strategy::for_page` now ends the whole-page tier at the colour
+//! ceiling as well as at `MAX_PIXMAP_EDGE`, for a page it has observed
+//! compositing in ink. A *region* raster of the same view stays under the
+//! ceiling at any zoom, because its buffer is sized to the region rather than
+//! to the page — so on the composite conformance page the driven trace now
+//! reads:
+//!
+//! ```text
+//! raster-blend-space cmyk_buffer=true refused=0 wrong_space=0 scale=0.752
+//! ink-page page=0
+//! raster-blend-space cmyk_buffer=true refused=0 wrong_space=0 scale=8.013
+//! ```
+//!
+//! At 801 % zoom, where this same build previously reported `refused=1` and
+//! showed the disclosure, **the page still composites in ink**. The colours no
+//! longer depend on the zoom at all.
+//!
+//! ★ So the primary assertion is now the **stronger** one — *the ink survives*
+//! — and the disclosure assertion has become a fallback for the cases where it
+//! genuinely cannot: an operator who sets a very small ceiling, a very large
+//! display whose region raster plus overscan exceeds the ceiling on its own
+//! (measured by the engine at ~281 MB at 1440p and ~633 MB at 4K, both above
+//! the 256 MiB default), or a page opened directly at a high zoom before the
+//! shell has observed that it is blended in ink.
+//!
+//! ★★ **The three outcomes are told apart by the trace, and the difference
+//! matters.** Before this, a page with no transparency and a page whose ink
+//! survived were indistinguishable to this check — both reach the ceiling zoom
+//! with no disclosure — and it reported FAIL for both. It did exactly that on
+//! `SW41177.pdf` during the full run of 2026-08-26, with a report reading *"the
+//! page's colours have changed and nothing on screen says so"* about a line-work
+//! drawing that has no transparency anywhere on it.
+//!
+//! | `cmyk_buffer` seen true? | `refused` seen? | verdict |
+//! |---|---|---|
+//! | no | no | **SKIP** — the fixture has no transparency; nothing to measure |
+//! | yes | no | **PASS** — the ink survived past the ceiling zoom, which is the repair |
+//! | yes | yes, and the disclosure appeared | **PASS** — the fallback engaged and was declared |
+//! | yes | yes, and it did not | **FAIL** — the reported defect, unchanged |
 //!
 //! # What this check asserts, and what it deliberately does not
 //!
@@ -349,22 +396,97 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // is worse than no check, because it trains a reader to skip the section.
     // `crate::report`'s three-state model exists for exactly this: PRECONDITION
     // ABSENT is a SKIP, and it names what was missing.
-    if !buffer_was_refused(&trace) {
+    // ★★★ THREE OUTCOMES, TOLD APART BY THE TRACE. The table in this module's
+    // header is the whole of the reasoning; what follows is it, in order of
+    // increasing badness.
+
+    // (1) The fixture has no transparency. A fact about the document, not the
+    // build — and reported as a SKIP because a page that cannot change colour
+    // cannot demonstrate that the shell would say so if it did.
+    if !buffer_was_engaged(&trace) {
         return Err(Error::new(format!(
             "the zoom passed the {:.0}% crossing and the renderer never engaged the CMYK \
-             compositing buffer at all — every `{BLEND_EVENT}` line reports `refused=0`. That \
-             is a fact about the FIXTURE, not the build: a page with no transparency on it \
-             composites nothing, so nothing falls back to sRGB and there is correctly nothing \
-             to disclose. Line-work drawings are the common case. SKIPPED rather than failed, \
-             because a page that cannot change colour cannot demonstrate that the shell would \
-             say so. Point --pdf at a document that uses transparency — this check was written \
-             against the industry print-conformance suite's composite page, which needs `--page-size 596x791` \
-             since its page box cannot be read from the file. Trace: {}.",
+             compositing buffer at all — no `{BLEND_EVENT}` line reports `cmyk_buffer=true`. \
+             That is a fact about the FIXTURE: a page with no transparency composites nothing, \
+             so nothing can fall back to sRGB and there is correctly nothing to disclose. \
+             Line-work drawings are the common case, and this shell's usual `--pdf` is one. \
+             SKIPPED rather than failed. Point --pdf at a document that uses transparency — \
+             this check was written against the industry print-conformance suite's composite \
+             page, which needs `--page-size 596x791` since its page box cannot be read from \
+             the file. Trace: {}.",
             crossing * 100.0,
             session.trace_path().display()
         )));
     }
 
+    // ★★★ THE ASSERTION THAT CAN ACTUALLY FAIL, and it is here rather than
+    // inside either branch below because it is true of both.
+    //
+    // The tier only moves down for a page the shell has OBSERVED compositing in
+    // ink (`render::strategy::Ink`), and the observation is one line in
+    // `OpenDoc::absorb_render` reading the renderer's own counters. If that
+    // line stops working, `for_page` answers `Additive` for ever, the tier
+    // never moves, and every raster past the ceiling comes back in sRGB again.
+    //
+    // ★ Without this, that regression would be **invisible to this check**: it
+    // would land in outcome (3), the fallback would engage, the disclosure
+    // would appear, and the check would PASS — reporting that pdfce correctly
+    // apologised for a defect it had just reacquired. Outcome (2) versus (3) is
+    // deliberately a *note* and not a verdict, because a large display's region
+    // raster can legitimately exceed the default ceiling (the engine measures
+    // ~633 MB at 4K) and failing there would be wrong. This is the part of the
+    // mechanism that has no legitimate reason to be absent.
+    if !trace.started(INK_PAGE_EVENT) {
+        return Ok(Some(format!(
+            "the page composited in ink — a `{BLEND_EVENT}` line reports `cmyk_buffer=true` — \
+             and the shell never traced `{INK_PAGE_EVENT}`. That is the observation the render \
+             tier depends on: `render::strategy::Ink::Subtractive` is only ever produced for a \
+             page in `OpenDoc::ink_pages`, and that set is written in exactly one place, from \
+             `cmyk_buffer_engaged` / `cmyk_buffer_refused`, in `absorb_render`. With it absent \
+             the tier never ends at the colour ceiling and every raster past it composites in \
+             sRGB — the operator's original report, reacquired. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "the shell observed the page composites in ink (`{INK_PAGE_EVENT}`), which is what lets \
+         the render tier end at the colour ceiling rather than at the pixmap one"
+    ));
+
+    // (2) ★ THE REPAIR. The page composites in ink and was NEVER refused, at a
+    // zoom well past the ceiling a whole-page raster would have crossed — so
+    // `render::strategy` moved to the region tier and the ink survived. This is
+    // the outcome the shell now aims for and the one that makes the operator's
+    // report not happen.
+    if !buffer_was_refused(&trace) {
+        report.note(format!(
+            "★ the page composites in ink and was never refused, at {:.0}% — past the {:.0}% a \
+             whole-page raster would have crossed. The region tier kept its buffer under the \
+             ceiling, so the colours do not depend on the zoom at all",
+            reached * 100.0,
+            crossing * 100.0
+        ));
+        // The disclosure must ALSO be absent, and that half is not decoration:
+        // a status line that appeared while the colours were exact would be
+        // pdfce telling the operator its own output is approximate when it is
+        // not — which is the same class of lie as staying quiet when it is.
+        if ever_declared(&trace, ui_rect) {
+            return Ok(Some(format!(
+                "at zoom {:.0}% the page composited in ink throughout — every `{BLEND_EVENT}` \
+                 line reports `refused=0` — and the `{REGION}` disclosure appeared anyway. The \
+                 operator is being told the colours are approximate while they are exact. Look \
+                 at what `app::status::disclosure::blend_space_disclosure` keys on: it must be \
+                 the LAST raster's `cmyk_buffer_refused`, and a stale texture's diagnostics \
+                 would produce exactly this. Trace: {}.",
+                reached * 100.0,
+                session.trace_path().display()
+            )));
+        }
+        return Ok(None);
+    }
+
+    // (3) The fallback did engage. It is then owed a disclosure, and this is
+    // the original defect.
     if !ever_declared(&trace, ui_rect) {
         return Ok(Some(format!(
             "at zoom {:.0}%, past the {:.0}% at which the renderer refuses the CMYK compositing \
@@ -376,13 +498,32 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     }
-    report.note("the disclosure appeared once the page's colours became approximate");
+    report.note(
+        "the fallback engaged — which since 2026-08-26 means the region tier could not stay \
+         under the ceiling either — and the disclosure appeared, which is what is owed",
+    );
     Ok(None)
 }
 
 /// `raster-blend-space cmyk_buffer=… refused=… wrong_space=… scale=…` — the
 /// renderer's own report of which space it composited in.
 const BLEND_EVENT: &str = "raster-blend-space";
+
+/// `ink-page page=…` — `OpenDoc::absorb_render`'s report that it has seen this
+/// page composite in ink, which is the observation the render tier's colour
+/// ceiling depends on.
+const INK_PAGE_EVENT: &str = "ink-page";
+
+/// **Whether the page ever composited in ink at all.**
+///
+/// The precondition that tells a fixture with no transparency apart from one
+/// whose ink survived — see this module's header table. Without it those two
+/// are the same picture to this check, and it reported FAIL for both.
+fn buffer_was_engaged(trace: &crate::trace::Trace) -> bool {
+    trace
+        .events(BLEND_EVENT)
+        .any(|l| l.get("cmyk_buffer") == Some("true"))
+}
 
 /// **Whether the renderer ever actually refused the CMYK buffer.**
 ///
