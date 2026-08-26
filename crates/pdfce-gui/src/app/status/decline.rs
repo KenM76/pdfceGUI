@@ -638,7 +638,7 @@ pub(super) fn show(ui: &mut egui::Ui, doc: &OpenDoc) {
     let Some(declined) = live(ui.ctx(), doc) else {
         return;
     };
-    super::disclosure_line(ui, REGION_DECLINE, declined.line());
+    super::disclosure::disclosure_line(ui, REGION_DECLINE, declined.line());
 }
 
 #[cfg(test)]

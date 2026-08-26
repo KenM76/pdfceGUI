@@ -938,6 +938,23 @@ pub fn adopted(name: &str, typed: bool, acroform_created: bool) -> String {
     line
 }
 
+/// The status-bar line for a document whose index pdfce had to rebuild.
+///
+/// ★★★ One sentence, stating the fact and where to look, and stopping. It does
+/// not warn, does not instruct, and carries no counters — the numbers live in
+/// Properties, and a status line long enough to hold three of them would push
+/// the zoom and page controls off a narrow window.
+///
+/// ★ It says **"rebuilt"** rather than "repaired" or "fixed". Repaired implies
+/// the file is now correct; rebuilt says what actually happened — pdfce
+/// reconstructed the index by scanning, which is a best reading of damaged
+/// bytes and may or may not be the one the author intended. The operator's
+/// trust in the page should follow the weaker word.
+#[must_use]
+pub const fn recovered_status_line() -> &'static str {
+    "This file's index was damaged — pdfce rebuilt it to open the document. The Properties panel says what was recovered."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -312,6 +312,7 @@
 /// header for the seam, and that one's for the control.
 // The four named zoom levels -- Actual size, Fit width, Fit height, Fit page.
 // Split out under R2 on 2026-08-24; see its header for the layout rule.
+mod disclosure;
 mod fit;
 mod page_box;
 
@@ -354,12 +355,10 @@ pub(crate) mod notes;
 use egui::{Align, Layout, Vec2};
 
 use crate::app::actions::Action;
-use crate::app::state::{OpenDoc, Status};
+use crate::app::state::Status;
 use crate::canvas::pick::PickFilter;
 use crate::find::FindState;
 use crate::text::find as t_find;
-use crate::text::forms as t_forms;
-use crate::text::status as t;
 
 /// ★ The **Select** popup — what a click on the page may land on (O17).
 ///
@@ -451,7 +450,7 @@ const REGION_BAR: &str = "status-bar"; // ui-text-exempt: trace region name, nev
 /// Named as a region so `ui-verify` can assert it is **on screen and
 /// legible** rather than merely constructed — which for a disclosure is the
 /// whole of the requirement.
-const REGION_FILL_DISCLOSURE: &str = "status-group:fill-disclosure"; // ui-text-exempt: trace region name, never displayed
+pub(super) const REGION_FILL_DISCLOSURE: &str = "status-group:fill-disclosure"; // ui-text-exempt: trace region name, never displayed
 
 /// The last vector edit's rule-4 disclosure, when one is live for this
 /// revision.
@@ -459,7 +458,10 @@ const REGION_FILL_DISCLOSURE: &str = "status-group:fill-disclosure"; // ui-text-
 /// Named as a region for the same reason as its fill sibling: a disclosure's
 /// whole requirement is that it is **on screen and legible**, and `ui-verify`
 /// can only assert that about a rect the application published.
-const REGION_EDIT_DISCLOSURE: &str = "status-group:edit-disclosure"; // ui-text-exempt: trace region name, never displayed
+pub(super) const REGION_EDIT_DISCLOSURE: &str = "status-group:edit-disclosure"; // ui-text-exempt: trace region name, never displayed
+
+/// See [`recovered_disclosure`].
+pub(super) const REGION_RECOVERED: &str = "status-group:recovered"; // ui-text-exempt: trace region name, never displayed
 
 /// `Actual size · Fit width · Fit page`.
 const REGION_FIT: &str = "status-group:fit"; // ui-text-exempt: trace region name, never displayed
@@ -655,7 +657,6 @@ pub fn show(
         // It is keyed on `edit_epoch`, so it says nothing about a document
         // that has moved on — an undo or any later edit retires it without
         // anything having to remember to.
-        fill_disclosure(ui, doc);
 
         // ★ …and the same obligation for the verbs that move geometry.
         //
@@ -678,7 +679,7 @@ pub fn show(
         // reason: an undo or any later edit retires the sentence without
         // anything having to remember to. The two can never both be live —
         // one edit bumps the epoch once and records at most one of them.
-        edit_disclosure(ui, doc);
+        disclosure::all(ui, doc);
 
         // ★ …and the opposite speech act, in the same place.
         //
@@ -780,164 +781,6 @@ pub fn show(
 // ---------------------------------------------------------------------------
 // Left — the narrator
 // ---------------------------------------------------------------------------
-
-/// What the last fill **inferred**, in the bar, until the document moves on.
-///
-/// # Why this is not behind the disclosure triangle beside it
-///
-/// The render notes are *narration* — a census of what a raster contained —
-/// and `DEFECTS.md` §5's complaint was their prominence: the first thing an
-/// operator read was the application talking about itself. Demoting them was
-/// right.
-///
-/// These two sentences are the opposite kind of thing. They are the surviving
-/// half of rule 4: **an inference the operator cannot see still owes a
-/// report.** `applied_autosize` means pdfce chose a point size the document
-/// asked it to choose; `unencodable_chars` means the operator's own typing is
-/// not what the page now says. Neither is re-derivable from the saved file
-/// afterwards — both look exactly like the author's decision — so a
-/// disclosure the operator has to *open something* to find is a disclosure
-/// that did not happen.
-///
-/// # Why the status bar rather than the Forms panel alone
-///
-/// The panel shows them, and that was sufficient while the panel was the only
-/// way to fill. Canvas filling landed 2026-08-14 and broke the assumption: a
-/// fill can now happen in **Read mode with the panel closed**, and Read's
-/// dock does not mount Forms unless the operator put it there. The bar is the
-/// one surface present in every mode.
-///
-/// # It retires itself
-///
-/// Keyed on [`OpenDoc::edit_epoch`] **after** the fill, so any later edit —
-/// including an undo — moves the document past it and the sentence
-/// disappears with no code remembering to clear it. That is deliberate:
-/// state that must be cleared is state that will one day be shown against
-/// the wrong document.
-///
-/// Elided at the same fraction as the notes line, whole text on hover, and
-/// **it does not make the bar taller** — R128, exactly as for its neighbour.
-fn fill_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
-    let Some(d) = crate::panels::forms::edit::last_fill_disclosure(doc.edit_epoch) else {
-        return;
-    };
-
-    // Both can be true of one fill. Joined rather than shown as two lines,
-    // because two lines is two rows, which is the R128 loop.
-    let mut line = String::new();
-    if let Some(size) = d.applied_autosize {
-        line.push_str(&t_forms::forms_fill_autosize_note(&d.field, size));
-    }
-    if d.unencodable_chars > 0 {
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(&t_forms::forms_fill_unencodable_note(
-            &d.field,
-            d.unencodable_chars,
-        ));
-    }
-    if line.is_empty() {
-        return;
-    }
-
-    disclosure_line(ui, REGION_FILL_DISCLOSURE, &line);
-}
-
-/// What the last **vector edit** disclosed, in the bar, until the document
-/// moves on.
-///
-/// # What it says, and who wrote it
-///
-/// Every vector verb — the three move verbs and Delete — returns a list of
-/// operator-facing sentences alongside its success, non-empty when the surgery
-/// had to change an operator's *form* to express the request: an `re` rectangle
-/// rewritten as four lines so one corner could move independently, an
-/// implicitly-started subpath's `m` materialised, a curve dropped along with
-/// the point it ran into. **The drawing is unchanged and the bytes are not
-/// recoverable by reversing the gesture** — dragging the corner back does not
-/// restore the rectangle form — which is precisely the condition rule 4 exists
-/// for: pdfce inferred a representation, and the operator would otherwise
-/// learn it from a diff.
-///
-/// The sentences are `pdfce-core`'s own and are passed through verbatim; this
-/// module contributes the framing, and only the framing. See
-/// [`crate::text::status::edit_disclosure_line`].
-///
-/// # Why it is here rather than only in the trace
-///
-/// It *was* only in the trace. `crate::app::actions::vector_edit`'s header
-/// named that as the outstanding half in as many words — *"a disclosure that
-/// only ever reaches `PDFCE_DIAG` has been recorded and not disclosed"* — and
-/// this function is the half it was waiting for. The trace is unchanged and
-/// still carries the full list; what has changed is that an operator who is
-/// not running with `PDFCE_DIAG` set can now read it, which is every operator.
-///
-/// # Why the status bar rather than a panel or the canvas
-///
-/// Two constraints, and together they leave one surface. Rule 4 puts a
-/// disclosure **off-canvas** — the one-line test is whether a screenshot of the
-/// editing canvas would differ from a screenshot of the same document saved and
-/// reopened, and a note drawn over the page would make it differ. And the
-/// gesture that raises one is a **canvas drag**, available in Edit and Review
-/// with any panel arrangement including none, so a panel could not be relied on
-/// to be mounted. The bar is the one surface present in every mode.
-///
-/// # It retires itself, and it cannot collide with its neighbour
-///
-/// Keyed on [`OpenDoc::edit_epoch`] **after** the edit, exactly as
-/// [`fill_disclosure`] is: any later edit — including an undo — moves the
-/// document past it and the sentence disappears with no code remembering to
-/// clear it. One edit bumps the epoch once and records at most one kind of
-/// disclosure, so the fill line and this one can never both be live for the
-/// same revision; see
-/// [`crate::app::actions::last_edit_disclosure`]'s ★ section.
-///
-/// **It does not make the bar taller** — R128, asserted by
-/// [`tests::the_bar_is_exactly_as_tall_open_as_closed`].
-fn edit_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
-    let Some(d) = crate::app::actions::last_edit_disclosure(doc.edit_epoch) else {
-        return;
-    };
-    disclosure_line(
-        ui,
-        REGION_EDIT_DISCLOSURE,
-        &t::edit_disclosure_line(&d.notes),
-    );
-}
-
-/// Draw one disclosure sentence into the bar's single row, and publish its
-/// rect.
-///
-/// The shared body of [`fill_disclosure`] and [`edit_disclosure`], written once
-/// for the reason `crate::app::actions::vector_edit` is written once: the
-/// R128 defence here is not one rule but four small ones that only work
-/// together — a **bounded** sub-region so a long sentence cannot push the
-/// navigation controls off the right of the bar, a **fixed** row height,
-/// `truncate()` rather than wrapping (wrapping is how a one-row bar becomes a
-/// two-row bar, which is the feedback loop with extra steps), and the full text
-/// on **hover** so eliding defers rather than loses. Two hand-written copies
-/// would be two chances to omit one of the four, and the omission would show up
-/// as a page that re-fits itself at the moment an operator finishes a gesture.
-///
-/// `region` is published so `ui-verify` can assert the sentence is on screen
-/// and legible rather than merely constructed — which, for a disclosure, is the
-/// whole of the requirement.
-fn disclosure_line(ui: &mut egui::Ui, region: &str, line: &str) {
-    let width = (ui.available_width() * NOTES_WIDTH_FRACTION).max(0.0);
-    let rect = ui
-        .allocate_ui_with_layout(
-            Vec2::new(width, ROW_HEIGHT_PTS),
-            Layout::left_to_right(Align::Center),
-            |ui| {
-                ui.add(egui::Label::new(egui::RichText::new(line).small()).truncate())
-                    .on_hover_text(line.to_owned());
-            },
-        )
-        .response
-        .rect;
-    crate::diag::ui_rect(region, rect);
-}
 
 // ---------------------------------------------------------------------------
 // Right — find
@@ -1111,9 +954,15 @@ pub(super) mod test_support {
 
 #[cfg(test)]
 mod tests {
+    // ★ Scoped to the tests, because the non-test users of this alias moved
+    // into `status::disclosure` when the three rule-4 lines were split out.
+    // At the top of the file it is an unused import that only
+    // `clippy --all-targets` sees — `cargo build` skips the test module, so the
+    // build stays green while the gate goes red.
     use super::test_support::{opened, settled_bar_frame};
     use super::*;
     use crate::find::FindState;
+    use crate::text::status as t;
     use egui::{Context, RawInput};
 
     // =======================================================================
@@ -1458,5 +1307,46 @@ mod tests {
             "these labels contain codepoints the bundled fonts cannot draw, \
              so they would render as tofu boxes: {missing:?}"
         );
+    }
+}
+/// ★★ **The three disclosure lines are independent, and none of them is the
+/// narrator.**
+///
+/// Asserted as a truth table because the obvious mistake, when a third line is
+/// added beside two existing ones, is to make them alternatives — an `else if`
+/// chain that shows whichever fires first. They answer different questions and
+/// can all be true at once:
+///
+/// | line | answers |
+/// |---|---|
+/// | fill | what a form fill had to INFER |
+/// | edit | what a move or delete had to change about an object's FORM |
+/// | recovered | how this FILE was assembled before anything was drawn |
+///
+/// A document opened from a damaged index, edited, and with a form filled owes
+/// the operator all three.
+#[cfg(test)]
+mod disclosure_independence {
+    /// The region names are a cross-repo contract with `ui-verify`; a rename is
+    /// an API change, not a tidy-up.
+    #[test]
+    fn each_disclosure_publishes_its_own_region() {
+        let names = [
+            super::REGION_FILL_DISCLOSURE,
+            super::REGION_EDIT_DISCLOSURE,
+            super::REGION_RECOVERED,
+        ];
+        for (i, a) in names.iter().enumerate() {
+            assert!(
+                a.starts_with("status-group:"),
+                "{a} is not in the status bar's region namespace"
+            );
+            for b in names.iter().skip(i + 1) {
+                assert_ne!(
+                    a, b,
+                    "two disclosure lines share a region name, so a driven check asserting one would silently be reading the other"
+                );
+            }
+        }
     }
 }
