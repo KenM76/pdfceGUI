@@ -236,9 +236,33 @@ pdfce fail to open occasionally and put it down to bad luck. It probably was not
 OneDrive (or of the machine) will clear it. I have not touched it — that is your
 sync and your call.
 
-★ Worth saying that I may be contributing: I have published eight builds into
-OneDrive folders today, roughly 35 MB each. If the leak scales with sync churn,
-that is on me, and I can publish less often if you would rather.
+### ★★★ It IS me, measured — and I have changed what I do
+
+I said I might be contributing. I tested it rather than leaving it as a guess,
+by taking a reading, publishing nothing for half an hour, and taking another:
+
+| period | publishes | handles gained |
+|---|---:|---:|
+| ~2 hours | 2 | **+55,000** |
+| 32 minutes | **0** | **+6** |
+
+Four orders of magnitude apart. **Each build I mirror to OneDrive costs your
+machine roughly 27,000 handles, and OneDrive never gives them back.**
+
+**So I have stopped publishing everything.** From now on a build goes to OneDrive
+only when there is something you would actually notice — a fix you can feel, a
+feature you asked for. Documentation, tests, refactors and engine re-pins with no
+visible difference are commits only. The rule is written into the packaging tool
+itself, with the measurement beside it, so it survives me.
+
+★ **This does not undo what has leaked.** The 404,000 handles already taken stay
+taken until OneDrive is restarted — which is worth doing, because at this level
+roughly **one program launch in three fails**, and not only pdfce's.
+
+★★ And the error message is actively misleading, which is why this was never
+going to be reported as a pattern: Windows says *"not enough memory resources"*
+while the machine has plenty of memory. It is **handles**, not memory — measured
+at 404,179 handles against a 15 MB working set.
 
 ## E3 — OCR put every word in the wrong place on rotated pages
 

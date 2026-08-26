@@ -1,6 +1,55 @@
 #!/usr/bin/env python3
 """Build the pdfceGUI portable distribution into ``D:\\builds``.
 
+★★★ PUBLISH ONLY WHAT AN OPERATOR WOULD NOTICE — MEASURED 2026-08-26
+===================================================================
+
+**Each mirror to OneDrive costs the machine roughly 27,000 kernel handles, and
+OneDrive does not give them back.**
+
+Measured, with a control, because the first version of this claim was two data
+points and a correlation:
+
+    349,214 handles -> 404,185   over ~2 hours, TWO publishes   (+55,000)
+    404,179 handles -> 404,185   over 32 minutes, NO publish    (+6)
+
+Four orders of magnitude apart. The leak tracks this script's mirror step, not
+the passage of time.
+
+WHAT IT BREAKS, AND WHY IT LOOKS UNRELATED
+-------------------------------------------
+Handles are the resource Windows needs to CREATE A WINDOW. Past a threshold,
+`accesskit_windows` panics while installing a window's accessibility subclass:
+
+    HRESULT(0x80070008) "Not enough memory resources are available"
+
+`pdfce-gui` then dies before showing anything, with a message about *memory* on
+a machine with plenty of it — measured at 404,179 handles against a **15 MB**
+working set. It is a handle exhaustion wearing a memory error's clothes, which
+is why nobody would connect it to a packaging script.
+
+The effect is intermittent and therefore easy to misread as flakiness: at this
+level, one launch in three fails. It also blocked a third of `ui-verify`'s
+checks from starting at all, which is how it was found.
+
+THE RULE
+--------
+**Publish when there is something an operator would notice.** A fix they can
+feel, a feature they asked for, a rendering change. NOT:
+
+  - a documentation or comment change
+  - a test added or a harness improved
+  - an engine re-pin with no behavioural difference
+  - a refactor, however satisfying
+
+Those are commits, and the commit is the record. A build in `OneDrive\` is a
+thing the operator *runs*, and mirroring one costs his machine real resources
+that are not returned until OneDrive restarts.
+
+★ Stopping does not undo what has leaked. The count stays where it is; only a
+OneDrive restart clears it. So the rule is about not making it worse, and the
+already-accumulated total is the operator's to clear.
+
 WHY THIS EXISTS
 ===============
 
