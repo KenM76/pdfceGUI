@@ -523,6 +523,23 @@ impl PdfceApp {
             // application to do arrives here as an `Action`, and "open a
             // window" is no exception to that just because it touches no
             // document.
+            // ★ Selecting a form field changes no document — it is view
+            // state, and it deliberately does NOT reach `vector_edit`, bump the
+            // epoch or invalidate a page. It is here rather than mutated at the
+            // canvas because that is this shell's one rule: everything a
+            // gesture wants the application to do arrives as an `Action`.
+            Action::SelectFormField(selected) => {
+                doc.selected_field = selected;
+            }
+            Action::RenameFormField { from, to } => {
+                crate::app::actions::forms::rename(doc, &from, &to);
+            }
+            Action::DeleteFormField { field } => {
+                crate::app::actions::forms::delete_field(doc, &field);
+            }
+            Action::DeleteFormWidget { field, widget } => {
+                crate::app::actions::forms::delete_widget(doc, &field, widget);
+            }
             // ★ Placing a form control CHANGES NOTHING, exactly as placing a
             // text-bearing annotation does one arm down. It opens the dialog,
             // and the details decide whether anything is authored.

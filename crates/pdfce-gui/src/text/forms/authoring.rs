@@ -136,6 +136,57 @@ pub fn form_field_tagged_document() -> String {
         .to_owned()
 }
 
+/// **The field was renamed.**
+///
+/// ★★ It names `descendants_renamed` when there are any, and that is the whole
+/// reason this takes two arguments. Renaming a field that has children renames
+/// their fully-qualified names too — `Address` becoming `Postal` turns
+/// `Address.Line1` into `Postal.Line1` — because a qualified name is built from
+/// the parent chain. The operator renamed one thing and several changed, and
+/// every one of those is a name an FDF import or a filling script keys on.
+/// Nothing on the page says so.
+#[must_use]
+pub fn form_field_renamed(to: &str, descendants: usize) -> String {
+    if descendants == 0 {
+        format!("Renamed to \u{201c}{to}\u{201d}.")
+    } else {
+        format!(
+            "Renamed to \u{201c}{to}\u{201d}. {descendants} field(s) inside it were renamed \
+             with it, because their names are built from this one."
+        )
+    }
+}
+
+/// **The field was deleted**, and how many boxes went with it.
+///
+/// ★ The count is the part that cannot be seen. A field drawn in three places
+/// disappears from three pages and the operator is looking at one of them.
+#[must_use]
+pub fn form_field_deleted(widgets: usize) -> String {
+    if widgets <= 1 {
+        "Field deleted.".to_owned()
+    } else {
+        format!("Field deleted, including {widgets} boxes across the document.")
+    }
+}
+
+/// **One box was deleted and the field remains.**
+#[must_use]
+pub fn form_widget_deleted() -> String {
+    "Box deleted. The field is still in the form, drawn elsewhere.".to_owned()
+}
+
+/// ★★ **The last box went, so the field went with it** — which is not what the
+/// operator pressed.
+///
+/// `delete_widget` removes the field when its last widget goes, and that is
+/// right: a named field nothing draws is a field nothing can fill. It is still
+/// a larger outcome than the button promised, so it is said.
+#[must_use]
+pub fn form_widget_deleted_last() -> String {
+    "That was the field's last box, so the field was removed from the form too.".to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

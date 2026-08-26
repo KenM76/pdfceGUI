@@ -126,6 +126,35 @@ impl FormFieldDialog {
 
     /// Draw one frame. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+        // ★★★ **The harness's way past a second OS window.**
+        //
+        // R1 says a feature is not done until it is asserted by driving the
+        // running binary. `tools/ui-verify` drives ONE window — the one
+        // `Session::launch` found — and this dialog is a deferred viewport with
+        // a window of its own. So without this, everything downstream of
+        // placing a field is unreachable: the five engine verbs, the narrowing
+        // in `app::actions::forms::author`, and all four rule-4 disclosures
+        // would be implemented, unit-tested, and never once exercised in a
+        // running window.
+        //
+        // The precedent is exact and there are two of them. `PDFCE_DIAG_OPEN_PATH`
+        // substitutes the answer to a native file picker, and
+        // `PDFCE_DIAG_INSERT_PATH` the answer to another — both because a
+        // dialog the harness cannot reach is a hard wall rather than a hard
+        // problem. `app::dropped`'s note generalises it: *"without this,
+        // drag-and-drop would be the one feature in this shell that R1 could
+        // not reach."*
+        //
+        // ★ What it substitutes is the OPERATOR'S PRESS, not the authoring. It
+        // sets the same flag the Add button sets, so everything after that
+        // point — the readiness guard, the action, the remembering, the
+        // narrowing and the engine call — is the path an operator takes. A seam
+        // that pushed `CommitFormField` directly would be proving that a
+        // different path works, which is the failure this whole channel exists
+        // to avoid.
+        if accept_requested_by_harness() && self.draft.is_authorable() {
+            self.accept_requested = true;
+        }
         // Taller than the text-annotation dialog because the kind-specific rows
         // stack under the common ones; the minimum is what the common rows plus
         // the buttons need, so a resized-small window still shows a usable
@@ -407,6 +436,23 @@ impl FormFieldDialog {
             .on_hover_text(t::border_hover());
         });
     }
+}
+
+/// Whether `PDFCE_DIAG_FORM_ACCEPT` asks this dialog to accept itself.
+///
+/// ★ Read every frame rather than latched, unlike `scripted_invoke`'s counter,
+/// and the difference is real: that one turns an env var into an **event**, so
+/// it must fire once. This is a **standing instruction** — *"in this run, accept
+/// every form-field dialog"* — and a check that places three fields wants all
+/// three accepted. It is idempotent by construction, because accepting closes
+/// the dialog.
+///
+/// Gated on `crate::diag::enabled()` like every other seam, so a stray
+/// environment variable cannot change what the shipped program does for an
+/// operator who is not running a harness.
+fn accept_requested_by_harness() -> bool {
+    crate::diag::enabled()
+        && std::env::var("PDFCE_DIAG_FORM_ACCEPT").is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
 #[cfg(test)]

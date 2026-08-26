@@ -274,6 +274,82 @@ pub(super) fn author(
     });
 }
 
+/// **Rename the selected field.**
+///
+/// ## ★★ The engine takes a PARTIAL name and the selection holds a FULLY
+/// QUALIFIED one, and conflating them corrupts a form
+///
+/// `rename_field(fqn, new_partial)` is asymmetric on purpose. A field's
+/// fully-qualified name is its own `/T` joined to its ancestors' with dots —
+/// `Address.Line1` is a field named `Line1` inside a parent named `Address`.
+/// Passing a dotted string as the new *partial* name would author a `/T`
+/// containing a dot, which no reader can resolve back: the field becomes
+/// unaddressable by every fill verb, including pdfce's own.
+///
+/// So the dialog offers the partial name and this passes it through untouched.
+/// The engine is the one that rebuilds the qualified name, because only it
+/// knows the parent chain.
+///
+/// ## ★ The selection is cleared, not updated
+///
+/// After a rename the old fully-qualified name reaches nothing. Recomputing the
+/// new one here would mean deriving the parent chain a second time — the exact
+/// duplication the paragraph above warns about — so the selection is dropped
+/// and the operator's next click re-establishes it. One extra click, no chance
+/// of a panel describing a field by a name that no longer exists.
+pub(super) fn rename(doc: &mut OpenDoc, from: &str, to: &str) {
+    let to = to.trim().to_owned();
+    if to.is_empty() || to == from {
+        return;
+    }
+    doc.selected_field = None;
+    super::apply::vector_edit(doc, "rename-field", 0, 1, |session| {
+        session.rename_field(from, &to).map(|outcome| {
+            vec![crate::text::forms::form_field_renamed(
+                &outcome.to,
+                outcome.descendants_renamed,
+            )]
+        })
+    });
+}
+
+/// **Delete a whole field, with every widget it draws.**
+///
+/// ★ The disclosure names the **widget count**, because that is the part the
+/// operator cannot see: a field drawn in three places disappears from three
+/// pages, and they are looking at one of them. A confirmation that said only
+/// "deleted" would be true and would leave two pages changed without mention.
+pub(super) fn delete_field(doc: &mut OpenDoc, field: &str) {
+    doc.selected_field = None;
+    super::apply::vector_edit(doc, "delete-field", 0, 1, |session| {
+        session.delete_field(field).map(|outcome| {
+            vec![crate::text::forms::form_field_deleted(
+                outcome.widgets_removed,
+            )]
+        })
+    });
+}
+
+/// **Delete one widget, leaving the field.**
+///
+/// ★★ The engine may report that the field went too, and the disclosure has to
+/// follow it rather than assume: removing the last widget of a field leaves a
+/// name nothing draws and nothing can fill, so `delete_widget` removes the
+/// field as well. That is the right behaviour and it is **not** what the
+/// operator pressed, so it is said out loud.
+pub(super) fn delete_widget(doc: &mut OpenDoc, field: &str, widget: usize) {
+    doc.selected_field = None;
+    super::apply::vector_edit(doc, "delete-widget", 0, 1, |session| {
+        session.delete_widget(field, widget).map(|outcome| {
+            vec![if outcome.field_removed {
+                crate::text::forms::form_widget_deleted_last()
+            } else {
+                crate::text::forms::form_widget_deleted()
+            }]
+        })
+    });
+}
+
 /// The status lines one authoring outcome owes the operator.
 ///
 /// A free function so the rule-4 obligation is testable without a session, a

@@ -59,7 +59,6 @@
 //!   below were amended at salvage for exactly this reason, and each says so
 //!   in its own doc comment rather than being quietly reworded.
 
-/// The Comments panel — every annotation on the document, listed.
 pub mod comments;
 /// The ce-dimension properties section — the bottom tier of the style cascade
 /// made reachable, with the tier each value came from named beside it.
@@ -71,6 +70,8 @@ pub mod comments;
 pub mod dimension;
 /// The Fonts panel's inventory report.
 pub mod fonts;
+/// The Comments panel — every annotation on the document, listed.
+pub mod formfield;
 /// The Objects panel, and the wording of every object fact.
 pub mod objects;
 /// The Properties panel.

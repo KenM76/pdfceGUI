@@ -498,6 +498,30 @@ pub(crate) fn placed(ctx: &egui::Context, doc: &OpenDoc) -> Arc<boxes::Placed> {
     // census on a pathological form would bury every other line in the
     // capture, which is the same "fifty identical lines in nine seconds"
     // failure `trace::pointer` was fixed for.
+    // ★★ The SELECTABLE census, beside the fillable one and deliberately
+    // separate. The two sets differ — a drop-down, a push button and an undrawn
+    // widget are selectable and not fillable — and that difference is the whole
+    // of what form authoring added to this surface. One census reporting the
+    // union would make a harness unable to tell "this widget cannot be typed
+    // into" from "this widget cannot be reached at all", which are the two
+    // failures it most needs to distinguish.
+    if crate::diag::enabled() {
+        for t in list.targets.iter().take(MAX_TRACED_BOXES) {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "form-target page={} field={} widget={} rect=({:.1},{:.1})+({:.1},{:.1})",
+                    t.page,
+                    t.field,
+                    t.widget,
+                    t.rect.min.x,
+                    t.rect.min.y,
+                    t.rect.width(),
+                    t.rect.height(),
+                )
+            });
+        }
+    }
     if crate::diag::enabled() {
         for b in list.boxes.iter().take(MAX_TRACED_BOXES) {
             crate::diag::trace(|| {
@@ -583,6 +607,7 @@ pub(super) fn overlay(
     pages: &[PageView],
     drawn: &[DrawnPage],
     tool: CanvasTool,
+    authoring: bool,
     actions: &mut Vec<Action>,
 ) {
     // Cleared FIRST, before any early return, so a flag set on a frame where
@@ -591,6 +616,43 @@ pub(super) fn overlay(
     // on exactly the frames nobody reads it.
     let ctx = ui.ctx().clone();
     ctx.data_mut(|d| d.remove::<bool>(Id::new(ESCAPE_KEY)));
+
+    // ★★★ **IN EDIT MODE A CLICK SELECTS THE FIELD; ELSEWHERE IT FILLS IT.**
+    //
+    // The operator, 2026-08-26: *"when I click on an existing form field on the
+    // page its properties should come up in our side pane for editing its
+    // properties."*
+    //
+    // The split is by mode rather than by a modifier, and that is the
+    // conventional model rather than an invention: every program that both
+    // fills and authors forms — Acrobat above all — separates the two into
+    // distinct activities, because the same click cannot both type a value and
+    // select the box to rename it. pdfce already has the vocabulary for that
+    // separation and it is the mode selector, whose whole job is *what will
+    // this program let me do*. Read and Review fill; Edit authors.
+    //
+    // ★★ What it costs, stated rather than hidden: **filling on the page is
+    // not available in Edit mode.** That is the correct trade and it is
+    // reversible in one line if it proves wrong, but it is a real change — an
+    // operator who was filling a form in Edit mode drops to Review to go on
+    // doing it, and every field remains fillable in the Forms panel in every
+    // mode. The alternative — a modifier key — would make the commonest
+    // gesture on this surface depend on a key nobody discovers.
+    //
+    // ★ Note it is asked BEFORE `offer`. Selection is not filling and must not
+    // inherit filling's gates: `fill_refusal()` is `Some` for a certified
+    // document, where the operator may still legitimately want to look at what
+    // a field IS. What it does share is `annotations_visible`, because a
+    // hidden widget is one nobody can see to click.
+    if authoring {
+        settle(&ctx, doc, actions);
+        if doc.annotations_visible() {
+            let placed = placed(&ctx, doc);
+            select_click(&ctx, doc, pages, drawn, &placed.targets, actions);
+            select_cursor(&ctx, pages, &placed.targets);
+        }
+        return;
+    }
 
     if !offer(doc, tool) {
         // Whatever was focused, it is not focusable now: a certification
@@ -973,6 +1035,92 @@ fn cursor(ctx: &egui::Context, pages: &[PageView], list: &[WidgetBox]) {
         }
     }
 }
+// ===========================================================================
+// Selecting a field, rather than filling it
+// ===========================================================================
+
+/// A click in **Edit mode**: select the field under the pointer, or clear the
+/// selection.
+///
+/// ★★ A click on empty paper CLEARS, and that is deliberate rather than
+/// incidental. Every selection model the operator uses works that way, and
+/// without it the properties panel would go on describing a field long after
+/// they had moved on — a panel that will not let go is worse than one that is
+/// empty, because its contents look current.
+///
+/// Nothing is mutated here. The outcome leaves as an [`Action`], like every
+/// other thing this canvas decides.
+fn select_click(
+    ctx: &egui::Context,
+    doc: &OpenDoc,
+    pages: &[PageView],
+    drawn: &[DrawnPage],
+    targets: &[boxes::FieldTarget],
+    actions: &mut Vec<Action>,
+) {
+    let Some(pos) = ctx.pointer_interact_pos() else {
+        return;
+    };
+    let Some(page) = drawn
+        .iter()
+        .find(|d| d.response.clicked_by(egui::PointerButton::Primary))
+        .map(|d| d.page)
+    else {
+        return;
+    };
+    let Some(map) = pages.iter().find(|v| v.page == page).map(|v| v.map) else {
+        return;
+    };
+
+    let point = map.to_page(pos);
+    let picked =
+        boxes::hit_target(targets, page, point).map(|t| crate::app::state::SelectedField {
+            field: t.field.clone(),
+            widget: t.widget,
+            page: t.page,
+        });
+
+    // ★ Raised only on a CHANGE. A click that re-selects what is already
+    // selected, or that clears an empty selection, is not an event — and this
+    // surface is asked on every frame the pointer is down, so raising
+    // unconditionally would put an action on the queue sixty times a second
+    // and bump the epoch with it.
+    if picked == doc.selected_field {
+        return;
+    }
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        match &picked {
+            Some(f) => format!(
+                "form-field-selected page={} field={} widget={}",
+                f.page, f.field, f.widget
+            ),
+            None => "form-field-selected none".to_owned(),
+        }
+    });
+    actions.push(Action::SelectFormField(picked));
+}
+
+/// The pointer over a selectable widget in Edit mode.
+///
+/// ★ `PointingHand`, the same cursor the fill surface uses, and deliberately
+/// **not** a bespoke one. It says *"there is something here"*, which is the
+/// only claim either surface needs to make; what differs is what a click does,
+/// and a cursor is a poor place to say that. `ui-conventions` has no row for
+/// this because it is not a convention question — both readings of the click
+/// are "act on the thing under the pointer".
+fn select_cursor(ctx: &egui::Context, pages: &[PageView], targets: &[boxes::FieldTarget]) {
+    let Some(pos) = ctx.pointer_latest_pos() else {
+        return;
+    };
+    for view in pages {
+        if boxes::hit_target(targets, view.page, view.map.to_page(pos)).is_some() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            return;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

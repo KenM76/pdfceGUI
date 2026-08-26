@@ -1138,6 +1138,53 @@ pub enum Action {
     /// dialog opens, because generating it requires reading the document's
     /// existing field names, and the canvas has no business parsing an
     /// `/AcroForm`.
+    /// **The operator clicked a form field on the page, or clicked away.**
+    ///
+    /// Raised by `crate::canvas::forms`'s selection surface in Edit mode.
+    /// `None` clears — a click on empty paper — which is a real event and not
+    /// a no-op: a properties panel that will not let go is worse than an empty
+    /// one, because its contents look current.
+    ///
+    /// ★ It changes **no document** and must never bump the edit epoch. A
+    /// selection is view state; it is on `OpenDoc` beside the object selection
+    /// for the same reason that one is, and for the same reason neither is
+    /// saved.
+    SelectFormField(Option<crate::app::state::SelectedField>),
+    /// **Rename the selected field.**
+    ///
+    /// Reaches `EditSession::rename_field`, which takes the fully-qualified
+    /// name and a new *partial* one.
+    ///
+    /// ★★ The old name travels even though the selection holds it, and that is
+    /// the same staleness rule `CommitTextAnnot` follows: by the time the queue
+    /// drains, another action ahead of it in the same drain could have changed
+    /// the selection. An action is a complete statement of what the operator
+    /// asked for.
+    RenameFormField {
+        /// The field's current fully-qualified name.
+        from: String,
+        /// The new partial name.
+        to: String,
+    },
+    /// **Delete the selected field, with every widget it draws.**
+    ///
+    /// ★ Distinct from [`Self::DeleteFormWidget`] and the distinction is not a
+    /// nicety: one field may be drawn in several places, and "remove this box"
+    /// and "remove this field" are different requests with different
+    /// consequences. Offering only the second would make removing one of three
+    /// copies impossible; offering only the first would leave a named field
+    /// behind with no widgets, which is a field nothing can fill.
+    DeleteFormField {
+        /// The field's fully-qualified name.
+        field: String,
+    },
+    /// **Delete one widget of the selected field**, leaving the field itself.
+    DeleteFormWidget {
+        /// The field's fully-qualified name.
+        field: String,
+        /// Which of its widgets.
+        widget: usize,
+    },
     BeginFormField {
         /// The 0-based page the control will be authored onto.
         page: usize,

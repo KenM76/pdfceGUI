@@ -658,6 +658,11 @@ pub struct PanelsState {
     /// second file would be written into **that** file's metadata by the next
     /// focus change, silently, in a field nobody looks at twice.
     properties: properties::info::InfoDrafts,
+    /// The form-field rename draft, and which field it is for. See
+    /// [`Self::field_rename_mut`] for why the key is stored beside it.
+    field_rename: String,
+    /// The fully-qualified name [`Self::field_rename`] was seeded from.
+    field_rename_key: Option<String>,
     /// The Properties panel's **geometry** draft — the four typed numbers, and
     /// the `(page, object, epoch)` they were seeded from.
     ///
@@ -876,6 +881,30 @@ impl PanelsState {
     /// accessor, so the field stays private and no other panel can write it.
     pub fn properties_mut(&mut self) -> &mut properties::info::InfoDrafts {
         &mut self.properties
+    }
+
+    /// **The rename draft for the selected form field**, re-seeded whenever the
+    /// selection moves.
+    ///
+    /// ★★ The re-seeding is the whole reason this is a method rather than a
+    /// bare `&mut String`. Without it, clicking field A, typing a new name, then
+    /// clicking field B leaves A's half-typed name in the box — aimed at B. The
+    /// operator presses Rename and renames the wrong field to a name they chose
+    /// for a different one, and nothing on screen said which field the box
+    /// belonged to.
+    ///
+    /// So the key travels with the draft and a mismatch reseeds. `for_field` is
+    /// the FULLY-QUALIFIED name (the identity), and the draft is seeded with the
+    /// **last dotted segment** — the partial name, which is what
+    /// `rename_field` takes. Seeding it with the qualified name would invite the
+    /// operator to press Rename on a string containing a dot, authoring a `/T`
+    /// nothing can address.
+    pub fn field_rename_mut(&mut self, for_field: &str) -> &mut String {
+        if self.field_rename_key.as_deref() != Some(for_field) {
+            self.field_rename_key = Some(for_field.to_owned());
+            self.field_rename = for_field.rsplit('.').next().unwrap_or(for_field).to_owned();
+        }
+        &mut self.field_rename
     }
 
     /// The Properties panel's geometry draft.

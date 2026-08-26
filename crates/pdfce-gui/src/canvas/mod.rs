@@ -1203,7 +1203,15 @@ fn show_in(
     // ★ Form filling on the page, registered in that same layer and for the
     // same reason: the focused field's editor must be topmost, and nothing is
     // registered for an unfocused one. See `forms`' header §4.
-    forms::overlay(ui, doc, &page_views, &drawn, active_tool, actions);
+    forms::overlay(
+        ui,
+        doc,
+        &page_views,
+        &drawn,
+        active_tool,
+        caps.edit_content,
+        actions,
+    );
 
     // ★ The frame's geometry, recorded for the commands that arrive with none.
     // A zoom raised from a keyboard chord, the ribbon or the status bar has no

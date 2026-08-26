@@ -119,6 +119,10 @@ mod dimension;
 /// Its header records that this module's own claim — *"needs a `/Info`
 /// accessor that `pdfce-core` does not expose"* — was true when written and
 /// false when read.
+/// ★★ The **form field** clicked on the page in Edit mode — the operator's
+/// request of 2026-08-26. `pub` for the same reason [`geometry`] is: its rename
+/// box holds a draft in `crate::panels::PanelsState`.
+pub mod formfield;
 pub mod geometry;
 pub mod info;
 /// ★★ Restyling a markup that is already on the page — colour, line width and
@@ -223,12 +227,18 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // only editable things about a selected *annotation*. Reading the panel top
     // to bottom therefore goes "what you can change" then "what is true", which
     // is the order `RIBBON_IA.md` §5.6 asks a properties surface to use.
+    // ★ The form-field section, above the geometry fields and below the two
+    // that restyle. It is a fourth claimant on this panel and it is mutually
+    // exclusive with all three by construction: a form field is selected by
+    // `doc.selected_field`, which the object and annotation selections neither
+    // set nor read. See `app::state::SelectedField` for why they are separate.
+    let drew_form_field = formfield::section(ui, doc, state, actions);
     let drew_geometry = geometry::section(ui, doc, state.geometry_mut(), actions);
     object_section(
         ui,
         doc,
         state,
-        drew_dimension || drew_markup || drew_geometry,
+        drew_dimension || drew_markup || drew_geometry || drew_form_field,
     );
     ui.separator();
     info::section(ui, doc, state.properties_mut(), actions);

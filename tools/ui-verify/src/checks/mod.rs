@@ -117,6 +117,7 @@ pub mod driving;
 /// counts the shell reported.
 pub mod export_dxf;
 pub mod find_bar;
+pub mod form_field;
 /// Insert an image: the picture reaches the page, and the resolution the
 /// window promised is the one the document reports.
 pub mod insert_image;
@@ -550,6 +551,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // the two typing checks because a run that fails here should fail
         // before paying for a keystroke that may never arrive.
         Box::new(markup_rectangle::MarkupRectangleArmsFromTheRibbon),
+        // ★ Form-field placement and selection. After the markup checks and
+        // not before, because it borrows their gesture machinery — a band drag
+        // and a canvas click — so a failure in either would be reported there
+        // first, where the cause is, rather than here where the symptom is.
+        Box::new(form_field::FormFieldPlaceAndSelect),
         // Beside it, because it is the same shape of check on the same
         // surface — a ribbon control that arms a canvas tool — and a reader
         // comparing the two verdicts wants them adjacent. It goes second

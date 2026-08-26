@@ -185,28 +185,9 @@ struct LayerOverride {
     generation: u64,
 }
 
-/// **Whether an open document has a file behind it.**
-///
-/// Two variants rather than an `Option<PathBuf>` on [`OpenDoc::path`], and the
-/// choice is deliberate. Every document — created or opened — needs a
-/// *identity* that is path-shaped: the forms cache keys on it, the Pages panel
-/// captions from it, the trace names it, and a save suggestion would be built
-/// from it. Making the path optional would push an `unwrap_or_default()` into
-/// each of those, and `""` is the identity every unnamed document would then
-/// share. What actually varies is one much narrower fact — *is there a file
-/// there* — so that is what is stored, and [`OpenDoc::stored_under`] is the
-/// only place it is asked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Origin {
-    /// Loaded from [`OpenDoc::path`], which names a file that existed.
-    Opened,
-    /// Made by `file.new` from `crate::app::blank::TEMPLATE`.
-    ///
-    /// [`OpenDoc::path`] is a **name** — `crate::text::files::untitled` — and
-    /// nothing is at it. Anything that would write to, read from, or remember
-    /// something *about a file* must consult [`OpenDoc::stored_under`] first.
-    Created,
-}
+mod identity;
+
+pub use identity::{Origin, SelectedField};
 
 /// One open document and everything the shell knows about looking at it.
 pub struct OpenDoc {
@@ -628,6 +609,37 @@ pub struct OpenDoc {
     /// selection model, which is precisely what
     /// `panels::PanelsState::focus`'s docs refuse to become.
     pub selection: SelectionState,
+    /// ★★ **The form field selected for editing its properties**, if any.
+    ///
+    /// The operator, 2026-08-26: *"when I click on an existing form field on
+    /// the page its properties should come up in our side pane for editing its
+    /// properties."* This is what a click on a widget in Edit mode sets, and
+    /// what `panels::properties::formfield` reads.
+    ///
+    /// # ★ Why it is NOT part of [`SelectionState`]
+    ///
+    /// Because it is not the same kind of thing, and merging them would make
+    /// three surfaces lie. `SelectionState` holds a **page object or an
+    /// annotation** — something with paint-order indices, a bounding box, drag
+    /// handles, a Format tab and a Delete that means "remove this drawing". A
+    /// form field is none of those: it is a document-level entry in `/AcroForm`
+    /// that may have several widgets on several pages, its identity is a
+    /// **name** rather than an index, and deleting it is a different verb with
+    /// a different meaning.
+    ///
+    /// Folding it in would arm the Format tab's Delete over a field, hand the
+    /// resize grips a rectangle that `move_nodes` cannot move, and make
+    /// `selection.any` true for something none of the selection-scoped commands
+    /// can act on. Separate field, separate surface, no overlap.
+    ///
+    /// # ★★ It is cleared by an edit, not merely allowed to go stale
+    ///
+    /// The handle is a fully-qualified name, and a rename or a delete changes
+    /// which field that name reaches — or whether it reaches one at all. See
+    /// `app::actions::forms`'s selection arm: every verb that touches the form
+    /// clears this, so the panel cannot go on describing a field that no longer
+    /// exists under that name.
+    pub selected_field: Option<SelectedField>,
     /// ★ **The operator's guide lines**, per page, in canvas space.
     ///
     /// View state, not document content — a guide changes nothing a save would
@@ -799,6 +811,7 @@ impl OpenDoc {
             // mechanism by which a selection can never refer to a previous
             // file. See the field's own docs.
             selection: SelectionState::default(),
+            selected_field: None,
             // Read above, before `path` was moved into the struct.
             guides,
             page_objects: PageObjectCache::default(),
@@ -1263,229 +1276,4 @@ pub(crate) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
 pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // =======================================================================
-    // The staleness keys that landed at S4
-    // =======================================================================
-
-    /// **★ Every input that changes the picture changes the render key.**
-    ///
-    /// The acceptance criterion for the `RenderKey` completion, from the
-    /// shell's side rather than the worker's.
-    /// [`PdfceApp::settle_and_rasterize`] asks "is the texture still a
-    /// picture of what I am looking at?" by comparing this key, so an input
-    /// it does not carry is a control that ticks and redraws nothing.
-    #[test]
-    fn every_view_input_that_changes_the_picture_changes_the_render_key() {
-        let mut doc = open_fixture(PAINTED_LAYERS);
-        let base = doc.render_key(2.0);
-
-        assert_ne!(base, doc.render_key(2.5), "the raster scale");
-
-        doc.view.page_index = 1;
-        assert_ne!(base, doc.render_key(2.0), "the page");
-        doc.view.page_index = 0;
-
-        doc.set_annotations_visible(false);
-        assert_ne!(base, doc.render_key(2.0), "annotation visibility");
-        doc.set_annotations_visible(true);
-        assert_eq!(base, doc.render_key(2.0), "…and back again");
-
-        doc.set_layer_visible(ObjId::new(5, 0), true);
-        assert_ne!(base, doc.render_key(2.0), "the layer override");
-    }
-
-    /// **A layer or annotation change is DISCRETE, not debounced.**
-    ///
-    /// A click has no gesture in flight, so waiting out the 150 ms zoom
-    /// settle would be latency buying nothing. Asserted through the key's own
-    /// categories — what `settle_and_rasterize` reads — so an input that
-    /// lands in the wrong one fails here rather than being noticed later as
-    /// sluggishness.
-    #[test]
-    fn a_layer_or_annotation_change_commits_at_once_rather_than_settling() {
-        let mut doc = open_fixture(PAINTED_LAYERS);
-        let before = doc.render_key(2.0);
-        doc.set_layer_visible(ObjId::new(5, 0), true);
-        let after = doc.render_key(2.0);
-        assert_ne!(after.discrete_inputs(), before.discrete_inputs());
-        assert_eq!(
-            after.scale_bits(),
-            before.scale_bits(),
-            "a layer toggle must not look like a zoom, or it inherits the debounce"
-        );
-
-        doc.set_annotations_visible(false);
-        let hidden = doc.render_key(2.0);
-        assert_ne!(hidden.discrete_inputs(), after.discrete_inputs());
-        assert_eq!(hidden.scale_bits(), after.scale_bits());
-    }
-
-    /// **★ "Obey the document" and "hide nothing" are different renders.**
-    ///
-    /// Core API trap T-12.9: [`LayerVisibility`] REPLACES the document's
-    /// default configuration rather than merging with it, so `None` and
-    /// `Some(empty)` are not two spellings of one state. Collapsing them
-    /// reveals every layer the document turned off — on a drawing whose
-    /// "Confidential" watermark is an off-by-default layer, that is a
-    /// disclosure defect, not a cosmetic one.
-    #[test]
-    fn obeying_the_document_is_not_the_same_as_hiding_nothing() {
-        let mut doc = open_fixture(PAINTED_LAYERS);
-        assert!(
-            doc.layer_visibility().is_none(),
-            "a freshly opened document obeys its own configuration"
-        );
-
-        doc.set_hidden_layers(BTreeSet::new());
-        let showing_all = doc.layer_visibility().expect("an override is in force");
-        assert_eq!(showing_all.hidden_count(), 0);
-
-        doc.reset_layers();
-        assert!(
-            doc.layer_visibility().is_none(),
-            "reset must restore `None`, not an empty override"
-        );
-    }
-
-    /// **The first toggle starts from the DOCUMENT's answer, not from
-    /// nothing.**
-    ///
-    /// [`LayerVisibility`] wants the complete hidden set, so a control that
-    /// handed in only the group the operator touched would reveal every
-    /// other layer the document had turned off. The fixture declares four
-    /// groups, two of them off by default; turning a third off must leave
-    /// those two off.
-    #[test]
-    fn the_first_layer_toggle_seeds_from_the_documents_own_defaults() {
-        let mut doc = open_fixture(PAINTED_LAYERS);
-        let defaults = doc.hidden_layers();
-        assert_eq!(
-            defaults.len(),
-            2,
-            "this fixture must declare layers that are OFF by default, or the \
-             seeding path is untested: {defaults:?}"
-        );
-
-        doc.set_layer_visible(ObjId::new(4, 0), false);
-        let hidden = doc.hidden_layers();
-        assert!(
-            hidden.contains(&ObjId::new(4, 0)),
-            "the operator's own change"
-        );
-        for id in &defaults {
-            assert!(
-                hidden.contains(id),
-                "the document's own OFF set must survive the first toggle, or \
-                 hiding one layer reveals every hidden one: {hidden:?}"
-            );
-        }
-
-        doc.set_layer_visible(ObjId::new(5, 0), true);
-        let hidden = doc.hidden_layers();
-        assert!(!hidden.contains(&ObjId::new(5, 0)));
-        assert!(hidden.contains(&ObjId::new(6, 0)), "and only that one");
-    }
-
-    /// **Every change to the override moves the generation.**
-    ///
-    /// The generation is the staleness key; the set is not. A mutator that
-    /// changed the set and forgot the counter would leave the texture
-    /// looking current — the inert-control defect with the override
-    /// *correct*, which is the most confusing possible version of it.
-    #[test]
-    fn every_layer_mutation_moves_the_generation() {
-        let mut doc = open_fixture(PAINTED_LAYERS);
-        assert_eq!(doc.layers.generation, 0);
-        doc.set_layer_visible(ObjId::new(5, 0), true);
-        assert_eq!(doc.layers.generation, 1);
-        doc.set_hidden_layers(BTreeSet::new());
-        assert_eq!(doc.layers.generation, 2);
-        doc.reset_layers();
-        assert_eq!(doc.layers.generation, 3);
-    }
-
-    /// **A view toggle is not an edit.**
-    ///
-    /// Hiding annotations or a layer changes what is drawn and nothing that
-    /// is saved, so it must not bump `edit_epoch` — which would throw away
-    /// the decomposition and the font inventory for nothing, and would make
-    /// the diagnostic `objects n=` line re-trace as though the document had
-    /// changed.
-    #[test]
-    fn hiding_annotations_or_a_layer_is_not_an_edit() {
-        let mut doc = open_fixture(PAINTED_LAYERS);
-        let _ = doc.page_objects();
-        let _ = doc.font_inventory();
-
-        doc.set_annotations_visible(false);
-        doc.set_layer_visible(ObjId::new(4, 0), false);
-
-        assert_eq!(doc.edit_epoch, 0, "no content changed");
-        assert_eq!(doc.page_objects.built_for.get(), Some((0, 0)));
-        assert_eq!(doc.fonts.built_for.get(), Some(0));
-    }
-
-    // =======================================================================
-    // The selection move — what replaced `canvas::selection::DocumentToken`
-    // =======================================================================
-
-    /// **★ A selection cannot outlive the document it was made on.**
-    ///
-    /// The `DocumentToken` deletion, asserted rather than argued — the same
-    /// shape as `a_documents_decomposition_cannot_outlive_the_document` in
-    /// [`crate::app::cache`], because it is the same deletion for the same
-    /// reason.
-    ///
-    /// The old mechanism compared an `Arc` **address** every frame and cleared
-    /// on a mismatch; an address is not an identity, and a reused allocation
-    /// with a matching page count would have carried a stale selection into a
-    /// new file. Here the question cannot be asked: opening a document builds a
-    /// whole new `OpenDoc`, so its selection is `SelectionState::default()` by
-    /// construction.
-    ///
-    /// Written as a replacement **in the same binding** — the sequence an
-    /// address reuse would have needed — so that reintroducing any kind of
-    /// document-identity key here is a test failure rather than a review
-    /// finding.
-    #[test]
-    fn a_selection_cannot_outlive_the_document_it_was_made_on() {
-        use crate::canvas::selection::{ClickHit, SelectionLevel};
-        use crate::canvas::target::TargetId;
-
-        let mut doc = open_fixture(FOUR_PAGES);
-        assert!(
-            doc.selection.is_empty(),
-            "a freshly opened document has nothing selected"
-        );
-
-        doc.selection.click(
-            0,
-            ClickHit {
-                object: Some(TargetId(1)),
-                ..ClickHit::default()
-            },
-            false,
-            false,
-        );
-        assert_eq!(doc.selection.len(), 1);
-
-        doc = open_fixture(PAINTED_LAYERS);
-        assert!(
-            doc.selection.is_empty(),
-            "a new document starts with an empty selection, whatever address \
-             its session landed on"
-        );
-        assert_eq!(
-            doc.selection.level(),
-            SelectionLevel::Object,
-            "…and at the top rung, not inside an object of the previous file"
-        );
-    }
-
-    // =======================================================================
-    // Opening a document is what forgets the panels' state
-    // =======================================================================
-}
+mod tests;

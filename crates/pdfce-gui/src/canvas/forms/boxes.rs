@@ -168,6 +168,45 @@ pub struct Routing {
     pub unreachable: usize,
 }
 
+/// One widget of one field, placed — **whatever kind it is and whether or not
+/// it can be filled.**
+///
+/// ## ★★★ Why this is not [`WidgetBox`], and why it comes from the same walk
+///
+/// A `WidgetBox` is a widget a click can **fill**, and five conditions narrow
+/// the set: no appearance, a rotated page, an unlisted widget, a kind with no
+/// canvas gesture (a drop-down, a button), or a field type this shell does not
+/// type into. Every one of those is right for filling and **wrong for
+/// selecting**. An operator who has just placed a drop-down and wants to look
+/// at its properties must be able to click the thing they can plainly see.
+///
+/// So the authoring surface needs a wider set. It is produced by the **same
+/// walk** ([`place`]) rather than by a second one, which is this module's
+/// standing rule stated in [`Placed`]'s own doc: two walks are two statements
+/// of the placement rule, and the drift between them is a click that selects a
+/// field the canvas is not drawing.
+///
+/// The only condition that still excludes a widget here is the one that is not
+/// a policy: **no canvas rectangle**, which means a non-invertible page
+/// transform or a degenerate `/Rect` — a widget with no area to click.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldTarget {
+    /// 0-based page index.
+    pub page: usize,
+    /// The field's fully-qualified name — the vocabulary every field verb
+    /// takes, and the only handle `rename_field` and `delete_field` accept.
+    pub field: String,
+    /// This widget's index within `Field::widgets`.
+    ///
+    /// Carried because `delete_widget` takes one, and because a field with two
+    /// widgets on two pages is one field the operator can select from either
+    /// place — the properties surface has to be able to say *which* box they
+    /// clicked without pretending it is a different field.
+    pub widget: usize,
+    /// Where it is, in canvas space.
+    pub rect: Rect,
+}
+
 /// Everything one walk of the form produces: the boxes the canvas hit-tests,
 /// and the counts the panel discloses.
 ///
@@ -180,6 +219,9 @@ pub struct Placed {
     pub boxes: Vec<WidgetBox>,
     /// What could not be placed, and why.
     pub routing: Routing,
+    /// Every widget with a rectangle, fillable or not — what the **authoring**
+    /// surface hit-tests. See [`FieldTarget`].
+    pub targets: Vec<FieldTarget>,
 }
 
 /// One fillable widget, placed.
@@ -380,6 +422,7 @@ pub fn place(form: &AcroForm, pages: &[Page], annots: &[Vec<(ObjId, [f64; 4])>])
     }
 
     let mut out: Vec<(usize, WidgetBox)> = Vec::new();
+    let mut targets: Vec<(usize, FieldTarget)> = Vec::new();
     let mut routing = Routing::default();
     for field in &form.fields {
         // A field is routed to the panel only when NO widget of it can be
@@ -395,19 +438,52 @@ pub fn place(form: &AcroForm, pages: &[Page], annots: &[Vec<(ObjId, [f64; 4])>])
                 reasons.push(NotOnCanvas::NotPlaced);
                 continue;
             };
-            let kind = match classify(field, widget, page.rotate) {
-                Ok(kind) => kind,
-                Err(reason) => {
-                    reasons.push(reason);
-                    continue;
-                }
-            };
             // A projection failure here is a non-invertible page transform or a
             // degenerate rectangle — the one case both coordinate bridges
             // decline together, and a widget with no area on screen.
             let Some(canvas) = crate::canvas::mapping::annot_canvas_rect(rect, page) else {
                 reasons.push(NotOnCanvas::NotPlaced);
                 continue;
+            };
+            // ★★ SELECTABLE FROM HERE, and the position of this push is the
+            // whole point: it is **above** the `classify` call and below the
+            // rectangle, so a widget is selectable exactly when it has a place
+            // on the canvas and regardless of whether it can be filled. A
+            // drop-down and a push button reach this line and are refused by
+            // `classify` one line down; they are still things the operator can
+            // see and must be able to click.
+            targets.push((
+                rank.get(&widget.id).copied().unwrap_or(0),
+                FieldTarget {
+                    page: page_index,
+                    field: field.fully_qualified_name.clone(),
+                    widget: widget_index,
+                    rect: canvas,
+                },
+            ));
+            // ★★★ `classify` moved BELOW the rectangle when selection arrived,
+            // and `reachable` DID NOT MOVE WITH IT. The distinction is the one
+            // this whole change turns on and it is easy to get wrong — I got it
+            // wrong first, and `an_undrawn_widget_is_still_selectable` is what
+            // said so.
+            //
+            // `reachable` means *"some widget of this field can be FILLED on
+            // the page"*, and it is what suppresses the panel's
+            // `routing.undrawn` disclosure — the sentence that tells an operator
+            // a field exists but has to be filled in the side panel. Setting it
+            // beside the rectangle made every drawn-nothing field look
+            // reachable, silently deleting that disclosure for the exact
+            // documents it was written for.
+            //
+            // So: a rectangle makes a widget SELECTABLE; a successful
+            // `classify` makes it FILLABLE; and only the second answers
+            // `reachable`.
+            let kind = match classify(field, widget, page.rotate) {
+                Ok(kind) => kind,
+                Err(reason) => {
+                    reasons.push(reason);
+                    continue;
+                }
             };
             reachable = true;
             out.push((
@@ -443,9 +519,14 @@ pub fn place(form: &AcroForm, pages: &[Page], annots: &[Vec<(ObjId, [f64; 4])>])
     // order. A stable sort, so two widgets that somehow share a rank keep the
     // order the pages listed them in.
     out.sort_by_key(|(order, b)| (b.page, *order));
+    // The same paint-order sort, for the same reason: [`hit_target`] takes the
+    // LAST match, which is only "the one drawn on top" if this list is in
+    // `/Annots` order within each page.
+    targets.sort_by_key(|(order, t)| (t.page, *order));
     Placed {
         boxes: out.into_iter().map(|(_, b)| b).collect(),
         routing,
+        targets: targets.into_iter().map(|(_, t)| t).collect(),
     }
 }
 
@@ -462,6 +543,19 @@ pub fn hit(boxes: &[WidgetBox], page: usize, point: Pos2) -> Option<&WidgetBox> 
     boxes
         .iter()
         .rfind(|b| b.page == page && b.rect.contains(point))
+}
+
+/// Which **selectable** widget a canvas-space point is inside, on `page`.
+///
+/// [`hit`]'s twin over the wider set. Containment with no tolerance and later
+/// boxes winning, for the identical reasons — a widget drawn over another is
+/// the one the operator can see, and the one they can see is the one they
+/// meant.
+#[must_use]
+pub fn hit_target(targets: &[FieldTarget], page: usize, point: Pos2) -> Option<&FieldTarget> {
+    targets
+        .iter()
+        .rfind(|t| t.page == page && t.rect.contains(point))
 }
 
 /// The editor's rect on screen: the widget's own, grown to [`MIN_EDITOR`].
@@ -1141,6 +1235,102 @@ mod tests {
         assert!(
             field.has_appearance(),
             "filling must draw the field, or the generator produces nothing new"
+        );
+    }
+
+    /// ★★★ **A kind that cannot be FILLED on the canvas can still be
+    /// SELECTED there**, which is the whole reason [`FieldTarget`] exists.
+    ///
+    /// A drop-down (`/Ch`) is `NotOffered` — this shell has no canvas gesture
+    /// for one, and `classify` refuses it. Before selection existed, that
+    /// refusal removed it from the only list the canvas hit-tested, so a field
+    /// the operator could plainly see was not clickable at all.
+    ///
+    /// The two assertions are deliberately opposite, because a test that only
+    /// checked the target would pass against a change that made every widget
+    /// fillable — which is a different bug with the same symptom on this test.
+    #[test]
+    fn a_choice_field_is_not_fillable_on_the_canvas_but_is_selectable() {
+        let mut field = text_field();
+        field.field_type = Some(FieldType::Choice);
+        let widget = field.widgets[0].clone();
+        let placed = place(&form_of(field), &[page(0)], &annots_listing(&widget));
+
+        assert!(
+            placed.boxes.is_empty(),
+            "a drop-down has no canvas fill gesture and must not offer one"
+        );
+        assert_eq!(
+            placed.targets.len(),
+            1,
+            "…and must still be selectable, or its properties are unreachable \
+             from the page it is drawn on"
+        );
+    }
+
+    /// **A widget with no appearance is selectable too.**
+    ///
+    /// `NoAppearance` routes a field to the panel for FILLING because the page
+    /// draws nothing there — but pdfce authors widgets, and a widget it made
+    /// and then failed to draw is exactly the one an operator needs to reach in
+    /// order to delete it. The rectangle is real even when the appearance is
+    /// not.
+    #[test]
+    fn an_undrawn_widget_is_still_selectable() {
+        let mut field = text_field();
+        field.widgets[0].has_normal_appearance = false;
+        let widget = field.widgets[0].clone();
+        let placed = place(&form_of(field), &[page(0)], &annots_listing(&widget));
+
+        assert!(
+            placed.boxes.is_empty(),
+            "nothing is drawn there to type into"
+        );
+        assert_eq!(placed.routing.undrawn, 1, "and the panel is told why");
+        assert_eq!(
+            placed.targets.len(),
+            1,
+            "but it occupies a rectangle, so it can be selected and deleted"
+        );
+    }
+
+    /// **A widget no page lists is selectable from nowhere**, because it has no
+    /// rectangle to click. The one exclusion that is not a policy.
+    #[test]
+    fn an_unplaced_widget_is_not_selectable() {
+        let field = text_field();
+        let placed = place(&form_of(field), &[page(0)], &[vec![]]);
+        assert!(placed.targets.is_empty());
+        assert_eq!(placed.routing.unreachable, 1);
+    }
+
+    /// **The hit test takes the widget drawn on top**, the same rule the fill
+    /// hit test follows, because it is the same question: which one can the
+    /// operator see?
+    #[test]
+    fn the_selection_hit_test_prefers_the_widget_drawn_last() {
+        let under = FieldTarget {
+            page: 0,
+            field: "Under".to_owned(),
+            widget: 0,
+            rect: Rect::from_min_size(Pos2::new(0.0, 0.0), egui::vec2(100.0, 100.0)),
+        };
+        let over = FieldTarget {
+            field: "Over".to_owned(),
+            ..under.clone()
+        };
+        let targets = vec![under, over];
+        assert_eq!(
+            hit_target(&targets, 0, Pos2::new(50.0, 50.0)).map(|t| t.field.as_str()),
+            Some("Over")
+        );
+        assert!(
+            hit_target(&targets, 1, Pos2::new(50.0, 50.0)).is_none(),
+            "wrong page"
+        );
+        assert!(
+            hit_target(&targets, 0, Pos2::new(150.0, 50.0)).is_none(),
+            "outside"
         );
     }
 }
