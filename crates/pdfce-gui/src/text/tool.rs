@@ -537,6 +537,35 @@ pub const fn no_document() -> &'static str {
     "Open a document to use the drawing and measuring tools."
 }
 
+/// What the Tool panel says while a form-field tool is armed.
+///
+/// ★★★ It names BOTH gestures, and that is the point of the line. The whole
+/// feature is *"click to place, or drag for the exact size"*, and an operator
+/// who clicks once, gets a standard-sized box and is never told about dragging
+/// will conclude that sizing is not offered. A panel that teaches only the
+/// gesture just performed teaches half the tool.
+#[must_use]
+pub const fn form_instruction() -> &'static str {
+    "Click the page to place one at a standard size, or drag out the exact size you want."
+}
+
+/// The second line: what happens next, and what this kind needs.
+///
+/// ★ Radio buttons get their own sentence because they are the only kind whose
+/// behaviour depends on ANOTHER field — two sharing a group name are one
+/// control. An operator who does not know that places two buttons that both
+/// stay on and reasonably reports it as a bug.
+#[must_use]
+pub const fn form_kind_hint(kind: crate::canvas::formfield::FormFieldKind) -> &'static str {
+    use crate::canvas::formfield::FormFieldKind as K;
+    match kind {
+        K::Radio => {
+            "Nothing is added until you fill in the box that appears. Give buttons the same group name to make them alternatives."
+        }
+        _ => "Nothing is added until you fill in the box that appears. Escape cancels.",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

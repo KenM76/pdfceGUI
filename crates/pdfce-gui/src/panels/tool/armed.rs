@@ -199,6 +199,16 @@ fn identity(ui: &mut Ui, tool: CanvasTool, host: Option<&MenuHost<'_>>) {
 fn stage(ui: &mut Ui, ctx: &egui::Context, doc: &crate::app::state::OpenDoc, tool: CanvasTool) {
     let text = match tool {
         CanvasTool::Select => return,
+        // ★ The Tool panel teaches the armed gesture, and for a form field the
+        // gesture is the whole feature: click for a default size, or drag for
+        // an exact one. Saying so here is what stops an operator clicking once,
+        // getting a standard-sized box, and concluding that dragging is not
+        // offered.
+        CanvasTool::Form(kind) => {
+            ui.label(egui::RichText::new(t::form_instruction()).small());
+            ui.label(egui::RichText::new(t::form_kind_hint(kind)).small().weak());
+            return;
+        }
         CanvasTool::Node => {
             ui.label(egui::RichText::new(t::node_instruction()).small());
             ui.label(egui::RichText::new(t::node_shift()).small().weak());
@@ -400,6 +410,10 @@ fn command_for(tool: CanvasTool) -> Option<&'static str> {
         CanvasTool::Hand => Some("view.tool_hand"),
         CanvasTool::Text => Some("view.tool_text"),
         CanvasTool::Markup(kind) => Some(crate::shell::commands::markup_command(kind)),
+        // ★ Each kind names its own command, which is what lets the Tool panel
+        // show the armed field type as pressed on the ribbon. The mapping lives
+        // on the kind rather than here so the two cannot drift.
+        CanvasTool::Form(kind) => Some(kind.command_id()),
         // ★ The empty string is `MeasureKind::Scale`'s id, and it is not a
         // command — that kind is armed from inside the Set-scale window and
         // deliberately maps to nothing. `MenuHost::label` would answer `None`
@@ -437,7 +451,7 @@ fn tab_for(tool: CanvasTool) -> &'static str {
         }
         CanvasTool::Markup(_) | CanvasTool::TextAnnot(_) => crate::text::ribbon::tab_markup(),
         CanvasTool::Measure(_) => crate::text::ribbon::tab_measure(),
-        CanvasTool::TextEdit(_) => crate::text::ribbon::tab_edit(),
+        CanvasTool::TextEdit(_) | CanvasTool::Form(_) => crate::text::ribbon::tab_edit(),
     }
 }
 

@@ -160,9 +160,9 @@ mod reach;
 /// rule that rewrote fifteen call sites in `app/` would be a rule that makes
 /// unrelated diffs. See `mapping`'s own header for what the seam is.
 pub use mapping::{
-    chrome_command, chrome_for_command, markup_command, markup_for_command, measure_command,
-    measure_for_command, page_display_command, page_display_for_command, text_mark_command,
-    text_mark_for_command,
+    chrome_command, chrome_for_command, form_for_command, markup_command, markup_for_command,
+    measure_command, measure_for_command, page_display_command, page_display_for_command,
+    text_mark_command, text_mark_for_command,
 };
 
 use egui_shell::CommandRegistry;
@@ -219,7 +219,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 110);
+        assert_eq!(registry().len(), 114);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -266,7 +266,7 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 98, "commands naming an icon");
+        assert_eq!(named, 102, "commands naming an icon");
         assert_eq!(
             refused, 12,
             "commands with no icon, each argued at its registration"
@@ -401,6 +401,20 @@ mod tests {
             // that collapsed them would light one tab's Finish from the other
             // tab's gesture.
             "markup.finishable",
+            // ★★ A condition NOTHING SETS, and that is its whole purpose.
+            //
+            // The operator's ruling of 2026-08-26: push buttons stay on the
+            // ribbon, greyed. R9 permits greying only for a TEMPORARILY
+            // unavailable capability explained on hover, and this is exactly
+            // that — `add_push_button` authors one fine; what pdfce cannot do
+            // is RUN what a button does, because it executes no PDF actions.
+            //
+            // Expressing "permanently disabled until a capability arrives" as
+            // an unset condition rather than as a `disabled: true` flag means
+            // un-greying it is one line in `app::conditions` on the day pdfce
+            // runs an action — and until then the ribbon needs no special case
+            // and no `#[cfg]`.
+            "forms.push_button_runnable",
         ];
         for command in registry().iter() {
             if let egui_shell::commands::Enable::When(name) = &command.enable {

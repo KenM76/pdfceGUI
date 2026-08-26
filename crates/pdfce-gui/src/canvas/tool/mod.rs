@@ -430,6 +430,19 @@ pub enum CanvasTool {
     /// [`TextEditKind::Edit`]: crate::canvas::textedit::TextEditKind::Edit
     /// [`TextEditKind::Add`]: crate::canvas::textedit::TextEditKind::Add
     TextEdit(TextEditKind),
+    /// **Placing a new form field**, armed from Edit ▸ Forms.
+    ///
+    /// ★ Geometrically identical to a markup rectangle — arm, put a rectangle
+    /// on a page, commit once — which is why it borrows
+    /// [`crate::canvas::markup::band`]'s drag rather than growing a second one.
+    ///
+    /// ★★ It differs in exactly one way, and the difference is the feature:
+    /// **the release authors nothing.** It opens a dialog, and the field exists
+    /// only once the operator presses OK. That is what makes Escape free and
+    /// what stops a mis-drag leaving a stray control on the page — which
+    /// matters more here than for markup, because an unwanted annotation is
+    /// obvious and an unwanted invisible form field is not.
+    Form(crate::canvas::formfield::FormFieldKind),
 }
 
 impl CanvasTool {
@@ -503,6 +516,10 @@ impl CanvasTool {
     #[must_use]
     pub fn cursor(self, dragging: bool) -> Option<CursorIcon> {
         match self {
+            // ★ The same crosshair a markup rectangle uses, because it is the
+            // same gesture: the operator is about to put a rectangle on the
+            // page. A different cursor would imply a different act.
+            Self::Form(_) => Some(CursorIcon::Crosshair),
             Self::Select => None,
             // ★ **The same answer as `Select` — `None` — and that is the whole
             // point.** The Node tool's feedback is the anchors it draws, not a

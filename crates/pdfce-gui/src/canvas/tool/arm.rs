@@ -205,7 +205,8 @@ pub fn toggle_hand(ctx: &egui::Context) -> CanvasTool {
         | CanvasTool::Measure(_)
         | CanvasTool::TextAnnot(_)
         | CanvasTool::Text
-        | CanvasTool::TextEdit(_) => CanvasTool::Hand,
+        | CanvasTool::TextEdit(_)
+        | CanvasTool::Form(_) => CanvasTool::Hand,
     };
     select(ctx, next);
     next
@@ -255,7 +256,8 @@ pub fn toggle_text(ctx: &egui::Context) -> CanvasTool {
         | CanvasTool::Markup(_)
         | CanvasTool::Measure(_)
         | CanvasTool::TextAnnot(_)
-        | CanvasTool::TextEdit(_) => CanvasTool::Text,
+        | CanvasTool::TextEdit(_)
+        | CanvasTool::Form(_) => CanvasTool::Text,
     };
     select(ctx, next);
     crate::diag::trace(|| {
@@ -269,6 +271,30 @@ pub fn toggle_text(ctx: &egui::Context) -> CanvasTool {
         // This line is the only way a harness can prove the ribbon button armed
         // anything.
         format!("text-tool tool={next:?}")
+    });
+    next
+}
+/// **Arm a form-field tool**, or put it down if it is already armed.
+///
+/// Same shape as [`arm_markup`] and deliberately so: pressing the armed button
+/// again retires the tool, which is what makes a mis-click cheap and what stops
+/// an operator hunting for a way to cancel.
+///
+/// ★ The trace line is not decoration. A canvas armed with a form tool and an
+/// un-armed one are **the same picture** — a crosshair is a cursor — so this is
+/// the only way a driven check can prove the ribbon button armed anything at
+/// all. It is the lesson of defect 8, applied to a new tool before the defect
+/// can recur.
+pub fn arm_form(ctx: &egui::Context, kind: crate::canvas::formfield::FormFieldKind) -> CanvasTool {
+    let next = if selected(ctx) == CanvasTool::Form(kind) {
+        CanvasTool::Select
+    } else {
+        CanvasTool::Form(kind)
+    };
+    select(ctx, next);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI.
+        format!("form-tool-armed kind={kind:?} now={next:?}")
     });
     next
 }
@@ -537,6 +563,13 @@ pub fn retire_forbidden(ctx: &egui::Context, caps: Capabilities) -> bool {
         // a page whose every drag is refused, which is the "visible control,
         // silently inert" defect in its most literal form.
         CanvasTool::Node => caps.edit_content,
+        // ★ Authoring a form field is a change to the DOCUMENT's content, not
+        // an annotation over it — a `/Widget` and its field are page objects
+        // the operator is adding. So it answers to `edit_content` and retires
+        // when a mode that cannot edit is chosen, exactly like the node tool.
+        // Pairing it with `author_markup` would let Review mode place form
+        // controls, which is not a review activity.
+        CanvasTool::Form(_) => caps.edit_content,
         CanvasTool::Markup(_) => caps.author_markup,
         // ★ Gated on `author_markup`, not on a capability of its own.
         //

@@ -587,8 +587,69 @@ pub const fn edit_insert_image() -> CommandText {
     CommandText::new("Image…", "Place an image file on this page.")
 }
 
-/// `edit.form_create_field`
+/// **Text field** — the box an operator types into.
 #[must_use]
+pub const fn edit_form_text_field() -> CommandText {
+    CommandText::new(
+        "Text field",
+        "A box to type into. Click where you want it, or drag out the exact size.",
+    )
+}
+
+/// **Check box** — one independent on/off box.
+#[must_use]
+pub const fn edit_form_check_box() -> CommandText {
+    CommandText::new(
+        "Check box",
+        "A single box that is either ticked or not. Click where you want it, or drag out the exact size.",
+    )
+}
+
+/// **Radio button** — one of a group.
+///
+/// ★ The tooltip names the grouping rule, because it is the only one of the
+/// five whose behaviour depends on another field: two radios sharing a name are
+/// one control. An operator who does not know that places two buttons that both
+/// stay on and reasonably calls it a bug.
+#[must_use]
+pub const fn edit_form_radio_button() -> CommandText {
+    CommandText::new(
+        "Radio button",
+        "One of a set, where choosing one clears the others. Give them the same group name to make them alternatives.",
+    )
+}
+
+/// **Choice** — a drop-down or list.
+#[must_use]
+pub const fn edit_form_choice() -> CommandText {
+    CommandText::new(
+        "Drop-down",
+        "A list of options to choose from. Click where you want it, or drag out the exact size.",
+    )
+}
+
+/// **Push button** — authorable, inert, and greyed until pdfce can run actions.
+#[must_use]
+pub const fn edit_form_push_button() -> CommandText {
+    CommandText::new("Button", "A button that runs an action when pressed.")
+}
+
+/// Why the push button is greyed.
+///
+/// ★★★ R9 permits greying only for a **temporarily** unavailable capability
+/// that is **always explained on hover**, and this is the explanation. It draws
+/// the distinction that matters: pdfce can *place* a button perfectly well —
+/// what it cannot do is *run* what the button would do, because it executes no
+/// PDF actions. Placing one would give the operator a control that looks
+/// finished and does nothing, which is worse than not offering it.
+///
+/// ★ It says what is missing rather than apologising, so an operator can judge
+/// whether it matters to them and can ask for it if it does.
+#[must_use]
+pub const fn edit_form_push_button_unavailable() -> &'static str {
+    "pdfce can place a button but cannot yet run what a button does, so one placed now would do nothing when pressed."
+}
+
 pub const fn edit_form_create_field() -> CommandText {
     CommandText::new(
         "Create field",

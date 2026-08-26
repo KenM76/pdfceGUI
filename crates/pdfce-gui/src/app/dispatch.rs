@@ -982,6 +982,28 @@ impl PdfceApp {
                     let _ = crate::canvas::tool::arm_text_annot(ctx, kind);
                 }
             }
+            // ★★★ THE FIVE FORM-FIELD COMMANDS. Arming only — nothing is
+            // authored here and nothing is authored on release either; the
+            // release opens a dialog, and the field exists once the operator
+            // presses OK. See `canvas::formfield` for why that indirection is
+            // the feature rather than an extra step.
+            id if crate::shell::commands::form_for_command(id).is_some() => {
+                // ui-text-exempt: a panic message for an unreachable branch,
+                // never displayed — the guard one line above already matched.
+                let Some(kind) = crate::shell::commands::form_for_command(id) else {
+                    return;
+                };
+                if !self.capabilities().edit_content {
+                    // ★ `edit_content`, not `author_markup`: a form field is a
+                    // change to the document's own content, and Review mode
+                    // places no controls.
+                    crate::diag::trace(|| {
+                        format!("command-declined id={id} reason=mode-cannot-edit-content")
+                    });
+                } else {
+                    let _ = crate::canvas::tool::arm_form(ctx, kind);
+                }
+            }
             id if crate::shell::commands::markup_for_command(id).is_some() => {
                 if !self.capabilities().author_markup {
                     crate::diag::trace(|| {

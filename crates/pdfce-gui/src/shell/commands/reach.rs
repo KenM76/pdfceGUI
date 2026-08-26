@@ -650,6 +650,14 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if super::markup_for_command(id).is_some() {
         return Some("markup_for_command");
     }
+    // ★ The five form-field commands, claimed by the same shape as markup's.
+    // This checker MIRRORS the dispatcher rather than trusting it, so a guard
+    // added there and not here is caught by
+    // `the_guards_the_checker_evaluates_are_the_guards_the_dispatcher_has` —
+    // which is exactly how this line came to be written.
+    if super::form_for_command(id).is_some() {
+        return Some("form_for_command");
+    }
     // ★ The text-bearing markup kinds, whose guard is an associated function
     // on the kind rather than a free function in `mapping`.
     //
@@ -729,6 +737,8 @@ const EVALUATED_GUARDS: &[&str] = &[
     "text_mark_for_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
     "markup_for_command",
+    // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
+    "form_for_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
     "from_command",
     // ui-text-exempt: Rust function names, compared against the parsed syntax tree.
@@ -1231,8 +1241,14 @@ pub const FX_CONST: &str = "fx.constant";
         // was *"No recorded reason for the missing arm"* while the engine verb
         // it needed had shipped long before. An entry with no reason is not a
         // blocker; it is an entry nobody has looked at.
+        // ★ 14 -> 13 on 2026-08-26, and this one is worth naming beside the two
+        // above: `edit.form_create_field` left the list because it was WIRED,
+        // and its recorded reason had been a "structural certification gate"
+        // that turned out not to exist. Probing the engine took two minutes;
+        // the entry had sat there since 2026-08-17. Fourth stale blocker in
+        // this project — a backlog row is a record, not evidence.
         assert_eq!(
-            total, 14,
+            total, 13,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

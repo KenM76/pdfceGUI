@@ -145,28 +145,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          one.",
     ),
     (
-        "edit.form_create_field",
-        // ui-text-exempt: a developer-facing note in the reach register, printed
-        // only by the coverage gate itself and never shown to an operator.
-        //
-        // ★★★ CORRECTED 2026-08-26 by probing the engine rather than re-reading
-        // this note. The row used to claim a STRUCTURAL CERTIFICATION GATE.
-        // There is no such gate: `EditSession::add_text_field` authors a field
-        // on a real document today, verified by
-        // `app::actions::forms::authoring_is_available`.
-        //
-        // What the engine refuses is a spec whose tooltip is `Undecided`,
-        // returning `TooltipDecisionRequired` — an ACCESSIBILITY requirement
-        // and not a permission. A form control owes a screen reader a name and
-        // the engine will not default one silently, so the "blocker" is a
-        // field of the very dialog this command needs anyway.
-        //
-        // Five types are available: text, check box, radio button, choice and
-        // push button. ★★ This is the FOURTH recorded blocker in this project
-        // to turn out stale — a backlog row is a record, not evidence.
-        "Not blocked after all: the engine authors fields today. See the comment above.",
-    ),
-    (
         "edit.form_manage_fields",
         "The same structural gate as the entry above, cited at the same place, and the same \
          backlog row: `FEATURES.md` records forms as “fill ✅ …; create field, flatten and \

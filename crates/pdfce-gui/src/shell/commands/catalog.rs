@@ -928,9 +928,45 @@ pub(super) fn all() -> Vec<Command> {
         // handed to the next Edit command: a token is what a trace prints,
         // and reusing this one would make an old trace of a form fill read
         // as whatever took its number.
-        command("edit.form_create_field", t::edit_form_create_field(), 431)
+        // ★★★ FIVE COMMANDS, ONE PER FIELD TYPE — 2026-08-26, replacing the
+        // single `edit.form_create_field` that was registered and never wired.
+        //
+        // Separate ids rather than one command with a type argument, because R8
+        // makes registration the ONLY way the ribbon learns a capability
+        // exists: a build without one of these simply does not register it and
+        // its item disappears, with no `#[cfg]` in the manifest and no panel
+        // asking what is present.
+        //
+        // Tokens 434-438 rather than reusing 431. A token is what a trace
+        // prints, and an old trace of a "create field" must not read as
+        // whichever type took its number — the same rule the comment above
+        // applies to 430.
+        command("edit.form_text_field", t::edit_form_text_field(), 434)
             .with_icon("form-field")
             .enabled_when("doc.pages"),
+        command("edit.form_check_box", t::edit_form_check_box(), 435)
+            .with_icon("form-field")
+            .enabled_when("doc.pages"),
+        command("edit.form_radio_button", t::edit_form_radio_button(), 436)
+            .with_icon("form-field")
+            .enabled_when("doc.pages"),
+        command("edit.form_choice", t::edit_form_choice(), 437)
+            .with_icon("form-field")
+            .enabled_when("doc.pages"),
+        // ★★ GREYED, ALWAYS, and deliberately not absent — the operator's
+        // ruling of 2026-08-26: *"leave push buttons on the ribbon but greyed
+        // out for now."*
+        //
+        // R9-correct rather than an exception to R9, which reserves greying for
+        // a TEMPORARILY unavailable capability that is explained on hover.
+        // Authoring works — `add_push_button` is a real verb — and what pdfce
+        // cannot do is RUN what the button would do, because it executes no PDF
+        // actions. `forms.push_button_runnable` is a condition nothing sets, so
+        // the control is permanently disabled until something does, at which
+        // point un-greying it is one line.
+        command("edit.form_push_button", t::edit_form_push_button(), 438)
+            .with_icon("form-field")
+            .enabled_when("forms.push_button_runnable"),
         // `list` is shared with `measure.manage_groups`, and the family it
         // belongs to is one of ACTION rather than of subject: form fields and
         // dimension groups have nothing to do with each other, but both

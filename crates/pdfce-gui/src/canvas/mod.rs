@@ -130,6 +130,7 @@
 
 // Filling an interactive form where it is drawn: the boxes, the hit test that
 // deliberately takes no tolerance, and the one editor a focused field gets.
+pub mod formfield;
 pub mod forms;
 // pdfce's OWN crosshair bitmap, supplied to the OS as a real cursor. The
 // platform's stock crosshair is monochrome and its colour belongs to the

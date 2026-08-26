@@ -196,7 +196,27 @@ pub(super) fn tab() -> Tab {
                 "forms",
                 ribbon::group_edit_forms(),
                 [
-                    command("edit.form_create_field"),
+                    // ★★★ FIVE FIELD TYPES, replacing the single
+                    // `edit.form_create_field` that was drawn and inert. Each
+                    // arms a placement tool: click the page for a standard
+                    // size, or drag out the exact one, and a dialog collects
+                    // the details before anything is authored.
+                    //
+                    // ★ The order is by how often a form uses them, not
+                    // alphabetically and not by engine convenience. Text boxes
+                    // outnumber everything else on a real form; the button
+                    // comes last because it is the one that cannot yet do
+                    // anything.
+                    command("edit.form_text_field"),
+                    command("edit.form_check_box"),
+                    command("edit.form_radio_button"),
+                    command("edit.form_choice"),
+                    // ★★ Greyed, never absent — the operator's ruling. R9
+                    // permits greying for a TEMPORARILY unavailable capability
+                    // explained on hover, and this is exactly that: pdfce can
+                    // place a button and cannot yet run what one does. See
+                    // `edit_form_push_button_unavailable` for the sentence.
+                    command("edit.form_push_button"),
                     command("edit.form_manage_fields"),
                     command("edit.form_flatten"),
                 ],

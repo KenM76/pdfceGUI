@@ -356,6 +356,25 @@ pub fn measure_for_command(id: &str) -> Option<crate::canvas::measure::MeasureKi
         .find(|&k| measure_command(k) == id)
 }
 
+/// The form-field kind a command id arms, if it is one of the five.
+///
+/// ★ A NAMED function taking `id`, deliberately, rather than an inline closure
+/// at the dispatch site. `shell::commands::reach` *reads* `app/dispatch.rs` to
+/// prove every registered command is routed, and it can follow a call like
+/// `form_for_command(id)` while a closure is opaque to it — the first version
+/// of this arm used `.iter().any(|k| ...)` and the reader rejected the whole
+/// dispatcher as unreadable rather than guessing.
+///
+/// So the convention `markup_for_command` established is not style: it is what
+/// keeps the routing table machine-checkable.
+#[must_use]
+pub fn form_for_command(id: &str) -> Option<crate::canvas::formfield::FormFieldKind> {
+    crate::canvas::formfield::FormFieldKind::ALL
+        .iter()
+        .copied()
+        .find(|&k| k.command_id() == id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
