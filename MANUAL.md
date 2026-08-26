@@ -19,11 +19,12 @@ settings described under [Where your settings live](#where-your-settings-live).
 9. [Text](#text)
 10. [Finding text — and when "no matches" does not mean "not there"](#finding-text)
 11. [Redaction](#redaction)
-12. [Printing](#printing)
-13. [Settings, and why pdfce asks you things other viewers do not](#settings)
-14. [Every keyboard shortcut](#every-keyboard-shortcut)
-15. [Where your settings live](#where-your-settings-live)
-16. [When something goes wrong](#when-something-goes-wrong)
+12. [Forms — filling one in, and making one](#forms)
+13. [Printing](#printing)
+14. [Settings, and why pdfce asks you things other viewers do not](#settings)
+15. [Every keyboard shortcut](#every-keyboard-shortcut)
+16. [Where your settings live](#where-your-settings-live)
+17. [When something goes wrong](#when-something-goes-wrong)
 
 ---
 
@@ -243,6 +244,74 @@ If the document contains text that cannot be searched (see above), then
 Take that seriously. It is the one operation where a thing you believe finished
 may not have, and you will not discover it by looking at the page. Check those
 areas by eye and mark them with a box.
+
+---
+
+## Forms
+
+### Filling one in
+
+Click the field on the page and type, exactly as you would in any reader — in
+**Read** and **Review** mode. Tick a check box by clicking it. There is no form
+mode to enter and never will be; filling a form is the reason most form
+documents exist.
+
+The **Forms panel** (View ▸ Panels) lists every field and fills them too. Use it
+when a field will not take a click: some fields cannot be typed into on the page
+— one with nothing drawn there, one on a rotated sheet, or a drop-down — and the
+panel says how many and why.
+
+### Making one
+
+**Edit mode**, Edit ▸ Forms. Five buttons: text field, check box, radio button,
+drop-down, button.
+
+Press one, then either **click the page** to drop the field at its usual size,
+or **drag a box** for an exact one. A window asks for the details. Nothing is
+added to the document until you press **Add**, so pressing Escape costs you
+nothing.
+
+The settings you accept carry over to the next field you place — so a column of
+identical check boxes is one set of choices and then a row of clicks.
+
+★ **Give every field a different name.** Two fields with the same name are
+*one* field shown twice: type in either and both change. pdfce numbers new
+fields for you so this cannot happen by accident, and it tells you if it does.
+
+★★ **Radio buttons are the exception, and this is the bit worth reading.** A set
+of radio buttons is *supposed* to share one name — that is what makes picking
+one clear the others. So give every button in a set the **same group name**, and
+a **different value**. pdfce keeps the group name for you and advances the value
+as you place them.
+
+### Changing one that is already there
+
+In **Edit** mode, click the field. Its details appear in the **Properties**
+panel: what it is, which page it is on, what it holds, and which options are
+switched on. From there you can **rename** it or **delete** it. A field drawn in
+more than one place also offers *Delete this box*, which removes only the one
+you clicked.
+
+★ In Edit mode a click **selects** a field rather than filling it — the same
+split every program that both fills and builds forms uses, because one click
+cannot do both. Drop to Review to go back to filling on the page.
+
+★ **Required, read-only, the tooltip and the border can only be set when a field
+is placed.** pdfce cannot change them afterwards yet. To change one, delete the
+field and place a new one.
+
+### The tooltip, and why pdfce asks
+
+Every new field asks for a tooltip. It is what a screen reader reads out, and
+what shows on hover. Leaving it blank is a fine answer and pdfce accepts it —
+what it will not do is decide for you and write something you never chose.
+
+### The button that cannot do anything yet
+
+**Button** is on the ribbon and greyed. pdfce can draw a button correctly and
+cannot yet give it anything to *do*, so one placed today would look right and
+sit there. It stays visible, greyed, rather than disappearing, so you can see
+that it is coming.
 
 ---
 
