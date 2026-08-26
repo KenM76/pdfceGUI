@@ -33,6 +33,27 @@ here so you know roughly where you are, not so you can quote it.
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `81e5aab`. **Read `Cargo.lock`, not this row** — it moves nearly every session, and `package-portable.py` re-resolves it unless you pass `--no-update` |
 | **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-25 from shell `db88cc8` / engine `81e5aab`, **with `--verify`**. `pdfceGUI2` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
+### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
+
+**It is the machine, not the program** — settled 2026-08-26 by the operator
+testing the identical portable build on his laptop, where it is fine. Do not
+diagnose it again.
+
+The symptom is a panic before any window appears, from `accesskit_windows`,
+reporting `HRESULT 0x80070008 "Not enough memory resources"` on a machine with
+plenty of memory.
+
+★ **What it costs you:** `ui-verify` launches a fresh process per check, so on
+this PC roughly a third of the suite cannot start and reports SKIPPED. Those are
+environmental, not product defects — read the skip reason before chasing one. A
+run on this machine is therefore always partial, and reporting it as a pass would
+be false.
+
+★★ A red herring on the way: OneDrive was found holding 404,000 handles, and
+publishing builds was measurably feeding it (~27,000 per build, established with
+a do-nothing control). Restarting OneDrive dropped it to 1,179 — **and the crash
+rate did not change.** Real leak, real fix, wrong mechanism.
+
 ### ★★ Two things that will otherwise cost you an hour each
 
 **1. Always publish with `--verify`.** The 2026-08-24 23:04 publish omitted it,

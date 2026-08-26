@@ -208,7 +208,31 @@ And the image-smoothing change from this morning is **gone as a special case**:
 the engine adopted it as its own default, so the one-time migration deleted
 itself exactly as designed.
 
-## M1 — Your machine: OneDrive is holding 349,000 file handles, and it makes pdfce crash on startup
+## M1 — The PC starts pdfce unreliably. The laptop does not. It is the PC.
+
+**★ SETTLED 2026-08-26 by your laptop test, and the conclusion is the useful
+part: pdfce is exonerated.** The same portable build, the same files, works
+normally on the laptop and fails roughly one launch in three on the PC. That is
+a machine difference, not a program defect, and no more of my time goes on it.
+
+**What this costs, and it is worth knowing rather than rediscovering:** the
+automated test suite launches a fresh copy of pdfce for every check, so on the
+PC about a third of them cannot start. Those show up as skips that look like
+failures. Any future session driving the suite **on this PC** should expect that
+and not go hunting.
+
+★★ And my earlier diagnosis was **wrong**, which is worth stating plainly rather
+than quietly dropping. I found OneDrive holding 404,000 file handles, established
+by controlled test that my publishing was feeding it, restarted it at your
+request, and watched the count fall to 1,179 — and the crashes **carried on at
+the same rate**. So the handle leak was real and worth fixing, and it was not the
+cause. Correlation, measured carefully, and still the wrong mechanism.
+
+The publishing rule stays regardless: 27,000 handles per published build is a
+genuine cost whether or not it crashes anything, and the rule is in the packaging
+tool with the measurement beside it.
+
+### Original report — the handle leak, which was real but was not the cause
 
 **Found 2026-08-26 while testing. Not a pdfce bug — but it bites pdfce.**
 
