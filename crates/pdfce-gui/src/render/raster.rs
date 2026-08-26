@@ -88,6 +88,13 @@ use crate::render::worker::RenderKey;
 /// type itself is the version the compiler keeps: a field added to
 /// [`RenderKey`] is compared here the moment it exists, because there is
 /// nothing here to forget to update.
+/// ★ `Clone` since 2026-08-26, for the backdrop. Cloning a `PageTexture` is
+/// cheap and shares pixels rather than copying them: `TextureHandle` is a
+/// reference-counted handle into egui's texture manager, and `Diagnostics` and
+/// `RenderKey` are small. The backdrop and the live texture are therefore the
+/// same pixels until the operator zooms past the backdrop, and only then does a
+/// second texture exist at all. See `OpenDoc::base_texture`.
+#[derive(Clone)]
 pub struct PageTexture {
     /// The uploaded raster. Freed when this struct drops.
     pub texture: TextureHandle,
@@ -153,6 +160,35 @@ fn pixmap_to_color_image(pixmap: &tiny_skia::Pixmap) -> ColorImage {
         [pixmap.width() as usize, pixmap.height() as usize],
         pixmap.data(),
     )
+}
+
+/// The most pixels a whole-page raster may have and still be kept as the
+/// backdrop.
+///
+/// ★★ Four megapixels — comfortably more than a whole-page raster at any fit
+/// zoom on any monitor this shell runs on, and far below the hundreds of
+/// megapixels a whole-page raster reaches just under the region tier. The
+/// budget is what makes `OpenDoc::base_texture` free: it retains the small
+/// early rasters and never the huge late ones.
+///
+/// At 4 bytes per pixel this bounds the backdrop at **16 MB**, which is one
+/// texture per open document and is not worth a setting.
+pub const BASE_MAX_PIXELS: u32 = 4_000_000;
+
+/// Whether this raster is small enough to keep as the page's backdrop.
+///
+/// ★ Asked of the PIXMAP rather than computed from the scale and the page size,
+/// because the pixmap is the thing whose memory is at stake and the two can
+/// disagree — a rotated page, a crop box smaller than the media box, or the
+/// renderer's own `ceil()` on the edge. Measuring the artefact is one fewer
+/// derivation to keep in step.
+#[must_use]
+pub fn within_base_budget(pixels: &crate::render::worker::RenderedPixels) -> bool {
+    pixels
+        .pixmap
+        .width()
+        .checked_mul(pixels.pixmap.height())
+        .is_some_and(|n| n <= BASE_MAX_PIXELS)
 }
 
 /// Upload pixels a background worker produced, as a [`PageTexture`].

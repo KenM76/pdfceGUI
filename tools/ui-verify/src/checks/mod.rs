@@ -131,6 +131,7 @@ pub mod markup_rectangle;
 /// pointer, and the only falsifier in the suite that needs a control to be
 /// **greyed at a specific moment mid-gesture**. Its header carries the argument.
 pub mod markup_shapes;
+pub mod progressive;
 
 /// ★ Markup ▸ Style — a ribbon group whose one item the manifest declared at S2
 /// and no renderer ever drew, so it shipped as a caption over an empty band.
@@ -561,6 +562,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // climbs with Ctrl+wheel and a wheel that does not reach the canvas is
         // `zoom_gallery`'s failure to report, not this one's.
         Box::new(blend_space::BlendSpaceFallbackIsDisclosed),
+        // ★ Immediately after `pan_refresh`, because they are the two halves of
+        // one gesture: that one asserts the new area RENDERS, this one asserts
+        // the page is not blank WHILE it renders. A failure of the first should
+        // be read first — if nothing renders at all, what is on screen during
+        // the wait is a secondary question.
+        Box::new(progressive::ProgressiveRenderNeverGoesBlank),
         // Beside it, because it is the same shape of check on the same
         // surface — a ribbon control that arms a canvas tool — and a reader
         // comparing the two verdicts wants them adjacent. It goes second

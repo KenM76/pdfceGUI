@@ -174,6 +174,43 @@ impl OpenDoc {
                 let key = pixels.key;
                 let texture = raster::texture_from_pixels(ctx, &pixels);
                 if page == self.view.page_index {
+                    // ★★★ **PROMOTE IT TO THE BACKDROP** if it is a small
+                    // whole-page picture. See `OpenDoc::base_texture`.
+                    //
+                    // Three conditions, and each excludes a specific way this
+                    // could go wrong:
+                    //
+                    // * `region().is_none()` — a REGION raster is a picture of
+                    //   part of the page, and a backdrop that covered part of
+                    //   the page would leave exactly the gap it exists to fill.
+                    // * under the pixel budget — the whole-page rasters just
+                    //   below the region tier are hundreds of megapixels, and
+                    //   retaining one would trade a blank page for an
+                    //   out-of-memory.
+                    // * the epoch matches — a backdrop from before an edit
+                    //   would show content the document no longer has.
+                    //
+                    // ★ The handle is CLONED, not copied: at a fit zoom the
+                    // backdrop and the live texture are the same pixels and
+                    // cost nothing, and they only diverge once the operator
+                    // zooms past it.
+                    if key.region().is_none() && raster::within_base_budget(&pixels) {
+                        self.base_texture = Some(texture.clone());
+                        self.base_texture_epoch = self.edit_epoch;
+                        // ★ Published, because the backdrop is invisible when
+                        // it is working: it only shows in the gaps a sharp
+                        // raster leaves, and at a fit zoom there are none. A
+                        // check that could not see it being kept would have to
+                        // infer its existence from the absence of a symptom.
+                        crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed in the UI
+                            format!(
+                                "backdrop-kept page={page} px={}x{}",
+                                pixels.pixmap.width(),
+                                pixels.pixmap.height()
+                            )
+                        });
+                    }
                     self.page_texture = Some(texture);
                     // Stamped with the epoch it is a picture of, exactly as the
                     // strip's own `insert` two lines below has always been. See

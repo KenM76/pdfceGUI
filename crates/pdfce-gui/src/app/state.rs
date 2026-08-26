@@ -639,6 +639,50 @@ pub struct OpenDoc {
     /// `app::actions::forms`'s selection arm: every verb that touches the form
     /// clears this, so the panel cannot go on describing a field that no longer
     /// exists under that name.
+    /// ★★★ **The backdrop — the last small whole-page raster, kept so the page
+    /// is never blank while a sharper one is on its way.**
+    ///
+    /// The operator, 2026-08-26: *"the screen should never be blank while
+    /// waiting to render when zooming out — there should be at least a low
+    /// resolution zoom of the newly panned or zoomed out area instead of just
+    /// remaining blank while the higher definition render occurs."*
+    ///
+    /// Measured before it was built: zooming out from 3590 % held
+    /// `canvas-coverage covered=0.000` for about twenty frames. The held
+    /// texture is a picture of a small region of a big sheet, and once the view
+    /// moves off that region there is nothing behind it.
+    ///
+    /// # ★★ Why this costs no extra render, which is the whole design
+    ///
+    /// It is not a new rasterisation. It is **the whole-page texture the shell
+    /// already made**, kept instead of dropped when a sharper one replaces it.
+    /// A document opens at a fit zoom, so the first raster of every page is
+    /// whole-page and small; that one becomes the backdrop and stays until the
+    /// page or the edit changes.
+    ///
+    /// The pixel budget is what makes that safe: a whole-page raster is only
+    /// promoted while it is under [`BASE_MAX_PIXELS`], so the enormous
+    /// whole-page rasters near the region tier are never retained. In the
+    /// common case the backdrop and the live texture are the **same handle**
+    /// and cost nothing at all, and they diverge only once the operator has
+    /// zoomed past it.
+    ///
+    /// # ★ Why it is dropped on an edit rather than shown stale
+    ///
+    /// A backdrop is a stand-in and staleness in *sharpness* is exactly what it
+    /// is for. Staleness in *content* is a different thing: showing an object
+    /// the operator has just deleted, in the part of the page a sharp raster
+    /// does not cover, is a picture that contradicts the document. Rule 4's
+    /// line is that pdfce may be fuzzy and may not be sneaky, and an out-of-date
+    /// backdrop is the second.
+    ///
+    /// So it is keyed to the edit epoch and dropped when that moves. The cost
+    /// is that an edit made while zoomed deep leaves no backdrop until the
+    /// operator zooms out far enough to make a small whole-page raster again —
+    /// which is a narrower gap than the one this closes, and an honest one.
+    pub base_texture: Option<crate::render::raster::PageTexture>,
+    /// The edit epoch [`Self::base_texture`] was rasterised under.
+    pub base_texture_epoch: u64,
     pub selected_field: Option<SelectedField>,
     /// ★ **The operator's guide lines**, per page, in canvas space.
     ///
@@ -812,6 +856,8 @@ impl OpenDoc {
             // file. See the field's own docs.
             selection: SelectionState::default(),
             selected_field: None,
+            base_texture: None,
+            base_texture_epoch: 0,
             // Read above, before `path` was moved into the struct.
             guides,
             page_objects: PageObjectCache::default(),

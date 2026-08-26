@@ -273,6 +273,7 @@ pub mod selection;
 pub mod snap;
 // Which page the frame is about, in what order the rest should be drawn, and
 // where a navigated-to page lands. The canvas's half of Phase 4's strip.
+mod backdrop;
 pub mod strip;
 pub mod target;
 // Selecting TEXT on the page, and copying it: the mode gate that needs no
@@ -997,6 +998,19 @@ fn show_in(
                 ),
                 None => rect,
             };
+            // ★ The backdrop, and the coverage number that makes its absence
+            // falsifiable. Both live in `canvas::backdrop`; see that module for
+            // why a screenshot is the wrong oracle for this one thing.
+            let backdrop = backdrop::paint(ui, doc, placement.page, current, rect);
+            backdrop::publish_coverage(
+                ui,
+                doc,
+                rect,
+                paint_rect,
+                backdrop,
+                held.is_some(),
+                placement.page == current,
+            );
             let response = match held {
                 Some((texture, _)) => {
                     // ★ The IMAGE goes at `paint_rect`; the page's INTERACTION
