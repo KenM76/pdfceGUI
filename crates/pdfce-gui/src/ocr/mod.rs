@@ -14,12 +14,12 @@
 //! | 2 | rasterize the page at [`fitted_dpi`] | `pdfce-render` |
 //! | 3 | RGBA → 8-bit greyscale | **this module** ([`greyscale`]) |
 //! | 4 | detect words, group into lines, recognise | `pdfce_core::ocr::engine_ocrs` |
-//! | 5 | image pixels (y-down) → PDF user space (y-up) | `pdfce_core::ocr::words_to_page_space` |
+//! | 5 | image pixels (y-down) → PDF user space (y-up), **including `/Rotate`** | `pdfce_core::ocr::words_to_page_space_on` |
 //! | 6 | write the mode-3 sandwich and save incrementally | `pdfce_core::ocr::layer::add_ocr_layer` |
 //! | 7 | put the bytes somewhere the operator named | `crate::dialogs::ocr` |
 //!
 //! Steps 4, 5 and 6 are deliberately not touched here. In particular **the
-//! y-flip is not done in this module and must never be**: `words_to_page_space`
+//! y-flip is not done in this module and must never be**: `words_to_page_space_on`
 //! is a free function precisely so that the flip happens once, for every
 //! engine, in one place. `pdfce-core`'s own note is that a "helpful" flip at a
 //! call site produces a layer that is mirrored *twice* — i.e. correct — for
@@ -138,6 +138,34 @@ use pdfce_core::page_tree::{self, Rect};
 /// an accuracy figure rather than an impression. Recognised tokens of three or
 /// more characters were compared against the page's own extracted text:
 ///
+/// # ⚠ EVERY NUMBER IN THIS TABLE IS RETRACTED — 2026-08-25
+///
+/// **They were measured against a text-detection model that did not work.**
+/// `pdfce-core`'s bundled detector had been broken since the engine landed —
+/// not degraded, broken: on a clean 150 dpi render of 12 pt Helvetica it
+/// returned sixteen fragments clustered at the right margin plus one "word"
+/// whose bounding box was the whole page. The recognition model was always
+/// fine; the detection build was the wrong one for `ocrs` 0.12.2. Fixed in
+/// `181d9bd` (Pass 129.0), reported on the shared channel.
+///
+/// ★★★ So this is not a curve with error bars on it. **It is a curve of how
+/// noise varies with resolution**, and the 44.7 % below is very likely the
+/// artefact rather than the ceiling. For scale, the engine now reads a
+/// synthetic 200 dpi scan — blurred, skewed 0.35°, sensor noise, grey paper —
+/// at **47 of 47 words**.
+///
+/// ★★ The table is kept rather than deleted, and marked rather than quietly
+/// corrected, because the *reasoning* around it is probably still right and a
+/// reader needs to see what it was derived from. `ocrs` resizes to a fixed
+/// model input, so **total pixel count governs rather than DPI as such** —
+/// that is a property of the crate, not of the weights. Expect the shape to
+/// hold and the values to move.
+///
+/// [`TARGET_PIXELS`] is therefore **provisional**: derived from a real
+/// argument applied to unreal numbers. Re-running the sweep against the fixed
+/// detector is the outstanding work; until it completes, treat the constant as
+/// unmeasured rather than as measured-and-slightly-off.
+///
 /// | DPI | raster | Mpx | tokens ≥3 chars | exactly in ground truth |
 /// |---:|---|---:|---:|---|
 /// | 72 | 1584×1224 | 1.9 | 23 | 8 (34.8 %) |
@@ -160,9 +188,10 @@ use pdfce_core::page_tree::{self, Rect};
 /// # What this figure is and is not
 ///
 /// It is one document, of one kind — dense CAD linework, which is adversarial
-/// for a model trained on photographs and document pages. **44.7 % is not a
-/// quality claim for pdfce's OCR**; it is the point at which this engine does
-/// best on the hardest material this project has. See `ocr::fixture` for what
+/// for a model trained on photographs and document pages. **44.7 % was never a
+/// quality claim for pdfce's OCR**, and since the retraction above it is not a
+/// measurement of pdfce at all — it is what a broken detector produced on the
+/// hardest material this project has. See `ocr::fixture` for what
 /// is and is not established about recognition quality, and the report to the
 /// operator for the plain-English version.
 pub const TARGET_PIXELS: u64 = 8_400_000;
@@ -508,17 +537,41 @@ fn recognise(request: &Request) -> Result<Recognised, Refusal> {
     let words_recognised = words.len();
     // ★ The flip, and the ONLY place it happens. See the module header.
     //
-    // `page_rect` is the CROP box rather than the media box: the rasterizer
-    // draws the crop box (Table 30 — content is clipped to it at display
-    // time), so the image the recogniser saw covers exactly that region and
-    // nothing else. Handing the media box here would offset and scale every
-    // word by the difference on any page whose two boxes differ, which is most
-    // scanned material and all trimmed drawings.
-    let placed = pdfce_core::ocr::words_to_page_space(
+    // ★★★ `..._on` WITH THE PAGE'S `/Rotate`, NEVER the bare
+    // `words_to_page_space` — corrected 2026-08-25 on the engine's report
+    // (Pass 129.0).
+    //
+    // `pdfce-render` honours `/Rotate`: `page_device_geometry` swaps the
+    // raster's axes at 90° and 270°. The mapping BACK to page space did not,
+    // so on an odd quarter turn every recognised word landed on the wrong axis
+    // at the wrong scale.
+    //
+    // ★★ And the failure is invisible by construction, which is why it needed
+    // reporting rather than noticing. The OCR layer is Table 106 mode 3 —
+    // rendered but not shown — so a page whose every word is misplaced **looks
+    // exactly like a page whose every word is right**. The only symptom is that
+    // selecting or searching picks the wrong thing, and an operator meeting
+    // that would reasonably blame the recogniser rather than the geometry.
+    //
+    // ★ Not an edge case in the one population OCR exists for: scanner drivers
+    // and "rotate pages" commands in other tools write `/Rotate` rather than
+    // re-imaging the pixels, so a rotated scan is the norm rather than the
+    // exception.
+    let placed = pdfce_core::ocr::words_to_page_space_on(
         &words,
         w,
         h,
-        Rect::from_corners(box_.llx, box_.lly, box_.urx, box_.ury),
+        pdfce_core::ocr::PagePlacement::new(
+            // `page_rect` is the CROP box rather than the media box: the
+            // rasterizer draws the crop box (Table 30 — content is clipped to
+            // it at display time), so the image the recogniser saw covers
+            // exactly that region and nothing else. Handing the media box here
+            // would offset and scale every word by the difference on any page
+            // whose two boxes differ, which is most scanned material and all
+            // trimmed drawings.
+            Rect::from_corners(box_.llx, box_.lly, box_.urx, box_.ury),
+            i32::from(page.rotate),
+        ),
     );
     if placed.is_empty() {
         return Err(Refusal::NothingRecognised);
@@ -660,22 +713,52 @@ mod tests {
     /// ★★ **The measured optimum is reproduced for the sheet it was measured
     /// on.**
     ///
-    /// `SW41177.pdf`'s first page is 1584 × 1224 pt. [`TARGET_PIXELS`]'s whole
-    /// justification is a table of accuracy against DPI for that document, whose
-    /// best row is 150 DPI — so if this function does not put that page at
-    /// roughly 150 DPI, the constant's documentation is describing a behaviour
-    /// the code does not have.
+    /// `SW41177.pdf`'s first page is 1584 × 1224 pt, and [`TARGET_PIXELS`] is
+    /// the megapixel count this function is built around — so a page of that
+    /// size must come out at the DPI the constant implies. That is arithmetic,
+    /// and it holds whatever the constant's *value* turns out to be.
     ///
-    /// Asserted as a band rather than an equality: the constant is a rounded
-    /// megapixel figure, not a DPI, and pinning an exact float would make a
-    /// harmless re-rounding of it look like a regression.
+    /// # ★★★ This asserts the RELATIONSHIP, not the number — rewritten 2026-08-25
+    ///
+    /// It used to assert `145..=155 DPI`, on the grounds that 150 was the best
+    /// row of a measured accuracy table. **That table was retracted**: it was
+    /// produced by a text-detection model that did not work (see
+    /// [`TARGET_PIXELS`]), so the 150 it pinned was a property of noise.
+    ///
+    /// The engine's note on the retraction made the general point, and it is
+    /// why this test is shaped differently now:
+    ///
+    /// > *"A test that asserts a number fails on every legitimate change, and
+    /// > gets edited without the evidence."*
+    ///
+    /// Exactly so. Had the sweep been re-run and `TARGET_PIXELS` moved, this
+    /// test would have gone red for a **correct** change — and the cheapest way
+    /// to make it green is to edit the band, which quietly destroys the link it
+    /// existed to protect. It now asserts what cannot become false by
+    /// re-measuring: that this page's DPI is the one `TARGET_PIXELS` implies.
+    ///
+    /// ★ When the sweep is re-run and the constant moves, this test should
+    /// **pass unchanged**. If it does not, the fitting arithmetic has come
+    /// apart — which is precisely what the old version could not tell you.
     #[test]
-    fn the_benchmark_sheet_lands_on_the_resolution_that_measured_best() {
-        let dpi = fitted_dpi(1584.0, 1224.0);
+    fn the_benchmark_sheet_lands_on_the_dpi_the_target_implies() {
+        let (w_pt, h_pt) = (1584.0_f64, 1224.0_f64);
+        let dpi = f64::from(fitted_dpi(w_pt, h_pt));
+
+        // The DPI at which this page is exactly TARGET_PIXELS: solve
+        // (w/72 · d) · (h/72 · d) = TARGET_PIXELS for d.
+        #[allow(clippy::cast_precision_loss)] // 8.4e6 is exact in f64
+        let implied = (TARGET_PIXELS as f64 / (w_pt / 72.0 * (h_pt / 72.0))).sqrt();
+
         assert!(
-            (145.0..=155.0).contains(&dpi),
-            "SW41177 measured best at 150 DPI and this function chose {dpi:.1}; \
-             TARGET_PIXELS and its measurement table have come apart"
+            (dpi - implied).abs() <= 1.0,
+            "a {w_pt}×{h_pt} pt page should rasterise at {implied:.1} DPI to reach TARGET_PIXELS, and this function chose {dpi:.1} — the fitting arithmetic and the constant have come apart"
+        );
+        #[allow(clippy::cast_possible_truncation)] // bounds check only
+        let as_f32 = dpi as f32;
+        assert!(
+            (MIN_DPI..=MAX_DPI).contains(&as_f32),
+            "and the answer must be inside the clamp: {dpi:.1}"
         );
     }
 
