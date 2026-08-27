@@ -88,7 +88,8 @@ and gap analysis commissioned the same evening, on his instruction, **before any
 code was changed**.
 
 > *"The interface for this has gotten so wonky. I can't figure out how to click
-> on objects to edit them. For example on the Ghent […] There are obviously more
+> on objects to edit them. For example on the [conformance suite's composite
+> page] There are obviously more
 > than one item on the page, but when I click on one of the objects all I get is
 > the page selected. When I double click on an object it doesn't select — it
 > still only has the whole page selected. Also when I have an object selected
