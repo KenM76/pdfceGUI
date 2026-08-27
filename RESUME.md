@@ -27,12 +27,12 @@ here so you know roughly where you are, not so you can quote it.
 |---|---|
 | **Tests** | 1,830 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | **18 of 18**, 0 skipped |
-| **`ui-verify`** | **82 checks declared**, counted from a `--no-input` run on 2026-08-27 (the 83 this file used to say was already stale — re-measure, do not quote). ★ The newest, `a_click_inside_a_form_selects_what_is_drawn_there`, **has never been run**: it needs the desktop, and the operator has not handed it over since it was written. A long **unattended** full run loses ~11 checks to the desktop taking foreground back; run it in foreground slices |
+| **`ui-verify`** | **82 checks declared. The whole suite was driven on 2026-08-27 with the operator off the machine: 76 passed, 0 failed, 6 skipped** — `evidence/ui-verify-run-2026-08-27-SUMMARY.md` accounts for every one of the six. ★ Run it in **slices of six to eight**, not as one suite: three checks that skipped inside a twelve-member batch passed when re-run in a smaller one. Per-check runs are authoritative |
 | **The four defects O44 found** | **Two were real and are fixed** — the status bar going off-window at `ui_scale 1.80`, and the Properties panel's Apply being unreachable because the panel had no scroll area. **Two were the tests** — `blend_space` red on any drawing without transparency, `dimension_groups` contradicting itself in consecutive sentences. Both test defects were permanent false reds on this project's usual fixture |
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `af05e6d` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep` and `PageObjects::leaves`. **Read `Cargo.lock`, not this row** |
-| **Latest build** | ★ **Nothing published since the form work landed.** `OneDrive\pdfceGUI2` still holds the 2026-08-27 07:05 build from `d5c81a6`, which predates all of it. Publishing is owed **after** the driven run, not before — see the section below |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `4c32afe` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep`, `PageObjects::leaves` and the deep `pick_line_in_page`. **Read `Cargo.lock`, not this row** |
+| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-27 12:42 from shell `b3d7b1a` on engine `4c32afe` — the form-XObject selection, verified by the full driven run above. `pdfceGUI2` holds the 2026-08-27 07:08 build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ★★★ THE FORM-XOBJECT SELECTION IS SHIPPED — AND HAS NOT BEEN DRIVEN
 
@@ -56,18 +56,25 @@ counted places that resolve a paint-order *index*, most of which never see a
 `TargetId`. The prediction was not wrong about the danger, only about the size:
 budget the *care*, not the hours.
 
-#### ★★★ What is owed, in order
+#### ★★★ It is DRIVEN, and it is PUBLISHED
 
-1. **DRIVE IT.** `ui-verify a_click_inside_a_form_selects_what_is_drawn_there`
-   exists, is registered, compiles, and **has never been run** — it needs the
-   real cursor. Two assertions: a click on a square inside a page-sized form
-   selects `first=leaf:N`, and a click on **blank paper inside the same form**
-   selects nothing. The second is the one that forbids a "fall back to the
-   shallow hit test" repair, which would restore the original complaint for the
-   case that produces it most often.
-2. **Then publish**, with `--verify`, and refresh `FEATURES.md` first.
-3. **Then ask him to click the file he complained about.** The row in
-   `OPERATOR_REQUESTS.md` does not close until he has.
+`a_click_inside_a_form_selects_what_is_drawn_there` passed on 2026-08-27, and
+was **falsified in the same session**: with the shallow `hit_test_point_all`
+put back and the binary rebuilt, it reports the operator's own sentence back at
+us. Its two assertions, both through the OS:
+
+```
+after the click on the square: first=leaf:1
+after the click in the gap:    first=none
+```
+
+The second is the one that forbids a *"fall back to the shallow hit test when
+the deep one is empty"* repair — the commonest empty click is blank paper inside
+a page-sized form, and a fallback would answer it with the form.
+
+**What is left is the operator's verdict.** The `OPERATOR_REQUESTS.md` O46 row
+does not close until he has clicked an object on the file he complained about
+and said so.
 
 #### ★★ Three things that still do not work, and he has been told
 

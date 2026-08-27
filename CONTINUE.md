@@ -1,45 +1,80 @@
 # CONTINUE — handoff
 
-## 2026-08-27 — the form-XObject selection, and the one thing it still owes
+## 2026-08-27 — the form-XObject selection, driven and published
 
 **Clean tree. 18/18 gates. 1,830 + 420 + 144 tests, 0 failing. Re-measure
 before quoting.**
 
-### ★★★ WHAT TO DO FIRST: DRIVE ONE CHECK
+### ★★★ WHAT TO DO FIRST: NOTHING — IT IS DRIVEN AND PUBLISHED. ASK HIM.
 
-`ui-verify a_click_inside_a_form_selects_what_is_drawn_there` was written
-today, is registered, compiles, and **has never been run.** It needs the real
-cursor, which needs Ken off the machine.
+The operator handed the machine over and **the whole suite was driven**:
+**76 passed, 0 failed, 6 skipped** of 82 declared.
+`evidence/ui-verify-run-2026-08-27-SUMMARY.md` accounts for every one of the
+six, and none of them is a claim about the product.
+
+`a_click_inside_a_form_selects_what_is_drawn_there` passed, and was **falsified
+in the same session** — with the shallow `hit_test_point_all` put back and the
+binary rebuilt it reports the operator's own sentence back at us, which is what
+makes the green result evidence rather than a green result.
+
+Build **`OneDrive\pdfceGUI1`**, 2026-08-27 12:42, shell `b3d7b1a`, engine
+`4c32afe`. `pdfceGUI2` holds the 07:08 build as the fallback.
+
+**The only thing outstanding is his verdict.** The `OPERATOR_REQUESTS.md` O46
+row does not close until he has clicked an object on the file he complained
+about and said what happened.
+
+### ★★ How to run the suite, learned the hard way on this run
+
+**Slices of six to eight, not one suite.** Three checks that skipped inside a
+twelve-member batch passed when re-run in a batch of six —
+`zooming_past_the_pixmap_ceiling_still_renders`,
+`panning_at_deep_zoom_stays_where_it_was_put`,
+`a_fit_command_puts_the_page_on_screen`. Per-check runs are authoritative, and
+a batch skip needs the member re-run before it is believed.
+
+**Two checks need their own aim, and both were rediscovered from scratch:**
 
 ```bash
-cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
-  --check a_click_inside_a_form_selects_what_is_drawn_there \
-  > evidence/ui-verify-form-selection.txt 2>&1
+# Bézier handles: the fixture's later segments are the cubics
+--pdf fixtures/polyline-nodes.pdf --doc-point 0,150,260
+
+# Ctrl+C: --doc-point must be on actual text
+--pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,1140,62
 ```
 
-★ Redirect to a file. Piping through `tail` throws away the failure detail and
-costs a second run of his window.
+**Clear the desktop first.** A leaked `pdfce-gui.exe` from an earlier check will
+hold a window and cover the next one — `taskkill /F /IM pdfce-gui.exe` between
+slices. `(New-Object -ComObject Shell.Application).MinimizeAll()` clears the
+rest, and `UndoMinimizeALL()` puts it back.
 
-It pins its own fixture (`D:/Dev/pdfce/fixtures/synthetic/forms-xobject/page-sized-form.pdf`)
-and ignores `--pdf`, for the reason `ocr` does: on a document with no forms the
-honest answer is *"there was nothing to descend into"*, which is neither a pass
-nor a defect.
+### ★★★ Four harness repairs came out of the run, and three un-blinded a check
 
-**Two assertions**, and the second is the one that matters most:
+Three checks had been **unable to run** — one for over a week — each reporting
+an honest SKIP that named the wrong thing. **A SKIP is not a failure**, so
+nothing went red and nothing told anybody.
 
-1. a click on the centre of a square inside a page-sized form traces
-   `canvas-selection … first=leaf:N`;
-2. a click on **blank paper inside the same form** traces `first=none`.
+1. **`sys::describe_window`** — the cover guard names the window that owns the
+   point now. `describe_foreground` already carried the rule (*"a check that
+   reports a refusal without naming the refuser has withheld the only fact that
+   distinguishes wait from act"*), learned when a stray `OpenWith.exe` dialog
+   made nine checks skip. It had been applied to the foreground guard and not
+   to its sibling, whose message kept a **baked-in guess** at `osk.exe` — not
+   running that day. ⇒ *When a guard learns to name its subject, grep for its
+   siblings.*
+2. **"Outside the window" ≠ "covered by another window."** Three runs of
+   blaming `osk.exe`, then File Explorer, then `Progman` — the desktop, which
+   is the tell: the desktop owns a pixel when nothing of the application is
+   there. Different diagnoses, and the remedies have nothing in common.
+3. **`settings_headings_legible`** and **4. `redaction_removes_and_proves_it`**
+   each hand-rolled a two-place ribbon lookup where there are now three (a
+   group can *collapse* into a captioned button with its items in a popup).
+   `driving::declared_or_in_overflow` already knew. Both routed through it.
+5. **`dimension_groups` scrolls before it clicks** — a rect published inside a
+   `ScrollArea` is a position in the scrolled content, and at 1,100 × 800 the
+   Add button lands 24 pt below the window's bottom edge.
 
-The second forbids the tempting *"fall back to the shallow hit test when the
-deep one is empty"* repair. That fallback would answer the commonest empty
-click — blank paper inside a page-sized form — with the form, which is the
-operator's original complaint restored for the case that produces it most
-often. A check asserting only (1) would stay green through that regression.
-
-**After it passes:** refresh `FEATURES.md`, publish with `--verify`, and then
-ask him to click an object on the file he complained about. The
-`OPERATOR_REQUESTS.md` O46 row does not close until he has.
+Both lessons are in `D:/dev/rag/egui/`.
 
 ### What landed
 
