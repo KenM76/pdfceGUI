@@ -378,7 +378,7 @@ use egui::{Pos2, Rect};
 use pdfce_core::annot_author::Quad;
 use pdfce_core::page_tree::{Page, Rect as PdfRect};
 use pdfce_core::text_edit::{BlockRecognitionOptions, EditableTextModel, TextPosition};
-use pdfce_core::text_extract::{ExtractOptions, PageText};
+use pdfce_core::text_extract::PageText;
 
 use bands::{Accum, Band};
 
@@ -396,10 +396,6 @@ mod bands;
 /// **The rotated-text page §8's rules are tested on** — test-only.
 #[cfg(test)]
 pub mod fixture;
-
-/// **The writing direction the extraction drops**, recovered from the glyphs
-/// themselves. See §9 and that module's header.
-pub mod writing;
 
 pub use clipboard::{TextKey, apply_key, copy, pending_key};
 
@@ -640,19 +636,6 @@ pub struct PageContext<'a> {
     /// The revision the extraction describes, stamped onto any selection this
     /// produces. Module header §7.
     pub epoch: u64,
-    /// ★ **The options `text` was extracted with** — from
-    /// `crate::app::settings::SettingsExt::extract_options`, never
-    /// `ExtractOptions::default()`.
-    ///
-    /// Read by [`writing::lines`] and by nothing else. It is here rather than
-    /// fetched there because the three ratios it needs — word gap, line gap,
-    /// backward jump — are what *segmented the runs in `text`*, and a
-    /// regrouping that used different ones would be judging the engine's output
-    /// by a rule the engine did not apply. `app::settings`' header names that
-    /// exact failure as the reason the funnel exists; carrying the value
-    /// alongside the extraction is how a second call site is prevented from
-    /// reaching for a bare default.
-    pub opts: &'a ExtractOptions,
 }
 
 /// **Update the selection from a drag** — press at `from`, pointer now at `to`,
@@ -790,21 +773,24 @@ fn model<'a>(ctx: &PageContext<'a>) -> EditableTextModel<'a> {
 /// begun in the margin selects from the nearest text rather than from nothing.
 fn hit(model: &EditableTextModel<'_>, ctx: &PageContext<'_>, canvas: Pos2) -> Option<TextPosition> {
     let pdf = crate::viewer::canvas_to_pdf_space(canvas, ctx.page)?;
-    // ★ §8. A rotated band answers first, because the engine's line boxes are
-    // built on the same axis-aligned assumption its segmentation is: for a 90°
-    // glyph the box is hung off the wrong corner and overlaps the ink by about
-    // a third, so a press on the middle of the letter misses every box and the
-    // nearest-line fallback decides. That is not a theory — it produced a sweep
-    // one letter short and a sweep that selected nothing, both of which are on
-    // record in `writing::Rotated::position_at`.
+    // ★★ ONE call, since 2026-08-27. `EditableTextModel::hit_test` **projects
+    // the point onto the line** now (`Pass 139.2`), so a press on the middle of
+    // a 90° letter lands on that letter.
     //
-    // `None` from the band means the point is not on rotated text at all, and
-    // the engine's answer is then the right one — including its nearest-line
-    // fallback, which is deliberate and is Acrobat's behaviour: a drag begun in
-    // the margin selects from the nearest text rather than from nothing.
-    writing::lines(ctx.text, ctx.opts)
-        .position_at(ctx.text, pdf.x, pdf.y)
-        .or_else(|| model.hit_test(f64::from(pdf.x), f64::from(pdf.y)))
+    // Until that Pass this line was preceded by a shell-side rotated band that
+    // had to answer first, because the engine's line boxes were built on the
+    // same axis-aligned assumption its segmentation was: for a 90° glyph the
+    // box was hung off the wrong corner and overlapped the ink by about a
+    // third, so every press missed every box and the nearest-line fallback
+    // decided. That produced a sweep one letter short and a sweep that selected
+    // nothing. Both are fixed upstream; the band is deleted rather than kept as
+    // a fallback, per pdfce decision 058 — a private copy of a rule the engine
+    // now owns keeps compiling and keeps returning something plausible.
+    //
+    // The nearest-line fallback inside `hit_test` is deliberate and is
+    // Acrobat's behaviour: a drag begun in the margin selects from the nearest
+    // text rather than from nothing.
+    model.hit_test(f64::from(pdf.x), f64::from(pdf.y))
 }
 
 /// ★★ **Which way the text under `canvas` runs**, in CANVAS space, as an angle
@@ -817,8 +803,8 @@ fn hit(model: &EditableTextModel<'_>, ctx: &PageContext<'_>, canvas: Pos2) -> Op
 ///
 /// # The two hops, and why the second one cannot be skipped
 ///
-/// [`writing`] measures directions in **PDF user space** — Y-up, from the
-/// un-rotated CropBox's lower-left. The cursor lives in **canvas space** —
+/// [`EditableTextModel`] measures directions in **PDF user space** — Y-up, from
+/// the un-rotated CropBox's lower-left. The cursor lives in **canvas space** —
 /// Y-down, page top-left, with the page's `/Rotate` applied. A direction is not
 /// a point, so it cannot be projected by [`crate::viewer::pdf_space_to_canvas`]
 /// directly; what is projected is the **two ends of a short segment along it**,
@@ -835,14 +821,40 @@ fn hit(model: &EditableTextModel<'_>, ctx: &PageContext<'_>, canvas: Pos2) -> Op
 ///
 /// Ordinary horizontal text answers `None`, because the upright beam is already
 /// right for it and saying so would mean every ordinary page paying for a
-/// bitmap lookup to be told nothing changed. Blank paper answers `None` for the
-/// stronger reason given on [`writing::Rotated::direction_at`]: containment,
-/// not nearest-line, so the beam does not lie sideways over the empty inches
-/// below a vertical stamp.
+/// bitmap lookup to be told nothing changed.
+///
+/// ★★ Blank paper answers `None` for a stronger reason, and it is why this
+/// function does **not** use [`hit`]. `EditableTextModel::hit_test` falls back
+/// to the *nearest* line when no line contains the point, which is right for a
+/// drag — Acrobat does it — and wrong for a cursor: the empty inches beside a
+/// vertical stamp would turn the beam sideways over blank paper the operator is
+/// not pointing at any text on. So the test here is **containment**, and the
+/// difference between the two is deliberate rather than an inconsistency.
 #[must_use]
 pub fn tilt_at(ctx: &PageContext<'_>, canvas: Pos2) -> Option<f32> {
     let pdf = crate::viewer::canvas_to_pdf_space(canvas, ctx.page)?;
-    let dir = writing::lines(ctx.text, ctx.opts).direction_at(ctx.text, pdf.x, pdf.y)?;
+    // ★ The engine's own answer since `Pass 139.2`: `Line::direction` is the
+    // unit vector every glyph on that line shares, sourced from the §9.4.4 text
+    // rendering matrix rather than corroborated from geometry. Until then this
+    // was a two-pass shell-side census over glyph origins, and its own header
+    // recorded that the census could come up empty on exactly the page it was
+    // written for. Deleted rather than kept, per pdfce decision 058.
+    //
+    // Containment, not nearest-line — see the doc above. `Line::bbox` is
+    // computed in the line's own frame now, so for a 90° line it is the tall
+    // narrow box the ink actually occupies.
+    let model = model(ctx);
+    let dir = model
+        .lines()
+        .iter()
+        .find(|line| {
+            let (x, y) = (f64::from(pdf.x), f64::from(pdf.y));
+            line.bbox.llx <= x && x <= line.bbox.urx && line.bbox.lly <= y && y <= line.bbox.ury
+        })
+        .map(|line| line.direction)
+        // Horizontal text needs no tilt, and answering `0.0` for it would make
+        // every ordinary page pay for a bitmap the cursor already has.
+        .filter(|dir| (dir.1).abs() > f32::EPSILON || dir.0 < 0.0)?;
     // One point on the direction and one a short way along it. The length is
     // arbitrary — only the difference is used — but it is a whole point rather
     // than an epsilon so the subtraction below is nowhere near `f32`
@@ -877,6 +889,26 @@ pub fn tilt_at(ctx: &PageContext<'_>, canvas: Pos2) -> Option<f32> {
 /// Returns `None` for a range covering no glyphs. That is the *only* way a
 /// caller clears a selection through this module, which is what makes "an empty
 /// selection is `None`" true everywhere rather than in most places.
+/// **Does this line run in a direction the page-axis box would get wrong?**
+///
+/// `true` for anything that is not left-to-right along +x. The test is on the
+/// engine's own [`pdfce_core::text_edit::Line::direction`], which is the unit
+/// vector taken from the §9.4.4 text rendering matrix and shared by every glyph
+/// on the line by construction.
+///
+/// ★ Why a *tolerance* rather than exact equality with `(1, 0)`: a page that
+/// rotates through the CTM rather than through `Tm`, and a fitted OCR baseline,
+/// both produce a direction a hair off horizontal. Treating those as rotated
+/// would send ordinary prose down the frame-accumulating path for no benefit;
+/// the engine draws the same line at `text_extract::SAME_DIRECTION_COS` and
+/// this matches it in spirit — near-horizontal is horizontal.
+fn is_rotated(model: &EditableTextModel<'_>, line: usize) -> bool {
+    model.lines().get(line).is_some_and(|line| {
+        let (dx, dy) = line.direction;
+        dy.abs() > f32::EPSILON || dx < 0.0
+    })
+}
+
 fn resolve(
     model: &EditableTextModel<'_>,
     ctx: &PageContext<'_>,
@@ -887,12 +919,6 @@ fn resolve(
     if covered.is_empty() {
         return None;
     }
-
-    // ★ §8. The page's rotated lines, recovered from the glyphs' own geometry
-    // because the extraction does not publish a writing direction. Empty — and
-    // measured in one pass over the run list — for every page whose text runs
-    // along x, which is what keeps the ordinary path below untouched.
-    let rotated = writing::lines(ctx.text, ctx.opts);
 
     // Which line the engine clustered each glyph onto. Built from
     // `model.lines()` rather than by re-clustering on baseline y: the engine's
@@ -924,12 +950,21 @@ fn resolve(
         // selection would silently highlight less than it copies. `Band::Loose`
         // keyed per glyph gives those a box each — visibly correct, and rare
         // enough that the cost is not worth a second clustering rule.
-        let band = match rotated.line_of(*gref) {
-            Some(line) => Band::Rotated(line),
-            None => match line_of.get(&(gref.run, gref.glyph)) {
-                Some(line) => Band::Engine(*line),
-                None => Band::Loose(gref.run, gref.glyph),
-            },
+        // ★★ Which band, and it turns on the ENGINE's `Line::direction` now.
+        //
+        // Until 2026-08-27 the rotated case came from a shell-side census that
+        // recovered the direction from glyph origins, because the extraction
+        // did not publish one. It does (`Pass 139.2`), every glyph on a line
+        // shares it by construction, and the census is deleted.
+        //
+        // A glyph the line clustering did not claim still has to be drawn, or a
+        // selection would silently highlight less than it copies. `Band::Loose`
+        // keyed per glyph gives those a box each — visibly correct, and rare
+        // enough that the cost is not worth a second clustering rule.
+        let band = match line_of.get(&(gref.run, gref.glyph)) {
+            Some(&line) if is_rotated(model, line) => Band::Rotated(line),
+            Some(&line) => Band::Engine(line),
+            None => Band::Loose(gref.run, gref.glyph),
         };
         let cell = match band {
             // The engine's own approximation of a glyph box, with the ascent
@@ -948,7 +983,7 @@ fn resolve(
             // horizontal direction this reduces to the expression above, which
             // is the check that it is a generalisation and not a second rule.
             Band::Rotated(line) => {
-                let dir = rotated.lines[line].dir;
+                let dir = model.lines()[line].direction;
                 Accum::Frame {
                     dir,
                     origin: (glyph.x, glyph.y),
@@ -983,19 +1018,21 @@ fn resolve(
         } else {
             run.text.len()
         };
-        // ★ §8. A derived line break that falls INSIDE a rotated line is an
-        // artefact of the extraction's axis-aligned baseline test — the letters
-        // either side of it were proved adjacent along their own direction — so
-        // it copies as nothing, which is what the engine would have emitted had
-        // it been measuring in the right frame.
+        // ★★ There is no artefact filter here any more, and its absence is the
+        // point of `Pass 139.1`.
         //
-        // Every other run takes its slice unchanged, including every break the
-        // regrouping declined to claim. That is what makes today's behaviour
-        // the floor: this branch can only ever remove a separator it has
-        // positively identified as spurious.
-        if rotated.is_artefact(index) {
-            continue;
-        }
+        // Until 2026-08-27 the extraction broke a line whenever |Δy| exceeded a
+        // ratio of the size — measured in PAGE axes — so text advancing in y
+        // changed baseline at every single glyph and a vertical stamp came out
+        // as one `DerivedLineBreak` per letter. That is the operator's report
+        // in his own words: *"it pastes each letter onto its own line."* This
+        // loop used to identify those breaks and skip them.
+        //
+        // `layout::classify` now resolves the step into the LINE's frame, so
+        // the breaks are not emitted at all. On the engine's `rotated-text.pdf`
+        // the derived break count went 22 -> 3. A filter that removes something
+        // no longer produced is a filter that will one day remove something
+        // real, so it is deleted rather than left as insurance.
         if let Some(slice) = run.text.get(lo..hi) {
             text.push_str(slice);
         }
@@ -1093,13 +1130,11 @@ pub fn keys(
         && takes_the_press(active_tool, caps)
         && let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index))
     {
-        let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
         let text_ctx = PageContext {
             text: &page_text,
             page,
             index: page_index,
             epoch: doc.edit_epoch,
-            opts: &opts,
         };
         apply_key(ctx, &text_ctx, key, selection);
     }

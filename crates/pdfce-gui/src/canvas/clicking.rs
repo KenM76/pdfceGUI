@@ -432,13 +432,11 @@ pub fn click(
             // `textsel::PageContext::opts` documents why a bare
             // `ExtractOptions::default()` here would be a defect rather than a
             // shortcut.
-            let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
             let text_ctx = super::textsel::PageContext {
                 text: &page_text,
                 page,
                 index: page_index,
                 epoch: doc.edit_epoch,
-                opts: &opts,
             };
             *text_selection = super::textsel::click(
                 &text_ctx,

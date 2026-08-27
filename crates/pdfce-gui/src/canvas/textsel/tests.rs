@@ -50,13 +50,11 @@ fn on_page<R>(body: impl FnOnce(&PageContext<'_>) -> R) -> R {
     let doc: OpenDoc = open_fixture(FOUR_PAGES);
     let text = doc.page_text().expect("the fixture's first page extracts");
     let page = doc.pages.first().expect("the fixture has pages");
-    let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
     body(&PageContext {
         text: &text,
         page,
         index: 0,
         epoch: doc.edit_epoch,
-        opts: &opts,
     })
 }
 
@@ -71,13 +69,11 @@ fn on_rotated_page<R>(body: impl FnOnce(&PageContext<'_>) -> R) -> R {
     let doc: OpenDoc = open_local_fixture(ROTATED_TEXT);
     let text = doc.page_text().expect("the fixture's page extracts");
     let page = doc.pages.first().expect("the fixture has a page");
-    let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
     body(&PageContext {
         text: &text,
         page,
         index: 0,
         epoch: doc.edit_epoch,
-        opts: &opts,
     })
 }
 
@@ -89,9 +85,17 @@ fn on_rotated_page<R>(body: impl FnOnce(&PageContext<'_>) -> R) -> R {
 /// gives: a coordinate that misses is symptom-identical to a hit test that
 /// is broken.
 fn on_string(ctx: &PageContext<'_>, word: &str, fraction: f32) -> Pos2 {
-    let rotated = writing::lines(ctx.text, ctx.opts);
-    let line = rotated
-        .lines
+    // ★ The ENGINE's lines since 2026-08-27. This used to read a shell-side
+    // census that recovered the writing direction from glyph origins; `Pass
+    // 139.2` publishes `Line::direction` from the text rendering matrix, and
+    // the census is deleted. A test that kept its own copy of a rule the engine
+    // now owns would keep passing while the product broke.
+    let model = pdfce_core::text_edit::EditableTextModel::recognize(
+        ctx.text,
+        &pdfce_core::text_edit::BlockRecognitionOptions::default(),
+    );
+    let line = model
+        .lines()
         .iter()
         .find(|l| {
             l.glyphs
@@ -121,15 +125,16 @@ fn on_string(ctx: &PageContext<'_>, word: &str, fraction: f32) -> Pos2 {
     // coordinate that lands past the end is symptom-identical to a hit test
     // that is broken, and that confusion has already cost this project one
     // retracted defect.
+    let dir = line.direction;
     let span = (last.x - first.x, last.y - first.y);
-    let length = span.0.mul_add(line.dir.0, span.1 * line.dir.1) + last.advance;
+    let length = span.0.mul_add(dir.0, span.1 * dir.1) + last.advance;
     let along = fraction * length;
     // A quarter of the size off the baseline, towards the ascender, which
     // is where the ink is.
-    let up = (-line.dir.1, line.dir.0);
+    let up = (-dir.1, dir.0);
     let pdf = egui::pos2(
-        along.mul_add(line.dir.0, (first.size * 0.25).mul_add(up.0, first.x)),
-        along.mul_add(line.dir.1, (first.size * 0.25).mul_add(up.1, first.y)),
+        along.mul_add(dir.0, (first.size * 0.25).mul_add(up.0, first.x)),
+        along.mul_add(dir.1, (first.size * 0.25).mul_add(up.1, first.y)),
     );
     crate::viewer::pdf_space_to_canvas(pdf, ctx.page).expect("a real page projects")
 }
@@ -290,14 +295,21 @@ fn the_operators_own_vertical_stamp_comes_back_whole() {
     let view = session.view();
     let pages = pdfce_core::page_tree::pages_in(&view).expect("a page tree");
     let last = pages.len() - 1;
-    let opts = ExtractOptions::default();
+    let opts = pdfce_core::text_extract::ExtractOptions::default();
     let text = pdfce_core::text_extract::extract_page_view(&view, &pages[last], last, &opts)
         .expect("the last page's text extracts");
 
-    let rotated = writing::lines(&text, &opts);
-    let words: Vec<String> = rotated
-        .lines
+    let model = pdfce_core::text_edit::EditableTextModel::recognize(
+        &text,
+        &pdfce_core::text_edit::BlockRecognitionOptions::default(),
+    );
+    let words: Vec<String> = model
+        .lines()
         .iter()
+        // ★ Only the rotated ones, which is what this probe is about. Before
+        // `Pass 139.2` the shell had to recover that fact; the engine publishes
+        // it now, and every glyph on a line shares it by construction.
+        .filter(|line| line.direction.1.abs() > f32::EPSILON || line.direction.0 < 0.0)
         .map(|line| {
             line.glyphs
                 .iter()

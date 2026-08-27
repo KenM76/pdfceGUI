@@ -822,13 +822,11 @@ pub(super) fn interact(
             if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) {
                 // ★ The SAME options the extraction ran with — see
                 // `textsel::PageContext::opts`.
-                let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
                 let text_ctx = textsel::PageContext {
                     text: &page_text,
                     page,
                     index: page_index,
                     epoch: doc.edit_epoch,
-                    opts: &opts,
                 };
                 text_selection = textsel::drag(&text_ctx, from, to);
             }
@@ -1462,13 +1460,11 @@ pub(super) fn interact(
                 .and_then(|p| {
                     let page = doc.pages.get(page_index)?;
                     let page_text = doc.page_text()?;
-                    let opts = crate::app::settings::SettingsExt::extract_options(&doc.settings);
                     let text_ctx = textsel::PageContext {
                         text: &page_text,
                         page,
                         index: page_index,
                         epoch: doc.edit_epoch,
-                        opts: &opts,
                     };
                     textsel::tilt_at(&text_ctx, map.to_page(p))
                 })
