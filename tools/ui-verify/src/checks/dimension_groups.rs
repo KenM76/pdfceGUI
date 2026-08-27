@@ -208,9 +208,49 @@ fn fold(session: &Session, driver: &Driver, ui_rect: &str, key: &str) -> Result<
     // ★★ `stable_rect`, not `declared` — see its own header for the measurement.
     // Raising this panel changes the DOCK's layout and it lands over several
     // frames, so a rect read once is a coordinate that is about to be wrong.
-    let Some(heading) =
-        crate::checks::driving::stable_rect(session, ui_rect, &format!("{HEADING}{key}"), 12)?
-    else {
+    let region = format!("{HEADING}{key}");
+    let Some(heading) = crate::checks::driving::stable_rect(session, ui_rect, &region, 12)? else {
+        // ★★★ **Two very different reasons to have no rect, and they must not
+        // share an answer.** This returned `Ok(None)` for both until
+        // 2026-08-26, and the caller reports `Ok(None)` as a FAIL reading *"the
+        // panel declares no `dimension-groups.heading.add` region, so there is
+        // no way to open the new-group controls"*.
+        //
+        // On the full driven run of 2026-08-26 that failure printed, in its own
+        // next sentence, **"Headings declared: dimension-groups.heading.add."**
+        // The report contradicted itself in two consecutive lines: the region
+        // was there, and `stable_rect` had simply never seen it hold still for
+        // twelve reads.
+        //
+        // A self-contradicting failure is worse than a silent one. It names a
+        // defect in the application — *a document is stuck with the groups it
+        // already has* — for a condition that is entirely the harness's: a dock
+        // still settling. Somebody would have gone looking in the panel.
+        //
+        // So: declared-but-unsettled is an `Err`, which the caller reports as a
+        // **SKIP**, exactly as the body-precondition below already does and for
+        // the identical reason — *a check that could not aim has learned
+        // nothing*. Only genuinely-absent stays `Ok(None)`.
+        // ★ `declared_names`, not `declared` — and the difference is exactly
+        // what produced the self-contradicting report. `declared` answers with
+        // the LAST rect published for a name and gives back nothing once a
+        // `ui-rect-gone` has retired it; `declared_names` answers *has this
+        // name ever appeared*. The failure message below uses the second, so
+        // the guard must use the second too, or the two disagree in precisely
+        // the case that matters — a heading that was drawn and then went away
+        // as the dock re-laid itself out.
+        let ever = crate::checks::driving::declared_names(&session.trace()?, ui_rect, &region);
+        if !ever.is_empty() {
+            return Err(Error::new(format!(
+                "the `{region}` heading was declared at least once and is not aimable \
+                 now: twelve reads of its rect never agreed twice running, or a \
+                 `ui-rect-gone` has retired it as the dock re-laid itself out. Either way \
+                 there is no coordinate this check may aim at, and clicking a moving \
+                 target lands somewhere else — a failure indistinguishable from the \
+                 control not working. SKIPPED rather than failed: this says nothing about \
+                 the panel. See `CONTINUE.md` on the dock settling over several frames."
+            )));
+        }
         return Ok(None);
     };
     // ★★★ **The precondition, and it is the finding this helper exists to

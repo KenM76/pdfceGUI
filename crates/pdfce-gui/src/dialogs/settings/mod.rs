@@ -380,7 +380,49 @@ pub fn show(
                 // See `preset`'s header for why PDF/X-4 is not among the
                 // entries yet and why its absence is the design rather than a
                 // gap.
-                preset::row(ui, draft);
+                //
+                // ★★★ **IN A COLLAPSIBLE GROUP, AND CLOSED — 2026-08-26.** It
+                // was a bare row until then, and it had grown to **ten radios
+                // plus a detail block: about 730 points**, in a scroll area
+                // roughly 620 points tall. The consequence was not subtle and
+                // was not caught by any test:
+                //
+                // > **Opening Settings showed nothing but a list of standards.
+                // > Every actual setting, and every group heading, was below
+                // > the fold.**
+                //
+                // Found by `ui-verify settings_theme_takes_effect` reporting
+                // *"the Settings window is open but declared no
+                // `settings.heading.appearance`. Headings declared: none"* —
+                // which was **exactly right** and had been read as a tracing
+                // bug. `widgets::group` publishes through `ui_rect_visible`,
+                // which correctly declines to publish a heading nobody can see;
+                // the check was reporting the real defect and the region
+                // mechanism was working perfectly.
+                //
+                // ★ Arithmetic, so it is checkable: the dialog is 82 % of
+                // screen height clamped to 900, less ~104 for the intro and the
+                // store line and less the 96 reserved for the buttons. On a
+                // 1440-point screen that is ~700 available against ~730 of
+                // presets — so this was true on the operator's own display too,
+                // not only in the harness's smaller offscreen viewport.
+                //
+                // Closed by default, like every group except Colour. It is
+                // still FIRST, which is the part of the original decision that
+                // was about meaning rather than about space: a preset sets all
+                // the groups, so it belongs above them.
+                //
+                // ★★ It is a `widgets::group` rather than a `ComboBox`, and
+                // that is deliberate restraint rather than the better answer. A
+                // dropdown is what most applications use for a preset and it
+                // would cost one row instead of one click — but the radio list
+                // is what the operator has just been given, reported on and
+                // accepted, and swapping the control would be improvising an
+                // interaction change while fixing a layout defect. It is worth
+                // proposing separately; it is not worth bundling here.
+                widgets::group(ui, "presets", t::preset_title(), false, |ui| {
+                    preset::row(ui, draft);
+                });
                 ui.add_space(10.0);
                 ui.separator();
                 widgets::group(ui, "appearance", t::group_appearance(), false, |ui| {

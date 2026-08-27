@@ -80,6 +80,14 @@ const SECTION_REGION: &str = "properties.geometry";
 const WIDTH_REGION: &str = "properties.geometry.width";
 /// The Apply button.
 const APPLY_REGION: &str = "properties.geometry.apply";
+
+/// How many scroll notches to spend looking for Apply below the fold.
+///
+/// Six. The button sits directly under the four fields, so one or two notches
+/// is the realistic case; six is enough for a panel slot squeezed by other
+/// panels above it and small enough that a check which will never find it fails
+/// quickly rather than scrolling for a minute.
+const SCROLL_ATTEMPTS: usize = 6;
 /// `resize-scale sx=… sy=… ax=… ay=…` — raised by `resizing::action` itself,
 /// so it is the line BOTH routes emit.
 ///
@@ -263,10 +271,77 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // `horizontal`, and a panel narrow enough to wrap moves everything below.
     // Reading the rect before the scrub would be the read-then-act interval
     // `driving::stable_rect`'s doc comment describes, in its cheapest form.
-    let trace = session.trace()?;
-    let apply = driving::declared(&trace, ui_rect, APPLY_REGION).ok_or_else(|| {
+    // ★★★ SCROLL TO IT FIRST — added 2026-08-26, and it is the fix for a
+    // failure this check reported as a dead button.
+    //
+    // The Properties panel is a `ScrollArea`, and in an ordinary dock layout its
+    // slot is shorter than its content. Apply sits directly under the fields and
+    // was **14 points below the panel's viewport**:
+    //
+    //     properties.geometry        [[786.0 591.7] - [1100.0 762.0]]
+    //     properties.geometry.apply  [[786.0 776.7] - [ 835.0 804.7]]
+    //
+    // The check read the declared rect, clicked its centre, hit empty canvas,
+    // and reported *"APPLY COMMITTED NOTHING AND DECLINED NOTHING"* — which
+    // reads as a defect in the application and was filed as one. The button was
+    // never broken; it was never pressed.
+    //
+    // Two changes closed it. The application now publishes these regions with
+    // `ui_rect_visible`, so a control nobody can see is not offered as a target
+    // at all — an absent region is a far better answer than a present one that
+    // cannot be clicked. And this loop does what the operator would do: scrolls
+    // the panel until Apply is on screen.
+    //
+    // ★ Scrolling at the WIDTH FIELD's centre rather than at the section's,
+    // because the section rect shrinks as its content scrolls out of view and a
+    // point derived from it walks. The width field is what the scrub just
+    // used, so it is known-good and known-inside the panel.
+    let mut apply = None;
+    for attempt in 0..SCROLL_ATTEMPTS {
+        let trace = session.trace()?;
+        if let Some(rect) = driving::declared(&trace, ui_rect, APPLY_REGION) {
+            apply = Some(rect);
+            if attempt > 0 {
+                report.note(format!(
+                    "Apply was below the panel's fold; {attempt} scroll notch(es) brought it \
+                     into view. That is what an operator does, and it is not a defect — the \
+                     Properties panel is a scroll area and its slot is shorter than its content"
+                ));
+            }
+            break;
+        }
+        let Some(field) = driving::declared(&trace, ui_rect, WIDTH_REGION) else {
+            return Err(Error::new(format!(
+                "the Width field stopped being visible while scrolling for Apply, so there is \
+                 nothing left to aim at. Trace: {}.",
+                session.trace_path().display()
+            )));
+        };
+        driver.scroll_at(session.frame()?.declared_center(field), -1)?;
+        session.settle(12);
+    }
+    // ★ Evidence before the verdict, on the path that gives up. A layout
+    // question has exactly one oracle — a rendered screenshot — and "the button
+    // is not on screen" is a layout question. Without this, the next reader has
+    // six scroll notches and a coordinate and no way to see what the panel
+    // actually looked like.
+    if apply.is_none() {
+        let shot = ctx.out("geometry_fields.no-apply.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+            report.note(
+                "the window is saved beside the trace: look at the Properties panel and see whether Apply is below its fold, off the window, or absent altogether — those are three different problems and the coordinates alone cannot tell them apart",
+            );
+        }
+    }
+    let apply = apply.ok_or_else(|| {
         Error::new(format!(
-            "no `{APPLY_REGION}` region after scrubbing the Width field. Trace: {}.",
+            "no `{APPLY_REGION}` region after scrubbing the Width field and scrolling the \
+             Properties panel {SCROLL_ATTEMPTS} times. The button is published with \
+             `ui_rect_visible`, so an absent region means it is not on screen — the panel's \
+             slot may be too short for even the scrolled position to reveal it. SKIPPED rather \
+             than failed: a button that was never pressed proves nothing about pressing it. \
+             Trace: {}.",
             session.trace_path().display()
         ))
     })?;

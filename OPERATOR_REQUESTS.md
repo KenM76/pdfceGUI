@@ -80,82 +80,109 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O44 — Four defects the first COMPLETE driven run found, none of them reported by you
+## O44 — Four things the first COMPLETE driven run found. Two were real, two were the test.
 
 **Found:** 2026-08-26, by the first `ui-verify` run in this project's history in
-which **every declared check actually launched**. Not asked for; filed here
-because this file is where work that has not been done goes.
+which every declared check actually launched. **All four resolved the same day**
+— and the honest tally is that **two were defects in the program and two were
+defects in the tests**, which is worth stating plainly rather than counting four
+fixes.
 
-### Why this run saw things the others could not
+Evidence: `evidence/ui-verify-run-2026-08-26-rotated.txt` for the discovery run.
+Every claim below was driven, and every driven claim was falsified first.
 
-Every previous full run lost roughly a third of its checks to
-`accesskit_windows` panicking before a window appeared — the handle-exhaustion
-story. This one lost **none**. 81 checks, 81 launches, 55 passed. So the
-failures below are the first complete picture the suite has produced, and four
-of them had simply never been looked at.
+### ★★ O44a — The status bar's controls went off the window at a large UI scale. **REAL. FIXED.**
 
-Evidence: `evidence/ui-verify-run-2026-08-26-rotated.txt`, with every failure
-categorised and the two that are **not** defects argued rather than dismissed.
+At `ui_scale = 1.80` the zoom control, the fit buttons, Find and the selection
+filter were **off the left edge of the window at negative coordinates**, and the
+left-hand notes were drawn underneath the fit group. Two points of the zoom
+stepper and Find were also clipped off the *bottom*, at **every** scale
+including 100 %.
 
-### O44a — ★ The status bar's controls are unreachable at high UI scale
+Two independent causes, both now fixed:
 
-**The one you would feel.** At `ui_scale = 1.80`, five declared regions lie
-outside the window's client area — `status-group:zoom`, `status-group:fit`,
-`status-group:find`, `status-group:filter`, and the status bar itself. Two of
-them are at **negative x**, i.e. off the left edge entirely.
+* **The bar had no narrowing behaviour at all.** It now sheds, the way Word's
+  and VS Code's do — biggest and least essential first. ★ The clause that makes
+  that legitimate is enforced rather than promised: a control may only be shed
+  if it has another home, checked against the real command registry. **That
+  check immediately refused the obvious design** — which would have dropped the
+  selection filter first, and the filter has no ribbon command, no menu entry
+  and no shortcut. It exists only on that bar. Only the fit buttons and Find may
+  go, and dropping the fit group alone is enough.
+* **The bar was two points shorter than its own controls**, because its height
+  was a constant written for 24-point controls and the shipped theme's are 28.
+  It is taken from the theme now.
 
-So at a large UI scale the zoom control, the fit buttons, Find and the selection
-filter are all off screen with no way to reach them. This is the
-redaction-apply defect's exact shape — a control declared outside the body it
-lives in — reached by *scaling* rather than by adding text, which is why no
-layout test saw it.
+★ **A finding for you rather than a fix:** the selection filter and the zoom
+stepper are reachable **only** from the status bar. If you would like either on
+the ribbon, say so — it is one line each, and it would let the bar shed more
+gracefully on a small window.
 
-**Not verified against your own scale setting yet.** If you run at 100 % you
-have never met this.
+### ★★★ O44b — The Apply button for typed sizes could not be reached at all. **REAL, AND WORSE THAN FILED. FIXED.**
 
-### O44b — Typing a size in the properties panel and pressing Apply does nothing
+Filed as *"typing a width and pressing Apply does nothing"*. That was wrong in
+an important way: **Apply was never pressed**, by anybody, because it could not
+be seen.
 
-`geometry_fields_resize_a_shape`: the Width field was scrubbed by 80 pixels and
-Apply **committed nothing and declined nothing** — no change, and no message
-saying why. The check names three candidates in the order worth checking; only
-the first is a defect you would notice, and it is that Apply stays greyed
-because the draft is compared against a value that was re-seeded underneath it.
+The Properties panel drew its sections straight into the panel with **no scroll
+area around them** — only the read-only metadata rows at the very bottom had
+one, nested deep inside. So with an object selected you got Left, Bottom, Width
+and Height, and Apply was **below the window edge with no scrollbar and no
+gesture that would reach it**. The whole typed-geometry feature was complete,
+wired, tested — and unusable.
 
-### O44c — Shift-dragging pages between two open documents completes and moves nothing
+★ It took a **screenshot** to see it. The coordinates said so all along and
+three readings of them still reached the wrong conclusion. One scroll area round
+the whole panel, and the driven check now scrubs the Width field, scrolls to
+Apply, presses it, and watches the resize reach the engine.
 
-`a_shift_drag_between_documents_moves_the_pages`: the release raises a
-cross-document insert and reports one page copied, and then no page arrives. The
-gesture looks like it worked and both documents are unchanged, which is the
-worst of the available failures — a silent no-op is indistinguishable from
-success until you look.
+### O44c — Shift-dragging pages between documents. **NOT A DEFECT. RETRACTED.**
 
-### O44d — The Settings window publishes no headings
+It works. The run that reported it was given a **one-page** second document, and
+a one-page document cannot be moved out of — by design, and no build could
+change that. Re-run against a four-page document it passes end to end: the
+target gains the page and the source loses it.
 
-`settings_theme_takes_effect`: the window opens and declares no
-`settings.heading.*` regions at all. Either it stopped publishing them or the
-names moved. Cosmetically invisible; it means the harness can no longer verify
-that a theme change reaches the window, and it also blocks
-`settings_headings_legible`, which SKIPped for want of them.
+★ My error, not the program's: the check said so in its own skip message and the
+first run reported the wrong half of it. The suite's invocation now uses a
+multi-page second document.
 
-### Two more failures that are NOT defects, argued rather than dismissed
+### O44d — The Settings window published no headings. **REAL, AND NOT WHAT IT LOOKED LIKE. FIXED.**
 
-* **`blend_space` was the harness being wrong**, and it is fixed. It reported
-  *"the page's colours have changed and nothing on screen says so"* against
-  `SW41177.pdf` — a page with **no transparency on it at all**, which never asks
-  for the colour buffer, never has it refused, and is correctly owed no
-  disclosure. Every trace line said `refused=0`. The check now SKIPs naming the
-  missing precondition, and still passes on the <the conformance suite> page it was written for.
-  Left alone it would have been a permanent false red on every run against your
-  own drawings.
-* **Two "the canvas is blank" failures are blank paper.** Both report the
-  identical pixel statistic, which is the tell. The screenshot was opened: the
-  window, the ribbon and the page thumbnails are all drawn, and the canvas is
-  white because at 17,782 % the visible region of a D-size sheet is a few points
-  across and a CAD sheet is mostly empty between its lines. They belong to
-  **O27**, because what changed is where the view lands after a climb, not
-  whether the page renders.
+It looked like a tracing bug. It was not. **Opening Settings showed nothing but
+the list of rendering standards** — the presets section had grown to ten radios
+and filled the entire window, so every group and every setting was below the
+fold. The window was reporting no headings because there were none on screen,
+which was exactly right.
 
-## O43 — Vertical text should behave like vertical text
+The presets are now a collapsible group like every other section — still first,
+because a preset sets all of them, but closed. Opening Settings shows the
+groups again.
+
+★ **Not changed to a dropdown**, though that is what most applications use for a
+preset and it would cost one row instead of one click. You have just been given
+the radio list and reported on it; swapping the control while fixing a layout
+defect would be improvising. Worth proposing separately.
+
+### ★ And two failures that were the TEST being wrong
+
+Both would have gone on reporting red for ever on your own drawings, which
+trains a reader to skip the section.
+
+* **`blend_space`** claimed *"the page's colours have changed and nothing on
+  screen says so"* about `SW41177.pdf` — a drawing with no transparency on it,
+  which never asks for the colour buffer and is owed no disclosure. It computed
+  the crossing from the page's **dimensions**, which says the buffer *would* be
+  refused if the page asked for one.
+* **`dimension_groups`** reported *"the panel declares no
+  `dimension-groups.heading.add` region"* and then, in its very next sentence,
+  **"Headings declared: dimension-groups.heading.add."** It contradicted itself
+  in two consecutive lines: the region was there, and the dock was still
+  settling so its position never held still long enough to click. A
+  self-contradicting failure is worse than a silent one — it names a defect in
+  the program for a condition that is entirely the harness's.
+
+## O43 — Vertical text should behave like vertical text## O43 — Vertical text should behave like vertical text
 
 **Asked:** 2026-08-26. **Shipped the same day. Driven check written and NOT YET
 RUN** — see the status below, which says so in those words.

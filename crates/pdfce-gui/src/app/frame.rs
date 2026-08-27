@@ -541,7 +541,11 @@ impl eframe::App for PdfceApp {
         // feedback loop — 230 % → 224 % → 215 % drift from a status line
         // that grew (R128, `D:\dev\rag\egui\bottom_panel_height_...md`).
         egui::Panel::bottom("status")
-            .exact_size(crate::app::status::HEIGHT_PTS)
+            // ★ Theme-derived since 2026-08-26. The constant this replaced
+            // assumed 24-point controls and the shipped theme's are 28, so the
+            // bar's own zoom stepper and Find toggle were clipped by two points
+            // at every UI scale. See `status::height_for`.
+            .exact_size(crate::app::status::height_for(&theme))
             .show(ui, |ui| {
                 // Three disjoint field borrows through `self`, as at the
                 // canvas call site below: the bar reads the status and

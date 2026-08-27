@@ -211,6 +211,55 @@ pub fn font_embedded(
 /// unwritable: the section that is *always* shown must not be reachable only
 /// through the section that usually is not.
 pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>) {
+    // ★★★ **ONE SCROLL AREA, ROUND EVERYTHING** — added 2026-08-26, and its
+    // absence was a defect an operator could not work around.
+    //
+    // This body draws four selection-scoped sections and then the file's
+    // metadata, straight into `ui`. Only `object_section`'s read-only rows had
+    // a `ScrollArea`, nested deep inside — so **every section above it was laid
+    // out unscrolled**, and when the panel's dock slot was shorter than they
+    // needed, the overflow was simply clipped. Not below a fold: below the
+    // window, with no scrollbar and no gesture that would reach it.
+    //
+    // What that cost, measured and photographed on 2026-08-26 with a path
+    // object selected in a 1100 x 800 window
+    // (`evidence/` via `ui-verify geometry_fields_resize_a_shape`):
+    //
+    // > `Left`, `Bottom`, `Width` and `Height` were on screen. **`Apply` was
+    // > not.** The typed-geometry feature was complete, wired, tested and
+    // > unusable, because the only control that commits it could not be
+    // > reached at any window size the dock would give this panel.
+    //
+    // ★ It was reported as *"the Width field was scrubbed and Apply committed
+    // nothing"*, filed as a dead button, and is neither: the button was never
+    // pressed. The coordinates said so all along —
+    // `properties.geometry.apply` at y 776 in a viewport ending at 762 — and
+    // three readings of them still reached the wrong conclusion. **The
+    // screenshot settled it in one look**, which is the standing rule about
+    // layout defects having exactly one oracle.
+    //
+    // The inner `ScrollArea` on the metadata rows is removed with this, rather
+    // than left to nest: a scroll area inside a scroll area steals the wheel
+    // from its parent depending on where the pointer happens to be, which is a
+    // worse surface than the one being fixed.
+    egui::ScrollArea::vertical()
+        .id_salt("properties-body")
+        .auto_shrink([false, false])
+        .show(ui, |ui| body_sections(ui, doc, state, actions));
+}
+
+/// The panel's sections, inside the scroll area [`body`] wraps them in.
+///
+/// Split out so the scroll area is impossible to forget: a section added to
+/// this function is inside it by construction, where a section appended to
+/// `body` after the `.show(..)` call would silently be outside it again — which
+/// is the defect this arrangement exists to make unwritable.
+fn body_sections(
+    ui: &mut egui::Ui,
+    doc: &OpenDoc,
+    state: &mut PanelsState,
+    actions: &mut Vec<Action>,
+) {
     // ★★ The markup restyle section, first among the selection-scoped ones.
     //
     // Before the ce-dimension section and before the object one, because the
@@ -299,9 +348,12 @@ fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, dre
     );
     ui.separator();
 
-    egui::ScrollArea::vertical()
-        .id_salt("properties-fields")
-        .show(ui, |ui| {
+    // ★ No `ScrollArea` here since 2026-08-26 — `body` wraps the whole panel in
+    // one, and nesting a second inside it would steal the wheel from the outer
+    // depending on where the pointer sat. The block below is otherwise
+    // unchanged.
+    {
+        {
             for (label, value) in property_rows(index, &described, embedded) {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new(label));
@@ -319,7 +371,8 @@ fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, dre
                     ui.label(ot::object_note(*note));
                 }
             }
-        });
+        }
+    }
 
     crate::diag::trace(|| {
         format!(

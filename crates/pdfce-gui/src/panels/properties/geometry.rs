@@ -357,7 +357,36 @@ pub fn section(
 
     draft.sync(page, object, doc.edit_epoch, bounds);
 
-    crate::diag::ui_rect(REGION, ui.max_rect());
+    // ★★★ `ui_rect_visible`, not `ui_rect` — 2026-08-26, and the same lesson
+    // `dialogs::settings::widgets::group` learned for its headings.
+    //
+    // The Properties panel is a `ScrollArea`, and in an ordinary dock layout
+    // this section is taller than the slot it gets. A rect published for a
+    // control that is scrolled out of sight does not merely mislead a reader:
+    // a driven check **clicks** it, and the click lands on whatever is
+    // genuinely at those coordinates.
+    //
+    // That is not hypothetical. `ui-verify geometry_fields_resize_a_shape`
+    // reported *"THE WIDTH FIELD WAS SCRUBBED BY 80 PIXELS AND APPLY COMMITTED
+    // NOTHING AND DECLINED NOTHING"* — a report that reads as a dead button and
+    // was filed as one. The trace said otherwise:
+    //
+    //     properties.geometry        [[786.0 591.7] - [1100.0 762.0]]
+    //     properties.geometry.apply  [[786.0 776.7] - [ 835.0 804.7]]
+    //
+    // Apply was **14 points below the panel's viewport**, the click went to
+    // empty canvas, and nothing was pressed. The button was never broken.
+    //
+    // ★ Publishing only what is visible turns that false failure into an honest
+    // SKIP naming the real condition — the panel is shorter than its content.
+    // An absent region is a much better lie-free answer than a present one that
+    // cannot be clicked.
+    //
+    // ★ And it is the section's REAL extent, not `ui.max_rect()`. That was the
+    // available space when the section started drawing — which in a scroll area
+    // is the remaining viewport — so it published a rect ending at 762 while
+    // its own Apply button laid out at 776. A region that does not contain its
+    // own controls is not a region.
     // No `.strong()` — R84 / DEFECTS.md D11.
     ui.label(t::geometry_heading());
     ui.label(egui::RichText::new(t::geometry_units_note()).small().weak());
@@ -402,7 +431,7 @@ pub fn section(
         } else {
             t::geometry_too_small()
         });
-    crate::diag::ui_rect(APPLY_REGION, response.rect);
+    crate::diag::ui_rect_visible(APPLY_REGION, response.rect, ui.clip_rect());
 
     if response.clicked() {
         let plan = plan(draft, bounds);
@@ -443,6 +472,16 @@ pub fn section(
     }
 
     ui.separator();
+    // ★ Published HERE, at the end, and that placement is the fix.
+    //
+    // `ui.min_rect()` after the section has drawn is what it actually occupies.
+    // Before it draws, `min_rect` is empty and `max_rect` is the space
+    // *available* — which in a scroll area is the remaining viewport, and which
+    // is what this used to publish: a rect ending at 762 while its own Apply
+    // button laid out at 776. A region that does not contain its own controls
+    // is not a region, and a check dividing it into quarters to find a field
+    // would have been dividing the wrong box.
+    crate::diag::ui_rect_visible(REGION, ui.min_rect(), ui.clip_rect());
     true
 }
 
@@ -458,7 +497,11 @@ fn field(ui: &mut Ui, label: &str, value: &mut f64, region: Option<&'static str>
         ui.label(label);
         let response = ui.add(egui::DragValue::new(value).speed(SPEED).fixed_decimals(2));
         if let Some(region) = region {
-            crate::diag::ui_rect(region, response.rect);
+            // Visible-clipped, for the reason the section's own publication
+            // gives: this panel scrolls, and a field a harness can see but an
+            // operator cannot is a coordinate that scrubs whatever is behind
+            // it.
+            crate::diag::ui_rect_visible(region, response.rect, ui.clip_rect());
         }
     });
 }
