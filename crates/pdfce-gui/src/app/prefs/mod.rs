@@ -288,6 +288,52 @@ pub struct Prefs {
     /// the draft and the size reverts with it; there is no separate preview
     /// state that could get out of step with what will be written.
     pub ui_scale: f32,
+    /// ★★★ **Which rendering standard the operator chose**, by its engine id —
+    /// or `None` if they have never chosen one in any sitting.
+    ///
+    /// # The defect this exists for
+    ///
+    /// The operator, 2026-08-26: *"When I go to settings and select some of the
+    /// standards the save button is greyed out and I can't save the change."*
+    ///
+    /// Both halves of that are literally true, and the second explains the
+    /// first. A preset's *values* were the only thing recorded, and
+    /// `identical_siblings` measures that **all eight PDF/X and PDF/A presets
+    /// apply byte-identical render settings** — they genuinely make the same
+    /// demands of a renderer and differ in what they demand of a *file*. So
+    /// selecting a second standard changed no value, `Draft::is_dirty` was
+    /// therefore false, and Save was correctly greyed for a draft that really
+    /// did equal what was already saved.
+    ///
+    /// ★ And the worse half he had not seen yet: **his choice was discarded.**
+    /// Nothing recorded it, so on reopening the window `preset::matching`
+    /// supplied the derived reading — *"your settings look like this one"* —
+    /// which returns the FIRST of the eight. Choose PDF/X-4, come back, and the
+    /// window says PDF/X-1a.
+    ///
+    /// # ★★ Why persisting it is not the thing the old comment refused
+    ///
+    /// `Draft::chosen_preset` carried a deliberate argument for *not* storing
+    /// this: the derived reading *"cannot claim an intent nobody expressed in
+    /// this sitting."* That reasoning is right about not **inventing** an
+    /// intent and was applied to the opposite case. An operator clicking
+    /// PDF/X-4 has expressed an intent; discarding it and substituting a guess
+    /// is the invention the argument was written against.
+    ///
+    /// # It is a preference, not a setting, and that is the correct home
+    ///
+    /// `pdfce_core::settings::Settings` is the **engine's** store and describes
+    /// what to render. This is a record of what the operator *asked for*, which
+    /// changes no render — the values it implies are already in `Settings`. It
+    /// is also this shell's to keep: the engine has no concept of the window
+    /// having been used.
+    ///
+    /// ★ Retired on save when it no longer holds. If a control is changed by
+    /// hand afterwards the settings stop being that standard's, and
+    /// `preset::live_choice` already declines to show it —
+    /// [`crate::dialogs::settings::commit`] clears the stored value to match,
+    /// so the file never carries a claim the settings contradict.
+    pub chosen_standard: Option<String>,
 }
 
 impl Default for Prefs {
@@ -305,6 +351,7 @@ impl Default for Prefs {
             wheel_paging: WheelPaging::default(),
             chrome: PageChrome::default(),
             ui_scale: DEFAULT_UI_SCALE,
+            chosen_standard: None,
         }
     }
 }
@@ -444,6 +491,24 @@ impl Prefs {
                         line,
                     }),
                 },
+                // ui-text-exempt: a file KEY, matched literally.
+                //
+                // ★ Taken verbatim, with no validation against the engine's
+                // standard list. A hand-edited or newer-pdfce id that this
+                // build does not know is not an error: `preset::live_choice`
+                // asks `still_holds`, which answers `false` for an unknown id
+                // and falls back to the derived reading. Rejecting it here
+                // would turn "a standard this build has not heard of" into a
+                // parse note, which is the wrong report — nothing is wrong with
+                // the file.
+                //
+                // Empty means "none chosen", so a file written by a build that
+                // had no choice to record round-trips to `None` rather than to
+                // `Some("")`.
+                "chosen_standard" => {
+                    prefs.chosen_standard =
+                        (!value.trim().is_empty()).then(|| value.trim().to_owned());
+                }
                 // ui-text-exempt: a file KEY, matched literally.
                 "max_zoom_percent" => match value.parse::<f32>() {
                     Ok(pct) if pct.is_finite() => {
@@ -659,6 +724,20 @@ impl Prefs {
         out.push_str(&format!("{:.2}", self.ui_scale));
         out.push('\n');
         out.push_str(
+            // ui-text-exempt: file comments, never displayed in the UI.
+            "\n\
+             # The rendering standard you picked in Settings, if you picked one.\n\
+             # Blank means none. This records WHAT YOU ASKED FOR; the settings\n\
+             # it implies are written above and are what actually renders. Most\n\
+             # of the PDF/X and PDF/A standards ask a renderer for exactly the\n\
+             # same thing, so this is the only place your particular choice is\n\
+             # kept.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("chosen_standard = ");
+        out.push_str(self.chosen_standard.as_deref().unwrap_or(""));
+        out.push('\n');
+        out.push_str(
             "\n\
              # ---------------------------------------------------------------\n\
              # What you see when a document first opens. Both of these apply to\n\
@@ -812,6 +891,10 @@ mod tests {
         for quality in RenderQuality::ALL {
             for fit in OpeningFit::ALL {
                 let original = Prefs {
+                    // ★ Non-default, like every other field here: a `None`
+                    // would pass on a build whose writer emitted no
+                    // `chosen_standard` key at all.
+                    chosen_standard: Some("pdf-x1a".to_owned()),
                     // The migration marker round-trips like every other key.
                     // `true` rather than the default `false`, per this test's
                     // own rule: a non-default in every field, so no emitted
@@ -1247,6 +1330,8 @@ mod tests {
         // A non-default in every field, so no emitted value can coincide with
         // what a failed parse would have left behind.
         let prefs = Prefs {
+            // Non-default, for the reason this test states about every field.
+            chosen_standard: Some("pdf-x4".to_owned()),
             // Non-default, for the reason stated below about every other field.
             render_quality: RenderQuality::Sharper,
             // ★ Not the default, deliberately, and this test's own comment says

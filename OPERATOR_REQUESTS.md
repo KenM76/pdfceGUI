@@ -80,6 +80,60 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O45 — Selecting a standard leaves Save greyed out
+
+**Asked:** 2026-08-26. **Fixed the same day. Unit-tested and falsified; NOT yet
+driven** — see the status at the end, which says so in those words.
+
+> *"When I go to settings and select some of the standards the save button is
+> greyed out and I can't save the change."*
+
+### Both halves of that are literally true, and the second explains the first
+
+Save is offered only when something has actually changed since the window
+opened — deliberately, so it can tell you whether you have unsaved work. It
+compared the **values**.
+
+And **all eight PDF/X and PDF/A presets set exactly the same rendering values.**
+That is not a bug and pdfce already told you so on the selected standard's own
+line: the standards genuinely ask the same thing of a *renderer* and differ in
+what they ask of a *file*, which is a preflight question. So picking a second
+standard moved nothing, and Save was correctly greyed about a draft that really
+did equal what was already saved.
+
+### ★ And the half you had not seen yet: your choice was being thrown away
+
+Nothing recorded which standard you picked. On reopening, the window showed
+whichever one your *values* looked like — always the first of the eight. **Pick
+PDF/X-4, come back, and it said PDF/X-1a.** The window contradicting you about
+what you asked for is the worse of the two problems, and you would have met it
+next time you opened Settings.
+
+### What changed
+
+**Your choice is now remembered**, in `preferences.txt` beside the other things
+that are yours rather than the engine's:
+
+```
+chosen_standard = pdf-x4
+```
+
+So picking a standard *is* a change, Save lights up, and next week the window
+tells you what you chose rather than what it can infer. If you afterwards move
+any control by hand, the settings stop being that standard's and the claim is
+retired — the window stops showing it **and** the file stops naming it, together,
+so the two can never disagree.
+
+★ Nothing about the greying rule changed. There is simply now something to save.
+
+### Status
+
+| | |
+|---|---|
+| unit tests | 4 new. The main one runs over **every pair** of standards rather than the two you hit, because any two of the eight reproduce it; falsified by removing the one line that records the choice, and it fails naming a real pair |
+| **driven** | **NOT YET.** Selecting a radio in the Settings window needs the pointer and you were using the PC. The window now publishes `settings-preset chosen=… stored=… dirty=…` so a check has an oracle — an enabled button and a greyed one are the same size and place, so a screenshot cannot answer this |
+| one thing to know | the presets are in a **collapsed group** now (O44d — they had grown to fill the whole window). Open *Rendering standards* and they are as they were |
+
 ## O44 — Four things the first COMPLETE driven run found. Two were real, two were the test.
 
 **Found:** 2026-08-26, by the first `ui-verify` run in this project's history in

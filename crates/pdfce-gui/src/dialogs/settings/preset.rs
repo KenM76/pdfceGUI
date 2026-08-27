@@ -168,6 +168,28 @@ fn apply_pdfce(s: &mut Settings) {
     *s = Settings::default();
 }
 
+/// ★ **The `&'static str` a stored id names**, or `None` if this build has no
+/// such choice.
+///
+/// The seam between `Prefs`'s owned `String` and the `&'static str` every other
+/// reader here compares against. Resolving through [`choices`] rather than
+/// leaking the string is what keeps an unknown id — hand-edited, or written by
+/// a newer pdfce that knows a standard this one does not — from travelling any
+/// further than this function. It is not an error: the window simply falls back
+/// to the derived reading, which is the honest answer for a choice this build
+/// cannot offer.
+#[must_use]
+pub fn resolve_id(stored: Option<&str>) -> Option<&'static str> {
+    let stored = stored?;
+    choices()
+        .into_iter()
+        .map(Choice::id)
+        .find(|id| *id == stored)
+}
+
+/// The de-duplication slot for the presets row's state line.
+const PRESET_SLOT: &str = "settings-preset"; // ui-text-exempt: a trace slot key, never displayed
+
 /// Which preset the control should show as selected.
 ///
 /// The operator's own choice while it still describes the working settings,
@@ -178,6 +200,23 @@ fn live_choice(draft: &Draft) -> Option<&'static str> {
         .chosen_preset
         .filter(|id| still_holds(id, &draft.working))
         .or_else(|| matching(&draft.working))
+}
+
+/// ★ **Whether the draft's chosen standard still describes its working
+/// settings** — the question `commit` asks before writing the choice to disk.
+///
+/// [`live_choice`]'s own filter, exposed so the display rule and the stored
+/// value cannot drift apart. Without one function answering for both, the
+/// window would stop showing a standard while the preferences file went on
+/// naming it, and the next session would open claiming a choice the values
+/// contradict.
+///
+/// `true` when nothing is chosen: there is no claim to retire.
+#[must_use]
+pub fn still_chosen(draft: &Draft) -> bool {
+    draft
+        .chosen_preset
+        .is_none_or(|id| still_holds(id, &draft.working))
 }
 
 /// Whether `id`'s preset still describes `settings`.
@@ -325,11 +364,51 @@ pub fn row(ui: &mut egui::Ui, draft: &mut Draft) {
             // intent the settings no longer express. That is what keeps this
             // from becoming a label that lies.
             let current = live_choice(draft);
+            // ★ The row's own state, on change only. Two facts a driven check
+            // has no other way to read: WHICH standard the window is showing as
+            // selected, and whether the draft has anything to save.
+            //
+            // The second is the operator's report of 2026-08-26 — *"select some
+            // of the standards [and] the save button is greyed out"* — and it
+            // is not readable from a `ui_rect`, because an enabled button and a
+            // disabled one are the same size and the same place. Without this
+            // line the only oracle would be a screenshot of a greyed control,
+            // which is a contrast measurement standing in for a state.
+            crate::diag::trace_changed(PRESET_SLOT, || {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "settings-preset chosen={} stored={} dirty={}",
+                    current.unwrap_or("none"),
+                    draft
+                        .working_prefs
+                        .chosen_standard
+                        .as_deref()
+                        .unwrap_or("none"),
+                    draft.is_dirty()
+                )
+            });
             for c in choices() {
                 let selected = current == Some(c.id());
                 if ui.radio(selected, c.label()).clicked() && !selected {
                     c.apply(&mut draft.working);
                     draft.chosen_preset = Some(c.id());
+                    // ★★★ **And into the PREFERENCES, which is what makes Save
+                    // live.** 2026-08-26, on the operator's report that
+                    // *"select some of the standards [and] the save button is
+                    // greyed out"*.
+                    //
+                    // `Draft::is_dirty` compares working values against
+                    // original ones, and all eight PDF/X and PDF/A presets
+                    // apply byte-identical render settings — see
+                    // `identical_siblings`, which measures it rather than
+                    // asserting it. So choosing a second standard moved no
+                    // value and the draft was, correctly, not dirty.
+                    //
+                    // The choice itself is now a persisted preference, so it is
+                    // part of what `is_dirty` compares. Nothing about the
+                    // greying logic changed: there is simply now something to
+                    // save.
+                    draft.working_prefs.chosen_standard = Some(c.id().to_owned());
                 }
                 if selected {
                     detail(ui, c);
@@ -704,6 +783,143 @@ mod tests {
                 c.label()
             );
         }
+    }
+
+    /// ★★★ **The operator's report, as an assertion: choosing a standard must
+    /// make Save live.**
+    ///
+    /// > *"When I go to settings and select some of the standards the save
+    /// > button is greyed out and I can't save the change."* — 2026-08-26
+    ///
+    /// Both halves were true and the second explains the first. `is_dirty`
+    /// compares values, and [`identical_siblings`] measures that **all eight
+    /// PDF/X and PDF/A presets apply byte-identical render settings** — so
+    /// choosing a second one moved nothing and Save was correctly greyed about
+    /// a draft that really did equal what was saved.
+    ///
+    /// ★ The test is written over **every pair** of choices rather than the two
+    /// that were reported, because the reported pair is not special: any two of
+    /// the eight reproduce it. Picking two would have passed the day a ninth
+    /// standard arrived and collided with a tenth.
+    #[test]
+    fn choosing_any_standard_after_another_leaves_something_to_save() {
+        let all = choices();
+        for first in &all {
+            for second in &all {
+                if first.id() == second.id() {
+                    continue;
+                }
+                let mut draft =
+                    Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
+                // Choose one, save it — i.e. start the second sitting from the
+                // state the first one left.
+                first.apply(&mut draft.working);
+                draft.chosen_preset = Some(first.id());
+                draft.working_prefs.chosen_standard = Some(first.id().to_owned());
+                let saved = draft.working.clone();
+                let saved_prefs = draft.working_prefs.clone();
+
+                let mut draft = Draft::new(&saved, &saved_prefs);
+                second.apply(&mut draft.working);
+                draft.chosen_preset = Some(second.id());
+                draft.working_prefs.chosen_standard = Some(second.id().to_owned());
+
+                assert!(
+                    draft.is_dirty(),
+                    "choosing `{}` after `{}` left nothing to save. These two apply the same \
+                     render settings, so the values cannot carry the difference — the CHOICE \
+                     has to be part of what `is_dirty` compares.",
+                    second.id(),
+                    first.id()
+                );
+            }
+        }
+    }
+
+    /// ★★ **A choice survives the window being closed and reopened.**
+    ///
+    /// The half the operator had not seen yet. Before this was persisted the
+    /// window showed whichever standard `matching` found first, so choosing
+    /// PDF/X-4 and coming back read PDF/X-1a — the window contradicting the
+    /// operator about what they had asked for.
+    ///
+    /// Asserted for **every** standard, since the failure is invisible for
+    /// whichever one happens to sort first.
+    #[test]
+    fn a_chosen_standard_is_what_the_window_shows_when_it_reopens() {
+        for choice in choices() {
+            let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
+            choice.apply(&mut draft.working);
+            draft.chosen_preset = Some(choice.id());
+            draft.working_prefs.chosen_standard = Some(choice.id().to_owned());
+
+            // A new sitting, seeded the way `Draft::new` seeds it from disk.
+            let reopened = Draft::new(&draft.working, &draft.working_prefs);
+            assert_eq!(
+                live_choice(&reopened),
+                Some(choice.id()),
+                "the window reopened showing a different standard from the one that was chosen"
+            );
+        }
+    }
+
+    /// ★★ **A stored choice the settings no longer express is retired, not
+    /// shown.**
+    ///
+    /// The guard that stops persistence turning into a lie. `live_choice`
+    /// already declines to show it; this asserts the same of
+    /// [`still_chosen`], which is what `commit` asks before writing — because
+    /// a window that stopped claiming a standard while the file went on naming
+    /// it would reopen claiming it again.
+    #[test]
+    fn a_hand_edited_setting_retires_the_stored_choice_as_well_as_the_shown_one() {
+        let x4 = choices()
+            .into_iter()
+            .find(|c| matches!(c, Choice::Standard(_)))
+            .expect("the engine offers at least one standard");
+        let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
+        x4.apply(&mut draft.working);
+        draft.chosen_preset = Some(x4.id());
+        draft.working_prefs.chosen_standard = Some(x4.id().to_owned());
+        assert!(
+            still_chosen(&draft),
+            "the choice holds before anything moves"
+        );
+
+        // Move a value the preset governs, by hand.
+        draft.working.cmyk_intent = match draft.working.cmyk_intent {
+            pdfce_core::settings::CmykIntent::Calibrated => {
+                pdfce_core::settings::CmykIntent::NeutralBlack
+            }
+            _ => pdfce_core::settings::CmykIntent::Calibrated,
+        };
+
+        assert!(
+            !still_chosen(&draft),
+            "a hand-edited setting must retire the stored choice, or the file keeps a claim the \
+             settings contradict"
+        );
+        assert_ne!(
+            live_choice(&draft),
+            Some(x4.id()),
+            "and the window must stop showing it, which is the half that already worked"
+        );
+    }
+
+    /// An id this build does not know resolves to nothing and is not an error.
+    ///
+    /// Reachable two ways: a hand-edited preferences file, and a file written
+    /// by a newer pdfce that knows a standard this build does not. Neither is a
+    /// fault in the file, so neither may become a parse note — the window falls
+    /// back to the derived reading, which is the honest answer for a choice it
+    /// cannot offer.
+    #[test]
+    fn an_unknown_stored_standard_falls_back_rather_than_failing() {
+        assert_eq!(resolve_id(Some("pdf-x99-not-a-standard")), None);
+        assert_eq!(resolve_id(Some("")), None);
+        assert_eq!(resolve_id(None), None);
+        let known = choices()[0].id();
+        assert_eq!(resolve_id(Some(known)), Some(known));
     }
 
     /// ★★ **Adjusting a control by hand drops the chosen preset**, so the dot

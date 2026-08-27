@@ -215,10 +215,29 @@ pub struct Draft {
     /// agree — which is not a rare accident here but the **normal** case, since
     /// the standards genuinely make the same demands of a renderer.
     ///
-    /// ★ It is deliberately NOT persisted. What is saved is the settings, which
-    /// is what actually governs a render; on reopening, `preset::matching` is
-    /// the honest fallback — *"your settings look like this one"* — and cannot
-    /// claim an intent nobody expressed in this sitting.
+    /// ★★★ **It IS persisted, as of 2026-08-26** — in
+    /// [`crate::app::prefs::Prefs::chosen_standard`], whose docs carry the
+    /// operator report and the full argument. This field is the in-window
+    /// working copy of it.
+    ///
+    /// The comment that stood here said it was *deliberately not* persisted,
+    /// because the derived reading *"cannot claim an intent nobody expressed in
+    /// this sitting."* That reasoning is sound about not **inventing** an
+    /// intent and was being applied to the opposite case. Its two consequences,
+    /// both reported by the operator or found while fixing what he reported:
+    ///
+    /// * **Save was greyed out** after choosing a standard, because all eight
+    ///   PDF/X and PDF/A presets apply byte-identical render settings
+    ///   (`preset::identical_siblings` measures it), so a second choice moved
+    ///   no value and [`Self::is_dirty`] was correctly false about a draft that
+    ///   really did equal what was saved.
+    /// * **The choice was discarded**, so reopening showed whichever standard
+    ///   `preset::matching` found first — choose PDF/X-4, come back, read
+    ///   PDF/X-1a.
+    ///
+    /// Persisting it makes a choice a change, which makes Save live, which is
+    /// what the operator expected; and it makes the window able to tell him
+    /// next week what he asked for.
     pub chosen_preset: Option<&'static str>,
     pub working_prefs: crate::app::prefs::Prefs,
     /// What the preferences were when the window opened.
@@ -237,9 +256,21 @@ impl Draft {
         Self {
             working: current.clone(),
             original: current.clone(),
-            // Nothing chosen yet in this sitting; `preset::matching` supplies
-            // the fallback reading of whatever was loaded from disk.
-            chosen_preset: None,
+            // ★ Seeded from the operator's PERSISTED choice, so the window
+            // opens saying what they asked for rather than what their values
+            // happen to resemble. `preset::live_choice` still filters it
+            // through `still_holds`, so a stored id whose settings have since
+            // been changed by hand is not shown — the fallback reading takes
+            // over exactly where the claim stops being true.
+            //
+            // Resolved to the `&'static str` the choice list owns rather than
+            // kept as the stored `String`: an id this build does not know is
+            // not a choice it can offer, and dropping it here means every later
+            // reader is comparing against the real list instead of a string
+            // that might match nothing.
+            chosen_preset: crate::dialogs::settings::preset::resolve_id(
+                prefs.chosen_standard.as_deref(),
+            ),
             working_prefs: prefs.clone(),
             original_prefs: prefs.clone(),
         }
@@ -528,6 +559,23 @@ pub fn show(
             let dirty = draft.is_dirty();
             let save = ui.add_enabled(dirty, egui::Button::new(t::save()));
             if save.clicked() {
+                // ★★ Retire a stored choice the settings no longer express,
+                // **before** it is written.
+                //
+                // `preset::live_choice` already declines to SHOW a chosen
+                // standard once a control has been changed by hand — that is
+                // `still_holds`, asked against the preset rather than
+                // remembered as a flag. Without this line the window would stop
+                // claiming it and the file would go on carrying it, so the next
+                // session would open showing a standard the values contradict.
+                //
+                // The display rule and the stored value have to retire
+                // together, and this is the one place a stored value is
+                // committed.
+                if !preset::still_chosen(draft) {
+                    draft.chosen_preset = None;
+                    draft.working_prefs.chosen_standard = None;
+                }
                 outcome = Outcome::Save;
             }
             if !dirty {
