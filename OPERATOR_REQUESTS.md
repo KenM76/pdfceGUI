@@ -984,7 +984,67 @@ Engine re-pinned to v0.11.0 for it.
 
 ## O37 — All the font tools Word has
 
-**Asked:** 2026-08-25. **Planned**, not started. `RIBBON_SCALING.md` §6c.
+**Asked:** 2026-08-25. **SHIPPED AND DRIVEN, 2026-08-27** — awaiting your verdict.
+`RIBBON_SCALING.md` §6c.
+
+### ★★★ What you can do now
+
+**Sweep some text on the page and the Properties panel grows a "This text"
+section.** Font, size, Bold, Italic, colour. Every control writes into the open
+document; every one is a single Ctrl+Z.
+
+**The route, because it is not guessable and that is a fair complaint:** you are
+in Edit mode, so a drag with the Select tool draws a marquee round objects.
+Press **T** first — that arms the text tool — then sweep across the words. The
+panel follows.
+
+★ **That is a discoverability gap and it is ours, not a limitation.** Nothing on
+screen tells you to press T. It is written up and it is the next thing on this
+row; it is here rather than quietly omitted because you would have found it in
+ten seconds and concluded the feature was missing.
+
+### ★★★ The table in the "Step 1 done" section below is WRONG, and it is left in
+
+Every ✗ in its "on EXISTING text" column is false. `EditSession::format_text`
+had shipped three weeks before that table was written, and had been extended
+twice since. It reached this project only as a paragraph inside a note about
+something else — which is the engine's own recorded defect, and half ours: an
+absence claim about a crate you do not build is a claim about **every route**,
+and that inventory checked one verb.
+
+Struck rather than deleted, because a wrong table that cost six weeks is worth
+more as a warning than as a gap.
+
+### Driven, and falsified
+
+`restyling_selected_text_reaches_the_document`, against **your** SW41177 title
+block: Edit mode, press T, sweep, find the section, press Bold. **19 show
+operators restyled across 14 runs in 1.1 seconds.** Falsified in the same
+session by cutting the panel section out and rebuilding — it then fails with
+your own symptom, *"266 characters are selected and the Properties panel says
+nothing about them"* — and passes again when it is put back.
+
+★ **Driving it found four defects the eight unit tests could not**, and the
+first is the one worth knowing: a *run* of text is not a *show operator*. On
+your drawing a title-block cell is one run made of several `Tj`s, so restyling
+"the run" asked the engine for something it correctly refused, and the first
+press turned one piece of a fourteen-piece selection bold and stopped. The unit
+is the operator now.
+
+### What is still missing, said before you find it
+
+| | |
+|---|---|
+| **The Format tab has no Font group yet** | the panel is built first by design — `RIBBON_IA.md` §5.8 says so, because the tab's contents are a subset of the panel's and building the tab first means writing the editors twice. The tab also needs a decision about when it appears that is yours, not mine: today it appears on an *object* selection and a text sweep is not one |
+| **Clicking a text OBJECT does not raise the section** | only a sweep does. The engine pins text by *run*; a clicked object is a paint-order index; nothing maps between them, and guessing would restyle text you did not select in a file you then send to somebody |
+| **One sweep over N pieces is N presses of Ctrl+Z** | the engine has no undo-grouping verb. You are told the count rather than left to find out |
+| **A CMYK or spot-colour run shows a sentence instead of a swatch** | changing it here would convert your ink to screen colour permanently, on a document heading for a printer that cares |
+
+---
+
+### The original inventory, ~~kept~~ struck — see above
+
+**Planned**, not started.
 
 > *"We should also have all the font tools available that Word does."*
 
