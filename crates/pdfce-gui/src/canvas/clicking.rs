@@ -75,6 +75,83 @@ use crate::app::actions::Action;
 use crate::app::modes::Capabilities;
 use crate::app::state::OpenDoc;
 use crate::canvas::input::probe;
+
+/// ★★★ **How deep into the stack under one point the operator has asked to
+/// go**, and where they asked it.
+///
+/// # What this closes
+///
+/// The operator, 2026-08-26: *"when I click on one of the objects all I get is
+/// the page selected."* The engine already computed the whole front-to-back
+/// list of what a click is over; this shell took the first entry and discarded
+/// the rest, so anything underneath anything was unreachable at every point,
+/// for ever.
+///
+/// `Alt`+click at the same place now steps one deeper each time and wraps —
+/// which is Illustrator's *Select Behind* (`Ctrl`+click there) and Figma's
+/// deep-select, the two conventions for exactly this.
+///
+/// # ★★ Why it resets on pointer travel, and why the threshold is generous
+///
+/// A depth is only meaningful *at a point*: three clicks in three different
+/// places are three first clicks, not a walk into a stack. So the cursor
+/// remembers where it was established and resets when the pointer has moved
+/// away from there.
+///
+/// [`CYCLE_RESET_PTS`] is the radius. It is deliberately larger than a pixel:
+/// an operator holding `Alt` and clicking repeatedly does not hold the mouse
+/// perfectly still, and a one-pixel threshold would silently restart the cycle
+/// on the second click and make the feature look broken in the most confusing
+/// possible way — it would work, sometimes, depending on how steady their hand
+/// was.
+#[derive(Clone, Copy, Debug, Default)]
+struct CycleCursor {
+    /// Where the cycle was established, in canvas space.
+    at: egui::Pos2,
+    /// How many candidates to skip. `0` is a plain click.
+    depth: usize,
+}
+
+/// How far the pointer may drift and still be "the same point" for cycling, in
+/// canvas points. See [`CycleCursor`].
+const CYCLE_RESET_PTS: f32 = 4.0;
+
+/// The `egui::Memory` slot [`CycleCursor`] lives in.
+const CYCLE_MEMORY_KEY: &str = "pdfce-canvas-cycle"; // ui-text-exempt: internal memory id, never displayed
+
+/// **What depth this click means**, advancing or resetting the cursor.
+///
+/// `alt` is the operator asking to go deeper. Without it the cursor is reset,
+/// so an ordinary click always lands on the front-most candidate — which is
+/// what makes this feature invisible to anyone not using it.
+fn cycle_depth(ctx: &egui::Context, point: egui::Pos2, alt: bool) -> usize {
+    let id = egui::Id::new(CYCLE_MEMORY_KEY);
+    let previous = ctx
+        .data_mut(|d| d.get_temp::<CycleCursor>(id))
+        .unwrap_or_default();
+    let same_place = previous.at.distance(point) <= CYCLE_RESET_PTS;
+    let next = if alt && same_place {
+        CycleCursor {
+            at: previous.at,
+            depth: previous.depth.saturating_add(1),
+        }
+    } else if alt {
+        // First `Alt`+click at a new point: step past the front-most candidate,
+        // because a plain click already offers that one and repeating it would
+        // make the modifier look inert.
+        CycleCursor {
+            at: point,
+            depth: 1,
+        }
+    } else {
+        CycleCursor {
+            at: point,
+            depth: 0,
+        }
+    };
+    ctx.data_mut(|d| d.insert_temp(id, next));
+    next.depth
+}
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::pick::PickFilter;
 use crate::canvas::selection::SelectionState;
@@ -257,7 +334,10 @@ pub fn click(
     });
     if active_tool.is_node() && caps.edit_content {
         let hit = targets
-            .map(|t| probe(t, selection, page_index, point, map, pick))
+            // Depth 0: the Node tool addresses anchors within an object it
+            // has already entered, so "the object underneath" is not a
+            // question it asks.
+            .map(|t| probe(t, selection, page_index, point, map, pick, 0))
             .unwrap_or_default();
         selection.click_direct(page_index, hit, shift);
         crate::diag::trace(|| {
@@ -494,10 +574,42 @@ pub fn click(
             actions,
         );
     } else {
+        // ★★★ `Alt`+click reaches PAST whatever is on top. See [`CycleCursor`].
+        //
+        // The depth is computed here rather than inside `probe`, because it is
+        // a fact about this gesture — how many times the operator has asked, at
+        // this point — and `probe` is a pure question about a point. Keeping
+        // the cursor at the gesture end means the node-tool branch above, which
+        // asks the same question for a different purpose, is unaffected: it
+        // passes `0` and behaves exactly as it always has.
+        let alt = ctx.input(|i| i.modifiers.alt);
+        let depth = cycle_depth(ctx, point, alt);
         let hit = targets
-            .map(|t| probe(t, selection, page_index, point, map, pick))
+            .map(|t| probe(t, selection, page_index, point, map, pick, depth))
             .unwrap_or_default();
+        // ★ How many there were, so the status line can say *"2 of 5 here"*
+        // rather than leaving the operator to discover a stack by cycling into
+        // it. Computed only when something is under the pointer — the count is
+        // a second walk of the same list and there is no reason to pay for it
+        // on a click that hit nothing.
+        let under = targets
+            .filter(|_| hit.object.is_some())
+            .map(|t| {
+                crate::canvas::input::candidate_count(t, page_index, point, map.tolerance(), pick)
+            })
+            .unwrap_or(0);
         selection.click(page_index, hit, shift, double);
+        // ★ Recorded WITH the object it is about, so it cannot be claimed for
+        // a selection that arrived some other way — see `canvas::depth::taken`.
+        if let Some(object) = hit.object.and_then(|t| usize::try_from(t.0).ok()) {
+            crate::canvas::depth::remember(ctx, depth, under, page_index, object);
+        }
         super::trace::selection_event(selection, "click", double);
+        if under > 1 {
+            crate::diag::trace(move || {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("canvas-pick-depth depth={depth} of={under} alt={alt}")
+            });
+        }
     }
 }

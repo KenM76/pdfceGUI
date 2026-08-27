@@ -74,12 +74,13 @@ pub(super) fn probe(
     point: Pos2,
     map: &PageMapping,
     filter: PickFilter,
+    depth: usize,
 ) -> ClickHit {
     // ONE tolerance, converted once, in page units. Passing
     // `SELECT_SCREEN_TOLERANCE_PX` here would compile, run, and merely drift
     // with zoom — see `mapping`.
     let tolerance = map.tolerance();
-    let object = topmost_allowed(targets, page_index, point, tolerance, filter);
+    let object = nth_allowed(targets, page_index, point, tolerance, filter, depth);
 
     let subject = selection
         .entered_object()
@@ -141,20 +142,83 @@ pub(super) fn probe(
 /// every object unselectable in every harness — and the failure would look
 /// like a broken hit test rather than a filter, because nothing would name the
 /// filter in the output.
-fn topmost_allowed(
+fn allowed_candidates(
     targets: &dyn CanvasTargetProvider,
     page_index: usize,
     point: Pos2,
     tolerance: f64,
     filter: PickFilter,
-) -> Option<TargetId> {
+) -> Vec<TargetId> {
     targets
         .hit_test_all(page_index, point, tolerance)
         .into_iter()
-        .find(|target| match targets.object_class(page_index, *target) {
+        .filter(|target| match targets.object_class(page_index, *target) {
             Some(class) => filter.allows(class),
             None => true,
         })
+        .collect()
+}
+
+/// ★★★ **Which of the candidates under the pointer this click means**, given
+/// how many times the operator has asked to go deeper at this same point.
+///
+/// # The defect this closes
+///
+/// The operator, 2026-08-26: *"when I click on one of the objects all I get is
+/// the page selected."*
+///
+/// The engine computes the **whole** front-to-back list of what is under a
+/// point — `hit_test_all` — and this module called `.find()` on it and threw
+/// the tail away. So the front-most candidate was the only reachable one, at
+/// every point, for ever. On a page carrying anything page-sized, that one
+/// candidate is the answer to every click anywhere.
+///
+/// ★ The root cause of his complaint is one level below this — the engine does
+/// not enter form XObjects, so the objects he is pointing at are not in the
+/// list at all, and that is filed as an engine request. **This is the other
+/// half**, and it is the half that is ours: even for the objects that ARE in
+/// the list, anything underneath anything was unreachable.
+///
+/// # `depth` and its wrap
+///
+/// `0` is a plain click and is exactly what `.find()` used to return, so the
+/// ordinary gesture is unchanged by construction. Each `Alt`+click at the same
+/// point adds one, and the index **wraps** — a fifth `Alt`+click on a stack of
+/// four returns to the top rather than sticking at the bottom.
+///
+/// Wrapping rather than clamping because a cycle the operator can walk out the
+/// far side of is a cycle they can get lost in: with no visible list, a control
+/// that stops responding is indistinguishable from one that has broken. Coming
+/// back round says *"that was all of them"* without a word of copy.
+fn nth_allowed(
+    targets: &dyn CanvasTargetProvider,
+    page_index: usize,
+    point: Pos2,
+    tolerance: f64,
+    filter: PickFilter,
+    depth: usize,
+) -> Option<TargetId> {
+    let candidates = allowed_candidates(targets, page_index, point, tolerance, filter);
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.get(depth % candidates.len()).copied()
+}
+
+/// How many objects the pointer is over, after the pick filter.
+///
+/// Read by the status bar so the operator can be told *"3 objects here"* rather
+/// than having to discover a stack by cycling into it. Deliberately a count and
+/// not the list: a caller that wanted the list would be re-deriving the
+/// selection, which is [`probe`]'s job.
+pub(super) fn candidate_count(
+    targets: &dyn CanvasTargetProvider,
+    page_index: usize,
+    point: Pos2,
+    tolerance: f64,
+    filter: PickFilter,
+) -> usize {
+    allowed_candidates(targets, page_index, point, tolerance, filter).len()
 }
 
 /// Read the in-flight pointer gesture.

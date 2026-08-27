@@ -318,6 +318,9 @@ mod fit;
 /// the reachability clause that makes shedding legitimate. Added 2026-08-26.
 pub(super) mod fitting;
 mod page_box;
+/// **What is selected, said in words** — the readout that turns *"all I get is
+/// the page selected"* into a diagnosis. Added 2026-08-27; see its header.
+mod selected;
 
 /// The worded decline — a command that was invoked and did not run.
 ///
@@ -712,6 +715,15 @@ pub fn show(
             ui.label(caption);
             ui.separator();
         }
+
+        // ★★★ FIRST on the left: what is selected.
+        //
+        // Ahead of the narrator because it is the answer to a question the
+        // operator is actively asking — *what did I just click?* — where the
+        // render notes are something pdfce volunteers. When the bar runs out of
+        // room the left is what yields, and within the left the volunteered
+        // line should yield before the asked-for one.
+        selected::show(ui, doc);
 
         // Left: the narrator, demoted behind a disclosure.
         notes::show(ui, doc);

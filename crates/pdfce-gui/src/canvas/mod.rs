@@ -136,6 +136,10 @@ pub mod forms;
 // platform's stock crosshair is monochrome and its colour belongs to the
 // operator's pointer scheme, which is how it came to be white on white paper.
 pub mod cursor;
+
+/// **How deep the last click reached, and how deep it could have** — the
+/// readout that turns "all I get is the page" into a diagnosis. See its header.
+pub mod depth;
 // The `f64` position tier and, above all, the two hand-overs between it and
 // the `egui` scroll offset. Its own file because the seam is where the defects
 // are, and O24f and O26e were hundreds of lines apart inside `show`.
