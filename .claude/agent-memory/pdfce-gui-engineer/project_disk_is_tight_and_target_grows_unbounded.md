@@ -47,10 +47,10 @@ root (`patch15.py`, `patch_pixels.py`, `.tmp_text.py`, removed
 **★★ Two DURABLE fixes landed 2026-08-27, so do not re-derive them:**
 
 1. **`package-portable.py` prunes.** It had written a dated folder into
-   `D:uilds` on every keeper build since 2026-08-13 and never removed
+   `D:\builds` on every keeper build since 2026-08-13 and never removed
    one — **39 folders, 1.27 GB**. It now keeps the newest three (the two
    OneDrive slots plus one), by *modification time* rather than by name,
-   and only touches `pdfcegui-*` because `D:uilds` is shared with
+   and only touches `pdfcegui-*` because `D:\builds` is shared with
    ScripTree and with the engine's own packages.
 2. **`[profile.dev] debug = "line-tables-only"`** in the workspace
    `Cargo.toml`. Measured before: 4.1 GB in `target/debug` against 1.3 GB
@@ -62,7 +62,7 @@ root (`patch15.py`, `patch_pixels.py`, `.tmp_text.py`, removed
 
 **★ When reporting what a rebuild costs, check whose it is.** On
 2026-08-27 a rebuild appeared to consume 25 GB; `target/` accounted for
-only 5.4 GB of it and `D:\Dev\pdfce	arget` had grown **5.4 GB in the
+only 5.4 GB of it and `D:\Dev\pdfce\target` had grown **5.4 GB in the
 same window** because the engine session compiles in parallel. The rest
 was neither. Measure the specific directories before attributing a
 drop in free space to your own build.
