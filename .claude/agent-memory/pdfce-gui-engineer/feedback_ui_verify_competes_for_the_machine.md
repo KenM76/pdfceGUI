@@ -1,6 +1,6 @@
 ---
 name: ui-verify-competes-for-the-machine
-description: ui-verify drives the real desktop, so it cannot run while Ken is using the PC — batch harness runs and ask for a go-ahead
+description: ui-verify drives the real desktop, so it cannot run while Ken is using the PC — batch harness runs, ask once with a cost, and sweep the WHOLE suite when he grants it
 metadata:
   type: feedback
 ---
@@ -30,5 +30,29 @@ for the same machine.
   founded on a commit that said *"analysis-confirmed, NOT empirically
   verified"* and was treated as done anyway. A green `cargo test` is not a
   substitute and saying so is the whole point of [[r1-drive-the-binary]].
+
+## ★ Asking: one line, at the end, with the cost — and then sweep everything
+
+Confirmed 2026-08-27. A session report ended with *"Next — and I need the
+machine for it. I wrote the driven check … it has never been run; it moves the
+cursor, so it can't run while you're working. It's about ninety seconds."* He
+answered **"the PC is yours go ahead"** with nothing else.
+
+Two things that worked and should be repeated:
+
+1. **One line, last, naming the cost.** Not a paragraph, not a mid-report
+   digression, not a question he has to decide something about. What he is
+   granting is *time on his own desktop*, so the only fact he needs is how much.
+2. **"The PC is yours" means the whole suite, not the one check you asked
+   about.** That grant was spent on all 82 checks in slices, plus falsifying the
+   new one against a deliberately-broken rebuild, plus four harness repairs the
+   run exposed — and it was the right reading. A go-ahead is expensive to obtain
+   and cheap to use fully; asking twice in a day for two halves of one sweep is
+   the waste.
+
+While driving, his desktop is yours to tidy **reversibly**: killing leaked
+`pdfce-gui.exe` processes, and `Shell.Application.MinimizeAll()` paired with
+`UndoMinimizeALL()` at the end. Do not close anything of his, and put it back
+before reporting.
 
 See also [[project-operator-report-2026-08-17]].
