@@ -108,8 +108,8 @@
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
 use pdfce_core::vector::{
-    Bounds, Handle, MarqueeMode, Matrix, PageObjects, Point, Segment, VectorObject, decompose_page,
-    hit_test_point_all, hit_test_rect,
+    Bounds, Handle, HitTarget, MarqueeMode, Matrix, PageObjects, Point, Segment, VectorObject,
+    decompose_page, hit_test_point_deep, hit_test_rect,
 };
 use pdfce_core::view::DocumentView;
 use pdfce_render::page_device_geometry;
@@ -919,14 +919,71 @@ impl ObjectModelProvider {
     // and nothing else.
     // -----------------------------------------------------------------
 
-    /// Every object under the pointer, **front-most first**.
+    /// Every target under the pointer, **front-most first**, *including what
+    /// is painted inside form XObjects*.
     ///
     /// A thin adapter, as the module docs promise: convert canvas space to
     /// PDF user space, resolve the tolerance, and hand both to
-    /// [`pdfce_core::vector::hit_test_point_all`], which owns the geometry.
+    /// [`pdfce_core::vector::hit_test_point_deep`], which owns the geometry
+    /// and the ordering.
     ///
     /// The list is what click-through cycling steps through. Without it, an
     /// object completely covered by another is unselectable by any click.
+    ///
+    /// # THE DEEP QUERY, AND WHY A FORM IS NOT IN THE ANSWER
+    ///
+    /// The operator, 2026-08-26: *"when I click on one of the objects all I
+    /// get is the page selected."*
+    ///
+    /// He was clicking a real object. It was inside a form XObject, and this
+    /// method used to call `pdfce_core::vector::hit_test_point_all`, which
+    /// sees a form as **one opaque object bounded by its `/BBox`**. A form
+    /// declaring the whole `MediaBox` and drawing one small line is legal and
+    /// common - 8.10.1 makes `/BBox` a *clipping* extent, a statement about
+    /// where painting is allowed, not about where ink is. So a page-sized form
+    /// sat in paint order above everything drawn before it and won every click
+    /// at every point, and the outline it produced hugged the page edge, which
+    /// looks exactly like a state this program does not have.
+    ///
+    /// `hit_test_point_deep` answers with what is **inside** the form and
+    /// **excludes the form itself outright**. Measured on the fixtures this
+    /// project uses:
+    ///
+    /// | page | page objects | forms | leaves |
+    /// |---|---:|---:|---:|
+    /// | Ghent V5.0 ALL_X4 p1 | 28 | 4 | **242** |
+    /// | `ncored-benchmark-cad-drawing` p1 | 129,758 | 1 | **10,256** |
+    /// | `SW41177` p1 | 5,903 | 0 | 0 |
+    ///
+    /// On the first two, almost everything the operator can see was outside
+    /// the object model this method reported. On the third nothing changes at
+    /// all, which is the shape of the fix: it costs nothing on a page with no
+    /// forms.
+    ///
+    /// # There is deliberately NO fallback to the shallow query
+    ///
+    /// It is tempting to fall back to `hit_test_point_all` when the deep query
+    /// comes back empty, so a click on a form with no reachable interior still
+    /// selects *something*. **That reinstates the defect.** The commonest empty
+    /// answer by far is a click on blank paper *inside* a page-sized form -
+    /// and a fallback would answer it with the form, which is the operator's
+    /// original complaint, verbatim, restored for the case that produces it
+    /// most often.
+    ///
+    /// A form is still reachable, by two deliberate acts rather than by
+    /// default: the canvas context menu's *"select the containing form"* on
+    /// any object inside it (see [`Self::containing_form`]), and its row in
+    /// the Objects panel, which lists `PageObjects::objects` and therefore
+    /// lists every form. Reachable-on-purpose is the whole point; winning by
+    /// default is what was wrong.
+    ///
+    /// # What this costs
+    ///
+    /// One extra scan of `PageObjects::leaves` per query, and a sort of the
+    /// hits. The engine bounds the candidate list, and in practice a point is
+    /// under one to three things. `canvas::clicking` asks twice per selecting
+    /// click - once for the pick and once for the *"1 of 5 here"* count - and
+    /// that was already true.
     #[must_use]
     pub fn hit_test_all(&self, page_index: usize, point: Pos2, tolerance: f64) -> Vec<TargetId> {
         if page_index != self.page_index {
@@ -935,10 +992,57 @@ impl ObjectModelProvider {
         let Some(pdf) = self.canvas_to_pdf(point) else {
             return Vec::new();
         };
-        hit_test_point_all(&self.objects, pdf, resolve(tolerance))
+        hit_test_point_deep(&self.objects, pdf, resolve(tolerance))
             .into_iter()
-            .map(|i| TargetId::Object(i as u64))
+            .map(|hit| match hit {
+                HitTarget::Object(i) => TargetId::Object(i as u64),
+                HitTarget::Leaf(i) => TargetId::Leaf(i as u64),
+            })
             .collect()
+    }
+
+    /// The page paint-order index of the **outermost form** enclosing a
+    /// form-interior target - the *"select the container"* act.
+    ///
+    /// # Why the container has to be offered somewhere
+    ///
+    /// Because [`Self::hit_test_all`] no longer answers with a form, ever, and
+    /// a form is a perfectly legitimate thing to want: it is one page object,
+    /// it has a paint-order index, and `object-move` / `object-delete` address
+    /// it exactly like any other. Moving a title block or deleting a stamp is
+    /// *the form*, not the 240 objects inside it.
+    ///
+    /// So the reach gained inside forms must not cost the reach to the form.
+    /// The engine's own note on `hit_test_point_deep` says the same: *"the
+    /// form itself is still reachable - `containment` names every enclosing
+    /// form, so a shell can offer 'select the container' as a deliberate
+    /// second act, which is a different thing from having it win by default."*
+    ///
+    /// # Why `paint_order` and not `containment`
+    ///
+    /// [`pdfce_core::vector::FormLeaf::containment`] holds `ObjId`s, and an
+    /// `ObjId` is not addressable by any paint-order verb - resolving one back
+    /// to an index would mean a search, and a search that can find the *wrong*
+    /// invocation when a page draws the same form twice.
+    /// [`pdfce_core::vector::FormLeaf::paint_order`] is *"the index, in
+    /// `PageObjects::objects`, of the outermost form this object is inside"* -
+    /// already the number this needs, already unambiguous about which
+    /// invocation, and the same number the engine interleaves the two lists
+    /// on.
+    ///
+    /// # Returns
+    ///
+    /// `None` for a page object (it has no container), for a stale leaf index,
+    /// and for a query about another page. The **outermost** form, not the
+    /// immediate parent: one act, one meaning, and it is the one whose index
+    /// an edit verb can take.
+    #[must_use]
+    pub fn containing_form(&self, page_index: usize, target: TargetId) -> Option<TargetId> {
+        if page_index != self.page_index {
+            return None;
+        }
+        let leaf = self.objects.leaves.get(target.leaf_index()?)?;
+        Some(TargetId::Object(leaf.paint_order as u64))
     }
 
     /// The **topmost** object under the pointer, or `None`.
@@ -970,10 +1074,39 @@ impl ObjectModelProvider {
         let Some(bounds) = self.canvas_rect_to_pdf_bounds(rect) else {
             return Vec::new();
         };
-        hit_test_rect(&self.objects, bounds, MarqueeMode::Enclosed)
+        // The page's own list, from the engine's rule.
+        let mut out: Vec<TargetId> = hit_test_rect(&self.objects, bounds, MarqueeMode::Enclosed)
             .into_iter()
             .map(|i| TargetId::Object(i as u64))
-            .collect()
+            .collect();
+        // ...and the form interiors, by the SAME rule, applied here because
+        // the engine has no deep marquee to call.
+        //
+        // Without this, a click could select an object inside a form and a
+        // rubber-band across the identical object could not - two gestures
+        // that mean "select this" disagreeing about what is selectable, which
+        // is the kind of inconsistency an operator meets in the first minute.
+        //
+        // `contained_by` is the engine's own `MarqueeMode::Enclosed` predicate,
+        // called directly rather than re-derived, so the two halves of this
+        // answer cannot come to different conclusions about the same rect. A
+        // leaf's `page_bbox` is already page space - `decompose_page` maps it
+        // on the way out - so no second projection happens here.
+        //
+        // Written up for the request channel as a boundary finding rather than
+        // kept quiet: `hit_test_rect` is the engine's marquee and it should
+        // have a deep form the way `hit_test_point` now does, so that
+        // `pdfce-cli` and this shell cannot drift on what a rubber-band
+        // selects.
+        out.extend(
+            self.objects
+                .leaves
+                .iter()
+                .enumerate()
+                .filter(|(_, leaf)| leaf.object.page_bbox().contained_by(bounds))
+                .map(|(i, _)| TargetId::Leaf(i as u64)),
+        );
+        out
     }
 
     /// One object's canvas-space bounding rect, or `None` for a stale id.
@@ -1102,6 +1235,224 @@ mod tests {
         let cs = ContentStream::parse(src.to_vec()).expect("parse");
         let objects = decompose(&cs, Matrix::IDENTITY, &NoXObjects);
         ObjectModelProvider::from_parts(0, objects, Transform::identity())
+    }
+
+    // -----------------------------------------------------------------
+    // Form XObjects: the operator's case
+    //
+    // Everything above builds its model with `decompose`, whose resolver seam
+    // is `NoXObjects` -- so `PageObjects::leaves` is empty in every one of
+    // those tests and **not one of them can see** whether this provider
+    // descends into a form. That is not a hypothetical: the deep hit test
+    // landed with the whole suite green, which is a suite reporting nothing.
+    //
+    // These use `decompose_page` against a real `Document`, which is the only
+    // entry point that has a `DocumentView` to descend with. The fixture is
+    // committed here and its provenance is in
+    // `fixtures/forms-xobject/PROVENANCE.md`.
+    // -----------------------------------------------------------------
+
+    /// One page-sized form holding three separate 40x40 squares: **one** page
+    /// object, **three** leaves.
+    ///
+    /// The engine's own reproduction of *"when I click on one of the objects
+    /// all I get is the page selected"*. Byte-identical to
+    /// `pdfce/fixtures/synthetic/forms-xobject/page-sized-form.pdf`.
+    const PAGE_SIZED_FORM: &[u8] =
+        include_bytes!("../../../../../fixtures/forms-xobject/page-sized-form.pdf");
+
+    /// Form A holds form B holds one square -- containment depth **2**.
+    const NESTED_FORMS: &[u8] =
+        include_bytes!("../../../../../fixtures/forms-xobject/nested-forms.pdf");
+
+    /// A provider over page 1 of a real document, with the page's own device
+    /// transform.
+    ///
+    /// The transform is `page_device_geometry`'s, not the identity, because
+    /// that is what `build_or_reason` uses live -- so a canvas point in these
+    /// tests is a canvas point in the running program. The fixture pages are
+    /// 200 x 200 with no `/Rotate`, so the map is the plain Y-flip and
+    /// `canvas_y = 200 - pdf_y`.
+    fn provider_over(bytes: &[u8]) -> ObjectModelProvider {
+        let doc =
+            pdfce_core::document::Document::from_bytes(bytes.to_vec()).expect("the fixture parses");
+        let view = doc.view();
+        let pages = pdfce_core::page_tree::pages(&doc).expect("the fixture has a page tree");
+        ObjectModelProvider::build_or_reason(&view, &pages[0], 0).expect("the page decomposes")
+    }
+
+    /// PDF user space to this fixture's canvas space: a 200 pt page, no
+    /// rotation, so the Y axis simply flips.
+    fn canvas(x: f32, y: f32) -> Pos2 {
+        Pos2::new(x, 200.0 - y)
+    }
+
+    /// The fixture really does have the shape the assertions below assume.
+    ///
+    /// Stated as its own test so that a fixture that stopped having a form
+    /// fails **here**, with a message about the fixture, rather than turning
+    /// every test under it into a confusing report about hit testing.
+    #[test]
+    fn the_form_fixture_has_one_page_object_and_three_leaves() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        let model = p.page_objects();
+        assert_eq!(
+            model.objects.len(),
+            1,
+            "the page's own content stream paints exactly one thing: the form"
+        );
+        assert_eq!(
+            model.leaves.len(),
+            3,
+            "and three squares are painted from inside it"
+        );
+        assert_eq!(
+            model.diagnostics.form_depth_overflows + model.diagnostics.form_cycles,
+            0,
+            "nothing was left undescended, so `leaves` is the whole interior"
+        );
+    }
+
+    /// THE DEFECT, ASSERTED.
+    ///
+    /// A click on a square inside the page-sized form selects **that square**,
+    /// as a leaf -- not the form, and not nothing.
+    ///
+    /// Falsified before it was believed: with `hit_test_point_all` in place of
+    /// `hit_test_point_deep` this returns `TargetId::Object(0)`, the form,
+    /// which is the operator's report reproduced in one line.
+    #[test]
+    fn a_click_inside_a_page_sized_form_selects_what_is_drawn_there() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        // The middle square is 80,80 -> 120,120 in PDF space.
+        let hit = p.hit_test(0, canvas(100.0, 100.0), 1.0);
+        assert_eq!(
+            hit,
+            Some(TargetId::Leaf(1)),
+            "the square inside the form, addressed in the leaf index space"
+        );
+        assert!(
+            hit.expect("a hit").page_object_index().is_none(),
+            "and it carries no page paint-order index, so no edit verb can take it"
+        );
+    }
+
+    /// THE HALF THAT IS EASY TO LOSE: a click on blank paper inside the form
+    /// selects **nothing**.
+    ///
+    /// This is the assertion that forbids the tempting "fall back to the
+    /// shallow hit test when the deep one is empty" fix. That fallback would
+    /// answer this click with the page-sized form -- the operator's original
+    /// complaint, restored, for the case that produces it most often.
+    #[test]
+    fn a_click_on_blank_paper_inside_a_form_selects_nothing() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        // 65,65 is between the first square (ends at 50) and the second
+        // (starts at 80), and inside the form's page-sized /BBox.
+        assert_eq!(
+            p.hit_test(0, canvas(65.0, 65.0), 1.0),
+            None,
+            "a /BBox is a clipping extent, not a claim about ink"
+        );
+    }
+
+    /// The form is not a candidate, ever -- not even when it is the only thing
+    /// the page's own stream paints and the click is inside its box.
+    #[test]
+    fn a_form_is_never_a_hit_candidate() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        for (x, y) in [(100.0_f32, 100.0_f32), (65.0, 65.0), (30.0, 30.0)] {
+            for target in p.hit_test_all(0, canvas(x, y), 1.0) {
+                assert!(
+                    target.is_leaf(),
+                    "a page object came back from ({x},{y}); the only page object here is the form"
+                );
+            }
+        }
+    }
+
+    /// A leaf resolves to the box the operator sees outlined -- **the
+    /// square's**, not the form's page-sized one.
+    ///
+    /// The outline is the whole visible evidence of what got selected. A leaf
+    /// whose bounds fell back to its container would draw the page-edge
+    /// rectangle that made the original defect look like "the page is
+    /// selected", while having actually selected the right thing -- a fix that
+    /// is invisible is not a fix.
+    #[test]
+    fn a_leaf_outlines_its_own_square_and_not_the_form() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        let r = p
+            .bounds(0, TargetId::Leaf(1))
+            .expect("the middle square has bounds");
+        assert!(
+            (r.width() - 40.0).abs() < 0.01 && (r.height() - 40.0).abs() < 0.01,
+            "expected the 40x40 square, got {r:?}"
+        );
+        // A stale leaf index is `None`, not a panic -- the same contract the
+        // page-object side has, for the same reason.
+        assert_eq!(p.bounds(0, TargetId::Leaf(99)), None);
+        assert_eq!(p.bounds(1, TargetId::Leaf(1)), None, "another page");
+    }
+
+    /// The container is reachable as a deliberate second act, and it lands on
+    /// the **page** index space -- which is what makes it editable.
+    #[test]
+    fn the_containing_form_resolves_to_an_editable_page_object() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        let form = p
+            .containing_form(0, TargetId::Leaf(1))
+            .expect("the leaf is inside a form");
+        assert_eq!(form, TargetId::Object(0));
+        assert_eq!(
+            form.page_object_index(),
+            Some(0),
+            "and the container IS an edit operand -- that is the point of offering it"
+        );
+        // A page object has no container, and a stale leaf has none either.
+        assert_eq!(p.containing_form(0, TargetId::Object(0)), None);
+        assert_eq!(p.containing_form(0, TargetId::Leaf(99)), None);
+        assert_eq!(p.containing_form(1, TargetId::Leaf(1)), None);
+    }
+
+    /// A marquee that encloses a square inside a form selects it, so the two
+    /// gestures that both mean "select this" agree.
+    #[test]
+    fn a_marquee_encloses_objects_inside_a_form() {
+        let p = provider_over(PAGE_SIZED_FORM);
+        // A canvas rect covering PDF 70..130 in both axes: the middle square
+        // only.
+        let rect = Rect::from_min_max(canvas(70.0, 130.0), canvas(130.0, 70.0));
+        assert_eq!(p.hit_test_rect(0, rect), vec![TargetId::Leaf(1)]);
+        // And a marquee that only grazes it takes nothing -- enclosure, not
+        // touching, on both index spaces.
+        let grazing = Rect::from_min_max(canvas(100.0, 130.0), canvas(130.0, 100.0));
+        assert!(p.hit_test_rect(0, grazing).is_empty());
+    }
+
+    /// Nesting is reported by depth, so a shell can say "three wrappers down"
+    /// rather than only "inside something".
+    ///
+    /// `nested-forms.pdf` is form A holding form B holding one square. The
+    /// intermediate form is deliberately **not** a leaf: it is a container,
+    /// and counting it as content would make "how many objects are in here"
+    /// wrong by one per level.
+    #[test]
+    fn a_nested_leaf_reports_its_full_containment_chain() {
+        let p = provider_over(NESTED_FORMS);
+        let model = p.page_objects();
+        assert_eq!(model.leaves.len(), 1, "one square, two wrappers");
+        assert_eq!(
+            model.leaves[0].containment.len(),
+            2,
+            "outermost first, ending with the form the square is directly in"
+        );
+        // The container offered is the OUTERMOST one, because that is the one
+        // with an index in the page's paint order.
+        assert_eq!(
+            p.containing_form(0, TargetId::Leaf(0)),
+            Some(TargetId::Object(model.leaves[0].paint_order as u64))
+        );
     }
 
     #[test]
