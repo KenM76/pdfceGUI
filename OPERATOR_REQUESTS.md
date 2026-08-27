@@ -135,15 +135,25 @@ first place.
 
 ### ★★ One measured fact, before any of it
 
-Page 1 of the file he named has **29 objects**, and two of them span the entire
-sheet: a form XObject at (0,0)–(595,791), and a path at the same extent with
-`paint=none` — an object that **paints nothing at all**.
+Page 1 of the file he named has **28 objects**, and one of them — a form
+XObject — spans the entire sheet.
 
-If the hit test uses bounding boxes and paint order, one of those is what every
-click on that page returns, and *"all I get is the page selected"* is a precise
-and correct description of selecting a page-sized object. Whether that is what
-happens is what the audit establishes; it is recorded here as the leading
-hypothesis and not as a finding.
+★★ **The hypothesis I opened the audit with was WRONG, and the audit killed it.**
+I guessed that a full-page path with `paint=none` was swallowing the clicks.
+It is not: the engine gives an unfilled, unstroked path a proximity band of the
+click tolerance alone, so it is selectable only within 6 px of its outline, and
+that is correct behaviour. I also said 29 objects; it is 28.
+
+**The real cause is worse and is one level down.** The engine decomposes a page
+into a flat list in paint order and **stops at the door of a form XObject** — it
+emits the form as a single object and never enters it — then hit-tests that form
+as a plain rectangle. On his file the four forms on page 1 contain *the entire
+visible body of the sheet*. So the page-sized form wins every click at every
+point, and every patch, swatch and panel he can see is **not in the object model
+to be selected at all**, at any zoom, with any modifier.
+
+*"All I get is the page selected"* was a precise and accurate report: he was
+selecting a page-sized object. It just was not the one I guessed.
 
 ### Deliverables
 
