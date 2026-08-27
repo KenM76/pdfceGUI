@@ -368,10 +368,32 @@ impl OcrDialog {
         if !ocr::engine_compiled_in() {
             return Some(Refusal::EngineAbsent);
         }
-        // ★ Refused, not disclosed. `add_ocr_layer` writes an incremental
-        // revision over the document AS OPENED, so a recognised copy taken now
-        // would silently omit the operator's edits. See `crate::ocr`'s header.
-        if doc.edit_epoch != 0 {
+        // ★★★ Refused, not disclosed — and the comparison is against
+        // `saved_epoch`, not against zero. 2026-08-26.
+        //
+        // `add_ocr_layer` reads the session's **base** revision, so a recognised
+        // copy taken over unsaved edits would silently omit them. That refusal
+        // is right and stays.
+        //
+        // What was wrong was the question. `edit_epoch != 0` asks *has anything
+        // ever been edited*, and `edit_epoch` never comes back down — so OCR
+        // died for the rest of the session the first time anyone edited and
+        // saved anything, and said **"unsaved edits"** on the way out, which by
+        // then was false. The operator met it and asked *"how did we end up with
+        // the most useless and un-userfriendly of options for the OCR?"*
+        //
+        // `edit_epoch != saved_epoch` asks the question the refusal is actually
+        // about: *is there work that is not on disk?*
+        //
+        // ★★ It is only safe because [`crate::ocr::recognise`] now reads the
+        // **file**, not `session.document()`. The base revision is stale the
+        // moment anything is edited and stays stale after a save — saving does
+        // not rewrite the session's base — so lifting this guard without moving
+        // the source would have handed him a recognised copy with his saved work
+        // missing from it. That is the plausible-working-wrong-file failure this
+        // whole guard exists to prevent, and it would have been introduced by
+        // the fix for it.
+        if doc.edit_epoch != doc.saved_epoch {
             return Some(Refusal::UnsavedEdits);
         }
         match ocr::resolve_models(ocr::exe_dir().as_deref(), user_data_dir().as_deref()) {
@@ -401,6 +423,17 @@ impl OcrDialog {
         });
         self.phase = Phase::Working(Job::spawn(Request {
             session: std::sync::Arc::clone(&doc.session),
+            // ★ The operator's own file, which the preflight above has just
+            // established is current: `edit_epoch == saved_epoch` means every
+            // edit is on disk. See `ocr::Request::source` for why the file and
+            // not the session's base — and for why this is the correct read
+            // even on a document nobody has touched.
+            //
+            // A **created** document that has never been saved has no file, and
+            // there the base is current by construction: nothing can have been
+            // saved without giving it a path. `Origin::Created` is how that is
+            // told apart from an opened one.
+            source: (doc.origin != crate::app::state::Origin::Created).then(|| doc.path.clone()),
             page_index: self.page_index,
             model_dir: source.path().to_path_buf(),
         }));
@@ -581,6 +614,56 @@ pub(super) fn open_for(status: &Status) -> Option<OcrDialog> {
 
 #[cfg(test)]
 mod tests {
+    /// ★★★ **A saved document is not an unsaved one** — the operator's OCR
+    /// complaint, as an assertion.
+    ///
+    /// The preflight compared `edit_epoch != 0`, which asks *has anything ever
+    /// been edited*, and `edit_epoch` never comes back down. So OCR died for the
+    /// rest of the session the first time anyone edited and saved anything, and
+    /// reported **UnsavedEdits** on the way out — which by then was false.
+    ///
+    /// The refusal itself is right and is asserted here too: recognition reads a
+    /// whole document, and work that is not on disk is not in it. What changed
+    /// is which question is asked.
+    #[test]
+    fn ocr_is_refused_for_work_that_is_not_on_disk_and_allowed_for_work_that_is() {
+        let mut doc = crate::app::state::open_fixture(crate::app::state::FOUR_PAGES);
+
+        // Never edited: both zero. Whatever the verdict is, it must not be
+        // UnsavedEdits — the engine or the models may still be absent on this
+        // machine, and that is a different refusal.
+        assert_ne!(
+            OcrDialog::preflight(&doc),
+            Some(Refusal::UnsavedEdits),
+            "an untouched document has nothing unsaved about it"
+        );
+
+        // Edited, not saved. This is what the refusal is FOR, and it must
+        // survive the fix: `add_ocr_layer` reads a whole document, and these
+        // edits are in neither the file nor the session's base.
+        doc.edit_epoch = 7;
+        assert_eq!(
+            OcrDialog::preflight(&doc),
+            Some(Refusal::UnsavedEdits),
+            "edits that are not on disk must still refuse — recognition would omit them"
+        );
+
+        // Saved. The epochs agree, so everything the operator has done is in the
+        // file, and `Request::source` reads the file.
+        doc.saved_epoch = 7;
+        assert_ne!(
+            OcrDialog::preflight(&doc),
+            Some(Refusal::UnsavedEdits),
+            "a document whose every edit is on disk has nothing unsaved about it, and this is \
+             the state the operator was permanently stuck in"
+        );
+
+        // And one more edit after the save refuses again, which is the property
+        // that stops this becoming a one-way latch.
+        doc.edit_epoch = 8;
+        assert_eq!(OcrDialog::preflight(&doc), Some(Refusal::UnsavedEdits));
+    }
+
     use super::*;
 
     /// ★ **The suggested name is never the file that was opened.**

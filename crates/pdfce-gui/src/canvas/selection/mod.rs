@@ -561,6 +561,50 @@ impl SelectionState {
         self.normalise();
     }
 
+    /// ★★★ **Select one object outright**, because the program just put it
+    /// there.
+    ///
+    /// # The complaint this closes
+    ///
+    /// The operator, 2026-08-26: *"if I add an image I Expect to click on it to
+    /// resize but dragging doesn't resize."*
+    ///
+    /// He was right about the symptom and it was not the resize. A driven check
+    /// had already proved that an image which **is** selected resizes from a
+    /// corner grip (`resize-commit grip=SouthEast sx=0.6810 sy=0.5899`) and
+    /// moves from a body drag. The image simply arrived **unselected** — so his
+    /// first press landed on unselected paper, `gesture::meaning` read it as a
+    /// marquee, and he watched a rubber band instead of a resize.
+    ///
+    /// # Why this is a convention rather than a convenience
+    ///
+    /// Every one of the eight applications surveyed for `HOW_IT_SHOULD_WORK.md`
+    /// leaves a newly placed or pasted object **selected**, with its handles up.
+    /// It is what makes "place it, then get it right" a single continuous act
+    /// instead of a place, a hunt and a click. Nothing does otherwise.
+    ///
+    /// # Always the Object rung, and always replacing
+    ///
+    /// The **Object** rung because the operator has just created a whole thing,
+    /// not entered one — the subpath and node rungs are places you descend to
+    /// deliberately, and arriving inside a freshly placed image would be a
+    /// state nobody asked for.
+    ///
+    /// **Replacing** rather than adding, even though a placement is arguably an
+    /// addition: what was selected before is what the operator was working on
+    /// *before* they placed this, and a two-object selection whose members were
+    /// chosen minutes apart is not a set anybody intended to transform
+    /// together.
+    pub fn select_placed(&mut self, page: usize, object: TargetId) {
+        self.entries = vec![Selection::object(page, object)];
+        self.level = SelectionLevel::Object;
+        self.normalise();
+        crate::diag::trace(move || {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("selection-placed page={page} object={}", object.0)
+        });
+    }
+
     /// Every selected **anchor** on one object of one page, object-scoped,
     /// ascending and unique.
     ///

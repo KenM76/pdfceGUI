@@ -955,3 +955,35 @@ fn the_grip_box_is_the_union_of_the_selection() {
     assert!(union.contains_rect(rect(0.0, 0.0, 100.0, 100.0)));
     assert!(union.contains_rect(rect(200.0, 200.0, 50.0, 50.0)));
 }
+
+/// ★★★ **A placed object arrives selected, at the Object rung, alone.**
+///
+/// The operator, 2026-08-26: *"if I add an image I Expect to click on it to
+/// resize but dragging doesn't resize."* He was right about the symptom and it
+/// was never the resize — a driven check had already proved a selected image
+/// resizes from a corner grip (`resize-commit grip=SouthEast sx=0.6810`). It
+/// arrived **unselected**, so his first press was a press on unselected paper,
+/// which `gesture::meaning` reads as a marquee. He watched a rubber band.
+///
+/// Three properties, and each is a separate way to get this wrong: the new
+/// object is selected; it is the ONLY thing selected; and the rung is Object,
+/// not a rung inside it.
+#[test]
+fn a_placed_object_replaces_the_selection_at_the_object_rung() {
+    let mut sel = SelectionState::default();
+    sel.marquee(0, &[TargetId(3), TargetId(4)], false);
+    assert_eq!(sel.len(), 2, "two things selected before the placement");
+
+    sel.select_placed(0, TargetId(9));
+
+    assert_eq!(
+        sel.entries(),
+        &[Selection::object(0, TargetId(9))],
+        "the placed object must be selected, and must be the only thing selected: what was selected before is what the operator was working on BEFORE they placed this"
+    );
+    assert_eq!(
+        sel.level(),
+        SelectionLevel::Object,
+        "a placement creates a whole object; arriving inside one is a rung nobody asked for"
+    );
+}

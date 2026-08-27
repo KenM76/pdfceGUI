@@ -710,6 +710,46 @@ pub struct OpenDoc {
     /// virtually every document, since about 0.4 % of real files declare a
     /// subtractive page group.
     pub ink_pages: std::collections::HashSet<usize>,
+    /// ★★★ **The [`Self::edit_epoch`] the file on disk currently holds** — i.e.
+    /// the revision a successful *Save* last wrote over the operator's own file.
+    ///
+    /// `edit_epoch == saved_epoch` means *everything the operator has done is on
+    /// disk*. It is deliberately NOT the same question as `edit_epoch == 0`,
+    /// which asks *has anything ever been edited* and is what the OCR preflight
+    /// used to ask.
+    ///
+    /// # The defect this exists for
+    ///
+    /// `dialogs::ocr` refused recognition whenever `edit_epoch != 0`, with the
+    /// reason **UnsavedEdits**. The refusal protects something real —
+    /// `add_ocr_layer` reads the session's *base* revision, so a recognised copy
+    /// taken over unsaved edits would silently omit them, and a plausible,
+    /// working, wrong file is the worst failure shape this subsystem has.
+    ///
+    /// But `edit_epoch` never comes back down. `app::save`'s own header argues
+    /// at length that a **save-a-copy** must not reset it, and is right: those
+    /// edits are saved *somewhere else*, and the document in front of the
+    /// operator is exactly as unsaved as it was. That argument was then applied
+    /// to save-**in-place**, where it does not hold: an in-place save writes the
+    /// operator's own file, and afterwards the document in front of them **is**
+    /// what is on disk.
+    ///
+    /// So OCR died for the rest of the session the first time anyone edited and
+    /// saved anything, and told them *"unsaved edits"* on the way out — which by
+    /// then was false.
+    ///
+    /// # Why a second number rather than resetting `edit_epoch`
+    ///
+    /// Because `edit_epoch` means *"which revision is on the screen"* and is the
+    /// cache key for the decomposition, the page-text extraction, the texture
+    /// and every live disclosure. Resetting it would throw all of those away to
+    /// record that nothing changed, which is the argument `app::save` §3.1 makes
+    /// and it is still correct. Two numbers, one question each.
+    ///
+    /// ★ Moved by exactly one thing: a successful `save::save_in_place`.
+    /// Save-a-copy does not touch it, for the reason above — the copy is not
+    /// this document.
+    pub saved_epoch: u64,
     pub selected_field: Option<SelectedField>,
     /// ★ **The operator's guide lines**, per page, in canvas space.
     ///
@@ -886,6 +926,7 @@ impl OpenDoc {
             base_texture: None,
             base_texture_epoch: 0,
             ink_pages: std::collections::HashSet::new(),
+            saved_epoch: 0,
             // Read above, before `path` was moved into the struct.
             guides,
             page_objects: PageObjectCache::default(),

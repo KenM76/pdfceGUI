@@ -631,6 +631,11 @@ mod tests {
         ));
         let started = std::time::Instant::now();
         let out = super::super::Job::spawn(super::super::Request {
+            // ★ `None`, so this exercises the SESSION-BASE path. The fixture
+            // builds its document in memory and the base is current by
+            // construction; naming a file here would test the file loader
+            // instead of the recogniser, which is not what this proves.
+            source: None,
             session,
             page_index: 0,
             model_dir: models,

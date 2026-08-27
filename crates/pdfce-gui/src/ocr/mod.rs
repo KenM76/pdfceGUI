@@ -464,7 +464,35 @@ pub struct Request {
     /// The session to read. Only its **base document** is used — see the
     /// module header on why, and [`Refusal::UnsavedEdits`] for what guarantees
     /// that base is what the operator is looking at.
+    ///
+    /// ★ Kept as the FALLBACK since 2026-08-26. When [`Self::source`] is
+    /// `Some`, the file on disk is read instead — see that field.
     pub session: Arc<EditSession>,
+    /// ★★★ **The file to recognise, when there is one** — the operator's own
+    /// document, on disk.
+    ///
+    /// # Why this is not `session.document()`
+    ///
+    /// Because that is the session's **base** revision: the bytes as the file
+    /// was *opened*. It is stale the moment anything is edited, and — this is
+    /// the part that is easy to miss — **it stays stale after a save**. Saving
+    /// writes the session's *view* out to disk; it does not rewrite the base
+    /// the session was constructed from.
+    ///
+    /// So `edit_epoch == saved_epoch` says the operator's work is on **disk**,
+    /// and it says nothing at all about the base. Reading the base under that
+    /// condition would produce a recognised copy missing every saved edit,
+    /// which is precisely the failure [`Refusal::UnsavedEdits`] exists to
+    /// prevent — reintroduced by the change that relaxed it.
+    ///
+    /// Reading the file is uniformly correct rather than correct-in-the-new-case:
+    /// on a document nobody has edited, the file and the base are the same
+    /// bytes, so this path is not a special case bolted on beside the old one.
+    ///
+    /// `None` only for a created document that has never been saved anywhere —
+    /// it has no file — and there the base *is* current, because nothing can
+    /// have been saved without giving it a path.
+    pub source: Option<PathBuf>,
     /// The page to recognise, zero-based.
     pub page_index: usize,
     /// The directory holding the two `.rten` files.
@@ -553,7 +581,22 @@ impl Job {
 /// `render::worker::render_on_worker` is: a body that cannot reach `self` is a
 /// body that provably shares nothing with the UI thread.
 fn recognise(request: &Request) -> Result<Recognised, Refusal> {
-    let doc = request.session.document();
+    // ★★ The file if there is one, the session's base if there is not. See
+    // `Request::source` for why the file is the correct read even on a document
+    // nobody has edited.
+    //
+    // The `Document` is held in a local so the borrow below lives long enough;
+    // a load failure falls back rather than refusing, because the base is what
+    // this always used and a file that will not re-open is a separate problem
+    // that the operator will meet elsewhere with a better message.
+    let loaded = request
+        .source
+        .as_deref()
+        .and_then(|path| pdfce_core::document::Document::load(path).ok());
+    let doc = match &loaded {
+        Some(doc) => doc,
+        None => request.session.document(),
+    };
     let pages = pages_of(request)?;
     let page = pages
         .get(request.page_index)
