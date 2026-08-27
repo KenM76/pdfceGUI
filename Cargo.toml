@@ -50,3 +50,29 @@ thiserror = "2"
 
 [profile.release]
 debug = 1
+
+# ★★★ The DEBUG profile carries line tables only, not full debug info.
+#
+# Operator, 2026-08-27: *"all this compiling has filled the drive with temporary
+# files."* He was right, and the debug profile was most of it: measured on
+# 2026-08-27, a clean `cargo test --workspace` left **4.1 GB** in `target/debug`
+# against 1.3 GB in `target/release`, and the single largest file on the disk
+# was a **324 MB** `.pdb` for one crate. The rlibs carry the rest — 209 MB,
+# 155 MB, 139 MB — and it is debug info in every case, not code.
+#
+# `line-tables-only` keeps the one thing this project actually reads from debug
+# info: **a panic backtrace with file names and line numbers**, which is how
+# every failing test in the suite reports itself. What it drops is the variable,
+# type and lexical-scope information a step debugger wants — and nothing in this
+# project's workflow steps through a debugger. R1's method is to drive the real
+# binary and read a trace, and the trace is `PDFCE_DIAG`, not a watch window.
+#
+# ★ If somebody does need a full debugger session, `cargo test --profile dev
+# --config profile.dev.debug=2` restores it for that run without the tree
+# carrying the cost for every run in between.
+#
+# The RELEASE profile is untouched at `debug = 1`. That is what makes a stack
+# trace from the shipped binary intelligible, it is already the minimum that
+# does so, and the operator runs the release build.
+[profile.dev]
+debug = "line-tables-only"

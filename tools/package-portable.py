@@ -819,6 +819,67 @@ def _bash() -> str:
     return shutil.which("bash") or "bash"
 
 
+#: How many dated build folders to keep in ``D:\\builds``.
+#:
+#: **Three, and the number is chosen rather than round.** The two OneDrive slots
+#: hold the current build and the fallback; a third keeps the one before those,
+#: which is what a reader needs when a defect turns out to be two builds old and
+#: the question is *when did this start*.
+#:
+#: Older folders are pure history: the exe is superseded, the `BUILD-INFO.txt`
+#: naming its revisions is reproducible from git, and nothing links to them.
+KEEP_BUILDS = 3
+
+
+def prune(dest: Path, keep: int) -> None:
+    """Delete superseded ``pdfcegui-*`` build folders, keeping the newest *keep*.
+
+    ★ **Why this exists.** The operator, 2026-08-27: *"all this compiling has
+    filled the drive with temporary files. you'll have to clean yours up."*
+    ``D:\builds`` held **39** of these, 1.27 GB, because this script had written
+    one on every keeper build since 2026-08-13 and never removed one. On a
+    volume at 97 % that is not a rounding error, and it is entirely this
+    script's doing.
+
+    ★★ **It touches only its own folders.** ``D:\builds`` is shared — ScripTree
+    releases and the engine's own ``pdfce-*`` packages live there too — so the
+    filter is `pdfcegui-*` and nothing else is enumerated, let alone deleted. A
+    cleanup that swept a sibling project's releases would be a far worse outcome
+    than the disk being full.
+
+    ★ **Newest by MODIFICATION TIME, not by name.** The folder name begins with
+    a timestamp and sorting by it would usually agree — but `--slot` can rewrite
+    an older build, a restored backup carries its original name, and a
+    name-sorted deletion would then remove the one that was most recently
+    verified. `mirror` already learned this exact lesson about the two OneDrive
+    slots; the same reasoning applies to the same kind of decision here.
+
+    A failure to delete is **not** fatal: a folder held open by Explorer or by a
+    sync client is a nuisance, not a reason to fail a build that has already
+    been written and mirrored. It is reported and the run continues.
+    """
+    folders = [d for d in dest.glob("pdfcegui-*") if d.is_dir()]
+    if len(folders) <= keep:
+        return
+    folders.sort(key=lambda d: d.stat().st_mtime, reverse=True)
+    removed = 0
+    freed = 0
+    for folder in folders[keep:]:
+        size = sum(f.stat().st_size for f in folder.rglob("*") if f.is_file())
+        try:
+            shutil.rmtree(folder)
+        except OSError as error:
+            print(f"package-portable: could not remove {folder.name}: {error}")
+            continue
+        removed += 1
+        freed += size
+    if removed:
+        print(
+            f"\npackage-portable: pruned {removed} superseded build(s), "
+            f"{freed / 1_048_576:,.0f} MB — keeping the newest {keep}"
+        )
+
+
 def mirror(out: Path, forced: str | None = None) -> None:
     """**Copy a finished build into the older of the two OneDrive slots.**
 
@@ -1634,6 +1695,8 @@ are in the program itself: File > pdfce > About pdfce.
     # payload file is on disk by now, and a mirror taken at any earlier point
     # is a copy of a directory that is still being built.
     mirror(out, forced=args.slot)
+
+    prune(out.parent, keep=KEEP_BUILDS)
 
     # ★ The engine's WORKING TREE is no longer a warning — it cannot reach the
     # binary. What IS worth a console line is the engine being ahead of the
