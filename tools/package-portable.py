@@ -831,6 +831,31 @@ def _bash() -> str:
 KEEP_BUILDS = 3
 
 
+def _force_writable(func, path: str, _exc: object) -> None:
+    """``shutil.rmtree`` error handler: clear the read-only bit and retry once.
+
+    ★ **Why this is needed, found on 2026-08-27.** The first prune refused with
+    ``[WinError 5] Access is denied`` on ``models\\ocrs`` — the recognition
+    weights are copied out of a payload directory whose files carry the
+    read-only attribute, and ``DeleteFile`` honours it. On Windows that
+    attribute is a property of the *file*, not a permission, so the fix is to
+    clear it rather than to elevate anything.
+
+    ★★ It retries **once** and lets a second failure propagate. A handler that
+    kept trying would turn "a sync client has this folder open" — the ordinary
+    reason a delete fails here — into a hang inside a build script, and the
+    caller already treats a failure to prune as a nuisance rather than as a
+    reason to fail a build that has been written and mirrored.
+    """
+    import stat
+
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        raise
+
+
 def prune(dest: Path, keep: int) -> None:
     """Delete superseded ``pdfcegui-*`` build folders, keeping the newest *keep*.
 
@@ -867,7 +892,14 @@ def prune(dest: Path, keep: int) -> None:
     for folder in folders[keep:]:
         size = sum(f.stat().st_size for f in folder.rglob("*") if f.is_file())
         try:
-            shutil.rmtree(folder)
+            # ★ `onerror` and not `onexc`. The newer keyword landed in Python
+            # 3.12 and this machine runs **3.11.9**, where passing it is a
+            # `TypeError` inside the handler-less path — i.e. the prune would
+            # fail for a reason that has nothing to do with the folder. Caught
+            # by checking `inspect.signature` rather than by assuming, after
+            # writing `onexc` first. The two take the same three positional
+            # arguments, so only the keyword differs.
+            shutil.rmtree(folder, onerror=_force_writable)
         except OSError as error:
             print(f"package-portable: could not remove {folder.name}: {error}")
             continue

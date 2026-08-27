@@ -7,7 +7,7 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-26 at `f8af161`.** For a session
+**Written 2026-08-18, last revised 2026-08-27 at `d5c81a6`.** For a session
 starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -17,7 +17,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured on 2026-08-26, after the rotated-text work
+## ★★★ State, as measured on 2026-08-27, after the OCR-as-an-edit work
 
 **This table is a reading, not a status.** Every row is what a command printed
 at that commit; the tree has moved since, and the numbers move with it. It is
@@ -25,14 +25,54 @@ here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Tests** | 1,798 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Tests** | 1,814 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | **18 of 18**, 0 skipped |
-| **`ui-verify`** | **81 checks declared**, counted from a `--no-input` run. Every check that failed in the 2026-08-26 discovery run has been re-driven and is green or honestly skipped — see `evidence/ui-verify-run-2026-08-26-rotated.txt` for the discovery and O44 for the resolutions. ★ A long **unattended** full run loses ~11 checks to the desktop taking foreground back; run it in foreground slices, per `CONTINUE.md` |
+| **`ui-verify`** | **83 checks declared**, counted from a `--no-input` run. Every check that failed in the 2026-08-26 discovery run has been re-driven and is green or honestly skipped — see `evidence/ui-verify-run-2026-08-26-rotated.txt` for the discovery and O44 for the resolutions. ★ A long **unattended** full run loses ~11 checks to the desktop taking foreground back; run it in foreground slices, per `CONTINUE.md` |
 | **The four defects O44 found** | **Two were real and are fixed** — the status bar going off-window at `ui_scale 1.80`, and the Properties panel's Apply being unreachable because the panel had no scroll area. **Two were the tests** — `blend_space` red on any drawing without transparency, `dimension_groups` contradicting itself in consecutive sentences. Both test defects were permanent false reds on this project's usual fixture |
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `afd8da8` (**v0.14.0**) — the release that made the CMYK ceiling readable and settable at this shell's request. **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 20:36 from shell `305d2e4` on engine `afd8da8` — rotated text, the colour ceiling, and the four O44 resolutions. `pdfceGUI1` holds the 18:13 build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `640d817` (**v0.14.0**) — the revision that made OCR an edit (`EditSession::add_ocr_layer`, Pass 135.0) and made the objects inside form XObjects reachable and clickable (Passes 136.0/136.1/136.2). **Read `Cargo.lock`, not this row** |
+| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-27 07:05 from shell `d5c81a6` on engine `640d817` — OCR as an edit with a page scope, press-to-select-and-move, and the remembered mode. `pdfceGUI1` holds the 2026-08-26 21:40 build as the fallback. Open **About** and read the Build block rather than trusting this row |
+
+### ★★★ THE NEXT BODY OF WORK IS THE FORM-XOBJECT SELECTION, AND IT IS AN XL
+
+The operator's headline complaint — *"when I click on one of the objects all I
+get is the page selected"* — is **unblocked as of 2026-08-27** and **not yet
+consumed**. The engine shipped:
+
+* `PageObjects::leaves` — every object inside every reachable form, geometry
+  already in page space, each carrying `containment` (enclosing forms,
+  outermost first) and `paint_order`;
+* `hit_test_point_deep` → `Vec<HitTarget>`, which **excludes forms outright**
+  (a `/BBox` is a §8.10.1 clipping extent, not a statement about coverage) and
+  interleaves leaves with page objects on one paint order.
+
+★★★ **Do not reach for this as a hit-test swap.** `TargetId` in this shell is a
+paint-order index into `PageObjects::objects` and **96 call sites** resolve one.
+A leaf's token range indexes the **form's** content stream — a different buffer,
+and an *in-range* one — and eleven `edit.rs` sites apply a paint-order range to
+the **page's**. The engine kept the two lists apart precisely so that mixing
+them cannot corrupt a document by construction; this shell has to keep them
+apart the same way, which means `TargetId` becomes a two-variant type and every
+one of those 96 sites has to say which list it meant.
+
+Getting it wrong turns a selection defect into a **silent file-corruption**
+defect. Budget it as an XL and do the type change first, with the compiler as
+the instrument.
+
+Two rulings that come with it, both already made and neither yours to remake:
+
+* **Editing inside a shared form is EDIT-IN-PLACE, DISCLOSED** — engine
+  decision 076. Not copy-on-write, not a refusal. Reason: copy-on-write is not
+  always *expressible* (a form invoked from inside another form cannot be
+  re-bound without editing the parent, which may itself be shared), and a
+  default whose meaning depends on the document's nesting is worse than one
+  that always means the same thing.
+* **`unshare_form` EXISTS** as of 2026-08-27 — `EditSession::unshare_form`,
+  one undoable command. It was twice reported absent and the correction was
+  withdrawn the same day. **Offer the button.** A control withheld on the
+  strength of a note that has since been withdrawn is exactly the kind of thing
+  that stays withheld for months.
 
 ### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 
@@ -49,6 +89,27 @@ this PC roughly a third of the suite cannot start and reports SKIPPED. Those are
 environmental, not product defects — read the skip reason before chasing one. A
 run on this machine is therefore always partial, and reporting it as a pass would
 be false.
+
+### ★★ A HARNESS AIM THAT WAS WRONG AND HAPPENED TO HIT — 2026-08-27
+
+`checks::ocr::click_region` converted a dialog's `ui-rect` against
+`session.frame()` — the **application's** window — where that dialog has been
+its own OS window since 2026-08-21. It was missed in the bulk conversion to
+`driving::frame_of` and **did not fail for six days**, because the Recognise
+button happened to sit where the stray click landed. It failed the moment the
+page-scope group pushed the button further down.
+
+★ **A wrong aim that happens to hit is a green result reporting nothing** —
+this harness's own stated worst outcome. If you convert a check to drive a
+dialog, use `driving::frame_of`; it is safe on a main-window region and costs
+nothing, so converting pre-emptively is free.
+
+★ And the same run found a check pinned to the wrong *fixture*: pointed at a
+CAD sheet, the OCR check failed with `NothingRecognised` and the application
+was right — every page already had text, so the doubling guard skipped all of
+it. A check whose subject is *"did the recogniser read this page"* cannot take
+an arbitrary document. It pins `fixtures/synthetic-image-only.pdf` and ignores
+`--pdf`.
 
 ★★ A red herring on the way: OneDrive was found holding 404,000 handles, and
 publishing builds was measurably feeding it (~27,000 per build, established with
@@ -317,7 +378,7 @@ shape of how it survived matters more than the fix.
 - `page_ops_round_trip` — the fixture already carries 36 `/Rotate` entries, so
   the check's evidence (find `/Rotate 90` in the saved copy and not in the
   source) would be ambiguous on this document. Wants a fixture with none.
-- `ocr_recognises_a_page_and_writes_a_new_file` — needs a model present.
+- `ocr_recognises_a_page_and_the_document_keeps_it` — needs a model present.
 
 ### ★★ Two checks were reporting FALSE failures, and both were believed
 
@@ -373,7 +434,7 @@ build session's.
 | check | why |
 |---|---|
 | `page_ops_round_trip` | the fixture already carries 36 `/Rotate` entries, so the evidence would be indistinguishable from the document's own furniture. Point `--pdf` at `D:\Dev\pdfce\fixtures\pageops\four-pages.pdf` |
-| `ocr_recognises_a_page_and_writes_a_new_file` | needs the `models/ocrs` weights beside the exe, i.e. a **packaged** build |
+| `ocr_recognises_a_page_and_the_document_keeps_it` | needs the `models/ocrs` weights beside the exe, i.e. a **packaged** build |
 | `print_paper_changes_the_plan` | ★ FIXED — both now look in the ribbon overflow |
 
 ### Still not written
