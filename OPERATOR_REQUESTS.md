@@ -80,6 +80,84 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O46 — ★★★ Editing should work like every other graphics program. It does not.
+
+**Asked:** 2026-08-26. **THE LARGEST REQUEST IN THIS FILE**, and it is not a
+list of defects — it is a judgement about the whole editing surface. Research
+and gap analysis commissioned the same evening, on his instruction, **before any
+code was changed**.
+
+> *"The interface for this has gotten so wonky. I can't figure out how to click
+> on objects to edit them. For example on the Ghent […] There are obviously more
+> than one item on the page, but when I click on one of the objects all I get is
+> the page selected. When I double click on an object it doesn't select — it
+> still only has the whole page selected. Also when I have an object selected
+> like text the Tool tab doesn't switch to giving me the editable stuff for that
+> object. And if I add an image I Expect to click on it to resize but dragging
+> doesn't resize. Editing should work like 99% of the graphics programs out
+> there. It should be intuitive. I have no idea why I can't just click an
+> object, see its properties and edit them in the tool tab, move them, adjust
+> them, etc, just like any other software. Somehow we have the most convoluted
+> system, or it just isn't working for most of the things I expect it to.*
+>
+> *Also how do I OCR more than one page? Why does the tool stop at one? Why do I
+> have to save a copy instead of just go back into my pdf and save over it or
+> save from there? Where is the option to select more than one page? How did we
+> end up with the most useless and un-userfriendly of options for the OCR? What
+> program in the world works this way out of all the OCR programs out there?"*
+
+### ★ The instruction, which is as important as the complaint
+
+> *"BEFORE you make any changes, you are going to go and research how GUIs for
+> graphics editing programs handle editing and navigating and then you are going
+> to write a manual on how things should work in pdfcegui, and in parallel while
+> you do that you are going to write up the manual for how to currently use
+> pdfcegui, then you are going to compare the two documents and see the
+> difference and determine just what you need to change."*
+
+**No code changes until those three documents exist.** That is the method he
+asked for and it is the right one for this: the symptoms are many and the cause
+is probably few, and patching symptoms is how a system becomes convoluted in the
+first place.
+
+### The seven complaints, itemised so none is lost
+
+| # | Complaint | Status |
+|---|---|---|
+| 1 | Clicking an object selects the whole page instead | under audit |
+| 2 | Double-clicking an object still selects the whole page | under audit |
+| 3 | Selecting text does not change the Tool tab to that object's editable properties | under audit |
+| 4 | An inserted image cannot be resized by dragging | under audit |
+| 5 | OCR does one page only — no page range, no multi-page selection | under audit |
+| 6 | OCR forces Save-a-copy instead of saving into the open document | under audit |
+| 7 | The whole editing model is unintuitive next to other graphics software | **the actual request** |
+
+### ★★ One measured fact, before any of it
+
+Page 1 of the file he named has **29 objects**, and two of them span the entire
+sheet: a form XObject at (0,0)–(595,791), and a path at the same extent with
+`paint=none` — an object that **paints nothing at all**.
+
+If the hit test uses bounding boxes and paint order, one of those is what every
+click on that page returns, and *"all I get is the page selected"* is a precise
+and correct description of selecting a page-sized object. Whether that is what
+happens is what the audit establishes; it is recorded here as the leading
+hypothesis and not as a finding.
+
+### Deliverables
+
+| document | what it is |
+|---|---|
+| `HOW_IT_SHOULD_WORK.md` | the target interaction model, derived from how Illustrator, Inkscape, Figma, Affinity, CorelDRAW, PowerPoint and Acrobat actually behave |
+| `HOW_IT_WORKS_TODAY.md` | an unflattering description of the current behaviour, cited to `file:line`, opening with *"if you just want to select an object, here is literally what you must do today"* |
+| `INTERACTION_GAP.md` | the comparison, the four-way split (not implemented / unreachable / gated unexpectedly / working but undiscoverable), the work list ordered by operator-visible return, and **what must survive** |
+
+★ The last of those matters as much as the others. A rewrite that discards
+working behaviour because the surface around it was frustrating is the failure
+mode here.
+
+**This row stays open until he has used the result and said so.**
+
 ## O45 — Selecting a standard leaves Save greyed out
 
 **Asked:** 2026-08-26. **Fixed the same day. Unit-tested and falsified; NOT yet
