@@ -416,6 +416,28 @@ pub enum Action {
         /// modified gesture rather than the default.
         take: bool,
     },
+    /// **A canvas gesture refused because what is selected lives inside a
+    /// form XObject** — say so on the status bar.
+    ///
+    /// # ★ The one action that changes nothing and is still an action
+    ///
+    /// The worded-decline store is `pub(super)` inside `crate::app` on purpose
+    /// — *"a decline is written by the one dispatcher and read by the one
+    /// bar"* — while the gesture that has something to declare happens in
+    /// `crate::canvas`. Raising an action rather than widening that visibility
+    /// is what this crate does everywhere the same shape occurs: a surface
+    /// holding `&OpenDoc` and not `&mut` **asks**. The full argument is at
+    /// `canvas::moving::decline`, which is the only thing that raises this.
+    ///
+    /// **No payload**, deliberately: there is one thing to say and
+    /// `text::status::selection_inside_form_declined` says it. A `Declined`
+    /// payload would turn this into a general "print any decline" channel,
+    /// which is how a single choke point becomes a bypass.
+    ///
+    /// ★ **A selection is still not an edit** — no `vector_edit`, no epoch
+    /// bump, no cache invalidation, for the reason `Action::SelectObject`
+    /// gives.
+    DeclineInsideForm,
     /// Multiply the current zoom by a factor — the Ctrl+wheel path.
     ///
     /// Carries the factor rather than a target zoom because that is what

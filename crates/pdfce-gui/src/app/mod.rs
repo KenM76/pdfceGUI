@@ -970,6 +970,170 @@ pub(crate) mod tests {
         );
     }
 
+    /// An application with the engine's page-sized-form fixture open — one page
+    /// object (the form) and three squares painted from inside it.
+    fn opened_with_a_form() -> PdfceApp {
+        let mut app = PdfceApp::new();
+        app.open_path(engine_fixture("forms-xobject/page-sized-form.pdf"));
+        assert!(matches!(app.status, Status::Open(_)), "the fixture opens");
+        app
+    }
+
+    /// Select the form-interior leaf at `index`, the way a canvas click on a
+    /// square inside the form now would.
+    fn select_leaf(app: &mut PdfceApp, index: u64) {
+        let Status::Open(doc) = &mut app.status else {
+            panic!("no document open") // ui-text-exempt: test panic, never displayed
+        };
+        let page = doc.view.page_index;
+        doc.selection.click(
+            page,
+            ClickHit {
+                object: Some(TargetId::Leaf(index)),
+                ..ClickHit::default()
+            },
+            false,
+            false,
+        );
+    }
+
+    /// ★★ `selection.in_form` is set for a form-interior selection and for
+    /// nothing else — which is what greys `format.select_form` correctly.
+    ///
+    /// The two negatives are the load-bearing half. A condition that were
+    /// merely a synonym for `selection.any` would light the control on every
+    /// selection in every document, and the operator would meet a button that
+    /// declines more often than it works.
+    #[test]
+    fn the_in_form_condition_is_set_only_for_a_form_interior_selection() {
+        let mut app = opened_with_a_form();
+        let ctx = egui::Context::default();
+        assert!(
+            !app.conditions(&ctx).is_set("selection.in_form"),
+            "a freshly opened document has nothing selected"
+        );
+
+        // The form itself is an ordinary page object and is NOT "in a form".
+        select_object(&mut app, 0, false);
+        assert!(app.conditions(&ctx).is_set("selection.any"));
+        assert!(
+            !app.conditions(&ctx).is_set("selection.in_form"),
+            "the container is not inside itself"
+        );
+
+        select_leaf(&mut app, 1);
+        assert!(app.conditions(&ctx).is_set("selection.any"));
+        assert!(app.conditions(&ctx).is_set("selection.in_form"));
+    }
+
+    /// ★★★ **`format.select_form` selects the container**, and what it lands on
+    /// is an edit operand — which is the whole point of offering it.
+    ///
+    /// Before this command the operator could reach an object inside a form and
+    /// could reach nothing else: the deep hit test excludes forms outright, so
+    /// the container had no route on the canvas at all. This is that route, and
+    /// the assertion that matters is the last one — after pressing it, Delete
+    /// has something to delete.
+    #[test]
+    fn select_the_form_lands_on_the_container_and_it_is_deletable() {
+        let mut app = opened_with_a_form();
+        let ctx = egui::Context::default();
+        select_leaf(&mut app, 1);
+
+        {
+            let Status::Open(doc) = &app.status else {
+                unreachable!()
+            };
+            assert!(
+                doc.selection.deletable_objects_on(0).is_empty(),
+                "a form-interior object is not an operand for any paint-order verb"
+            );
+        }
+
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, "format.select_form", &mut actions);
+
+        let Status::Open(doc) = &app.status else {
+            unreachable!()
+        };
+        assert_eq!(
+            doc.selection.targets_on(0),
+            vec![TargetId::Object(0)],
+            "the outermost enclosing form, in the page's own index space"
+        );
+        assert_eq!(
+            doc.selection.deletable_objects_on(0),
+            vec![0],
+            "and NOW there is something a verb can act on"
+        );
+        assert!(
+            doc.selection.leaf_indices_on(0).is_empty(),
+            "the leaf selection was replaced, not added to"
+        );
+    }
+
+    /// Pressing it with nothing selected says so rather than doing nothing.
+    ///
+    /// ★ `enabled_when` greys the ribbon item and enforces nothing — every
+    /// other route reaches the dispatcher unchecked — so the arm asks again,
+    /// and the arm's answer is a sentence rather than silence.
+    #[test]
+    fn select_the_form_with_no_form_selected_says_why() {
+        let mut app = opened_with_a_form();
+        let ctx = egui::Context::default();
+        select_object(&mut app, 0, false);
+
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, "format.select_form", &mut actions);
+
+        assert_eq!(
+            crate::app::status::decline::recorded_for_test(),
+            Some(crate::app::status::decline::Declined::InsideForm),
+            "the operator pressed something that did nothing; it owes them a reason"
+        );
+    }
+
+    /// ★★ **Delete on a form-interior selection explains itself.**
+    ///
+    /// The state this closes: the operator has an outline round the thing they
+    /// want gone, presses Delete, and nothing at all happens. From where they
+    /// sit, Delete is broken. It is not — no paint-order verb can address a
+    /// leaf — but a program that cannot say so has, for practical purposes,
+    /// the defect anyway.
+    ///
+    /// And the negative: at the Part or Node rung the operand list is empty for
+    /// a completely different reason, one the operator can see and put
+    /// themselves in, and that case stays silent. A bar that narrates the
+    /// obvious stops being read.
+    #[test]
+    fn delete_on_a_form_interior_selection_explains_itself() {
+        let mut app = opened_with_a_form();
+        let ctx = egui::Context::default();
+        select_leaf(&mut app, 1);
+
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, "format.delete", &mut actions);
+        assert!(
+            actions.is_empty(),
+            "nothing may be raised: there is no operand"
+        );
+        assert_eq!(
+            crate::app::status::decline::recorded_for_test(),
+            Some(crate::app::status::decline::Declined::InsideForm),
+        );
+
+        // …and an ordinary object still deletes, with no sentence.
+        select_object(&mut app, 0, false);
+        let mut actions = Vec::new();
+        app.dispatch_command(&ctx, "format.delete", &mut actions);
+        assert_eq!(actions.len(), 1, "the form itself is perfectly deletable");
+        assert_eq!(
+            crate::app::status::decline::recorded_for_test(),
+            None,
+            "a command that ran retires the sentence rather than adding to it"
+        );
+    }
+
     #[test]
     fn the_selection_condition_follows_the_selection() {
         let mut app = PdfceApp::new();

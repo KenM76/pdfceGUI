@@ -127,6 +127,15 @@ pub(super) fn tab() -> Tab {
         .with_groups([group(
             "selection",
             ribbon::group_format_selection(),
-            [command("format.properties"), command("format.delete")],
+            [
+                command("format.properties"),
+                // ★ Between Properties and Delete deliberately. §5.8's menu
+                // rule is least-destructive-first, and the same reading orders
+                // a group: describe, then re-aim, then destroy. It is also the
+                // order of increasing commitment, so the eye meets Delete last
+                // in both surfaces that carry it.
+                command("format.select_form"),
+                command("format.delete"),
+            ],
         )])
 }

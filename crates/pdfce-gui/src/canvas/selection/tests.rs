@@ -987,3 +987,97 @@ fn a_placed_object_replaces_the_selection_at_the_object_rung() {
         "a placement creates a whole object; arriving inside one is a rung nobody asked for"
     );
 }
+
+// ===========================================================================
+// The two index spaces
+//
+// A selection can name a page object or a form-interior leaf, and the whole
+// safety property of `TargetId` is that only the first reaches an edit verb.
+// These assert the three accessors that make that decidable, because every
+// refusal and every disclosure in the application is phrased in terms of them.
+// ===========================================================================
+
+/// ★★★ **An empty operand list is not an empty selection**, and the three
+/// accessors say which is which.
+///
+/// This is the property every form-related refusal in the application rests
+/// on. `canvas::moving` used to answer a leaf-only selection with
+/// `Refusal::NothingSelected`, which contradicted the outline on screen;
+/// `status::selected` would have gone silent on it. Both now ask
+/// `leaf_indices_on` first, and both would be wrong again if these three
+/// answers ever collapsed into each other.
+#[test]
+fn a_leaf_only_selection_is_not_an_empty_selection() {
+    use crate::canvas::target::TargetId;
+    let mut sel = SelectionState::default();
+    sel.select_only(0, TargetId::Leaf(4), "test");
+
+    assert!(!sel.is_empty(), "something IS selected");
+    assert!(
+        sel.object_indices_on(0).is_empty(),
+        "and nothing in it is an edit operand"
+    );
+    assert_eq!(sel.leaf_indices_on(0), vec![4], "and this is why");
+    assert_eq!(sel.targets_on(0), vec![TargetId::Leaf(4)]);
+}
+
+/// The two index spaces do not collide: `objects[4]` and `leaves[4]` are
+/// different selections, and each accessor reports only its own.
+///
+/// A bare `u64` id could not express this at all — which is the argument for
+/// `TargetId` being an enum, asserted rather than only written down.
+#[test]
+fn object_four_and_leaf_four_are_different_things() {
+    use crate::canvas::target::TargetId;
+    let mut sel = SelectionState::default();
+    sel.select_only(0, TargetId::Object(4), "test");
+    assert_eq!(sel.object_indices_on(0), vec![4]);
+    assert!(sel.leaf_indices_on(0).is_empty());
+
+    sel.select_only(0, TargetId::Leaf(4), "test");
+    assert!(sel.object_indices_on(0).is_empty());
+    assert_eq!(sel.leaf_indices_on(0), vec![4]);
+
+    assert_ne!(
+        Selection::object(0, TargetId::Object(4)),
+        Selection::object(0, TargetId::Leaf(4)),
+        "two selections that a bare index could not have told apart"
+    );
+}
+
+/// A mixed selection hands the verbs only the half they can act on, and keeps
+/// the other half visible to whatever has to explain the difference.
+#[test]
+fn a_mixed_selection_splits_into_operands_and_leaves() {
+    use crate::canvas::target::TargetId;
+    let mut sel = SelectionState::default();
+    sel.marquee(
+        0,
+        &[
+            TargetId::Object(7),
+            TargetId::Leaf(2),
+            TargetId::Object(1),
+            TargetId::Leaf(9),
+        ],
+        false,
+    );
+    assert_eq!(sel.object_indices_on(0), vec![1, 7], "ascending and unique");
+    assert_eq!(sel.leaf_indices_on(0), vec![2, 9]);
+    assert_eq!(sel.targets_on(0).len(), 4, "the readout sees all four");
+}
+
+/// Deleting is refused for a leaf, structurally, at the one funnel that feeds
+/// `EditSession::delete_objects`.
+///
+/// ★ The consequence if this ever returned the leaf's number: `delete_objects`
+/// would resolve it against the **page's** paint order, find a real object
+/// there, and delete the wrong thing — silently, because the index is in
+/// range. That is the file-corruption failure `TargetId` exists to make
+/// unrepresentable, asserted at the place it would have happened.
+#[test]
+fn a_leaf_is_never_a_delete_operand() {
+    use crate::canvas::target::TargetId;
+    let mut sel = SelectionState::default();
+    sel.select_only(0, TargetId::Leaf(0), "test");
+    assert!(sel.deletable_objects_on(0).is_empty());
+}

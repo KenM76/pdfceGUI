@@ -104,6 +104,36 @@ impl PdfceApp {
             if !doc.selection.is_empty() {
                 set.set("selection.any");
             }
+            // ★★ **Something selected on this page lives inside a form
+            // XObject**, so `format.select_form` has a container to offer.
+            //
+            // # Why this is a refinement of `selection.any` and still its own name
+            //
+            // Every selection that satisfies this satisfies `selection.any`
+            // too, which is unusual here — `selection.bounds` deliberately is
+            // *not* a refinement, and its docs say so. The distinction still
+            // has to be its own condition, because it answers a question the
+            // other cannot: *is there a container to select?* A page with no
+            // forms at all can never satisfy it, and on such a page the
+            // control is greyed for its whole life, correctly.
+            //
+            // # The current page only
+            //
+            // A selection can span pages (`Selection` carries one), but the
+            // container act resolves through the **decomposition**, and this
+            // shell decomposes exactly one page — `ObjectModelProvider` returns
+            // nothing for any other. Publishing the condition for a leaf on
+            // another page would light a control whose arm must then decline,
+            // which is the disagreement `selection.bounds` exists to prevent
+            // for zoom-to-selection. Asked here in the same words the arm asks
+            // it in.
+            if !doc
+                .selection
+                .leaf_indices_on(doc.view.page_index)
+                .is_empty()
+            {
+                set.set("selection.in_form");
+            }
             // ★ **The two conditions this function used to say were deliberately
             // absent**, and the comment they replace is worth quoting rather
             // than deleting, because it was right when it was written:

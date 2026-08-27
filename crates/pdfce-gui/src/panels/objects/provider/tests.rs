@@ -79,23 +79,27 @@ fn provider(src: &[u8]) -> ObjectModelProvider {
 // landed with the whole suite green, which is a suite reporting nothing.
 //
 // These use `decompose_page` against a real `Document`, which is the only
-// entry point that has a `DocumentView` to descend with. The fixture is
-// committed here and its provenance is in
-// `fixtures/forms-xobject/PROVENANCE.md`.
+// entry point that has a `DocumentView` to descend with. The fixtures come
+// from the engine's own synthetic tree, through `engine_fixture` -- the
+// convention 43 other tests in this crate already use, and the reason a copy
+// was not committed here: a duplicate would be one more thing to reconcile at
+// fold-in, and the engine's `forms-xobject` directory exists *because* of this
+// project's report, so drift between the two would be exactly the wrong drift.
 // -----------------------------------------------------------------
 
-/// One page-sized form holding three separate 40x40 squares: **one** page
+/// One page-sized form holding three separate 40 x 40 squares: **one** page
 /// object, **three** leaves.
 ///
 /// The engine's own reproduction of *"when I click on one of the objects
-/// all I get is the page selected"*. Byte-identical to
-/// `pdfce/fixtures/synthetic/forms-xobject/page-sized-form.pdf`.
-const PAGE_SIZED_FORM: &[u8] =
-    include_bytes!("../../../../../../fixtures/forms-xobject/page-sized-form.pdf");
+/// all I get is the page selected"*. The three squares sit at 10,10-50,50,
+/// 80,80-120,120 and 150,150-190,190 in PDF user space, and the gaps between
+/// them matter as much as the squares: a click in a gap is a click *inside
+/// the form* that must select nothing.
+const PAGE_SIZED_FORM: &str = "forms-xobject/page-sized-form.pdf";
 
-/// Form A holds form B holds one square -- containment depth **2**.
-const NESTED_FORMS: &[u8] =
-    include_bytes!("../../../../../../fixtures/forms-xobject/nested-forms.pdf");
+/// Form A holds form B holds one square -- containment depth **2**, and an
+/// intermediate form that is deliberately not itself a leaf.
+const NESTED_FORMS: &str = "forms-xobject/nested-forms.pdf";
 
 /// A provider over page 1 of a real document, with the page's own device
 /// transform.
@@ -105,9 +109,12 @@ const NESTED_FORMS: &[u8] =
 /// tests is a canvas point in the running program. The fixture pages are
 /// 200 x 200 with no `/Rotate`, so the map is the plain Y-flip and
 /// `canvas_y = 200 - pdf_y`.
-fn provider_over(bytes: &[u8]) -> ObjectModelProvider {
-    let doc =
-        pdfce_core::document::Document::from_bytes(bytes.to_vec()).expect("the fixture parses");
+fn provider_over(fixture: &str) -> ObjectModelProvider {
+    let bytes = std::fs::read(crate::panels::objects::test_support::engine_fixture(
+        fixture,
+    ))
+    .expect("the fixture is readable");
+    let doc = pdfce_core::document::Document::from_bytes(bytes).expect("the fixture parses");
     let view = doc.view();
     let pages = pdfce_core::page_tree::pages(&doc).expect("the fixture has a page tree");
     ObjectModelProvider::build_or_reason(&view, &pages[0], 0).expect("the page decomposes")

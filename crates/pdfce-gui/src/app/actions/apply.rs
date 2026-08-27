@@ -362,6 +362,10 @@ impl PdfceApp {
                     doc.selection.clear();
                 }
             },
+            // ★ A canvas gesture that refused, asking for its sentence. It
+            // changes nothing about the document — see the variant's docs for
+            // why it is an action at all, and why it carries no payload.
+            Action::DeclineInsideForm => crate::app::status::decline::record_inside_form(),
             Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),
             Action::ZoomIn => doc.view.zoom_in(max_zoom),
             Action::ZoomOut => doc.view.zoom_out(max_zoom),

@@ -303,6 +303,18 @@ pub fn built_in() -> Menus {
             // Above Delete, which stays last: the destructive row is last in
             // every menu in this file, deliberately.
             Item::command("format.properties"),
+            // ★ The right-click route to the container, added 2026-08-27 with
+            // the form-XObject descent.
+            //
+            // It matters more here than on the ribbon, and the reason is where
+            // the operator's hand is: they have just clicked something inside a
+            // form, found they cannot move it, and the next thing they do is
+            // right-click it. A control on a contextual tab three inches away
+            // is the correct *second* home, not the first one they will find.
+            //
+            // Greyed rather than absent when the selection is not inside a
+            // form, by the same R9 reading the catalog entry argues.
+            Item::command("format.select_form"),
             Item::command("format.delete"),
         ]))
         // -------------------------------------------------------------------
@@ -1032,7 +1044,12 @@ mod tests {
         for (context, expected) in [
             (
                 CANVAS_OBJECT,
-                &["view.zoom_selection", "format.properties", "format.delete"][..],
+                &[
+                    "view.zoom_selection",
+                    "format.properties",
+                    "format.select_form",
+                    "format.delete",
+                ][..],
             ),
             (
                 CANVAS_EMPTY,

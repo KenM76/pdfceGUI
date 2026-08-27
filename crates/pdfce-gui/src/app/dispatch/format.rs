@@ -1,0 +1,219 @@
+//! # `app::dispatch::format` — the contextual Format tab's command arms
+//!
+//! Split out of [`super`] under **R2** on 2026-08-27, when the form-XObject
+//! work took that file past 1,500 lines for the third time.
+//!
+//! ## The seam
+//!
+//! The same one `dispatch::pages` took, one tab over. [`super`]'s subject is
+//! *"a command id becomes an intent"* across the whole ribbon; this file's is
+//! the **Format tab's** share of it. They change for different reasons: a new
+//! tab or a new dispatch convention touches the parent, a new verb on the
+//! thing-you-just-clicked touches this.
+//!
+//! Format is a small tab and this is a small file, and that is expected to
+//! change: `RIBBON_IA.md` §5.8's table has twenty-four property editors in
+//! `manifest::PLANNED`, every one of which lands here.
+//!
+//! ## ★ What these three arms have in common, and it is not the tab
+//!
+//! All three act on **the selection**, and all three now have to answer the
+//! same question first: *which of the two index spaces is this?* Since
+//! 2026-08-27 a selection can name a page object — an index into the page's own
+//! paint order, which every `EditSession` verb accepts — or a **leaf**, an
+//! object painted from inside a form XObject, whose token range indexes the
+//! form's content stream and which no paint-order verb can address.
+//!
+//! Keeping the three together is what makes their three answers reviewable
+//! side by side:
+//!
+//! | arm | what it does about a leaf |
+//! |---|---|
+//! | `format.delete` | raises nothing, and **says why** — an outline with an unexplained dead Delete reads as a broken program |
+//! | `format.select_form` | selects the leaf's outermost enclosing form, which *is* an operand |
+//! | `format.properties` | opens the panel, which describes either kind |
+//!
+//! ## ★★ Why the arms re-ask what `enabled_when` already asked
+//!
+//! Because `enabled_when` greys a ribbon item and **enforces nothing**. Every
+//! non-ribbon route — the context menu, a chord, a future script — reaches the
+//! dispatcher without consulting it. That was settled on this project after a
+//! blanket guard at the top of `dispatch_command` was written and two tests
+//! refused it, for making `Ctrl+Z` on an empty stack do nothing *and say
+//! nothing*: greying is a hint, the worded decline is the answer, and only the
+//! arms that would otherwise act unconditionally need the check — and they must
+//! say why.
+
+use crate::app::PdfceApp;
+use crate::app::actions::Action;
+use crate::app::state::Status;
+
+/// Whether this file owns `id`.
+///
+/// `pub(crate)` rather than `pub(super)`, for the reason `dispatch::pages`
+/// gives: `shell::commands::reach`'s `guard_claiming` calls it, because the
+/// reachability checker must be able to EVALUATE every guard arm it finds — a
+/// guard it cannot evaluate is a place commands could hide from the check that
+/// exists to find them.
+#[must_use]
+pub(crate) fn handles(id: &str) -> bool {
+    matches!(
+        id,
+        "format.delete" | "format.properties" | "format.select_form"
+    )
+}
+
+/// Turn one Format command into an intent.
+///
+/// `id` is guaranteed to be one [`handles`] claims — the caller's arm is
+/// guarded on it — so the fall-through is unreachable and says so rather than
+/// silently doing nothing.
+pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) {
+    match id {
+        // ★ The ribbon's Delete — the contextual Format tab's one command.
+        //
+        // The id is `format.delete`, not `edit.delete`: `RIBBON_IA.md`
+        // §5.8 puts Delete on the **Format** tab, which is contextual and
+        // appears only while something is selected, and
+        // `shell::commands` registers exactly that id gated on
+        // `selection.any`. There is no `edit.delete` in this build, and
+        // adding an arm for one would be an arm no token can ever reach —
+        // dead code wearing a design pattern, which is what the
+        // no-placeholders invariant forbids.
+        //
+        // It became wirable when the selection moved onto `OpenDoc`: this
+        // function has no `egui::Context`, so while the selection lived in
+        // `egui::Memory` there was no route from a ribbon click to the
+        // thing it was about to delete. That is the whole of why the
+        // control has been drawn-but-unwired until now.
+        //
+        // **The rule is not restated here.**
+        // `SelectionState::deletable_objects_on` decides what a Delete may
+        // act on — Object rung only, ascending, de-duplicated, this page
+        // only — and the canvas's Delete key reads the same method. Two
+        // statements of a destructive rule is one too many.
+        //
+        // An empty list raises nothing rather than an empty action the
+        // engine would have to refuse. That is reachable in practice: the
+        // Format tab is visible whenever *anything* is selected, including
+        // at a rung whose delete verb does not exist yet.
+        "format.delete" => {
+            if let Status::Open(doc) = &app.status {
+                // ★ An ANNOTATION first — not a tie-break: `SelectionState`
+                // cannot hold both, so these are the two cases of one
+                // question. Locked (§12.5.3 bit 8) does nothing rather than
+                // raising an action the engine would refuse; the control
+                // itself should be absent, which is the Format tab's work.
+                if let Some(annot) = doc.selection.annot() {
+                    if !annot.target.locked {
+                        actions.push(Action::DeleteAnnotation {
+                            page: annot.target.page,
+                            id: annot.target.id,
+                        });
+                    }
+                } else {
+                    let page = doc.view.page_index;
+                    let objects = doc.selection.deletable_objects_on(page);
+                    if objects.is_empty() {
+                        // ★★ **Say why, when there is a why worth saying.**
+                        //
+                        // An empty operand list has two very different
+                        // causes, and until 2026-08-27 only one of them
+                        // existed. It can mean the operator is at the Part
+                        // or Node rung, where no delete verb applies —
+                        // silence is right for that, because the rung is
+                        // visible on screen and they put themselves in it.
+                        //
+                        // Or it can mean every selected object is drawn
+                        // inside a form XObject, in which case the operator
+                        // is looking at an outline round the thing they
+                        // want gone, pressing Delete, and getting nothing
+                        // at all. That is the state a program must never
+                        // leave unexplained: from where they sit, Delete is
+                        // broken.
+                        //
+                        // `leaf_indices_on` is the same accessor
+                        // `crate::app::conditions` publishes
+                        // `selection.in_form` from, so the sentence and the
+                        // greyed `format.select_form` beside it come from
+                        // one question.
+                        if !doc.selection.leaf_indices_on(page).is_empty() {
+                            crate::app::status::decline::record_inside_form();
+                        }
+                    } else {
+                        actions.push(
+                            crate::app::actions::VectorAction::DeleteSelection { page, objects }
+                                .into(),
+                        );
+                    }
+                }
+            }
+        }
+
+        // ★★★ **Select the form that contains what is selected.**
+        //
+        // The deliberate second act that pays for the deep hit test. Since
+        // 2026-08-27 a click reaches inside a form XObject and the form
+        // itself is excluded from the hit test outright, because a `/BBox`
+        // is a clipping extent and not a claim about ink — so a page-sized
+        // form was winning every click at every point, which is what the
+        // operator reported as *"all I get is the page selected"*.
+        //
+        // A form is nonetheless a legitimate thing to want: it is one page
+        // object with an ordinary paint-order index, and moving a title
+        // block is *the form*, not the two hundred objects inside it. This
+        // is the route to it, and it is the only one on the canvas.
+        //
+        // # Why the arm re-asks what `enabled_when` already asked
+        //
+        // Because `enabled_when` greys a ribbon item and **enforces
+        // nothing** — every non-ribbon route reaches this dispatcher
+        // without consulting it. That was recorded on this project after a
+        // blanket dispatcher guard was written and two tests refused it,
+        // for making `Ctrl+Z` on an empty stack do nothing *and say
+        // nothing*. The ruling: greying is a hint, the worded decline is
+        // the answer, and only the arms that would otherwise act
+        // unconditionally need the check — and they must say why.
+        //
+        // # The FIRST leaf, not all of them
+        //
+        // A multi-selection can hold leaves from several different forms,
+        // and there is no single container for such a set. Taking the
+        // first — in `leaf_indices_on`'s ascending, deduplicated order, so
+        // it is deterministic rather than click-ordered — makes the act
+        // mean one thing always. `select_only` then replaces the selection
+        // outright, which is the honest report: what you now have is the
+        // form, and not the set you had before.
+        "format.select_form" => {
+            if let Status::Open(doc) = &mut app.status {
+                let page = doc.view.page_index;
+                let container = doc
+                    .selection
+                    .leaf_indices_on(page)
+                    .first()
+                    .and_then(|&leaf| {
+                        let target = crate::canvas::target::TargetId::Leaf(leaf as u64);
+                        doc.page_objects()?.containing_form(page, target)
+                    });
+                match container {
+                    Some(form) => {
+                        doc.selection.select_only(page, form, "select-form");
+                    }
+                    // Nothing selected is inside a form, or the page's model
+                    // has gone. Both are honestly reported by the same
+                    // sentence: this verb had nothing to reach.
+                    None => crate::app::status::decline::record_inside_form(),
+                }
+            }
+        }
+        "format.properties" => {
+            actions.push(crate::app::actions::Action::Command(
+                // ui-text-exempt: a registered command id, never displayed
+                "file.properties".to_owned(),
+            ));
+        }
+        // ui-text-exempt: a panic message, read from a stack trace by whoever
+        // adds an id to `handles` and forgets the arm. Never rendered.
+        other => unreachable!("dispatch::format was handed `{other}`, which it does not claim"),
+    }
+}

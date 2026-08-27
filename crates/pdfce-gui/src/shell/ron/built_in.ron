@@ -412,6 +412,7 @@
                     caption: "Selection",
                     items: [
                         Command(id: "format.properties"),
+                        Command(id: "format.select_form"),
                         Command(id: "format.delete"),
                     ],
                 ),
@@ -465,6 +466,7 @@
             items: [
                 Command(id: "view.zoom_selection"),
                 Command(id: "format.properties"),
+                Command(id: "format.select_form"),
                 Command(id: "format.delete"),
             ],
         ),

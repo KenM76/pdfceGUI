@@ -879,6 +879,53 @@ pub const fn format_delete() -> CommandText {
     )
 }
 
+/// `format.select_form`
+///
+/// ★★★ **The deliberate second act that pays for the deep hit test.**
+///
+/// Since 2026-08-27 a click reaches *inside* a form XObject and selects what is
+/// drawn there, and the form itself is excluded from the hit test outright — a
+/// `/BBox` is a clipping extent (§8.10.1), not a claim about ink, so a
+/// page-sized form was winning every click at every point. That was the
+/// operator's report: *"when I click on one of the objects all I get is the
+/// page selected."*
+///
+/// But a form is a perfectly good thing to want. It is one page object with an
+/// ordinary paint-order index, and moving a title block or deleting a stamp is
+/// *the form*, not the two hundred objects inside it. So the reach gained
+/// inside forms must not cost the reach to the form, and this command is how
+/// that is paid: reachable on purpose, never by default.
+///
+/// # Every clause of the tooltip, and what it answers
+///
+/// **"the form that contains it"** names the structure, which is the fact the
+/// operator can act on — it explains the page-sized outline they used to get,
+/// and it is the word they need if they go looking in another tool.
+///
+/// **"one object you can move, delete or copy"** is the reason to press it.
+/// The thing selected before pressing is none of those, and this sentence is
+/// the only place that trade is stated in the operator's own vocabulary.
+///
+/// **"Everything drawn inside it moves with it"** is the consequence they must
+/// know *before* pressing, not after. It is also the honest warning that a form
+/// may be shared: `pdfce-core`'s decision 076 rules editing inside a shared
+/// form as edit-in-place, and a page invoking a form twice draws it twice.
+///
+/// # Why "the form" and not "the container" or "the group"
+///
+/// Because *form XObject* is what the file calls it, what `pdfce-cli
+/// object-list` prints, and what the Objects panel row says. A friendlier word
+/// invented here would be a fourth vocabulary for one thing, and the operator
+/// reads all four.
+#[must_use]
+pub const fn format_select_form() -> CommandText {
+    CommandText::new(
+        "Select the form",
+        "Select the form that contains what you have selected, so you have one object you \
+         can move, delete or copy. Everything drawn inside it moves with it.",
+    )
+}
+
 /// `format.properties`
 ///
 /// ★ **A second route to `file.properties`, not a second implementation of

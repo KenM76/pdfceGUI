@@ -165,8 +165,8 @@ fn inside_forms(nesting: usize) -> String {
 /// engine produces today. That is a boundary this shell reports, not a policy
 /// it chose, and it is dated: `pdfce-core` v0.14.0, 2026-08-27.
 #[must_use]
-pub fn selection_inside_form_declined() -> String {
-    "That object is inside a form — pdfce cannot edit inside one yet".to_owned()
+pub const fn selection_inside_form_declined() -> &'static str {
+    "That object is inside a form — pdfce cannot edit inside one yet"
 }
 
 /// Several objects selected.

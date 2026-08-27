@@ -45,6 +45,7 @@
 //! panel.
 
 // The Pages tab's arms, split out under R2. See its header for the seam.
+pub(crate) mod format;
 /// ★ `edit.insert_image`'s four steps — pick, read, import, refuse or open.
 ///
 /// A module rather than a match arm because it is a **sequence**, not a verb,
@@ -816,12 +817,10 @@ impl PdfceApp {
             // on an empty canvas would hide it from exactly the operator most
             // likely to be looking for it.
             "file.shortcuts" => self.dialogs.open_shortcuts(),
-            "format.properties" => {
-                actions.push(crate::app::actions::Action::Command(
-                    // ui-text-exempt: a registered command id, never displayed
-                    "file.properties".to_owned(),
-                ));
-            }
+            // The Format tab's arms — Delete, Properties and Select-the-form.
+            // Split out under R2 on 2026-08-27; see `dispatch::format`'s header
+            // for the seam.
+            id if format::handles(id) => format::dispatch(self, id, actions),
             id if measure::handles(id) => {
                 measure::dispatch(self, ctx, id, actions);
             }
@@ -1052,62 +1051,6 @@ impl PdfceApp {
             // affordance that looks available and is inert. It became
             // wirable when `RenderKey` gained `annotations`.
             "view.show_annotations" => actions.push(Action::ToggleAnnotations),
-            // ★ The ribbon's Delete — the contextual Format tab's one command.
-            //
-            // The id is `format.delete`, not `edit.delete`: `RIBBON_IA.md`
-            // §5.8 puts Delete on the **Format** tab, which is contextual and
-            // appears only while something is selected, and
-            // `shell::commands` registers exactly that id gated on
-            // `selection.any`. There is no `edit.delete` in this build, and
-            // adding an arm for one would be an arm no token can ever reach —
-            // dead code wearing a design pattern, which is what the
-            // no-placeholders invariant forbids.
-            //
-            // It became wirable when the selection moved onto `OpenDoc`: this
-            // function has no `egui::Context`, so while the selection lived in
-            // `egui::Memory` there was no route from a ribbon click to the
-            // thing it was about to delete. That is the whole of why the
-            // control has been drawn-but-unwired until now.
-            //
-            // **The rule is not restated here.**
-            // `SelectionState::deletable_objects_on` decides what a Delete may
-            // act on — Object rung only, ascending, de-duplicated, this page
-            // only — and the canvas's Delete key reads the same method. Two
-            // statements of a destructive rule is one too many.
-            //
-            // An empty list raises nothing rather than an empty action the
-            // engine would have to refuse. That is reachable in practice: the
-            // Format tab is visible whenever *anything* is selected, including
-            // at a rung whose delete verb does not exist yet.
-            "format.delete" => {
-                if let Status::Open(doc) = &self.status {
-                    // ★ An ANNOTATION first — not a tie-break: `SelectionState`
-                    // cannot hold both, so these are the two cases of one
-                    // question. Locked (§12.5.3 bit 8) does nothing rather than
-                    // raising an action the engine would refuse; the control
-                    // itself should be absent, which is the Format tab's work.
-                    if let Some(annot) = doc.selection.annot() {
-                        if !annot.target.locked {
-                            actions.push(Action::DeleteAnnotation {
-                                page: annot.target.page,
-                                id: annot.target.id,
-                            });
-                        }
-                    } else {
-                        let page = doc.view.page_index;
-                        let objects = doc.selection.deletable_objects_on(page);
-                        if !objects.is_empty() {
-                            actions.push(
-                                crate::app::actions::VectorAction::DeleteSelection {
-                                    page,
-                                    objects,
-                                }
-                                .into(),
-                            );
-                        }
-                    }
-                }
-            }
             // The page verbs — rotate, delete, extract, move. Their arms and
             // the operand rule they share live in `dispatch::pages`, split out
             // under R2; see its header for the seam and for the three page

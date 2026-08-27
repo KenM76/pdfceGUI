@@ -190,6 +190,34 @@ pub(crate) enum Declined {
     /// `crate::app::save`; see [`crate::text::status::save_copy_failed`] for why
     /// a `Display` impl's prose is not operator copy.
     SaveFailed,
+    /// **A verb was asked to act on something drawn inside a form XObject.**
+    ///
+    /// # ★ The two states this keeps apart, and why merging them is expensive
+    ///
+    /// *"Nothing is selected"* and *"the thing you selected cannot be reached
+    /// by this verb"* are the operator's mistake and the program's limit. An
+    /// interface that reports the second as the first sends them looking for
+    /// something they did not do wrong — and here it would contradict the
+    /// outline they can see on screen, which is the most confusing shape a
+    /// message can have.
+    ///
+    /// This became reachable on 2026-08-27, when a click started reaching
+    /// inside form XObjects. Before that a form-interior object could not be
+    /// selected at all, so no verb could be asked about one; now it can be
+    /// selected, measured, described and copied *nowhere*, because
+    /// `EditSession`'s paint-order verbs write to the **page's** content stream
+    /// and a leaf's tokens index the **form's**.
+    ///
+    /// # Retired by the operator's next act, and by the selection changing
+    ///
+    /// Unlike [`Self::SaveFailed`], this one has a live predicate worth
+    /// re-asking: the moment the operator selects something else, the sentence
+    /// stops being about what they are looking at. [`Self::still_true`]
+    /// therefore consults `selection_in_form`, gathered from the same
+    /// accessor `crate::app::conditions` publishes `selection.in_form` from —
+    /// so the greyed control and the sentence in the bar cannot come from
+    /// different questions.
+    InsideForm,
     /// **The Settings window's Save wrote nothing.**
     ///
     /// # ★ Why this is not [`Self::SaveFailed`], although both are failed writes
@@ -380,7 +408,13 @@ impl Declined {
     /// and each arm below names the field it reads, so neither can read the
     /// other's stack.
     #[must_use]
-    fn still_true(self, has_bounds: bool, canvas_has_drawn: bool, history: History) -> bool {
+    fn still_true(
+        self,
+        has_bounds: bool,
+        canvas_has_drawn: bool,
+        history: History,
+        selection_in_form: bool,
+    ) -> bool {
         match self {
             // The operator has selected something framable: the sentence is
             // now history, and a stale explanation beside a live control is
@@ -412,6 +446,13 @@ impl Declined {
             // filter is needed at all: `retire` would not have run.
             Self::NothingToUndo => !history.can_undo,
             Self::NothingToRedo => !history.can_redo,
+            // ★ True while the operator is still looking at the selection the
+            // sentence is about. Selecting something else — including the
+            // containing form, which is the remedy the sentence exists to send
+            // them to — ends it, without any command being invoked and so
+            // without `retire` running. That is precisely the case the filter
+            // exists for, and it is the same shape as `NothingToFrame`.
+            Self::InsideForm => selection_in_form,
         }
     }
 
@@ -425,6 +466,7 @@ impl Declined {
         match self {
             Self::NothingToFrame => t::zoom_declined_no_selection(),
             Self::CanvasNotDrawn => t::zoom_declined_not_drawn(),
+            Self::InsideForm => t::selection_inside_form_declined(),
             Self::SaveFailed => t::save_copy_failed(),
             Self::SettingsNotSaved => t::settings_not_saved(),
             Self::NothingToUndo => t::undo_declined_empty(),
@@ -646,10 +688,38 @@ pub(super) fn live(ctx: &egui::Context, doc: &OpenDoc) -> Option<Declined> {
     let has_bounds = zoom::can_zoom_to_selection(doc);
     let canvas_has_drawn = zoom::last_frame(ctx).is_some();
     let history = History::of(doc);
+    // ★ The same accessor `crate::app::conditions` publishes `selection.in_form`
+    // from, asked here in the same words, so that the greyed control and the
+    // sentence explaining why it is greyed cannot come from two questions that
+    // drift apart.
+    let selection_in_form = !doc
+        .selection
+        .leaf_indices_on(doc.view.page_index)
+        .is_empty();
     LAST.with_borrow(|slot| {
-        slot.filter(|d| d.still_true(has_bounds, canvas_has_drawn, history))
+        slot.filter(|d| d.still_true(has_bounds, canvas_has_drawn, history, selection_in_form))
             .to_owned()
     })
+}
+
+/// Record that a verb refused because what is selected lives inside a form
+/// XObject.
+///
+/// # ★ Recorded by the DISPATCHER, not by an apply arm
+///
+/// [`record_history_empty`]'s docs argue the opposite placement for undo, and
+/// the argument holds there: *"is there anything to undo?"* is a question about
+/// the document that the apply phase has to ask anyway, so asking it twice is
+/// how the greyed control and the sentence come to disagree.
+///
+/// This one is different in the way that matters. *"Is this selection inside a
+/// form?"* is answered from the **selection**, which the dispatcher holds, and
+/// there is no apply phase to reach: the refusal is that no `Action` is raised
+/// at all. An arm that raised a doomed action so that the apply phase could
+/// decline it would be manufacturing an edit in order to have somewhere to
+/// refuse it.
+pub(crate) fn record_inside_form() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::InsideForm));
 }
 
 /// **The raw store, for tests only.**
@@ -723,17 +793,17 @@ mod tests {
 
         // Nothing to frame: retired the moment something is framable, and
         // indifferent to whether the canvas has drawn.
-        assert!(Declined::NothingToFrame.still_true(false, true, empty));
-        assert!(Declined::NothingToFrame.still_true(false, false, empty));
-        assert!(!Declined::NothingToFrame.still_true(true, true, empty));
-        assert!(!Declined::NothingToFrame.still_true(true, false, empty));
+        assert!(Declined::NothingToFrame.still_true(false, true, empty, false));
+        assert!(Declined::NothingToFrame.still_true(false, false, empty, false));
+        assert!(!Declined::NothingToFrame.still_true(true, true, empty, false));
+        assert!(!Declined::NothingToFrame.still_true(true, false, empty, false));
 
         // Canvas not drawn: retired the moment it has, and indifferent to the
         // selection — the remedy arrives without the operator doing anything.
-        assert!(Declined::CanvasNotDrawn.still_true(false, false, empty));
-        assert!(Declined::CanvasNotDrawn.still_true(true, false, empty));
-        assert!(!Declined::CanvasNotDrawn.still_true(false, true, empty));
-        assert!(!Declined::CanvasNotDrawn.still_true(true, true, empty));
+        assert!(Declined::CanvasNotDrawn.still_true(false, false, empty, false));
+        assert!(Declined::CanvasNotDrawn.still_true(true, false, empty, false));
+        assert!(!Declined::CanvasNotDrawn.still_true(false, true, empty, false));
+        assert!(!Declined::CanvasNotDrawn.still_true(true, true, empty, false));
 
         // ★ A failed save survives every combination of the two facts, because
         // neither is about it: a folder that could not be written to does not
@@ -746,7 +816,7 @@ mod tests {
         for has_bounds in [false, true] {
             for drawn in [false, true] {
                 assert!(
-                    Declined::SaveFailed.still_true(has_bounds, drawn, empty),
+                    Declined::SaveFailed.still_true(has_bounds, drawn, empty, false),
                     "a failed write does not repair itself ({has_bounds}, {drawn})"
                 );
             }
@@ -781,21 +851,21 @@ mod tests {
         };
 
         // Its own stack is what retires it…
-        assert!(Declined::NothingToUndo.still_true(false, true, empty));
-        assert!(!Declined::NothingToUndo.still_true(false, true, undoable));
-        assert!(Declined::NothingToRedo.still_true(false, true, empty));
-        assert!(!Declined::NothingToRedo.still_true(false, true, redoable));
+        assert!(Declined::NothingToUndo.still_true(false, true, empty, false));
+        assert!(!Declined::NothingToUndo.still_true(false, true, undoable, false));
+        assert!(Declined::NothingToRedo.still_true(false, true, empty, false));
+        assert!(!Declined::NothingToRedo.still_true(false, true, redoable, false));
 
         // …and the OTHER stack is not. An operator who authors something can
         // undo it and still has nothing to redo, so a "nothing to redo"
         // sentence that vanished when the undo stack filled would retire on a
         // state that has not changed for it.
         assert!(
-            Declined::NothingToRedo.still_true(false, true, undoable),
+            Declined::NothingToRedo.still_true(false, true, undoable, false),
             "an undoable change is not something to redo"
         );
         assert!(
-            Declined::NothingToUndo.still_true(false, true, redoable),
+            Declined::NothingToUndo.still_true(false, true, redoable, false),
             "a redoable change is not something to undo"
         );
 
@@ -803,8 +873,8 @@ mod tests {
         // selection nor the raster has anything to do with a command log.
         for has_bounds in [false, true] {
             for drawn in [false, true] {
-                assert!(Declined::NothingToUndo.still_true(has_bounds, drawn, empty));
-                assert!(Declined::NothingToRedo.still_true(has_bounds, drawn, empty));
+                assert!(Declined::NothingToUndo.still_true(has_bounds, drawn, empty, false));
+                assert!(Declined::NothingToRedo.still_true(has_bounds, drawn, empty, false));
             }
         }
     }
@@ -864,7 +934,7 @@ mod tests {
 
         // The frame's own dispatch already ran before the apply that recorded
         // this, so the sentence is still there on the next frame.
-        assert!(Declined::SaveFailed.still_true(true, true, History::default()));
+        assert!(Declined::SaveFailed.still_true(true, true, History::default(), false));
 
         // …and the operator's next command ends it.
         retire();

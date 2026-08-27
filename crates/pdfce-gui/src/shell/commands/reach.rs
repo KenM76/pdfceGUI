@@ -718,6 +718,23 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::zoom::handles(id) {
         return Some("handles");
     }
+    // ★ The fourth membership-test guard, added 2026-08-27 with
+    // `dispatch::format`, when the form-XObject work took `dispatch.rs` past
+    // 1,500 lines for the third time. Everything the `pages::handles`
+    // paragraph above says applies unchanged, mitigation included: its partner
+    // `dispatch` ends in an `unreachable!` naming the id.
+    //
+    // ★★ **It failed closed, again, and by name.** The moment the three
+    // `format.*` arms moved out of the parent, this checker reported
+    // `format.delete`, `format.properties` and `format.select_form` as
+    // registered controls with no dispatch arm — which is the fourth time the
+    // prediction in `DISPATCH_PAGES_SRC`'s doc has come true, and the fourth
+    // time the failure was a correct report rather than a false alarm. A grep
+    // for the id strings would have found them in the new file and said
+    // nothing.
+    if crate::app::dispatch::format::handles(id) {
+        return Some("handles");
+    }
     None
 }
 

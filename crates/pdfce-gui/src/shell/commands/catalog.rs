@@ -1331,6 +1331,41 @@ pub(super) fn all() -> Vec<Command> {
         command("format.properties", t::format_properties(), 801)
             .with_icon("properties")
             .enabled_when("selection.any"),
+        // ★★ **Greyed, not absent, when the selection is not inside a form.**
+        //
+        // R9 draws the line by *why* a thing is unavailable: a capability this
+        // build does not have renders nothing at all, and a capability that is
+        // **temporarily** unavailable is greyed with the reason on hover. Which
+        // one this is turns on a fact about the operator's current selection,
+        // not about the build — the command works, on the very next click, on
+        // any document with a form. That is the greying case, and it reads the
+        // same way `format.delete`'s `selection.any` does one line above.
+        //
+        // ★ And a greyed control is a hint, never an enforcement. `enabled_when`
+        // greys a ribbon item and stops nothing: every non-ribbon route — the
+        // context menu, a chord, a future script — reaches the dispatcher
+        // without consulting it. The arm in `app::dispatch` therefore asks the
+        // same question again and *says why* when the answer is no, which is
+        // the ruling this project made after a blanket dispatcher guard was
+        // written and two tests refused it for making `Ctrl+Z` on an empty
+        // stack do nothing and say nothing.
+        //
+        // ★ The glyph is `pick-form-xobject`, **reused** rather than new, under
+        // the same shared-key convention `format.properties` uses one line
+        // above. It is not a near-miss reuse of the kind the header's refusal
+        // table is full of: that glyph's entire subject *is* a form XObject —
+        // it is the pick filter's form class — and this command's entire
+        // subject is a form XObject. Two controls about one thing, drawn the
+        // same, is the convention working rather than an economy.
+        //
+        // Drawing new art was never the alternative. `icons/assets/PROVENANCE.md`
+        // declares that directory the **operator's own art**, which is what
+        // exempts it from `check-shipped-assets`, and a machine-drawn SVG would
+        // make that provenance note false — `file.ocr`'s refusal argues it at
+        // length and the argument is unchanged here.
+        command("format.select_form", t::format_select_form(), 802)
+            .with_icon("pick-form-xobject")
+            .enabled_when("selection.in_form"),
         // ===================================================================
         // MODES — tokens 900-999
         //

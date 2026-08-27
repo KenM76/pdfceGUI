@@ -219,7 +219,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 114);
+        assert_eq!(registry().len(), 115);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -266,7 +266,7 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 102, "commands naming an icon");
+        assert_eq!(named, 103, "commands naming an icon");
         assert_eq!(
             refused, 12,
             "commands with no icon, each argued at its registration"
@@ -353,6 +353,12 @@ mod tests {
             // Not a refinement of `selection.any` — see `PdfceApp::conditions`.
             // A selection can exist and resolve to no box.
             "selection.bounds",
+            // ★ This one IS a refinement of `selection.any`, unlike its
+            // neighbour above, and it is still its own name because it answers
+            // a question `selection.any` cannot: is there a **container** to
+            // select? Set when something selected on the current page is drawn
+            // from inside a form XObject.
+            "selection.in_form",
             // ★ The only condition about a **gesture in progress** rather
             // than about the document, the selection or the view.
             //
