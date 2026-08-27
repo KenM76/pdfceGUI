@@ -411,7 +411,7 @@ trains a reader to skip the section.
   self-contradicting failure is worse than a silent one — it names a defect in
   the program for a condition that is entirely the harness's.
 
-## O43 — Vertical text should behave like vertical text## O43 — Vertical text should behave like vertical text
+## O43 — Vertical text should behave like vertical text
 
 **Asked:** 2026-08-26. **Shipped the same day. Driven check written and NOT YET
 RUN** — see the status below, which says so in those words.
@@ -465,6 +465,34 @@ The engine request is filed —
 `open/request_extraction_drops_the_writing_direction.md` — asking for
 direction-aware segmentation and for the direction to be published. When that
 lands, the shell-side recovery becomes a fallback and then deletes.
+
+#### ★★★ It landed the next day, and the 1,303 lines are gone — 2026-08-27
+
+`pdfce-core` shipped Passes 139.0 / 139.1 / 139.2 within a day:
+`ExtractedGlyph::direction`, `TextRun::direction()`, `Line::direction`, a public
+`glyph_cell()`, and — the one that matters — segmentation resolved into the
+**line's own frame** instead of the page's, so the spurious breaks are never
+emitted. On their fixture the derived break count went 22 → 3.
+
+So `canvas::textsel::writing` is **deleted**, not kept as a fallback, and the
+same is true of the artefact filter that used to drop the spurious breaks: a
+filter that removes something no longer produced is a filter that will one day
+remove something real.
+
+**What that changes for you: nothing you can see, and that is the point.** Every
+one of the eleven rotated-text behaviour checks written for the shell's version
+passes with the engine doing the work — one tall band, copies on one line,
+upside-down text, the skewed band, the cursor tilt, and horizontal text on a
+rotated page unchanged. Your own stamp on `SW41177.pdf` page 36 comes back as
+one whole 79-character line, run deliberately rather than left ignored, and
+falsified so the green is a result rather than a check that cannot fail.
+
+★ One thing DID change and it is worth knowing: the direction is now sourced
+from the §9.4.4 text rendering matrix rather than corroborated from geometry, so
+the failure mode this row's own text warned about — *"a vertical label set in
+wide letters would have produced no two-glyph run at all, and the feature would
+have done nothing, silently, on exactly the page it was written for"* — is gone
+by construction rather than by luck.
 
 ### Status, stated honestly
 
