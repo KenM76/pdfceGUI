@@ -132,6 +132,14 @@ pub mod info;
 /// operator's own 2026-08-12 decision, quoted from `RIBBON_IA.md` §5.8) and why
 /// every control raises one action carrying one field.
 mod markup;
+/// ★ The **selected text's** face, size, weight and colour — O37's Font
+/// controls, built panel-first as §5.8 says to.
+///
+/// `pub` rather than private, like [`geometry`] and unlike [`markup`], because
+/// `crate::panels::PanelsState` holds its draft: the read-back costs a
+/// provenance extraction, so it is stamped and kept rather than re-taken every
+/// frame.
+pub mod text;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
@@ -282,11 +290,17 @@ fn body_sections(
     // `doc.selected_field`, which the object and annotation selections neither
     // set nor read. See `app::state::SelectedField` for why they are separate.
     let drew_form_field = formfield::section(ui, doc, state, actions);
+    // ★ Before geometry, after markup. The order is the selection's: this
+    // section and `geometry` describe different KINDS of selection (a text
+    // sweep, an object) and never both draw, so the placement is about reading
+    // order rather than precedence — the restyle controls sit with the other
+    // "change how this looks" rows and above the read-only facts.
+    let drew_text = text::section(ui, doc, state.text_style_mut(), actions);
     let drew_geometry = geometry::section(ui, doc, state.geometry_mut(), actions);
     object_section(
         ui,
         doc,
-        drew_dimension || drew_markup || drew_geometry || drew_form_field,
+        drew_dimension || drew_markup || drew_geometry || drew_form_field || drew_text,
     );
     ui.separator();
     info::section(ui, doc, state.properties_mut(), actions);

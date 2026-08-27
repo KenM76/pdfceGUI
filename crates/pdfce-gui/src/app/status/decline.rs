@@ -218,6 +218,31 @@ pub(crate) enum Declined {
     /// so the greyed control and the sentence in the bar cannot come from
     /// different questions.
     InsideForm,
+    /// **A restyle of existing text did not happen** — O37, 2026-08-27.
+    ///
+    /// The payload is [`crate::text::status::TextStyleRefusal`], which is the
+    /// shell's own reading of which refusals an operator can act on. It is a
+    /// `Copy` enum rather than a `String` so this whole type stays `Copy` and
+    /// [`Declined::line`] stays `&'static str`; the reasoning for keeping the
+    /// engine's own prose OFF the status bar is on that enum.
+    ///
+    /// # ★ It is retired by the operator's next act, and by nothing else
+    ///
+    /// [`Self::still_true`] answers `true` for it unconditionally, in the same
+    /// ruling as `SaveFailed` and the two adopt refusals: a page is not going
+    /// to grow a Bold face, and a run is not going to become pinnable, between
+    /// one frame and the next. The remedy is always something the operator
+    /// *does* — pick a different face, select different text, press the button
+    /// again — and every one of those is a command, which [`retire`] catches.
+    ///
+    /// ★★ It is deliberately NOT keyed on the selection the way `InsideForm`
+    /// is. `InsideForm`'s sentence sends the operator to select something else,
+    /// so selecting something else is the remedy completing and the sentence
+    /// must go. These sentences send the operator to press a *different
+    /// control* on the *same* selection — so retiring on a selection change
+    /// would be right, and retiring on it alone would let the sentence vanish
+    /// while the operator was reading it.
+    TextStyle(crate::text::status::TextStyleRefusal),
     /// **The Settings window's Save wrote nothing.**
     ///
     /// # ★ Why this is not [`Self::SaveFailed`], although both are failed writes
@@ -453,6 +478,10 @@ impl Declined {
             // without `retire` running. That is precisely the case the filter
             // exists for, and it is the same shape as `NothingToFrame`.
             Self::InsideForm => selection_in_form,
+            // ★ See the variant's docs: nothing on the frame can make a
+            // restyle refusal stop being a true report of what happened when
+            // the operator pressed the control. `retire` ends it.
+            Self::TextStyle(_) => true,
         }
     }
 
@@ -474,6 +503,7 @@ impl Declined {
             Self::FieldNameTaken => t::adopt_declined_name_taken(),
             Self::WidgetHasNoName => t::adopt_declined_no_name(),
             Self::PushButtonInert => t::push_button_inert(),
+            Self::TextStyle(why) => why.line(),
         }
     }
 }
@@ -570,6 +600,21 @@ pub(crate) fn record(outcome: ZoomOutcome) {
 /// `ZoomOutcome`, and this has no outcome to convert. A constructor per source
 /// of truth is what keeps the enum from acquiring a `From` impl for every type
 /// in the crate.
+/// Record that a restyle of existing text refused, and why.
+///
+/// Called from `crate::app::actions::textstyle`, in the **apply** phase like
+/// [`record_save_failure`] rather than in the dispatcher — the refusal comes
+/// from the engine, which is only reached once the action is being applied.
+///
+/// ★ A constructor of its own rather than a second argument to [`record`], for
+/// the reason [`record_push_button_inert`]'s docs give: [`record`] converts a
+/// `ZoomOutcome` and this has no outcome to convert. One constructor per source
+/// of truth is what keeps this enum from acquiring a `From` impl for every type
+/// in the crate.
+pub(crate) fn record_text_style(why: crate::text::status::TextStyleRefusal) {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::TextStyle(why)));
+}
+
 pub(crate) fn record_push_button_inert() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::PushButtonInert));
 }

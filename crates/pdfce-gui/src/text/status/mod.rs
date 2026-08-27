@@ -89,8 +89,9 @@ mod selection;
 /// this crate changed, and none should have to when a catalog area is
 /// reorganised internally.
 pub use selection::{
-    selection_inside_form_declined, selection_many, selection_one, selection_one_in_form,
-    selection_one_in_form_unsized, selection_one_unsized, selection_with_depth,
+    TextStyleRefusal, selection_inside_form_declined, selection_many, selection_one,
+    selection_one_in_form, selection_one_in_form_unsized, selection_one_unsized,
+    selection_with_depth, text_style_multi, text_style_used_real_face,
 };
 
 // ---------------------------------------------------------------------------

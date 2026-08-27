@@ -672,6 +672,15 @@ pub struct PanelsState {
     /// and this one must not (it describes one object). Merging them would make
     /// one struct with two reset rules.
     geometry: properties::geometry::GeometryDraft,
+    /// ★ The selected text's face, size and colour, and the size being typed.
+    ///
+    /// Held here for a stronger reason than its neighbours: the read-back needs
+    /// an extraction with provenance on — 392 ms on the operator's benchmark
+    /// sheet — so a section that re-read it every frame would take the whole
+    /// application to under three frames a second on exactly the drawings this
+    /// program is for. The struct carries a `(page, run, epoch)` stamp and
+    /// re-reads only when it moves.
+    text_style: properties::text::TextStyleDraft,
     /// The Bookmarks panel's half-typed title and its chosen parent.
     ///
     /// Here for [`Self::pages`]' reason: a panel body is handed `&OpenDoc`,
@@ -927,6 +936,16 @@ impl PanelsState {
     }
 
     /// The Properties panel's geometry draft.
+    /// The selected text's style draft, for `properties::text`.
+    ///
+    /// No re-seed argument, unlike [`Self::field_rename_mut`]: the draft owns
+    /// its own stamp and decides for itself when what it holds is stale, which
+    /// is right here because the staleness condition includes the edit epoch
+    /// and a caller would have to be handed that as well.
+    pub fn text_style_mut(&mut self) -> &mut properties::text::TextStyleDraft {
+        &mut self.text_style
+    }
+
     pub fn geometry_mut(&mut self) -> &mut properties::geometry::GeometryDraft {
         &mut self.geometry
     }

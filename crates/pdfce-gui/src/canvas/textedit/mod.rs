@@ -205,6 +205,11 @@ pub mod place;
 /// the rule and why the middle row of it exists.
 pub mod report;
 pub use caret::{backspace, delete_forward, insert, word_left, word_right};
+/// **Naming the exact show operator, and the exact buffer it lives in** — the
+/// one producer of `(pinned_span, EditTarget)` in this shell, shared by the
+/// caret's `edit_text` and the restyle verbs' `format_text`.
+pub mod pin;
+
 pub use place::{Click, begin_box, click};
 pub mod disposition;
 // The byte-level proof that the untouched tail did not move, with the old
@@ -221,7 +226,7 @@ mod cost;
 pub mod pen;
 
 use pdfce_core::text_edit::{
-    BlockRecognitionOptions, EditOptions, EditRequest, EditableTextModel, GlyphRef, ReflowEngine,
+    BlockRecognitionOptions, EditOptions, EditRequest, EditableTextModel, ReflowEngine,
     TextPosition, reflow_recognition_options,
 };
 
@@ -783,57 +788,18 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
             pdfce_core::text_extract::extract_page_view(&doc.session.view(), page_ref, page, &opts)
         {
             let model = EditableTextModel::recognize(&text, &BlockRecognitionOptions::default());
-            let gref = GlyphRef::new(run, 0);
-            if let Some(p) = model.provenance(gref) {
-                request.pinned_span = Some(p.operator_span);
+            // ★★ The pin, and the buffer it indexes — [`pin::of_run`].
+            //
+            // Both facts, from one call, over the model just recognised. They
+            // lived here inline until 2026-08-27; `format_text` became the
+            // second verb that needs exactly the same measurement, and the
+            // sixty lines of argument behind the `EditTarget` choice are what
+            // makes it right, so they moved somewhere both callers reach them
+            // rather than being paraphrased twice.
+            if let Some(p) = pin::of_run(&model, run) {
+                request.pinned_span = Some(p.span);
                 matrices = (p.text_matrix, p.ctm);
-                // ★★★ NAME THE BUFFER THE PIN INDEXES. `Pass 119.0`, and this
-                // is the line that makes form editing SAFE rather than merely
-                // possible.
-                //
-                // `EditTarget::Auto` is the engine's default and is right for a
-                // caller that has only a search string: it tries the page's own
-                // `/Contents` first, then each form in `Do` order, and edits the
-                // first stream that matches.
-                //
-                // **It is the wrong default for a PINNED request.** A pin is a
-                // byte span into ONE decoded buffer, and `GlyphProvenance`
-                // carries the name of that buffer beside it — the two fields are
-                // one fact, and reading half of it is the defect this shell
-                // shipped in the first place (the span was pinned, the stream
-                // was discarded, and the engine reported "text not found" about
-                // text that was plainly there).
-                //
-                // Under `Auto`, a span that indexes a form's bytes is offered to
-                // the page's stream first. On this operator's own benchmark
-                // sheet that stream holds **3,007 single-character show
-                // operators**, so "an arbitrary offset happens to name a
-                // matching operator in the wrong buffer" is not a theoretical
-                // collision — it is a dense field of near-misses, and the result
-                // would be an edit that succeeded on the wrong glyph with no
-                // error anywhere.
-                //
-                // So: the shell knows exactly which stream it measured, and it
-                // says so. `Form { object }` is an error if the page does not
-                // paint that form, which is the answer we want — a loud refusal
-                // beats a widened search when the caller had a measurement.
-                request.target = match p.content_stream {
-                    pdfce_core::text_extract::ContentStreamRef::Page => {
-                        pdfce_core::text_edit::EditTarget::PageContents
-                    }
-                    pdfce_core::text_extract::ContentStreamRef::Form { object } => {
-                        pdfce_core::text_edit::EditTarget::Form { object }
-                    }
-                    // ★ `ContentStreamRef` is `#[non_exhaustive]`, so a buffer
-                    // kind added later lands here. `Auto` is the right fallback
-                    // and not merely the compiling one: it is the engine's own
-                    // default, it searches everywhere including whatever the new
-                    // kind is, and it degrades to the pre-`119.0` behaviour
-                    // rather than to a refusal. A `PageContents` fallback would
-                    // silently narrow the search for a stream nobody here has
-                    // heard of, which is the worse direction.
-                    _ => pdfce_core::text_edit::EditTarget::Auto,
-                };
+                request.target = p.target;
             }
             // ★ The SAME model the caret's hit test used, with the same
             // options — `BlockRecognitionOptions::default()` — because the

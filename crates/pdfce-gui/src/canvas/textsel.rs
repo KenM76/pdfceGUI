@@ -499,6 +499,44 @@ impl TextSelection {
         self.epoch == epoch
     }
 
+    /// ★★ **Which runs of the page's extraction this selection covers**, low
+    /// to high, or nothing when the revision has moved.
+    ///
+    /// The operand of every restyle. `crate::app::actions::textstyle` turns
+    /// this list into one `format_text` call per run.
+    ///
+    /// # Why a list of ordinals and not the two `TextPosition`s
+    ///
+    /// The positions are the *anchor* and the *focus*, which are in gesture
+    /// order — the focus is behind the anchor on a right-to-left sweep. Every
+    /// consumer outside this module wants content order, and half of them would
+    /// get the ordering wrong exactly once. `ordered` already exists here and is
+    /// already the one place that decides it.
+    ///
+    /// # ★ Why the byte offsets are dropped
+    ///
+    /// `format_text` restyles **one whole show operator**. There is no verb that
+    /// restyles half of one, so a caller handed byte offsets could only ignore
+    /// them or misuse them. Publishing exactly what the engine can act on is
+    /// what stops a panel implying a precision the file cannot carry — a sweep
+    /// through the middle of a word restyles the word, and the shell must not
+    /// pretend otherwise.
+    ///
+    /// # ★ Why the staleness gate is here and not left to the caller
+    ///
+    /// Same rule as [`Self::highlights`] and for a worse reason: a stale quad
+    /// paints a wash in the wrong place, and a stale run ordinal **restyles the
+    /// wrong text**. The caller stops by being handed an empty list rather than
+    /// by remembering a check.
+    #[must_use]
+    pub fn runs(&self, epoch: u64) -> Vec<usize> {
+        if !self.live(epoch) {
+            return Vec::new();
+        }
+        let (start, end) = ordered(self.anchor, self.focus);
+        (start.run..=end.run).collect()
+    }
+
     /// The quads to paint on `page`, or nothing at all.
     ///
     /// Nothing when the page is not this selection's, and nothing when the

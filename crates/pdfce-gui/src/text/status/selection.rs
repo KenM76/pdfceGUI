@@ -201,3 +201,129 @@ pub fn selection_many(count: usize) -> String {
 pub fn selection_with_depth(line: &str, taken: usize, of: usize) -> String {
     format!("{line} · {taken} of {of} here")
 }
+
+// ===========================================================================
+// ★ Restyling existing text — `EditSession::format_text`, O37
+// ===========================================================================
+
+/// Why a restyle of existing text did not happen.
+///
+/// # ★★ Why this is an enum here rather than a `String` from the engine
+///
+/// `FormatError` writes excellent prose about itself — the synthetic-italic
+/// refusal explains the `Td` interaction, names §9.4.2 Table 108 and ends
+/// *"Nothing was applied"* — and it is tempting to put it on the status bar
+/// verbatim.
+///
+/// `check-ui-strings.sh` exclusion 3 says in as many words that an error type's
+/// prose is **not** permission to route UI text through it, and the reason is
+/// not tidiness. The engine's sentence is written for whoever is debugging: it
+/// names the rule, the clause and the mechanism. An operator restyling a title
+/// block needs the *remedy* first and does not need `Tm` at all. Two audiences,
+/// two sentences; the engine's goes to the trace, where its audience is.
+///
+/// So this enum is the shell's own reading of which refusals an operator can
+/// **act on**, and there are three. Everything else is either impossible from
+/// this surface (a bad page index, an empty request) or is not improved by
+/// being subdivided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextStyleRefusal {
+    /// Nothing resolved to a run to restyle.
+    NoRun,
+    /// The run could not be pinned — the extraction carried no provenance for
+    /// it, so pdfce cannot be sure which show operator it would be editing.
+    Unpinnable,
+    /// The chosen face is not a font resource on this page (`FF-C`).
+    FaceNotOnPage,
+    /// A synthetic slant would move the line that follows this run.
+    ItalicWouldMove,
+    /// The chosen face cannot show every character in the run.
+    FaceLacksCharacters,
+    /// Anything else the engine refused.
+    Other,
+    /// Some of the selection was restyled before something stopped the rest.
+    PartOnly,
+}
+
+impl TextStyleRefusal {
+    /// The sentence.
+    ///
+    /// Remedy first in every arm that has one, because the operator is looking
+    /// at text that did not change and the useful half is *what to do now*.
+    #[must_use]
+    pub const fn line(self) -> &'static str {
+        match self {
+            // Not "nothing is selected" — the operator may well have something
+            // selected. What they do not have is TEXT selected, and naming the
+            // wrong absence sends them to fix the wrong thing.
+            Self::NoRun => {
+                "Select some text on the page first — sweep across it with the Select tool, then change how it looks."
+            }
+            // ★ The honest half of this is "pdfce cannot be sure", and the
+            // sentence says so rather than blaming the file. A run that cannot
+            // be pinned is one where an edit might land on a different piece of
+            // text that reads the same, and doing it anyway is the one outcome
+            // worse than declining.
+            Self::Unpinnable => {
+                "pdfce could not tell exactly which piece of text that is, so it changed nothing rather than risk restyling a different one that reads the same."
+            }
+            // Remedy first, and it names the list the operator is looking at.
+            Self::FaceNotOnPage => {
+                "pdfce can only switch text to a font this page already carries. Pick one of the faces in the list."
+            }
+            // ★ The refusal an operator would otherwise read as a bug. It says
+            // what WOULD have happened, because "it moved my next line" is the
+            // outcome they would have blamed pdfce for.
+            Self::ItalicWouldMove => {
+                "Slanting this text would shift the line that follows it, because the two share a position in the file. pdfce changed nothing rather than move text you did not select."
+            }
+            Self::FaceLacksCharacters => {
+                "That face has no shape for one or more characters in this text. pdfce changed nothing rather than substitute a different letter or leave a blank."
+            }
+            Self::Other => {
+                "pdfce could not make that change to this text and changed nothing. Text that was converted to outlines has no font to change; a face has to cover every character in the run."
+            }
+            // ★ The count is deliberately NOT in this sentence. The variant is
+            // `Copy` and the catalog is `&'static str`, and adding an argument
+            // to reach one number would make every sentence in this file a
+            // `String`. What the operator needs is the fact that it is partial,
+            // and that Ctrl+Z takes back what did happen.
+            Self::PartOnly => {
+                "Part of the selection was restyled before that happened. Ctrl+Z takes back what did change."
+            }
+        }
+    }
+}
+
+/// Disclosure: a real face was used instead of a synthetic weight.
+///
+/// ★ Worded as a **better** outcome rather than as a substitution, because it
+/// is one. The operator asked for bold; the page turned out to carry a genuine
+/// bold face, so they got a genuine bold face. Wording it as "pdfce did
+/// something other than what you asked" would train them to distrust a control
+/// that just did its best possible job.
+#[must_use]
+pub fn text_style_used_real_face(style: &str, face: &str) -> String {
+    format!(
+        "This page carries a real {style} face, so pdfce used it: the text is now set in {face} rather than being thickened or slanted artificially."
+    )
+}
+
+/// Disclosure: how many separate pieces of text one gesture restyled.
+///
+/// # ★ Why this sentence exists at all
+///
+/// `EditSession` has no undo-grouping verb, so restyling N runs is N entries in
+/// the undo log and N presses of Ctrl+Z. That is a limit of the engine that the
+/// operator meets through this shell, and an operator who presses Ctrl+Z once,
+/// sees two thirds of their change still there and concludes undo is broken is
+/// the exact outcome this sentence prevents.
+///
+/// Filed with the engine rather than worked around here — a shell-side coalesce
+/// would work and would leave every other consumer with the same defect.
+#[must_use]
+pub fn text_style_multi(count: usize) -> String {
+    format!(
+        "That selection covered {count} separate pieces of text on the page, so pdfce restyled each one. Ctrl+Z takes them back one at a time."
+    )
+}

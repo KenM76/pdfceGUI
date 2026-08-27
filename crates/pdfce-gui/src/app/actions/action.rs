@@ -1150,6 +1150,43 @@ pub enum Action {
     /// `check-ui-strings`, to clippy and to every test in this crate — the only
     /// instrument that finds it is a reader. Each block is back on its subject.
     Field(super::forms::FieldAction),
+    /// ★★ **Change how existing text LOOKS** — size, colour, face, weight and
+    /// slant — on every run the operator's text selection covers.
+    ///
+    /// Raised by the Properties panel's Text section and by nothing else yet;
+    /// the Format tab's Font group is the second surface and takes the same
+    /// variant.
+    ///
+    /// # Why the RUNS travel and the selection does not
+    ///
+    /// The same staleness rule [`Self::CommitTextAnnot`] follows, and here it
+    /// is sharper: by the time the queue drains, an action ahead of this one in
+    /// the same drain could have changed the text selection, and this one would
+    /// then restyle text the operator was not looking at when they pressed. A
+    /// list of run ordinals measured at the press is a complete statement of
+    /// what they asked for.
+    ///
+    /// ★ The **page** travels for the same reason it does on every vector verb:
+    /// a run ordinal means nothing without one, and re-deriving it at apply
+    /// time would read whichever page the view had reached by then.
+    ///
+    /// # ★★ There is deliberately no pin on it
+    ///
+    /// A `pinned_span` is a byte offset into a content stream, and applying
+    /// this action *rewrites that stream*. A pin measured here would be
+    /// correct for the first run and wrong for every one after it. The apply
+    /// arm re-resolves one per step, and `super::textstyle`'s header carries
+    /// the argument — including why the runs are then walked backwards.
+    TextStyle {
+        /// The 0-based page the runs are on.
+        page: usize,
+        /// Which runs of that page's extraction, in any order; the arm sorts
+        /// and reverses them itself.
+        runs: Vec<usize>,
+        /// The one property being changed. One press, one property, one undo
+        /// entry — see the type's own docs.
+        change: super::textstyle::StyleChange,
+    },
     /// **A text-bearing annotation has been placed and now needs its words.**
     ///
     /// Raised by the canvas on the release (or click) that finishes the

@@ -681,6 +681,13 @@ impl PdfceApp {
                 self.form_defaults.remember(&draft);
                 super::forms::author(doc, page, rect, &draft);
             }
+            // ★ The restyle family, routed like every other sub-verb. Its arm
+            // is one line and its module is four hundred, which is the right
+            // proportion: what happens here is a decision about WHICH runs and
+            // in WHAT ORDER, and neither is a fact this file knows.
+            Action::TextStyle { page, runs, change } => {
+                super::textstyle::apply(doc, page, &runs, &change);
+            }
             // Everything else in the family needs the document and nothing
             // else, so it routes the way `Vector`, `Dimension` and `Page` do.
             Action::Field(action) => super::forms::apply(doc, action),

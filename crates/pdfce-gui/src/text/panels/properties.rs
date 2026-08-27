@@ -868,6 +868,120 @@ pub const fn recovered_tooltip() -> &'static str {
     "Every PDF carries an index saying where its contents are. This one's was wrong or missing — usually an interrupted download, a crashed writer, or a tool that appended to it badly — so pdfce scanned the whole file and rebuilt the index from what it found. The document opens and prints normally. Where something was defined more than once pdfce had to pick one, so if anything looks out of place, check it against the original before relying on it."
 }
 
+// ===========================================================================
+// The selected TEXT's style — `format_text`, O37
+// ===========================================================================
+
+/// The heading over the text restyle controls.
+///
+/// *"This text"* rather than *"Font"*, matching [`markup_heading`]'s *"This
+/// markup"*. The panel can show several sections at once and the operator has
+/// to be able to tell which selection each is about; a section headed with the
+/// name of a *property* would read as a category, not as a subject.
+#[must_use]
+pub const fn text_heading() -> &'static str {
+    "This text"
+}
+
+/// How much of the page the restyle will act on.
+///
+/// ★ It says *"pieces of text"* rather than *"runs"*. A run is a show operator,
+/// which is a fact about the file's structure that no operator asked to learn;
+/// what they need to know is that their one press will change more than one
+/// thing, and how many.
+#[must_use]
+pub fn text_covers(count: usize) -> String {
+    if count == 1 {
+        "Changes apply to the text you selected.".to_owned()
+    } else {
+        format!("Changes apply to all {count} pieces of text you selected.")
+    }
+}
+
+/// The section's own refusal: the selection is real and cannot be pinned.
+///
+/// ★ It draws the heading and this sentence rather than drawing nothing,
+/// deliberately. An operator with text selected who saw the section vanish
+/// would conclude the feature is missing; an operator who sees it say why is
+/// told the truth about one selection.
+#[must_use]
+pub const fn text_unreadable() -> &'static str {
+    "pdfce cannot tell exactly which piece of text this is, so it will not offer to change it — a change might land on different text that reads the same."
+}
+
+/// Label for the face chooser.
+#[must_use]
+pub const fn text_face_label() -> &'static str {
+    "Font"
+}
+
+/// Label for the size field.
+#[must_use]
+pub const fn text_size_label() -> &'static str {
+    "Size"
+}
+
+/// The unit shown inside the size field.
+#[must_use]
+pub const fn text_size_suffix() -> &'static str {
+    " pt"
+}
+
+/// Label for the bold / italic buttons.
+#[must_use]
+pub const fn text_weight_label() -> &'static str {
+    "Style"
+}
+
+/// The bold button.
+#[must_use]
+pub const fn text_bold() -> &'static str {
+    "Bold"
+}
+
+/// The bold button's hover text.
+///
+/// ★★ It promises the *outcome* and names the fallback, because the fallback is
+/// the thing the operator would otherwise discover as a surprise. Both routes
+/// are honest: a page carrying a real Bold gets the real face, and one that does
+/// not gets a thickened version of what is there. Neither is greyed, because
+/// between pdfce's two verbs every page is covered.
+#[must_use]
+pub const fn text_bold_hint() -> &'static str {
+    "Set this text in bold. If this page already carries a real bold face, pdfce uses it; if it does not, pdfce thickens the letters and tells you it did."
+}
+
+/// The italic button.
+#[must_use]
+pub const fn text_italic() -> &'static str {
+    "Italic"
+}
+
+/// The italic button's hover text.
+#[must_use]
+pub const fn text_italic_hint() -> &'static str {
+    "Slant this text. If this page already carries a real italic face, pdfce uses it; if it does not, pdfce slants the letters and tells you it did."
+}
+
+/// Label for the colour swatch.
+#[must_use]
+pub const fn text_colour_label() -> &'static str {
+    "Colour"
+}
+
+/// Shown where the swatch would be, for a run painted in a space this control
+/// cannot round-trip.
+///
+/// ★★ The sentence protects the operator's ink. A swatch showing DeviceCMYK as
+/// its nearest RGB would write that RGB back on the next press, moving the run
+/// out of its original space for ever on a document heading for a printer that
+/// cares. pdfce deliberately stores the space it was given rather than
+/// force-converting the way Acrobat does, and this control must not undo that.
+#[must_use]
+pub const fn text_colour_not_plain() -> &'static str {
+    "Set in CMYK or a spot colour — pdfce will not offer to change it here, because doing so would convert the ink to screen colour permanently."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

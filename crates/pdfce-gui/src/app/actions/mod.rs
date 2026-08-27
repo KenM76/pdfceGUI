@@ -139,6 +139,12 @@ mod redact;
 /// 2026-08-20; its header carries the one property every variant shares (they
 /// all address paint-order indices into one content stream) and the argument
 /// for why there are two verbs that both "move things".
+/// **Changing how EXISTING text looks** — size, colour, face, weight, slant.
+///
+/// `pub` because [`action::Action::TextStyle`] names its `StyleChange` and the
+/// Properties panel constructs one.
+pub mod textstyle;
+
 pub mod vector;
 
 mod action;
