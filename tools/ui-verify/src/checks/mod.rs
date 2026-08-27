@@ -154,7 +154,7 @@ pub mod measure_perimeter;
 /// falsifying phase.
 pub mod new_document;
 pub mod new_document_size;
-/// `ocr_recognises_a_page_and_writes_a_new_file` — the whole Recognise-text
+/// `ocr_recognises_a_page_and_the_document_keeps_it` — the whole Recognise-text
 /// chain against a genuinely image-only document, ending in the one assertion
 /// no unit test can make: **the file that was opened is byte-identical
 /// afterwards.**
@@ -826,7 +826,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // recognition, which is a second in a release build. Placed after the
         // cheap ones so a run that is going to fail on something structural
         // fails before spending it.
-        Box::new(ocr::OcrRecognisesAPageAndWritesANewFile),
+        Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),
         Box::new(text_tool::TextToolSelectsAndMarksInEdit),
         // Last, because it is the only check that TYPES. Everything above
         // either reads a trace or captures a window; this one presses a

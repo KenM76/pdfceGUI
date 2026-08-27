@@ -524,6 +524,42 @@ impl PdfceApp {
             // `/Info` is in the trailer and belongs to no page. The page
             // reaches `vector_edit` only for the trace line.
             //
+            // ★★★ **A completed recognition, applied as one edit.**
+            //
+            // See `Action::ApplyOcr` for why the dialog cannot do this itself
+            // and why the whole run is one command. What is worth reading here
+            // is the shape: this is an ordinary `vector_edit`, identical to the
+            // seventeen above it, which is the entire point of the engine Pass
+            // that made it possible. Recognition used to be the one capability
+            // in this program that was not an edit.
+            Action::ApplyOcr { pages } => {
+                // The borrowed view the engine's slice wants, built here so the
+                // owned `OcrPage`s outlive it. `page` for the trace is the
+                // first one touched; the count is what makes the line useful.
+                let first = pages.first().map_or(0, |(index, _)| *index);
+                let count = pages.len();
+                vector_edit(doc, "ocr-layer", first, count, |session| {
+                    let layers: Vec<pdfce_core::edit::OcrPageLayer<'_>> = pages
+                        .iter()
+                        .map(|(index, recognised)| pdfce_core::edit::OcrPageLayer {
+                            page_index: *index,
+                            recognised,
+                        })
+                        .collect();
+                    session
+                        .add_ocr_layer(&layers, &pdfce_core::ocr::layer::OcrLayerOptions::new())
+                        // ★ Every page's disclosures, flattened onto the one
+                        // channel every other edit reports on. The dialog does
+                        // NOT re-render them: two accounts of one run, worded
+                        // differently, is a pair that drifts.
+                        .map(|reports| {
+                            reports
+                                .iter()
+                                .flat_map(pdfce_core::ocr::layer::OcrLayerReport::disclosures)
+                                .collect()
+                        })
+                });
+            }
             // ★ Nothing is invalidated beyond the epoch, deliberately. Document
             // metadata is not drawn on any page, so clearing rasters would
             // throw away every cached page to no purpose — the one arm in this

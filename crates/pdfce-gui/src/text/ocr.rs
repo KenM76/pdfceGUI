@@ -87,9 +87,97 @@ pub fn intro() -> &'static str {
 }
 
 /// The label on the control that starts recognition.
+///
+/// ★ **No longer "Recognise this page".** It said that because that was all it
+/// could do, and the operator's 2026-08-26 report — *"how do I OCR more than
+/// one page? Why does the tool stop at one?"* — was as much about the label as
+/// about the capability: a button naming one page is a button that has already
+/// answered the question, wrongly.
 #[must_use]
 pub fn run() -> &'static str {
-    "Recognise this page"
+    "Recognise"
+}
+
+// ---------------------------------------------------------------------------
+// Page scope
+//
+// The group of choices that answers "which pages". Every surveyed recogniser
+// has one; this program had none, and the absence was the operator's loudest
+// complaint about the whole dialog.
+// ---------------------------------------------------------------------------
+
+/// The heading above the scope choices.
+#[must_use]
+pub fn scope_heading() -> &'static str {
+    "Pages"
+}
+
+/// Every page of the document — the default.
+///
+/// ★ First in the list **and** pre-selected, which are two decisions and both
+/// deliberate. First because the surveyed tools put it first; pre-selected
+/// because recognising a scan means recognising the scan, not one sheet of it.
+/// The old behaviour is the second option and one click away.
+#[must_use]
+pub fn scope_all() -> &'static str {
+    "All pages"
+}
+
+/// Only the page the dialog opened on. `page` is one-based, for display.
+///
+/// It names the number rather than saying *"the current page"* because the
+/// operator can page the document while this window is up, and by the time
+/// they read the label "current" may no longer mean what the run will do. The
+/// number cannot drift.
+#[must_use]
+pub fn scope_current(page: usize) -> String {
+    format!("This page only (page {page})")
+}
+
+/// The pages the operator types.
+#[must_use]
+pub fn scope_range() -> &'static str {
+    "Pages"
+}
+
+/// The hint beside the range field.
+///
+/// Shows the syntax by example rather than describing it, because the syntax
+/// is `dialogs::print::tabs::parse_page_range`'s and an example is both shorter
+/// and harder to get subtly wrong than a description of it.
+#[must_use]
+pub fn scope_range_hint() -> &'static str {
+    "e.g. 1-4, 7, 9-12"
+}
+
+/// Said under the range field when what was typed names no page.
+///
+/// ★ Not an error — a **status**. A half-typed `1-` is an ordinary state of a
+/// text field the operator is in the middle of using, and colouring it red or
+/// popping a message would be scolding them for typing. The Recognise button is
+/// simply not available until the range resolves, and this says why.
+#[must_use]
+pub fn scope_range_unresolved() -> &'static str {
+    "Type page numbers to recognise, like 1-4 or 2, 5, 9."
+}
+
+/// The label on the skip-existing-text toggle.
+#[must_use]
+pub fn skip_pages_with_text() -> &'static str {
+    "Skip pages that already have text"
+}
+
+/// Its tooltip — the measured reason it is on by default.
+///
+/// ★★ This is not a preference, it is a **hazard guard**, and the measurement
+/// is worth keeping in the tooltip rather than only in a comment: running the
+/// recogniser twice over one page was measured on 2026-08-26 to take a page
+/// from 427 character codes to 854. Nothing looks different, because the layer
+/// is invisible both times — but every Find hit is doubled and every copy comes
+/// out twice.
+#[must_use]
+pub fn skip_pages_with_text_tooltip() -> &'static str {
+    "Recognising a page that already has text adds a second invisible copy of it, so Find matches and copied text come out doubled. Turn this off only if you know a page's existing text is wrong."
 }
 
 /// Its tooltip.
@@ -100,7 +188,7 @@ pub fn run() -> &'static str {
 /// checkable.
 #[must_use]
 pub fn run_tooltip() -> &'static str {
-    "Runs the recogniser over the page you are looking at. It takes a few seconds and the window will not respond while it does."
+    "Runs the recogniser over the pages you chose. It takes a few seconds per page, and the window will not respond while it does."
 }
 
 /// Shown while the recogniser is working.
@@ -133,33 +221,21 @@ pub fn no_confidence() -> &'static str {
     "This recogniser reports no confidence score for any word, so nothing here has been checked — that is not the same as everything being right. Read the text before you rely on it."
 }
 
-/// The sentence that says the recognition is not in a document yet.
+/// ★★★ **The sentence that replaced the whole save apparatus.**
 ///
-/// The dialog's whole shape rests on this being true: recognition happens,
-/// the operator reads what it inferred, and only then do they choose where it
-/// goes. Nothing is written until they name a file.
-#[must_use]
-pub fn not_saved_yet() -> &'static str {
-    "Nothing has been written yet. Choose where to save the recognised copy."
-}
-
-/// The label on the control that writes the recognised document.
+/// It says three things in one line, and each was a separate control before:
+/// the words are *in the document*, an ordinary Save writes them, and an
+/// ordinary Undo removes them.
 ///
-/// ★ **"Save as", never "Save".** The operator's standing rule is that Read
-/// may produce a new document and may not modify this one, and the enforcement
-/// point is the save rather than the operation. This is the only write to disk
-/// this shell performs, so it is also the first place that rule can bite —
-/// and it bites the same way in every mode, because a destination the operator
-/// names cannot be the file they opened unless they say so.
+/// The operator, 2026-08-26: *"Why do I have to save a copy instead of just go
+/// back into my pdf and save over it or save from there?"* The answer was that
+/// `add_ocr_layer` took an immutable document and handed back a whole file, so
+/// this shell had nothing to put the layer *into*. The engine's Pass 135.0
+/// (2026-08-27) made recognition an edit, and the honest sentence is now the
+/// short one.
 #[must_use]
-pub fn save_as() -> &'static str {
-    "Save recognised copy as…"
-}
-
-/// Its tooltip.
-#[must_use]
-pub fn save_as_tooltip() -> &'static str {
-    "Writes a new PDF with the invisible text layer added. The document you opened is not changed."
+pub fn applied_to_document() -> &'static str {
+    "The text is now in this document. Save when you are ready, or press Ctrl+Z to take it back out."
 }
 
 /// The title on the system file-save dialog.
@@ -176,12 +252,6 @@ pub fn save_dialog_title() -> &'static str {
 #[must_use]
 pub fn suggested_suffix() -> &'static str {
     "-recognised"
-}
-
-/// Confirmation, once the bytes are on disk. `path` is what they chose.
-#[must_use]
-pub fn saved(path: &str) -> String {
-    format!("Saved to {path}")
 }
 
 /// The button that closes the dialog.
@@ -233,20 +303,6 @@ pub fn engine_absent() -> &'static str {
     "This build was made without the text recogniser, so it cannot read words from an image. A standard pdfce build can."
 }
 
-/// The document has unsaved edits, which recognition would not carry.
-///
-/// ★ **A refusal, not a warning, and the reasoning is worth keeping.**
-/// `pdfce_core::ocr::layer::add_ocr_layer` writes an incremental revision on
-/// top of the document **as it was opened** — that is what makes the scan
-/// byte-identical and the round trip clean — so a recognised copy taken while
-/// edits are pending would silently be a copy of the *original*, with the
-/// operator's work missing and nothing on screen to say so. Producing that
-/// file quietly is the sneaky half of rule 4; declining to is the honest half.
-#[must_use]
-pub fn unsaved_edits() -> &'static str {
-    "This document has unsaved changes. Recognition writes from the file as it was opened, so the recognised copy would not contain them."
-}
-
 /// Recognition ran and found no word it could place.
 ///
 /// Distinct from a failure: the engine worked, the page simply had nothing on
@@ -255,6 +311,37 @@ pub fn unsaved_edits() -> &'static str {
 #[must_use]
 pub fn nothing_recognised() -> &'static str {
     "No text was recognised on this page. There may be nothing readable on it, or the image may be too small or too faint."
+}
+
+/// Every page in the run already had text, so nothing was recognised.
+///
+/// ★ Distinct from [`nothing_recognised`], which reports that the recogniser
+/// looked and found nothing. This reports that it **declined to look**, which
+/// is a different fact with a different remedy — one is "there is nothing
+/// readable here", the other is "there is already text here and I did not want
+/// to double it". Collapsing them would leave the operator with no way to tell
+/// a blank scan from a document that was already recognised last week.
+#[must_use]
+pub fn already_has_text() -> &'static str {
+    "Every page selected already has text, so none were recognised. Turn off \u{201c}Skip pages that already have text\u{201d} to recognise them anyway."
+}
+
+/// What a multi-page run did, in pages.
+///
+/// Only shown when the run covered more than one page — a one-page run reports
+/// its words and nothing else, because *"1 page recognised"* is a sentence that
+/// tells the operator only what they already did.
+#[must_use]
+pub fn pages_outcome(written: usize, skipped: usize) -> String {
+    let pages = if written == 1 { "page" } else { "pages" };
+    if skipped == 0 {
+        format!("{written} {pages} recognised.")
+    } else {
+        let skipped_pages = if skipped == 1 { "page" } else { "pages" };
+        format!(
+            "{written} {pages} recognised; {skipped} {skipped_pages} skipped because they already had text."
+        )
+    }
 }
 
 /// The recogniser or the layer writer refused, carrying the engine's reason.
@@ -334,11 +421,17 @@ mod tests {
             working().to_owned(),
             what_was_inferred().to_owned(),
             no_confidence().to_owned(),
-            not_saved_yet().to_owned(),
-            save_as().to_owned(),
-            save_as_tooltip().to_owned(),
+            applied_to_document().to_owned(),
+            scope_heading().to_owned(),
+            scope_all().to_owned(),
+            scope_current(1),
+            scope_range().to_owned(),
+            scope_range_hint().to_owned(),
+            scope_range_unresolved().to_owned(),
+            skip_pages_with_text().to_owned(),
+            skip_pages_with_text_tooltip().to_owned(),
             engine_absent().to_owned(),
-            unsaved_edits().to_owned(),
+            already_has_text().to_owned(),
             nothing_recognised().to_owned(),
             offer().to_owned(),
             offer_action().to_owned(),
@@ -376,21 +469,50 @@ mod tests {
         );
     }
 
-    /// **The write is a Save as, in words as well as in behaviour.**
+    /// ★★★ **The outcome sentence names the document, the save and the undo.**
     ///
-    /// The operator's rule is enforced at the save, so the label is part of the
-    /// enforcement: a control saying `Save` would promise in-place saving that
-    /// this shell has no path for and that Read forbids outright.
+    /// This replaced a test called
+    /// `the_write_control_offers_a_new_file_and_never_an_overwrite`, which
+    /// asserted that the only way out of this dialog was a Save-as. That was
+    /// true, it was enforced, and it was the thing the operator objected to:
+    /// *"Why do I have to save a copy instead of just go back into my pdf and
+    /// save over it?"*
+    ///
+    /// It was never a policy. `ocr::layer::add_ocr_layer` took an immutable
+    /// document and returned a whole file, so a Save-as was the only shape
+    /// available. The engine's Pass 135.0 made recognition an edit, and the
+    /// three facts below are what the operator now needs to be told instead.
     #[test]
-    fn the_write_control_offers_a_new_file_and_never_an_overwrite() {
-        assert!(save_as().contains("as…"), "it must read as a prompt");
+    fn the_outcome_says_where_the_text_went_and_how_to_undo_it() {
+        let text = applied_to_document().to_lowercase();
         assert!(
-            save_as_tooltip().contains("not changed"),
-            "the tooltip must say the opened document is untouched"
+            text.contains("in this document"),
+            "it must say the words are in the OPEN document, not in a file somewhere: {text}"
         );
         assert!(
-            suggested_suffix().starts_with('-'),
-            "the suggested name must differ from the original's stem"
+            text.contains("save"),
+            "…that an ordinary save writes them: {text}"
+        );
+        assert!(
+            text.contains("ctrl+z") || text.contains("undo"),
+            "…and that they can be taken back out: {text}"
+        );
+    }
+
+    /// ★★ **The two "nothing happened" sentences are not interchangeable.**
+    ///
+    /// `nothing_recognised` means the recogniser looked and found nothing;
+    /// `already_has_text` means it declined to look. Different facts, different
+    /// remedies — one is "there is nothing readable here", the other is "there
+    /// is already text here and doubling it would break Find". Collapsing them
+    /// would leave the operator unable to tell a blank scan from a document
+    /// that was recognised last week.
+    #[test]
+    fn a_skipped_page_and_an_unreadable_one_say_different_things() {
+        assert_ne!(already_has_text(), nothing_recognised());
+        assert!(
+            already_has_text().to_lowercase().contains("already"),
+            "the skip sentence must name the reason it skipped"
         );
     }
 

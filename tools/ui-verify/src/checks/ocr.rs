@@ -1,6 +1,24 @@
-//! `ocr_recognises_a_page_and_writes_a_new_file` — the check for a feature
-//! whose whole product is **a file that did not exist before**, and whose whole
-//! risk is that it might have written over one that did.
+//! `ocr_recognises_a_page_and_the_document_keeps_it` — the check for a feature
+//! whose whole product is **text that was not in the document before**, and
+//! whose whole risk is that it might have touched a file nobody saved.
+//!
+//! # ★★★ What this check used to be, and why it changed
+//!
+//! It was called `ocr_recognises_a_page_and_writes_a_new_file`, and every
+//! assertion in it was about a **Save-a-copy**: a picker was answered through
+//! an environment seam, a file appeared where the harness asked, and the source
+//! was hashed before and after to prove it had not been overwritten.
+//!
+//! All of that existed because `ocr::layer::add_ocr_layer` took an immutable
+//! `&Document` and returned a complete PDF. Recognition was the one capability
+//! in pdfce that was not an edit, so a shell holding an open session could only
+//! offer *"here is a different file, somewhere else"*. The operator's verdict,
+//! 2026-08-26: *"Why do I have to save a copy instead of just go back into my
+//! pdf and save over it?"*
+//!
+//! `EditSession::add_ocr_layer` (engine Pass 135.0, 2026-08-27) made it an
+//! edit. The layer lands in the session, `Ctrl+S` writes it and `Ctrl+Z` takes
+//! it back out. So the links worth driving changed shape.
 //!
 //! # What no unit test in this workspace observes
 //!
@@ -8,34 +26,30 @@
 //!
 //! | # | Link | Its own test |
 //! |---|---|---|
-//! | 1 | recognition produces bytes, and those bytes carry extractable text | yes — `ocr::fixture::tests::recognises_the_synthetic_page` |
+//! | 1 | recognition produces words, and applying them yields extractable text | yes — `ocr::fixture::tests::recognises_the_synthetic_page` |
 //! | 2 | a ribbon click on `file.ocr` reaches the dialog and the dialog's controls exist | **no** |
-//! | 3 | the write goes to the path the operator named | **no** |
-//! | 4 | **the document that was opened is not touched** | **no** |
+//! | 3 | the completed run reaches `vector_edit` and the **session** takes it | **no** |
+//! | 4 | **nothing is written to disk**, because nobody saved | **no** |
 //!
-//! Link 4 is the operator's standing rule — *"Read may produce a new document;
-//! it may not modify this one"* — and it is the one that cannot be checked
-//! anywhere but here. A build that wrote the recognised bytes back over the
-//! source would satisfy every assertion about "a file exists and has text in
-//! it", and a unit test on `add_ocr_layer` would not notice, because the layer
-//! writer never touches a path at all: the shell chooses the destination.
+//! Link 3 is the new one and it is the one with a plausible silent failure: the
+//! dialog raises `Action::ApplyOcr` into a queue, and an action that is raised
+//! and dropped leaves a window saying *"the text is now in this document"* over
+//! a document with no text in it. Two trace lines are asserted rather than one
+//! — `ocr-applied` says *I asked*, `ocr-layer` says *it happened* — and only
+//! the pair distinguishes those two states.
 //!
 //! # ★ The falsifying phase, and what it is aimed at
 //!
-//! Phases A–D below could all be passed by a build whose Save wrote to the
-//! **source** path instead of the named one. It would open the dialog,
-//! recognise, report, "save", and produce a document with extractable text —
-//! and it would have destroyed the operator's scan.
+//! Phases A–D could all be passed by a build that recognised correctly and then
+//! wrote the result out to the operator's file on its own initiative. That is
+//! not a hypothetical shape — it is what this feature did for its first two
+//! weeks, and it is the shape somebody restores while "making OCR persist".
 //!
-//! So **phase E hashes the source file before the run and after it**, and the
-//! whole verdict rests on those two digests being equal. That is a genuinely
-//! falsifying test rather than a confirming one: it is the assertion that fails
-//! against the plausible wrong implementation and passes against the right one,
+//! So **phase E hashes the fixture before the run and after it**, and the
+//! verdict rests on the digests being equal. Nothing in the run saves, so
+//! nothing may have been written. It is a genuinely falsifying assertion rather
+//! than a confirming one: it fails against the plausible wrong implementation
 //! and there is no way to satisfy it accidentally.
-//!
-//! It also carries a second, weaker guard that is worth having anyway: the
-//! saved copy's path is not the source's path. That one a reviewer could see;
-//! the digest is what survives a reviewer who did not look.
 //!
 //! # Why the fixture is `synthetic-image-only.pdf`
 //!
@@ -138,12 +152,19 @@ const RECOGNISED_EVENT: &str = "ocr-recognised";
 /// `ocr-refused reason=…`
 const REFUSED_EVENT: &str = "ocr-refused";
 
-/// `ocr-saved path=… bytes=…`
-const SAVED_EVENT: &str = "ocr-saved";
+/// `ocr-applied written=… skipped=… words=…` — the dialog's own record that it
+/// raised the edit.
+const APPLIED_EVENT: &str = "ocr-applied";
 
-/// The environment variable that answers the save dialog. See the module
-/// header.
-const SAVE_PATH_ENV: &str = "PDFCE_DIAG_SAVE_PATH";
+/// `ocr-layer page=… n=… epoch=… disclosures=…` — `vector_edit`'s record that
+/// the **session** took it.
+///
+/// ★ Both are asserted, and the pair is the point. The dialog's line says *I
+/// asked*; this one says *it happened*. A build where the action was raised and
+/// dropped emits the first and not the second, and that is a state with a
+/// dialog claiming the text is in the operator's document while the document
+/// has none.
+const EDIT_EVENT: &str = "ocr-layer";
 
 /// How long to wait for recognition, in settle frames.
 ///
@@ -168,11 +189,11 @@ fn default_fixture() -> PathBuf {
 }
 
 /// See the module documentation.
-pub struct OcrRecognisesAPageAndWritesANewFile;
+pub struct OcrRecognisesAPageAndTheDocumentKeepsIt;
 
-impl Check for OcrRecognisesAPageAndWritesANewFile {
+impl Check for OcrRecognisesAPageAndTheDocumentKeepsIt {
     fn name(&self) -> &'static str {
-        "ocr_recognises_a_page_and_writes_a_new_file"
+        "ocr_recognises_a_page_and_the_document_keeps_it"
     }
 
     fn defect(&self) -> &'static str {
@@ -301,7 +322,21 @@ fn click_region(session: &Session, driver: &Driver, ui_rect: &str, name: &str) -
             "`{name}` was declared at {rect:?}, which has no usable area to click."
         )));
     }
-    driver.click_at(session.frame()?.declared_center(rect))?;
+    // ★★★ **`frame_of`, never `session.frame()`.**
+    //
+    // This dialog is its own OS window, so its `ui-rect` numbers are relative
+    // to ITS origin. Converting them against the application's frame aims the
+    // pointer hundreds of points away — at plausible coordinates, with no error
+    // anywhere — which is the bulk defect `driving::frame_of` was written for
+    // on 2026-08-21 when thirteen dialogs became real windows.
+    //
+    // ★ This call site was missed in that conversion and did not fail until
+    // 2026-08-27, when the page-scope group pushed the Recognise button far
+    // enough down the dialog that the stray click stopped landing on the
+    // button by accident. **A wrong aim that happens to hit is a green result
+    // reporting nothing**, which is this harness's own stated worst outcome —
+    // so the near-miss is worth recording rather than quietly fixing.
+    driver.click_at(driving::frame_of(session, &trace, ui_rect, name)?.declared_center(rect))?;
     session.settle(12);
     Ok(())
 }
@@ -355,7 +390,23 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // fixture resolved to `crates/fixtures/...` and the check SKIPped; and a
     // bare `.` depends on where the harness was invoked from, which is how the
     // planted-build run came to aim at the repository's own copy.
-    let fixture = ctx.pdf.clone().unwrap_or_else(default_fixture);
+    // ★★★ **This check pins its own fixture and IGNORES `--pdf`.**
+    //
+    // Found by a full driven run on 2026-08-27: pointed at the operator's own
+    // drawing it failed with `NothingRecognised`, and the application was
+    // right. That sheet is a vector CAD export — every page already has text —
+    // so the doubling guard skipped all of it, correctly, and there was nothing
+    // left to recognise.
+    //
+    // ★ A check whose subject is *"did the recogniser read this page"* cannot
+    // take an arbitrary document, because on a document that already has text
+    // the honest answer is *"it declined to look"* and that is neither a pass
+    // nor a defect. The fixture is the only kind of document on which the
+    // result is unambiguous: any text in the output came from the recogniser.
+    //
+    // A suite-wide `--pdf` is a convenience for the checks that need *some*
+    // drawing. This one needs a specific absence.
+    let fixture = default_fixture();
     if !fixture.is_file() {
         return Err(Error::new(format!(
             "the image-only fixture is not at {}. Generate it:\n cargo test -p pdfce-gui \
@@ -373,11 +424,11 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         before.1
     ));
 
-    // Where the recognised copy will go. Beside the harness's own output, never
-    // beside the fixture: a stray file in `fixtures/` would be committed by
-    // somebody eventually.
-    let target = ctx.out("ocr-recognised.pdf");
-    let _ = std::fs::remove_file(&target);
+    // ★ **There is no save destination any more.** This check used to set
+    // `PDFCE_DIAG_SAVE_PATH` so the file picker could be answered without a
+    // human, because the only way out of the dialog was a Save-a-copy.
+    // Recognition became an edit on 2026-08-27 and the picker went with it, so
+    // there is nothing to answer and nothing to clean up afterwards.
 
     // --- launch ------------------------------------------------------------
     let mut spec = LaunchSpec::new(&exe, ctx.out("ocr.trace.txt"));
@@ -388,17 +439,14 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     ));
     spec.env
         .push((SHELL_DIAG_ENV.0.to_owned(), SHELL_DIAG_ENV.1.to_owned()));
-    spec.env
-        .push((SAVE_PATH_ENV.to_owned(), target.display().to_string()));
     spec.allow_stale = ctx.allow_stale;
     spec.source_root = ctx.source_root.clone();
 
     let session = Session::launch(&spec, ctx.profile.trace_prefix)?;
     report.note(format!(
-        "launched {} as pid {} with {SAVE_PATH_ENV}={}",
+        "launched {} as pid {}",
         exe.display(),
-        session.pid(),
-        target.display()
+        session.pid()
     ));
     report.artifact(session.trace_path().to_path_buf());
     session.settle(40);
@@ -483,101 +531,96 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     };
     report.note(format!("recognition finished: `{}`", recognised.raw));
 
-    let written = recognised.get_usize("written").unwrap_or(0);
-    if written == 0 {
+    // ★ The word count comes off the RECOGNITION line and the placement count
+    // comes off the EDIT line, because they are now two different subsystems'
+    // answers. Until 2026-08-27 one trace line carried both, which made a
+    // recogniser that produced words and a layer writer that placed none
+    // indistinguishable from a recogniser that produced nothing.
+    let words = recognised.get_usize("recognised").unwrap_or(0);
+    if words == 0 {
         return Ok(Some(format!(
-            "RECOGNITION WROTE NO WORDS. The job completed and reported `{}`. On a page whose \
-             every mark is text this means the detector or the recogniser produced nothing \
-             placeable — check `ocr::fitted_dpi` against `ocr::TARGET_PIXELS`, which is the \
-             constant that most affects this and which measured a 13× accuracy swing across \
-             five resolutions.",
+            "RECOGNITION PRODUCED NO WORDS. The job completed and reported `{}`. On a page \
+             whose every mark is text this means the detector or the recogniser found nothing \
+             — check `ocr::fitted_dpi` against `ocr::TARGET_PIXELS`, which is the constant \
+             that most affects this and which measured a 13× accuracy swing across five \
+             resolutions.",
+            recognised.raw
+        )));
+    }
+    if recognised.get_usize("pages").unwrap_or(0) == 0 {
+        return Ok(Some(format!(
+            "RECOGNITION PLACED NOTHING. `{}` reports words found and no page kept any of \
+             them, which means every word was refused by `words_to_page_space_on` — the \
+             page-space mapping, not the recogniser. That is the failure mode that is \
+             invisible on screen, because an OCR layer is Table 106 mode 3 and a page whose \
+             every word is misplaced looks exactly like a page whose every word is right.",
             recognised.raw
         )));
     }
 
-    // ★ The disclosure fact, asserted rather than assumed. If a build ever
-    // claims this engine reports confidence, the dialog stops making its
-    // "nothing here has been scored" statement and a page of unscored guesses
-    // starts presenting as a page of checked ones.
-    if recognised.get("confidence_available") == Some("true") {
-        return Ok(Some(format!(
-            "THE BUILD CLAIMS PER-WORD CONFIDENCE IT DOES NOT HAVE. `{}` reports \
-             `confidence_available=true`, and `ocrs` emits a character and a rectangle with no \
-             score anywhere. The consequence is not cosmetic: `text::ocr::no_confidence` is the \
-             one sentence telling the operator that nothing here was checked, and a build in \
-             this state has stopped showing it.",
-            recognised.raw
-        )));
-    }
-
-    // --- phase D: save to the named path ------------------------------------
-    if driving::declared(&session.trace()?, ui_rect, "ocr-save").is_none() {
-        return Ok(Some(
-            "RECOGNITION PRODUCED NO SAVEABLE DOCUMENT. The job reported words written and the \
-             dialog drew no `ocr-save` control, which it draws if and only if it is holding \
-             bytes. So the layer was written and the document was not carried out of the worker \
-             — look at `Phase::Recognised` and at what `Job::poll` handed it."
-                .to_owned(),
-        ));
-    }
-    click_region(&session, &driver, ui_rect, "ocr-save")?;
-    session.settle(40);
-
+    // --- phase D: the layer reached the OPEN DOCUMENT -----------------------
+    //
+    // ★★★ **This phase used to click a Save control.** Until 2026-08-27 the
+    // only way out of this dialog was Save-a-copy, because
+    // `ocr::layer::add_ocr_layer` took an immutable `&Document` and returned a
+    // whole PDF — there was nothing to put the layer *into*. The operator's
+    // objection was exactly that: *"Why do I have to save a copy instead of
+    // just go back into my pdf and save over it?"*
+    //
+    // `EditSession::add_ocr_layer` (engine Pass 135.0) made recognition an
+    // edit. So the thing to assert is no longer *a file appeared where I asked*
+    // but *the open document changed*, which is a different link and a stronger
+    // one: the words are in the session the operator is looking at.
     let trace = session.trace()?;
-    let Some(saved) = trace.last(SAVED_EVENT) else {
+    let Some(applied) = trace.last(APPLIED_EVENT) else {
         return Ok(Some(format!(
-            "NOTHING WAS WRITTEN. The save control was clicked and no `{SAVED_EVENT}` line \
-             followed. {SAVE_PATH_ENV} was set, so the picker was answered rather than opened — \
-             which means either `pick_save_path` did not read the seam or `std::fs::write` \
-             failed. Trace: {}.",
+            "RECOGNITION PRODUCED NOTHING THE DOCUMENT KEPT. The worker reported `{}` and no \
+             `{APPLIED_EVENT}` line followed, so the dialog either never raised \
+             `Action::ApplyOcr` or the action was dropped before it reached `vector_edit`. \
+             Trace: {}.",
+            recognised.raw,
             session.trace_path().display()
         )));
     };
-    report.note(format!("the copy was written: `{}`", saved.raw));
+    report.note(format!("the layer was applied: `{}`", applied.raw));
 
-    if !target.is_file() {
+    let Some(edit) = trace.last(EDIT_EVENT) else {
         return Ok(Some(format!(
-            "THE SAVED FILE IS NOT WHERE IT WAS ASKED FOR. The application traced `{}` and \
-             nothing exists at {}. The path the operator names is the only thing standing \
-             between this feature and the file they opened.",
-            saved.raw,
-            target.display()
+            "★ THE EDIT NEVER REACHED THE SESSION. `{APPLIED_EVENT}` was traced — the dialog \
+             believes it applied a layer — and no `{EDIT_EVENT}` line followed it. \
+             `vector_edit` emits that line on every successful edit and a `…-refused` line on \
+             every declined one, so the absence of both means the call did not happen. The \
+             operator's version of this state is a dialog that says the text is in their \
+             document and a document with no text in it. Trace: {}.",
+            session.trace_path().display()
         )));
-    }
-    let written_bytes = std::fs::read(&target)
-        .map_err(|e| Error::new(format!("cannot read {}: {e}", target.display())))?;
-    report.artifact(target.clone());
-    report.note(format!(
-        "the recognised copy is {} bytes, against the fixture's {}",
-        written_bytes.len(),
-        before.0
-    ));
-    if written_bytes.len() <= before.0 {
-        return Ok(Some(format!(
-            "THE SAVED COPY IS NO LARGER THAN THE ORIGINAL ({} vs {} bytes). An OCR layer is an \
-             INCREMENTAL revision appended to the file — a content stream, a font dictionary and \
-             a rewritten page object — so a copy that did not grow did not gain one, whatever \
-             the trace said it wrote.",
-            written_bytes.len(),
-            before.0
-        )));
-    }
+    };
+    report.note(format!("the session took the edit: `{}`", edit.raw));
 
     // --- ★ phase E: the falsifying one --------------------------------------
+    //
+    // ★★ **Re-aimed, not retired.** It used to assert that a Save-a-copy had
+    // not overwritten the source. The property it protects now is narrower and
+    // still the one that matters: **recognising does not write to disk.** The
+    // operator has not saved, so their file must be untouched — and a build
+    // that "helpfully" wrote the recognised revision out on their behalf would
+    // pass every phase above and have modified a file they did not ask it to.
+    //
+    // This is still a genuinely falsifying assertion rather than a confirming
+    // one. It fails against the plausible wrong implementation and there is no
+    // way to satisfy it accidentally.
     let after_bytes = std::fs::read(&fixture)
         .map_err(|e| Error::new(format!("cannot re-read {}: {e}", fixture.display())))?;
     let after = digest(&after_bytes);
     if after != before {
         return Ok(Some(format!(
-            "★ THE DOCUMENT THAT WAS OPENED HAS BEEN MODIFIED. {} was {} bytes (digest {:016x}) \
-             before the run and is {} bytes (digest {:016x}) after it.\n\n\
-             This is the operator's standing rule broken at the one place it can be: *Read may \
-             produce a new document; it may not modify this one*, enforced at the SAVE rather \
-             than at the operation. Every other assertion in this check passed — a dialog \
-             opened, words were recognised, a file was written and it had text in it — and the \
-             file that was written over was the operator's scan. Look at `dialogs::ocr::save`, \
-             and at whether `app::files::pick_save_path`'s answer is the path actually passed to \
-             `std::fs::write`.",
+            "★ THE DOCUMENT ON DISK WAS MODIFIED BY A RECOGNITION NOBODY SAVED. {} was {} \
+             bytes (digest {:016x}) before the run and is {} bytes (digest {:016x}) after it.\n\n\
+             Recognition is an EDIT as of 2026-08-27 — it belongs in the session, and it \
+             reaches the file only when the operator saves. Nothing in this run saved. Every \
+             other assertion here passed and the operator's file changed under them anyway. \
+             Look at `Action::ApplyOcr`'s arm and at anything on the frame path that calls \
+             `save_in_place`.",
             fixture.display(),
             before.0,
             before.1,
@@ -586,20 +629,11 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note(format!(
-        "★ the opened document is byte-identical after the run — {} bytes, digest {:016x}, \
-         unchanged. That is the assertion this check exists for: a build that wrote the \
-         recognised bytes back over the source would have passed every phase above it",
+        "★ the file on disk is byte-identical after the run — {} bytes, digest {:016x}. The \
+         recognition is in the session and nowhere else, which is where an unsaved edit \
+         belongs",
         after.0, after.1
     ));
-
-    if target == fixture {
-        return Ok(Some(
-            "the saved copy's path IS the source's path, so phase E compared a file with \
-             itself and proved nothing. This is a harness defect rather than an application \
-             one, and it is reported as a failure so it cannot be mistaken for a pass."
-                .to_owned(),
-        ));
-    }
 
     // --- what this does and does not establish ------------------------------
     report.note(
@@ -674,7 +708,13 @@ mod tests {
     /// Every trace event this check reads is spelled once.
     #[test]
     fn the_event_names_are_distinct() {
-        let all = [STARTED_EVENT, RECOGNISED_EVENT, REFUSED_EVENT, SAVED_EVENT];
+        let all = [
+            STARTED_EVENT,
+            RECOGNISED_EVENT,
+            REFUSED_EVENT,
+            APPLIED_EVENT,
+            EDIT_EVENT,
+        ];
         for (i, a) in all.iter().enumerate() {
             assert!(a.starts_with("ocr-"), "{a} is not an OCR event");
             for b in &all[i + 1..] {

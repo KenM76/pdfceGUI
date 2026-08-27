@@ -189,6 +189,7 @@ pub mod handles;
 /// Bézier handle, an anchor, a resize grip and the selection body — the single
 /// most bug-prone rule on this canvas, learned three separate times in one day.
 pub mod pressing;
+pub mod presspick;
 // Reading this frame's pointer — what a click landed on at every rung, which
 // of the two panning gestures is in flight, and where the in-flight press is
 // kept between frames. Split out under R2 when the rulers landed; see its

@@ -670,7 +670,7 @@ impl DialogsState {
         if self.print.as_mut().map(|d| d.show(ctx, doc, window)) == Some(false) {
             self.print = None;
         }
-        if self.ocr.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {
+        if self.ocr.as_mut().map(|d| d.show(ctx, doc, actions)) == Some(false) {
             self.ocr = None;
         }
         if self.diagnostics.as_mut().map(|d| d.show(ctx, doc)) == Some(false) {

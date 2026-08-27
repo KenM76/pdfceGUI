@@ -626,18 +626,24 @@ mod tests {
              reporting a pass would be reporting a run that never happened",
             models.display()
         );
+        let bytes = build();
         let session = std::sync::Arc::new(pdfce_core::edit::EditSession::new(
-            pdfce_core::document::Document::from_bytes(build()).unwrap(),
+            pdfce_core::document::Document::from_bytes(bytes.clone()).unwrap(),
         ));
         let started = std::time::Instant::now();
         let out = super::super::Job::spawn(super::super::Request {
-            // ★ `None`, so this exercises the SESSION-BASE path. The fixture
-            // builds its document in memory and the base is current by
-            // construction; naming a file here would test the file loader
-            // instead of the recogniser, which is not what this proves.
-            source: None,
             session,
-            page_index: 0,
+            pages: vec![0],
+            // ★ OFF, deliberately. The fixture's page is an image of words with
+            // no text layer, so the guard would not fire — but pinning it off
+            // states that what this measures is the recogniser rather than the
+            // guard, and it keeps the test honest if the fixture ever grows a
+            // caption.
+            skip_pages_with_text: false,
+            // Unread, because the guard above is off. The default rather than a
+            // configured set, because there is no `Settings` on this thread and
+            // nothing here depends on one.
+            extract_options: pdfce_core::text_extract::ExtractOptions::default(),
             model_dir: models,
         });
         let mut job = out;
@@ -650,27 +656,64 @@ mod tests {
         let elapsed = started.elapsed();
 
         println!(
-            "recognised={} written={} skipped={} substituted={} clamped={} \
-             confidence_available={} dpi={:.0} bytes={} ms={}",
+            "recognised={} pages={} skipped={} dpi={:.0} ms={}",
             recognised.words_recognised,
-            recognised.report.words_written,
-            recognised.report.words_skipped,
-            recognised.report.words_substituted,
-            recognised.report.words_scale_clamped,
-            recognised.report.confidence_available,
+            recognised.pages_written,
+            recognised.pages_skipped,
             recognised.effective_dpi,
-            recognised.bytes.len(),
             elapsed.as_millis()
         );
-        for line in recognised.report.disclosures() {
-            println!("  disclosure: {line}");
+
+        // ★★★ **Apply it the way the application does** — through
+        // `EditSession::add_ocr_layer`, as an edit, not by writing a file.
+        //
+        // A second session over the same bytes rather than the one the worker
+        // held: the worker's is behind an `Arc` the `Job` may still own, and
+        // fighting that here would be testing `Arc` rather than recognition.
+        // The bytes are identical, which is the only property this needs.
+        let mut applying = pdfce_core::edit::EditSession::new(
+            pdfce_core::document::Document::from_bytes(bytes).unwrap(),
+        );
+        let layers: Vec<pdfce_core::edit::OcrPageLayer<'_>> = recognised
+            .pages
+            .iter()
+            .map(|(index, page)| pdfce_core::edit::OcrPageLayer {
+                page_index: *index,
+                recognised: page,
+            })
+            .collect();
+        let reports = applying
+            .add_ocr_layer(&layers, &pdfce_core::ocr::layer::OcrLayerOptions::new())
+            .expect("the layer must apply to the session");
+        for report in &reports {
+            println!(
+                "written={} skipped={} substituted={} clamped={} confidence_available={}",
+                report.words_written,
+                report.words_skipped,
+                report.words_substituted,
+                report.words_scale_clamped,
+                report.confidence_available,
+            );
+            for line in report.disclosures() {
+                println!("  disclosure: {line}");
+            }
         }
 
         // ★ The verdict is what the ORDINARY extractor reads back, not what the
         // recogniser claimed. A layer that was written into the wrong place, or
         // at a rendering mode a reader ignores, would satisfy every count above
         // and produce nothing here.
-        let after = pdfce_core::document::Document::from_bytes(recognised.bytes.clone()).unwrap();
+        //
+        // ★★ And it reads the **session's own view**, which is a stronger
+        // assertion than the old one made: the old test serialised to bytes and
+        // re-parsed them, so it could not have caught a layer that reached the
+        // file and not the live session. That is precisely the direction this
+        // whole change moved in.
+        let after_bytes = applying
+            .to_incremental_bytes(&pdfce_core::writer::SaveOptions::default())
+            .expect("the session serialises")
+            .0;
+        let after = pdfce_core::document::Document::from_bytes(after_bytes).unwrap();
         let text = pdfce_core::text_extract::extract_document_view(
             &after.view(),
             &pdfce_core::text_extract::ExtractOptions::default(),
@@ -692,7 +735,10 @@ mod tests {
             );
         }
         assert!(
-            !recognised.report.confidence_available,
+            recognised
+                .pages
+                .iter()
+                .all(|(_, page)| !page.confidence_available),
             "this engine reports no confidence; a `true` here would make the dialog stop \
              disclosing that and present unscored guesses as checked"
         );

@@ -98,6 +98,42 @@ pub enum Action {
     /// opening one: `Document::load` is perfectly happy with a relative path
     /// and the operator's shell already resolved it.
     Open(std::path::PathBuf),
+
+    /// ★★★ **Put a completed recognition into the open document, as one
+    /// undoable edit.**
+    ///
+    /// # Why an action rather than the dialog doing it
+    ///
+    /// Because `EditSession::add_ocr_layer` needs `&mut EditSession`, and a
+    /// dialog body is handed `&OpenDoc`. That is not an inconvenience to route
+    /// around — it is the rule that stops a window mutating a document while
+    /// the frame that drew it is still reading one. Every other edit in this
+    /// shell reaches the session the same way.
+    ///
+    /// # ★★ One entry for the whole run, however many pages
+    ///
+    /// The words for every page travel together and are applied in one call.
+    /// Recognising forty pages and then pressing undo forty times is not a
+    /// feature — the engine's own commit message says so in those words, and
+    /// `CommandKind::AddOcrLayer` is one command for the slice.
+    ///
+    /// # What it replaced
+    ///
+    /// A `Vec<u8>` of a whole PDF, a Save-as picker, an in-place file write and
+    /// a document reload — all of which existed because
+    /// `ocr::layer::add_ocr_layer` took an immutable `&Document` and could not
+    /// touch a session. The engine's Pass 135.0 removed the cause on
+    /// 2026-08-27 and all of it went with it.
+    ApplyOcr {
+        /// The recognised words, paired with the page each belongs to.
+        ///
+        /// Paired rather than two vectors, matching `OcrPageLayer`'s own
+        /// reasoning: two lists can differ in length or order, and either
+        /// mistake puts one page's words on another page with no diagnostic
+        /// short of reading the output.
+        pages: Vec<(usize, pdfce_core::ocr::OcrPage)>,
+    },
+
     /// **Make a blank document, replacing whatever is open.**
     ///
     /// Raised by `file.new` and by nothing else. Carries no operand: unlike

@@ -324,6 +324,14 @@ impl Modes {
         });
 
         self.active = Some(mode_id.to_owned());
+        // ★ Which mode, alongside its arrangement. The two are one answer to
+        // the question *"where was I?"* and storing only the second is what
+        // made the application come back in Read with an Edit layout in it.
+        //
+        // After the assignment above rather than before, so that this line
+        // cannot be read as the thing that decides the mode — it records a
+        // decision already made two statements up.
+        store.record_active_mode(mode_id);
         self.record_layout(dock.layout(), store);
         true
     }
@@ -591,10 +599,53 @@ fn adopt(layout: &mut DockLayout, default: &DockLayout, new: &[PanelId]) -> Vec<
 }
 
 /// The shared tail of the two start-up paths.
+///
+/// ★★★ **Where the application decides which mode it opens in**, and since
+/// 2026-08-27 that is *the one it was left in* rather than always the first the
+/// manifest declares.
+///
+/// The operator, 2026-08-26, reporting the consequence rather than the cause:
+/// *"I can't figure out how to click on objects to edit them."* Part of that is
+/// an engine limitation and is filed as one — but the part nothing explained is
+/// that the program opened in **Read** on every launch, where a click on page
+/// content selects nothing at all, and no surface said so. Someone who spent an
+/// afternoon in Edit came back the next morning to a program that had silently
+/// forgotten.
+///
+/// # The three ways this can decline, all of which land on the first mode
+///
+/// 1. **No stored id** — a fresh profile, or a file written before this field
+///    existed.
+/// 2. **An id the manifest no longer declares** — a mode renamed or removed in
+///    a customized manifest between two runs. `is_known` is what catches it,
+///    and the fallback is what stops a rename leaving the shell with no mode.
+/// 3. **No modes at all** — a manifest that failed to validate. `first()` is
+///    `None` too, and nothing is adopted.
+///
+/// ★ Note what is *not* checked: whether the stored mode is one this build
+/// considers safe or sensible. It is the operator's own last choice, made in
+/// this program, and second-guessing it would be the program deciding it knows
+/// better than the person using it.
 fn assemble(mut modes: Modes, mut layout: LayoutStore, catalog: &dyn PanelCatalog) -> Startup {
     let mut dock = DockState::new(layout.active().clone());
-    if let Some(first) = modes.first().map(str::to_owned) {
-        modes.on_mode_changed(&first, &mut dock, &mut layout, catalog);
+    let remembered = layout
+        .active_mode()
+        .filter(|id| modes.is_known(id))
+        .map(str::to_owned);
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // Both fields, because "the stored id was not honoured" and "there
+            // was no stored id" are different findings and only the pair tells
+            // them apart from a trace alone.
+            "mode-restore stored={:?} using={:?}",
+            layout.active_mode(),
+            remembered.as_deref().or_else(|| modes.first())
+        )
+    });
+    if let Some(start) = remembered.or_else(|| modes.first().map(str::to_owned)) {
+        modes.on_mode_changed(&start, &mut dock, &mut layout, catalog);
     }
     Startup {
         modes,
@@ -776,16 +827,76 @@ mod tests {
         };
 
         let Startup {
-            mut modes,
-            layout: mut store,
-            mut dock,
+            modes,
+            layout: store,
+            dock,
         } = start_in(&dir, Some(&shell), &registry);
-        assert_eq!(modes.active(), Some("read"), "the session opens in Read");
-        assert!(modes.on_mode_changed("edit", &mut dock, &mut store, &registry));
+        // ★★ **The session opens in Edit, because that is where it was left.**
+        //
+        // This line asserted `Some("read")` until 2026-08-27 and was correct
+        // about the program at the time: it opened in the manifest's first mode
+        // however the operator had left it. That behaviour is the invisible
+        // first failure of every session — Read cannot select page content, and
+        // an operator who spent yesterday in Edit gets a canvas that ignores
+        // their clicks and no surface saying why.
+        //
+        // ★ Note what the assertion below now proves that it could not before:
+        // the arrangement is restored **without a mode change**, because the
+        // right mode was already adopted at startup. The old version had to
+        // call `on_mode_changed("edit")` to get there, which meant it could not
+        // have distinguished "the layout was restored" from "the layout was
+        // rebuilt on the way in".
+        assert_eq!(
+            modes.active(),
+            Some("edit"),
+            "the session opens in the mode it was left in"
+        );
         assert_eq!(
             dock.layout(),
             &my_edit,
             "the arrangement did not survive the restart"
+        );
+        assert_eq!(
+            store.active_mode(),
+            Some("edit"),
+            "the file records the mode as well as the arrangement"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ★★ **A stored mode this manifest no longer declares is declined**, and
+    /// the application opens in the first mode rather than in none.
+    ///
+    /// The case is real rather than theoretical: the mode list comes from a
+    /// manifest an operator may customize, and renaming a mode between two runs
+    /// leaves the previous run's id stored and unresolvable. Without the
+    /// `is_known` filter the shell would adopt nothing, which is a state with no
+    /// ribbon tabs and no way back.
+    #[test]
+    fn a_stored_mode_the_manifest_no_longer_declares_is_declined() {
+        let dir = temp_dir("stale-mode");
+        let registry = registry();
+        let shell = shell();
+
+        {
+            let Startup {
+                mut modes,
+                layout: mut store,
+                mut dock,
+            } = start_in(&dir, Some(&shell), &registry);
+            modes.on_mode_changed("edit", &mut dock, &mut store, &registry);
+            // Write an id nothing declares, the way a renamed mode would leave
+            // one behind.
+            store.record_active_mode("a-mode-that-was-renamed-away");
+            assert!(store.flush(), "the change was outstanding");
+        }
+
+        let Startup { modes, .. } = start_in(&dir, Some(&shell), &registry);
+        assert_eq!(
+            modes.active(),
+            Some("read"),
+            "an unknown stored mode falls back to the first the manifest declares"
         );
 
         let _ = std::fs::remove_dir_all(&dir);

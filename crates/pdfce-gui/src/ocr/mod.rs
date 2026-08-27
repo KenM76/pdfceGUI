@@ -113,7 +113,6 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use pdfce_core::edit::EditSession;
-use pdfce_core::ocr::layer::{OcrLayerOptions, OcrLayerReport};
 use pdfce_core::ocr::{OcrPage, models};
 use pdfce_core::page_tree::{self, Rect};
 
@@ -254,6 +253,19 @@ pub const MODEL_DIR: models::EngineDirName = "ocrs";
 /// message says so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
+    /// ★ **This page already draws text**, so recognising it would add an
+    /// invisible duplicate rather than make anything findable.
+    ///
+    /// Measured 2026-08-27: a second pass over a recognised page takes it from
+    /// 427 extracted codes to 854 — `add_ocr_layer` adds a layer, it does not
+    /// replace one. So this is a refusal rather than a warning, and it is the
+    /// default, exactly as `--skip-text` is OCRmyPDF's.
+    ///
+    /// Per **page**, never per run: on a mixed document — a scanned drawing
+    /// bound with a typed cover sheet — the cover is skipped and the scan is
+    /// recognised, which is the outcome the operator wants and would not think
+    /// to ask for.
+    AlreadyHasText,
     /// This build was compiled without the `ocrs` feature.
     ///
     /// Distinct from [`Self::ModelsMissing`] on purpose: *cannot look* and
@@ -265,9 +277,6 @@ pub enum Refusal {
     /// No `models/<engine>` directory was found. Carries every path tried, in
     /// the order they were tried.
     ModelsMissing(Vec<PathBuf>),
-    /// The document has edits that an incremental save from the base revision
-    /// would not carry. See the module header.
-    UnsavedEdits,
     /// There is no such page.
     NoSuchPage(usize),
     /// The page has no area to rasterize.
@@ -287,12 +296,42 @@ pub enum Refusal {
 /// keeping them in one struct is how that is made awkward to do by accident.
 #[derive(Debug, Clone)]
 pub struct Recognised {
-    /// The incrementally-saved document, ready to be written to a path the
-    /// operator names. **Not written by this module** — see the module header
-    /// on why the destination is the operator's answer and not ours.
-    pub bytes: Vec<u8>,
-    /// What was written and what was inferred, from `pdfce-core`.
-    pub report: OcrLayerReport,
+    /// ★★★ **The recognised words, per page, ready to be applied to the open
+    /// session as one undoable edit.**
+    ///
+    /// # This used to be `bytes: Vec<u8>` — a whole PDF — and the change is the
+    /// point
+    ///
+    /// `pdfce_core::ocr::layer::add_ocr_layer` takes an immutable `&Document`
+    /// and hands back a complete file, which made recognition the one
+    /// capability in pdfce that was not an *edit*. A shell holding an open
+    /// session could only offer *"here is a different file, somewhere else"*,
+    /// and the operator said what he thought of that on 2026-08-26: *"Why do I
+    /// have to save a copy instead of just go back into my pdf and save over
+    /// it?"*
+    ///
+    /// `EditSession::add_ocr_layer` landed in the engine on 2026-08-27 (Pass
+    /// 135.0). The layer goes into the session, the ordinary Save writes it,
+    /// undo takes it back out, and the whole Save-as apparatus this dialog grew
+    /// around the old signature is gone.
+    ///
+    /// # ★★ And it deletes the unsaved-edits refusal, which no guard could fix
+    ///
+    /// The free function read the document's **base** revision, so a recognised
+    /// copy taken after any edit silently omitted that edit. This shell
+    /// therefore refused to run OCR on a dirty session — correctly, because
+    /// silent omission is worse than a refusal. But a session never becomes
+    /// clean again, not even after a save, so **OCR died for the rest of the
+    /// session the first time the operator edited and saved anything.**
+    ///
+    /// The verb plans against the session graph, so the divergence is removed
+    /// rather than policed, and the guard has nothing left to guard.
+    ///
+    /// Paired `(page_index, words)` rather than two parallel vectors, matching
+    /// `OcrPageLayer`'s own reasoning: two lists can differ in length or in
+    /// order, and either mistake puts one page's words on another page with no
+    /// diagnostic short of reading the output.
+    pub pages: Vec<(usize, pdfce_core::ocr::OcrPage)>,
     /// The resolution the page was actually rasterized at.
     ///
     /// Derived from the page's area by [`fitted_dpi`], so it varies per page and
@@ -309,6 +348,20 @@ pub struct Recognised {
     /// diagnosis — a large gap means the engine and the page geometry disagree
     /// — and it is invisible from either number alone.
     pub words_recognised: usize,
+    /// ★ **How many pages produced words**, across a multi-page run.
+    ///
+    /// `1` for the single-page case this used to be the only shape of. Reported
+    /// so the dialog can say *"12 of 36 pages"* rather than a word count alone,
+    /// which on a long scan tells the operator nothing about coverage.
+    pub pages_written: usize,
+    /// How many pages were visited and produced nothing — blank sheets,
+    /// photographs with no text, and pages skipped because they already had
+    /// text (see [`Request::skip_pages_with_text`]).
+    ///
+    /// Reported rather than hidden: a run over forty pages that wrote two is a
+    /// result the operator needs to see, and a bare *"success"* would let them
+    /// believe the other thirty-eight had been done.
+    pub pages_skipped: usize,
 }
 
 /// Device pixels per PDF user-space unit for a given DPI.
@@ -468,33 +521,64 @@ pub struct Request {
     /// ★ Kept as the FALLBACK since 2026-08-26. When [`Self::source`] is
     /// `Some`, the file on disk is read instead — see that field.
     pub session: Arc<EditSession>,
-    /// ★★★ **The file to recognise, when there is one** — the operator's own
-    /// document, on disk.
+    /// ★★★ **The pages to recognise, zero-based, in order.**
     ///
-    /// # Why this is not `session.document()`
+    /// # Why this is a list
     ///
-    /// Because that is the session's **base** revision: the bytes as the file
-    /// was *opened*. It is stale the moment anything is edited, and — this is
-    /// the part that is easy to miss — **it stays stale after a save**. Saving
-    /// writes the session's *view* out to disk; it does not rewrite the base
-    /// the session was constructed from.
+    /// The operator, 2026-08-26: *"how do I OCR more than one page? Why does
+    /// the tool stop at one? […] Where is the option to select more than one
+    /// page? How did we end up with the most useless and un-userfriendly of
+    /// options for the OCR?"*
     ///
-    /// So `edit_epoch == saved_epoch` says the operator's work is on **disk**,
-    /// and it says nothing at all about the base. Reading the base under that
-    /// condition would produce a recognised copy missing every saved edit,
-    /// which is precisely the failure [`Refusal::UnsavedEdits`] exists to
-    /// prevent — reintroduced by the change that relaxed it.
+    /// It was a `usize`. Nothing in `pdfce-core` required that — the engine's
+    /// own `add_ocr_layer` takes one page at a time, but its output is a
+    /// complete PDF that can be fed straight back in, so a caller can chain
+    /// them. **Measured before this was built**, because the audit flagged it
+    /// UNVERIFIED and a wrong answer would have corrupted a file: two
+    /// successive in-place recognitions of one page produce a document that
+    /// round-trips byte-identical and extracts both layers. Revisions chain.
     ///
-    /// Reading the file is uniformly correct rather than correct-in-the-new-case:
-    /// on a document nobody has edited, the file and the base are the same
-    /// bytes, so this path is not a special case bolted on beside the old one.
+    /// ★★ **And the same measurement found a hazard**: a second pass over a
+    /// page that already has a layer **adds a second one** — 427 codes became
+    /// 854 — rather than replacing it. It does not affect a run that visits
+    /// each page once, which is every run this shell issues, but it is why
+    /// [`Self::skip_pages_with_text`] exists and defaults to on.
     ///
-    /// `None` only for a created document that has never been saved anywhere —
-    /// it has no file — and there the base *is* current, because nothing can
-    /// have been saved without giving it a path.
-    pub source: Option<PathBuf>,
-    /// The page to recognise, zero-based.
-    pub page_index: usize,
+    /// Empty is not a valid request and the dialog will not build one; if one
+    /// arrives, the job reports [`Refusal::NothingRecognised`] rather than
+    /// succeeding at nothing.
+    pub pages: Vec<usize>,
+    /// ★★ **Leave alone any page that already has real text on it.**
+    ///
+    /// The default, and the safe one. It is OCRmyPDF's `--skip-text`, which is
+    /// that tool's default for the same reason: recognising a page that is
+    /// already text adds an invisible duplicate of text the file already has,
+    /// which doubles every search hit and every copy.
+    ///
+    /// ★ "Real text" means text the page draws **visibly**. A page that already
+    /// carries an invisible OCR layer counts as having text, so re-running over
+    /// a recognised document is the no-op an operator would expect rather than
+    /// a doubling.
+    pub skip_pages_with_text: bool,
+    /// ★ **The operator's extraction settings**, carried rather than defaulted.
+    ///
+    /// Read only by the [`Self::skip_pages_with_text`] guard, and it would have
+    /// been tempting to call `ExtractOptions::default()` at the point of use —
+    /// the guard only asks whether a page has *any* text, and no setting turns
+    /// text into no text.
+    ///
+    /// `app::settings::tests::no_call_site_builds_its_own_options` refused it,
+    /// and it was right to. The rule it enforces is that **no call site in this
+    /// application decides extraction options for itself**, because the one
+    /// that does is invisible until the day a setting starts mattering to it
+    /// and nobody remembers this was the exception. `unmappable_code` alone is
+    /// enough to make the reasoning above wrong: a page whose every glyph is
+    /// unmappable extracts to a run of sentinels under one value and to nothing
+    /// under another.
+    ///
+    /// Built on the UI thread by the dialog, where `Settings` lives, and moved
+    /// to the worker with the rest of the request.
+    pub extract_options: pdfce_core::text_extract::ExtractOptions,
     /// The directory holding the two `.rten` files.
     pub model_dir: PathBuf,
 }
@@ -580,27 +664,163 @@ impl Job {
 /// Written as a free function taking `&Request` for the same reason
 /// `render::worker::render_on_worker` is: a body that cannot reach `self` is a
 /// body that provably shares nothing with the UI thread.
+/// ★★★ **Recognise every requested page, chaining the revisions.**
+///
+/// # The shape, and why it is a fold rather than a map
+///
+/// `add_ocr_layer` takes a whole `Document` and returns a whole PDF. So page
+/// two must be recognised **against the output of page one**, not against the
+/// original — otherwise the second write would be an incremental revision over
+/// a base that does not have the first layer, and the first page's words would
+/// be silently dropped.
+///
+/// That chaining was the audit's one UNVERIFIED risk and it was measured before
+/// this was written: two successive in-place recognitions produce a file that
+/// round-trips byte-identical and extracts both layers.
+///
+/// # What a failure on one page does to the rest
+///
+/// **Nothing.** A page with no recognisable text — a blank sheet, a photograph
+/// of a wall — reports `NothingRecognised`, and on a forty-page scan that must
+/// not abandon the other thirty-nine. So a per-page refusal is *counted*, not
+/// propagated, and the run reports how many pages produced words.
+///
+/// The exception is an **engine** failure, which is not about the page: if the
+/// recogniser itself is broken, every remaining page will fail the same way and
+/// grinding through thirty-nine more is only a slower way to say so.
+///
+/// # ★ A run that recognised nothing anywhere is a refusal
+///
+/// If no page produced a single word, there is nothing to write and nothing to
+/// save, and reporting success would leave the operator with a dialog saying it
+/// worked and a document with nothing in it.
 fn recognise(request: &Request) -> Result<Recognised, Refusal> {
-    // ★★ The file if there is one, the session's base if there is not. See
-    // `Request::source` for why the file is the correct read even on a document
-    // nobody has edited.
+    if request.pages.is_empty() {
+        return Err(Refusal::NothingRecognised);
+    }
+
+    // ONCE, before the loop. See `Recogniser` for what this used to cost.
+    let recogniser = Recogniser::load(&request.model_dir)?;
+
+    let mut pages = Vec::new();
+    let mut total_words = 0usize;
+    let mut pages_skipped = 0usize;
+    let mut dpi = 0.0f32;
+    // ★★ Counted separately from `pages_skipped`, and only so that a run which
+    // produced nothing can say WHY. See the refusal below.
+    let mut already_had_text = 0usize;
+
+    for &page_index in &request.pages {
+        match recognise_one(request, &recogniser, page_index) {
+            Ok(one) => {
+                total_words += one.words;
+                dpi = one.dpi;
+                pages.push((page_index, one.recognised));
+            }
+            // A page with nothing on it is not a failure of the run.
+            Err(Refusal::NothingRecognised) => pages_skipped += 1,
+            Err(Refusal::AlreadyHasText) => {
+                pages_skipped += 1;
+                already_had_text += 1;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+
+    if pages.is_empty() {
+        // ★★★ **WHICH nothing, and the distinction was found by driving.**
+        //
+        // A full driven run on 2026-08-27 pointed this at the operator's own
+        // CAD sheet — every page of which already has text — and got
+        // `NothingRecognised`, which reads as *"the recogniser could not read
+        // your document"*. It had not looked at it. The remedy for the two is
+        // different: one is "there is nothing readable here", the other is
+        // "turn off the skip if you meant it", and only the second is
+        // actionable.
+        //
+        // `> 0` rather than `== request.pages.len()`: a run where some pages
+        // were blank and some already had text still has the skip as its
+        // actionable cause, and a mixed run reported as "nothing readable"
+        // sends the operator looking at their scanner.
+        return Err(if already_had_text > 0 {
+            Refusal::AlreadyHasText
+        } else {
+            Refusal::NothingRecognised
+        });
+    }
+    Ok(Recognised {
+        pages_written: pages.len(),
+        pages,
+        effective_dpi: dpi,
+        words_recognised: total_words,
+        pages_skipped,
+    })
+}
+
+/// What recognising one page produced, before anything is applied.
+struct OnePage {
+    /// The words, in PDF default user space, y-up.
+    recognised: pdfce_core::ocr::OcrPage,
+    /// How many the recogniser produced.
+    words: usize,
+    /// What it was rasterized at.
+    dpi: f32,
+}
+
+/// One page: rasterize it, read it, and put the words in page space.
+///
+/// ★ **Applies nothing.** It used to call `add_ocr_layer` and return a whole
+/// PDF; the writing now happens once, on the UI thread, for the whole run. That
+/// is what makes a forty-page recognition **one** undo entry rather than forty.
+fn recognise_one(
+    request: &Request,
+    recogniser: &Recogniser,
+    page_index: usize,
+) -> Result<OnePage, Refusal> {
+    // ★★★ **THE SESSION'S VIEW, NOT ITS BASE AND NOT THE FILE.**
     //
-    // The `Document` is held in a local so the borrow below lives long enough;
-    // a load failure falls back rather than refusing, because the base is what
-    // this always used and a file that will not re-open is a separate problem
-    // that the operator will meet elsewhere with a better message.
-    let loaded = request
-        .source
-        .as_deref()
-        .and_then(|path| pdfce_core::document::Document::load(path).ok());
-    let doc = match &loaded {
-        Some(doc) => doc,
-        None => request.session.document(),
-    };
+    // This is the whole reason the engine grew a session verb. The old code
+    // read the operator's file off disk — correct at the time, because
+    // `add_ocr_layer` wrote an incremental revision over the base and anything
+    // else would have produced a copy with his saved work missing.
+    //
+    // `EditSession::add_ocr_layer` plans against the session graph, so the
+    // words must be recognised from what the session currently *draws*. A page
+    // the operator has edited this session renders differently from both its
+    // base and its file, and recognising either would put words where the ink
+    // no longer is.
+    let view = request.session.view();
     let pages = pages_of(request)?;
     let page = pages
-        .get(request.page_index)
-        .ok_or(Refusal::NoSuchPage(request.page_index))?;
+        .get(page_index)
+        .ok_or(Refusal::NoSuchPage(page_index))?;
+
+    // ★★ **The doubling guard, and the reason it is measured rather than
+    // assumed.**
+    //
+    // Measured 2026-08-26 on a one-page fixture: recognising an
+    // already-recognised page took it from **427 character codes to 854**. The
+    // OCR layer is Table 106 mode 3 — rendered but invisible — so nothing on
+    // screen changes and nothing warns. What changes is that every Find match
+    // is doubled and every copy comes out twice.
+    //
+    // An extraction failure is NOT treated as "has text". A page whose content
+    // stream will not parse is exactly the kind of page a recogniser is for,
+    // and refusing to look at it because the parser gave up would be the guard
+    // producing the harm it exists to prevent.
+    if request.skip_pages_with_text {
+        let has_text = pdfce_core::text_extract::extract_page_view(
+            &view,
+            page,
+            page_index,
+            &request.extract_options,
+        )
+        .map(|text| !text.plain_text().trim().is_empty())
+        .unwrap_or(false);
+        if has_text {
+            return Err(Refusal::AlreadyHasText);
+        }
+    }
 
     let box_ = page.crop_box;
     let width_pt = box_.urx - box_.llx;
@@ -615,12 +835,12 @@ fn recognise(request: &Request) -> Result<Recognised, Refusal> {
     }
 
     let dpi = fitted_dpi(width_pt, height_pt);
-    let rendered = pdfce_render::render_page(doc, page, raster_scale(dpi))
+    let rendered = pdfce_render::render_page_view(&view, page, raster_scale(dpi))
         .map_err(|e| Refusal::Engine(e.to_string()))?;
     let (w, h) = (rendered.pixmap.width(), rendered.pixmap.height());
     let grey = greyscale(rendered.pixmap.data(), w, h);
 
-    let words = recognise_image(&request.model_dir, w, h, &grey)?;
+    let words = recogniser.recognise(w, h, &grey)?;
     let words_recognised = words.len();
     // ★ The flip, and the ONLY place it happens. See the module header.
     //
@@ -664,29 +884,17 @@ fn recognise(request: &Request) -> Result<Recognised, Refusal> {
         return Err(Refusal::NothingRecognised);
     }
 
-    let ocr_page = OcrPage {
-        words: placed,
-        // Asked of the engine rather than assumed. `OcrEngine::reports_confidence`
-        // is a required method with no default precisely so this cannot be
-        // guessed at either optimistically or pessimistically.
-        confidence_available: reports_confidence(),
-    };
-    let outcome = pdfce_core::ocr::layer::add_ocr_layer(
-        doc,
-        request.page_index,
-        &ocr_page,
-        &OcrLayerOptions::new(),
-    )
-    .map_err(|e| match e {
-        pdfce_core::ocr::layer::OcrLayerError::NothingToWrite => Refusal::NothingRecognised,
-        other => Refusal::Engine(other.to_string()),
-    })?;
-
-    Ok(Recognised {
-        bytes: outcome.bytes,
-        report: outcome.report,
-        effective_dpi: dpi,
-        words_recognised,
+    Ok(OnePage {
+        recognised: OcrPage {
+            words: placed,
+            // Asked of the engine rather than assumed.
+            // `OcrEngine::reports_confidence` is a required method with no
+            // default precisely so this cannot be guessed at either
+            // optimistically or pessimistically.
+            confidence_available: reports_confidence(),
+        },
+        words: words_recognised,
+        dpi,
     })
 }
 
@@ -740,39 +948,80 @@ fn reports_confidence() -> bool {
     }
 }
 
-/// Run the recogniser over one greyscale image.
+/// ★★ **The loaded recognition models, held for the whole run.**
 ///
-/// Split from [`recognise`] so that the whole of the `ocrs` feature gate is one
-/// function rather than a `cfg` threaded through the pipeline. A build without
-/// the engine returns [`Refusal::EngineAbsent`] here and everything above this
-/// line compiles and runs identically — which is what makes the gated-out path
-/// a **named refusal** rather than a silently different program.
+/// # Why this is a type rather than a function call per page
+///
+/// It used to be `recognise_image(model_dir, …)`, which read every model file
+/// off disk and built the engine **once per page**. That was invisible while
+/// the dialog could only do one page. It stops being invisible the moment a
+/// fifty-page run exists: the detection and recognition models are tens of
+/// megabytes, and paying for them fifty times is the difference between a run
+/// an operator waits through and one they abandon.
+///
+/// The gap document called this out as the one thing that had to change
+/// *underneath* the new page-scope control rather than beside it — a scope
+/// selector over a per-page model load would have shipped a feature whose cost
+/// grew with the number the operator typed.
+///
+/// # Why it still carries the whole feature gate
+///
+/// The `ocrs`-absent twin below has the same two methods and refuses by name.
+/// Everything above this line compiles and runs identically in a stripped
+/// build, which is what makes the gated-out path a **named refusal** rather
+/// than a silently different program — R8's rule, applied to a Cargo feature.
+///
+/// ★ The stripped build refuses at [`Self::load`], which is **before** any page
+/// is rasterized. A build with no recogniser therefore spends no time rendering
+/// images it has nothing to read.
 #[cfg(feature = "ocrs")]
-fn recognise_image(
-    model_dir: &Path,
-    width: u32,
-    height: u32,
-    grey: &[u8],
-) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Refusal> {
-    use pdfce_core::ocr::OcrEngine as _;
-    use pdfce_core::ocr::engine_ocrs::OcrsEngine;
+struct Recogniser(pdfce_core::ocr::engine_ocrs::OcrsEngine);
 
-    let engine =
-        OcrsEngine::from_model_dir(model_dir).map_err(|e| Refusal::Engine(e.to_string()))?;
-    engine
-        .recognize(width, height, grey)
-        .map_err(|e| Refusal::Engine(e.to_string()))
+#[cfg(feature = "ocrs")]
+impl Recogniser {
+    /// Read the models off disk. Once per run — see the type's header.
+    fn load(model_dir: &Path) -> Result<Self, Refusal> {
+        use pdfce_core::ocr::engine_ocrs::OcrsEngine;
+        OcrsEngine::from_model_dir(model_dir)
+            .map(Self)
+            .map_err(|e| Refusal::Engine(e.to_string()))
+    }
+
+    /// Recognise one greyscale image.
+    fn recognise(
+        &self,
+        width: u32,
+        height: u32,
+        grey: &[u8],
+    ) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Refusal> {
+        use pdfce_core::ocr::OcrEngine as _;
+        self.0
+            .recognize(width, height, grey)
+            .map_err(|e| Refusal::Engine(e.to_string()))
+    }
 }
 
 /// See the `ocrs`-enabled twin above.
 #[cfg(not(feature = "ocrs"))]
-fn recognise_image(
-    _model_dir: &Path,
-    _width: u32,
-    _height: u32,
-    _grey: &[u8],
-) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Refusal> {
-    Err(Refusal::EngineAbsent)
+struct Recogniser;
+
+#[cfg(not(feature = "ocrs"))]
+impl Recogniser {
+    /// A build with no recogniser refuses at the point of loading, which is
+    /// before any page is rasterized — so a stripped build spends no time
+    /// rendering images it has nothing to read.
+    fn load(_model_dir: &Path) -> Result<Self, Refusal> {
+        Err(Refusal::EngineAbsent)
+    }
+
+    fn recognise(
+        &self,
+        _width: u32,
+        _height: u32,
+        _grey: &[u8],
+    ) -> Result<Vec<pdfce_core::ocr::RecognizedWord>, Refusal> {
+        Err(Refusal::EngineAbsent)
+    }
 }
 
 /// Whether this build carries a recogniser at all.

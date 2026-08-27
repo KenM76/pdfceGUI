@@ -416,6 +416,28 @@ pub(super) fn interact(
     // then the selection body — and the three separate defects that taught it.
     // That rule is the single most bug-prone thing on this canvas and it now
     // lives in one place with its own reasoning beside it.
+    // ★★★ **1b. A press on an unselected object selects it.**
+    //
+    // Moved to `canvas::presspick` under R2 on 2026-08-27, and it is a real
+    // seam rather than a convenient cut: `canvas::pressing`'s header opens with
+    // *"changes nothing"*, and this step changes the selection. Putting a
+    // mutation inside the module whose contract is that it only looks would
+    // have made that contract false the day someone relied on it.
+    //
+    // Its header carries the operator's report, the four gestures it must not
+    // disturb, and why this is nine statements rather than a new `DragKind`.
+    crate::canvas::presspick::at_press(
+        &ctx,
+        doc,
+        &mut selection,
+        map,
+        page_index,
+        active_tool,
+        caps,
+        *pick,
+        shift,
+    );
+
     let press = crate::canvas::pressing::look(
         &ctx,
         doc,

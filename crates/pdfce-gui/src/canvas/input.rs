@@ -205,6 +205,27 @@ fn nth_allowed(
     candidates.get(depth % candidates.len()).copied()
 }
 
+/// ★ **The frontmost object under a point**, after the pick filter — the plain
+/// answer, with no selection and no cycling depth involved.
+///
+/// [`probe`]'s narrow sibling, for the one caller that has neither: the
+/// press-time selection in [`crate::canvas::interact`] runs *before* anything
+/// has decided what the gesture is, so there is no depth to honour and no
+/// entered object to keep. It wants the top of the stack and nothing else.
+///
+/// Depth zero deliberately. `Alt`-cycling is a property of repeated **clicks**
+/// at one point (`canvas::clicking`'s `CycleCursor`), and a drag is not a click
+/// — an operator pressing to move something means the thing they can see.
+pub(super) fn topmost(
+    targets: &dyn CanvasTargetProvider,
+    page_index: usize,
+    point: Pos2,
+    map: &PageMapping,
+    filter: PickFilter,
+) -> Option<TargetId> {
+    nth_allowed(targets, page_index, point, map.tolerance(), filter, 0)
+}
+
 /// How many objects the pointer is over, after the pick filter.
 ///
 /// Read by the status bar so the operator can be told *"3 objects here"* rather

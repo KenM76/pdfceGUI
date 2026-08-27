@@ -123,15 +123,41 @@ first place.
 
 ### The seven complaints, itemised so none is lost
 
-| # | Complaint | Status |
+| # | Complaint | Status as of 2026-08-27 |
 |---|---|---|
-| 1 | Clicking an object selects the whole page instead | under audit |
-| 2 | Double-clicking an object still selects the whole page | under audit |
-| 3 | Selecting text does not change the Tool tab to that object's editable properties | under audit |
-| 4 | An inserted image cannot be resized by dragging | under audit |
-| 5 | OCR does one page only — no page range, no multi-page selection | under audit |
-| 6 | OCR forces Save-a-copy instead of saving into the open document | under audit |
-| 7 | The whole editing model is unintuitive next to other graphics software | **the actual request** |
+| 1 | Clicking an object selects the whole page instead | **engine fixed, shell work outstanding** — see below |
+| 2 | Double-clicking an object still selects the whole page | same cause as 1 |
+| 3 | Selecting text does not change the Tool tab to that object's editable properties | **done** — the Properties panel reads the canvas selection, and the status bar names what is selected |
+| 4 | An inserted image cannot be resized by dragging | **done** — a press on an unselected object selects it and the same drag moves it; placement now arrives selected, so its grips are already up |
+| 5 | OCR does one page only — no page range, no multi-page selection | **done** — All pages / this page / a typed range, All being the default |
+| 6 | OCR forces Save-a-copy instead of saving into the open document | **done** — recognition is an ordinary edit; `Ctrl+S` saves it, `Ctrl+Z` takes it out |
+| 7 | The whole editing model is unintuitive next to other graphics software | in progress — 1 and 2 are the remainder |
+
+#### ★★★ Complaints 1 and 2: what happened
+
+The audit's verdict was that the engine did not enter form XObjects, so a
+page-sized form was a page-sized hit target that won every click at every point.
+That was filed as an engine request on 2026-08-26 and **`pdfce-core` answered it
+the next day** — Passes 136.0, 136.1 and 136.2:
+
+* `decompose_page` now descends into every reachable form and returns the
+  objects inside on a separate `PageObjects::leaves` list, each already mapped
+  into page space and carrying its chain of enclosing forms;
+* `hit_test_point_deep` excludes forms as candidates outright and interleaves
+  the two lists on one paint order, so a click finds what is drawn rather than
+  the wrapper.
+
+**The shell has not consumed it yet, and the reason is worth stating rather than
+hiding.** This project's `TargetId` is a paint-order index into
+`PageObjects::objects`, and 96 call sites resolve one. A leaf's token range
+indexes a *different buffer* — the form's content stream — and eleven verbs in
+`pdfce-core` apply a paint-order range to the **page's** stream. The engine kept
+the two lists apart precisely so that mixing them cannot corrupt a document by
+construction, and the shell must keep them apart in the same way. That is a
+type change through 96 sites, not a hit-test swap, and doing it carelessly is
+the one way to turn a selection defect into a file-corruption defect.
+
+It is the next body of work, and it is the largest single item left.
 
 ### ★★ One measured fact, before any of it
 

@@ -428,6 +428,36 @@ impl LayoutStore {
         &self.document.active
     }
 
+    /// The mode in force when this file was last written, if any.
+    ///
+    /// `None` covers three real cases and the caller must treat them alike —
+    /// see [`egui_shell::layout::LayoutDocument::active_mode`]. So must an id
+    /// this build's manifest no longer declares, which is why the caller checks
+    /// `Modes::is_known` rather than trusting what it reads here.
+    #[must_use]
+    pub fn active_mode(&self) -> Option<&str> {
+        self.document.active_mode.as_deref()
+    }
+
+    /// Record which mode is in force, arming a write if it actually changed.
+    ///
+    /// [`Self::record_active`]'s twin, and the equality check is there for the
+    /// same reason: `Modes::on_mode_changed` may be driven from the ribbon's
+    /// state every frame, so re-recording the mode already recorded must cost
+    /// nothing. Without the check, every frame would arm the debounce and the
+    /// ceiling in [`SAVE_MAX_DEFER`] would turn an idle application into one
+    /// that writes its layout file every five seconds forever.
+    ///
+    /// Returns whether anything changed.
+    pub fn record_active_mode(&mut self, mode_id: &str) -> bool {
+        if self.document.active_mode.as_deref() == Some(mode_id) {
+            return false;
+        }
+        self.document.active_mode = Some(mode_id.to_owned());
+        self.arm(Instant::now());
+        true
+    }
+
     /// Record the live arrangement, arming a write if it actually moved.
     ///
     /// Called when the dock reports

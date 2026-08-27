@@ -160,6 +160,31 @@ pub struct LayoutDocument {
     pub active: DockLayout,
     /// Named arrangements the operator can return to.
     pub workspaces: Vec<Workspace>,
+    /// ★★ **The mode in force when this was last written**, if the host has
+    /// modes at all.
+    ///
+    /// # Why it lives here and not in the host's settings
+    ///
+    /// Because it is the same fact as the rest of this file. A mode *is* an
+    /// arrangement — [`Self::active`] holds the layout of whichever mode was on
+    /// screen, and without this field the next launch restores that layout
+    /// under a **different** mode's name. The two halves of one answer were
+    /// being stored in different places, and only one of them was being stored.
+    ///
+    /// # Why `Option<String>` and not a required field
+    ///
+    /// Three states, all real. `None` from a file written before this field
+    /// existed, `None` from a host with no modes, and `Some` from a host that
+    /// has them. All three mean *"start in whatever the host considers first"*
+    /// except the last, and a host that reads this must treat an id it does not
+    /// recognise the same way — a manifest can be edited between runs, and a
+    /// mode that has been renamed away must not leave the shell with no mode.
+    ///
+    /// ★ The shell learns nothing about what a mode *means* by holding this.
+    /// It is an opaque id the host wrote and the host reads back, which is what
+    /// keeps R7 true: `egui-shell` has modes, and knows nothing about reading,
+    /// reviewing or editing anything.
+    pub active_mode: Option<String>,
 }
 
 /// A load's result: the document, and everything that had to be skipped.
@@ -183,6 +208,7 @@ impl LayoutDocument {
             schema: Self::SCHEMA,
             active,
             workspaces: Vec::new(),
+            active_mode: None,
         }
     }
 

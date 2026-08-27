@@ -99,7 +99,7 @@ use std::path::{Path, PathBuf};
 use egui_shell::theme::Theme;
 
 use crate::app::state::{OpenDoc, Status};
-use crate::ocr::{self, Job, Recognised, Refusal, Request};
+use crate::ocr::{self, Job, Refusal, Request};
 use crate::text::ocr as t;
 
 // ---------------------------------------------------------------------------
@@ -121,16 +121,24 @@ use crate::text::ocr as t;
 /// The whole window.
 const REGION_DIALOG: &str = "ocr-dialog"; // ui-text-exempt: trace region name, never displayed
 
-/// The control that starts recognition.
-const REGION_RUN: &str = "ocr-run"; // ui-text-exempt: trace region name, never displayed
+/// The page-scope group, so a driven check can find it.
+const REGION_SCOPE: &str = "ocr-scope"; // ui-text-exempt: trace region name, never displayed
 
-/// The control that writes the recognised copy.
+/// The skip-existing-text toggle.
+const REGION_SKIP: &str = "ocr-skip"; // ui-text-exempt: trace region name, never displayed
+
+/// The control that starts recognition.
 ///
 /// Declared **only while it exists**, which is itself the assertion a harness
-/// wants: this control is drawn if and only if there are recognised bytes to
-/// write, so its absence from the trace is evidence that nothing was
-/// recognised rather than that a click missed.
-const REGION_SAVE: &str = "ocr-save"; // ui-text-exempt: trace region name, never displayed
+/// wants: this control is drawn if and only if the dialog is in its ready
+/// state with a resolvable page scope, so its absence from the trace is
+/// evidence that the run could not have been started rather than that the
+/// harness missed it.
+///
+/// ★ There is no region for a save control any more, and its removal is the
+/// change: recognition became an edit to the open session on 2026-08-27, so
+/// there is no transaction to complete and nothing for a second button to do.
+const REGION_RUN: &str = "ocr-run"; // ui-text-exempt: trace region name, never displayed
 
 /// Where one Recognise-text transaction has got to.
 ///
@@ -144,12 +152,26 @@ enum Phase {
     Ready,
     /// A thread is recognising.
     Working(Job),
-    /// Recognition finished and produced a document that is not saved.
-    Recognised(Box<Recognised>),
+    /// ★★ Recognition finished and **the words are in the open document.**
+    ///
+    /// This used to mean *"a complete PDF is sitting in memory and the operator
+    /// must now choose a file for it"*, and it carried the bytes. Since the
+    /// engine's `EditSession::add_ocr_layer` (Pass 135.0, 2026-08-27) the layer
+    /// goes straight into the session as one undoable edit, so what is left to
+    /// report is the outcome — not a transaction to complete.
+    ///
+    /// It carries the run's counts rather than the words, which have already
+    /// been handed to the session by the time this phase is entered.
+    Applied {
+        /// How many pages got words.
+        written: usize,
+        /// How many were visited and produced none.
+        skipped: usize,
+        /// How many words in total.
+        words: usize,
+    },
     /// Recognition did not happen, for a named reason.
     Refused(Refusal),
-    /// The bytes were written to this path.
-    Saved(PathBuf),
 }
 
 /// The Recognise-text dialog.
@@ -164,8 +186,39 @@ pub struct OcrDialog {
     /// whatever page they had scrolled to. The recognition is of one page and
     /// the dialog remembers which.
     page_index: usize,
-    /// The document's own path, for suggesting a name to save under.
-    source: PathBuf,
+    /// ★★★ **Which pages to recognise.**
+    ///
+    /// The operator, 2026-08-26: *"how do I OCR more than one page? Why does
+    /// the tool stop at one? […] Where is the option to select more than one
+    /// page?"*
+    ///
+    /// There was none. The dialog recognised [`Self::page_index`] and nothing
+    /// else, and no engine limitation required that — `add_ocr_layer`'s output
+    /// is a complete PDF that can be fed back in, so pages chain. Measured
+    /// before this was built, because a wrong answer would have corrupted a
+    /// file.
+    scope: Scope,
+    /// The range the operator typed, when [`Self::scope`] is [`Scope::Range`].
+    ///
+    /// Kept as **text**, not as a parsed list, so that a half-typed `1-` is a
+    /// state the field can hold. Parsed on every frame by
+    /// `dialogs::print::tabs::parse_page_range` — the same parser the print
+    /// dialog uses, which is the point: two page-range parsers would accept
+    /// different things on two surfaces of one program, and the operator would
+    /// have to learn which.
+    range: String,
+    /// Leave alone any page that already draws text. On by default.
+    ///
+    /// See [`crate::ocr::Refusal::AlreadyHasText`] for the measurement that
+    /// makes this the default rather than an option: a second pass over a
+    /// recognised page **adds a second invisible layer**, doubling every search
+    /// hit and every copy.
+    skip_pages_with_text: bool,
+    /// The page list the last `ocr-scope` line reported.
+    ///
+    /// Kept so the trace fires on a change rather than on a frame. See
+    /// [`Self::scope_group`].
+    traced_scope: Vec<usize>,
     /// The transaction's state.
     phase: Phase,
     /// Set by the Close button, consumed by [`Self::show`].
@@ -174,13 +227,47 @@ pub struct OcrDialog {
     /// cannot drop the state it is being drawn from, so it records the request
     /// and the caller acts after the closure returns.
     close_requested: bool,
-    /// Set by the Save button; the write happens after the closure returns.
+}
+
+/// Which pages a recognition run covers.
+///
+/// Four options is what the surveyed tools converge on — Acrobat, ABBYY, Foxit
+/// and PDF-XChange all offer all / current / a range in some wording — and the
+/// order below is theirs: the broadest first, because it is both the default
+/// and the one most runs want.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Scope {
+    /// Every page of the document. The default.
+    All,
+    /// Only the page the operator was looking at when the dialog opened.
     ///
-    /// Same two-step, for a stronger reason: this is the irreversible half.
-    /// [`super`]'s header requires that a dialog's irreversible work not run
-    /// part-way through a layout pass, and a `rfd` modal opened from inside an
-    /// `egui::Window` closure would block the frame it is drawn in.
-    save_requested: bool,
+    /// ★ **When it opened**, not now — the operator can page the document while
+    /// this window is up, and a run that read the *current* index would
+    /// recognise a page they were no longer thinking about. That capture is the
+    /// same argument [`OcrDialog::page_index`] already carries.
+    CurrentPage,
+    /// The pages named in [`OcrDialog::range`].
+    Range,
+}
+
+impl Scope {
+    /// The pages this scope names, zero-based and in order.
+    ///
+    /// `None` when the scope cannot be resolved — an unparseable or empty range
+    /// — which the dialog renders as a disabled Recognise button rather than as
+    /// an error, because a half-typed range is a normal state of a text field
+    /// and not a mistake to be reported.
+    pub(super) fn pages(self, current: usize, count: usize, range: &str) -> Option<Vec<usize>> {
+        match self {
+            Self::All => (count > 0).then(|| (0..count).collect()),
+            Self::CurrentPage => (current < count).then(|| vec![current]),
+            // The PRINT dialog's parser, deliberately. Two page-range parsers
+            // in one program would accept different things on two surfaces and
+            // the operator would have to learn which one they were talking to.
+            Self::Range => crate::dialogs::print::tabs::parse_page_range(range, count)
+                .filter(|pages| !pages.is_empty()),
+        }
+    }
 }
 
 impl OcrDialog {
@@ -194,16 +281,28 @@ impl OcrDialog {
     pub(super) fn open(doc: &OpenDoc) -> Self {
         Self {
             page_index: doc.view.page_index,
-            source: doc.path.clone(),
+            // ★ **All pages by default**, which is what every surveyed OCR tool
+            // defaults to and what the operator was asking for. The old
+            // behaviour — this page only — is still one click away and is the
+            // right answer when he is checking one sheet, but it is the
+            // unusual want and it should not be the assumption.
+            scope: Scope::All,
+            range: String::new(),
+            skip_pages_with_text: true,
+            traced_scope: Vec::new(),
             phase: Phase::Ready,
             close_requested: false,
-            save_requested: false,
         }
     }
 
     /// Draw one frame. Returns `false` when the dialog should close.
-    pub(super) fn show(&mut self, ctx: &egui::Context, doc: &OpenDoc) -> bool {
-        self.poll_worker();
+    pub(super) fn show(
+        &mut self,
+        ctx: &egui::Context,
+        doc: &OpenDoc,
+        actions: &mut Vec<crate::app::actions::Action>,
+    ) -> bool {
+        self.poll_worker(actions);
 
         // ★ ITS OWN OS WINDOW as of 2026-08-21. OCR is the longest-running
         // thing in this program — a job an operator starts and then goes back
@@ -230,10 +329,6 @@ impl OcrDialog {
         });
         let open = !frame.closed;
 
-        // The irreversible half, after the closure. See `save_requested`.
-        if std::mem::take(&mut self.save_requested) {
-            self.save();
-        }
         open && !std::mem::take(&mut self.close_requested)
     }
 
@@ -242,8 +337,7 @@ impl OcrDialog {
     /// Separate from [`Self::body`] so the transition happens once per frame
     /// regardless of what the window drew, and so that a dialog scrolled out
     /// of view still notices its own worker finishing.
-    fn poll_worker(&mut self) {
-        let page_index = self.page_index;
+    fn poll_worker(&mut self, actions: &mut Vec<crate::app::actions::Action>) {
         let Phase::Working(job) = &mut self.phase else {
             return;
         };
@@ -256,28 +350,40 @@ impl OcrDialog {
                     format!(
                         // ui-text-exempt: diagnostic trace, never displayed.
                         //
-                        // ★ `recognised=` beside `written=`, on `HANDOFF.md`
-                        // §2's own advice about the ink trail: a build whose
-                        // placement silently dropped every word would emit an
-                        // otherwise identical line, and the pair is what makes
-                        // the two numbers comparable from a trace alone.
-                        // `confidence_available=` is here because it is the
-                        // one field whose value decides what the operator is
-                        // told, and a build that started claiming `true` would
-                        // be invisible in every other field.
-                        "ocr-recognised page={page_index} recognised={} written={} skipped={} \
-                         substituted={} clamped={} confidence_available={} dpi={:.0} bytes={}",
+                        // ★ `recognised=` beside the page counts, on
+                        // `HANDOFF.md` §2's own advice about the ink trail: a
+                        // build whose placement silently dropped every word
+                        // would emit an otherwise identical line, and the pair
+                        // is what makes the numbers comparable from a trace
+                        // alone. What was WRITTEN is reported separately by
+                        // the edit itself — see `Action::ApplyOcr` — because
+                        // that is now a different subsystem's answer.
+                        "ocr-recognised pages={} skipped={} recognised={} dpi={:.0}",
+                        recognised.pages_written,
+                        recognised.pages_skipped,
                         recognised.words_recognised,
-                        recognised.report.words_written,
-                        recognised.report.words_skipped,
-                        recognised.report.words_substituted,
-                        recognised.report.words_scale_clamped,
-                        recognised.report.confidence_available,
                         recognised.effective_dpi,
-                        recognised.bytes.len(),
                     )
                 });
-                Phase::Recognised(recognised)
+                let phase = Phase::Applied {
+                    written: recognised.pages_written,
+                    skipped: recognised.pages_skipped,
+                    words: recognised.words_recognised,
+                };
+                // ★★ **The edit is raised here, in the poll, rather than in the
+                // window body.**
+                //
+                // Two reasons, and the second is the one that matters. A dialog
+                // scrolled behind another window still polls, so the operator's
+                // recognition lands whether or not this window drew — the same
+                // argument that put `poll_worker` outside `body` in the first
+                // place. And a body that raised an edit would raise it on
+                // *every* frame it drew this phase, which is forty undo entries
+                // for one recognition.
+                actions.push(crate::app::actions::Action::ApplyOcr {
+                    pages: recognised.pages,
+                });
+                phase
             }
             Err(refusal) => {
                 crate::diag::trace(|| {
@@ -305,28 +411,41 @@ impl OcrDialog {
                     ui.label(t::working());
                 });
             }
-            Phase::Recognised(recognised) => {
-                let disclosures = recognised.report.disclosures();
-                let saveable = !recognised.bytes.is_empty();
-                Self::answered(ui, &theme, &disclosures);
-                if saveable {
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(6.0);
-                    ui.label(t::not_saved_yet());
-                    ui.add_space(6.0);
-                    let save = ui.button(t::save_as()).on_hover_text(t::save_as_tooltip());
-                    crate::diag::ui_rect(REGION_SAVE, save.rect);
-                    if save.clicked() {
-                        self.save_requested = true;
-                    }
-                }
+            Phase::Applied {
+                written,
+                skipped,
+                words,
+            } => {
+                // ★★★ **What this says now, and what it no longer has to.**
+                //
+                // Everything about choosing a destination is gone: the words
+                // are in the document, `Ctrl+Z` takes them out and `Ctrl+S`
+                // writes them. What is left is the outcome and the one
+                // disclosure this surface owes.
+                //
+                // ★ The engine's per-page report is NOT re-rendered here. It
+                // goes through `crate::app::actions`' edit-disclosure channel
+                // with every other edit's, which is where the operator already
+                // looks — a second, differently-worded copy on this window
+                // would be two accounts of one run that could drift.
+                ui.label(t::pages_outcome(*written, *skipped));
+                ui.add_space(6.0);
+                ui.label(t::applied_to_document());
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(6.0);
+                // The confidence sentence stays, and stays prominent. It is the
+                // one fact a reader who skims must not miss, and it is about
+                // the RECOGNITION rather than about the edit — so it does not
+                // belong on the disclosure channel with the counts.
+                Self::answered(ui, &theme, &[t::no_confidence().to_owned()]);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("ocr-applied written={written} skipped={skipped} words={words}")
+                });
             }
             Phase::Refused(refusal) => {
                 ui.label(sentence(refusal));
-            }
-            Phase::Saved(path) => {
-                ui.label(t::saved(&path.display().to_string()));
             }
         }
 
@@ -352,10 +471,107 @@ impl OcrDialog {
             ui.label(sentence(&refusal));
             return;
         }
-        let run = ui.button(t::run()).on_hover_text(t::run_tooltip());
+        let count = doc.pages.len();
+        self.scope_group(ui, count);
+        ui.add_space(10.0);
+
+        // ★★ **The button is unavailable when the scope names no page** —
+        // greyed, not hidden, because this is R9's *temporarily* unavailable
+        // case: the operator is mid-way through typing a range and the control
+        // will come back on its own. Hiding it would make the dialog jump under
+        // their hands as they type.
+        let pages = self.scope.pages(self.page_index, count, &self.range);
+        let run = ui
+            .add_enabled(pages.is_some(), egui::Button::new(t::run()))
+            .on_hover_text(t::run_tooltip())
+            .on_disabled_hover_text(t::scope_range_unresolved());
         crate::diag::ui_rect(REGION_RUN, run.rect);
         if run.clicked() {
             self.start(doc);
+        }
+    }
+
+    /// ★★★ **Which pages — the control the operator said was missing.**
+    ///
+    /// > *"Where is the option to select more than one page? How did we end up
+    /// > with the most useless and un-userfriendly of options for the OCR?"*
+    /// > — 2026-08-26
+    ///
+    /// # Why radios and not a dropdown
+    ///
+    /// Three choices, all short, all mutually exclusive, and one of them opens
+    /// a text field. A dropdown would hide two of the three behind a click and
+    /// would have nowhere sensible to put the range field; radios show the
+    /// whole decision at once, which is what every surveyed recogniser does
+    /// with the same three options.
+    ///
+    /// # Why the range field is always visible
+    ///
+    /// Rather than appearing when **Pages** is chosen. A field that appears
+    /// changes the dialog's height mid-interaction, and the operator reaching
+    /// for the radio has to then find where everything moved to. It is
+    /// disabled instead when another scope is active — and clicking it selects
+    /// [`Scope::Range`], because typing into a range field is an unambiguous
+    /// statement of intent and making them click the radio first would be
+    /// pedantry.
+    fn scope_group(&mut self, ui: &mut egui::Ui, count: usize) {
+        ui.label(t::scope_heading());
+        ui.add_space(4.0);
+        let group = ui
+            .vertical(|ui| {
+                ui.radio_value(&mut self.scope, Scope::All, t::scope_all());
+                ui.radio_value(
+                    &mut self.scope,
+                    Scope::CurrentPage,
+                    t::scope_current(self.page_index + 1),
+                );
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut self.scope, Scope::Range, t::scope_range());
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut self.range)
+                            .desired_width(140.0)
+                            .hint_text(t::scope_range_hint()),
+                    );
+                    // Typing IS the choice. See the doc comment.
+                    if field.gained_focus() || field.changed() {
+                        self.scope = Scope::Range;
+                    }
+                });
+            })
+            .response;
+        crate::diag::ui_rect(REGION_SCOPE, group.rect);
+
+        ui.add_space(8.0);
+        let skip = ui
+            .checkbox(&mut self.skip_pages_with_text, t::skip_pages_with_text())
+            .on_hover_text(t::skip_pages_with_text_tooltip());
+        crate::diag::ui_rect(REGION_SKIP, skip.rect);
+
+        // What the current answer actually resolves to, in pages. Not a
+        // rephrasing of the radio — it is the ONLY place a typed range is
+        // confirmed to have been understood, and it is off in a status line
+        // rather than in the field, per rule 4's disclosure clause.
+        //
+        // ★ Traced on CHANGE, not every frame. The first version emitted a line
+        // per frame for as long as the dialog was open — 90 of the 400 lines in
+        // a driven capture, all identical — which is not a diagnostic, it is a
+        // haystack. `HANDOFF.md` §2's rule about the ink trail cuts both ways:
+        // a line nobody can find is the same as a line nobody wrote.
+        let resolved = self
+            .scope
+            .pages(self.page_index, count, &self.range)
+            .unwrap_or_default();
+        if resolved != self.traced_scope {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!(
+                    "ocr-scope pages={} first={:?} last={:?}",
+                    resolved.len(),
+                    resolved.first(),
+                    resolved.last()
+                )
+            });
+            self.traced_scope = resolved;
         }
     }
 
@@ -364,7 +580,7 @@ impl OcrDialog {
     /// Returns `None` when recognition may proceed. Pulled out of [`Self::ready`]
     /// so that the decision is a pure function of the document and is therefore
     /// reachable from a test — the button and the window are not.
-    fn preflight(doc: &OpenDoc) -> Option<Refusal> {
+    fn preflight(_doc: &OpenDoc) -> Option<Refusal> {
         if !ocr::engine_compiled_in() {
             return Some(Refusal::EngineAbsent);
         }
@@ -382,20 +598,23 @@ impl OcrDialog {
         // then was false. The operator met it and asked *"how did we end up with
         // the most useless and un-userfriendly of options for the OCR?"*
         //
-        // `edit_epoch != saved_epoch` asks the question the refusal is actually
-        // about: *is there work that is not on disk?*
+        // ★★★ **AND THE GUARD IS GONE ENTIRELY, as of 2026-08-27.**
         //
-        // ★★ It is only safe because [`crate::ocr::recognise`] now reads the
-        // **file**, not `session.document()`. The base revision is stale the
-        // moment anything is edited and stays stale after a save — saving does
-        // not rewrite the session's base — so lifting this guard without moving
-        // the source would have handed him a recognised copy with his saved work
-        // missing from it. That is the plausible-working-wrong-file failure this
-        // whole guard exists to prevent, and it would have been introduced by
-        // the fix for it.
-        if doc.edit_epoch != doc.saved_epoch {
-            return Some(Refusal::UnsavedEdits);
-        }
+        // It was correct and it was unfixable. `ocr::layer::add_ocr_layer` read
+        // the document's **base** revision, so a recognised copy taken after an
+        // edit silently omitted that edit — and silent omission is worse than a
+        // refusal, so refusing was right. But a session never becomes clean
+        // again, not even after a successful save, so this killed OCR for the
+        // rest of the session the first time anything was edited and told the
+        // operator something inaccurate on the way out.
+        //
+        // No guard could have fixed that, because the guard was not the
+        // problem. `EditSession::add_ocr_layer` (engine Pass 135.0) plans
+        // against the **session graph**, so the divergence the guard existed to
+        // police no longer exists, and the guard has nothing left to guard.
+        //
+        // What remains here is the pair that is still real: a build with no
+        // recogniser, and a build that cannot find its models.
         match ocr::resolve_models(ocr::exe_dir().as_deref(), user_data_dir().as_deref()) {
             Ok(_) => None,
             Err(e) => Some(Refusal::ModelsMissing(e.searched)),
@@ -423,62 +642,18 @@ impl OcrDialog {
         });
         self.phase = Phase::Working(Job::spawn(Request {
             session: std::sync::Arc::clone(&doc.session),
-            // ★ The operator's own file, which the preflight above has just
-            // established is current: `edit_epoch == saved_epoch` means every
-            // edit is on disk. See `ocr::Request::source` for why the file and
-            // not the session's base — and for why this is the correct read
-            // even on a document nobody has touched.
-            //
-            // A **created** document that has never been saved has no file, and
-            // there the base is current by construction: nothing can have been
-            // saved without giving it a path. `Origin::Created` is how that is
-            // told apart from an opened one.
-            source: (doc.origin != crate::app::state::Origin::Created).then(|| doc.path.clone()),
-            page_index: self.page_index,
+            pages: self
+                .scope
+                .pages(self.page_index, doc.pages.len(), &self.range)
+                .unwrap_or_default(),
+            skip_pages_with_text: self.skip_pages_with_text,
+            // Through the funnel. See `ocr::Request::extract_options`.
+            extract_options: {
+                use crate::app::settings::SettingsExt as _;
+                doc.settings.extract_options()
+            },
             model_dir: source.path().to_path_buf(),
         }));
-    }
-
-    /// Ask where the recognised copy goes, and write it there.
-    ///
-    /// ★ **The first write to disk this program performed**, and since
-    /// 2026-08-14 one of two — `crate::app::save::save_copy` is the other. It
-    /// asks first, every time, and the suggested name is never the file that was
-    /// opened — see [`suggested_path`]. There is no "save over the original"
-    /// branch to find because there is none to write.
-    fn save(&mut self) {
-        let Phase::Recognised(recognised) = &self.phase else {
-            return;
-        };
-        let suggested = suggested_path(&self.source);
-        // The dialog's own title, not `file.save_copy`'s: both surfaces ask the
-        // same operating-system question through the same picker, about
-        // different things. See `crate::app::files::pick_save_path`.
-        let crate::app::files::Picked::Path(target) =
-            crate::app::files::pick_save_path(&suggested, crate::text::ocr::save_dialog_title())
-        else {
-            // Cancelled, or a build with no picker. Either way the bytes are
-            // still in hand and the button is still there: nothing is lost and
-            // nothing is said, because a cancelled save is a complete and
-            // uninteresting outcome.
-            return;
-        };
-        match std::fs::write(&target, &recognised.bytes) {
-            Ok(()) => {
-                crate::diag::trace(|| {
-                    format!(
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        "ocr-saved path={} bytes={}",
-                        target.display(),
-                        recognised.bytes.len()
-                    )
-                });
-                self.phase = Phase::Saved(target);
-            }
-            Err(e) => {
-                self.phase = Phase::Refused(Refusal::Engine(e.to_string()));
-            }
-        }
     }
 
     /// The disclosure block: the confidence statement, then the engine's own
@@ -546,8 +721,8 @@ fn sentence(refusal: &Refusal) -> String {
             let paths: Vec<String> = searched.iter().map(|p| p.display().to_string()).collect();
             t::models_missing(&paths)
         }
-        Refusal::UnsavedEdits => t::unsaved_edits().to_owned(),
         Refusal::NothingRecognised => t::nothing_recognised().to_owned(),
+        Refusal::AlreadyHasText => t::already_has_text().to_owned(),
         // A page index past the end and a page with no area are both
         // structural impossibilities from a dialog opened on a page the canvas
         // is showing. They are worded through the engine's own channel rather
@@ -614,54 +789,51 @@ pub(super) fn open_for(status: &Status) -> Option<OcrDialog> {
 
 #[cfg(test)]
 mod tests {
-    /// ★★★ **A saved document is not an unsaved one** — the operator's OCR
-    /// complaint, as an assertion.
+    /// ★★★ **An edited, unsaved document may now be recognised** — the last
+    /// act of the operator's OCR complaint.
     ///
-    /// The preflight compared `edit_epoch != 0`, which asks *has anything ever
-    /// been edited*, and `edit_epoch` never comes back down. So OCR died for the
-    /// rest of the session the first time anyone edited and saved anything, and
-    /// reported **UnsavedEdits** on the way out — which by then was false.
+    /// # What this used to assert, and why the reversal is not a relaxation
     ///
-    /// The refusal itself is right and is asserted here too: recognition reads a
-    /// whole document, and work that is not on disk is not in it. What changed
-    /// is which question is asked.
+    /// It asserted the opposite: that a document with unsaved edits was
+    /// refused. That was correct at the time and for a real reason —
+    /// `ocr::layer::add_ocr_layer` read the document's **base** revision, so a
+    /// recognised copy taken after an edit silently omitted it.
+    ///
+    /// But the base never becomes current, not even after a save, so the
+    /// refusal was permanent from the first edit onward and the operator was
+    /// stuck in it. `EditSession::add_ocr_layer` (engine Pass 135.0) plans
+    /// against the **session graph** instead, which removes the divergence
+    /// rather than policing it.
+    ///
+    /// ★ So this test now pins the *absence* of the guard, and it is worth
+    /// having as a test rather than as a deletion: the trap was re-introduced
+    /// once already, in a different spelling, and a named assertion is what
+    /// makes a third spelling fail rather than ship.
     #[test]
-    fn ocr_is_refused_for_work_that_is_not_on_disk_and_allowed_for_work_that_is() {
+    fn an_unsaved_edit_no_longer_refuses_recognition() {
         let mut doc = crate::app::state::open_fixture(crate::app::state::FOUR_PAGES);
+        // Whatever the verdict is on this machine — the models may genuinely be
+        // absent — it must not depend on the epochs. That is the whole property:
+        // recognition is an edit now, and an edit does not care what else is
+        // unsaved.
+        let untouched = OcrDialog::preflight(&doc);
 
-        // Never edited: both zero. Whatever the verdict is, it must not be
-        // UnsavedEdits — the engine or the models may still be absent on this
-        // machine, and that is a different refusal.
-        assert_ne!(
-            OcrDialog::preflight(&doc),
-            Some(Refusal::UnsavedEdits),
-            "an untouched document has nothing unsaved about it"
-        );
-
-        // Edited, not saved. This is what the refusal is FOR, and it must
-        // survive the fix: `add_ocr_layer` reads a whole document, and these
-        // edits are in neither the file nor the session's base.
         doc.edit_epoch = 7;
         assert_eq!(
             OcrDialog::preflight(&doc),
-            Some(Refusal::UnsavedEdits),
-            "edits that are not on disk must still refuse — recognition would omit them"
+            untouched,
+            "an unsaved edit must not change the answer"
         );
 
-        // Saved. The epochs agree, so everything the operator has done is in the
-        // file, and `Request::source` reads the file.
         doc.saved_epoch = 7;
-        assert_ne!(
-            OcrDialog::preflight(&doc),
-            Some(Refusal::UnsavedEdits),
-            "a document whose every edit is on disk has nothing unsaved about it, and this is \
-             the state the operator was permanently stuck in"
-        );
+        assert_eq!(OcrDialog::preflight(&doc), untouched, "nor must a save");
 
-        // And one more edit after the save refuses again, which is the property
-        // that stops this becoming a one-way latch.
         doc.edit_epoch = 8;
-        assert_eq!(OcrDialog::preflight(&doc), Some(Refusal::UnsavedEdits));
+        assert_eq!(
+            OcrDialog::preflight(&doc),
+            untouched,
+            "nor an edit after a save — the state the operator was stuck in"
+        );
     }
 
     use super::*;
@@ -717,7 +889,6 @@ mod tests {
         let all = [
             Refusal::EngineAbsent,
             Refusal::ModelsMissing(vec![PathBuf::from("C:\\a"), PathBuf::from("C:\\b")]),
-            Refusal::UnsavedEdits,
             Refusal::NothingRecognised,
             Refusal::Engine("the runtime rejected the model".to_owned()),
         ];
@@ -752,5 +923,64 @@ mod tests {
     #[test]
     fn no_document_means_no_dialog() {
         assert!(open_for(&Status::Empty).is_none());
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    /// All pages means all of them, in order, zero-based.
+    #[test]
+    fn all_pages_is_every_page_in_order() {
+        assert_eq!(
+            Scope::All.pages(3, 5, ""),
+            Some(vec![0, 1, 2, 3, 4]),
+            "the current page has no bearing on All"
+        );
+    }
+
+    /// ★ **This page only means the page the dialog OPENED on.**
+    ///
+    /// The operator can page the document while the window is up. A scope that
+    /// resolved against the live index would recognise a page they had moved
+    /// away from — which is why `page_index` is captured at `open` and threaded
+    /// here rather than read from the document.
+    #[test]
+    fn this_page_only_is_the_captured_page() {
+        assert_eq!(Scope::CurrentPage.pages(2, 5, ""), Some(vec![2]));
+    }
+
+    /// A scope naming no page resolves to nothing, which the dialog renders as
+    /// an unavailable button rather than as an error.
+    #[test]
+    fn a_scope_that_names_no_page_resolves_to_nothing() {
+        assert_eq!(Scope::Range.pages(0, 5, ""), None, "an empty range");
+        assert_eq!(Scope::Range.pages(0, 5, "  "), None, "whitespace");
+        assert_eq!(Scope::Range.pages(0, 5, "9-12"), None, "past the end");
+        assert_eq!(Scope::All.pages(0, 0, ""), None, "a document with no pages");
+        assert_eq!(
+            Scope::CurrentPage.pages(7, 5, ""),
+            None,
+            "a captured index the document no longer has"
+        );
+    }
+
+    /// ★★ **The range field speaks the PRINT dialog's dialect, not its own.**
+    ///
+    /// Two page-range parsers in one program would accept different things on
+    /// two surfaces and the operator would have to learn which one they were
+    /// talking to. This asserts they are the same parser rather than merely
+    /// similar: the expectations below are `parse_page_range`'s own, taken
+    /// from its behaviour rather than restated.
+    #[test]
+    fn the_range_is_parsed_by_the_print_dialogs_parser() {
+        for input in ["1-3", "2,4", "1-2, 5", "3"] {
+            assert_eq!(
+                Scope::Range.pages(0, 5, input),
+                crate::dialogs::print::tabs::parse_page_range(input, 5).filter(|p| !p.is_empty()),
+                "the two must agree on {input:?}"
+            );
+        }
     }
 }
