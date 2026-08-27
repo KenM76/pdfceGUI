@@ -250,3 +250,68 @@ fn a_disclosure_is_hidden_once_the_document_moves_past_it() {
     );
     record_edit_disclosure(None);
 }
+
+/// ★★★ **A row click and a canvas click now write the same thing.**
+///
+/// The operator, 2026-08-26: *"when I have an object selected like text the
+/// Tool tab doesn't switch to giving me the editable stuff for that object."*
+///
+/// The cause was three parallel notions of *"the thing I am working on"* — the
+/// armed tool, a panel-local `focus` written only by the Objects panel, and the
+/// canvas selection — with no bridge between them. The Properties panel read
+/// the second; he had just created the third.
+///
+/// This asserts the binding that replaced it: the Objects panel raises
+/// `Action::SelectObject`, and what it produces is an **ordinary canvas
+/// selection**, indistinguishable from one made by clicking the page. That is
+/// the property that makes the Properties panel, the row highlight, the
+/// handles, Delete and every Format verb agree about the same object without
+/// any of them being told twice.
+#[test]
+fn selecting_from_the_objects_panel_produces_an_ordinary_canvas_selection() {
+    use crate::canvas::target::TargetId;
+
+    let mut app = crate::app::PdfceApp::new();
+    app.open_path(crate::panels::objects::test_support::engine_fixture(
+        FOUR_PAGES,
+    ));
+    let Status::Open(_) = &app.status else {
+        panic!("the fixture opens");
+    };
+
+    app.apply_actions(
+        vec![Action::SelectObject {
+            page: 0,
+            object: Some(TargetId(1)),
+        }],
+        1.0,
+    );
+
+    let Status::Open(doc) = &app.status else {
+        unreachable!("still open")
+    };
+    assert_eq!(
+        doc.selection.object_indices_on(0),
+        vec![1],
+        "a row click must produce a selection the canvas and every panel can read — not a \
+         second, private notion of what is being worked on"
+    );
+
+    // ★ And clicking the selected row again clears it, which is what clicking a
+    // selected item does in every list in every application. The panel decides
+    // WHICH of the two it is asking for; the action does what it is told.
+    app.apply_actions(
+        vec![Action::SelectObject {
+            page: 0,
+            object: None,
+        }],
+        1.0,
+    );
+    let Status::Open(doc) = &app.status else {
+        unreachable!("still open")
+    };
+    assert!(
+        doc.selection.is_empty(),
+        "clicking the already-selected row must deselect"
+    );
+}

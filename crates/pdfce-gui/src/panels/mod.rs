@@ -733,11 +733,30 @@ pub struct ObjectTreeUi {
     /// **not** been extended to meet it half way: it is still one `usize`,
     /// still page-scoped, still cleared by [`PanelsState::sync`] on any page
     /// or revision change, and still read by exactly one panel.
-    /// [`tests::the_panel_focus_has_not_quietly_become_a_selection`] pins
-    /// each of those, so the field cannot acquire selection semantics one
-    /// commit at a time. It is deleted in the commit that makes
-    /// [`properties`] read the canvas's selection, and not before — deleting
-    /// it earlier would leave the Properties panel with nothing to describe.
+    /// ★★★ **RETIRED 2026-08-26. Nothing in production writes or reads it.**
+    ///
+    /// This field's own docs used to end: *"It is deleted in the commit that
+    /// makes [`properties`] read the canvas's selection, and not before —
+    /// deleting it earlier would leave the Properties panel with nothing to
+    /// describe."* That commit has happened. The Properties panel reads
+    /// `OpenDoc::selection`, the Objects panel's row highlight reads the same,
+    /// and a row click raises `Action::SelectObject` rather than writing here.
+    ///
+    /// # Why the field is still declared
+    ///
+    /// Because three tests in `app::files` and `app::lifecycle` use it to pin a
+    /// property that is still real and still worth pinning: **closing or
+    /// re-opening a document must forget the paint-order indices the panels
+    /// hold**, because an index names a position in a document that is no
+    /// longer open. Those tests reach for the one index-bearing field they can
+    /// set from outside, and deleting it would delete the assertion with it.
+    ///
+    /// ★ That is a poor reason to keep a field and it is stated as one. The
+    /// right end is for those tests to assert against the tree's *expansion*
+    /// state, which is index-bearing, production-live and cleared by the same
+    /// `forget_document`. Until they do, this field is a test fixture wearing a
+    /// production field's clothes, and this comment is what stops the next
+    /// reader mistaking it for the second selection it used to be.
     focus: Option<usize>,
 }
 

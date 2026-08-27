@@ -286,7 +286,6 @@ fn body_sections(
     object_section(
         ui,
         doc,
-        state,
         drew_dimension || drew_markup || drew_geometry || drew_form_field,
     );
     ui.separator();
@@ -298,8 +297,47 @@ fn body_sections(
 /// `drew_dimension` is passed rather than re-derived so this function knows
 /// whether the panel is already saying something — see the *nothing focused*
 /// arm.
-fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, drew_dimension: bool) {
-    let Some(index) = state.focus() else {
+/// ★ No `PanelsState` since 2026-08-26. This section used to take one, for the
+/// sole purpose of reading `focus` — see the read below for why it no longer
+/// does. Dropping the parameter rather than underscoring it is what keeps a
+/// future reader from wiring panel-local state back in without noticing they
+/// are recreating the thing that was removed.
+fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, drew_dimension: bool) {
+    // ★★★ **THE CANVAS SELECTION**, since 2026-08-26. This read used to be
+    // `state.focus()`.
+    //
+    // The operator, 2026-08-26: *"when I have an object selected like text the
+    // Tool tab doesn't switch to giving me the editable stuff for that
+    // object."* He was describing this. The panel was fed by
+    // `PanelsState::focus` — a panel-local variable written **only** by an
+    // Objects-panel row click and read **only** here — while the canvas
+    // selection, which is what he had just made by clicking the page, was
+    // something this panel had never heard of.
+    //
+    // The interaction audit found three parallel notions of *"the thing I am
+    // working on"* — the armed tool, this focus, and the canvas selection —
+    // with no bridge between them and none of them authoritative, and named it
+    // the root of his complaint. There is one now, written from both ends: the
+    // Objects panel's row click raises `Action::SelectObject`, and this reads
+    // the selection those two share.
+    //
+    // ★ **The first object on the current page**, and the choice is stated
+    // rather than incidental. A multi-selection has no single set of properties
+    // to show — that is §4.4 of `HOW_IT_SHOULD_WORK.md` and it wants a
+    // *"3 objects selected"* summary, which is a build rather than a read. Until
+    // it exists, describing the first is better than describing nothing, and it
+    // is what the panel did when `focus` could only ever hold one.
+    //
+    // Object-scoped rather than annotation-scoped: `object_indices_on` returns
+    // page-content objects, which is exactly what this section describes. An
+    // annotation selection is `markup::section`'s and a ce dimension is
+    // `dimension::section`'s, both of which have already run above.
+    let selected = doc
+        .selection
+        .object_indices_on(doc.view.page_index)
+        .first()
+        .copied();
+    let Some(index) = selected else {
         // ★ Silent when the section drew, because it is not true otherwise. A
         // ce dimension selected on the canvas with nothing focused in the
         // object tree is the ordinary state the instant an operator clicks one,

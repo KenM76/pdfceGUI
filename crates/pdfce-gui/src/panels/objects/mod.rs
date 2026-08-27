@@ -253,7 +253,7 @@ pub fn body(
     doc: &OpenDoc,
     state: &mut PanelsState,
     host: Option<&MenuHost<'_>>,
-    _actions: &mut Vec<Action>,
+    actions: &mut Vec<Action>,
 ) -> Vec<HandlerToken> {
     let page_index = doc.view.page_index;
     // The document's own decomposition, not a second one built here — see
@@ -313,7 +313,21 @@ pub fn body(
     // The commands invoked from a row's context menu, collected across the
     // visible rows and returned. Not applied here — a panel raises intent.
     let mut tokens: Vec<HandlerToken> = Vec::new();
-    let focused = tree.focus();
+    // ★★★ **The row highlight is READ FROM THE SELECTION**, since 2026-08-26 —
+    // it used to be `tree.focus()`, a panel-local variable the canvas neither
+    // wrote nor read.
+    //
+    // That is the whole of the change. This panel no longer *holds* an opinion
+    // about which object is being worked on; it renders the one opinion there
+    // is. A click on the canvas therefore highlights the matching row, which it
+    // never did before, and a click on a row selects on the canvas, which it
+    // never did either — the two are the same fact seen from two ends.
+    //
+    // ★ Object-scoped, and deliberately: `object_indices_on` answers about page
+    // CONTENT, which is what this tree lists. An annotation or a ce dimension
+    // selected on the canvas leaves every row here unhighlighted, correctly —
+    // none of these rows is that thing.
+    let focused = doc.selection.object_indices_on(page_index).first().copied();
     let expanded_objects = &tree.objects_expanded;
     let expanded_parts = &tree.parts_expanded;
 
@@ -447,8 +461,35 @@ pub fn body(
     if let Some((object, part)) = toggle_part {
         tree.toggle_part(object, part);
     }
+    // ★★★ A row click SELECTS, since 2026-08-26.
+    //
+    // It used to call `tree.set_focus(index)`, which wrote a panel-local
+    // `focus` that the canvas neither wrote nor read — the second of three
+    // parallel notions of *"the thing I am working on"* that the interaction
+    // audit named as the cause of the operator's *"when I have an object
+    // selected like text the Tool tab doesn't switch to giving me the editable
+    // stuff for that object."*
+    //
+    // Now the two ends write the same thing: a row click sets the canvas
+    // selection, and the canvas selection is what the Properties panel
+    // describes. Neither can disagree with the other.
+    //
+    // ★ The toggle is preserved and it matters. `set_focus` cleared the focus
+    // when the already-focused row was clicked — *"a row click is its own
+    // undo"* — and with a real selection model that reading is even better than
+    // it was: clicking the selected row deselects, which is what clicking a
+    // selected item does in every list in every application.
     if let Some(index) = focus {
-        tree.set_focus(index);
+        let already = doc
+            .selection
+            .object_indices_on(page_index)
+            .first()
+            .copied()
+            .is_some_and(|selected| selected == index);
+        actions.push(Action::SelectObject {
+            page: page_index,
+            object: (!already).then_some(crate::canvas::target::TargetId(index as u64)),
+        });
     }
     tokens
 }

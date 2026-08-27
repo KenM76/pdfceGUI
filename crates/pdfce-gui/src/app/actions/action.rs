@@ -37,6 +37,42 @@ use crate::viewer::FitMode;
 /// as to labels.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    /// ★★★ **Select exactly this object** — raised by the Objects panel when a
+    /// row is clicked.
+    ///
+    /// # Why a panel raises an action instead of writing the selection
+    ///
+    /// Because a panel body is handed `&OpenDoc`, not `&mut`, and that is
+    /// deliberate: a surface that could mutate the document while it is being
+    /// drawn is a surface that can change what a later widget in the same frame
+    /// is describing. Every other panel that changes something raises an action
+    /// for the same reason, and this is not the place to make an exception.
+    ///
+    /// # What it replaced
+    ///
+    /// `PanelsState::focus` — a second notion of *"the thing I am working on"*,
+    /// written only by the Objects panel and read only by the Properties panel,
+    /// which the canvas neither wrote nor read. The audit of 2026-08-26 found
+    /// three such notions in parallel (the armed tool, the panel focus, the
+    /// canvas selection) with no bridge between them, and named it the cause of
+    /// the operator's *"when I have an object selected like text the Tool tab
+    /// doesn't switch to giving me the editable stuff for that object."*
+    ///
+    /// Now there is one, written from both ends.
+    SelectObject {
+        /// The page the object is on, in the session's page space.
+        page: usize,
+        /// Which object, as a paint-order target — or `None` to select
+        /// nothing.
+        ///
+        /// ★ `None` rather than a second variant, because a row click is one
+        /// act with one outcome: *this row is now the selection*. Clicking the
+        /// already-selected row makes that selection empty, which is what
+        /// clicking a selected item does in every list in every application,
+        /// and splitting it into Select and Clear would make the caller decide
+        /// which act it was performing when it only ever performs one.
+        object: Option<crate::canvas::target::TargetId>,
+    },
     /// **Open this document, replacing whatever is open.**
     ///
     /// Raised by `file.open` once the picker has answered, by `file.recent`

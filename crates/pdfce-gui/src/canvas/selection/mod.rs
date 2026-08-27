@@ -596,12 +596,40 @@ impl SelectionState {
     /// chosen minutes apart is not a set anybody intended to transform
     /// together.
     pub fn select_placed(&mut self, page: usize, object: TargetId) {
+        self.select_only(page, object, "placed");
+    }
+
+    /// ★★ **Select exactly one object, from somewhere that is not the canvas.**
+    ///
+    /// The shared body of [`Self::select_placed`] and of the Objects panel's
+    /// row click, and it exists as one function because the two are the same
+    /// act: *"this, and only this, is now the thing being worked on."*
+    ///
+    /// `why` names the origin and reaches only the trace. It is a
+    /// `&'static str` rather than an enum because nothing branches on it —
+    /// the moment something does, it should become one.
+    ///
+    /// # ★★★ Why the Objects panel writes the SELECTION and not a focus
+    ///
+    /// It used to write `PanelsState::focus`, a second notion of *"the thing I
+    /// am working on"* that the canvas knew nothing about and that only the
+    /// Properties panel read. The audit of 2026-08-26 named that as the root of
+    /// the operator's *"when I have an object selected like text the Tool tab
+    /// doesn't switch to giving me the editable stuff for that object"*: there
+    /// were three parallel answers to one question — the armed tool, the panel
+    /// focus and the canvas selection — with no bridge between them and none of
+    /// them authoritative.
+    ///
+    /// One notion, written from both ends. A row click selects on the canvas; a
+    /// canvas click is what the panel describes. Neither can now disagree with
+    /// the other, because there is nothing left to disagree with.
+    pub fn select_only(&mut self, page: usize, object: TargetId, why: &'static str) {
         self.entries = vec![Selection::object(page, object)];
         self.level = SelectionLevel::Object;
         self.normalise();
         crate::diag::trace(move || {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("selection-placed page={page} object={}", object.0)
+            format!("selection-set page={page} object={} via={why}", object.0)
         });
     }
 

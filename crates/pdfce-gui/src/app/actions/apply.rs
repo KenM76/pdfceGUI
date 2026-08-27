@@ -342,6 +342,26 @@ impl PdfceApp {
                 // whoever moved one of these six arms. Never rendered.
                 unreachable!("handled before the document guard")
             }
+            // ★★ A row click in the Objects panel, arriving as an action for
+            // the reason `Action::SelectObject`'s own docs give: a panel body
+            // holds `&OpenDoc`, not `&mut`, so a panel that changes something
+            // asks rather than writes.
+            //
+            // Here rather than before the document guard, because it needs the
+            // document and has no reason to run without one — the pre-guard
+            // match is for the actions that *make* a document open.
+            //
+            // ★ No `vector_edit`, no epoch bump, no cache invalidation: **a
+            // selection is not an edit.** It names parts of a document and
+            // changes nothing a save would write. `canvas`'s header makes that
+            // argument for the canvas selection; this is the same argument
+            // arriving from the other end of the same selection.
+            Action::SelectObject { page, object } => match object {
+                Some(object) => doc.selection.select_only(page, object, "objects-panel"),
+                None => {
+                    doc.selection.clear();
+                }
+            },
             Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),
             Action::ZoomIn => doc.view.zoom_in(max_zoom),
             Action::ZoomOut => doc.view.zoom_out(max_zoom),
