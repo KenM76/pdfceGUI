@@ -1,5 +1,118 @@
 # CONTINUE — handoff
 
+## 2026-08-27 (afternoon) — the font tools, and four defects only driving could find
+
+**Clean tree. 18/18 gates. 1,831 + 420 + 144 tests, 0 failing. Re-measure
+before quoting.** Engine `70c5919`. Build **`OneDrive\pdfceGUI1`**, 18:29,
+shell `1a25e18`-ish — read `BUILD-INFO.txt` in the folder rather than trusting
+this line. `pdfceGUI2` holds the 18:26 build of the same code.
+
+### ★★★ WHAT TO DO FIRST: ASK HIM ABOUT THE FONT TOOLS
+
+He confirmed the click work this morning — *"I checked and clicking works"* —
+and O46's complaints 1, 3, 4, 5 and 6 are closed by it. What is new since then
+is **O37, the font tools**, and it is shipped, driven, falsified and published.
+
+**The one thing he will hit in ten seconds:** you must press **T** before
+sweeping, because in Edit mode a Select-tool drag is an object marquee. Nothing
+on screen says so. That is written up on the check's own `VK_T` constant and in
+the O37 row; it is the obvious next piece of work and it is a *discoverability*
+fix, not a capability one.
+
+### ★★★ THE FINDING OF THE DAY, and it is a rule rather than a bug
+
+**A text RUN is not a show OPERATOR.**
+
+`layout` closes a run on *geometry*; a producer closes a show operator on
+whatever its writer felt like. On the operator's own SW41177 a title-block cell
+is **one run made of several `Tj`s**. So:
+
+* pinning the first operator and passing the run's text as `find` asks the
+  engine for a code range spanning several string elements, which it correctly
+  refuses — *"text to format ("FINISH ") was not found in an editable run on the
+  page"* — **on a page where the identical unpinned search succeeds instantly**;
+* and `TextRun::text` contains characters **that are not in the file**: the
+  extraction synthesises a space wherever a `TJ` offset exceeds the word-gap
+  threshold, so the cell reads `"FINISH         "` while the buffer holds
+  `FINISH` and kerning numbers.
+
+⇒ **The unit of a text edit is the operator.** `canvas::textedit::pin::operators_in_run`
+is the hop, and its header is the place to read before touching anything that
+edits text.
+
+### ★★ Four defects, and every one was invisible to eight passing unit tests
+
+The tests called the verb directly and read the document back. They were good
+tests. The first press of Bold in the running program restyled **one** piece of
+a fourteen-piece selection and stopped.
+
+1. the run/operator confusion above;
+2. derived-whitespace runs cannot be pinned and the loop **stopped** on them —
+   the first one ended the gesture;
+3. the refusal path returned with **no trace line at all**, so the harness
+   polled twenty seconds over a trace holding eleven completed edits and
+   reported *"Bold was pressed and nothing happened"*;
+4. `vector_edit`'s label and the module's summary were both `text-style`, and
+   trace matching is on the exact event name, so the check read the wrong line.
+
+★ Also `applied=19 of=14`, which is two units under one comparison. A count is
+only readable beside a total of the same thing.
+
+### ★★ Three engine findings, all filed, none worked around
+
+| file in `open/` | what |
+|---|---|
+| `request_gate_synthesis_names_a_face_that_cannot_cover_the_run.md` | on `textedit/format_family.pdf` the synthesis gate names `Times-Bold` (family-matching the run), and `Times-Bold` remaps `o` to a bullet so it cannot cover the text — while `Calibri-Bold` on the same page can. **Bold is unreachable there through either verb**, contradicting their own "every page is covered" |
+| `request_a_pinned_format_request_should_be_able_to_say_the_whole_operator.md` | `find: ""` on a pinned request should mean *the whole operator*. Three wrong answers preceded the right one and each looked correct |
+| `reply_synthetic_is_enough_and_142_1_is_the_one_we_want.md` | their priority question answered: a disclosed synthetic weight is enough for CAD title blocks; what we want is `142.1`, the font-resource pre-flight |
+
+★ We did **not** build a shell-side search for a different bold resource. Twenty
+lines, would work, and is this project second-guessing pdfce's font selection —
+decision 058's exact case.
+
+### ★★ And a retraction of our own, caught before it was sent
+
+The reply above asked for a `FormatReport::synthesis` field on the grounds that
+it did not exist. **It does** — `format.rs:913`. We wrote an absence claim about
+their crate into the document answering *their* correction about doing exactly
+that, within the hour of reading it. Left in the file, struck. The pull toward
+"I looked and did not see it, therefore it is not there" survives reading a note
+about itself; the grep now happens before the file is **saved**.
+
+### What else landed today
+
+* **`Action` lost the form-field family** to `app::actions::forms` under R2 —
+  1,495 → 1,374 lines. Reading the block to move it found **three `///` blocks
+  stacked onto one variant** while two others had none. Doc comments concatenate
+  silently: nothing warns, `cargo doc` is clean, clippy is clean, and the only
+  instrument that finds it is a reader.
+* **`canvas::textsel::writing` is deleted — 1,303 lines.** The engine publishes
+  the writing direction now (Passes 139.x). All eleven rotated-text behaviour
+  checks pass with the engine doing the work, and his own SW41177 stamp comes
+  back as one whole 79-character line.
+
+### How to drive the new check
+
+```bash
+ui-verify --check restyling_selected_text_reaches_the_document   --exe target/scratch/drive/pdfce-gui.exe   --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,1140,62
+```
+
+★ **Copy the exe to `target/scratch/drive/` first** — never drive the published
+build; the suite's side effects land in his own saved state.
+
+Ten checks were re-driven this afternoon, chosen for what the day's two
+refactors touched: `form_field`, `adopt_widget_puts_a_form_control_back`,
+`markup_style_group_is_drawn`, `text_selection_sweeps_and_copies`,
+`rotated_text_selects_and_copies_as_one_line`, `text_tool_selects_and_marks_in_edit`,
+`a_click_inside_a_form_selects_what_is_drawn_there`, `text_markup_marks_a_selection`,
+`ctrl_c_copies_text_to_the_os_clipboard`, `delete_key_after_canvas_click`. All green.
+
+★ **Both OneDrive slots hold today's code.** `pdfceGUI1` is the clean-tree build
+and `pdfceGUI2` the same code built minutes earlier with an uncommitted
+`Cargo.lock`. There is no older fallback in OneDrive tonight; git has one.
+
+---
+
 ## 2026-08-27 — the form-XObject selection, driven and published
 
 **Clean tree. 18/18 gates. 1,830 + 420 + 144 tests, 0 failing. Re-measure

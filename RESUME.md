@@ -17,7 +17,31 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured on 2026-08-27, after the form-XObject selection work
+## ★★★ Last session: 2026-08-27 afternoon — the font tools
+
+**Read `CONTINUE.md` first.** In one paragraph: `EditSession::format_text` was
+consumed, so **existing text can be restyled** — font, size, Bold, Italic,
+colour, in the Properties panel's *This text* section. Shipped, driven against
+the operator's own drawing, falsified, published to `OneDrive\pdfceGUI1`.
+
+**Three things a cold session would otherwise rediscover the hard way:**
+
+1. ★★★ **A text RUN is not a show OPERATOR.** `layout` closes a run on geometry;
+   a producer closes an operator on whatever it felt like. A title-block cell can
+   be one run made of three `Tj`s. Anything that edits text must work per
+   operator — `canvas::textedit::pin::operators_in_run`, and read its header
+   first.
+2. ★★ **`TextRun::text` contains characters that are not in the file.** The
+   extraction synthesises spaces from `TJ` offsets. Never hand it to
+   `format_text` as a `find`.
+3. ★ **In Edit mode you must press `T` before sweeping text**, or the drag is an
+   object marquee. Nothing on screen says so; that is the next piece of work.
+
+**Eight unit tests passed while the feature restyled one piece of fourteen and
+stopped.** R1 earned its keep again — the whole of what went wrong is in
+`CONTINUE.md`.
+
+## ★★★ State, as measured on 2026-08-27 MORNING, after the form-XObject selection work
 
 **This table is a reading, not a status.** Every row is what a command printed
 at that commit; the tree has moved since, and the numbers move with it. It is
