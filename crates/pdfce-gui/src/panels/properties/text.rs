@@ -89,6 +89,20 @@ use crate::text::panels::properties as t;
 /// The trace region, so a driven check can find this section on screen.
 // ui-text-exempt: trace region name, never displayed
 pub const REGION: &str = "properties.text";
+/// The Bold button's own region.
+///
+/// ★ Published per control rather than leaving a driven check to divide
+/// [`REGION`] by eye — `geometry`'s own note on this is the precedent, and the
+/// reason is that a check computing a control's position from a section's
+/// bounds is a check that passes on a build where the controls moved.
+// ui-text-exempt: trace region name, never displayed
+pub const BOLD_REGION: &str = "properties.text.bold";
+/// The size spinner's own region.
+// ui-text-exempt: trace region name, never displayed
+pub const SIZE_REGION: &str = "properties.text.size";
+/// The face chooser's own region.
+// ui-text-exempt: trace region name, never displayed
+pub const FACE_REGION: &str = "properties.text.face";
 
 /// What the selected text looks like now, re-read only when it can have
 /// changed.
@@ -241,7 +255,7 @@ fn face_row(
     let faces = faces_on_page(doc, page);
     ui.horizontal(|ui| {
         ui.label(t::text_face_label());
-        egui::ComboBox::from_id_salt("properties-text-face")
+        let combo = egui::ComboBox::from_id_salt("properties-text-face")
             .selected_text(shorten(&current))
             .show_ui(ui, |ui| {
                 for face in &faces {
@@ -262,6 +276,7 @@ fn face_row(
                     }
                 }
             });
+        crate::diag::ui_rect_visible(FACE_REGION, combo.response.rect, ui.clip_rect());
     });
 }
 
@@ -286,6 +301,7 @@ fn size_row(
                 .range(1.0..=1440.0)
                 .suffix(t::text_size_suffix()),
         );
+        crate::diag::ui_rect_visible(SIZE_REGION, response.rect, ui.clip_rect());
         if (response.drag_stopped() || response.lost_focus())
             && (draft.typed_size - draft.size).abs() > f64::EPSILON
         {
@@ -307,11 +323,9 @@ fn size_row(
 fn weight_row(ui: &mut Ui, page: usize, runs: &[usize], actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.label(t::text_weight_label());
-        if ui
-            .button(t::text_bold())
-            .on_hover_text(t::text_bold_hint())
-            .clicked()
-        {
+        let bold = ui.button(t::text_bold());
+        crate::diag::ui_rect_visible(BOLD_REGION, bold.rect, ui.clip_rect());
+        if bold.on_hover_text(t::text_bold_hint()).clicked() {
             actions.push(Action::TextStyle {
                 page,
                 runs: runs.to_vec(),

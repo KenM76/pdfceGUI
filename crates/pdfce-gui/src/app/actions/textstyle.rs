@@ -205,7 +205,42 @@ fn request(page: usize, pinned: crate::canvas::textedit::pin::Pinned, find: &str
 /// half-applies and says so: the operator sees some of their text change, has no
 /// way to tell how much, and the undo stack holds an unknown number of entries.
 pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &StyleChange) {
-    let mut ordered: Vec<usize> = runs.to_vec();
+    // ★★★ DERIVED-WHITESPACE RUNS ARE SKIPPED, and the first driven run of this
+    // module is why.
+    //
+    // A sweep across 266 characters of a title block covers many runs, and the
+    // ones the extraction *derived* — the word spaces and line breaks between
+    // show operators — carry no glyphs. No glyphs means no `GlyphProvenance`,
+    // which means no pin, which means nothing to restyle. That is correct and
+    // expected: there is no show operator behind them.
+    //
+    // The loop below used to treat an unpinnable run as a **stop**, on the
+    // argument that half-applying and carrying on is worse than half-applying
+    // and saying so. That argument is still right for a run that has text in it
+    // and would not pin; it was catastrophically wrong here, because the FIRST
+    // derived space ends the gesture. Driven, the operator swept a whole label
+    // and got `applied=1`.
+    //
+    // Filtering on `glyphs.is_empty()` rather than on "the pin failed" keeps the
+    // two states apart, which is the whole point: a glyphless run is *not text*
+    // and is skipped silently; a run with glyphs that will not pin is a real
+    // refusal and still stops. `page_text()` is the SHARED cache — no provenance,
+    // no second extraction, no cost.
+    let glyphless: std::collections::BTreeSet<usize> =
+        doc.page_text()
+            .map_or_else(std::collections::BTreeSet::new, |text| {
+                text.runs
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.glyphs.is_empty())
+                    .map(|(i, _)| i)
+                    .collect()
+            });
+    let mut ordered: Vec<usize> = runs
+        .iter()
+        .copied()
+        .filter(|r| !glyphless.contains(r))
+        .collect();
     ordered.sort_unstable();
     ordered.dedup();
     ordered.reverse();
@@ -225,115 +260,119 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
 
     for (position, run) in ordered.into_iter().enumerate() {
         let last = position + 1 == total;
-        // ★ A FRESH pin per step: the previous iteration rewrote the content
-        // stream, so any span measured before it names bytes that have moved.
-        let Some(read) = crate::canvas::textedit::pin::inspect(doc, page, run) else {
+        // ★★★ A FRESH read per run, and the unit inside it is the show
+        // OPERATOR, not the run. `pin::operators_in_run`'s header carries the
+        // argument and the driven run that produced it: a run is closed on
+        // geometry and an operator is closed on whatever its producer felt
+        // like, so a title-block cell can be one run made of three `Tj`s. Pin
+        // the first and pass the run's text as `find` and the engine correctly
+        // refuses, on a page where an UNpinned search for the same string
+        // succeeds instantly.
+        //
+        // Descending here too, for the same reason the runs are: an edit only
+        // moves bytes at or after itself.
+        let mut ops = crate::canvas::textedit::pin::operators(doc, page, run);
+        if ops.is_empty() {
             stop(doc, applied, t::TextStyleRefusal::Unpinnable);
             return;
-        };
-        let (pinned, find) = (read.pin, read.style.text);
-
-        let mut outcome: Option<FormatError> = None;
-        let mut notes: Vec<String> = Vec::new();
-        super::apply::vector_edit(doc, "text-style", page, 1, |session| {
-            match session.format_text(
-                &change.stamp(request(page, pinned, &find)),
-                &FormatOptions::default(),
-            ) {
-                Ok(report) => {
-                    notes.extend(report.disclosures);
-                    Ok(notes.clone())
-                }
-                // ★★ The two-verb retry. The engine refused synthesis *because
-                // a real face is available* and named it; taking that offer is
-                // what makes one Bold button work on every page. See the module
-                // header — the alternative is showing the operator a sentence
-                // telling them to do a thing the program could have done.
-                Err(FormatError::RealFaceAvailable {
-                    real_font, style, ..
-                }) => {
-                    let retry = request(page, pinned, &find)
-                        .font(pdfce_core::text_edit::FontSelector::new(&real_font));
-                    match session.format_text(&retry, &FormatOptions::default()) {
-                        Ok(report) => {
-                            notes.push(t::text_style_used_real_face(style, &real_font));
-                            notes.extend(report.disclosures);
-                            Ok(notes.clone())
-                        }
-                        // ★★★ The RETRY's refusal is the one reported, not the
-                        // synthesis refusal that sent us here — and that is the
-                        // opposite of what this code did when it was written.
-                        //
-                        // A test on `textedit/format_family.pdf` proved it. The
-                        // page carries a `/Times-Roman` run and two bold
-                        // resources: `/F2` `Calibri-Bold`, which covers the run,
-                        // and `/F3` `Times-Bold`, whose `/Differences` remaps
-                        // `o` to `/bullet` and therefore does NOT. `gate_synthesis`
-                        // refuses synthesis and names `Times-Bold` — matching the
-                        // run's family, which is the sensible-looking choice —
-                        // and `set_font Times-Bold` is then refused for
-                        // coverage. **Bold is unreachable on that page**, which
-                        // contradicts the engine's own "between the two verbs
-                        // every page is covered", and `--set-font F2` succeeds
-                        // on the command line the whole time.
-                        //
-                        // Reported to the engine rather than worked around: a
-                        // shell-side search for a *different* bold resource
-                        // would be this project second-guessing pdfce's font
-                        // selection, and decision 058 says a workaround the GUI
-                        // keeps quiet is a boundary defect that stays.
-                        //
-                        // What the shell owes meanwhile is the ACTIONABLE half.
-                        // "There is a real bold face, use it" is useless when
-                        // using it is what just failed; "that face has no shape
-                        // for one of these characters" is a fact the operator
-                        // can act on.
-                        Err(error) => {
-                            decline::record_text_style(refusal_of(&error));
-                            outcome = Some(error);
-                            Err(FormatError::NoOp)
+        }
+        ops.reverse();
+        let final_op = ops.len();
+        for (which, op) in ops.into_iter().enumerate() {
+            let mut outcome: Option<FormatError> = None;
+            let mut notes: Vec<String> = Vec::new();
+            super::apply::vector_edit(doc, "format-text", page, 1, |session| {
+                match session.format_text(
+                    &change.stamp(request(page, op.pin, &op.find)),
+                    &FormatOptions::default(),
+                ) {
+                    Ok(report) => {
+                        notes.extend(report.disclosures);
+                        Ok(notes.clone())
+                    }
+                    // ★★ The two-verb retry. The engine refused synthesis
+                    // *because a real face is available* and named it; taking
+                    // that offer is what makes one Bold button work on every
+                    // page. See the module header — the alternative is showing
+                    // the operator a sentence telling them to do a thing the
+                    // program could have done.
+                    Err(FormatError::RealFaceAvailable {
+                        real_font, style, ..
+                    }) => {
+                        let retry = request(page, op.pin, &op.find)
+                            .font(pdfce_core::text_edit::FontSelector::new(&real_font));
+                        match session.format_text(&retry, &FormatOptions::default()) {
+                            Ok(report) => {
+                                notes.push(t::text_style_used_real_face(style, &real_font));
+                                notes.extend(report.disclosures);
+                                Ok(notes.clone())
+                            }
+                            // ★★★ The RETRY's refusal is reported, not the
+                            // synthesis refusal that sent us here. On
+                            // `textedit/format_family.pdf` the gate names
+                            // `Times-Bold` — family-matching the run — and
+                            // `Times-Bold` remaps `o` to a bullet, so it cannot
+                            // cover "hello world" while `Calibri-Bold` on the
+                            // same page can. "There is a real bold face, use
+                            // it" is useless advice when using it is what just
+                            // failed. Filed with the engine, not worked around:
+                            // a shell-side search for a different bold resource
+                            // would be this project second-guessing pdfce's
+                            // font selection.
+                            Err(error) => {
+                                decline::record_text_style(refusal_of(&error));
+                                outcome = Some(error);
+                                Err(FormatError::NoOp)
+                            }
                         }
                     }
+                    Err(error) => {
+                        decline::record_text_style(refusal_of(&error));
+                        outcome = Some(error);
+                        Err(FormatError::NoOp)
+                    }
                 }
-                Err(error) => {
-                    decline::record_text_style(refusal_of(&error));
-                    // Handed back unchanged so the trace keeps the engine's own
-                    // `Display` prose — the decline is a sentence for an
-                    // operator, the trace is the record for whoever is
-                    // debugging, and `check-ui-strings.sh` exclusion 3 says
-                    // they must not become each other.
-                    //
-                    // ★ `outcome` is SET and not taken. It was `outcome.take()`
-                    // for one commit, which handed the error onward correctly
-                    // and left the flag `None` — so the caller below read the
-                    // refusal as a success and counted it applied. Found by the
-                    // first test that read the DOCUMENT back instead of the
-                    // function's own report of itself.
-                    outcome = Some(error);
-                    Err(FormatError::NoOp)
+            });
+
+            if let Some(error) = outcome {
+                // ★★ A refusal that reaches the operator and not the trace is a
+                // refusal nobody debugging can see. This branch returned
+                // silently for one build, and a driven run then polled twenty
+                // seconds over a trace holding eleven completed edits, neither
+                // a summary nor a decline, and reported "Bold was pressed and
+                // nothing happened" about a gesture that had done eleven things
+                // and stopped on purpose.
+                if applied > 0 {
+                    decline::record_text_style(t::TextStyleRefusal::PartOnly);
+                    emit_carried(doc, page, applied, total, &carried);
                 }
+                let detail = error.to_string();
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!(
+                        "text-style-declined page={page} run={run} applied={applied} runs={total} detail={detail}"
+                    )
+                });
+                return;
             }
-        });
+            applied += 1;
+            carried.extend(notes);
 
-        if outcome.is_some() && notes.is_empty() {
-            // Refused. The decline is already recorded; say how far it got.
-            if applied > 0 {
-                decline::record_text_style(t::TextStyleRefusal::PartOnly);
+            if last && which + 1 == final_op {
+                emit_carried(doc, page, applied, total, &carried);
             }
-            return;
-        }
-        applied += 1;
-        carried.extend(notes);
-
-        if last && (total > 1 || !carried.is_empty()) {
-            emit_carried(doc, page, applied, total, &carried);
         }
     }
 
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         format!(
-            "text-style page={page} change={} applied={applied} of={total}",
+            // ★ `applied` counts show OPERATORS and `runs` counts runs, and they
+            // are different numbers — the first driven pass printed
+            // `applied=19 of=14`, which reads as nonsense because it was two
+            // units under one comparison. A count is only readable beside a
+            // total of the same thing.
+            "text-style-applied page={page} change={} applied={applied} runs={total}",
             change.label()
         )
     });
@@ -366,7 +405,7 @@ fn stop(doc: &mut OpenDoc, applied: usize, why: t::TextStyleRefusal) {
     decline::record_text_style(why);
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
-        format!("text-style-declined applied={applied}")
+        format!("text-style-declined applied={applied} detail=unpinnable")
     });
 }
 

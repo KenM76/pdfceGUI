@@ -295,6 +295,11 @@ pub mod pan_refresh;
 pub mod read_mode_chrome;
 pub mod redaction;
 pub mod resize;
+/// ★★ **Sweep text, press Bold, and the file changes** — O37's font tools,
+/// driven. `app::actions::textstyle`'s eight unit tests would all still pass on
+/// a build where the panel never draws, because they call the verb directly;
+/// three links of the chain in front of it have no other instrument.
+pub mod restyle_text;
 pub mod ribbon_captions;
 /// ★★ **The ninth grip** — the rotate handle above the selection box, and the
 /// third word of the operator's *"reposition, resize, or rotate"*. Its header
@@ -754,6 +759,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
+        Box::new(restyle_text::RestylingSelectedTextReachesTheDocument),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
         Box::new(tool_row::TheTextToolTypesOnOneClick),

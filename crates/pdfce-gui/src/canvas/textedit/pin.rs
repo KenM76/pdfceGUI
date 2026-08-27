@@ -60,6 +60,32 @@ use pdfce_core::text_extract::TextColor;
 
 use crate::app::state::OpenDoc;
 
+/// Which content buffer a glyph's span indexes — the `EditTarget` half of a pin.
+///
+/// Its own function since 2026-08-27, when a second caller appeared
+/// ([`operators_in_run`]). The sixty lines of argument below are the reason it
+/// is a function rather than two copies: a paraphrase of them beside the
+/// restyle verb would compile, would look correct, and would drift.
+fn target_of(p: &pdfce_core::text_extract::GlyphProvenance) -> pdfce_core::text_edit::EditTarget {
+    match p.content_stream {
+        pdfce_core::text_extract::ContentStreamRef::Page => {
+            pdfce_core::text_edit::EditTarget::PageContents
+        }
+        pdfce_core::text_extract::ContentStreamRef::Form { object } => {
+            pdfce_core::text_edit::EditTarget::Form { object }
+        }
+        // ★ `ContentStreamRef` is `#[non_exhaustive]`, so a buffer
+        // kind added later lands here. `Auto` is the right fallback
+        // and not merely the compiling one: it is the engine's own
+        // default, it searches everywhere including whatever the new
+        // kind is, and it degrades to the pre-`119.0` behaviour
+        // rather than to a refusal. A `PageContents` fallback would
+        // silently narrow the search for a stream nobody here has
+        // heard of, which is the worse direction.
+        _ => pdfce_core::text_edit::EditTarget::Auto,
+    }
+}
+
 /// Everything a pinned text verb needs in order to name one show operator.
 ///
 /// The three fields travel together because they are **one measurement**. The
@@ -120,23 +146,7 @@ pub fn of_run(model: &EditableTextModel<'_>, run: usize) -> Option<Pinned> {
     // says so. `Form { object }` is an error if the page does not
     // paint that form, which is the answer we want — a loud refusal
     // beats a widened search when the caller had a measurement.
-    let target = match p.content_stream {
-        pdfce_core::text_extract::ContentStreamRef::Page => {
-            pdfce_core::text_edit::EditTarget::PageContents
-        }
-        pdfce_core::text_extract::ContentStreamRef::Form { object } => {
-            pdfce_core::text_edit::EditTarget::Form { object }
-        }
-        // ★ `ContentStreamRef` is `#[non_exhaustive]`, so a buffer
-        // kind added later lands here. `Auto` is the right fallback
-        // and not merely the compiling one: it is the engine's own
-        // default, it searches everywhere including whatever the new
-        // kind is, and it degrades to the pre-`119.0` behaviour
-        // rather than to a refusal. A `PageContents` fallback would
-        // silently narrow the search for a stream nobody here has
-        // heard of, which is the worse direction.
-        _ => pdfce_core::text_edit::EditTarget::Auto,
-    };
+    let target = target_of(p);
     Some(Pinned {
         span: p.operator_span,
         target,
@@ -201,7 +211,43 @@ pub struct RunStyle {
     /// ★ It stays valid across a restyle: `format_text` changes how characters
     /// look and never which characters they are, so a text captured before a
     /// multi-run gesture is still the right `find` for the runs still to come.
+    ///
+    /// ★★★ **It is NOT the show operator's decoded text**, and assuming it was
+    /// cost this project a driven run. See [`Self::find`].
     pub text: String,
+    /// ★★★ **The longest stretch of [`Self::text`] that is actually IN the
+    /// file** — the `find` a pinned `format_text` request must carry.
+    ///
+    /// # Why these are two fields and not one
+    ///
+    /// A `TextRun`'s `text` includes **derived** characters. The extraction
+    /// synthesises a space wherever a `TJ` offset inside one show operator
+    /// exceeds the word-gap threshold, so a title-block cell reads
+    /// `"FINISH         "` in `text` while the operator's decoded buffer holds
+    /// `"FINISH"` and a run of kerning numbers.
+    ///
+    /// Handing `text` to `format_text` as its `find` therefore fails with
+    /// *"text to format … was not found in an editable run on the page"* —
+    /// which is exactly what a driven Bold press produced on the operator's own
+    /// drawing: eleven runs restyled and the twelfth refused, on a page where
+    /// nothing was wrong.
+    ///
+    /// # How it is computed, and what it costs
+    ///
+    /// Walk the glyphs; keep the longest stretch whose byte ranges are
+    /// **contiguous** — each glyph starting exactly where the last one ended.
+    /// A derived character is one no glyph covers, so it ends a stretch by
+    /// construction, and every byte of the answer is a byte a glyph put there.
+    ///
+    /// ★ The cost is honest and is disclosed by the caller: on a run with an
+    /// internal derived gap this is **shorter than the run**, so a restyle acts
+    /// on the longest real piece rather than on all of it. `format_text`
+    /// requires a non-empty `find` even when the operator is already pinned —
+    /// the pin names the operator and `find` names a sub-range within it — so
+    /// there is no way today to say *"the whole pinned operator"*. That is
+    /// filed as an engine request; it is a small ask (`find: ""` meaning all of
+    /// it, when `pinned_span` is set) and it would delete this field.
+    pub find: String,
     /// The fill colour in force, in whatever space the file set it.
     ///
     /// `TextColor::Other` is a real and important answer: the run is painted in
@@ -218,6 +264,27 @@ pub struct Inspected {
     pub pin: Pinned,
     /// The reading, for a panel.
     pub style: RunStyle,
+}
+
+/// Every show operator of `run` on `page`, in ONE extraction.
+///
+/// The form `crate::app::actions::textstyle` wants: a restyle acts on operators
+/// and a selection names runs, and this is the hop between them. See
+/// [`operators_in_run`] for why the two are not the same thing.
+#[must_use]
+pub fn operators(doc: &OpenDoc, page: usize, run: usize) -> Vec<Operator> {
+    let Some(page_ref) = doc.pages.get(page) else {
+        return Vec::new();
+    };
+    use crate::app::settings::SettingsExt;
+    let opts = doc.settings.extract_options().with_provenance(true);
+    let Ok(text) =
+        pdfce_core::text_extract::extract_page_view(&doc.session.view(), page_ref, page, &opts)
+    else {
+        return Vec::new();
+    };
+    let model = EditableTextModel::recognize(&text, &BlockRecognitionOptions::default());
+    operators_in_run(&model, &text, run)
 }
 
 /// The pin **and** the current style for `run` on `page`, in one extraction.
@@ -245,6 +312,7 @@ pub fn inspect(doc: &OpenDoc, page: usize, run: usize) -> Option<Inspected> {
                 .get(run)
                 .map(|r| r.text.clone())
                 .unwrap_or_default(),
+            find: text.runs.get(run).map(longest_sourced).unwrap_or_default(),
             // Lossy rather than strict: a resource key is a PDF name, which is
             // bytes, and a name that is not UTF-8 is legal. Losing a byte in a
             // label is better than showing no label at all, and nothing acts on
@@ -256,4 +324,143 @@ pub fn inspect(doc: &OpenDoc, page: usize, run: usize) -> Option<Inspected> {
             fill: p.fill_color,
         },
     })
+}
+
+/// The longest run of characters in `run.text` that every byte of came from a
+/// glyph — see [`RunStyle::find`] for why this is not simply `run.text`.
+///
+/// # The rule, in one line
+///
+/// A glyph publishes `text_start` and `text_len` into its run's `text`. A
+/// stretch is *sourced* while each glyph begins exactly where the previous one
+/// ended; the first gap is a derived character, and derived characters are not
+/// in the file.
+///
+/// # ★ Longest rather than first
+///
+/// A run reading `"A       LONGER PHRASE"` has its real content after the gap,
+/// not before it. Taking the first stretch would restyle the `A` and leave the
+/// phrase, which is both wrong and hard to notice. Ties keep the earlier one,
+/// which is arbitrary and stated so nobody has to wonder.
+fn longest_sourced(run: &pdfce_core::text_extract::TextRun) -> String {
+    let mut best: (usize, usize) = (0, 0);
+    let mut start: Option<usize> = None;
+    let mut end = 0_usize;
+    for glyph in &run.glyphs {
+        let (gs, ge) = (
+            glyph.text_start as usize,
+            glyph.text_start as usize + glyph.text_len as usize,
+        );
+        match start {
+            Some(_) if gs == end => end = ge,
+            _ => {
+                if let Some(s) = start
+                    && end - s > best.1 - best.0
+                {
+                    best = (s, end);
+                }
+                start = Some(gs);
+                end = ge;
+            }
+        }
+    }
+    if let Some(s) = start
+        && end - s > best.1 - best.0
+    {
+        best = (s, end);
+    }
+    run.text.get(best.0..best.1).unwrap_or_default().to_owned()
+}
+
+/// ★★★ **Every show operator a run is made of**, in content order, each with
+/// the `find` text that names all of it.
+///
+/// # Why a run is not an operator, which is the thing this function exists to say
+///
+/// It is tempting — and this shell did it for one afternoon — to treat a
+/// `TextRun` as a show operator: pin the first glyph's operator, pass the run's
+/// text as `find`, and restyle. It works on most runs and fails on real
+/// drawings, because `layout` closes a run on *geometry* and a producer closes a
+/// show operator on *whatever its writer felt like*. A title-block cell reading
+/// `FINISH` came back as one run spanning several `Tj`s, so the pin named the
+/// first and the `find` named all of them, and `format_text` refused with *"text
+/// to format ("FINISH ") was not found in an editable run on the page"* — on a
+/// page where the very same string is found instantly by an UNpinned search.
+///
+/// That refusal is correct and is not a bug: `find` selects a contiguous code
+/// range **within one string element**, and the shell was asking for a range
+/// that spans several.
+///
+/// ⇒ **The operator is the unit of a restyle**, so the operator is what this
+/// answers with. A run of three `Tj`s is three entries, three `format_text`
+/// calls and three undo entries, and every one of them restyles exactly what it
+/// names.
+///
+/// # The `find` per entry
+///
+/// The glyphs that share that operator's span, sliced out of the run's text by
+/// their own `text_start`/`text_len`. Every byte comes from a glyph, so no
+/// **derived** character — a space the extraction synthesised from a `TJ` offset
+/// — can get in, which is the second way the naive version failed.
+///
+/// # Order
+///
+/// Content order, ascending. A caller wanting the descending order that keeps
+/// byte offsets stable across edits reverses it, and
+/// `crate::app::actions::textstyle` does, with the argument.
+#[must_use]
+pub fn operators_in_run(
+    model: &EditableTextModel<'_>,
+    page_text: &pdfce_core::text_extract::PageText,
+    run: usize,
+) -> Vec<Operator> {
+    let mut out: Vec<Operator> = Vec::new();
+    let Some(text) = page_text.runs.get(run) else {
+        return out;
+    };
+    for (index, glyph) in text.glyphs.iter().enumerate() {
+        let Some(p) = model.provenance(GlyphRef::new(run, index)) else {
+            continue;
+        };
+        let (gs, ge) = (
+            glyph.text_start as usize,
+            glyph.text_start as usize + glyph.text_len as usize,
+        );
+        match out.last_mut() {
+            // Same operator as the glyph before: extend its find text, but only
+            // over bytes a glyph actually covers. A gap here is a derived
+            // character and must not join the two halves.
+            Some(last) if last.pin.span == p.operator_span => {
+                if last.end == gs {
+                    last.end = ge;
+                    last.find
+                        .push_str(text.text.get(gs..ge).unwrap_or_default());
+                }
+            }
+            _ => out.push(Operator {
+                pin: Pinned {
+                    span: p.operator_span,
+                    target: target_of(p),
+                    text_matrix: p.text_matrix,
+                    ctm: p.ctm,
+                },
+                find: text.text.get(gs..ge).unwrap_or_default().to_owned(),
+                end: ge,
+            }),
+        }
+    }
+    out.retain(|o| !o.find.is_empty());
+    out
+}
+
+/// One show operator inside a run: how to name it, and what to say it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Operator {
+    /// The locator.
+    pub pin: Pinned,
+    /// The text of the glyphs that share this operator — the `find` a pinned
+    /// `format_text` must carry.
+    pub find: String,
+    /// Where the find text ends in the run's `text`, for extending it.
+    end: usize,
 }
