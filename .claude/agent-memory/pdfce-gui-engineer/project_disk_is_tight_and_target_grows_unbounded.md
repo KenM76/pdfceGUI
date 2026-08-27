@@ -44,5 +44,30 @@ root (`patch15.py`, `patch_pixels.py`, `.tmp_text.py`, removed
 2026-08-21). If a scratch edit-applier is needed, write it under
 `.tmpwork/`, which is gitignored.
 
+**★★ Two DURABLE fixes landed 2026-08-27, so do not re-derive them:**
+
+1. **`package-portable.py` prunes.** It had written a dated folder into
+   `D:uilds` on every keeper build since 2026-08-13 and never removed
+   one — **39 folders, 1.27 GB**. It now keeps the newest three (the two
+   OneDrive slots plus one), by *modification time* rather than by name,
+   and only touches `pdfcegui-*` because `D:uilds` is shared with
+   ScripTree and with the engine's own packages.
+2. **`[profile.dev] debug = "line-tables-only"`** in the workspace
+   `Cargo.toml`. Measured before: 4.1 GB in `target/debug` against 1.3 GB
+   in release, with a single **324 MB `.pdb`** as the largest file on the
+   disk. After: **2.15 GB**, a 48 % cut, tests unchanged. It keeps panic
+   backtraces with file and line — verified by falsifying a test and
+   reading `ocr.rs:654:9` — and drops only what a step debugger wants,
+   which nothing in this workflow uses. Release stays at `debug = 1`.
+
+**★ When reporting what a rebuild costs, check whose it is.** On
+2026-08-27 a rebuild appeared to consume 25 GB; `target/` accounted for
+only 5.4 GB of it and `D:\Dev\pdfce	arget` had grown **5.4 GB in the
+same window** because the engine session compiles in parallel. The rest
+was neither. Measure the specific directories before attributing a
+drop in free space to your own build.
+
 Related: [[always-publish-the-latest-build-to-onedrive]] — the packaging
 step needs a valid `target/release`, another reason not to clear it.
+Related: [[the-engine-session-runs-in-parallel-and-answers-within-the-hour]] —
+its `target/` is not yours to clear and its growth is not yours to report.
