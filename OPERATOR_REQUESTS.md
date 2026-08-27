@@ -125,13 +125,13 @@ first place.
 
 | # | Complaint | Status as of 2026-08-27 |
 |---|---|---|
-| 1 | Clicking an object selects the whole page instead | **engine fixed, shell work outstanding** — see below |
-| 2 | Double-clicking an object still selects the whole page | same cause as 1 |
+| 1 | Clicking an object selects the whole page instead | **done, NOT YET DRIVEN** — 2026-08-27, see below |
+| 2 | Double-clicking an object still selects the whole page | **partly** — a click now lands on the real object; a *double*-click on one inside a form does not descend into its subpaths, and cannot until the engine can edit inside a form. Said in words, not silently |
 | 3 | Selecting text does not change the Tool tab to that object's editable properties | **done** — the Properties panel reads the canvas selection, and the status bar names what is selected |
 | 4 | An inserted image cannot be resized by dragging | **done** — a press on an unselected object selects it and the same drag moves it; placement now arrives selected, so its grips are already up |
 | 5 | OCR does one page only — no page range, no multi-page selection | **done** — All pages / this page / a typed range, All being the default |
 | 6 | OCR forces Save-a-copy instead of saving into the open document | **done** — recognition is an ordinary edit; `Ctrl+S` saves it, `Ctrl+Z` takes it out |
-| 7 | The whole editing model is unintuitive next to other graphics software | in progress — 1 and 2 are the remainder |
+| 7 | The whole editing model is unintuitive next to other graphics software | in progress — the three research documents are the deliverable, and 2 is the remainder of the click work |
 
 #### ★★★ Complaints 1 and 2: what happened
 
@@ -147,17 +147,63 @@ the next day** — Passes 136.0, 136.1 and 136.2:
   the two lists on one paint order, so a click finds what is drawn rather than
   the wrapper.
 
-**The shell has not consumed it yet, and the reason is worth stating rather than
-hiding.** This project's `TargetId` is a paint-order index into
-`PageObjects::objects`, and 96 call sites resolve one. A leaf's token range
-indexes a *different buffer* — the form's content stream — and eleven verbs in
-`pdfce-core` apply a paint-order range to the **page's** stream. The engine kept
-the two lists apart precisely so that mixing them cannot corrupt a document by
-construction, and the shell must keep them apart in the same way. That is a
-type change through 96 sites, not a hit-test swap, and doing it carelessly is
-the one way to turn a selection defect into a file-corruption defect.
+#### ★★★ …and what the shell did about it, 2026-08-27 — SHIPPED, NOT YET DRIVEN
 
-It is the next body of work, and it is the largest single item left.
+Consumed in three commits, each of which left the program working:
+
+1. **`TargetId` became a two-variant type** — `Object(u64)` for the page's own
+   paint order, `Leaf(u64)` for an object painted from inside a form. The
+   compiler found **sixteen** sites that had to say which list they meant, not
+   the 96 this file predicted: the id itself is well contained, and what the 96
+   number really counted was places that resolve a paint-order *index*, most of
+   which never see a `TargetId`. `page_object_index()` — which answers `None`
+   for a leaf — is now the only supported way to obtain an edit operand, so a
+   form-relative index cannot reach a page-stream verb by construction. Nothing
+   behaved differently at that commit; it was the type change alone, with the
+   compiler as the instrument.
+2. **The pick went deep.** `hit_test_point_deep`, and the marquee gained the
+   same reach so the two gestures cannot disagree. Eight tests over the
+   engine's `forms-xobject` fixtures — falsified by putting the shallow call
+   back, which turns three of them red, including the one that says a click on
+   blank paper inside a page-sized form must select **nothing**.
+3. **The surfaces stopped lying.** The status bar says *"Selected: Path ·
+   12.4 × 8.0 pt · inside a form"*; Delete on such a selection says *"That
+   object is inside a form — pdfce cannot edit inside one yet"* instead of
+   doing nothing; a drag says the same instead of *"nothing selected"* while an
+   outline is on screen.
+
+**And the new button: "Select the form".** Since the hit test now excludes
+forms outright, a form had no route on the canvas at all — so it is offered as
+a deliberate act instead of winning by default. It is on the Format tab and in
+the canvas right-click menu, greyed when the selection is not inside a form,
+and after pressing it the form is an ordinary object you can move, delete or
+copy. Everything drawn inside it moves with it.
+
+### ★★ What you will find that still does not work, said before you find it
+
+| | |
+|---|---|
+| **You cannot edit an object inside a form** | not a shell decision: `pdfce-core` writes a paint-order edit to the *page's* content stream, and a form-interior object lives in the form's. `FormLeaf::is_editable()` is `false` for every one of them today. Select the form and move that, or wait for the engine |
+| **Double-click will not descend into one** | the Part and Node rungs exist to act on geometry, and there is no geometry to act on here. It stops at the whole object rather than descending into something you then cannot change |
+| **The measure tools cannot pick a line inside a form** | the engine's line-pick does not see the leaf list. Filed. On the benchmark CAD sheet that is 10,256 lines the tool cannot see, and it was equally true before today — it was just hidden behind the selection defect |
+| **`pdfce-cli object-list --hit` still answers with the form** | the CLI has not consumed the deep hit test, and its help says it is authoritative for the GUI's behaviour, which is now false. Filed |
+
+### The numbers, measured today
+
+| page | page objects | forms | objects inside them |
+|---|---:|---:|---:|
+| the conformance suite page you named, p1 | 28 | 4 | **242** |
+| `ncored-benchmark-cad-drawing` p1 | 129,758 | 1 | **10,256** |
+| `SW41177` p1 | 5,903 | 0 | 0 |
+
+On the first two, nearly everything on screen was outside the model the shell
+could select from. On the third — your SolidWorks export — nothing changes at
+all, which is what tells you the fix is aimed at the right thing.
+
+★ **NOT YET DRIVEN.** Every claim above is from unit tests against the release
+engine, not from anyone clicking the program. R1 says that is not a report of
+working software, and this row does not close until you have clicked an object
+on that page and told me what happened.
 
 ### ★★ One measured fact, before any of it
 

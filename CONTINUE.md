@@ -1,5 +1,135 @@
 # CONTINUE — handoff
 
+## 2026-08-27 — the form-XObject selection, and the one thing it still owes
+
+**Clean tree. 18/18 gates. 1,830 + 420 + 144 tests, 0 failing. Re-measure
+before quoting.**
+
+### ★★★ WHAT TO DO FIRST: DRIVE ONE CHECK
+
+`ui-verify a_click_inside_a_form_selects_what_is_drawn_there` was written
+today, is registered, compiles, and **has never been run.** It needs the real
+cursor, which needs Ken off the machine.
+
+```bash
+cargo run --release -q -p ui-verify -- --exe target/release/pdfce-gui.exe \
+  --check a_click_inside_a_form_selects_what_is_drawn_there \
+  > evidence/ui-verify-form-selection.txt 2>&1
+```
+
+★ Redirect to a file. Piping through `tail` throws away the failure detail and
+costs a second run of his window.
+
+It pins its own fixture (`D:/Dev/pdfce/fixtures/synthetic/forms-xobject/page-sized-form.pdf`)
+and ignores `--pdf`, for the reason `ocr` does: on a document with no forms the
+honest answer is *"there was nothing to descend into"*, which is neither a pass
+nor a defect.
+
+**Two assertions**, and the second is the one that matters most:
+
+1. a click on the centre of a square inside a page-sized form traces
+   `canvas-selection … first=leaf:N`;
+2. a click on **blank paper inside the same form** traces `first=none`.
+
+The second forbids the tempting *"fall back to the shallow hit test when the
+deep one is empty"* repair. That fallback would answer the commonest empty
+click — blank paper inside a page-sized form — with the form, which is the
+operator's original complaint restored for the case that produces it most
+often. A check asserting only (1) would stay green through that regression.
+
+**After it passes:** refresh `FEATURES.md`, publish with `--verify`, and then
+ask him to click an object on the file he complained about. The
+`OPERATOR_REQUESTS.md` O46 row does not close until he has.
+
+### What landed
+
+His headline complaint — *"when I click on one of the objects all I get is the
+page selected"* — consumed in three commits, each leaving the program working.
+
+* **`TargetId` is a two-variant enum.** `Object(u64)` indexes the page's own
+  paint order; `Leaf(u64)` indexes `PageObjects::leaves`. `page_object_index()`
+  answers `None` for a leaf and is the only supported way to get an edit
+  operand, so a form-relative index cannot reach a page-stream verb by
+  construction. **The compiler found sixteen sites**, not the 96 `RESUME.md`
+  predicted — that number counted places resolving a paint-order *index*, most
+  of which never see a `TargetId`.
+* **The pick is `hit_test_point_deep`**, and the marquee got the same reach by
+  our own filter, because the engine has no deep rubber-band. Filed.
+* **"Select the form"** — a new command, on the Format tab and in the canvas
+  context menu, greyed when the selection is not inside a form. It resolves a
+  leaf to its outermost enclosing form, which *is* an ordinary operand, so
+  after pressing it Delete has something to delete.
+* **Three surfaces stopped lying**: the status line reads the selection rather
+  than the operand list and says "inside a form"; Delete says why it declined;
+  a drag says `InsideForm` instead of "nothing selected" while an outline is on
+  screen.
+
+### ★★ Two trace fields exist because a check could not otherwise fail
+
+- **`canvas-selection … first=object:N | leaf:N | none`.** Before it, the line
+  carried `sel=` and `level=`, and selecting the page-sized form and selecting
+  the square inside it both produce `sel=1 level=Object`. A driven check
+  reading that line would have **passed against the broken build** — this
+  harness's own stated worst outcome.
+- **`objects … leaves=N depth_overflow=N cycles=N`.** `n=` counts the page's
+  own list, which is a half-truth on exactly the documents he complained about.
+  The two diagnostic counts come with it because a non-zero one means `leaves`
+  is a floor, not a total.
+
+### The measurement that decided the shape
+
+| page | page objects | forms | leaves |
+|---|---:|---:|---:|
+| the conformance suite's composite page 1 | 28 | 4 | **242** |
+| `ncored-benchmark-cad-drawing` p1 | 129,758 | 1 | **10,256** |
+| `SW41177` p1 | 5,903 | 0 | 0 |
+
+On the first two, nearly everything on screen was outside the model the shell
+could select from. On his SolidWorks export nothing changes at all — which is
+what says the fix is aimed at the right thing.
+
+Confirmed live in the release binary by an offscreen smoke launch
+(`PDFCE_DIAG_VIEWPORT=-4000,-4000,1600,1000`):
+`objects n=28 page=0 paths=21 text=3 images=0 forms=4 leaves=242 depth_overflow=0 cycles=0`.
+
+### Three requests filed, none of them blocking
+
+`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\`:
+
+* `request_cli_hit_is_still_shallow_…` — `object-list --hit` still answers with
+  the form, **and its own help says it is authoritative for the GUI's
+  behaviour**, which is now false;
+* `request_hit_test_rect_has_no_deep_form_so_we_wrote_one` — a reported
+  workaround per decision 058;
+* `request_linepick_cannot_see_inside_a_form_…` — the two-line dimension and
+  the circular fit cannot pick a line inside a form. On the benchmark CAD sheet
+  that is 10,256 invisible candidates. **Not a regression** — equally true
+  before, hidden behind the selection defect.
+
+### ★ R2 landed on three files at once, and one of them has no seam
+
+`canvas::moving` and `app::dispatch` took the splits their siblings already
+use (`moving/tests.rs`, `dispatch/format.rs`). **`app::actions::action` is a
+single 1,465-line enum with no seam**, and what came out of it was an argument
+written three times over. It sits at 1,495 and the next change trips the gate.
+The real fix is factoring the file/document family (`Open`, `New`, `Save`,
+`SaveCopy`, `Close`, `CloseDocument`, `CloseOtherDocuments`) into a sub-enum
+the way `Vector`, `Page` and `Dimension` already are — **eighty call sites**,
+and its own session. Do not bolt it onto something else.
+
+### ★ And the fourth time the reachability checker failed closed
+
+Moving the `format.*` arms out of `dispatch.rs` made
+`every_registered_command_is_routed_or_argued` report three registered controls
+with no dispatch arm — correctly, loudly, by name. That is the fourth time
+`DISPATCH_PAGES_SRC`'s prediction has come true (*"a checker which reads ONE
+file is a checker with a shelf life"*), and the fourth time the failure was a
+correct report rather than a false alarm. A grep for the id strings would have
+found them in the new file and said nothing.
+
+---
+
+
 ## 2026-08-24 (evening) — O31: the ribbon, measured against Word
 
 **Clean tree. 17/17 gates. 1,707 + 394 + 144 tests, 0 failing.** Re-measure

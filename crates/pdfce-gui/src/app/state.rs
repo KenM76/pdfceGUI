@@ -1337,11 +1337,37 @@ impl OpenDoc {
             // Read out before the closure so the `Ref` is not held across it.
             let (n, paths, text, images, forms) =
                 (model.objects.len(), d.paths, d.text, d.images, d.forms);
+            // ★★ **`leaves=` — how many objects are painted from INSIDE those
+            // forms**, added 2026-08-27 with form-XObject descent.
+            //
+            // `n=` counts `PageObjects::objects`, which is the page's own
+            // content stream and nothing else. On a wrapped drawing that is a
+            // small fraction of what is on screen and of what a click can now
+            // select: the industry print-conformance suite's composite page 1
+            // reports `n=28 forms=4` and carries **242** leaves;
+            // `ncored-benchmark-cad-drawing` page 1 reports `n=129758 forms=1`
+            // and carries **10,256**.
+            //
+            // Without this field, `objects n=` is a half-truth on exactly the
+            // documents the operator complained about — and it is the line a
+            // driven check reads to answer *"did the page decompose, and how
+            // much is there?"*. A harness reading `n=28` on a page with 270
+            // selectable things is reading a number that no longer means what
+            // its name suggests.
+            //
+            // ★ `depth_overflow=` and `cycles=` come with it, and they are the
+            // half that stops `leaves=` becoming its own half-truth: a non-zero
+            // count means the walk did NOT reach everything, so `leaves` is a
+            // floor rather than a total. The engine counts them rather than
+            // truncating silently for that reason, and a consumer that ignored
+            // them would present an incomplete list as complete.
+            let (leaves, depth_overflow, cycles) =
+                (model.leaves.len(), d.form_depth_overflows, d.form_cycles);
             let page_index = self.view.page_index;
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
                 format!(
-                    "objects n={n} page={page_index} paths={paths} text={text} images={images} forms={forms}"
+                    "objects n={n} page={page_index} paths={paths} text={text} images={images} forms={forms} leaves={leaves} depth_overflow={depth_overflow} cycles={cycles}"
                 )
             });
             return;

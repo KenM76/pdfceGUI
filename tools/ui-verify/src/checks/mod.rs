@@ -133,6 +133,15 @@ pub mod markup_rectangle;
 pub mod markup_shapes;
 pub mod progressive;
 
+/// `ocr_recognises_a_page_and_the_document_keeps_it` — the whole Recognise-text
+/// chain against a genuinely image-only document, ending in the one assertion
+/// no unit test can make: **the file that was opened is byte-identical
+/// afterwards.**
+/// `a_click_inside_a_form_selects_what_is_drawn_there` — the driven proof of the
+/// operator's headline complaint: a click inside a form XObject must select
+/// what is drawn there, and a click on blank paper inside one must select
+/// nothing.
+pub mod form_selection;
 /// ★ Markup ▸ Style — a ribbon group whose one item the manifest declared at S2
 /// and no renderer ever drew, so it shipped as a caption over an empty band.
 ///
@@ -154,10 +163,6 @@ pub mod measure_perimeter;
 /// falsifying phase.
 pub mod new_document;
 pub mod new_document_size;
-/// `ocr_recognises_a_page_and_the_document_keeps_it` — the whole Recognise-text
-/// chain against a genuinely image-only document, ending in the one assertion
-/// no unit test can make: **the file that was opened is byte-identical
-/// afterwards.**
 pub mod ocr;
 /// ★ The **Pages tab**, all of which did nothing: six verbs registered, drawn,
 /// offered by a context menu and four of them bound to chords, with no dispatch
@@ -826,6 +831,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // recognition, which is a second in a release build. Placed after the
         // cheap ones so a run that is going to fail on something structural
         // fails before spending it.
+        Box::new(form_selection::AClickInsideAFormSelectsWhatIsDrawnThere),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),
         Box::new(text_tool::TextToolSelectsAndMarksInEdit),
         // Last, because it is the only check that TYPES. Everything above

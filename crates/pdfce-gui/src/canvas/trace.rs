@@ -175,12 +175,59 @@ pub(super) fn text_selection(
 /// The count and the level are on the line because they are what a harness
 /// asserts on: *"the click landed"* is `sel=` moving, and *"the ladder
 /// descended"* is `level=` moving.
+///
+/// ```text
+/// pdfce-diag canvas-selection via=click mod=false sel=1 level=Object first=leaf:37
+/// ```
+///
+/// * `via=` — the gesture: `click`, `marquee`, `key`, `escape`, and the rest.
+/// * `mod=` — whether the modifier (Shift) was held.
+/// * `sel=` — how many entries the selection holds.
+/// * `level=` — which rung of the ladder: `Object`, `Part` or `Node`.
+/// * `first=` — **`object:N`, `leaf:N` or `none`.** Which of the page's two
+///   index spaces the first entry names, and its index in that space. See the
+///   body for why a count and a rung could not answer the question this was
+///   added for.
 pub(super) fn selection_event(selection: &SelectionState, kind: &str, modifier: bool) {
+    // ★★ **`first=` — which of the two index spaces the selection landed in**,
+    // added 2026-08-27 with form-XObject descent.
+    //
+    // `sel=` is a count and `level=` is a rung, and neither can answer the one
+    // question the operator's headline defect turns on: *did the click select
+    // the page-sized form, or the object painted inside it?* Both produce
+    // `sel=1 level=Object`, so a driven check reading this line before today
+    // could not tell the defect from the fix — and this project's own stated
+    // worst outcome is a check that passes while measuring nothing.
+    //
+    // Printed as `object:N`, `leaf:N` or `none`. The kind is spelled out
+    // rather than implied by a second field, so a human reading a trace after
+    // the fact cannot mistake `leaf 7` for `objects[7]` — they are different
+    // things in the same document and the whole safety property of `TargetId`
+    // is that they cannot be confused.
+    //
+    // ★ Additive: `via=`, `mod=`, `sel=` and `level=` keep their names,
+    // positions and meanings, so every existing consumer of this line is
+    // unaffected. That is a deliberate constraint rather than luck — this
+    // module's header calls the output shape a **contract** with a consumer
+    // that does not compile against this crate, so a rename here fails at run
+    // time inside a check whose subject is something else.
+    //
+    // The FIRST entry rather than a list: a multi-select can mix the two, and
+    // the readout that matters is what a single click produced. A check that
+    // needs the whole set reads `object_indices_on` / `leaf_indices_on`
+    // through a unit test, where it can see them exactly.
     crate::diag::trace_changed(SELECTION_SLOT, || {
+        let first = selection.entries().first().map_or_else(
+            || "none".to_owned(), // ui-text-exempt: diagnostic trace, never displayed
+            |e| {
+                let list = if e.object.is_leaf() { "leaf" } else { "object" };
+                format!("{list}:{}", e.object.raw())
+            },
+        );
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI.
             // Placed directly above the literal — see `trace_layout`.
-            "canvas-selection via={kind} mod={modifier} sel={} level={:?}",
+            "canvas-selection via={kind} mod={modifier} sel={} level={:?} first={first}",
             selection.len(),
             selection.level(),
         )

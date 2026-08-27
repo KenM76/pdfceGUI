@@ -7,8 +7,8 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-27 at `d5c81a6`.** For a session
-starting cold on `D:\Dev\pdfceGUI`.
+**Written 2026-08-18, last revised 2026-08-27 after the form-XObject selection
+work.** For a session starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
 record and is still authoritative for the standing rules, the phase order and
@@ -17,7 +17,7 @@ at a section of it.
 
 ---
 
-## ★★★ State, as measured on 2026-08-27, after the OCR-as-an-edit work
+## ★★★ State, as measured on 2026-08-27, after the form-XObject selection work
 
 **This table is a reading, not a status.** Every row is what a command printed
 at that commit; the tree has moved since, and the numbers move with it. It is
@@ -25,54 +25,79 @@ here so you know roughly where you are, not so you can quote it.
 
 | | |
 |---|---|
-| **Tests** | 1,814 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
+| **Tests** | 1,830 (`pdfce-gui`) + 420 (`egui-shell`) + 144 (`ui-verify`), 0 failing |
 | **Gates** | **18 of 18**, 0 skipped |
-| **`ui-verify`** | **83 checks declared**, counted from a `--no-input` run. Every check that failed in the 2026-08-26 discovery run has been re-driven and is green or honestly skipped — see `evidence/ui-verify-run-2026-08-26-rotated.txt` for the discovery and O44 for the resolutions. ★ A long **unattended** full run loses ~11 checks to the desktop taking foreground back; run it in foreground slices, per `CONTINUE.md` |
+| **`ui-verify`** | **82 checks declared**, counted from a `--no-input` run on 2026-08-27 (the 83 this file used to say was already stale — re-measure, do not quote). ★ The newest, `a_click_inside_a_form_selects_what_is_drawn_there`, **has never been run**: it needs the desktop, and the operator has not handed it over since it was written. A long **unattended** full run loses ~11 checks to the desktop taking foreground back; run it in foreground slices |
 | **The four defects O44 found** | **Two were real and are fixed** — the status bar going off-window at `ui_scale 1.80`, and the Properties panel's Apply being unreachable because the panel had no scroll area. **Two were the tests** — `blend_space` red on any drawing without transparency, `dimension_groups` contradicting itself in consecutive sentences. Both test defects were permanent false reds on this project's usual fixture |
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `640d817` (**v0.14.0**) — the revision that made OCR an edit (`EditSession::add_ocr_layer`, Pass 135.0) and made the objects inside form XObjects reachable and clickable (Passes 136.0/136.1/136.2). **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-27 07:05 from shell `d5c81a6` on engine `640d817` — OCR as an edit with a page scope, press-to-select-and-move, and the remembered mode. `pdfceGUI1` holds the 2026-08-26 21:40 build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `af05e6d` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep` and `PageObjects::leaves`. **Read `Cargo.lock`, not this row** |
+| **Latest build** | ★ **Nothing published since the form work landed.** `OneDrive\pdfceGUI2` still holds the 2026-08-27 07:05 build from `d5c81a6`, which predates all of it. Publishing is owed **after** the driven run, not before — see the section below |
 
-### ★★★ THE NEXT BODY OF WORK IS THE FORM-XOBJECT SELECTION, AND IT IS AN XL
+### ★★★ THE FORM-XOBJECT SELECTION IS SHIPPED — AND HAS NOT BEEN DRIVEN
 
 The operator's headline complaint — *"when I click on one of the objects all I
-get is the page selected"* — is **unblocked as of 2026-08-27** and **not yet
-consumed**. The engine shipped:
+get is the page selected"* — was consumed on 2026-08-27, in three commits, each
+of which left the program working:
 
-* `PageObjects::leaves` — every object inside every reachable form, geometry
-  already in page space, each carrying `containment` (enclosing forms,
-  outermost first) and `paint_order`;
-* `hit_test_point_deep` → `Vec<HitTarget>`, which **excludes forms outright**
-  (a `/BBox` is a §8.10.1 clipping extent, not a statement about coverage) and
-  interleaves leaves with page objects on one paint order.
+1. **`TargetId` became a two-variant enum.** `Object(u64)` indexes the page's
+   own paint order; `Leaf(u64)` indexes `PageObjects::leaves`, an object painted
+   from inside a form XObject whose token range belongs to a *different content
+   stream*. `page_object_index()` — `None` for a leaf — is the only supported
+   way to obtain an edit operand, so a form-relative index cannot reach a
+   page-stream verb by construction.
+2. **The pick went deep** — `hit_test_point_deep`, plus a marquee half we wrote
+   ourselves because the engine has no deep rubber-band.
+3. **The surfaces stopped lying** — the status line, Delete, and the drag
+   refusal.
 
-★★★ **Do not reach for this as a hit-test swap.** `TargetId` in this shell is a
-paint-order index into `PageObjects::objects` and **96 call sites** resolve one.
-A leaf's token range indexes the **form's** content stream — a different buffer,
-and an *in-range* one — and eleven `edit.rs` sites apply a paint-order range to
-the **page's**. The engine kept the two lists apart precisely so that mixing
-them cannot corrupt a document by construction; this shell has to keep them
-apart the same way, which means `TargetId` becomes a two-variant type and every
-one of those 96 sites has to say which list it meant.
+★ **This file predicted 96 call sites. The compiler found sixteen.** The 96
+counted places that resolve a paint-order *index*, most of which never see a
+`TargetId`. The prediction was not wrong about the danger, only about the size:
+budget the *care*, not the hours.
 
-Getting it wrong turns a selection defect into a **silent file-corruption**
-defect. Budget it as an XL and do the type change first, with the compiler as
-the instrument.
+#### ★★★ What is owed, in order
 
-Two rulings that come with it, both already made and neither yours to remake:
+1. **DRIVE IT.** `ui-verify a_click_inside_a_form_selects_what_is_drawn_there`
+   exists, is registered, compiles, and **has never been run** — it needs the
+   real cursor. Two assertions: a click on a square inside a page-sized form
+   selects `first=leaf:N`, and a click on **blank paper inside the same form**
+   selects nothing. The second is the one that forbids a "fall back to the
+   shallow hit test" repair, which would restore the original complaint for the
+   case that produces it most often.
+2. **Then publish**, with `--verify`, and refresh `FEATURES.md` first.
+3. **Then ask him to click the file he complained about.** The row in
+   `OPERATOR_REQUESTS.md` does not close until he has.
 
-* **Editing inside a shared form is EDIT-IN-PLACE, DISCLOSED** — engine
-  decision 076. Not copy-on-write, not a refusal. Reason: copy-on-write is not
-  always *expressible* (a form invoked from inside another form cannot be
-  re-bound without editing the parent, which may itself be shared), and a
-  default whose meaning depends on the document's nesting is worse than one
-  that always means the same thing.
-* **`unshare_form` EXISTS** as of 2026-08-27 — `EditSession::unshare_form`,
-  one undoable command. It was twice reported absent and the correction was
-  withdrawn the same day. **Offer the button.** A control withheld on the
-  strength of a note that has since been withdrawn is exactly the kind of thing
-  that stays withheld for months.
+#### ★★ Three things that still do not work, and he has been told
+
+| | |
+|---|---|
+| **No edit verb can address a form-interior object** | `FormLeaf::is_editable()` is `false` for every leaf. Not our decision. The remedy offered is *"Select the form"*, which lands on an ordinary page object |
+| **The measure tools cannot pick a line inside a form** | `linepick` does not see the leaf list. Filed. On the benchmark CAD sheet that is 10,256 invisible candidates — and it was equally true before, hidden behind the selection defect |
+| **`pdfce-cli object-list --hit` still answers with the form** | and its own help calls itself authoritative for the GUI's behaviour, which is now false. Filed |
+
+#### The numbers, measured 2026-08-27 with `pdfce-cli object-list`
+
+| page | page objects | forms | leaves |
+|---|---:|---:|---:|
+| the conformance suite's composite page 1 | 28 | 4 | **242** |
+| `ncored-benchmark-cad-drawing` p1 | 129,758 | 1 | **10,256** |
+| `SW41177` p1 | 5,903 | 0 | 0 |
+
+The release binary confirms it: an offscreen smoke launch on the first of those
+traces `objects n=28 … forms=4 leaves=242 depth_overflow=0 cycles=0`.
+
+#### ★★ Two new trace fields exist BECAUSE a check could not otherwise fail
+
+- **`canvas-selection … first=object:N | leaf:N | none`.** Before it the line
+  carried a count and a rung, and selecting the page-sized form and selecting
+  the square inside it both produce `sel=1 level=Object` — so a driven check
+  reading that line would have passed against the broken build.
+- **`objects … leaves=N depth_overflow=N cycles=N`.** `n=` counts the page's own
+  list only, which is a half-truth on exactly the documents he complained about.
+  The two diagnostic counts come with it because a non-zero one means `leaves`
+  is a floor rather than a total.
 
 ### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 
