@@ -31,8 +31,8 @@ here so you know roughly where you are, not so you can quote it.
 | **The four defects O44 found** | **Two were real and are fixed** — the status bar going off-window at `ui_scale 1.80`, and the Properties panel's Apply being unreachable because the panel had no scroll area. **Two were the tests** — `blend_space` red on any drawing without transparency, `dimension_groups` contradicting itself in consecutive sentences. Both test defects were permanent false reds on this project's usual fixture |
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
-| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `857bb11` (**v0.14.0**) — the release that made the CMYK ceiling readable and settable at this shell's request. **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-26 18:08 from shell `82af210` on engine `857bb11` — rotated text **and** the colour ceiling. `pdfceGUI2` holds the 16:36 rotated-text build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `afd8da8` (**v0.14.0**) — the release that made the CMYK ceiling readable and settable at this shell's request. **Read `Cargo.lock`, not this row** |
+| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-26 20:36 from shell `305d2e4` on engine `afd8da8` — rotated text, the colour ceiling, and the four O44 resolutions. `pdfceGUI1` holds the 18:13 build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ⚠ ON THIS PC, pdfce FAILS TO START ABOUT ONE LAUNCH IN THREE
 
