@@ -889,7 +889,7 @@ pub(crate) mod tests {
         doc.selection.click(
             page,
             ClickHit {
-                object: Some(TargetId(index)),
+                object: Some(TargetId::Object(index)),
                 ..ClickHit::default()
             },
             shift,
@@ -1082,7 +1082,7 @@ pub(crate) mod tests {
         doc.selection.click(
             0,
             ClickHit {
-                object: Some(TargetId(1)),
+                object: Some(TargetId::Object(1)),
                 part: Some(1),
                 node: None,
             },

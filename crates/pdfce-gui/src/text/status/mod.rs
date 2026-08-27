@@ -77,6 +77,22 @@
 //!   deleted, because "this used to be absent and is now built" is exactly
 //!   what a catalog header should make legible.)
 
+mod selection;
+
+/// ★ Re-exported rather than moved-and-repathed.
+///
+/// A catalog area is keyed by the **consumer** it serves, not by the file it
+/// happens to live in, and `crate::app::status::selected` is still the one
+/// consumer of every one of these. Splitting the file to satisfy R2 while
+/// leaving `t::selection_one` resolving exactly where it always did is the
+/// difference between a structural fix and a churn commit — no call site in
+/// this crate changed, and none should have to when a catalog area is
+/// reorganised internally.
+pub use selection::{
+    selection_inside_form_declined, selection_many, selection_one, selection_one_in_form,
+    selection_one_in_form_unsized, selection_one_unsized, selection_with_depth,
+};
+
 // ---------------------------------------------------------------------------
 // The narrator — the render diagnostics disclosure
 // ---------------------------------------------------------------------------
@@ -956,77 +972,6 @@ pub fn adopted(name: &str, typed: bool, acroform_created: bool) -> String {
 #[must_use]
 pub fn push_button_inert() -> &'static str {
     "pdfce cannot give a button something to do yet, so it will not place one."
-}
-
-/// ★★★ **This page's colours are approximate at this zoom.**
-///
-/// ★★★ **What is selected**, for the status bar's left-hand readout.
-///
-/// # Why this line exists at all
-///
-/// The operator, 2026-08-26: *"when I click on one of the objects all I get is
-/// the page selected."* He was right, and nothing on screen said so — the
-/// selection outline round a page-sized object looks exactly like *"the page
-/// is selected"*, which is a state this program does not have. This is the
-/// sentence that turns that into a diagnosis.
-///
-/// # The wording
-///
-/// **The kind first**, because it is the word that answers his question:
-/// *Form* is the one that explains a page-sized outline, and it is the word he
-/// would have needed to ask the right next question.
-///
-/// **Size in points**, to one decimal, because the operator works in a CAD
-/// world where a number is how you tell two similar things apart, and because
-/// a page-sized object is obvious the moment its size is beside the page's.
-/// Not millimetres: the rest of this bar and the geometry fields are in points,
-/// and one surface in two units is worse than either unit.
-#[must_use]
-pub fn selection_one(kind: &str, width: f32, height: f32) -> String {
-    format!("Selected: {kind} · {width:.1} × {height:.1} pt")
-}
-
-/// The same, for an object whose bounds the projection declined.
-///
-/// Rare — it needs a page transform that will not invert — and it says less
-/// rather than saying something invented. A size derived from a failed
-/// projection would be a number the operator could act on and could not trust.
-#[must_use]
-pub fn selection_one_unsized(kind: &str) -> String {
-    format!("Selected: {kind}")
-}
-
-/// Several objects selected.
-///
-/// No kinds and no size: a mixed selection has neither, and picking the first
-/// object's kind to stand for all of them would be a claim about the set that
-/// is false the moment the set is mixed. The count is the honest whole of what
-/// can be said until a multi-selection summary is built.
-#[must_use]
-pub fn selection_many(count: usize) -> String {
-    match count {
-        1 => "Selected: 1 object".to_owned(),
-        n => format!("Selected: {n} objects"),
-    }
-}
-
-/// ★★ **…and how many other things were under the same click.**
-///
-/// Appended to whichever line above applies, because it is a fact about the
-/// same selection: *"this one, and there were others."*
-///
-/// This is the half that makes `Alt`+click discoverable. A cycling gesture
-/// nobody knows about is a gesture nobody uses, and the operator has no way to
-/// learn that four more objects were under his pointer unless something says
-/// so. *"1 of 5 here"* says both that this is not the only answer and that
-/// there is a question worth asking.
-///
-/// `here` rather than `under the pointer`: the bar has finite width and the
-/// word is doing one job — locating the count at the click rather than in the
-/// document.
-#[must_use]
-pub fn selection_with_depth(line: &str, taken: usize, of: usize) -> String {
-    format!("{line} · {taken} of {of} here")
 }
 
 /// Shown when the renderer reports `cmyk_buffer_refused` — the page's raster

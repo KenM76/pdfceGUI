@@ -136,7 +136,12 @@ pub fn visible(
     let Some(subpath) = entered.subpath else {
         return Vec::new();
     };
-    let Ok(object) = usize::try_from(entered.object.0) else {
+    // ★ `page_object_index` rather than a cast: a target inside a form
+    // XObject has no page paint-order index, and the handles this builds are
+    // grab targets for `node-move`, which writes to the page's content
+    // stream. A leaf therefore gets no handles — the ladder stops at the
+    // Object rung for it, which `canvas::selection` argues at `descend`.
+    let Some(object) = entered.object.page_object_index() else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -229,7 +234,8 @@ pub fn drag(
         return None;
     };
     let entered = selection.entered_object()?;
-    let object = usize::try_from(entered.object.0).ok()?;
+    // `None` for a leaf: there is no page paint-order index to move a node of.
+    let object = entered.object.page_object_index()?;
     // The provider is asked for only so a drag on a page whose model has gone
     // refuses rather than addressing a stale index — the same guard
     // `resizing::action` makes for the same reason.
@@ -283,7 +289,8 @@ pub fn anchor(
 ) -> Option<Pos2> {
     let entered = selection.entered_object()?;
     let subpath = entered.subpath?;
-    let object = usize::try_from(entered.object.0).ok()?;
+    // `None` for a leaf — see the module's note on why the ladder stops.
+    let object = entered.object.page_object_index()?;
     let point = provider
         .subpath_node_points(object, subpath)
         .into_iter()

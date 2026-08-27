@@ -282,7 +282,7 @@ fn selecting_from_the_objects_panel_produces_an_ordinary_canvas_selection() {
     app.apply_actions(
         vec![Action::SelectObject {
             page: 0,
-            object: Some(TargetId(1)),
+            object: Some(TargetId::Object(1)),
         }],
         1.0,
     );

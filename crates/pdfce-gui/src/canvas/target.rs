@@ -310,8 +310,15 @@ impl CanvasTargetProvider for ObjectModelProvider {
         if page_index != self.page_index() {
             return None;
         }
-        let index = usize::try_from(target.0).ok()?;
-        let object = self.page_objects().objects.get(index)?;
+        // ★ Both lists. The classifier is `object_kind`, unchanged and
+        // still the only one in this crate — a leaf holds a `VectorObject`
+        // exactly like a page object does, so the same hop answers for it and
+        // the operator's pick filter works identically inside a form.
+        let model = self.page_objects();
+        let object = match target {
+            TargetId::Object(i) => model.objects.get(usize::try_from(i).ok()?)?,
+            TargetId::Leaf(i) => &model.leaves.get(usize::try_from(i).ok()?)?.object,
+        };
         Some(PickClass::of_object(
             crate::panels::objects::summary::object_kind(object),
         ))
@@ -381,6 +388,20 @@ pub struct StubTargets {
     pub page: usize,
     /// One rect per object, in paint order.
     pub objects: Vec<Rect>,
+    /// One rect per **form-interior leaf**, in the order the real provider
+    /// would list them.
+    ///
+    /// ★ A second list rather than a flag on the first, because that is the
+    /// shape the engine ships and the shape the two index spaces have. A stub
+    /// that modelled a leaf as "an object with a marker" could not reproduce
+    /// the one property every test here turns on: that `objects[1]` and
+    /// `leaves[1]` are different things, and that only the first is an edit
+    /// operand.
+    ///
+    /// Deliberately **not** hit by [`Self::hit_test_rect`], matching the live
+    /// provider — see its `hit_test_rect` for why a marquee stays on the
+    /// page's own list.
+    pub leaves: Vec<Rect>,
     /// Optional per-object part rects, in part order. An object with no
     /// entry has no parts — the image case.
     pub parts: std::collections::BTreeMap<usize, Vec<Rect>>,
@@ -403,9 +424,26 @@ impl StubTargets {
         Self {
             page,
             objects: objects.into_iter().collect(),
+            leaves: Vec::new(),
             parts: std::collections::BTreeMap::new(),
             samples: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Give the page some form-interior leaves, front-most last.
+    ///
+    /// A leaf is hit *before* every page object at the same point, which
+    /// models the common real case this whole change exists for: the page
+    /// object at that point is the page-sized **form**, the engine excludes
+    /// forms from a deep hit test outright, and what is left is what is inside
+    /// it. The stub does not model paint-order interleaving — the live
+    /// provider gets that from
+    /// [`pdfce_core::vector::hit_test_point_deep`], which is where the
+    /// ordering rule belongs and where it is tested.
+    #[must_use]
+    pub fn with_leaves(mut self, leaves: impl IntoIterator<Item = Rect>) -> Self {
+        self.leaves = leaves.into_iter().collect();
+        self
     }
 
     /// Give `object` some parts.
@@ -448,14 +486,22 @@ impl CanvasTargetProvider for StubTargets {
         if page_index != self.page {
             return Vec::new();
         }
-        self.objects
+        let leaves = self
+            .leaves
             .iter()
             .enumerate()
             .filter(|(_, r)| Self::caught(**r, tolerance).contains(point))
-            .map(|(i, _)| TargetId(i as u64))
+            .map(|(i, _)| TargetId::Leaf(i as u64))
+            .rev();
+        let objects = self
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| Self::caught(**r, tolerance).contains(point))
+            .map(|(i, _)| TargetId::Object(i as u64))
             // Paint order is back to front; the contract is front-most first.
-            .rev()
-            .collect()
+            .rev();
+        leaves.chain(objects).collect()
     }
 
     fn object_sample_points(
@@ -477,7 +523,7 @@ impl CanvasTargetProvider for StubTargets {
             .iter()
             .enumerate()
             .filter(|(_, r)| rect.contains_rect(**r))
-            .map(|(i, _)| TargetId(i as u64))
+            .map(|(i, _)| TargetId::Object(i as u64))
             .collect()
     }
 
@@ -485,7 +531,10 @@ impl CanvasTargetProvider for StubTargets {
         if page_index != self.page {
             return None;
         }
-        self.objects.get(usize::try_from(target.0).ok()?).copied()
+        match target {
+            TargetId::Object(i) => self.objects.get(usize::try_from(i).ok()?).copied(),
+            TargetId::Leaf(i) => self.leaves.get(usize::try_from(i).ok()?).copied(),
+        }
     }
 
     fn part_hits(
@@ -568,9 +617,12 @@ mod tests {
         );
         assert_eq!(
             p.hit_test_all(0, Pos2::new(50.0, 50.0), 0.0),
-            vec![TargetId(1), TargetId(0)]
+            vec![TargetId::Object(1), TargetId::Object(0)]
         );
-        assert_eq!(p.hit_test(0, Pos2::new(50.0, 50.0), 0.0), Some(TargetId(1)));
+        assert_eq!(
+            p.hit_test(0, Pos2::new(50.0, 50.0), 0.0),
+            Some(TargetId::Object(1))
+        );
         // A query about another page is a miss, not a panic.
         assert!(p.hit_test_all(1, Pos2::new(50.0, 50.0), 0.0).is_empty());
     }
@@ -584,7 +636,10 @@ mod tests {
         let p = StubTargets::new(0, [rect(0.0, 0.0, 10.0, 10.0)]);
         let just_outside = Pos2::new(14.0, 5.0);
         assert!(p.hit_test_all(0, just_outside, 1.0).is_empty());
-        assert_eq!(p.hit_test_all(0, just_outside, 6.0), vec![TargetId(0)]);
+        assert_eq!(
+            p.hit_test_all(0, just_outside, 6.0),
+            vec![TargetId::Object(0)]
+        );
     }
 
     /// The marquee encloses rather than touches, on both sides of the seam.
@@ -597,7 +652,7 @@ mod tests {
         let grazing = Rect::from_min_size(Pos2::new(5.0, 5.0), egui::vec2(200.0, 200.0));
         assert_eq!(
             p.hit_test_rect(0, grazing),
-            vec![TargetId(1)],
+            vec![TargetId::Object(1)],
             "an object the marquee only grazes must not be selected"
         );
     }

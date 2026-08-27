@@ -69,13 +69,25 @@ pub const REGION: &str = "status-group:selected"; // ui-text-exempt: trace regio
 /// [`crate::canvas::depth`] for why those two live apart.
 pub(super) fn show(ui: &mut Ui, doc: &OpenDoc) {
     let page = doc.view.page_index;
-    let objects = doc.selection.object_indices_on(page);
-    if objects.is_empty() {
+    // ★★★ `targets_on`, NOT `object_indices_on`.
+    //
+    // This is a **readout**, and a readout must describe what the operator can
+    // see. `object_indices_on` answers about the page's own paint order only —
+    // it is the edit-operand funnel and it drops every target that lives inside
+    // a form XObject, correctly, because no paint-order verb can address one.
+    //
+    // Reading the operand list here would have made this line go **silent** on
+    // exactly the selection it was written for: the operator clicks an object
+    // inside a form, sees an outline, and the bar says nothing. That is worse
+    // than the "page selected" state it replaced, because at least that one
+    // showed something to be puzzled by.
+    let targets = doc.selection.targets_on(page);
+    let Some(&first) = targets.first() else {
         return;
-    }
+    };
 
-    let text = if objects.len() > 1 {
-        t::selection_many(objects.len())
+    let text = if targets.len() > 1 {
+        t::selection_many(targets.len())
     } else {
         // ★ The kind and the size come from the DECOMPOSITION, not from the
         // selection: a selection is four integers and knows nothing about what
@@ -85,20 +97,35 @@ pub(super) fn show(ui: &mut Ui, doc: &OpenDoc) {
         // extraction they would have paid for anyway.
         let described = doc.page_objects().and_then(|provider| {
             let model = provider.page_objects();
-            let object = model.objects.get(objects[0])?;
+            // Both index spaces, resolved by the id rather than by a caller
+            // that had to remember which one it was holding. `nesting` is
+            // `None` for a page object and `Some(depth)` for a form-interior
+            // one — which is the only thing the two branches disagree about.
+            let (object, nesting) = match first {
+                crate::canvas::target::TargetId::Object(i) => {
+                    (model.objects.get(usize::try_from(i).ok()?)?, None)
+                }
+                crate::canvas::target::TargetId::Leaf(i) => {
+                    let leaf = model.leaves.get(usize::try_from(i).ok()?)?;
+                    (&leaf.object, Some(leaf.containment.len()))
+                }
+            };
             let kind = crate::text::panels::objects::object_kind_label(
                 crate::panels::objects::summary::object_kind(object),
             );
             // Canvas space, from the provider's own projection rather than a
             // second one built here — `bounds` is what the overlay draws the
             // selection outline from, so the number in this line and the box on
-            // screen cannot describe different rectangles.
+            // screen cannot describe different rectangles. It answers for both
+            // lists, so this call does not branch.
             let size = provider
-                .bounds(page, crate::canvas::target::TargetId(objects[0] as u64))
+                .bounds(page, first)
                 .map(|r| (r.width(), r.height()));
-            Some(match size {
-                Some((w, h)) => t::selection_one(kind, w, h),
-                None => t::selection_one_unsized(kind),
+            Some(match (size, nesting) {
+                (Some((w, h)), None) => t::selection_one(kind, w, h),
+                (None, None) => t::selection_one_unsized(kind),
+                (Some((w, h)), Some(n)) => t::selection_one_in_form(kind, w, h, n),
+                (None, Some(n)) => t::selection_one_in_form_unsized(kind, n),
             })
         });
         // A selection naming an object the decomposition does not have is a
@@ -117,7 +144,11 @@ pub(super) fn show(ui: &mut Ui, doc: &OpenDoc) {
     // so the common case adds nothing — and it returns `None` for a selection
     // that did not come from a click at all, which is what stops this claiming
     // a stack the operator is not pointing at.
-    let text = match crate::canvas::depth::taken(ui.ctx(), page, objects[0]) {
+    //
+    // ★ It is keyed on the `TargetId`, so a depth measured for `leaves[7]` is
+    // never claimed by a selection of `objects[7]`. That collision did not
+    // exist while a page had one index space; it does now.
+    let text = match crate::canvas::depth::taken(ui.ctx(), page, first) {
         Some(depth) => t::selection_with_depth(&text, depth.taken + 1, depth.of),
         None => text,
     };

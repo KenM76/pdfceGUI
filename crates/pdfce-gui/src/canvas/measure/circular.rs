@@ -245,7 +245,19 @@ pub(super) fn click(
     let Some(target) = targets.hit_test(page_index, canvas_point, map.tolerance()) else {
         return;
     };
-    let Ok(index) = usize::try_from(target.0) else {
+    // ★ The circular fit takes **page** anchor samples, and
+    // `object_sample_points` indexes `PageObjects::objects`. A target inside a
+    // form XObject has no index in that list, so it cannot be picked — the
+    // same refusal a text or image object gets a few lines below, traced with
+    // its own reason so the two are not confused on the way back.
+    let Some(index) = target.page_object_index() else {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!(
+                "measure-pick-declined leaf={} reason=inside-form",
+                target.raw()
+            )
+        });
         return;
     };
     if st.circular.object_indices().any(|i| i == index) {
@@ -293,7 +305,7 @@ pub(in crate::canvas) fn pick_outlines(
     st.circular
         .object_indices()
         .filter_map(|index| u64::try_from(index).ok())
-        .filter_map(|id| targets.bounds(page_index, crate::canvas::target::TargetId(id)))
+        .filter_map(|id| targets.bounds(page_index, crate::canvas::target::TargetId::Object(id)))
         .collect()
 }
 
@@ -481,7 +493,7 @@ mod tests {
         selection.click(
             0,
             ClickHit {
-                object: Some(crate::canvas::target::TargetId(1)),
+                object: Some(crate::canvas::target::TargetId::Object(1)),
                 ..ClickHit::default()
             },
             false,

@@ -1,0 +1,203 @@
+//! # `text::status::selection` — what is selected, said in words
+//!
+//! Every string [`crate::app::status::selected`] draws, and nothing else. One
+//! subject, one consumer — the organising principle
+//! [`crate::text`]'s header states for the whole catalog, applied inside an
+//! area that had grown large enough to need it.
+//!
+//! ## Why this became its own file
+//!
+//! Because R2 said so, and R2 was right. `text::status` crossed 1,500 lines
+//! when the form-containment clause landed, and the rule this project was
+//! founded on is that the limit is the signal to find the seam rather than to
+//! raise the limit — the GUI being replaced reached 25,005 lines in one
+//! `main.rs`, and *"nothing could be reasoned about locally"* is the direct
+//! cause of most of what is wrong with it.
+//!
+//! The seam was already there. Every function here is read by exactly one
+//! widget, they are the only strings in the area that describe a *thing the
+//! operator picked* rather than a control they can press, and they now include
+//! the two sentences the form-XObject work turned on. The paths do not move:
+//! `status`'s `mod.rs` re-exports this, so `t::selection_one` still resolves
+//! and no call site changed. A catalog area is keyed by its consumer, and the
+//! consumer did not change — only the file did.
+//!
+//! ## The four sentences, and the state each is for
+//!
+//! | state | line |
+//! |---|---|
+//! | one page object | `Selected: Path · 120.0 × 40.0 pt` |
+//! | one object inside a form XObject | `… · inside a form` |
+//! | several things | `3 objects selected` |
+//! | anything, with more underneath | `… · 1 of 5 here` |
+//!
+//! ★ **The containment clause is [rule 4](R8b) disclosure and it is
+//! off-canvas.** A form-interior object is drawn on the page exactly as it
+//! will be drawn when saved — no badge, no tint, no dashed outline. What
+//! pdfce had to do to find it is reported here, in words, on a bar; never by
+//! marking the drawing.
+
+/// ★★★ **This page's colours are approximate at this zoom.**
+///
+/// ★★★ **What is selected**, for the status bar's left-hand readout.
+///
+/// # Why this line exists at all
+///
+/// The operator, 2026-08-26: *"when I click on one of the objects all I get is
+/// the page selected."* He was right, and nothing on screen said so — the
+/// selection outline round a page-sized object looks exactly like *"the page
+/// is selected"*, which is a state this program does not have. This is the
+/// sentence that turns that into a diagnosis.
+///
+/// # The wording
+///
+/// **The kind first**, because it is the word that answers his question:
+/// *Form* is the one that explains a page-sized outline, and it is the word he
+/// would have needed to ask the right next question.
+///
+/// **Size in points**, to one decimal, because the operator works in a CAD
+/// world where a number is how you tell two similar things apart, and because
+/// a page-sized object is obvious the moment its size is beside the page's.
+/// Not millimetres: the rest of this bar and the geometry fields are in points,
+/// and one surface in two units is worse than either unit.
+#[must_use]
+pub fn selection_one(kind: &str, width: f32, height: f32) -> String {
+    format!("Selected: {kind} · {width:.1} × {height:.1} pt")
+}
+
+/// The same, for an object whose bounds the projection declined.
+///
+/// Rare — it needs a page transform that will not invert — and it says less
+/// rather than saying something invented. A size derived from a failed
+/// projection would be a number the operator could act on and could not trust.
+#[must_use]
+pub fn selection_one_unsized(kind: &str) -> String {
+    format!("Selected: {kind}")
+}
+
+/// ★★★ **The same object, when it lives inside a form XObject.**
+///
+/// # The sentence this whole change exists to make sayable
+///
+/// The operator, 2026-08-26: *"when I click on one of the objects all I get is
+/// the page selected."* He was clicking a real object; a page-sized form
+/// XObject wrapped it, the form's `/BBox` won every hit test, and **nothing on
+/// screen said the word "form" anywhere**. The selection outline round the page
+/// edge looked exactly like a state this program does not have.
+///
+/// The engine now descends into forms, so the click lands on the object he
+/// meant. This clause is what stops the *next* question — *"why can I select
+/// it but not move it?"* — from being as unanswerable as the first one was.
+///
+/// # Why the suffix, and not a different sentence
+///
+/// Because it is the same selection, described more completely. Kind and size
+/// are unchanged and still lead, because they are what the operator asked for
+/// by clicking; the containment is the qualifier. A separate line would read as
+/// a separate subject, which is `status::selected`'s standing rule about the
+/// depth clause too.
+///
+/// # ★ Rule 4: this is DISCLOSURE, and it is off-canvas
+///
+/// Nothing is drawn differently on the page. A form-interior object renders
+/// exactly as it will render when saved, with no badge, tint or dashed
+/// outline — the operator's own finding that *"the nagging and red flagging in
+/// the original GUI made for a lot of extra bugs in the visibility when
+/// editing"*. The fact that pdfce reached inside a form to find this object is
+/// reported here, in the status bar, and nowhere on the drawing.
+///
+/// # The count
+///
+/// `nesting` is [`pdfce_core::vector::FormLeaf::containment`]'s length — how
+/// many forms enclose the object, outermost first. One is overwhelmingly the
+/// common case and gets the article rather than the digit, because *"inside 1
+/// form"* reads like a computer counting. Deeper nesting is worth the number:
+/// it is the difference between "this is in the title block" and "this is
+/// three wrappers down", which changes what the operator does next.
+#[must_use]
+pub fn selection_one_in_form(kind: &str, width: f32, height: f32, nesting: usize) -> String {
+    format!(
+        "Selected: {kind} · {width:.1} × {height:.1} pt · {}",
+        inside_forms(nesting)
+    )
+}
+
+/// The same, for a form-interior object whose bounds the projection declined.
+#[must_use]
+pub fn selection_one_in_form_unsized(kind: &str, nesting: usize) -> String {
+    format!("Selected: {kind} · {}", inside_forms(nesting))
+}
+
+/// *"inside a form"* / *"inside 3 nested forms"* — the containment clause,
+/// in one place so the sized and unsized sentences cannot word it differently.
+fn inside_forms(nesting: usize) -> String {
+    match nesting {
+        0 | 1 => "inside a form".to_owned(),
+        n => format!("inside {n} nested forms"),
+    }
+}
+
+/// ★★ **Why a verb refused: the thing selected lives in a form XObject.**
+///
+/// # The two states this keeps apart
+///
+/// *"Nothing selected"* and *"the thing you selected cannot be moved by this
+/// verb"* are the operator's mistake and the program's limit respectively, and
+/// an interface that reports the second as the first sends them looking for
+/// something they did not do wrong. `RESUME.md` records four occasions on this
+/// project where a limit reported as an absence cost weeks.
+///
+/// # Every clause, and what it is answering
+///
+/// **"inside a form"** names the structure, because that is the fact the
+/// operator can then act on — it explains the page-sized outline they used to
+/// get, it explains why the Objects panel does not list this object, and it is
+/// the word they need if they go looking in another tool.
+///
+/// **"pdfce cannot edit inside one yet"** puts the limit on pdfce rather than
+/// on the document. The file is not malformed and there is nothing to fix in
+/// it; a sentence that sounded like a complaint about the PDF would be a lie
+/// about whose problem this is.
+///
+/// **"yet"** is load-bearing and is not optimism. `EditSession` writes a
+/// paint-order edit to the page's content stream, and a form-interior object
+/// lives in the form's — `FormLeaf::is_editable` is `false` for every leaf the
+/// engine produces today. That is a boundary this shell reports, not a policy
+/// it chose, and it is dated: `pdfce-core` v0.14.0, 2026-08-27.
+#[must_use]
+pub fn selection_inside_form_declined() -> String {
+    "That object is inside a form — pdfce cannot edit inside one yet".to_owned()
+}
+
+/// Several objects selected.
+///
+/// No kinds and no size: a mixed selection has neither, and picking the first
+/// object's kind to stand for all of them would be a claim about the set that
+/// is false the moment the set is mixed. The count is the honest whole of what
+/// can be said until a multi-selection summary is built.
+#[must_use]
+pub fn selection_many(count: usize) -> String {
+    match count {
+        1 => "Selected: 1 object".to_owned(),
+        n => format!("Selected: {n} objects"),
+    }
+}
+
+/// ★★ **…and how many other things were under the same click.**
+///
+/// Appended to whichever line above applies, because it is a fact about the
+/// same selection: *"this one, and there were others."*
+///
+/// This is the half that makes `Alt`+click discoverable. A cycling gesture
+/// nobody knows about is a gesture nobody uses, and the operator has no way to
+/// learn that four more objects were under his pointer unless something says
+/// so. *"1 of 5 here"* says both that this is not the only answer and that
+/// there is a question worth asking.
+///
+/// `here` rather than `under the pointer`: the bar has finite width and the
+/// word is doing one job — locating the count at the click rather than in the
+/// document.
+#[must_use]
+pub fn selection_with_depth(line: &str, taken: usize, of: usize) -> String {
+    format!("{line} · {taken} of {of} here")
+}

@@ -219,7 +219,7 @@ fn a_selection_cannot_outlive_the_document_it_was_made_on() {
     doc.selection.click(
         0,
         ClickHit {
-            object: Some(TargetId(1)),
+            object: Some(TargetId::Object(1)),
             ..ClickHit::default()
         },
         false,

@@ -584,7 +584,11 @@ fn draw_anchors(
     if entered.page != page_index {
         return;
     }
-    let Ok(object) = usize::try_from(entered.object.0) else {
+    // ★ `None` for a target inside a form XObject. Anchor dots are grab
+    // targets for a node drag, and a leaf's geometry cannot be written, so
+    // drawing them would offer a gesture that must then refuse — the
+    // "placeholder" failure R9 forbids, in its most misleading form.
+    let Some(object) = entered.object.page_object_index() else {
         return;
     };
     let Some(page) = doc.pages.get(page_index) else {

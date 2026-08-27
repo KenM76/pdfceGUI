@@ -188,8 +188,18 @@ pub fn select_under_right_click(
     // the same accessor `deletable_objects_on` builds the Delete operand
     // list from — so "is this one of the things Delete would act on" and
     // "is this selected" are answered from one place.
-    let already_selected = usize::try_from(target.0)
-        .is_ok_and(|index| selection.object_indices_on(page).contains(&index));
+    // ★ Both lists, asked separately, because `object_indices_on` answers only
+    // about the page's own paint order — a right-click on an already-selected
+    // form-interior object would otherwise read as *not* selected and clear
+    // the set the operator had built.
+    let already_selected = match target {
+        TargetId::Object(_) => target
+            .page_object_index()
+            .is_some_and(|index| selection.object_indices_on(page).contains(&index)),
+        TargetId::Leaf(_) => target
+            .leaf_index()
+            .is_some_and(|index| selection.leaf_indices_on(page).contains(&index)),
+    };
     if !already_selected {
         // Rule 1. Through `click` itself, at the Object rung, with no part
         // and no node: a right-click names a whole object. Assembling a
@@ -358,7 +368,7 @@ mod tests {
             selection.click(
                 0,
                 ClickHit {
-                    object: Some(TargetId(*index)),
+                    object: Some(TargetId::Object(*index)),
                     ..ClickHit::default()
                 },
                 // The first click replaces; the rest add, exactly as a
@@ -379,7 +389,7 @@ mod tests {
     #[test]
     fn a_right_click_over_an_unselected_object_selects_it() {
         let mut selection = selected(&[7]);
-        let menu = select_under_right_click(&mut selection, 0, Some(TargetId(3)));
+        let menu = select_under_right_click(&mut selection, 0, Some(TargetId::Object(3)));
 
         assert_eq!(menu, CanvasMenu::Object);
         assert_eq!(
@@ -400,7 +410,7 @@ mod tests {
     #[test]
     fn a_right_click_inside_a_multi_selection_keeps_it() {
         let mut selection = selected(&[1, 4, 9]);
-        let menu = select_under_right_click(&mut selection, 0, Some(TargetId(4)));
+        let menu = select_under_right_click(&mut selection, 0, Some(TargetId::Object(4)));
 
         assert_eq!(menu, CanvasMenu::Object);
         assert_eq!(
@@ -461,7 +471,7 @@ mod tests {
         selection.click(
             0,
             ClickHit {
-                object: Some(TargetId(3)),
+                object: Some(TargetId::Object(3)),
                 part: Some(1),
                 node: None,
             },
@@ -470,7 +480,7 @@ mod tests {
         );
         assert_eq!(selection.level(), SelectionLevel::Part);
 
-        let menu = select_under_right_click(&mut selection, 0, Some(TargetId(3)));
+        let menu = select_under_right_click(&mut selection, 0, Some(TargetId::Object(3)));
         assert_eq!(menu, CanvasMenu::Object);
         assert_eq!(
             selection.level(),
@@ -494,7 +504,7 @@ mod tests {
         selection.click(
             0,
             ClickHit {
-                object: Some(TargetId(3)),
+                object: Some(TargetId::Object(3)),
                 part: Some(1),
                 node: None,
             },
@@ -503,7 +513,7 @@ mod tests {
         );
         assert_eq!(selection.level(), SelectionLevel::Part);
 
-        select_under_right_click(&mut selection, 0, Some(TargetId(8)));
+        select_under_right_click(&mut selection, 0, Some(TargetId::Object(8)));
         assert_eq!(selection.level(), SelectionLevel::Object);
         assert_eq!(selection.object_indices_on(0), vec![8]);
     }

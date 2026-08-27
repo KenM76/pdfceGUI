@@ -488,7 +488,7 @@ pub fn body(
             .is_some_and(|selected| selected == index);
         actions.push(Action::SelectObject {
             page: page_index,
-            object: (!already).then_some(crate::canvas::target::TargetId(index as u64)),
+            object: (!already).then_some(crate::canvas::target::TargetId::Object(index as u64)),
         });
     }
     tokens

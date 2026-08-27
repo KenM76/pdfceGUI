@@ -288,6 +288,23 @@ pub enum Refusal {
     ///
     /// [`TargetId`]: crate::canvas::target::TargetId
     UnaddressableObject,
+    /// **The selection is inside a form XObject**, so no page paint-order
+    /// verb can address it.
+    ///
+    /// ★ Distinct from [`Self::NothingSelected`], and the distinction is the
+    /// whole point: something *is* selected, the operator can see its outline,
+    /// and answering "nothing selected" would be a flat contradiction of what
+    /// is on screen. This is the refusal that has an explanation to give, and
+    /// [`crate::app::status::decline`] gives it.
+    ///
+    /// A leaf's geometry lives in the form's own content stream
+    /// ([`pdfce_core::vector::FormLeaf::stream`]) and
+    /// [`pdfce_core::vector::FormLeaf::is_editable`] is `false` for every leaf
+    /// the engine produces, so this is a statement about what the engine can
+    /// do today rather than a policy this shell chose. Dated 2026-08-27
+    /// against `pdfce-core` v0.14.0; when editing-through-recursion lands, the
+    /// remedy is to route to the form-scoped verb, not to relax this.
+    InsideForm,
     /// A selected object is not a path, so the whole move is refused. Carries
     /// its paint-order index.
     NotAPath(usize),
@@ -490,7 +507,18 @@ fn entered(
                 .then_some(e)
                 .ok_or(Refusal::NothingSelected)
         })?;
-    let object = usize::try_from(entry.object.0).map_err(|_| Refusal::UnaddressableObject)?;
+    // ★ Two different `None`s, told apart rather than merged. A leaf has no
+    // page paint-order index *by construction*; a `u64` too large for `usize`
+    // is the structurally-unreachable overflow the newtype has always
+    // refused. Reporting the second for the first would send the operator
+    // looking for a bug in a program that is behaving correctly.
+    let object = entry.object.page_object_index().ok_or({
+        if entry.object.is_leaf() {
+            Refusal::InsideForm
+        } else {
+            Refusal::UnaddressableObject
+        }
+    })?;
     Ok((object, entry))
 }
 
@@ -599,9 +627,11 @@ fn context(
     provider: Option<&ObjectModelProvider>,
 ) -> Option<MoveContext> {
     let provider = provider?;
+    // `None` for a leaf — a form-interior target has no page paint-order
+    // index, so there is no `part_kind` to ask about.
     let entered = selection
         .entered_object()
-        .and_then(|e| usize::try_from(e.object.0).ok());
+        .and_then(|e| e.object.page_object_index());
     Some(MoveContext {
         non_path: selection
             .object_indices_on(page)
@@ -772,7 +802,7 @@ mod tests {
 
     fn hit_object(index: u64) -> ClickHit {
         ClickHit {
-            object: Some(TargetId(index)),
+            object: Some(TargetId::Object(index)),
             ..ClickHit::default()
         }
     }
@@ -780,7 +810,7 @@ mod tests {
     /// A click that landed on anchor `node` of subpath `part` of `object`.
     fn hit_node(object: u64, part: usize, node: usize) -> ClickHit {
         ClickHit {
-            object: Some(TargetId(object)),
+            object: Some(TargetId::Object(object)),
             part: Some(part),
             node: Some(node),
         }
@@ -898,7 +928,7 @@ mod tests {
         sel.click(
             0,
             ClickHit {
-                object: Some(TargetId(0)),
+                object: Some(TargetId::Object(0)),
                 part: Some(1),
                 node: None,
             },
@@ -908,7 +938,7 @@ mod tests {
         sel.click(
             0,
             ClickHit {
-                object: Some(TargetId(0)),
+                object: Some(TargetId::Object(0)),
                 part: Some(1),
                 node: Some(4),
             },
@@ -1180,7 +1210,7 @@ mod tests {
         sel.click(
             0,
             ClickHit {
-                object: Some(TargetId(0)),
+                object: Some(TargetId::Object(0)),
                 part: Some(1),
                 node: None,
             },
@@ -1221,7 +1251,7 @@ mod tests {
         sel.click(
             0,
             ClickHit {
-                object: Some(TargetId(0)),
+                object: Some(TargetId::Object(0)),
                 part: Some(0),
                 node: None,
             },
@@ -1250,7 +1280,7 @@ mod tests {
         sel.click(
             0,
             ClickHit {
-                object: Some(TargetId(0)),
+                object: Some(TargetId::Object(0)),
                 part: Some(1),
                 node: None,
             },
@@ -1260,7 +1290,7 @@ mod tests {
         sel.click(
             0,
             ClickHit {
-                object: Some(TargetId(0)),
+                object: Some(TargetId::Object(0)),
                 part: Some(1),
                 node: Some(4),
             },
@@ -1355,7 +1385,7 @@ mod tests {
         for node in [4_usize, 9, 2] {
             selection.click(0, hit_node(7, 0, node), true, false);
         }
-        let nodes = selection.selected_nodes_on(0, TargetId(7));
+        let nodes = selection.selected_nodes_on(0, TargetId::Object(7));
         assert!(
             nodes.len() >= 2,
             "the selection model must hold every Shift-picked anchor, got {nodes:?}"
@@ -1375,7 +1405,7 @@ mod tests {
         };
         assert_eq!(
             nodes.len(),
-            selection.selected_nodes_on(0, TargetId(7)).len()
+            selection.selected_nodes_on(0, TargetId::Object(7)).len()
         );
 
         // Every selected anchor's position, so the plural arm can resolve them.
@@ -1432,7 +1462,7 @@ mod tests {
         selection.click(0, hit_object(7), false, false);
         selection.click(0, hit_node(7, 0, 1), false, true);
         selection.click(0, hit_node(7, 0, 1), false, true);
-        if selection.selected_nodes_on(0, TargetId(7)).len() != 1 {
+        if selection.selected_nodes_on(0, TargetId::Object(7)).len() != 1 {
             // The descent did not reach the Node rung on this fixture shape;
             // the assertion below would then be about the wrong thing.
             return;

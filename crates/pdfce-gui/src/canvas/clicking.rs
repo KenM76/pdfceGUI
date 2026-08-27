@@ -601,7 +601,7 @@ pub fn click(
         selection.click(page_index, hit, shift, double);
         // ★ Recorded WITH the object it is about, so it cannot be claimed for
         // a selection that arrived some other way — see `canvas::depth::taken`.
-        if let Some(object) = hit.object.and_then(|t| usize::try_from(t.0).ok()) {
+        if let Some(object) = hit.object {
             crate::canvas::depth::remember(ctx, depth, under, page_index, object);
         }
         super::trace::selection_event(selection, "click", double);

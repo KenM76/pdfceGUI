@@ -693,7 +693,7 @@ mod tests {
         selection.click(
             0,
             ClickHit {
-                object: Some(TargetId(3)),
+                object: Some(TargetId::Object(3)),
                 ..ClickHit::default()
             },
             false,
@@ -708,7 +708,7 @@ mod tests {
         selection.click(
             0,
             ClickHit {
-                object: Some(TargetId(3)),
+                object: Some(TargetId::Object(3)),
                 part: Some(1),
                 node: None,
             },

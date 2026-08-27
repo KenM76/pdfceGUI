@@ -1123,7 +1123,7 @@ mod tests {
     /// state a page edit has to invalidate.
     fn select_object_on(doc: &mut OpenDoc, page: usize) {
         use crate::panels::objects::provider::TargetId;
-        doc.selection.marquee(page, &[TargetId(0)], false);
+        doc.selection.marquee(page, &[TargetId::Object(0)], false);
     }
 
     /// ★★ **A delete shortens the page vector, and the view follows it.**

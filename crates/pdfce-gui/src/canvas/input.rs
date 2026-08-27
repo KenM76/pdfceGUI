@@ -82,11 +82,18 @@ pub(super) fn probe(
     let tolerance = map.tolerance();
     let object = nth_allowed(targets, page_index, point, tolerance, filter, depth);
 
+    // ★ The part and node rungs are addressed by a **page** paint-order
+    // index — `part_hits`, `part_bounds` and `nearest_node` all index
+    // `PageObjects::objects`. A target inside a form XObject has no such
+    // index, so `page_object_index` answers `None` and the two deeper rungs
+    // are simply not offered for it. That is the ladder stopping at the
+    // Object rung for a leaf, expressed where the address space runs out
+    // rather than as a rule somewhere else that has to agree with this one.
     let subject = selection
         .entered_object()
         .map(|e| e.object)
         .or(object)
-        .and_then(|t| usize::try_from(t.0).ok());
+        .and_then(TargetId::page_object_index);
     // ★ The two deeper rungs are gated by the SAME filter, and switching a
     // rung off is not the same act as switching an object class off — it
     // changes how deep a click may go rather than what it may reach. With

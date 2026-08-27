@@ -115,22 +115,116 @@ use pdfce_core::view::DocumentView;
 use pdfce_render::page_device_geometry;
 use pdfce_render::tiny_skia::{Point as SkPoint, Transform};
 
-/// One page object, addressed opaquely.
+/// One selectable thing on a page, addressed opaquely — and **which of the
+/// two index spaces it lives in**.
 ///
-/// The wrapped `u64` is the object's index into
-/// [`pdfce_core::vector::PageObjects::objects`] — i.e. **paint order**, and
-/// the same index `pdfce-cli object-list` prints as `index=` and
-/// `object-move` / `object-delete` / `node-move` take as an operand. One
-/// index space across every surface is what makes "object 412" mean the same
-/// thing in a panel row, in a trace line and on a command line.
+/// # ★★★ WHY THIS IS AN ENUM AND NOT A NUMBER
 ///
-/// A newtype rather than a bare `usize` so it cannot be confused with a row
-/// position, a page index or a subpath index — all of which are also
-/// `usize`, all of which appear within a few lines of each other in the
-/// Objects panel, and one of which (row position) counts in the opposite
-/// direction.
+/// A page has two lists of objects, not one, and they index **different
+/// content streams**:
+///
+/// * [`PageObjects::objects`] — what the *page's own* content stream paints.
+///   A paint-order index here is the number `pdfce-cli object-list` prints as
+///   `index=` and `object-move` / `object-delete` / `node-move` take as an
+///   operand, and it is the number every `EditSession` paint-order verb
+///   resolves against the page's buffer.
+/// * [`PageObjects::leaves`] — what a *form XObject invoked by the page*
+///   paints, geometry already mapped into page space by
+///   [`pdfce_core::vector::decompose_page`]. A leaf's token range indexes
+///   **the form's** buffer.
+///
+/// The engine keeps those two lists apart deliberately, and its own reason is
+/// the one that governs here (`FormLeaf`'s header): *"eleven call sites in
+/// `edit.rs` resolve a paint-order index and apply surgery to the page's
+/// content stream. Put leaves in `PageObjects::objects` and every one of
+/// those verbs would happily apply a form-relative token range to the page and
+/// corrupt it — silently, because the range is in bounds."*
+///
+/// **In range and wrong is the dangerous combination**, and it is exactly the
+/// combination a single `u64` would produce here. So this type carries the
+/// list with the index, and the only way to obtain a number an edit verb will
+/// accept is [`TargetId::page_object_index`], which answers `None` for a leaf.
+/// A site that wants to edit therefore has to say what it does about a leaf,
+/// at the point where it can still say something useful to the operator,
+/// rather than silently addressing the wrong buffer.
+///
+/// # Why not two types
+///
+/// Because one *selection* holds both, and the whole point of the form work is
+/// that an object inside a form is a first-class selection stop. A selection
+/// set generic over which kind it holds would push the distinction into every
+/// container in `canvas/`; an enum keeps it at the leaves of the call graph,
+/// where the decision actually differs.
+///
+/// # `Ord`, and what its order means
+///
+/// Derived, so every `Object` sorts before every `Leaf`. That is an arbitrary
+/// but stable total order, which is all the selection set needs it for
+/// (de-duplication and a non-flickering outline paint order). It is **not** a
+/// paint order and nothing may read it as one — leaves and page objects
+/// interleave on [`pdfce_core::vector::FormLeaf::paint_order`], and the one
+/// place that ordering matters is the hit test, which the engine performs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TargetId(pub u64);
+pub enum TargetId {
+    /// An index into [`PageObjects::objects`] — the page's own paint order.
+    /// Editable by the paint-order verbs.
+    Object(u64),
+    /// An index into [`PageObjects::leaves`] — an object painted from inside
+    /// a form XObject.
+    ///
+    /// Selectable, measurable and reportable. **Not** editable by the
+    /// paint-order verbs: see the type docs, and
+    /// [`pdfce_core::vector::FormLeaf::is_editable`], which is `false` for
+    /// every leaf until the engine grows editing-through-recursion.
+    Leaf(u64),
+}
+
+impl TargetId {
+    /// The index an [`pdfce_core::edit::EditSession`] paint-order verb will
+    /// accept — `None` for a leaf.
+    ///
+    /// ★ **This is the only supported way to turn a `TargetId` into an edit
+    /// operand**, and its `None` is the guard that makes the two index spaces
+    /// impossible to confuse. Do not pattern-match `Object(i)` and cast at a
+    /// call site that is about to edit: the match compiles just as well when
+    /// somebody later adds a third variant, and this method does not.
+    #[must_use]
+    pub fn page_object_index(self) -> Option<usize> {
+        match self {
+            Self::Object(i) => usize::try_from(i).ok(),
+            Self::Leaf(_) => None,
+        }
+    }
+
+    /// The index into [`PageObjects::leaves`], or `None` for a page object.
+    #[must_use]
+    pub fn leaf_index(self) -> Option<usize> {
+        match self {
+            Self::Object(_) => None,
+            Self::Leaf(i) => usize::try_from(i).ok(),
+        }
+    }
+
+    /// Whether this target lives inside a form XObject.
+    #[must_use]
+    pub const fn is_leaf(self) -> bool {
+        matches!(self, Self::Leaf(_))
+    }
+
+    /// The raw number, **for a trace line or a label and nothing else**.
+    ///
+    /// Deliberately loses which list it came from, so it is useless as an edit
+    /// operand and cannot be mistaken for one — every caller of this method is
+    /// building a string. Pair it with [`Self::is_leaf`] when the string is
+    /// shown to the operator, because "object 7" and "leaf 7" are different
+    /// things and a trace that says only `7` is a trace that cannot be read.
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        match self {
+            Self::Object(i) | Self::Leaf(i) => i,
+        }
+    }
+}
 
 /// The fallback canvas-space slack a click may miss an object's edge by,
 /// used ONLY when the caller cannot supply a live zoom (a non-finite or
@@ -843,7 +937,7 @@ impl ObjectModelProvider {
         };
         hit_test_point_all(&self.objects, pdf, resolve(tolerance))
             .into_iter()
-            .map(|i| TargetId(i as u64))
+            .map(|i| TargetId::Object(i as u64))
             .collect()
     }
 
@@ -878,7 +972,7 @@ impl ObjectModelProvider {
         };
         hit_test_rect(&self.objects, bounds, MarqueeMode::Enclosed)
             .into_iter()
-            .map(|i| TargetId(i as u64))
+            .map(|i| TargetId::Object(i as u64))
             .collect()
     }
 
@@ -893,8 +987,24 @@ impl ObjectModelProvider {
         if page_index != self.page_index {
             return None;
         }
-        let obj = self.objects.objects.get(usize::try_from(target.0).ok()?)?;
-        self.pdf_bounds_to_canvas(obj.page_bbox())
+        // ★ Both lists, resolved by the id itself rather than by a caller
+        // that had to remember which one it was holding. A leaf's geometry is
+        // already in page space — `decompose_page` maps it there on the way
+        // out — so this is the same projection, not a second one.
+        let bbox = match target {
+            TargetId::Object(i) => self
+                .objects
+                .objects
+                .get(usize::try_from(i).ok()?)?
+                .page_bbox(),
+            TargetId::Leaf(i) => self
+                .objects
+                .leaves
+                .get(usize::try_from(i).ok()?)?
+                .object
+                .page_bbox(),
+        };
+        self.pdf_bounds_to_canvas(bbox)
     }
 
     // ----------------------------- geometry -----------------------------
@@ -999,7 +1109,7 @@ mod tests {
         // One filled rectangle 10..90 square; a click at its centre hits it.
         let p = provider(b"10 10 80 80 re f");
         let hit = p.hit_test(0, Pos2::new(50.0, 50.0), 3.0);
-        assert_eq!(hit, Some(TargetId(0)));
+        assert_eq!(hit, Some(TargetId::Object(0)));
         // A click on empty canvas misses.
         assert_eq!(p.hit_test(0, Pos2::new(200.0, 200.0), 3.0), None);
         // A query for a different page misses regardless.
@@ -1029,19 +1139,22 @@ mod tests {
         // Tight tolerance (the old zoomed-out effective radius): a miss.
         assert_eq!(p.hit_test(0, near_miss, 1.5), None);
         // Forgiving tolerance (what a zoomed-out click now supplies): a hit.
-        assert_eq!(p.hit_test(0, near_miss, 6.0), Some(TargetId(0)));
+        assert_eq!(p.hit_test(0, near_miss, 6.0), Some(TargetId::Object(0)));
 
         // A degenerate tolerance must NOT silently disable selection — it
         // falls back to the fixed canvas-space value, so a click within
         // 3.0 units still lands.
-        assert_eq!(p.hit_test(0, Pos2::new(50.0, 22.0), 0.0), Some(TargetId(0)));
+        assert_eq!(
+            p.hit_test(0, Pos2::new(50.0, 22.0), 0.0),
+            Some(TargetId::Object(0))
+        );
         assert_eq!(
             p.hit_test(0, Pos2::new(50.0, 22.0), f64::NAN),
-            Some(TargetId(0))
+            Some(TargetId::Object(0))
         );
         assert_eq!(
             p.hit_test(0, Pos2::new(50.0, 22.0), -1.0),
-            Some(TargetId(0)),
+            Some(TargetId::Object(0)),
             "a negative tolerance is degenerate too, and must fall back"
         );
     }
@@ -1049,12 +1162,12 @@ mod tests {
     #[test]
     fn bounds_round_trips_the_object_bbox_into_canvas_space() {
         let p = provider(b"10 10 80 80 re f");
-        let r = p.bounds(0, TargetId(0)).expect("bounds");
+        let r = p.bounds(0, TargetId::Object(0)).expect("bounds");
         // Under the identity transform the canvas rect is the PDF bbox.
         assert!((r.min.x - 10.0).abs() < 1e-3 && (r.min.y - 10.0).abs() < 1e-3);
         assert!((r.max.x - 90.0).abs() < 1e-3 && (r.max.y - 90.0).abs() < 1e-3);
         // A stale target id resolves to nothing rather than panicking.
-        assert_eq!(p.bounds(0, TargetId(99)), None);
+        assert_eq!(p.bounds(0, TargetId::Object(99)), None);
     }
 
     #[test]
@@ -1065,13 +1178,13 @@ mod tests {
             0,
             Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0)),
         );
-        assert_eq!(hits, vec![TargetId(0)]);
+        assert_eq!(hits, vec![TargetId::Object(0)]);
         // A marquee spanning both encloses both.
         let both = p.hit_test_rect(
             0,
             Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(300.0, 300.0)),
         );
-        assert_eq!(both, vec![TargetId(0), TargetId(1)]);
+        assert_eq!(both, vec![TargetId::Object(0), TargetId::Object(1)]);
         // Wrong page: nothing.
         assert!(p.hit_test_rect(1, Rect::EVERYTHING).is_empty());
     }
@@ -1092,13 +1205,16 @@ mod tests {
         // A small filled rectangle painted first, then a big one over it.
         let p = provider(b"40 40 20 20 re f 0 0 100 100 re f");
         let hits = p.hit_test_all(0, Pos2::new(50.0, 50.0), 3.0);
-        assert_eq!(hits, vec![TargetId(1), TargetId(0)]);
+        assert_eq!(hits, vec![TargetId::Object(1), TargetId::Object(0)]);
         // The topmost query is exactly that list's head.
-        assert_eq!(p.hit_test(0, Pos2::new(50.0, 50.0), 3.0), Some(TargetId(1)));
+        assert_eq!(
+            p.hit_test(0, Pos2::new(50.0, 50.0), 3.0),
+            Some(TargetId::Object(1))
+        );
         // Only the cover is under a point outside the covered object.
         assert_eq!(
             p.hit_test_all(0, Pos2::new(5.0, 5.0), 3.0),
-            vec![TargetId(1)]
+            vec![TargetId::Object(1)]
         );
         // A miss is an empty list, and a wrong page is too.
         assert!(p.hit_test_all(0, Pos2::new(500.0, 500.0), 3.0).is_empty());
@@ -1112,8 +1228,8 @@ mod tests {
     fn a_degenerate_tolerance_falls_back_for_the_all_hits_query_too() {
         let p = provider(b"10 20 m 100 20 l S");
         let near = Pos2::new(50.0, 22.0);
-        assert_eq!(p.hit_test_all(0, near, 0.0), vec![TargetId(0)]);
-        assert_eq!(p.hit_test_all(0, near, f64::NAN), vec![TargetId(0)]);
+        assert_eq!(p.hit_test_all(0, near, 0.0), vec![TargetId::Object(0)]);
+        assert_eq!(p.hit_test_all(0, near, f64::NAN), vec![TargetId::Object(0)]);
     }
 
     #[test]
@@ -1176,7 +1292,9 @@ mod tests {
     fn a_part_outline_is_smaller_than_its_objects() {
         let p = provider(b"0 0 m 10 0 l 100 5 m 110 5 l S");
         let part = p.part_bounds_canvas(0, 1).expect("part 1 has bounds");
-        let whole = p.bounds(0, TargetId(0)).expect("the object has bounds");
+        let whole = p
+            .bounds(0, TargetId::Object(0))
+            .expect("the object has bounds");
         assert!(
             part.width() < whole.width(),
             "part {part:?} is not narrower than object {whole:?}"

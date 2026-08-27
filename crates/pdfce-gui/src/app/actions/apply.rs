@@ -512,7 +512,7 @@ impl PdfceApp {
                     .map(|provider| provider.page_objects().objects.len());
                 if let Some(last) = count.and_then(|n| n.checked_sub(1)) {
                     doc.selection
-                        .select_placed(page, crate::canvas::target::TargetId(last as u64));
+                        .select_placed(page, crate::canvas::target::TargetId::Object(last as u64));
                 }
             }
             // ★ One dictionary entry, through the same four-step protocol as a

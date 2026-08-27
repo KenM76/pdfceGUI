@@ -310,20 +310,81 @@ impl SelectionState {
             .reduce(|acc, r| acc.union(r))
     }
 
-    /// The paint-order indices selected on `page`, ascending — the operand
-    /// list for a batched edit.
+    /// The **page** paint-order indices selected on `page`, ascending — the
+    /// operand list for a batched edit.
     ///
     /// Ascending and de-duplicated because `EditSession::delete_objects`
     /// resolves **every** index before planning anything, so a duplicate or a
     /// stale entry refuses the whole call rather than deleting the prefix
     /// that happened to resolve. Handing it a clean list is the difference
     /// between "delete refused" and "delete did half of what I asked".
+    ///
+    /// # ★★★ TARGETS INSIDE A FORM XOBJECT ARE NOT IN THIS LIST
+    ///
+    /// A selection can hold two kinds of thing —
+    /// [`TargetId::Object`](crate::canvas::target::TargetId::Object), an index
+    /// into the page's own paint order, and
+    /// [`TargetId::Leaf`](crate::canvas::target::TargetId::Leaf), an index
+    /// into the objects painted from inside a form XObject. **Only the first
+    /// is an edit operand**, because every paint-order verb writes to the
+    /// page's content stream and a leaf's token range indexes the form's.
+    /// In range, wrong buffer, silent corruption — the engine's own reason for
+    /// keeping the two lists apart, restated at the one funnel in this shell
+    /// that feeds them to verbs.
+    ///
+    /// So a leaf is dropped here, and that is deliberate rather than a
+    /// tolerated gap. It does mean **an empty return is not the same as an
+    /// empty selection**: a caller that reports "nothing selected" on an empty
+    /// list will contradict an outline the operator can see. Ask
+    /// [`Self::leaf_indices_on`] before saying so — `canvas::moving` does, and
+    /// declines with `Refusal::InsideForm` instead.
     #[must_use]
     pub fn object_indices_on(&self, page: usize) -> Vec<usize> {
         self.entries
             .iter()
             .filter(|e| e.page == page)
-            .filter_map(|e| usize::try_from(e.object.0).ok())
+            .filter_map(|e| e.object.page_object_index())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    /// The indices into `PageObjects::leaves` selected on `page`, ascending
+    /// and unique — the half [`Self::object_indices_on`] drops.
+    ///
+    /// ★ **This exists so a refusal can be worded.** Its one job is to let a
+    /// caller tell *"you selected nothing"* from *"you selected something this
+    /// verb cannot reach"*, which are the two states an operator most needs
+    /// kept apart: the first is their mistake and the second is the program's
+    /// limit. `RESUME.md` records four separate occasions where a limit
+    /// reported as an absence cost weeks.
+    ///
+    /// Not an operand list. Nothing in `EditSession` takes one of these
+    /// numbers, by design — see [`crate::canvas::target::TargetId`].
+    #[must_use]
+    pub fn leaf_indices_on(&self, page: usize) -> Vec<usize> {
+        self.entries
+            .iter()
+            .filter(|e| e.page == page)
+            .filter_map(|e| e.object.leaf_index())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    /// Every target selected on `page`, both lists, ascending and unique.
+    ///
+    /// For a **readout** — the status line's *"what is selected"* — which must
+    /// describe what the operator can see rather than what a verb can act on.
+    /// Never hand a member of this to an edit verb; go through
+    /// [`crate::canvas::target::TargetId::page_object_index`], which is the
+    /// only thing that can say no.
+    #[must_use]
+    pub fn targets_on(&self, page: usize) -> Vec<TargetId> {
+        self.entries
+            .iter()
+            .filter(|e| e.page == page)
+            .map(|e| e.object)
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
@@ -629,7 +690,16 @@ impl SelectionState {
         self.normalise();
         crate::diag::trace(move || {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("selection-set page={page} object={} via={why}", object.0)
+            // ★ The list is named as well as the index. `object=7` was
+            // unambiguous while a page had one index space; it has two now,
+            // and a trace that cannot tell `objects[7]` from `leaves[7]` is a
+            // trace that cannot be read back — which is how a wrong aim goes
+            // six days without failing.
+            let list = if object.is_leaf() { "leaf" } else { "object" };
+            format!(
+                "selection-set page={page} {list}={} via={why}",
+                object.raw()
+            )
         });
     }
 
@@ -790,10 +860,17 @@ impl SelectionState {
     /// exists, and a correct action with no feedback is indistinguishable
     /// from a broken one.
     fn outline_rect(&self, targets: &dyn CanvasTargetProvider, entry: &Selection) -> Option<Rect> {
-        let object = usize::try_from(entry.object.0).ok()?;
+        // ★ A leaf has no page paint-order index, so it has no *part* box
+        // either — the part rung is not offered for one. Its object box is,
+        // and that is what gets outlined: `bounds` answers for both lists.
         entry
-            .subpath
-            .and_then(|part| targets.part_bounds(entry.page, object, part))
+            .object
+            .page_object_index()
+            .and_then(|object| {
+                entry
+                    .subpath
+                    .and_then(|part| targets.part_bounds(entry.page, object, part))
+            })
             .or_else(|| targets.bounds(entry.page, entry.object))
     }
 

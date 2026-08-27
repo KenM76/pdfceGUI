@@ -60,7 +60,7 @@ fn selecting_an_annotation_and_selecting_content_replace_each_other() {
     state.click(
         0,
         ClickHit {
-            object: Some(TargetId(4)),
+            object: Some(TargetId::Object(4)),
             part: None,
             node: None,
         },
@@ -80,7 +80,7 @@ fn selecting_an_annotation_and_selecting_content_replace_each_other() {
     state.click(
         0,
         ClickHit {
-            object: Some(TargetId(4)),
+            object: Some(TargetId::Object(4)),
             part: None,
             node: None,
         },
@@ -148,7 +148,7 @@ fn stub(page: usize) -> StubTargets {
 
 fn hit_object(index: u64) -> ClickHit {
     ClickHit {
-        object: Some(TargetId(index)),
+        object: Some(TargetId::Object(index)),
         ..ClickHit::default()
     }
 }
@@ -205,7 +205,7 @@ fn navigating_the_view_never_alters_the_selection() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: None,
         },
@@ -215,7 +215,7 @@ fn navigating_the_view_never_alters_the_selection() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: Some(4),
         },
@@ -397,7 +397,7 @@ fn paging_away_and_back_keeps_the_selection() {
 
     // …and back.
     sel.resolve(Some(&stub(0)), 0, 0);
-    assert_eq!(sel.entries(), [Selection::object(0, TargetId(1))]);
+    assert_eq!(sel.entries(), [Selection::object(0, TargetId::Object(1))]);
     assert_eq!(sel.outlines().len(), 1, "the outline comes back with it");
 }
 
@@ -431,7 +431,7 @@ fn an_edit_that_removed_an_object_drops_only_that_entry() {
     // The page now holds one object: index 1 is gone.
     let after_edit = StubTargets::new(0, [rect(0.0, 0.0, 100.0, 100.0)]);
     sel.resolve(Some(&after_edit), 0, 1);
-    assert_eq!(sel.entries(), [Selection::object(0, TargetId(0))]);
+    assert_eq!(sel.entries(), [Selection::object(0, TargetId::Object(0))]);
 }
 
 /// An undecodable page loses its outlines and keeps its selection. The
@@ -489,7 +489,7 @@ fn only_the_object_rung_offers_anything_to_delete() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: None,
         },
@@ -520,7 +520,7 @@ fn only_the_object_rung_offers_anything_to_delete() {
 fn a_plain_click_replaces_and_a_shift_click_toggles() {
     let mut sel = SelectionState::default();
     sel.click(0, hit_object(0), false, false);
-    assert_eq!(sel.entries(), [Selection::object(0, TargetId(0))]);
+    assert_eq!(sel.entries(), [Selection::object(0, TargetId::Object(0))]);
 
     sel.click(0, hit_object(1), true, false);
     assert_eq!(sel.len(), 2, "shift adds");
@@ -531,7 +531,7 @@ fn a_plain_click_replaces_and_a_shift_click_toggles() {
     sel.click(0, hit_object(1), false, false);
     assert_eq!(
         sel.entries(),
-        [Selection::object(0, TargetId(1))],
+        [Selection::object(0, TargetId::Object(1))],
         "a plain click replaces rather than adding"
     );
 }
@@ -570,7 +570,7 @@ fn shift_picking_a_second_anchor_adds_it_rather_than_replacing() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: Some(4),
         },
@@ -583,13 +583,13 @@ fn shift_picking_a_second_anchor_adds_it_rather_than_replacing() {
         SelectionLevel::Node,
         "the rung must be entered"
     );
-    assert_eq!(sel.selected_nodes_on(0, TargetId(0)), vec![4]);
+    assert_eq!(sel.selected_nodes_on(0, TargetId::Object(0)), vec![4]);
 
     // Shift-click a DIFFERENT anchor on the same subpath.
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: Some(7),
         },
@@ -598,7 +598,7 @@ fn shift_picking_a_second_anchor_adds_it_rather_than_replacing() {
     );
 
     assert_eq!(
-        sel.selected_nodes_on(0, TargetId(0)),
+        sel.selected_nodes_on(0, TargetId::Object(0)),
         vec![4, 7],
         "shift on a second anchor must ADD it — this is what the multi-node \
          move carries, and a selection the program shows and does not honour is \
@@ -621,18 +621,18 @@ fn shift_picking_a_selected_anchor_removes_it() {
 
     sel.click(0, hit_object(0), false, true);
     let at = |node| ClickHit {
-        object: Some(TargetId(0)),
+        object: Some(TargetId::Object(0)),
         part: Some(1),
         node: Some(node),
     };
     sel.click(0, at(4), false, true);
     sel.resolve(Some(&targets), 0, 0);
     sel.click(0, at(7), true, false);
-    assert_eq!(sel.selected_nodes_on(0, TargetId(0)), vec![4, 7]);
+    assert_eq!(sel.selected_nodes_on(0, TargetId::Object(0)), vec![4, 7]);
 
     sel.click(0, at(7), true, false);
     assert_eq!(
-        sel.selected_nodes_on(0, TargetId(0)),
+        sel.selected_nodes_on(0, TargetId::Object(0)),
         vec![4],
         "shift on an anchor that is already picked takes it back out"
     );
@@ -661,8 +661,8 @@ fn entries_are_ordered_and_unique_however_they_were_clicked() {
     assert_eq!(
         sel.entries(),
         [
-            Selection::object(0, TargetId(0)),
-            Selection::object(0, TargetId(1))
+            Selection::object(0, TargetId::Object(0)),
+            Selection::object(0, TargetId::Object(1))
         ]
     );
     assert_eq!(sel.object_indices_on(0), vec![0, 1]);
@@ -682,7 +682,7 @@ fn a_double_click_descends_one_rung_at_a_time() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: None,
         },
@@ -695,7 +695,7 @@ fn a_double_click_descends_one_rung_at_a_time() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: Some(6),
         },
@@ -710,7 +710,7 @@ fn a_double_click_descends_one_rung_at_a_time() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: Some(6),
         },
@@ -734,7 +734,7 @@ fn escape_ascends_one_rung_per_press() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: None,
         },
@@ -744,7 +744,7 @@ fn escape_ascends_one_rung_per_press() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: Some(2),
         },
@@ -788,7 +788,7 @@ fn clicking_away_leaves_the_entered_object() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: None,
         },
@@ -812,7 +812,7 @@ fn clicking_a_different_object_leaves_rather_than_nesting() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: None,
         },
@@ -821,7 +821,7 @@ fn clicking_a_different_object_leaves_rather_than_nesting() {
     );
     sel.click(0, hit_object(1), false, false);
     assert_eq!(sel.level(), SelectionLevel::Object);
-    assert_eq!(sel.entries(), [Selection::object(0, TargetId(1))]);
+    assert_eq!(sel.entries(), [Selection::object(0, TargetId::Object(1))]);
 }
 
 /// At the Node rung, a click that misses every anchor but lands on a part
@@ -834,7 +834,7 @@ fn missing_every_anchor_falls_back_to_the_part_rung() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: None,
         },
@@ -844,7 +844,7 @@ fn missing_every_anchor_falls_back_to_the_part_rung() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: Some(1),
         },
@@ -856,7 +856,7 @@ fn missing_every_anchor_falls_back_to_the_part_rung() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: None,
         },
@@ -875,14 +875,14 @@ fn missing_every_anchor_falls_back_to_the_part_rung() {
 #[test]
 fn a_marquee_replaces_and_a_shift_marquee_extends() {
     let mut sel = SelectionState::default();
-    sel.marquee(0, &[TargetId(0)], false);
-    assert_eq!(sel.entries(), [Selection::object(0, TargetId(0))]);
+    sel.marquee(0, &[TargetId::Object(0)], false);
+    assert_eq!(sel.entries(), [Selection::object(0, TargetId::Object(0))]);
 
-    sel.marquee(0, &[TargetId(1)], true);
+    sel.marquee(0, &[TargetId::Object(1)], true);
     assert_eq!(sel.len(), 2);
 
-    sel.marquee(0, &[TargetId(1)], false);
-    assert_eq!(sel.entries(), [Selection::object(0, TargetId(1))]);
+    sel.marquee(0, &[TargetId::Object(1)], false);
+    assert_eq!(sel.entries(), [Selection::object(0, TargetId::Object(1))]);
 }
 
 /// A marquee always lands at the Object rung and takes the operator out
@@ -894,7 +894,7 @@ fn a_marquee_ascends_to_the_object_rung() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(0),
             node: None,
         },
@@ -902,7 +902,7 @@ fn a_marquee_ascends_to_the_object_rung() {
         true,
     );
     assert_eq!(sel.level(), SelectionLevel::Part);
-    sel.marquee(0, &[TargetId(0), TargetId(1)], false);
+    sel.marquee(0, &[TargetId::Object(0), TargetId::Object(1)], false);
     assert_eq!(sel.level(), SelectionLevel::Object);
     assert_eq!(sel.entries()[0].subpath, None);
 }
@@ -926,7 +926,7 @@ fn an_entered_parts_outline_is_the_parts_own_box() {
     sel.click(
         0,
         ClickHit {
-            object: Some(TargetId(0)),
+            object: Some(TargetId::Object(0)),
             part: Some(1),
             node: None,
         },
@@ -971,14 +971,14 @@ fn the_grip_box_is_the_union_of_the_selection() {
 #[test]
 fn a_placed_object_replaces_the_selection_at_the_object_rung() {
     let mut sel = SelectionState::default();
-    sel.marquee(0, &[TargetId(3), TargetId(4)], false);
+    sel.marquee(0, &[TargetId::Object(3), TargetId::Object(4)], false);
     assert_eq!(sel.len(), 2, "two things selected before the placement");
 
-    sel.select_placed(0, TargetId(9));
+    sel.select_placed(0, TargetId::Object(9));
 
     assert_eq!(
         sel.entries(),
-        &[Selection::object(0, TargetId(9))],
+        &[Selection::object(0, TargetId::Object(9))],
         "the placed object must be selected, and must be the only thing selected: what was selected before is what the operator was working on BEFORE they placed this"
     );
     assert_eq!(
