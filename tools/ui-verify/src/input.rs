@@ -696,6 +696,17 @@ impl Driver {
         best.map(|(w, _)| w)
     }
 
+    /// The target window's client rectangle as `((x, y), (w, h))` in desktop
+    /// pixels, or `None` if it cannot be read.
+    ///
+    /// Used by [`Self::confirm_uncovered`] to tell *"covered"* from *"off the
+    /// window"*, which are different diagnoses with different remedies — see
+    /// the argument there.
+    fn target_client_rect(&self) -> Option<((i32, i32), (u32, u32))> {
+        let frame = sys::window_frame(self.target?).ok()?;
+        Some((frame.client_origin, frame.client_size))
+    }
+
     /// [`Self::raise_and_confirm`] for a point that may be inside a dialog.
     ///
     /// Raises whichever of the application's windows actually contains the
@@ -855,16 +866,74 @@ impl Driver {
         if self.window_owning(p) == Some(owner) {
             return Ok(());
         }
+        // ★★★ **"OUTSIDE THE WINDOW" AND "COVERED BY ANOTHER WINDOW" ARE
+        // DIFFERENT DIAGNOSES**, and this guard reported both as the second
+        // until 2026-08-27.
+        //
+        // If the point is not within the target's own client rectangle at all,
+        // then whatever owns it — the desktop (`Progman`), a File Explorer
+        // window, anything — owns it *because nothing of the application is
+        // there*. Saying "something is drawn OVER the target" then sends the
+        // reader looking for an occluder that does not exist. Measured that
+        // day: `dimension_groups_panel_makes_a_group` was blamed on `osk.exe`,
+        // then on File Explorer, then on `Progman`, across three runs, and the
+        // actual fact was that the panel's **Add** button was published at
+        // logical y 824 in an 800 px client — 24 points below the bottom edge.
+        //
+        // That is not a defect. The panel body is a `ScrollArea::vertical`, so
+        // the control is reachable by scrolling and an operator sees the bar.
+        // It is a **harness** gap: a rect published from inside a scroll region
+        // is a position in the scrolled content, not necessarily a position on
+        // screen, and a check that clicks one without scrolling to it first is
+        // aiming at somewhere the window is not.
+        //
+        // ⇒ The message now says which of the two it is, because the remedies
+        // have nothing in common: close the offending window, versus scroll the
+        // region into view.
+        if let Some(frame) = self.target_client_rect() {
+            let ((x, y), (w, h)) = frame;
+            let inside = p.x() >= x
+                && p.y() >= y
+                && p.x() < x.saturating_add(w as i32)
+                && p.y() < y.saturating_add(h as i32);
+            if !inside {
+                return Err(Error::new(format!(
+                    "the point ({}, {}) is OUTSIDE the application's window, which is {w}x{h} px \
+                     at desktop ({x}, {y}). Nothing is covering it; there is simply nothing of \
+                     the application there, and the desktop is what owns the pixel. The usual \
+                     cause is a rect published from inside a `ScrollArea` — that is a position \
+                     in the scrolled CONTENT, not on screen — so scroll the region into view \
+                     before clicking it, or make the window taller. Reported rather than \
+                     clicked: the click would land on {}.",
+                    p.x(),
+                    p.y(),
+                    sys::describe_window(owner)
+                )));
+            }
+        }
+        // ★★ **Name the window**, added 2026-08-27. The message used to say
+        // only that the point belonged to "another window" and then guess that
+        // it was `osk.exe` — and on the day this was written the on-screen
+        // keyboard was not running, which left the SKIP unactionable.
+        //
+        // `sys::describe_foreground`'s own docs already record the rule, from
+        // the day a stray `OpenWith.exe` dialog made nine checks skip: *"a
+        // check that reports a refusal without naming the refuser has withheld
+        // the only fact that distinguishes 'wait' from 'act'."* It had been
+        // applied to the foreground guard and not to this one, which refuses
+        // for the same kind of reason.
         Err(Error::new(format!(
-            "the point ({}, {}) belongs to another window, not to the application under test,\
-             so a click there would go to that window instead. Something is drawn OVER the\
-             target — on this machine it has been `osk.exe`, the on-screen keyboard, which\
-             synthetic keystrokes summon and which cannot be closed from a process of ordinary\
-             integrity. Close it by hand and run again. Reported rather than clicked: sending\
-             the click anyway would make this check report a working feature as broken, which\
-             it did repeatedly before this guard existed.",
+            "the point ({}, {}) is owned by {}, not by the application under test, so a click \
+             there would go to that window instead. Something is drawn OVER the target. The \
+             recorded case on this machine is `osk.exe`, the on-screen keyboard, which \
+             synthetic keystrokes summon and which cannot be closed from a process of ordinary \
+             integrity — but read the name above before assuming it: a stray dialog left on \
+             the desktop behaves identically. Reported rather than clicked: sending the click \
+             anyway would make this check report a working feature as broken, which it did \
+             repeatedly before this guard existed.",
             p.x(),
-            p.y()
+            p.y(),
+            sys::describe_window(owner)
         )))
     }
 }

@@ -306,55 +306,64 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
 /// **Get the Settings dialog on screen**, by whichever route this window
 /// offers.
 ///
-/// # ★ Two routes, because the control moves
+/// # ★★★ THREE routes, and this file knew about two until 2026-08-27
 ///
 /// `file.settings` is the first item of the *pdfce* group, which is the LAST
 /// group on the File tab. At the shipped 1100 pt window width that group does
-/// not fit and the ribbon correctly folds it into an overflow button — so the
-/// item has no rect of its own until the overflow is open.
+/// not fit, so the item has no rect of its own — and there are **two different
+/// things** the ribbon may have done with it:
 ///
-/// Both routes are tried rather than one being assumed, and the order is
-/// deliberate: the direct item first, because a wider window (or a future
-/// narrower ribbon) puts it on the band and clicking the overflow would then
-/// be clicking something else. Only if it is absent is the overflow opened.
+/// | | what the trace shows | how to reach the item |
+/// |---|---|---|
+/// | on the band | `ribbon.item.file.settings` | click it |
+/// | folded into the overflow | `ribbon.overflow` | open the overflow, then click |
+/// | **collapsed as a group** | `ribbon.group.file.pdfce.collapsed` | click the group button, then click |
 ///
-/// This is also why the failure text lists what *was* declared. A check that
-/// says "I could not find the control" and does not say what it did find sends
-/// its reader to guess, and the guess here is between two very different
-/// worlds — the control moved, or the ribbon did not draw at all.
+/// The third arrived with the O31 ribbon work, which gave the band a middle
+/// rung: when it runs short of width a whole group folds into one captioned
+/// button whose items live in its popup. This function hand-rolled the first
+/// two and therefore **could not run at all** afterwards — every invocation
+/// SKIPped with *"neither `ribbon.item.file.settings` nor `ribbon.overflow` was
+/// declared"*, which was true, and not the whole truth: the trace it printed
+/// contained `ribbon.group.file.pdfce.collapsed` five lines down.
+///
+/// ★ **It SKIPped rather than FAILed, and that is the only reason this was
+/// cheap.** A check that had claimed the Settings control was missing would
+/// have sent somebody looking for a defect in a ribbon that was behaving
+/// exactly as designed — the false-failure-believed pattern this suite has paid
+/// for twice. The honest SKIP cost nothing but the coverage.
+///
+/// # The fix is to stop hand-rolling it
+///
+/// `driving::declared_or_in_overflow` already knows all three places and tries
+/// them in the right order — direct, then each collapsed group (non-destructive:
+/// a popup can be opened and closed without moving the band), then the overflow
+/// (which scrolls, and so must be last). It was written for exactly this and
+/// `export_dxf` already uses it.
+///
+/// **A rule stated twice is a rule that drifts**, and this is what the drift
+/// looks like: the shared helper gained a third case, this copy did not, and
+/// nothing failed — the check simply stopped being able to begin. There is now
+/// one statement of "where can a ribbon command be".
 fn open_settings(
     session: &crate::launch::Session,
     driver: &crate::input::Driver,
     ui_rect: &str,
     report: &mut CheckReport,
 ) -> crate::error::Result<()> {
-    use crate::checks::driving::{declared, declared_names, list};
+    use crate::checks::driving::{declared, declared_names, declared_or_in_overflow, list};
 
     const ITEM: &str = "ribbon.item.file.settings";
-    const OVERFLOW: &str = "ribbon.overflow";
 
-    let trace = session.trace()?;
-    if declared(&trace, ui_rect, ITEM).is_none() {
-        let overflow = declared(&trace, ui_rect, OVERFLOW).ok_or_else(|| {
-            crate::error::Error::new(format!(
-                "neither `{ITEM}` nor `{OVERFLOW}` was declared, so there is no route to the Settings dialog on this window. Ribbon regions declared: {}.",
-                list(&declared_names(&trace, ui_rect, "ribbon."))
-            ))
-        })?;
-        report.note(
-            "the Settings control is not on the ribbon band at this window width — it is the first item of the LAST group on the File tab, which the ribbon correctly folds into the overflow. Opening the overflow to reach it.",
-        );
-        driver.click_at(session.frame()?.declared_center(overflow))?;
-        session.settle(16);
-    }
-
-    let trace = session.trace()?;
-    let item = declared(&trace, ui_rect, ITEM).ok_or_else(|| {
+    let item = declared_or_in_overflow(session, driver, ui_rect, ITEM)?.ok_or_else(|| {
         crate::error::Error::new(format!(
-            "`{ITEM}` was still not declared after opening the overflow, so this check cannot put the dialog on screen. Regions declared under `ribbon.item.file.`: {}.",
-            list(&declared_names(&trace, ui_rect, "ribbon.item.file."))
+            "`{ITEM}` was not on the band, in any collapsed group, or in the overflow, so there is no route to the Settings dialog on this window. Ribbon regions declared: {}.",
+            list(&declared_names(&session.trace().unwrap_or_default(), ui_rect, "ribbon."))
         ))
     })?;
+    report.note(
+        "reached the Settings control through `declared_or_in_overflow`, which tries the band, then each collapsed group's popup, then the overflow. At the harness's 1100 pt window it is usually the second of those: the pdfce group is the last on the File tab and collapses first.",
+    );
     driver.click_at(session.frame()?.declared_center(item))?;
     session.settle(24);
 

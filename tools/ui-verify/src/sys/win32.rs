@@ -486,6 +486,34 @@ pub fn describe_foreground() -> String {
         return "nothing at all (no foreground window), which usually means the workstation is locked or the secure desktop is up"
             .to_string();
     };
+    describe_window(w)
+}
+
+/// Name **any** window, the way [`describe_foreground`] names the front one.
+///
+/// # ★★ Added 2026-08-27, because the same lesson had been applied to one
+/// guard and not to its neighbour
+///
+/// [`describe_foreground`]'s own doc records what it cost to learn: *"a check
+/// that reports a refusal without naming the refuser has withheld the only fact
+/// that distinguishes 'wait' from 'act'."* That was written after a stray
+/// `OpenWith.exe` dialog held the foreground and made nine checks SKIP, and the
+/// diagnosis — a `GetForegroundWindow` plus a `GetClassNameW` — was two calls
+/// the harness could have made itself.
+///
+/// The **cover** guard (`Driver::confirm_uncovered`) refuses for the same class
+/// of reason and, until today, named nothing: *"the point (1627, 895) belongs to
+/// another window"*, and then a paragraph guessing that it might be `osk.exe`.
+/// On 2026-08-27 it was not `osk.exe` — the on-screen keyboard was not running —
+/// and the SKIP was therefore unactionable in exactly the way the foreground
+/// message had been before it was fixed.
+///
+/// ⇒ **When a guard learns to name its subject, check every other guard that
+/// refuses for the same kind of reason.** A lesson applied at one call site and
+/// not at its sibling is a lesson half-learned, and the sibling is where it will
+/// be paid for again.
+#[must_use]
+pub fn describe_window(w: WindowHandle) -> String {
     let class = window_class(w);
     let title = window_title(w);
     let pid = pid_of_window(w).unwrap_or(0);

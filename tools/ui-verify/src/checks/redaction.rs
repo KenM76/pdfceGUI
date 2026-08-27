@@ -442,7 +442,39 @@ fn click_command(
     (name, id): (&str, &str),
     settle: u32,
 ) -> Result<()> {
-    let rect = region(&session.trace()?, ui_rect, name, ITEM_PREFIX)?;
+    // ★★ **Three places a ribbon control can be**, and this asked about one.
+    //
+    // `region` reads a declared rect out of the trace, which is right for the
+    // panel's and the dialog's controls — they are always drawn when their
+    // surface is. It is wrong for a **ribbon item**: at the harness's 1,100 pt
+    // window the band runs out of width, and an item may instead be inside a
+    // collapsed group's popup or behind the overflow button. Neither publishes
+    // a rect until it is opened.
+    //
+    // `file.copy_page_text` lives in the File tab's *Export* group, which
+    // collapses at that width — so this check SKIPped with *"the application
+    // declared no `ribbon.item.file.copy_page_text` region"*, which was true
+    // and not the whole truth: `ribbon.group.file.export.collapsed` was in the
+    // same trace.
+    //
+    // ★ `declared_or_in_overflow` is the one statement of "where can a ribbon
+    // command be" and it already knew all three. This is the **second** copy of
+    // that lookup found and removed on 2026-08-27; `settings_headings` was the
+    // first, blind since the same ribbon change. A rule stated twice is a rule
+    // that drifts, and this is what the drift looks like: nothing failed, the
+    // checks simply stopped being able to begin.
+    let rect = crate::checks::driving::declared_or_in_overflow(session, driver, ui_rect, name)?
+        .ok_or_else(|| {
+            Error::new(format!(
+                "`{name}` was not on the band, in any collapsed group, or in the overflow, so \
+                 there is nothing to aim at. Regions declared under `{ITEM_PREFIX}`: {}.",
+                crate::checks::driving::list(&crate::checks::driving::declared_names(
+                    &session.trace().unwrap_or_default(),
+                    ui_rect,
+                    ITEM_PREFIX
+                ))
+            ))
+        })?;
     let before = invokes(session, id)?;
     driver.click_at(session.frame()?.declared_center(rect))?;
     session.settle(settle);

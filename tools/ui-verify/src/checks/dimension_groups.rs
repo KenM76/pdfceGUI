@@ -548,9 +548,57 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(10);
 
     // --- 6: add it ---------------------------------------------------------
-    let trace = session.trace()?;
-    let add = declared(&trace, ui_rect, ADD)
+    //
+    // ★★★ **Scroll to it first**, and the reason took three runs to establish
+    // on 2026-08-27 because the harness was reporting the wrong diagnosis.
+    //
+    // The panel body is a `ScrollArea::vertical`, so `dimension-groups.add`
+    // publishes a rect in the **scrolled content**, which is not necessarily a
+    // position on screen. At the harness's 1,100 x 800 client, with the
+    // Add-a-group fold open, that rect lands at logical y 824 — twenty-four
+    // points below the bottom edge of the window.
+    //
+    // That is not a defect: an operator sees the scrollbar and scrolls. It was
+    // reported as one three times over, because `confirm_uncovered` said only
+    // *"the point belongs to another window"* and then guessed at `osk.exe`.
+    // It blamed `osk.exe` (not running), then File Explorer, then `Progman` —
+    // the desktop — which is what finally gave it away: the desktop owns a
+    // pixel when nothing of the application is there. The guard names the
+    // window now and tells "off the window" from "covered".
+    //
+    // ⇒ **A rect from inside a scroll region is a content coordinate.** Scroll,
+    // then re-read the rect, then click. Re-reading is the load-bearing half:
+    // the whole point is that the number changed.
+    let mut trace = session.trace()?;
+    let mut add = declared(&trace, ui_rect, ADD)
         .ok_or_else(|| Error::new(format!("the panel declared no `{ADD}` region.")))?;
+    if let Some(body) = declared(&trace, ui_rect, PANEL_BODY) {
+        let frame = session.frame()?;
+        let (_, client_h) = frame.client_size;
+        // Only if it is actually off the bottom. A window tall enough to show
+        // the whole panel must not be scrolled: scrolling would move the rect
+        // the check is about for no reason, which is its own way of aiming at
+        // nothing.
+        if frame.declared_center(add).y() >= frame.client_origin.1 + client_h as i32 {
+            report.note(
+                "the Add button is published below the bottom of the window — it is inside the \
+                 panel's `ScrollArea`, so its rect is a position in the scrolled content. \
+                 Scrolling the panel and re-reading the rect.",
+            );
+            for _ in 0..4 {
+                driver.scroll_at(session.frame()?.declared_center(body), -3)?;
+                session.settle(8);
+                trace = session.trace()?;
+                if let Some(r) = declared(&trace, ui_rect, ADD) {
+                    add = r;
+                }
+                let frame = session.frame()?;
+                if frame.declared_center(add).y() < frame.client_origin.1 + client_h as i32 {
+                    break;
+                }
+            }
+        }
+    }
     let requested_before = trace.events("dimension-group-add").count();
     driver.click_at(session.frame()?.declared_center(add))?;
     session.settle(20);

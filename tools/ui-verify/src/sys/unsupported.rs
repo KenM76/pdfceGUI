@@ -97,6 +97,12 @@ pub fn windows_for_pid(_pid: u32) -> Vec<WindowHandle> {
 }
 
 /// Always `None` — there is no window server here.
+/// Name a window. Unsupported here; see the win32 twin.
+#[must_use]
+pub fn describe_window(_w: WindowHandle) -> String {
+    "an unidentified window (this platform has no window inspection)".to_string()
+}
+
 pub fn pid_of_window(_w: WindowHandle) -> Option<u32> {
     None
 }
