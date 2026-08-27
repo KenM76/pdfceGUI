@@ -1031,8 +1031,18 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
         crate::diag::trace(|| {
             format!(
                 // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "measure-hover-entity object={} segment={}",
-                entity.object_index,
+                // ★ The list is named as well as the index. A page has two,
+                // and a trace that cannot tell `objects[7]` from `leaves[7]`
+                // is a trace that cannot be read back.
+                "measure-hover-entity {}={} segment={}",
+                match entity.target {
+                    pdfce_core::vector::hit::HitTarget::Object(_) => "object",
+                    pdfce_core::vector::hit::HitTarget::Leaf(_) => "leaf",
+                },
+                match entity.target {
+                    pdfce_core::vector::hit::HitTarget::Object(i)
+                    | pdfce_core::vector::hit::HitTarget::Leaf(i) => i,
+                },
                 u8::from(entity.segment.is_some())
             )
         });

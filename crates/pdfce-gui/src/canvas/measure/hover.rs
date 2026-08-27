@@ -80,8 +80,8 @@
 use egui::{Pos2, Shape, Stroke};
 use pdfce_core::vector::PageObjects;
 use pdfce_core::vector::Point;
-use pdfce_core::vector::hit::hit_test_point;
-use pdfce_core::vector::linepick::pick_line;
+use pdfce_core::vector::hit::{HitTarget, hit_test_point_deep};
+use pdfce_core::vector::linepick::pick_line_of;
 
 /// What the pointer is over, resolved while the decomposition is borrowed.
 ///
@@ -90,9 +90,17 @@ use pdfce_core::vector::linepick::pick_line;
 /// is one cheap value passed from the resolve pass to the paint pass.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::canvas) struct Entity {
-    /// Index into `PageObjects::objects`, carried for the trace so a reader can
-    /// tie a highlight to the object the pick will name.
-    pub object_index: usize,
+    /// **Which list, and which entry in it**, the highlight is about — carried
+    /// for the trace so a reader can tie a highlight to the object the pick
+    /// will name.
+    ///
+    /// ★ A [`HitTarget`] rather than a bare `usize` since 2026-08-27. A page
+    /// has two object lists — its own content stream's, and the objects
+    /// painted from inside its form XObjects — and no integer distinguishes
+    /// them. While this was a `usize` the hover highlight could not describe a
+    /// line inside a form **at all**, which on a CAD sheet wrapped in a form
+    /// is every line on the drawing.
+    pub target: HitTarget,
     /// The straight run the pick would use, page space, when there is one.
     pub segment: Option<(Point, Point)>,
     /// The object's page-space bounds, as `(min, max)`.
@@ -129,15 +137,46 @@ pub(in crate::canvas) fn resolve(
     query: Point,
     tolerance: f64,
 ) -> Option<Entity> {
-    let object_index = hit_test_point(model, query, tolerance)?;
-    let bbox = model.objects.get(object_index)?.page_bbox();
-    // `pick_line` answers `None` for a non-path, for a curve, and for a path
+    // ★★ **The DEEP hit test**, since 2026-08-27. `hit_test_point` sees a form
+    // XObject as one opaque box bounded by its `/BBox`, which is a clipping
+    // extent (8.10.1) and not a claim about ink — so on a drawing wrapped in a
+    // form it highlighted the wrapper, page-sized, for every pointer position
+    // on the sheet. `hit_test_point_deep` excludes forms outright and answers
+    // with what is drawn inside them.
+    //
+    // The consequence for THIS module is worse than for selection, and it is
+    // the reason the change had to come here too rather than only to the pick:
+    // a hover highlight is a **promise about what the next click will take**,
+    // and `measure::pick` has used the leaf-aware `pick_line_in_page` since
+    // the same day. A shallow highlight over a deep pick is the exact state
+    // this module's header exists to prevent — a marker on one line and a
+    // highlight on another.
+    let target = *hit_test_point_deep(model, query, tolerance).first()?;
+    // One lookup, both lists. The path and the bbox come from the same entry,
+    // so they cannot describe different objects.
+    let object = match target {
+        HitTarget::Object(i) => model.objects.get(i)?,
+        HitTarget::Leaf(i) => &model.leaves.get(i)?.object,
+    };
+    let bbox = object.page_bbox();
+    // `pick_line_of` answers `None` for a non-path, for a curve, and for a path
     // whose nearest run is not within tolerance. All three mean the same thing
     // here — *there is an entity and it is not a straight run* — so they share
     // the bounds-only branch rather than being distinguished.
-    let segment = pick_line(model, object_index, query, tolerance).map(|l| (l.start, l.end));
+    //
+    // `pick_line_of` rather than `pick_line`: the latter takes an index into
+    // `objects` and so cannot be asked about a leaf. The engine split them for
+    // that reason — *"the geometry never needed the index; only the lookup
+    // did"* — and the provenance is this caller's knowledge, so this caller
+    // states it.
+    let segment = match object {
+        pdfce_core::vector::VectorObject::Path(path) => {
+            pick_line_of(path, target, query, tolerance).map(|l| (l.start, l.end))
+        }
+        _ => None,
+    };
     Some(Entity {
-        object_index,
+        target,
         segment,
         bounds: (bbox.min, bbox.max),
     })
@@ -204,7 +243,7 @@ mod tests {
 
     fn entity(segment: Option<(Point, Point)>) -> Entity {
         Entity {
-            object_index: 3,
+            target: HitTarget::Object(3),
             segment,
             bounds: (Point { x: 0.0, y: 0.0 }, Point { x: 100.0, y: 50.0 }),
         }
