@@ -43,6 +43,7 @@
 //! type to follow its writer would have been the tidier-looking edit and the
 //! one that widened a private thing's visibility for no gain.
 
+use super::forms::FieldAction;
 use std::sync::Arc;
 
 use pdfce_core::edit::EditSession;
@@ -640,27 +641,30 @@ impl PdfceApp {
             // epoch or invalidate a page. It is here rather than mutated at the
             // canvas because that is this shell's one rule: everything a
             // gesture wants the application to do arrives as an `Action`.
-            Action::SelectFormField(selected) => {
-                doc.selected_field = selected;
-            }
-            Action::RenameFormField { from, to } => {
-                crate::app::actions::forms::rename(doc, &from, &to);
-            }
-            Action::DeleteFormField { field } => {
-                crate::app::actions::forms::delete_field(doc, &field);
-            }
-            Action::DeleteFormWidget { field, widget } => {
-                crate::app::actions::forms::delete_widget(doc, &field, widget);
-            }
-            // ★ Placing a form control CHANGES NOTHING, exactly as placing a
-            // text-bearing annotation does one arm down. It opens the dialog,
-            // and the details decide whether anything is authored.
+            // ★ The form-field family, and it is routed in THREE arms rather
+            // than one. The enum moved to `super::forms` on 2026-08-27 under
+            // R2; the bodies had lived there since the family shipped. What
+            // could not follow is the two verbs that need application state
+            // this file holds and `&mut OpenDoc` does not — `self.dialogs`,
+            // `self.form_defaults` and `self.status`.
             //
-            // The document is read HERE rather than at the canvas, because
-            // generating the field's name needs the existing ones and a gesture
-            // has no business parsing an `/AcroForm`.
-            Action::BeginFormField { page, kind, rect } => {
-                let existing = crate::app::actions::forms::field_names(doc);
+            // ★★ And they cannot be handed to a router either, for a borrow
+            // reason worth stating because it is invisible until you try it:
+            // `doc` above IS `&mut self.status`. Passing `doc` and
+            // `&self.status` to one function is two borrows of one field and
+            // will not compile. It works *inside* an arm only because NLL ends
+            // `doc`'s borrow at its last use, which is `field_names(doc)` on
+            // the line before. That is a real constraint on how far this
+            // family's arms can be moved, not an accident of style.
+            //
+            // Placing a form control CHANGES NOTHING, exactly as placing a
+            // text-bearing annotation does. It opens the dialog, and the
+            // details decide whether anything is authored. The document is read
+            // HERE rather than at the canvas, because generating the field's
+            // name needs the existing ones and a gesture has no business
+            // parsing an `/AcroForm`.
+            Action::Field(FieldAction::Begin { page, kind, rect }) => {
+                let existing = super::forms::field_names(doc);
                 let draft = self.form_defaults.next(kind, &existing);
                 self.dialogs
                     .open_form_field(&self.status, page, rect, draft);
@@ -673,10 +677,13 @@ impl PdfceApp {
             // the dialog, because this is the point at which they were
             // ACCEPTED. Remembering at the dialog would remember a draft the
             // operator then cancelled.
-            Action::CommitFormField { page, rect, draft } => {
+            Action::Field(FieldAction::Commit { page, rect, draft }) => {
                 self.form_defaults.remember(&draft);
-                crate::app::actions::forms::author(doc, page, rect, &draft);
+                super::forms::author(doc, page, rect, &draft);
             }
+            // Everything else in the family needs the document and nothing
+            // else, so it routes the way `Vector`, `Dimension` and `Page` do.
+            Action::Field(action) => super::forms::apply(doc, action),
             Action::BeginTextAnnot { page, kind, rect } => {
                 self.dialogs.open_text_annot(&self.status, page, kind, rect);
             }
@@ -1007,7 +1014,6 @@ impl PdfceApp {
                     )
                 });
             }
-            Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
             // ★ The three REDACTION arms live in `super::redact`.
             //
             // Moved there on 2026-08-18 under rule R2, and the seam is a real
@@ -1038,9 +1044,6 @@ impl PdfceApp {
             // correctable refusals, its three unreachable ones and the three
             // conditional clauses of its disclosure — is `super::forms`, whose
             // header carries the measurement that makes the wording necessary.
-            Action::AdoptWidget { page, widget, name } => {
-                super::forms::adopt(doc, page, widget, name);
-            }
             // ★ An export changes NOTHING — no `vector_edit`, no undo entry,
             // no epoch bump, no invalidation. It reads the open page and writes
             // a different file, which is why its body is in `super::export`

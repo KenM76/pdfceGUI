@@ -153,6 +153,7 @@ pub mod rows;
 /// is a section rather than a panel, and why it offers no reorder affordance.
 pub mod tab_order;
 
+use crate::app::actions::forms::FieldAction;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
@@ -832,7 +833,7 @@ fn field_list(
 /// and one arm in `PdfceApp::apply`:
 ///
 /// ```text
-/// Action::Form(edit) => crate::panels::forms::edit::apply(doc, &edit),
+/// FieldAction::Edit(edit) => crate::panels::forms::edit::apply(doc, &edit),
 /// ```
 ///
 /// That is the whole of it. The mutation protocol, the epoch bump, the texture
@@ -840,7 +841,7 @@ fn field_list(
 /// reasons that module's header sets out — chiefly that the six form outcome
 /// types do not unify into `vector_edit`'s `Result<Vec<String>, EditError>`.
 fn raise(actions: &mut Vec<Action>, edit: FormEdit) {
-    actions.push(Action::Form(edit));
+    actions.push(FieldAction::Edit(edit).into());
 }
 
 /// The Forms panel's own inter-frame state: one text draft per field.

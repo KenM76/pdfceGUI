@@ -1,12 +1,50 @@
-//! # `app::actions::forms` — registering a form control the document lists but
-//! no field claims
+//! # `app::actions::forms` — everything done to a form FIELD
 //!
-//! One verb, and the smallest sibling of [`super::dimensions`],
-//! [`super::pages`] and [`super::export`]. It exists as its own module for the
-//! reason those do: `super::apply` is at the far end of R2's file-size budget,
-//! and a verb whose *disclosure and refusal wording* is the substantial part of
-//! it would put a hundred lines of judgement in the file every other task
-//! already contends over.
+//! A sibling of [`super::dimensions`], [`super::pages`], [`super::vector`] and
+//! [`super::export`], and it owns both halves of its subject: the action enum
+//! [`FieldAction`] and the apply logic every one of its variants reaches.
+//!
+//! ## Why the family is a family
+//!
+//! Eight verbs — fill, select, place, author, rename, delete a field, delete one
+//! of its widgets, register an unclaimed one — sharing a property nothing else
+//! in `actions` has: **every one of them addresses a control by its fully
+//! qualified NAME, or by the widget's `ObjId`. None of them uses a paint-order
+//! index.** That is not a coincidence of style; it follows from where the data
+//! lives. `/AcroForm` is in the document catalog (§12.7.2), a field is reached
+//! through it, and a widget is reached through the field that claims it — never
+//! through the page that happens to draw it.
+//!
+//! It is the same test the neighbouring seams pass: [`super::vector`] is the
+//! verbs that address paint-order indices, [`super::pages`] the verbs that
+//! address page positions. A size-driven cut would not have produced this
+//! grouping and would not survive the next variant; this one tells you where a
+//! ninth verb goes without anyone having to decide.
+//!
+//! ## Why the enum moved here on 2026-08-27
+//!
+//! **R2.** [`super::action::Action`] stood at 1,495 of the 1,500-line budget
+//! with no seam left in it, and `CONTINUE.md` had recorded that *"the next
+//! change trips the gate"*. R2's own doctrine is that a file approaching the
+//! limit is a signal to find the seam rather than to raise the limit, and this
+//! was the seam with the most lines behind it and an apply module already
+//! standing.
+//!
+//! ★★ **Reading the block to move it found a defect no gate could see.** Three
+//! `///` blocks had come to sit contiguously above `SelectFormField`, so rustdoc
+//! rendered one variant carrying three unrelated explanations while
+//! `BeginFormField` and `Action::BeginTextAnnot` carried none at all. Doc
+//! comments concatenate silently: nothing warns, nothing fails, and a variant
+//! that has lost its own documentation looks exactly like one that never had
+//! any. `cargo doc` is clean, clippy is clean, every test passes, and the only
+//! instrument that finds it is somebody reading the file. Each block is back on
+//! its own subject, and the two orphans are documented again.
+//!
+//! ## The original subject of this module, which is still the hard part of it
+//!
+//! Registering a form control the document lists but no field claims. The
+//! *disclosure and refusal wording* is the substantial part of that verb, which
+//! is why it earned a module of its own before the family joined it.
 //!
 //! ## What an unclaimed widget is, and why the shell can produce one
 //!
@@ -61,6 +99,206 @@ use pdfce_core::object::ObjId;
 use crate::app::state::OpenDoc;
 use crate::app::status::decline::{self, Declined};
 use crate::text::status as t;
+
+impl From<FieldAction> for super::action::Action {
+    /// ★ So a call site says what it MEANS and the wrapping is not its problem.
+    ///
+    /// The same reasoning [`super::vector`]'s `From` carries: the filing system
+    /// is an R2 artefact, and a panel button that renames a field has no
+    /// business knowing about it. `.into()` at the push, `From` here, one line.
+    fn from(f: FieldAction) -> Self {
+        Self::Field(f)
+    }
+}
+
+/// One thing done to a form field, carried by
+/// [`super::action::Action::Field`].
+///
+/// See the module header for why these eight are one family and what test a
+/// ninth would have to pass to join them.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldAction {
+    /// **One form-field edit**, as one undoable command.
+    ///
+    /// The variant `crate::panels::forms` raises for every one of its verbs —
+    /// fill, toggle, choose, reset, regenerate appearances, flatten — carrying
+    /// the whole intent so it is resolvable after the frame that raised it, in
+    /// the same way [`super::action::Action::DeleteSelection`] carries its operand list.
+    ///
+    /// # Why the arm below is one line and not four
+    ///
+    /// It does not go through [`vector_edit`], and `crate::panels::forms::edit`'s
+    /// own header carries the reason: the six form outcome types do not unify
+    /// into `Result<Vec<String>, EditError>`, so that module performs the
+    /// cancel-mutate-bump-invalidate protocol itself, once, for all of them.
+    /// A second copy of the protocol here would be the fifth hand-written
+    /// instance of a four-step sequence `vector_edit` exists to have exactly
+    /// one of.
+    Edit(crate::panels::forms::edit::FormEdit),
+    /// **The operator clicked a form field on the page, or clicked away.**
+    ///
+    /// Raised by `crate::canvas::forms`'s selection surface in Edit mode.
+    /// `None` clears — a click on empty paper — which is a real event and not
+    /// a no-op: a properties panel that will not let go is worse than an empty
+    /// one, because its contents look current.
+    ///
+    /// ★ It changes **no document** and must never bump the edit epoch. A
+    /// selection is view state; it is on `OpenDoc` beside the object selection
+    /// for the same reason that one is, and for the same reason neither is
+    /// saved.
+    Select(Option<crate::app::state::SelectedField>),
+    /// **Rename the selected field.**
+    ///
+    /// Reaches `EditSession::rename_field`, which takes the fully-qualified
+    /// name and a new *partial* one.
+    ///
+    /// ★★ The old name travels even though the selection holds it, and that is
+    /// the same staleness rule `CommitTextAnnot` follows: by the time the queue
+    /// drains, another action ahead of it in the same drain could have changed
+    /// the selection. An action is a complete statement of what the operator
+    /// asked for.
+    Rename {
+        /// The field's current fully-qualified name.
+        from: String,
+        /// The new partial name.
+        to: String,
+    },
+    /// **Delete the selected field, with every widget it draws.**
+    ///
+    /// ★ Distinct from [`Self::DeleteWidget`] and the distinction is not a
+    /// nicety: one field may be drawn in several places, and "remove this box"
+    /// and "remove this field" are different requests with different
+    /// consequences. Offering only the second would make removing one of three
+    /// copies impossible; offering only the first would leave a named field
+    /// behind with no widgets, which is a field nothing can fill.
+    DeleteField {
+        /// The field's fully-qualified name.
+        field: String,
+    },
+    /// **Delete one widget of the selected field**, leaving the field itself.
+    DeleteWidget {
+        /// The field's fully-qualified name.
+        field: String,
+        /// Which of its widgets.
+        widget: usize,
+    },
+    /// **A form control has been placed and now needs its details.**
+    ///
+    /// Raised by the canvas on the click or release that finishes the placing
+    /// gesture, and by nothing else. It **changes no document** — it opens
+    /// `crate::dialogs::formfield`, which is where the operator names the
+    /// field.
+    ///
+    /// ★★ The geometry travels and the details do not, for the reason
+    /// [`super::action::Action::BeginTextAnnot`] gives at length: the rectangle is a choice the
+    /// operator made *now*, on the page they were looking at, and the details
+    /// are made later in a dialog and may never be made at all.
+    ///
+    /// ★ There is deliberately no `name` on it. The name is generated when the
+    /// dialog opens, because generating it requires reading the document's
+    /// existing field names, and the canvas has no business parsing an
+    /// `/AcroForm`.
+    Begin {
+        /// The 0-based page the control will be authored onto.
+        page: usize,
+        /// Which of the five kinds is being placed.
+        kind: crate::canvas::formfield::FormFieldKind,
+        /// The rectangle, in PDF user space, already normalised.
+        rect: pdfce_core::page_tree::Rect,
+    },
+    /// **Author the form control the dialog just accepted.**
+    ///
+    /// Raised by `crate::dialogs::formfield` and by nothing else. This is the
+    /// one that reaches the document, through the same `vector_edit` funnel
+    /// every other authoring verb uses.
+    ///
+    /// ★ The whole draft travels, for the reason [`super::action::Action::CommitTextAnnot`]
+    /// states: by the time the queue drains the dialog is closed and its fields
+    /// are gone, so reading them at apply time is not fragile but impossible.
+    Commit {
+        /// The 0-based page.
+        page: usize,
+        /// The rectangle, in PDF user space, already normalised.
+        rect: pdfce_core::page_tree::Rect,
+        /// Everything the operator chose, including which kind it is.
+        draft: Box<crate::canvas::formfield::Draft>,
+    },
+    /// ★ **Register a form control the document draws but no field claims.**
+    ///
+    /// Raised by `crate::panels::forms::tab_order` and by nothing else — the
+    /// one view that already knew which widgets these are, because listing them
+    /// is what it is for.
+    ///
+    /// # Why the widget is an `ObjId` and not a position
+    ///
+    /// The same reason [`super::action::Action::AddBookmark`]'s parent is: a position is
+    /// invalidated by the edit itself. Registering a widget moves it out of the
+    /// unclaimed list and into the rows, so a second registration keyed on
+    /// "the second unclaimed box" would act on a different box than the one the
+    /// operator pressed beside. `adopt_widget` takes an id for this reason and
+    /// the listing carries one for the same reason.
+    ///
+    /// # Why the page travels with it
+    ///
+    /// Only for the funnel: [`super::apply::vector_edit`] wants a page for its trace
+    /// line and its per-page raster drop. The edit itself is document-level —
+    /// `/AcroForm` is in the catalog — so nothing about *which* page is
+    /// consulted by the engine. It is the page the box is drawn on, which is
+    /// the one whose raster has to be rebuilt, and that is the only claim being
+    /// made by carrying it.
+    ///
+    /// # `None` is the common answer and it is not "no name"
+    ///
+    /// It means *use the name the box already carries*. Most unclaimed widgets
+    /// are merged field-widgets holding their own `/T`, and supplying a name for
+    /// one of those **overrides** a name the file already had. See
+    /// [the module header](self)'s header for the two shapes and why an operator cannot tell
+    /// them apart by looking.
+    Adopt {
+        /// The page the widget is drawn on — for the trace and the re-raster.
+        page: usize,
+        /// The widget's object identity, from `tab_order::model::Unclaimed`.
+        widget: pdfce_core::object::ObjId,
+        /// A name to register it under, or `None` to keep the one it carries.
+        /// Trimmed and non-empty by the time it gets here.
+        name: Option<String>,
+    },
+}
+
+/// Apply every form-field verb that needs the open document and nothing else.
+///
+/// # ★ Why two of the eight are NOT here
+///
+/// [`FieldAction::Begin`] and [`FieldAction::Commit`] stay in
+/// [`super::apply`], and the reason is a borrow rather than a preference.
+/// `Begin` opens a dialog and `Commit` remembers the operator's settings, so
+/// both need `PdfceApp`'s own fields — and `doc` in that function *is*
+/// `&mut self.status`, so no signature exists that takes both. That arm's
+/// comment carries the full argument.
+///
+/// The split is therefore a fact about the data, not an oversight, and it is
+/// written down in both places so a later tidy has to argue with it.
+pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
+    match action {
+        // ★ Selection is VIEW STATE. It changes no document, bumps no epoch and
+        // invalidates no page — which is why it does not go near the funnel.
+        FieldAction::Select(selected) => doc.selected_field = selected,
+        FieldAction::Rename { from, to } => rename(doc, &from, &to),
+        FieldAction::DeleteField { field } => delete_field(doc, &field),
+        FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
+        FieldAction::Adopt { page, widget, name } => adopt(doc, page, widget, name),
+        FieldAction::Edit(edit) => crate::panels::forms::edit::apply(doc, &edit),
+        // ★ Unreachable rather than unhandled, and named so the compiler will
+        // say so if the split above is ever changed without changing this.
+        FieldAction::Begin { .. } | FieldAction::Commit { .. } => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "FieldAction::Begin and ::Commit are applied in super::apply, which holds the dialog and defaults state this function cannot reach"
+            );
+        }
+    }
+}
 
 /// Register one unclaimed widget into the document's `/AcroForm`.
 ///

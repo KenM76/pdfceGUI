@@ -52,6 +52,7 @@
 //! `PanelsState` and a button commits it, which is the same shape
 //! `super::geometry` uses for the same reason.
 
+use crate::app::actions::forms::FieldAction;
 use egui::Ui;
 
 use crate::app::actions::Action;
@@ -214,10 +215,13 @@ fn rename_row(
     // beside it is the one place an operator always tries Enter first.
     let entered = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
     if ready && (pressed || entered) {
-        actions.push(Action::RenameFormField {
-            from: selected.field.clone(),
-            to: typed,
-        });
+        actions.push(
+            FieldAction::Rename {
+                from: selected.field.clone(),
+                to: typed,
+            }
+            .into(),
+        );
     }
 }
 
@@ -243,9 +247,12 @@ fn delete_row(
             .on_hover_text(t::delete_field_hover(field.widgets.len()))
             .clicked()
         {
-            actions.push(Action::DeleteFormField {
-                field: selected.field.clone(),
-            });
+            actions.push(
+                FieldAction::DeleteField {
+                    field: selected.field.clone(),
+                }
+                .into(),
+            );
         }
         if field.widgets.len() > 1
             && ui
@@ -253,10 +260,13 @@ fn delete_row(
                 .on_hover_text(t::delete_box_hover())
                 .clicked()
         {
-            actions.push(Action::DeleteFormWidget {
-                field: selected.field.clone(),
-                widget: selected.widget,
-            });
+            actions.push(
+                FieldAction::DeleteWidget {
+                    field: selected.field.clone(),
+                    widget: selected.widget,
+                }
+                .into(),
+            );
         }
     });
 }

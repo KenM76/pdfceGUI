@@ -112,6 +112,7 @@
 //!    Drawing needs no provider at all — the outlines are cached in canvas
 //!    space, which is zoom-independent.
 
+use crate::app::actions::forms::FieldAction;
 use egui::{Key, PointerButton, Rect};
 use egui_shell::HandlerToken;
 
@@ -976,16 +977,19 @@ pub(super) fn interact(
                 && let Some(page) = doc.current_page()
                 && let Some((start, end)) = markup::band::endpoints(from, to, page)
             {
-                actions.push(Action::BeginFormField {
-                    page: page_index,
-                    kind,
-                    rect: pdfce_core::page_tree::Rect {
-                        llx: start.0.min(end.0),
-                        lly: start.1.min(end.1),
-                        urx: start.0.max(end.0),
-                        ury: start.1.max(end.1),
-                    },
-                });
+                actions.push(
+                    FieldAction::Begin {
+                        page: page_index,
+                        kind,
+                        rect: pdfce_core::page_tree::Rect {
+                            llx: start.0.min(end.0),
+                            lly: start.1.min(end.1),
+                            urx: start.0.max(end.0),
+                            ury: start.1.max(end.1),
+                        },
+                    }
+                    .into(),
+                );
             }
         }
         // ★★ A resize drag COMMITS, as of 2026-08-19.

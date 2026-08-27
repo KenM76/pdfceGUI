@@ -125,7 +125,7 @@ first place.
 
 | # | Complaint | Status as of 2026-08-27 |
 |---|---|---|
-| 1 | Clicking an object selects the whole page instead | **done, NOT YET DRIVEN** — 2026-08-27, see below |
+| 1 | Clicking an object selects the whole page instead | ✅ **CONFIRMED BY YOU, 2026-08-27** — *"I checked and clicking works."* Driven by the harness the same day, then used by you on your own file |
 | 2 | Double-clicking an object still selects the whole page | **partly** — a click now lands on the real object; a *double*-click on one inside a form does not descend into its subpaths, and cannot until the engine can edit inside a form. Said in words, not silently |
 | 3 | Selecting text does not change the Tool tab to that object's editable properties | **done** — the Properties panel reads the canvas selection, and the status bar names what is selected |
 | 4 | An inserted image cannot be resized by dragging | **done** — a press on an unselected object selects it and the same drag moves it; placement now arrives selected, so its grips are already up |
@@ -200,10 +200,24 @@ On the first two, nearly everything on screen was outside the model the shell
 could select from. On the third — your SolidWorks export — nothing changes at
 all, which is what tells you the fix is aimed at the right thing.
 
-★ **NOT YET DRIVEN.** Every claim above is from unit tests against the release
-engine, not from anyone clicking the program. R1 says that is not a report of
-working software, and this row does not close until you have clicked an object
-on that page and told me what happened.
+★ ~~**NOT YET DRIVEN.**~~ **DRIVEN, AND THEN CONFIRMED BY THE OPERATOR.**
+
+Struck rather than deleted, because the sequence is the point and a later reader
+should be able to see it:
+
+1. Written against unit tests over the engine's `forms-xobject` fixtures, and
+   said so in these words — *"that is not a report of working software"*;
+2. **driven** on 2026-08-27 with the operator off the machine —
+   `a_click_inside_a_form_selects_what_is_drawn_there` passed, and was
+   **falsified in the same session**: with the shallow `hit_test_point_all` put
+   back and the binary rebuilt, the check reports the operator's own sentence
+   back at us;
+3. **confirmed by him**, 2026-08-27: *"I checked and clicking works."*
+
+Complaints 1, 3, 4, 5 and 6 are closed by that. **2 and 7 stay open** and are
+what the rest of this row is now about — 2 because a double-click still cannot
+descend into a form, and 7 because the three research documents exist but their
+work list is not finished.
 
 ### ★★ One measured fact, before any of it
 

@@ -94,6 +94,7 @@
 //!   sentence tells an operator their successful action did not do what they
 //!   wanted. Disclosed before it, it is a choice.
 
+use crate::app::actions::forms::FieldAction;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -372,11 +373,14 @@ pub(super) fn rows(ui: &mut egui::Ui, doc: &OpenDoc, listing: &Listing, actions:
                 u8::from(name.is_some())
             )
         });
-        actions.push(Action::AdoptWidget {
-            page: page_index,
-            widget,
-            name,
-        });
+        actions.push(
+            FieldAction::Adopt {
+                page: page_index,
+                widget,
+                name,
+            }
+            .into(),
+        );
     }
     drafts.store(ui);
 }

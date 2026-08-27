@@ -301,6 +301,7 @@
 /// on why the split is a seam rather than a cut.
 pub mod boxes;
 
+use crate::app::actions::forms::FieldAction;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -732,10 +733,13 @@ fn commit(focus: &Focus, doc: &OpenDoc, actions: &mut Vec<Action>) {
             value.chars().count()
         )
     });
-    actions.push(Action::Form(FormEdit::FillText {
-        field: focus.field.clone(),
-        value,
-    }));
+    actions.push(
+        FieldAction::Edit(FormEdit::FillText {
+            field: focus.field.clone(),
+            value,
+        })
+        .into(),
+    );
 }
 
 /// What the document currently holds for `field`, as display text.
@@ -991,10 +995,13 @@ fn raise_button(field: &str, state: String, actions: &mut Vec<Action>) {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         format!("form-button field={field} state={state}")
     });
-    actions.push(Action::Form(FormEdit::SetButtonState {
-        field: field.to_owned(),
-        state,
-    }));
+    actions.push(
+        FieldAction::Edit(FormEdit::SetButtonState {
+            field: field.to_owned(),
+            state,
+        })
+        .into(),
+    );
 }
 
 /// The trace's one-word name for a kind.
@@ -1098,7 +1105,7 @@ fn select_click(
             None => "form-field-selected none".to_owned(),
         }
     });
-    actions.push(Action::SelectFormField(picked));
+    actions.push(FieldAction::Select(picked).into());
 }
 
 /// The pointer over a selectable widget in Edit mode.

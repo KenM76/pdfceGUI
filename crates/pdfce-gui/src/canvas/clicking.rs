@@ -69,6 +69,7 @@
 //!   reachable only through this one function, so a press cannot mean different
 //!   things depending on which path ran first.
 
+use crate::app::actions::forms::FieldAction;
 use egui::Pos2;
 
 use crate::app::actions::Action;
@@ -511,16 +512,19 @@ pub fn click(
             && let Some((at, _)) = super::markup::band::endpoints(point, point, page)
         {
             let (w, h) = kind.default_size_pt();
-            actions.push(Action::BeginFormField {
-                page: page_index,
-                kind,
-                rect: pdfce_core::page_tree::Rect {
-                    llx: at.0,
-                    lly: at.1,
-                    urx: at.0 + w,
-                    ury: at.1 + h,
-                },
-            });
+            actions.push(
+                FieldAction::Begin {
+                    page: page_index,
+                    kind,
+                    rect: pdfce_core::page_tree::Rect {
+                        llx: at.0,
+                        lly: at.1,
+                        urx: at.0 + w,
+                        ury: at.1 + h,
+                    },
+                }
+                .into(),
+            );
         }
     } else if let crate::canvas::tool::CanvasTool::TextAnnot(kind) = active_tool {
         // ★ The STICKY's whole placing gesture: one click, one point.

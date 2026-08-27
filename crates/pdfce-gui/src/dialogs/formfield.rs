@@ -45,6 +45,7 @@
 //! records the accepted one — **at the point it was accepted**, so a draft the
 //! operator cancelled is not remembered. See `app::actions::apply`'s arm.
 
+use crate::app::actions::forms::FieldAction;
 use egui::Ui;
 
 use crate::app::actions::Action;
@@ -174,11 +175,14 @@ impl FormFieldDialog {
 
         if self.accept_requested {
             self.accept_requested = false;
-            actions.push(Action::CommitFormField {
-                page: self.page,
-                rect: self.rect,
-                draft: Box::new(self.draft.clone()),
-            });
+            actions.push(
+                FieldAction::Commit {
+                    page: self.page,
+                    rect: self.rect,
+                    draft: Box::new(self.draft.clone()),
+                }
+                .into(),
+            );
             return false;
         }
         // ★ The window's own close button counts as Cancel and authors nothing:
@@ -504,11 +508,11 @@ mod tests {
 
         assert_eq!(actions.len(), 1, "one commit, not two and not none");
         match &actions[0] {
-            Action::CommitFormField {
+            crate::app::actions::Action::Field(FieldAction::Commit {
                 page,
                 rect: r,
                 draft: got,
-            } => {
+            }) => {
                 assert_eq!(*page, 3);
                 assert!((r.urx - 170.0).abs() < f64::EPSILON);
                 assert_eq!(**got, draft, "the whole draft travels, unaltered");

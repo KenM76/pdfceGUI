@@ -638,47 +638,6 @@ pub enum Action {
     /// individual edit would still be correct in the document and wrong only
     /// on screen.
     Page(pages::PageAction),
-    /// ★ **Register a form control the document draws but no field claims.**
-    ///
-    /// Raised by `crate::panels::forms::tab_order` and by nothing else — the
-    /// one view that already knew which widgets these are, because listing them
-    /// is what it is for.
-    ///
-    /// # Why the widget is an `ObjId` and not a position
-    ///
-    /// The same reason [`Self::AddBookmark`]'s parent is: a position is
-    /// invalidated by the edit itself. Registering a widget moves it out of the
-    /// unclaimed list and into the rows, so a second registration keyed on
-    /// "the second unclaimed box" would act on a different box than the one the
-    /// operator pressed beside. `adopt_widget` takes an id for this reason and
-    /// the listing carries one for the same reason.
-    ///
-    /// # Why the page travels with it
-    ///
-    /// Only for the funnel: [`apply::vector_edit`] wants a page for its trace
-    /// line and its per-page raster drop. The edit itself is document-level —
-    /// `/AcroForm` is in the catalog — so nothing about *which* page is
-    /// consulted by the engine. It is the page the box is drawn on, which is
-    /// the one whose raster has to be rebuilt, and that is the only claim being
-    /// made by carrying it.
-    ///
-    /// # `None` is the common answer and it is not "no name"
-    ///
-    /// It means *use the name the box already carries*. Most unclaimed widgets
-    /// are merged field-widgets holding their own `/T`, and supplying a name for
-    /// one of those **overrides** a name the file already had. See
-    /// [`forms`]'s header for the two shapes and why an operator cannot tell
-    /// them apart by looking.
-    AdoptWidget {
-        /// The page the widget is drawn on — for the trace and the re-raster.
-        page: usize,
-        /// The widget's object identity, from `tab_order::model::Unclaimed`.
-        widget: pdfce_core::object::ObjId,
-        /// A name to register it under, or `None` to keep the one it carries.
-        /// Trimmed and non-empty by the time it gets here.
-        name: Option<String>,
-    },
-
     /// ★ **Add a bookmark to the document's outline.**
     ///
     /// Raised by `crate::panels::bookmarks::add` and by nothing else.
@@ -1167,41 +1126,30 @@ pub enum Action {
     /// *which* way to step cannot be re-derived after the frame that asked.
     /// See `crate::find` for what happens on the other end.
     Find(crate::find::FindRequest),
-    /// **One form-field edit**, as one undoable command.
+    /// ★ **Everything done to a form FIELD**, as its own family — [`super::forms`].
     ///
-    /// The variant `crate::panels::forms` raises for every one of its verbs —
-    /// fill, toggle, choose, reset, regenerate appearances, flatten — carrying
-    /// the whole intent so it is resolvable after the frame that raised it, in
-    /// the same way [`Self::DeleteSelection`] carries its operand list.
+    /// Eight verbs: fill a control, select one on the page, place one, author
+    /// the one a dialog accepted, rename, delete a field, delete one of its
+    /// widgets, and register a widget no field claims.
     ///
-    /// # Why the arm below is one line and not four
+    /// # Why they moved out of this enum, 2026-08-27
     ///
-    /// It does not go through [`vector_edit`], and `crate::panels::forms::edit`'s
-    /// own header carries the reason: the six form outcome types do not unify
-    /// into `Result<Vec<String>, EditError>`, so that module performs the
-    /// cancel-mutate-bump-invalidate protocol itself, once, for all of them.
-    /// A second copy of the protocol here would be the fifth hand-written
-    /// instance of a four-step sequence `vector_edit` exists to have exactly
-    /// one of.
-    Form(crate::panels::forms::edit::FormEdit),
-    // =======================================================================
-    // ★ THE REDACTION MARKING VERBS
-    //
-    // Three variants, all **reversible**, and that is the property that puts
-    // them in this enum at all. Marking authors a `/Redact` annotation and
-    // removes nothing; the engine records each one as an undoable command, so
-    // every one of these goes through `vector_edit` exactly as a markup does
-    // and `Ctrl+Z` takes it back.
-    //
-    // The **irreversible** half is deliberately not here and must never be.
-    // Applying a redaction writes a new file and changes no document, so it
-    // contributes nothing to the undo log, has nothing to order against, and
-    // has no epoch to bump — `crate::dialogs`' header's test for what belongs
-    // in the funnel, and `crate::dialogs::redact` fails all three parts of it.
-    // An `Action::ApplyRedactions` would also mean the one operation in this
-    // program that cannot be undone travelling as plain data through a queue
-    // that a future replay, a macro or a test could re-run.
-    // =======================================================================
+    /// **R2**, and a real seam rather than a size-driven cut. They share a
+    /// property nothing else here has: every one of them addresses a control by
+    /// its **fully qualified name** or by the widget's `ObjId` — never by a
+    /// paint-order index — because `/AcroForm` is document-level and a widget is
+    /// reached through the field that claims it, not through the page that draws
+    /// it. That is the same test [`super::vector`] passes for paint-order
+    /// indices and [`super::pages`] passes for page positions.
+    ///
+    /// ★★ The move also repaired a documentation defect that no gate could see.
+    /// Three `///` blocks had stacked contiguously onto `SelectFormField`, so
+    /// rustdoc showed one variant carrying three unrelated explanations while
+    /// `BeginFormField` and [`Self::BeginTextAnnot`] carried none. Doc comments
+    /// concatenate silently, and a variant that loses its own is invisible to
+    /// `check-ui-strings`, to clippy and to every test in this crate — the only
+    /// instrument that finds it is a reader. Each block is back on its subject.
+    Field(super::forms::FieldAction),
     /// **A text-bearing annotation has been placed and now needs its words.**
     ///
     /// Raised by the canvas on the release (or click) that finishes the
@@ -1216,94 +1164,6 @@ pub enum Action {
     /// the action is the same rule `CommitMarkup` follows for its pen: an
     /// `Action` is plain data describing what the operator did, and what they
     /// did was draw a box.
-    /// **A form control has been placed and now needs its details.**
-    ///
-    /// Raised by the canvas on the click or release that finishes the placing
-    /// gesture, and by nothing else. It **changes no document** — it opens
-    /// `crate::dialogs::formfield`, which is where the operator names the
-    /// field.
-    ///
-    /// ★★ The geometry travels and the details do not, for the reason
-    /// [`Self::BeginTextAnnot`] gives at length: the rectangle is a choice the
-    /// operator made *now*, on the page they were looking at, and the details
-    /// are made later in a dialog and may never be made at all.
-    ///
-    /// ★ There is deliberately no `name` on it. The name is generated when the
-    /// dialog opens, because generating it requires reading the document's
-    /// existing field names, and the canvas has no business parsing an
-    /// `/AcroForm`.
-    /// **The operator clicked a form field on the page, or clicked away.**
-    ///
-    /// Raised by `crate::canvas::forms`'s selection surface in Edit mode.
-    /// `None` clears — a click on empty paper — which is a real event and not
-    /// a no-op: a properties panel that will not let go is worse than an empty
-    /// one, because its contents look current.
-    ///
-    /// ★ It changes **no document** and must never bump the edit epoch. A
-    /// selection is view state; it is on `OpenDoc` beside the object selection
-    /// for the same reason that one is, and for the same reason neither is
-    /// saved.
-    SelectFormField(Option<crate::app::state::SelectedField>),
-    /// **Rename the selected field.**
-    ///
-    /// Reaches `EditSession::rename_field`, which takes the fully-qualified
-    /// name and a new *partial* one.
-    ///
-    /// ★★ The old name travels even though the selection holds it, and that is
-    /// the same staleness rule `CommitTextAnnot` follows: by the time the queue
-    /// drains, another action ahead of it in the same drain could have changed
-    /// the selection. An action is a complete statement of what the operator
-    /// asked for.
-    RenameFormField {
-        /// The field's current fully-qualified name.
-        from: String,
-        /// The new partial name.
-        to: String,
-    },
-    /// **Delete the selected field, with every widget it draws.**
-    ///
-    /// ★ Distinct from [`Self::DeleteFormWidget`] and the distinction is not a
-    /// nicety: one field may be drawn in several places, and "remove this box"
-    /// and "remove this field" are different requests with different
-    /// consequences. Offering only the second would make removing one of three
-    /// copies impossible; offering only the first would leave a named field
-    /// behind with no widgets, which is a field nothing can fill.
-    DeleteFormField {
-        /// The field's fully-qualified name.
-        field: String,
-    },
-    /// **Delete one widget of the selected field**, leaving the field itself.
-    DeleteFormWidget {
-        /// The field's fully-qualified name.
-        field: String,
-        /// Which of its widgets.
-        widget: usize,
-    },
-    BeginFormField {
-        /// The 0-based page the control will be authored onto.
-        page: usize,
-        /// Which of the five kinds is being placed.
-        kind: crate::canvas::formfield::FormFieldKind,
-        /// The rectangle, in PDF user space, already normalised.
-        rect: pdfce_core::page_tree::Rect,
-    },
-    /// **Author the form control the dialog just accepted.**
-    ///
-    /// Raised by `crate::dialogs::formfield` and by nothing else. This is the
-    /// one that reaches the document, through the same `vector_edit` funnel
-    /// every other authoring verb uses.
-    ///
-    /// ★ The whole draft travels, for the reason [`Self::CommitTextAnnot`]
-    /// states: by the time the queue drains the dialog is closed and its fields
-    /// are gone, so reading them at apply time is not fragile but impossible.
-    CommitFormField {
-        /// The 0-based page.
-        page: usize,
-        /// The rectangle, in PDF user space, already normalised.
-        rect: pdfce_core::page_tree::Rect,
-        /// Everything the operator chose, including which kind it is.
-        draft: Box<crate::canvas::formfield::Draft>,
-    },
     BeginTextAnnot {
         /// The 0-based page the annotation will be authored onto.
         page: usize,
@@ -1341,6 +1201,24 @@ pub enum Action {
         /// state for the dialog to be in.
         stamp: pdfce_core::annot_author::StampName,
     },
+    // =======================================================================
+    // ★ THE REDACTION MARKING VERBS
+    //
+    // Three variants, all **reversible**, and that is the property that puts
+    // them in this enum at all. Marking authors a `/Redact` annotation and
+    // removes nothing; the engine records each one as an undoable command, so
+    // every one of these goes through `vector_edit` exactly as a markup does
+    // and `Ctrl+Z` takes it back.
+    //
+    // The **irreversible** half is deliberately not here and must never be.
+    // Applying a redaction writes a new file and changes no document, so it
+    // contributes nothing to the undo log, has nothing to order against, and
+    // has no epoch to bump — `crate::dialogs`' header's test for what belongs
+    // in the funnel, and `crate::dialogs::redact` fails all three parts of it.
+    // An `Action::ApplyRedactions` would also mean the one operation in this
+    // program that cannot be undone travelling as plain data through a queue
+    // that a future replay, a macro or a test could re-run.
+    // =======================================================================
     /// **Mark every occurrence of some text for redaction.**
     ///
     /// Raised by [`crate::panels::redact`]'s Find & mark control. Applied
