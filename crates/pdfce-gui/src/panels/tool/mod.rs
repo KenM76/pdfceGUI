@@ -209,6 +209,31 @@ pub fn body(ui: &mut Ui, doc: &OpenDoc, host: Option<&MenuHost<'_>>, actions: &m
                 // makes complaint #5 findable at frame one with no clicks.
                 ui.separator();
                 idle::tools(ui, &ctx, host, actions);
+                // ★★★ **The Select tool's own options, and they live HERE
+                // rather than in `armed::options` — which is where they were
+                // first written, and where they were unreachable.**
+                //
+                // This panel's model is *armed versus idle*, and **Select is
+                // the idle state**: the branch above is entered precisely when
+                // nothing is armed. So `armed::block` — and the `options` row
+                // inside it — is never called for Select, and an option row
+                // added there for Select is dead code that compiles, reads
+                // correctly, and draws nothing.
+                //
+                // ⇒ Caught by `the_line_weight_switch_reaches_the_resize` on
+                // its first driven run, reporting *"THE SWITCH IS NOT DRAWN"*
+                // and listing the nine `tool.*` regions that did appear. Every
+                // unit test in the chain passed: the store round-trips, the
+                // mapping to `ResizeOptions` is exhaustive, the defaults are
+                // asserted. **Nothing tested that the control is on screen**,
+                // which is R1's whole argument in one afternoon.
+                //
+                // ★ It sits after the tool list rather than before it, because
+                // the list is the answer to *"what can I do"* and these modify
+                // a gesture the operator has not made yet. Same ordering rule
+                // the armed block uses: identity, then stage, then options.
+                ui.separator();
+                armed::scale_switches(ui, &ctx);
             } else {
                 ui.separator();
                 armed::block(ui, &ctx, doc, armed, host);

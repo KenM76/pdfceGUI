@@ -52,6 +52,36 @@
 //! | C | open the Tool panel, click the *Scale line weight* switch | `resize-modifiers stroke=true` |
 //! | D | drag a corner grip **proportionally** | `resize-annotation-applied … stroke=true` |
 //!
+//! ## ⚠★★★ KNOWN FLAKY, 2026-08-28 — and it is the DISARM step, not the subject
+//!
+//! This check has passed its real assertion — `resize-annotation-applied …
+//! stroke=true`, the switch reaching the engine — and has also failed three
+//! runs out of six **before getting that far**, at step B.
+//!
+//! The subject is sound. What is unreliable is putting the markup pen down:
+//!
+//! | attempt | result |
+//! |---|---|
+//! | `V` (the `view.tool_select` chord) | never arrived — no invocation traced at all |
+//! | one Escape | arrived sometimes |
+//! | five Escapes, polling for the region | arrived on attempt 1, or not in five |
+//!
+//! ⇒ **A keystroke is not a reliable harness primitive while a dock panel is
+//! open.** A chord is routed through whatever holds keyboard focus, and this
+//! check opens the Tool panel by construction — it has to, the switches live
+//! there.
+//!
+//! ★★ **The fix is to stop using the keyboard**: click
+//! `ribbon.item.view.tool_select` instead, after activating its tab. Clicking a
+//! ribbon control is this harness's most exercised primitive and does not
+//! depend on focus. That is the next change to this file and it was not made
+//! tonight only because the operator's machine had already been held long
+//! enough.
+//!
+//! ★ Recorded here rather than left to be rediscovered: a check that fails
+//! half the time is worse than one that fails always, because the failure gets
+//! attributed to whatever changed most recently.
+//!
 //! ★ Step D drags **diagonally by equal amounts** on purpose. A non-uniform
 //! resize of a pdfce-authored appearance is fine — it is rebuilt — but making
 //! the drag uniform keeps this check about the switch rather than about the
@@ -93,10 +123,34 @@ const PAGE_REGION: &str = "page";
 
 /// Where the shape is drawn, as fractions of the page.
 const SHAPE: ((f64, f64), (f64, f64)) = ((0.30, 0.30), (0.50, 0.45));
-/// How far the bottom-right corner is dragged, as fractions of the page.
+/// How many times to press Escape waiting for the panel to go idle.
 ///
-/// ★ **Equal in both axes**, so the scale is uniform. See the module header.
-const GRIP_TRAVEL: (f64, f64) = (0.10, 0.10);
+/// ★ Five, not one: see the loop for why a fixed settle is a guess. Bounded so
+/// a build where Escape genuinely does nothing fails in seconds rather than
+/// hanging.
+const DISARM_TRIES: usize = 5;
+
+/// How far the bottom-right grip travels, as a fraction of **the shape's own
+/// size** — so the two scale factors come out equal.
+///
+/// ## ★★★ Three wrong answers before this one, and each was wrong differently
+///
+/// | attempt | value | why it was not uniform |
+/// |---|---|---|
+/// | 1 | `0.10` of the **page**, both axes | equal fractions of a 1584 × 1224 page are 158.4 pt and 122.4 pt |
+/// | 2 | `90.0` **points**, both axes | equal distances grow a wide box less, in ratio, than a tall one |
+/// | 3 | `0.25` of the **shape**, both axes | ✔ `sx = (w + 0.25w)/w = 1.25 = sy` |
+///
+/// ⇒ **A uniform scale is equal RATIOS, not equal distances**, and the space
+/// the travel must be expressed in is the operand's, not the page's and not
+/// the screen's. Both earlier values produced a working resize that the
+/// check's own guard then declined to read — the guard was right each time,
+/// and this constant was the thing that was wrong.
+///
+/// ★ The check asserts `uniform=true` off the trace rather than trusting this
+/// arithmetic, which is what turned two silent mis-measurements into two
+/// specific, self-describing skips.
+const GRIP_TRAVEL_OF_SHAPE: f64 = 0.25;
 
 /// See the module documentation.
 pub struct TheLineWeightSwitchReachesTheResize;
@@ -216,46 +270,63 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note("★ a rectangle was authored");
 
-    // --- B: put the pen down, then select it --------------------------------
+    // --- B: put the pen down ------------------------------------------------
     //
-    // ★ Escape first. The markup pen stays armed after a commit, so a click
-    // without this draws a second rectangle instead of selecting the first —
-    // `markup_move` records the same step and the same reason.
-    driver.press(crate::sys::vk::V)?;
-    session.settle(12);
-    let centre = corner((
-        f64::midpoint(SHAPE.0.0, SHAPE.1.0),
-        f64::midpoint(SHAPE.0.1, SHAPE.1.1),
-    ));
-    driver.click_at(aim(ctx, &session, page, centre)?)?;
-    session.settle(24);
-
-    if session.trace()?.events(SELECT_EVENT).count() == 0 {
-        return Ok(Some(format!(
-            "THE SHAPE COULD NOT BE SELECTED: no `{SELECT_EVENT}` line after a click at its \
-             centre, so no grips are drawn and there is nothing to drag. Trace: {}.",
-            session.trace_path().display()
-        )));
+    // ★★★ **Escape, not `V`**, and the first run of this check is why.
+    //
+    // `markup_move` puts the pen down with `V` — the `view.tool_select` chord —
+    // and that works there. Here it did **not**: the trace showed
+    // `markup-tool tool=Markup(Rectangle)` and no invocation of
+    // `view.tool_select` at all, so the Tool panel went on drawing the ARMED
+    // block and the Select options this check is about were never reached.
+    //
+    // ⇒ A chord is routed through whatever holds keyboard focus, and this check
+    // opens a dock panel. Escape does not depend on that routing: it is the
+    // canvas's own put-the-tool-down ladder.
+    //
+    // ★ Worth stating rather than just changing, because three other checks
+    // press a chord after opening a panel.
+    // ★★★ **Escape until the panel is idle, up to `DISARM_TRIES`.** The first
+    // three runs of this check each failed differently on this one step, and
+    // the third was the informative one: the switch regions appeared in the
+    // trace and `declared` still answered `None`, because it correctly reads
+    // the `ui-rect-gone` that follows a retired region. The panel had drawn
+    // them and gone back to the armed block.
+    //
+    // ⇒ **A keystroke's arrival is asynchronous and a fixed settle is a
+    // guess.** `V` did not arrive at all with a dock panel open (a chord is
+    // routed through whatever holds focus); Escape arrives, but not always
+    // within one settle. Polling for the *state the next step needs* is the
+    // only honest form: it either reaches it or says how many tries it had.
+    //
+    // ★ Escape rather than `V` even so — it is the canvas's own
+    // put-the-tool-down ladder and does not depend on focus routing.
+    let mut switch = None;
+    for attempt in 1..=DISARM_TRIES {
+        driver.press(crate::sys::vk::ESCAPE)?;
+        session.settle(18);
+        let trace = session.trace()?;
+        if let Some(rect) = declared(&trace, ui_rect, SWITCH_REGION) {
+            report.note(format!(
+                "★ the pen went down and the Select options drew (attempt {attempt})"
+            ));
+            switch = Some(rect);
+            break;
+        }
     }
-    report.note("★ the shape was selected, so its grips are drawn");
-
-    // --- C: tick the switch -------------------------------------------------
-    let trace = session.trace()?;
-    let Some(switch) = declared(&trace, ui_rect, SWITCH_REGION) else {
+    let Some(switch) = switch else {
+        let trace = session.trace()?;
         return Ok(Some(format!(
-            "★★★ THE SWITCH IS NOT DRAWN: the application declared no `{SWITCH_REGION}` region \
-             with the Select tool armed and the Tool panel open.\n\
-             `panels::tool::armed::options` returns early for every tool but Select, and this \
-             check disarms the markup pen at step B — so if the pen did not go down, the panel \
-             is showing the markup options instead. Regions beginning `tool.`: {}. Trace: {}.",
+            "★★★ THE SWITCH IS NOT DRAWN after {DISARM_TRIES} Escape(s): no LIVE `{SWITCH_REGION}` region.
+             **The state the feature shipped in for one afternoon** was that the switches were written into `panels::tool::armed::options`, and `super::body` calls the armed block only in its `else` arm — Select is this panel's IDLE state, so the branch was dead code that compiled and drew nothing.
+ ★ If the region APPEARS in the list below but is not live, that is the other failure: the panel drew it and retired it, meaning a tool re-armed. Regions beginning `tool.`: {}. Trace: {}.",
             list(&declared_names(&trace, ui_rect, "tool.")),
             session.trace_path().display()
         )));
     };
     if !switch.is_substantial() {
         return Err(Error::new(format!(
-            "`{SWITCH_REGION}` was declared at {switch:?}, which has no usable area to click — \
-             the dock is probably too narrow to lay the row out."
+            "`{SWITCH_REGION}` was declared at {switch:?}, which has no usable area to click — the dock is probably too narrow to lay the row out."
         )));
     }
     driver.click_at(session.frame()?.declared_center(switch))?;
@@ -268,24 +339,44 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         .last()
     else {
         return Ok(Some(format!(
-            "★★ THE SWITCH DID NOT TAKE: a click at the centre of `{SWITCH_REGION}` produced no \
-             `{MODIFIERS_EVENT} stroke=true` line.\n\
-             That line is written only when the value CHANGES, so either the click missed the \
-             checkbox — its rect is published from the response's own rect, so a miss means the \
-             dock moved between the trace and the click — or the store did not take it. Trace: \
-             {}.",
+            "★★ THE SWITCH DID NOT TAKE: a click at the centre of `{SWITCH_REGION}` produced no `{MODIFIERS_EVENT} stroke=true` line.
+             That line is written only when the value CHANGES, so either the click missed the checkbox — its rect is published from the response's own rect — or the store did not take it. Trace: {}.",
             session.trace_path().display()
         )));
     };
     report.note(format!("★★ the switch is on: `{}`", modifiers.raw));
 
+    // --- C2: now select the shape, so its grips are drawn --------------------
+    let centre = corner((
+        f64::midpoint(SHAPE.0.0, SHAPE.1.0),
+        f64::midpoint(SHAPE.0.1, SHAPE.1.1),
+    ));
+    driver.click_at(aim(ctx, &session, page, centre)?)?;
+    session.settle(24);
+
+    if session.trace()?.events(SELECT_EVENT).count() == 0 {
+        return Ok(Some(format!(
+            "THE SHAPE COULD NOT BE SELECTED: no `{SELECT_EVENT}` line after a click at its centre, so no grips are drawn and there is nothing to drag. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note("★ the shape was selected, so its grips are drawn");
+
     // --- D: drag the bottom-right grip, proportionally ----------------------
     let grip = aim(ctx, &session, page, corner(SHAPE.1))?;
+    // ★ Each axis travels the same FRACTION OF THE SHAPE, so both scale
+    // factors are `1 + GRIP_TRAVEL_OF_SHAPE` exactly. See that constant.
+    let shape_w = (SHAPE.1.0 - SHAPE.0.0) * page.width_pt;
+    let shape_h = (SHAPE.1.1 - SHAPE.0.1) * page.height_pt;
     let landing = aim(
         ctx,
         &session,
         page,
-        corner((SHAPE.1.0 + GRIP_TRAVEL.0, SHAPE.1.1 + GRIP_TRAVEL.1)),
+        DocPoint::new(
+            0,
+            SHAPE.1.0 * page.width_pt + shape_w * GRIP_TRAVEL_OF_SHAPE,
+            SHAPE.1.1 * page.height_pt + shape_h * GRIP_TRAVEL_OF_SHAPE,
+        ),
     )?;
     driver.drag(grip, landing)?;
     session.settle(40);

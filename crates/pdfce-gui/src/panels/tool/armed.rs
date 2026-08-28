@@ -94,21 +94,19 @@ pub(super) fn block(
 /// in `egui::Memory` precisely so this one could be built today — see its
 /// header, which argues the difference.
 fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
-    // ★★★ **The Select tool's options: what rides along with a resize.**
+    // ★★★ **`CanvasTool::Select` CANNOT REACH HERE**, and a branch for it was
+    // written here on 2026-08-28 and was dead.
     //
-    // `OPERATOR_REQUESTS.md` **O51**: *"Inkscape has options for this and I
-    // want the same."* Inkscape puts them on the **selector tool's control
-    // bar**, which is this panel, and that placement is the request rather than
-    // a detail of it — they are a per-drag modifier, not a preference, so a
-    // settings dialog would be the wrong home even though it would be easier.
+    // This function is called only from [`block`], and `super::body` calls
+    // `block` only in its `else` arm — the one entered when something IS armed.
+    // Select is this panel's **idle** state; its options are drawn beside the
+    // tool list, where `super::body` now calls [`scale_switches`] directly.
     //
-    // ★ It returns early after drawing them, so the text-pen block below stays
-    // exactly what it was: two tools, two option sets, no shared branch to get
-    // subtly wrong.
-    if tool == CanvasTool::Select {
-        scale_switches(ui, ctx);
-        return;
-    }
+    // ⇒ Recorded rather than silently deleted, because the mistake is one a
+    // reader of this file alone cannot see: `options` takes a `CanvasTool` and
+    // matches on it, so handling every variant looks obviously right from in
+    // here. The constraint lives one file away, in a branch this function has
+    // no way to mention.
     // ★ **Add only, not Edit**, and the distinction is the point of the whole
     // module. `TextEditKind::Add` writes a NEW run, so a face, a size and a
     // colour are exactly what it needs. `TextEditKind::Edit` replaces the words
@@ -212,7 +210,7 @@ fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
 /// is deliberate: an operator sets a modifier **before** the gesture it
 /// modifies. Greying them until an annotation happens to be selected would hide
 /// the control exactly when somebody is deciding how to resize.
-fn scale_switches(ui: &mut Ui, ctx: &egui::Context) {
+pub(super) fn scale_switches(ui: &mut Ui, ctx: &egui::Context) {
     let mut current = crate::canvas::scaling::read(ctx);
     let before = current;
 

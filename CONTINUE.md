@@ -83,6 +83,65 @@ selection a right-click raises is applied at the end of the frame and egui
 opens the popup *on* the click, so a state read shows the previous field's menu
 for ever. Do not "simplify" it.
 
+### ★★★ THE FIRST REAL SWEEP: 70 / 8 / 18, AND FOUR ENVIRONMENTAL FAULTS BEFORE IT
+
+**`evidence/sweep-20260828/sw.txt` is the trustworthy run.** Baseline for
+comparison is `evidence/ui-verify-20260827-full.txt` at 59/3/19 over a smaller
+suite.
+
+★★★ **Four attempts produced nothing before one produced a result**, and every
+fault was in how it was RUN:
+
+| fault | symptom | fix |
+|---|---|---|
+| the Bash tool's 10-min ceiling killed the runner — **but its shell loop survived** | two suites driving one mouse | launch detached with PowerShell `Start-Process` |
+| ran the whole suite once per fixture | 380 check-runs for 95 checks | run once, re-aim only what fails |
+| wrong fixture (`a1-titleblock`, not his SW41177) | 27/10/59 | the baseline run's fixture is the one to use |
+| launched **hidden** | **42 of 51 skips** were *"could not bring the window to the front"* | launch with a visible console — a hidden process has no foreground rights |
+
+⇒ **Do not read a sweep number without checking how the sweep was launched.**
+
+### ★★ Of the 8 failures, 5 are proven NOT defects
+
+- Four geometry checks (`resize_scales_a_shape`, `rotate_handle`,
+  `shift_constrains`, `multi_node_move`) **pass on `polyline-nodes.pdf`**.
+- `form_field` fails because the page **moves 134 pt** between the frame the
+  harness takes its mapping from and the frame it clicks in. Proven: the trace
+  shows `paint=296.0,403.7` at the placement click and `296.0,269.7` later. It
+  also fails on the **pre-change build**, so it is not today's work.
+
+★★★ **Do not call something a regression before doing the arithmetic.** I
+called `form_field` one twice, then disproved it twice — once by geometry, once
+by bisect.
+
+### ★★★ AND THE SWEEP FOUND A REAL BUG IN THE SAME AFTERNOON'S WORK
+
+**The O51 scale switches were unreachable.** They were written into
+`panels::tool::armed::options`, and `panels::tool::body` calls the armed block
+only in its `else` arm — **Select is this panel's IDLE state**. Dead code that
+compiled, read correctly, and drew nothing. Every unit test passed: the store
+round-trips, the mapping is exhaustive, the defaults are asserted. **Nothing
+tested that the control is on screen.**
+
+Fixed; the switches now declare their regions and one run took the whole chain
+green — `resize-modifiers stroke=true` → `resize-annotation-applied … stroke=true`.
+
+### ⚠ `the_line_weight_switch_reaches_the_resize` IS FLAKY — the disarm, not the subject
+
+Three of six runs failed at step B, putting the markup pen down.
+
+- **`V` (the chord) never arrived at all** with a dock panel open.
+- **Escape arrives sometimes.** Five polled Escapes: attempt 1, or not in five.
+
+⇒ **A keystroke is not a reliable harness primitive while a panel is open** — a
+chord is routed through whatever holds focus. **The fix is to click
+`ribbon.item.view.tool_select` instead**; that is the next change to that file.
+Three other checks press a chord after opening a panel.
+
+★ Its constant was also wrong three times, each differently — page fractions,
+then points, then fractions of the shape. **A uniform scale is equal RATIOS,
+not equal distances**, and the travel must be expressed in the operand's space.
+
 ### ★★★ THE O51 SCALE SWITCHES SHIPPED, AND ITS BLOCKER WAS STALE WHEN WRITTEN
 
 *"Blocked on `resize_annotation`, which the engine is building to this shape."*
