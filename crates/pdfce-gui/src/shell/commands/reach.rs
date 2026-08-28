@@ -1412,8 +1412,26 @@ pub const FX_CONST: &str = "fx.constant";
         // advance: an entry that names something absent from THIS repo can be
         // checked by looking, and an entry that cites another document or
         // another repository cannot.
+        // ★★★ 5 -> 4: `edit.objects` WIRED, and it is the entry that took the
+        // least work of all of them — one minute, spent reading the command's
+        // own tooltip, which describes the Select tool clause by clause.
+        //
+        // ⇒ **A sixth failure mode, and it is about how an entry READS rather
+        // than about what it says.** That one admitted it had no reason: *"NO
+        // RECORDED REASON ANYWHERE … inferring a deferral is not the same as
+        // recording one."* Honest, correct, and it sat unchallenged through
+        // three sessions — because an entry confessing to having no reason
+        // looks like the output of a search that already happened. It is
+        // indistinguishable from *"somebody deferred this deliberately and
+        // forgot to say why"*, and only the first invites a re-derivation.
+        //
+        // ★ So the rule the audit ends with is not *"re-derive the entry beside
+        // the one you came for"* alone. It is that an entry saying **"no reason
+        // recorded"** is the FIRST one to re-derive, not the last — it is the
+        // one where somebody has already established that nothing is defending
+        // the deferral.
         assert_eq!(
-            total, 5,
+            total, 4,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
@@ -1425,8 +1443,14 @@ pub const FX_CONST: &str = "fx.constant";
             // the Pages tab that did nothing — and it is not one any more. This
             // is the direction this count exists to make visible, and it is the
             // third retirement it has recorded.
+            // ★★ 3 -> 2: `edit.objects` was the plainest P3 breach in the
+            // build — the **third of three** commands in Edit ▸ Content, beside
+            // two that work. `RIBBON_IA.md` groups those three so the answer to
+            // *"what can I change on this page?"* is one group; a group of
+            // three where one does nothing reads as a broken program rather
+            // than as a missing feature, which is precisely the cost P3 names.
             p3,
-            3,
+            2,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

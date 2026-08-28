@@ -67,6 +67,33 @@ fn target(id: &str) -> Option<&'static str> {
         // is not even a control to grey. That clause was struck from the
         // tooltip when this was wired.
         "edit.form_manage_fields" => Some("view.panel_forms"),
+        // ★★★ **`edit.objects`, wired 2026-08-28 — and it was the last entry in
+        // `SCAFFOLDED` with NO RECORDED REASON AT ALL.**
+        //
+        // Its register entry said so in those words: *"it appears in a test
+        // list and in an argument about its LABEL, and nowhere else … inferring
+        // a deferral is not the same as recording one."*
+        //
+        // ⇒ Re-deriving it took one minute, and the answer was **in its own
+        // tooltip**, which promises: *"click to select, drag to move the
+        // object, drag an anchor to move that node, or press Delete to remove
+        // it."* Every clause of that has shipped. It is the Select tool,
+        // described exactly, by a button that did nothing.
+        //
+        // ★★ So it is a **route**, on `format.properties`' precedent and for
+        // its stated reason — *"a second route to an existing command must not
+        // become a second implementation of it"*. `view.tool_select` arms the
+        // tool; this is the door an operator finds on the **Edit tab**, beside
+        // *Edit text* and *Add text*, where somebody looking for *"how do I
+        // edit the drawing"* looks first. The tool row is where somebody who
+        // already knows the tool goes.
+        //
+        // ★ The two doors matter here more than usual: `RIBBON_IA.md` puts the
+        // three content verbs together on the Edit tab precisely so the answer
+        // to *"what can I change on this page?"* is one group of three, and a
+        // group of three where the third does nothing reads as a broken
+        // program rather than as a missing feature.
+        "edit.objects" => Some("view.tool_select"),
         // ★★★ `tools.font_folders` LEFT this file on 2026-08-28, and the reason
         // is worth more than the entry was.
         //
@@ -150,7 +177,7 @@ mod tests {
     /// The ids this file claims, as a list, so a fourth added to `target` and
     /// not here fails rather than going untested.
     // ui-text-exempt: registered command ids, never displayed.
-    const ROUTED: &[&str] = &["edit.form_manage_fields"];
+    const ROUTED: &[&str] = &["edit.form_manage_fields", "edit.objects"];
 
     /// **`handles` and `target` cannot disagree**, which is why there is one
     /// mapping and not a list beside a match.

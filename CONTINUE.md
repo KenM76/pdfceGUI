@@ -4,8 +4,8 @@
 
 **Clean tree. 18/18 gates. 1,896 + 421 + 144 tests, 0 failing. 94 driven checks,
 the newest two unrun. Re-measure before quoting.** Engine `1c292bc`.
-**Published**: `OneDrive\pdfceGUI2` is the newest — the form-field right-click
-menu. `pdfceGUI1` is the build before it (signed comments, O52 seed removed).
+**Published**: `OneDrive\pdfceGUI1` is the newest — the field right-click menu
+and Edit ▸ Objects. `pdfceGUI2` is the build before it.
 
 ### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
 
@@ -82,6 +82,25 @@ today, the second door found something the first had been hiding.
 selection a right-click raises is applied at the end of the frame and egui
 opens the popup *on* the click, so a state read shows the previous field's menu
 for ever. Do not "simplify" it.
+
+### ★★ EDIT ▸ OBJECTS WORKS, AND THE AUDIT ENDS WITH A SHARPER RULE
+
+It was drawn and inert for the life of the project, the third of three buttons
+in a group whose other two work. **Its own tooltip described the Select tool
+clause by clause** — click, drag, drag an anchor, Delete — all shipped in
+Phase 1. Wired as a route in one line.
+
+★★★ Its register entry said *"NO RECORDED REASON ANYWHERE … inferring a
+deferral is not the same as recording one."* Honest, correct, unchallenged
+through three sessions.
+
+⇒ **An entry confessing to have no reason reads like the output of a search
+that already happened.** It is indistinguishable from a deliberate deferral
+somebody forgot to explain, and only one of those invites a re-derivation. So:
+*"no reason recorded"* is the **first** entry to re-derive, not the last.
+
+Four inert commands left: `view.sidebar`, `pages.split`, `tools.merge_files`,
+`tools.split_files`. Two are drawn.
 
 ### ★★ COMMENTS ARE SIGNED NOW, AND HALF THE FEATURE IS BLOCKED
 

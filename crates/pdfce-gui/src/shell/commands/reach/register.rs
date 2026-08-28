@@ -173,14 +173,31 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // all eleven entries; six were wrong.
     //
     // The arm is in `app::dispatch`; the verb is `app::actions::pages::merge_into`.
-    (
-        "edit.objects",
-        "★ P3 — NO RECORDED REASON ANYWHERE. It appears in a test list and in an argument \
-         about its LABEL (the abbreviation `Obj` being illegible), and nowhere else. It is \
-         plausibly the third member of the deferred text/authoring phase above, but nothing \
-         in the repository says so, and inferring a deferral is not the same as recording \
-         one.",
-    ),
+    // ★★★ `edit.objects` was HERE until 2026-08-28, and its entry is **deleted
+    // rather than reworded** — the fifth such deletion in three days, and the
+    // one that took the least work to disprove.
+    //
+    // Its reason was, in full: *"★ P3 — NO RECORDED REASON ANYWHERE. It appears
+    // in a test list and in an argument about its LABEL … inferring a deferral
+    // is not the same as recording one."* Which was honest, and correct, and
+    // was written by somebody who did not then spend the next minute reading
+    // the command's own tooltip:
+    //
+    // > *"click to select, drag to move the object, drag an anchor to move that
+    // > node, or press Delete to remove it."*
+    //
+    // **Every clause of that shipped in Phase 1.** The command is the Select
+    // tool, described exactly, by a button that did nothing.
+    //
+    // ⇒ The lesson is narrower and sharper than the other four deletions': an
+    // entry admitting it has no reason is **not** a neutral placeholder. It
+    // reads as *"somebody looked and found nothing"*, which is indistinguishable
+    // from *"somebody deferred this deliberately and forgot to say why"* — and
+    // the first invites a re-derivation while the second discourages one. Three
+    // sessions read that entry and none re-derived it.
+    //
+    // Wired as a **route** to `view.tool_select` in `dispatch::routes`, which
+    // carries the argument for why a second door is not a second implementation.
     // ★★★ `edit.form_manage_fields` was HERE until 2026-08-28, and its entry is
     // **deleted rather than reworded** — the third such deletion in two days
     // and the one whose reason was most thoroughly hollow. It read:
