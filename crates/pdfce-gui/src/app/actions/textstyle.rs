@@ -206,25 +206,45 @@ impl StyleChange {
 ///
 /// Built fresh per run per step; see the module header on why a batch of these
 /// taken up front would be wrong.
-fn request(page: usize, pinned: crate::canvas::textedit::pin::Pinned, find: &str) -> FormatRequest {
-    // ★★★ `find` is the RUN'S OWN TEXT, and it is required.
-    //
-    // The obvious shape — pin the operator and leave `find` empty, because the
-    // pin already says which operator — does not work, and finding that out is
-    // what the first driven test of this module was for. `match_run` refuses an
-    // empty `find` by name (*"empty find text"*), because the two locators
-    // answer different questions: the **pin** names the show operator, and
-    // **`find`** names a contiguous sub-range *within* it. A restyle of the
-    // whole run is therefore a `find` of the whole run's text, not of nothing.
-    //
-    // ★ That is also the door to restyling part of a run later, without any
-    // engine work: a shorter `find` restyles a shorter span. This shell does
-    // not offer it yet because a text sweep's byte offsets would have to be
-    // trusted across an extraction, and `TextSelection::runs` deliberately
-    // drops them.
-    let mut req = FormatRequest::new(page, find);
-    req.pinned_span = Some(pinned.span);
-    req.target(pinned.target)
+/// The request for one show operator, addressed by pin alone.
+///
+/// # ★★★ It carried a `find` until 2026-08-27, and the reason it no longer does
+///
+/// The comment this replaces is worth keeping, because it was **correct when it
+/// was written** and is the whole argument for the affordance that replaced it:
+///
+/// > `find` is the RUN'S OWN TEXT, and it is required. The obvious shape — pin
+/// > the operator and leave `find` empty, because the pin already says which
+/// > operator — does not work, and finding that out is what the first driven
+/// > test of this module was for. `match_run` refuses an empty `find` by name.
+///
+/// It was filed as one request, deliberately on its own — *"`find: ""` on a
+/// pinned request should mean the whole operator"* — and `Pass 145.0` shipped
+/// it the same day. `FormatRequest::whole_operator(page, span)` is exactly
+/// `new(page, "").pinned(span)`, and the named constructor is used here because
+/// it says what it means.
+///
+/// ★★ What this **deletes** is the more important half: the run's text had to
+/// be sliced into per-operator pieces to build those `find`s, and that slicing
+/// was a second locator living beside the engine's. It is gone —
+/// `pin::Operator` no longer carries a `find` or the byte cursor that extended
+/// it — which removes the whole class of defect where two locators agree on
+/// every fixture and disagree on a ligature.
+///
+/// ★ An empty `find` with **no** pin is still refused by name. A caller that
+/// forgot to pin gets a refusal rather than silent whole-operator behaviour,
+/// which is the right way round.
+///
+/// ## The one thing that did NOT become free
+///
+/// Restyling **part** of a run. The old shape's `find` was a door to it — a
+/// shorter `find` restyles a shorter span — and `whole_operator` deliberately
+/// closes that door for this call site. Nothing is lost: `FormatRequest::new`
+/// with a real `find` is still there for the day a sweep's byte offsets can be
+/// trusted across an extraction, which `TextSelection::runs` still does not
+/// offer.
+fn request(page: usize, pinned: crate::canvas::textedit::pin::Pinned) -> FormatRequest {
+    FormatRequest::whole_operator(page, pinned.span).target(pinned.target)
 }
 
 /// Restyle every run the selection covers.
@@ -320,7 +340,7 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
             let mut notes: Vec<String> = Vec::new();
             super::apply::vector_edit(doc, "format-text", page, 1, |session| {
                 match session.format_text(
-                    &change.stamp(request(page, op.pin, &op.find)),
+                    &change.stamp(request(page, op.pin)),
                     &FormatOptions::default(),
                 ) {
                     Ok(report) => {
@@ -336,7 +356,7 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
                     Err(FormatError::RealFaceAvailable {
                         real_font, style, ..
                     }) => {
-                        let retry = request(page, op.pin, &op.find)
+                        let retry = request(page, op.pin)
                             .font(pdfce_core::text_edit::FontSelector::new(&real_font));
                         match session.format_text(&retry, &FormatOptions::default()) {
                             Ok(report) => {

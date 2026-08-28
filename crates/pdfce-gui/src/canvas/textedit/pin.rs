@@ -228,7 +228,26 @@ pub struct RunStyle {
     /// was wrong. **The symptom is real and reproducible. The cause written
     /// here was not.**
     ///
-    /// # ★★★ RETRACTED 2026-08-27 evening — the mechanism below is refuted
+    /// # ★★★ RETRACTED 2026-08-27 evening, and then NARROWED to one caller
+    ///
+    /// **Read this first: as of `Pass 145.0` this field feeds exactly one thing
+    /// — `preview_font_resources` — and it exists only because that function
+    /// takes the coverage text as a parameter.**
+    ///
+    /// Every *format* path stopped using it the same night.
+    /// `FormatRequest::whole_operator(page, span)` addresses an operator by pin
+    /// alone, so `app::actions::textstyle` builds no `find` at all and
+    /// `pin::Operator` no longer carries one. What is left here would have gone
+    /// with them, except that `preview_font_resources(page, find, pin)` tests
+    /// face coverage with `text.chars()` — and an empty `find` yields **zero
+    /// characters checked and every face reported as accepted**, which is worse
+    /// than the superset it replaced.
+    ///
+    /// ⇒ So this is a **workaround kept to feed a parameter**, filed as
+    /// `request_preview_font_resources_trusts_the_callers_find_where_format_request_now_resolves_it.md`.
+    /// It deletes on the day the pre-flight resolves its own text.
+    ///
+    /// # The mechanism this field's docs used to give is refuted
     ///
     /// This paragraph read:
     ///
@@ -253,17 +272,19 @@ pub struct RunStyle {
     /// (§9.10.3) — an `ffl` ligature is one glyph and three chars — which is a
     /// different mechanism with a different consequence.
     ///
-    /// ★★ **So this field works and its reason is void**, and that is written
-    /// here rather than repaired with a second guess. Three things could be
-    /// true and this project cannot yet tell which: the walk is a no-op on
-    /// every run it has ever seen and something else in the same commit fixed
-    /// the refusal; it is doing real work for a reason nobody has stated; or
-    /// the concatenation `pdfce-core` suspects is real and is ours, upstream of
-    /// here. Filed as
-    /// `reply_my_mechanism_was_wrong_and_here_is_the_measurement_for_your_open_question.md`,
-    /// together with the request that settles it — whether the glyphs sharing
-    /// one `operator_span` always slice a contiguous range out of the run's
-    /// text. If they do, this walk is deleted and the span is sliced directly.
+    /// ★★★ **ANSWERED, and the answer is that the invariant holds.** The
+    /// question filed here — *do the glyphs sharing one `operator_span` always
+    /// slice a contiguous, matchable range out of the run's text?* — was
+    /// measured by `pdfce-core` over **4,289 fixture files, 18,559 runs,
+    /// 669,436 glyphs and 29,246 distinct operator spans: zero non-contiguous
+    /// groups, zero groups whose slice did not index the run's text cleanly.**
+    /// Sabotage-checked, so a green result is not vacuous, and now a documented
+    /// guarantee with a test that re-runs on every `cargo test`.
+    ///
+    /// ⇒ What this walk computes is sound. Its *stated reason* was wrong and
+    /// its *result* was right, which is the least comfortable of the four
+    /// possible combinations and is why the question was worth asking rather
+    /// than assuming.
     ///
     /// ★ The lesson, and it is the mirror of the one this channel spent the
     /// week on: an **absence** claim is *"I looked and did not see it, so it is
@@ -551,41 +572,53 @@ pub fn operators_in_run(
             glyph.text_start as usize,
             glyph.text_start as usize + glyph.text_len as usize,
         );
-        match out.last_mut() {
-            // Same operator as the glyph before: extend its find text, but only
-            // over bytes a glyph actually covers. A gap here is a derived
-            // character and must not join the two halves.
-            Some(last) if last.pin.span == p.operator_span => {
-                if last.end == gs {
-                    last.end = ge;
-                    last.find
-                        .push_str(text.text.get(gs..ge).unwrap_or_default());
-                }
-            }
-            _ => out.push(Operator {
+        // ★★★ The per-operator `find` text was built HERE until 2026-08-27,
+        // by walking the glyphs and extending a byte cursor over the run's
+        // text — *"but only over bytes a glyph actually covers. A gap here is a
+        // derived character and must not join the two halves."*
+        //
+        // That was a **second locator**, living beside the engine's, and it is
+        // deleted rather than kept. `Pass 145.0` made a pinned request with an
+        // empty `find` mean *the whole operator*, so the pin alone is the whole
+        // address and there is nothing left to slice.
+        //
+        // ★★ The measurement that made deleting it safe rather than hopeful:
+        // the engine probed 4,289 fixture files, 18,559 runs, 669,436 glyphs,
+        // **29,246 distinct operator spans, zero non-contiguous groups and zero
+        // groups whose slice did not index the run's text cleanly** — and
+        // sabotage-checked the detector so a green result is not vacuous. The
+        // invariant this walk was quietly relying on is now a documented
+        // guarantee with a test that re-runs on every `cargo test`.
+        //
+        // ★ The same probe settled the other question: **2,420 of 18,559 runs
+        // (13 %) carry glyphs from more than one show operator.** This function
+        // is not an edge case; it is the ordinary shape of real typeset text.
+        if out
+            .last()
+            .is_none_or(|last| last.pin.span != p.operator_span)
+        {
+            out.push(Operator {
                 pin: Pinned {
                     span: p.operator_span,
                     target: target_of(p),
                     text_matrix: p.text_matrix,
                     ctm: p.ctm,
                 },
-                find: text.text.get(gs..ge).unwrap_or_default().to_owned(),
-                end: ge,
-            }),
+            });
         }
+        let _ = (gs, ge);
     }
-    out.retain(|o| !o.find.is_empty());
     out
 }
 
-/// One show operator inside a run: how to name it, and what to say it is.
+/// One show operator inside a run: how to name it.
+///
+/// ★ It carried a `find` and a byte cursor until 2026-08-27. Both are gone —
+/// `Pass 145.0` made a pinned request with an empty `find` mean *the whole
+/// operator*, so the pin is the whole address. See [`operators_in_run`] for the
+/// measurement that made the deletion safe rather than hopeful.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Operator {
     /// The locator.
     pub pin: Pinned,
-    /// The text of the glyphs that share this operator — the `find` a pinned
-    /// `format_text` must carry.
-    pub find: String,
-    /// Where the find text ends in the run's `text`, for extending it.
-    end: usize,
 }
