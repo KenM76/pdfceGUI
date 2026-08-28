@@ -334,15 +334,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // The list is `dialogs::settings::fonts`; the preference is
     // `app::prefs::fonts`; the arm raises `Action::Command("file.settings")`.
     (
-        "tools.embed_fonts",
-        "`panels/fonts.rs` argues it, and the argument is DATED: “Both push a mutation \
-         through `pdfce_core::edit::EditSession`, and at S3 `Action` carries zoom and page \
-         navigation and nothing else… A control that cannot commit is an affordance for \
-         something that cannot work.” ★ That premise has since expired — the mutation \
-         funnel and the undo log both landed on 2026-08-14 — so this is now closer to \
-         unwritten than to blocked, and the note wants revisiting.",
-    ),
-    (
         "tools.unembed_fonts",
         "Its sibling above, plus a reason of its own that has NOT expired: `panels/fonts.rs` \
          records that the old shell's confirmation window exists because “three of \

@@ -724,6 +724,31 @@ pub enum Action {
     /// Nothing about the document is being ordered, and nothing about it
     /// changes.
     ExportFormData,
+    /// **Put the font programs a document references but does not carry into
+    /// it**, as one undoable command.
+    ///
+    /// Raised by `crate::dialogs::embed` and by nothing else.
+    ///
+    /// # ★★ Why the whole request travels, donor bytes and all
+    ///
+    /// Because it IS the operand, and it cannot be rebuilt at apply time
+    /// without changing it. Reconstructing it there would re-scan the
+    /// operator's font folders, and a file added to one while the window was
+    /// open would resolve a different donor - so the operator would confirm one
+    /// thing and commit another. The dialog closes on the frame that raises
+    /// this, so nothing else is still holding the bytes by the time the queue
+    /// drains.
+    ///
+    /// # ★ Why it is boxed
+    ///
+    /// `Action` is moved through a queue by value on every gesture, and its
+    /// size is the largest variant's. The request carries a map of donor
+    /// programs; boxing keeps the cost on the one gesture that has it rather
+    /// than on every zoom.
+    EmbedFonts {
+        /// Which fonts, and the program the shell resolved for each.
+        request: Box<pdfce_core::font_embed_missing::EmbedRequest>,
+    },
     /// ★ **Place a raster image on the page.**
     ///
     /// Raised by `crate::dialogs::insert_image` and by nothing else.

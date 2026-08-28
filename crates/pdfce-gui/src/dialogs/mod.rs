@@ -64,6 +64,13 @@ pub mod about;
 /// with the page currently on the canvas, with the room the status bar's one
 /// elided line does not have.
 pub mod diagnostics;
+/// The Embed-fonts confirmation - everything `embed_fonts` would do to the
+/// document, computed by the verb's own planner and shown before any of it
+/// happens.
+///
+/// Its header carries the reason it has no settings: the only configuration an
+/// embed has is *which folders*, and that lives in Settings.
+pub mod embed;
 /// ★ The Insert-image window — a picture placed on the page as content, by a
 /// rectangle in millimetres.
 ///
@@ -263,6 +270,13 @@ pub struct DialogsState {
     /// which is the right answer rather than a loss, for [`Self::ocr`]'s reason
     /// applied to an operand instead of to a result.
     insert_image: Option<insert_image::InsertImageDialog>,
+
+    /// The Embed-fonts window, when one is open.
+    ///
+    /// **Document-scoped**: its whole content is a plan computed against the
+    /// open document's font inventory, so it describes nothing once that
+    /// document is gone.
+    embed: Option<embed::EmbedDialog>,
 
     /// The Export-DXF window, when one is open.
     ///
@@ -688,6 +702,9 @@ impl DialogsState {
         if self.export_dxf.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.export_dxf = None;
         }
+        if self.embed.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.embed = None;
+        }
         // ★ The Manage-dimension-groups WINDOW used to be drawn here, and the
         // comment that stood in its place said the order was load-bearing —
         // its *Set scale…* button parked a request drained on the next line.
@@ -804,6 +821,7 @@ impl DialogsState {
         self.scale = None;
         self.insert_image = None;
         self.export_dxf = None;
+        self.embed = None;
     }
 
     /// Open the Export-DXF window for the page on screen.
@@ -831,6 +849,46 @@ impl DialogsState {
             return;
         }
         self.export_dxf = export_dxf::open_for(status);
+    }
+
+    /// Open the Embed-fonts window, and say so when there is nothing to open.
+    ///
+    /// **The dispatch target for `tools.embed_fonts`.** The two guards
+    /// [`Self::open_print`] documents apply.
+    ///
+    /// ## ★★ It returns a sentence, unlike every other `open_*` here
+    ///
+    /// Because this is the one command whose honest answer is often *"there is
+    /// nothing to do"* - a document whose fonts are all embedded is the normal
+    /// case, not an error - and a window that opened to say so would be a modal
+    /// the operator has to dismiss to learn they did not need it. So the
+    /// construction is allowed to decline, and the decline becomes a line the
+    /// caller records where every other outcome of a command is recorded.
+    ///
+    /// ★ `Some(String)` rather than a `bool`, for the reason
+    /// `prefs::fonts::add` returns one: the caller has two different things to
+    /// say - *"nothing is missing"* and *"you have no font folders"* - and it
+    /// cannot tell them apart from a flag.
+    pub fn open_embed_fonts(
+        &mut self,
+        status: &Status,
+        folders: &[std::path::PathBuf],
+    ) -> Option<String> {
+        if self.embed.is_some() {
+            return None;
+        }
+        let Status::Open(_) = status else {
+            return None;
+        };
+        self.embed = embed::open_for(status, folders);
+        if self.embed.is_some() {
+            return None;
+        }
+        Some(if folders.is_empty() {
+            crate::text::embed::no_folders().to_owned()
+        } else {
+            crate::text::embed::nothing_missing().to_owned()
+        })
     }
 
     /// Open the Insert-image window for an already-imported picture.

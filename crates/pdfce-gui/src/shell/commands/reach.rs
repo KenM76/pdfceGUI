@@ -706,6 +706,19 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::routes::handles(id) {
         return Some("handles");
     }
+    // ★ The font commands, in `app::dispatch::fonts` since 2026-08-28, when
+    // wiring `tools.embed_fonts` took `dispatch.rs` past 1,500 lines for the
+    // fifth time. Everything the `pages::handles` paragraph says applies.
+    //
+    // ★★ **It failed closed here too, and by name**, which is now the fourth
+    // time this checker has caught a split the moment it happened: moving the
+    // arm out of the parent made `tools.embed_fonts` report as having no
+    // dispatch arm at all, one test run after it was wired. A checker that
+    // reads the parent's syntax tree cannot see a child's arm until it is told,
+    // and being told is exactly this line.
+    if crate::app::dispatch::fonts::handles(id) {
+        return Some("handles");
+    }
     // ★ The second membership-test guard, added 2026-08-20 with
     // `dispatch::textcopy`. Everything the paragraph above says about
     // `pages::handles` applies to it unchanged — including the mitigation: its
@@ -1346,8 +1359,21 @@ pub const FX_CONST: &str = "fx.constant";
         // ★ 8 -> 7: `tools.font_folders` WIRED. The third stale entry the audit
         // retired, and the only one whose reason went false without any event
         // — it named a missing HOST, and another host was always available.
+        // ★ 7 -> 6: `tools.embed_fonts` WIRED, and it is the fourth entry the
+        // audit retired. Its recorded reason was a premise the entry itself
+        // flagged as expired, and the entry was RIGHT to be there anyway - a
+        // real dependency existed and neither register named it. pdfce
+        // *"never goes looking"* for a donor font, so the command was blocked
+        // on a font-folder preference that did not exist until the same day.
+        //
+        // ★★ **A blocker can be correct for the wrong reason**, which is the
+        // fifth distinct failure mode this list has produced. It is the least
+        // visible of them: nothing about such an entry looks wrong, the id has
+        // no arm, the reason is prose, and the only thing that finds it is
+        // asking what the verb's own REQUEST STRUCT requires rather than
+        // whether the verb exists.
         assert_eq!(
-            total, 7,
+            total, 6,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

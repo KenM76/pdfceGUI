@@ -82,11 +82,12 @@ pub(crate) mod textcopy;
 pub(crate) mod zoom;
 
 use super::PdfceApp;
-mod forms;
 /// The commands that perform nothing and point somewhere else — three of them,
 /// each raising `Action::Command` and doing no more. Split out under R2 when
 /// this file crossed 1,500 lines for the fourth time; see its header for why
 /// the seam is a subject rather than a size.
+pub(crate) mod fonts;
+mod forms;
 pub(crate) mod routes;
 
 use super::actions::Action;
@@ -858,6 +859,9 @@ impl PdfceApp {
             // second route to an existing command must not become a second
             // implementation of it, which is the whole of what they are for and
             // is the one thing a reader has to check about any of them.
+            id if fonts::handles(id) => {
+                fonts::dispatch(id, &mut self.dialogs, &self.status, &self.prefs);
+            }
             id if routes::handles(id) => routes::dispatch(id, actions),
             "file.export_form_data" => actions.push(Action::ExportFormData),
             // ★ The picker runs HERE, before the action, where the export's runs

@@ -1057,6 +1057,12 @@ impl PdfceApp {
             // rather than beside the mutations. See that module's header.
             Action::ExportDxf { page, options } => super::export::dxf(doc, page, &options),
             Action::ExportFormData => super::export::form_data(doc),
+            // ★ Unlike its two neighbours above, this one DOES change the
+            // document - it is here rather than in `super::export` for that
+            // reason alone. One undo entry, one epoch bump, and every page
+            // re-rasterized, because a font gaining a program changes how it
+            // draws everywhere it is used.
+            Action::EmbedFonts { request } => super::fonts::embed(doc, &request),
             // ★ One bookmark, one undo entry, and NO count reported.
             //
             // See the variant: `/Count` is two quantities and its sign is the

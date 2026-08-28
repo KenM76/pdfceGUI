@@ -77,6 +77,11 @@ mod document;
 pub mod export;
 /// Registering a form control the document draws but no field claims — one
 /// verb, whose refusal and disclosure wording is the substantial part.
+/// The document-level font verbs - embedding the programs a document names but
+/// does not carry. Its header carries the one thing a reader must not move:
+/// the shell owns the honesty of the donor match, and the engine will not
+/// check it.
+mod fonts;
 pub mod forms;
 /// ★ Stepping the command log, in both directions — `Direction`, its four
 /// per-direction answers, and `history_step`.
