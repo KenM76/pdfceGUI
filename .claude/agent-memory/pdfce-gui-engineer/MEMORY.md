@@ -34,3 +34,4 @@
 - [The canvas is the primary surface, never a panel](feedback_the_canvas_is_the_primary_surface_never_a_panel.md) — if the engine can do it, clicking the object must reach it; a panel is a supplement.
 - [A hand-written list inside a completeness test is the gap](feedback_a_hand_written_list_inside_a_completeness_test_is_the_gap.md) — a new module is invisible to the check built to find it, and the count still adds up.
 - [A temporary shim needs a tripwire that names its own deletion](feedback_a_temporary_shim_needs_a_tripwire_that_names_its_own_deletion.md) — `debug_assert` on the condition that makes it unnecessary; it fired two hours later.
+- [Adding a second route is an audit of the capability](feedback_adding_a_second_route_is_an_audit_of_the_capability.md) — twice in one afternoon the new door found a divergence the old one was hiding.
