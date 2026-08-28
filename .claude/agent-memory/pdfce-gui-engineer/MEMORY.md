@@ -30,3 +30,4 @@
 - [An absence claim is a claim about every route](feedback_an_absence_claim_is_a_claim_about_every_route.md) — grep before saving; three recurrences in two directions, one within the hour of reading a note about it.
 - [Unit tests cannot see the chain in front of the verb](feedback_unit_tests_that_call_the_verb_cannot_see_the_chain_in_front_of_it.md) — eight green tests while the feature did 1 of 14; write the driven check before believing it.
 - [Grep the sibling crate before writing the missing half](feedback_grep_the_sibling_crate_before_writing_the_missing_half.md) — a mirrored enum across the boundary means the other side is already implemented.
+- [A request for something shipped is a discoverability report](feedback_a_request_for_something_shipped_is_a_discoverability_report.md) — fix the route that failed him, and ship the literal ask too.
