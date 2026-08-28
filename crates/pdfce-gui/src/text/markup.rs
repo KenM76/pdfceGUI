@@ -159,6 +159,45 @@ pub fn popup_left_behind() -> String {
         .to_owned()
 }
 
+/// Disclosure: the border width did not scale with the shape.
+///
+/// ★★★ The engine asks for this sentence by name — *"an operator who scaled a
+/// square 3× and expected a heavier border needs telling it stayed"* — and it is
+/// Rule 4's surviving half in its purest form: the shape grew around the border
+/// and **nothing on the canvas says the border did not grow with it**.
+///
+/// ★★ It states the default as a **choice**, not as a limitation, because it is
+/// one: on a CAD drawing a line weight is a drafting standard rather than
+/// decoration, which is this project's own argument and the one the engine
+/// promoted into the rule that decides every future case — *is the property a
+/// length in the space being transformed?* An inset is; a line weight is not.
+#[must_use]
+pub fn stroke_width_unchanged() -> String {
+    "The outline's thickness has not changed. pdfce treats a line weight as a drawing standard \
+     rather than something that scales with the shape."
+        .to_owned()
+}
+
+/// Disclosure: a foreign appearance was scaled unevenly and its stroke is now
+/// anisotropic.
+///
+/// ★★★ Not a defect and not pdfce's choice — an arithmetic limit. **Neither PDF
+/// nor SVG has a per-axis stroke width**: both are scalars, so a stroke drawn
+/// through a matrix applied *after* stroking cannot keep an even thickness under
+/// a non-uniform scale. Inkscape closed the identical report **Invalid** and
+/// silently produces the distorted stroke.
+///
+/// ★★ pdfce says so instead, which is the whole difference. The operator can see
+/// the result — a border thicker on one axis — and cannot see *why*, so the
+/// sentence names the cause and the remedy: drag a corner with Shift held, or
+/// accept it.
+#[must_use]
+pub fn appearance_distorted() -> String {
+    "This markup was drawn by another program, and scaling it unevenly has made its outline \
+     thicker on one side than the other. Hold Shift while dragging a corner to scale it evenly."
+        .to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

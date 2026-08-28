@@ -56,6 +56,76 @@ use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::canvas::tool::CanvasTool;
 use crate::canvas::{annotdrag, dimdrag, handledrag, handles, overlay, widgetdrag, zoom};
 
+/// What the pointer may grab, and which grips that thing offers.
+///
+/// ★★★ ONE value, read by the hit test, the painter and the drag — which is
+/// rule **H7**, and the reason this is a struct rather than two functions.
+///
+/// That row exists because it failed on 2026-08-20: a dimension's vertex
+/// handles were painted from the selection and hit-tested behind a capability
+/// the mode did not have, so they were **visible and untouchable in the very
+/// mode that authors dimensions**. A handle painted and not hit-tested is the
+/// "visible control, silently inert" failure; one hit-tested and not painted is
+/// worse — an invisible target that steals the press aimed at what is under it.
+#[derive(Debug, Clone, Copy)]
+pub struct Grabbable {
+    /// The box, in screen space, or `None` when nothing is grabbable.
+    pub bounds: Option<egui::Rect>,
+    /// Which grips it offers, because it has a verb behind each.
+    pub offer: handles::GripSet,
+}
+
+/// What the pointer may grab, given what is selected.
+///
+/// ★★ The chain is ordered by **narrowness** and every link answers `None`
+/// unless its own kind is selected, so it is exhaustive rather than a precedence
+/// anybody has to remember:
+///
+/// | selected | box | grips |
+/// |---|---|---|
+/// | a **ce dimension** | its `/Rect` | none — its extent IS its measurement, so pdfce has no verb that scales one |
+/// | a **markup** annotation | its `/Rect` | the eight scale grips; `resize_annotation` exists and no rotate verb does |
+/// | a **form field's** box | the widget's rect | the same eight, through `edit_widget(… with_rect)` |
+/// | page **content** | the selection's union | everything, and only at the Object rung |
+#[must_use]
+pub fn grabbable(
+    ctx: &egui::Context,
+    doc: &OpenDoc,
+    map: &PageMapping,
+    selection: &SelectionState,
+) -> Grabbable {
+    if let Some(bounds) = dimdrag::grab_box(doc, map, selection) {
+        return Grabbable {
+            bounds: Some(bounds),
+            offer: handles::GripSet::default(),
+        };
+    }
+    if let Some(bounds) =
+        annotdrag::grab_box(map, selection).or_else(|| widgetdrag::grab_box(ctx, doc, map))
+    {
+        return Grabbable {
+            bounds: Some(bounds),
+            offer: handles::GripSet::scale_only(),
+        };
+    }
+    let at_object_rung = selection.level() == SelectionLevel::Object;
+    let bounds = overlay::grip_box(map, selection).map(|b| {
+        if at_object_rung {
+            b
+        } else {
+            b.expand(overlay::ANCHOR_PX)
+        }
+    });
+    Grabbable {
+        bounds,
+        offer: if at_object_rung {
+            handles::GripSet::all()
+        } else {
+            handles::GripSet::default()
+        },
+    }
+}
+
 /// Everything the frame learned by looking at where a press would land.
 ///
 /// Returned as one struct rather than a tuple because four of the five members
@@ -102,8 +172,6 @@ pub fn look(
     active_tool: CanvasTool,
     caps: Capabilities,
 ) -> Press {
-    let at_object_rung = selection.level() == SelectionLevel::Object;
-
     // ★★ At an inner rung the move-hit box is INFLATED by an anchor mark's
     // width, and without it the outermost anchors of every path are undraggable.
     //
@@ -125,32 +193,15 @@ pub fn look(
     //
     // `dimdrag::grab_box` is `Some` only for a dimension a placement drag can
     // actually finish, so no gesture is ever started that could not commit.
-    let dimension_box = dimdrag::grab_box(doc, map, selection);
-    let grip_box = dimension_box.or_else(|| {
-        overlay::grip_box(map, selection).map(|b| {
-            if at_object_rung {
-                b
-            } else {
-                b.expand(overlay::ANCHOR_PX)
-            }
-        })
-    });
-
+    let Grabbable {
+        bounds: grip_box,
+        offer,
+    } = grabbable(ctx, doc, map, selection);
     let origin = ctx.input(|i| i.pointer.press_origin()).or(screen_pos);
 
-    let grip = grip_box.zip(origin).and_then(|(bounds, p)| {
-        // ★ The eight scale handles belong to the Object rung. Two reasons, and
-        // the second was found by driving: the subject is wrong at an inner rung
-        // (the operator said *this point*, not *this whole shape*), and the
-        // corner grips physically cover the corner ANCHORS.
-        //
-        // ★ And never over a dimension. A ce dimension has no scale verb, so
-        // offering resize grips on one would be eight visible controls that
-        // silently do nothing - and worse than inert, because each grip would
-        // CLAIM the press and stop the corners of the box from moving the
-        // dimension. The whole box is the move target.
-        handles::grip_at(bounds, p, at_object_rung && dimension_box.is_none())
-    });
+    let grip = grip_box
+        .zip(origin)
+        .and_then(|(bounds, p)| handles::grip_at(bounds, p, offer));
 
     // The provider is asked for only at an inner rung — `handledrag::visible`
     // returns empty above it — so the ordinary case pays one `entered_object()`
@@ -181,7 +232,12 @@ pub fn look(
         dimdrag::vertex_at(doc, map, selection, p)
             .map(gesture::DimensionPress::Vertex)
             .or_else(|| {
-                dimension_box
+                // ★ Asked of `dimdrag` directly rather than of `grabbable`'s
+                // box, because the two answer different questions: `grabbable`
+                // says *what may be grabbed* and this says *is the thing under
+                // the pointer a ce dimension*. They coincide today and would
+                // stop coinciding the moment anything else offered no grips.
+                dimdrag::grab_box(doc, map, selection)
                     .filter(|b| b.contains(p))
                     .map(|_| gesture::DimensionPress::Body)
             })

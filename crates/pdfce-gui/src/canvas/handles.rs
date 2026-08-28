@@ -391,13 +391,64 @@ pub fn grip_rects(bounds: Rect) -> Vec<(Grip, Rect)> {
 /// the same shape, which is the same argument that puts Bézier handles ahead
 /// of the nodes they belong to.
 #[must_use]
-pub fn grip_at(bounds: Rect, pointer: Pos2, offer_resize: bool) -> Option<Grip> {
-    if offer_resize {
+/// Which grips a selection offers, because it has a verb behind each.
+///
+/// ★★★ Two flags rather than one, added 2026-08-28 when annotations and form
+/// fields gained a resize verb (`resize_annotation`, `edit_widget … with_rect`)
+/// and neither gained a rotate one.
+///
+/// The single `offer_resize` bool this replaces was correct while exactly one
+/// kind of thing could be resized. It cannot express *"eight grips, no rotate
+/// handle"*, and the alternative — painting a rotate handle that does nothing —
+/// is the **visible control, silently inert** failure this project spends its
+/// time removing.
+///
+/// ★★ It is one value passed to BOTH the painter and the hit test, which is
+/// rule H7 and is why it is a struct rather than two arguments threaded
+/// separately. That row exists because it failed on 2026-08-20: a dimension's
+/// vertex handles were painted from the selection and hit-tested behind a
+/// capability the mode did not have, so they were visible and untouchable in
+/// the very mode that authors dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GripSet {
+    /// The eight scale grips.
+    pub resize: bool,
+    /// The rotate handle above the top edge.
+    ///
+    /// ★ Never true without [`Self::resize`] today, and deliberately not
+    /// collapsed into it: *"can this be scaled"* and *"can this be turned"* are
+    /// two questions about the engine's verb list, and a shell that inferred
+    /// one from the other would offer rotation to the next kind that gains a
+    /// resize verb without anybody deciding.
+    pub rotate: bool,
+}
+
+impl GripSet {
+    /// Everything — page content at the Object rung.
+    pub const fn all() -> Self {
+        Self {
+            resize: true,
+            rotate: true,
+        }
+    }
+
+    /// The eight scale grips and no rotate handle — an annotation or a form
+    /// field's box, both of which pdfce can scale and cannot turn.
+    pub const fn scale_only() -> Self {
+        Self {
+            resize: true,
+            rotate: false,
+        }
+    }
+}
+
+pub fn grip_at(bounds: Rect, pointer: Pos2, offer: GripSet) -> Option<Grip> {
+    if offer.rotate {
         // ★★ The rotate handle FIRST, and the reason is H7 rather than
         // geometry: it sits outside the box, so it collides with nothing and
         // the order could not matter for correctness. It is first because
         // **the same predicate decides painting and hit-testing**, and that
-        // predicate is `offer_resize` — so a handle painted here is grabbable
+        // predicate is `GripSet` — so a handle painted here is grabbable
         // here, in one place, with nothing in between for a future edit to slip
         // a capability check into.
         //
@@ -411,6 +462,11 @@ pub fn grip_at(bounds: Rect, pointer: Pos2, offer_resize: bool) -> Option<Grip> 
         {
             return Some(Grip::Rotate);
         }
+    }
+    // ★ The eight scale grips are gated separately from the rotate handle
+    // above, which is the whole reason `GripSet` has two fields. An annotation
+    // offers these and not that one.
+    if offer.resize {
         for (grip, rect) in grip_rects(bounds) {
             if rect.expand(GRIP_GRAB_SLACK_PX).contains(pointer) {
                 return Some(grip);
@@ -483,13 +539,16 @@ mod tests {
         // Just inside the top-left corner — inside the body, and inside the
         // NW grip's square.
         assert_eq!(
-            grip_at(b, b.left_top() + Vec2::splat(2.0), true),
+            grip_at(b, b.left_top() + Vec2::splat(2.0), GripSet::all()),
             Some(Grip::NorthWest)
         );
         // Well inside: the body.
-        assert_eq!(grip_at(b, b.center(), true), Some(Grip::Move));
+        assert_eq!(grip_at(b, b.center(), GripSet::all()), Some(Grip::Move));
         // Well outside: nothing.
-        assert_eq!(grip_at(b, b.left_top() - Vec2::splat(60.0), true), None);
+        assert_eq!(
+            grip_at(b, b.left_top() - Vec2::splat(60.0), GripSet::all()),
+            None
+        );
     }
 
     /// Every grip has a cursor, opposite corners share an axis cursor, and
@@ -578,23 +637,27 @@ mod tests {
         let b = box_of(200.0, 100.0);
         let corner = b.min;
         assert_eq!(
-            grip_at(b, corner, true),
+            grip_at(b, corner, GripSet::all()),
             Some(Grip::NorthWest),
             "the Object rung still offers all eight"
         );
         assert_eq!(
-            grip_at(b, corner, false),
+            grip_at(b, corner, GripSet::default()),
             Some(Grip::Move),
             "an inner rung must hand the corner press to the MOVE gesture"
         );
         // And the interior is a move either way — that is how a move drag is
         // recognised at every rung, so withholding the eight must not withhold
         // it.
-        assert_eq!(grip_at(b, b.center(), false), Some(Grip::Move));
-        assert_eq!(grip_at(b, b.center(), true), Some(Grip::Move));
+        assert_eq!(grip_at(b, b.center(), GripSet::default()), Some(Grip::Move));
+        assert_eq!(grip_at(b, b.center(), GripSet::all()), Some(Grip::Move));
         // Outside is still nothing.
         assert_eq!(
-            grip_at(b, Pos2::new(b.max.x + 50.0, b.max.y + 50.0), false),
+            grip_at(
+                b,
+                Pos2::new(b.max.x + 50.0, b.max.y + 50.0),
+                GripSet::default()
+            ),
             None
         );
     }

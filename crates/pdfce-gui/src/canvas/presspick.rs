@@ -169,6 +169,7 @@ fn press_selects(ctx: &egui::Context, tool: CanvasTool, caps: Capabilities, shif
 /// re-selecting under a node the operator is in the middle of editing. Erring
 /// the other way would be a press that silently leaves node editing.
 fn covers(map: &PageMapping, selection: &SelectionState, point: egui::Pos2) -> bool {
-    crate::canvas::overlay::grip_box(map, selection)
-        .is_some_and(|b| crate::canvas::handles::grip_at(b, point, true).is_some())
+    crate::canvas::overlay::grip_box(map, selection).is_some_and(|b| {
+        crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all()).is_some()
+    })
 }

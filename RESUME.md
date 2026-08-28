@@ -29,8 +29,10 @@ on 2026-08-28 after this file recorded them as lost. `D:\Dev	emp\pdfce\` was
 swept and is **not** where they live; that folder was scratch and this one is
 his. It holds `SW41177\SW41177.pdf` (the drawing every text and selection check
 was calibrated against), `ncored-benchmark-cad-drawing.pdf` (129,758 objects,
-the benchmark), `banana-at-scale.pdf` (the deep-zoom subject) and the Ghent
-output suite.
+the benchmark), `banana-at-scale.pdf` (the deep-zoom subject) and the
+licensed print-conformance suite — whose name stays out of this repository by
+operator ruling, and which `tools/check-suite-name-absent.py` enforces. It
+caught this line.
 
 ⇒ Use it. The repo fixtures below are the portable floor — they keep the sweep
 runnable on a clean checkout — but a check calibrated against his drawing should

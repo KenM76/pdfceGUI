@@ -16,6 +16,23 @@ one-off: the harness is a single-desktop instrument by design (that is what
 makes it the only oracle R1 trusts), so it will always contend with the operator
 for the same machine.
 
+**★★★ The permission is REVOKED as readily as it is granted, and the signal is
+easy to miss.** *"PC is yours"* opens the desktop; *"I'm back on the PC"* closes
+it again, and he may say so **mid-turn**, in a sentence that reads like small
+talk rather than an instruction. On 2026-08-28 it arrived as *"I'm back on the
+PC so that's why a few of your tests may have gone wonky"* — phrased as an
+explanation of MY results, not as a demand.
+
+★★ Two obligations follow, and the second is the one that gets skipped:
+
+1. **Stop driving immediately**, including anything already running in the
+   background — a backgrounded sweep keeps stealing his pointer for minutes
+   after the message arrives.
+2. **Say which results are now suspect.** He offered the contamination as a
+   courtesy; treat it as a finding. A driven run overlapping his input is
+   *unverified*, whatever verdict it printed — and a PASS is as suspect as a
+   FAIL, because a stray click can satisfy an assertion as easily as break one.
+
 **How to apply:**
 
 - Treat display/keyboard/mouse as a **shared resource requiring an explicit

@@ -497,6 +497,57 @@ pub fn drag(
         return None;
     };
     let anchor = Point::new(f64::from(pdf.x), f64::from(pdf.y));
+    // ★★★ An ANNOTATION takes a different verb, and the branch is here — after
+    // the factors and the anchor, before the content action.
+    //
+    // Everything above this line is shared and must be: the eight grips, the
+    // pivot rule (the corner opposite the one grabbed), the aspect lock, the
+    // degenerate-drag refusal and the screen->page conversion are the same
+    // gesture whatever is under it. What differs is one call.
+    //
+    // ★★ `resize_annotation` takes **anchor + factors**, which is not a
+    // coincidence: this shell asked for that shape rather than a target `/Rect`
+    // precisely so it would match `transform_objects`, and the engine took the
+    // reasoning unchanged -- *"the anchor is a decision the shell makes from
+    // which grip was grabbed, and a verb that took a grip name would be
+    // encoding our affordance in your crate."* So the two transform verbs
+    // consume the identical pair and this branch is a routing decision rather
+    // than a second arithmetic.
+    if let Some(annot) = selection.annot() {
+        if annot.target.kind != crate::canvas::selection::AnnotKind::Markup || annot.target.locked {
+            // No scale verb for a ce dimension -- its extent IS its
+            // measurement -- and a locked annotation is the file refusing.
+            // Neither is offered grips, so neither can arrive; declining
+            // silently rather than by name is the honest answer for a state a
+            // gesture cannot reach.
+            return None;
+        }
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                "resize-annot-commit id={} grip={grip:?} sx={sx:.4} sy={sy:.4} \
+                 ax={:.2} ay={:.2}",
+                annot.target.id.num, anchor.x, anchor.y
+            )
+        });
+        actions.push(Action::ResizeAnnotation {
+            id: annot.target.id,
+            anchor: (anchor.x, anchor.y),
+            sx: f64::from(sx),
+            sy: f64::from(sy),
+            // ★★ Whether the drag was PROPORTIONAL, sent because the engine
+            // asked for it by name: *"if your grips can report whether a drag
+            // was proportional, that distinction is worth having."*
+            //
+            // A non-uniform scale of a FOREIGN appearance stream distorts the
+            // stroke -- a mathematical limit, not a defect, because neither PDF
+            // nor SVG has a per-axis stroke width -- and the engine refuses
+            // that case rather than silently producing an oval border, which is
+            // what the parity reference does. A uniform scale is always safe.
+            uniform: (sx - sy).abs() <= f32::EPSILON,
+        });
+        return Some((sx, sy));
+    }
     match action(selection, page_index, provider, anchor, (sx, sy)) {
         Ok(a) => {
             crate::diag::trace(|| {

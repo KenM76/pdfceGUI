@@ -788,7 +788,26 @@ pub fn press_kind(press: Press, caps: Capabilities) -> PressMeaning {
     // reachable and never reached, because no press on a markup or a widget
     // ever became a `DragKind::Move` to route.
     } else if (caps.author_markup && markup_body) || (caps.edit_content && widget_body) {
-        Some(DragKind::Move)
+        // ★★★ A resize grip OUTRANKS the body, and the arm has to say so
+        // itself rather than inherit it.
+        //
+        // The content branch below states this precedence in its own `match`,
+        // and this branch sits ABOVE that branch — so a press on one of an
+        // annotation's eight grips would otherwise be claimed here as a MOVE
+        // before the grip match ever ran. The operator would grab a corner,
+        // drag, and translate the shape instead of scaling it: a working
+        // gesture aimed at the wrong verb, which is the failure mode
+        // `Grip::Rotate` was given its own arm below to prevent.
+        //
+        // ★★ `is_resize()` rather than "not Move", enumerated for that same
+        // reason. `Grip::Rotate` is not a resize and must not fall in here —
+        // annotations are offered no rotate handle (`GripSet::scale_only`), so
+        // it cannot arrive, and matching on the positive property means that
+        // stays true if one ever is.
+        match grip {
+            Some(g) if g.is_resize() => Some(DragKind::Resize(g)),
+            _ => Some(DragKind::Move),
+        }
     } else if caps.edit_content {
         match (handle, grip) {
             // ★★ A Bézier handle outranks everything below it, and it has to.

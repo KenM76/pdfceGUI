@@ -1057,7 +1057,21 @@ pub(super) fn interact(
                     grip,
                     delta,
                     phase,
-                    bounds: overlay::grip_box(map, &selection),
+                    // ★★★ The SAME box the hit test used, from the one place
+                    // that answers the question — `pressing::grabbable`. It
+                    // was `overlay::grip_box`, which answers only for page
+                    // CONTENT, so an annotation's grips were hit-tested against
+                    // one rectangle and dragged against `None`: the press would
+                    // be classified as a resize and the drag would decline
+                    // silently, every time.
+                    //
+                    // ★★ Rule H7 in its third form — one predicate for
+                    // painting, hit-testing AND committing. `rotating::drag`
+                    // eight lines above deliberately keeps `grip_box`: rotation
+                    // is offered for page content only (`GripSet::rotate`), so
+                    // the content box is the right question there and using
+                    // this one would hand it a box it must never turn.
+                    bounds: crate::canvas::pressing::grabbable(&ctx, doc, map, &selection).bounds,
                     page_index,
                     // ★ SHIFT PRESERVES ASPECT. Announced here and applied
                     // inside the drag, because the factors are derived there

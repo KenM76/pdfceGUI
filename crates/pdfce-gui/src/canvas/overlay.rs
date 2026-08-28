@@ -181,10 +181,35 @@ pub fn draw_selection(
     // first slice by name. Drawing eight handles around a stamp that cannot be
     // resized is the "visible control, silently inert" failure this project
     // keeps finding, in its most literal form.
+    // ★★★ The eight grips around a markup annotation, painted here so the
+    // predicate that paints them is the one that hit-tests them (H7).
+    //
+    // `pressing::look` hands `GripSet::scale_only()` for exactly this
+    // selection, and `draw_grips` draws the eight squares and no rotate stem —
+    // pdfce can scale an annotation (`resize_annotation`) and cannot turn one.
+    //
+    // ⇒ A handle painted and not hit-tested is the "visible control, silently
+    // inert" failure; one hit-tested and not painted is worse — an invisible
+    // target that steals a press. The rule is one predicate, and this is the
+    // painting half of it.
     if let Some(annot) = selection.annot() {
         let screen =
             visible_outline_rect(mapping.rect_to_screen(annot.outline), MIN_OUTLINE_EXTENT_PX);
         painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
+        // ★★ Published under the SAME region name the content selection uses,
+        // so a driven check aiming at a grip reads one name whatever is
+        // selected. `handles::grip_rects` derives all eight from this box, so a
+        // harness that has it cannot disagree with the application about where
+        // they are.
+        crate::diag::ui_rect(SELECTION_OUTLINE_REGION, screen);
+        // ★ A ce dimension is deliberately excluded: its extent IS its
+        // measurement, so pdfce has no verb that scales one and
+        // `pressing::look` hands it no grip set. Painting eight squares around
+        // it would be eight controls that do nothing.
+        if annot.target.kind == crate::canvas::selection::AnnotKind::Markup && !annot.target.locked
+        {
+            draw_grips(painter, visuals, screen);
+        }
         return;
     }
 

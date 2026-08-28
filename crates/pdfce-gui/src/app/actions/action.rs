@@ -226,6 +226,34 @@ pub enum Action {
         /// upward in PDF user space (§8.3.2.3).
         dy: f64,
     },
+    /// ★★★ **Scale a markup annotation about an anchor**, as one undoable
+    /// command. `OPERATOR_REQUESTS.md` **O51**.
+    ///
+    /// Raised by `crate::canvas::resizing` on the release of a grip drag, and
+    /// by nothing else. **Anchor plus FACTORS, not a target rectangle** — the
+    /// shape this shell asked the engine for so it would match
+    /// `transform_objects`, and the argument is at that call site.
+    ///
+    /// ★★ [`Self::uniform`] travels because the engine **asked for it by
+    /// name**, and it is not a number the engine could derive equally well: it
+    /// reports what the operator did with their hand — a Shift-constrained
+    /// corner drag versus a free edge drag. Neither PDF nor SVG has a per-axis
+    /// stroke width, so a non-uniform scale of a foreign appearance produces an
+    /// anisotropic border by arithmetic, and that case is refused rather than
+    /// silently distorted.
+    ResizeAnnotation {
+        /// The annotation, by stable object id.
+        id: pdfce_core::object::ObjId,
+        /// The point that stays still, in PDF page space — the corner
+        /// **opposite** the grip that was grabbed.
+        anchor: (f64, f64),
+        /// Horizontal scale factor.
+        sx: f64,
+        /// Vertical scale factor.
+        sy: f64,
+        /// Whether the two factors are equal. See the variant docs.
+        uniform: bool,
+    },
     DeleteAnnotation {
         /// The page it is on — for the trace and the disclosure, not for the
         /// verb, which finds the annotation by id wherever it lives. A reply

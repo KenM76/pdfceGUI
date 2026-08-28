@@ -137,3 +137,83 @@ pub(super) fn move_annot(doc: &mut OpenDoc, id: ObjId, dx: f64, dy: f64) {
         })
     });
 }
+
+/// **Scale a markup annotation about an anchor.** `OPERATOR_REQUESTS.md` O51.
+///
+/// ★★★ The disclosure is the operator's own ruling, carried through. He asked
+/// for Inkscape's toggles — *"default should be what it said, but there should
+/// be an option that they do scale with resize"* — and the sentence that
+/// belongs beside a default is the one that says the default fired.
+///
+/// ★★ **`stroke_width: None` is the case that owes a sentence**, which is the
+/// engine's own instruction: *"an operator who scaled a square 3× and expected
+/// a heavier border needs telling it stayed."* That is Rule 4's surviving half
+/// — a line weight left alone is invisible on the canvas, because the shape
+/// grew around it and nothing says the border did not.
+///
+/// ★ **`CarriedDistorted` is the other one**, and it is not a defect: neither
+/// PDF nor SVG has a per-axis stroke width, so a non-uniform scale of an
+/// appearance pdfce did not author produces an anisotropic border by
+/// arithmetic. The engine refuses that case unless it is allowed; where it
+/// proceeds, the operator is told.
+pub(super) fn resize(
+    doc: &mut OpenDoc,
+    id: ObjId,
+    anchor: (f64, f64),
+    (sx, sy): (f64, f64),
+    uniform: bool,
+) {
+    // ★★ The default options: nothing rides with the geometry except `/RD`.
+    //
+    // The discriminator the engine promoted from this shell's own CAD argument
+    // is *"is the property a length in the space being transformed?"* An inset
+    // is; a line weight is a drafting convention. That is why `/RD` scales by
+    // default and `/BS /W` does not, and why the two opposite defaults are
+    // consistent rather than arbitrary.
+    //
+    // ★ Built with the BUILDERS. `ResizeOptions` is `#[non_exhaustive]`, so the
+    // struct-expression form — including `..Default::default()` — is a compile
+    // error outside `pdfce-core`, and the fields being `pub` makes that look
+    // like a mistake at this end. The engine flagged it after an integration
+    // test in a third crate refused to compile.
+    let opts = pdfce_core::edit::ResizeOptions::new()
+        // ★★★ `uniform` decides this, and it is not the operator's toggle.
+        //
+        // For a UNIFORM scale, scaling the stroke is not a workaround — the
+        // placement matrix scales it by exactly the factor asked for, so
+        // carrying a foreign appearance IS the correct result and the engine
+        // proceeds with no flag. For a non-uniform one it stays off, which is
+        // the shipped default and the case the engine may refuse.
+        //
+        // The operator's Inkscape-style toggle is a separate control and is not
+        // built yet; when it is, it ORs with this.
+        .with_scale_stroke_width(uniform);
+    super::apply::vector_edit(doc, "resize-annotation", 0, 1, |session| {
+        session
+            .resize_annotation(id, anchor, sx, sy, &opts)
+            .map(|outcome| {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed
+                    format!(
+                        "resize-annotation-applied id={} sx={sx:.4} sy={sy:.4} uniform={uniform} \
+                         keys={} appearance={:?} stroke={}",
+                        id.num,
+                        outcome.geometry_keys_scaled.len(),
+                        outcome.appearance,
+                        outcome.stroke_width.is_some()
+                    )
+                });
+                let mut notes = Vec::new();
+                if outcome.stroke_width.is_none() {
+                    notes.push(crate::text::markup::stroke_width_unchanged());
+                }
+                if matches!(
+                    outcome.appearance,
+                    pdfce_core::edit::ResizedAppearance::CarriedDistorted
+                ) {
+                    notes.push(crate::text::markup::appearance_distorted());
+                }
+                notes
+            })
+    });
+}
