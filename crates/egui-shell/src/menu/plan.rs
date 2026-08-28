@@ -152,7 +152,7 @@ pub fn resolve<'a>(
     for item in items {
         match item {
             Item::Separator => slots.push(Slot::Separator),
-            Item::Custom { kind, payload } => slots.push(Slot::Custom {
+            Item::Custom { kind, payload, .. } => slots.push(Slot::Custom {
                 kind,
                 payload: payload.as_deref(),
             }),

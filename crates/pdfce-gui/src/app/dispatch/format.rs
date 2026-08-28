@@ -46,6 +46,7 @@
 
 use crate::app::PdfceApp;
 use crate::app::actions::Action;
+use crate::app::actions::textstyle::StyleChange;
 use crate::app::state::Status;
 
 /// Whether this file owns `id`.
@@ -59,7 +60,19 @@ use crate::app::state::Status;
 pub(crate) fn handles(id: &str) -> bool {
     matches!(
         id,
-        "format.delete" | "format.properties" | "format.select_form"
+        "format.delete"
+            | "format.properties"
+            | "format.select_form"
+            // The Font group, 2026-08-27. All five, including the three whose
+            // ribbon control is an `Item::Custom` — a custom control REPORTS
+            // (it parks an operand and returns a token) and this file ACTS, so
+            // every one of the five arrives here and none of them has a second
+            // implementation inside the renderer.
+            | "format.font"
+            | "format.font_size"
+            | "format.font_colour"
+            | "format.bold"
+            | "format.italic"
     )
 }
 
@@ -211,6 +224,87 @@ pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) 
                 // ui-text-exempt: a registered command id, never displayed
                 "file.properties".to_owned(),
             ));
+        }
+        // ★★★ The Font group. Five ids, two operand shapes, ONE derivation of
+        // *which text*.
+        //
+        // Bold and Italic carry their operand in the button they are, so their
+        // `StyleChange` is built here. The face chooser, the size field and the
+        // colour swatch cannot — a `HandlerToken` has no room for
+        // "Helvetica-Bold" — so `app::fontband` parks theirs on
+        // `PdfceApp::font_change` and this takes it.
+        //
+        // ★ **The page and the runs are derived here for all five**, from
+        // `doc.text_selection`, and that is the point of routing the custom
+        // controls through a command at all. The alternative — the renderer
+        // building a whole `Action::TextStyle` because it already has the
+        // document in hand — would put the *"which runs does a restyle act
+        // on?"* rule in two places, and the copy in the renderer would be the
+        // one a chord never reached.
+        "format.font" | "format.font_size" | "format.font_colour" | "format.bold"
+        | "format.italic" => {
+            // Built before the document is borrowed, because `take` needs
+            // `&mut app` and the operand read needs `&app.status`.
+            let change = match id {
+                // ★ Bold and Italic are **buttons that apply, not switches
+                // that reflect**, which is why each names one attribute and
+                // sets the other false rather than toggling a remembered pair.
+                // There is no "is this run bold" bit in a PDF — weight is a
+                // property of the *face*, and a synthetic weight is a stroke
+                // width in the content stream — so a toggle would be claiming
+                // to have read a fact that is not recorded. The Properties
+                // panel's twin controls make the same choice and its header
+                // carries the full argument.
+                "format.bold" => Some(StyleChange::Weight {
+                    bold: true,
+                    italic: false,
+                }),
+                "format.italic" => Some(StyleChange::Weight {
+                    bold: false,
+                    italic: true,
+                }),
+                _ => app.font_change.take(),
+            };
+            // ★ `None` here is not a defect and raises nothing. It is the
+            // ordinary state of a custom control the operator hovered without
+            // changing: the ribbon returns a token only when something was
+            // invoked, but a token can also arrive from a chord bound to one
+            // of the three custom-drawn ids, and a chord cannot park an
+            // operand. Silence is the honest answer — there is no value to
+            // apply and nothing was refused.
+            let Some(change) = change else {
+                return;
+            };
+            let Status::Open(doc) = &app.status else {
+                return;
+            };
+            // ★★ The **same three questions** `panels::properties::text` and
+            // `app::fontband` ask, in the same order and through the same
+            // methods: a text selection exists, it is live against this
+            // document's edit epoch, and it covers at least one run. `runs`
+            // owns the staleness gate — a stale run ordinal restyles the
+            // WRONG text, so the check lives with the data rather than with
+            // each of its readers.
+            //
+            // A stale or absent selection raises nothing and says nothing,
+            // and that is deliberate rather than an omission: the ribbon
+            // control is greyed on `selection.text` in exactly this state, so
+            // an operator cannot reach here by clicking. The route that can is
+            // a chord, and a chord pressed with nothing swept is the operator
+            // asking a question, not making a mistake worth a sentence in the
+            // status bar.
+            let Some(selection) = doc.text_selection.as_ref() else {
+                return;
+            };
+            let runs = selection.runs(doc.edit_epoch);
+            if runs.is_empty() {
+                return;
+            }
+            actions.push(crate::app::actions::Action::TextStyle {
+                page: selection.page,
+                runs,
+                change,
+            });
         }
         // ui-text-exempt: a panic message, read from a stack trace by whoever
         // adds an id to `handles` and forgets the arm. Never rendered.

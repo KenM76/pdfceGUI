@@ -1366,6 +1366,57 @@ pub(super) fn all() -> Vec<Command> {
         command("format.select_form", t::format_select_form(), 802)
             .with_icon("pick-form-xobject")
             .enabled_when("selection.in_form"),
+        // -------------------------------------------------------------------
+        // The Font group — `RIBBON_IA.md` §5.8's "Text run" row.
+        //
+        // ★★★ **All five are `enabled_when("selection.text")` and NOT
+        // `selection.any`**, and getting that backwards would grey them in
+        // exactly the state where they work.
+        //
+        // `EditSession::format_text` locates its operand by a pinned byte span
+        // into a decoded content buffer, keyed on a **run** of the page's text
+        // extraction. `selection.any` is the *object* selection — a paint-order
+        // index — and nothing in either crate maps between the two index
+        // spaces. So the swept range is the operand, and the swept range is
+        // what `selection.text` reports.
+        //
+        // ★★ **Greyed rather than absent when there is no sweep**, which is R9
+        // read carefully. The capability is present — this build has
+        // `format_text`, this mode may edit content, this document is open —
+        // and what is missing is the *operand*, which the next gesture
+        // supplies. That is the textbook temporarily-unavailable case, it is
+        // greyed, and it is explained on hover. **The explanation is the whole
+        // point**: `text::commands`' own note above these five records why
+        // each tooltip has to name the route to an operand, and it is the
+        // surface that answers O37's *"nothing on screen tells you to press
+        // T"*.
+        //
+        // Their **absence** is a different rule and lives in the manifest:
+        // every item of the group carries `visible_when: "mode.edit_content"`,
+        // so Read and Review — which cannot change page content at all — draw
+        // no Font group rather than five permanently greyed controls.
+        //
+        // ★ Three of the five are drawn by an `Item::Custom` and have no
+        // button of their own: a face chooser, a size field and a colour
+        // swatch are not buttons. They are registered anyway, because a
+        // registered command is how this shell learns a capability exists
+        // (R8), because the a11y name and the reachability check both read the
+        // registry, and because the custom renderer draws the registered label
+        // rather than a second copy of it. See `manifest::CUSTOM_BACKED`.
+        //
+        // ★ **No icons on any of the five.** Word draws `B` and `I` as glyphs
+        // and this build has no such art; `icons/assets/PROVENANCE.md` declares
+        // that directory the operator's own work, which is what exempts it from
+        // `check-shipped-assets`, and a machine-drawn substitute would make that
+        // note false. Without an icon a `Small` item resolves to `Medium`
+        // (`egui_shell::ribbon::sizing::resolved`), so the labels are what
+        // render — "Bold" and "Italic", which are unambiguous where a
+        // home-made glyph would not be.
+        command("format.font", t::format_font(), 803).enabled_when("selection.text"),
+        command("format.font_size", t::format_font_size(), 804).enabled_when("selection.text"),
+        command("format.bold", t::format_bold(), 805).enabled_when("selection.text"),
+        command("format.italic", t::format_italic(), 806).enabled_when("selection.text"),
+        command("format.font_colour", t::format_font_colour(), 807).enabled_when("selection.text"),
         // ===================================================================
         // MODES — tokens 900-999
         //

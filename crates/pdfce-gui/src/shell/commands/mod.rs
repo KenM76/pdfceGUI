@@ -1,13 +1,35 @@
 //! # shell::commands — every verb pdfce can perform
 //!
 //! [`register`] populates an `egui_shell::CommandRegistry` with the
-//! **hundred and one** commands this build has, which fall into three groups:
+//! **hundred and twenty** commands this build has, which fall into three
+//! groups:
 //!
 //! | group | count | how the operator reaches it |
 //! |---|---|---|
-//! | on a tab, the QAT or the keymap | 99 | a control [`super::manifest::built_in`] names by id |
-//! | drawn by a **custom item** | 1 | `file.recent` — see [`super::manifest::CUSTOM_BACKED`] |
+//! | on a tab, the QAT or the keymap | 115 | a control [`super::manifest::built_in`] names by id |
+//! | drawn by a **custom item** | 4 | `file.recent` and the three Format ▸ Font controls — see [`super::manifest::CUSTOM_BACKED`] |
 //! | drawn on the **status bar** | 1 | `edit.find` — `RIBBON_IA.md` §6 |
+//!
+//! ★★★ **And it drifted a fifth and a sixth time, both found on 2026-08-27,
+//! and the sixth is the one worth reading.** This table said *hundred and one*
+//! / 99 / 1 / 1 while
+//! [`tests::registration_succeeds_and_registers_every_command`] asserted
+//! **115** and passed — nineteen commands out, which is not a rounding error,
+//! it is a table describing a different program. The pinned number moved
+//! nineteen times and the sentence above it moved never, because a test cannot
+//! read prose.
+//!
+//! The sixth is the same defect one level down: the *custom-item* row said 1
+//! for as long as `file.recent` was the only such command, and the Format ▸
+//! Font group added three more. That row is the one an engineer would trust
+//! when asking *"can a command live off the manifest?"*, and it would have
+//! answered "yes, once, exceptionally" about a build where the answer is "yes,
+//! four times, and there is a register listing them."
+//!
+//! ⇒ **Do not trust a count in this file without re-reading the assertion it
+//! is supposed to mirror.** That instruction has now been earned six times and
+//! the running tally is left in place — see the two paragraphs below — because
+//! the tally is the argument.
 //!
 //! (This header said *eighty-one* and *79* until 2026-08-14, while
 //! [`tests::registration_succeeds_and_registers_every_command`] asserted 88
@@ -219,7 +241,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 115);
+        assert_eq!(registry().len(), 120);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -267,8 +289,17 @@ mod tests {
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
         assert_eq!(named, 103, "commands naming an icon");
+        // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
+        // all refuse a glyph, and they refuse it for one reason argued once at
+        // their registration. Word draws `B` and `I` as glyphs; this build has
+        // no such art, and `icons/assets/PROVENANCE.md` declares that directory
+        // the operator's own work — which is what exempts it from
+        // `check-shipped-assets` and what a machine-drawn substitute would make
+        // false. Without an icon a `Small` item resolves to `Medium`, so the
+        // labels render, and "Bold" is less ambiguous than a home-made glyph
+        // would have been.
         assert_eq!(
-            refused, 12,
+            refused, 17,
             "commands with no icon, each argued at its registration"
         );
         // Each refusal is argued at its own registration and listed in the

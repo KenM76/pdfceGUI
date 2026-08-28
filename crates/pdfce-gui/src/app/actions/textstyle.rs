@@ -40,10 +40,10 @@
 //! to search: nothing better exists, so the fallback is genuinely the only
 //! option. Proceed."*
 //!
-//! ⇒ Between the two verbs **every page is covered**, and there is no page on
-//! which bold is unreachable. The engine's instruction was explicit: *"Do not
-//! grey out a bold button. Offer it, and surface the disclosure when synthesis
-//! fires."*
+//! ⇒ ~~Between the two verbs **every page is covered**, and there is no page on
+//! which bold is unreachable.~~ **Retracted — see below.** The engine's
+//! instruction stands and is unchanged: *"Do not grey out a bold button. Offer
+//! it, and surface the disclosure when synthesis fires."*
 //!
 //! So [`apply`] asks for synthesis first and, when the engine refuses **because
 //! a real face is available**, retries with that face — which the refusal names
@@ -61,6 +61,43 @@
 //! slant is the upright face sheared. `R90` means neither is ever a preference
 //! — only an explicit, per-use request — and the report says which fired, in
 //! words passed straight through rather than re-written.
+//!
+//!
+//! ## ★★★ RETRACTED 2026-08-27 — "every page is covered" was never true
+//!
+//! The paragraph above is kept because the *behaviour* it describes is
+//! correct and shipped, and struck at its one load-bearing claim, which the
+//! engine has since withdrawn in writing:
+//!
+//! > ~~"Between the two verbs every page is covered. … There is no page on
+//! > which bold is unreachable."~~
+//!
+//! On pdfce's own `textedit/format_family.pdf`, `gate_synthesis` prefers a
+//! real face by **family** — it names `Times-Bold` for a run set in `Times`
+//! — and `Times-Bold` on that page does not map `o`, so `set_font` refuses it
+//! by name. `Calibri-Bold`, on the same page, covers the run and would have
+//! worked. Neither verb reaches it: synthesis is gated off because a "real
+//! face is available", and the real face it names cannot show the text. **Bold
+//! is unreachable there through either route.**
+//!
+//! Filed as `request_gate_synthesis_names_a_face_that_cannot_cover_the_run.md`,
+//! confirmed and reproduced by the engine the same day, and queued ahead of
+//! their print-conformance work by their operator's instruction. The fix is
+//! the one this project's diagnosis asked for: `gate_synthesis` will treat a
+//! real face as available only if `set_font` would accept it *for this run*.
+//!
+//! ★ **Nothing here works around it**, and the twenty-line shell-side search
+//! for a different bold resource was considered and refused. It would work,
+//! and it would be this project second-guessing pdfce's font selection —
+//! decision 058's exact case, and the workaround every other consumer would
+//! then have to write for themselves.
+//!
+//! ★★ The two buttons are **still never greyed**, and the retraction does not
+//! change that. Greying them would need this shell to predict a refusal that
+//! depends on a per-run glyph-coverage test it cannot run without doing the
+//! engine's work; the honest behaviour on a page like that one is to try, and
+//! to show the engine's own named refusal in the status bar. That is what
+//! happens.
 //!
 //! ## ★★★ Why the runs are edited in DESCENDING order
 //!

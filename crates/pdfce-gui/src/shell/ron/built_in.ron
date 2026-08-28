@@ -405,8 +405,20 @@
             id: "format",
             label: "Format",
             question: "What am I changing about the thing I have selected?",
-            visible_when: "selection.any",
+            visible_when: "selection.formattable",
             groups: [
+                (
+                    id: "font",
+                    caption: "Font",
+                    items: [
+                        Custom(kind: "font_face", visible_when: "mode.edit_content"),
+                        Custom(kind: "font_size", visible_when: "mode.edit_content"),
+                        Separator,
+                        Command(id: "format.bold", visible_when: "mode.edit_content"),
+                        Command(id: "format.italic", visible_when: "mode.edit_content"),
+                        Custom(kind: "font_colour", visible_when: "mode.edit_content"),
+                    ],
+                ),
                 (
                     id: "selection",
                     caption: "Selection",

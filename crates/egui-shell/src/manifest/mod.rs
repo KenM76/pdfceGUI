@@ -843,6 +843,50 @@ pub enum Item {
         /// Optional application-defined payload.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         payload: Option<String>,
+        /// A condition name, with exactly the meaning it has on
+        /// [`Self::Command`] — the item is drawn only while the condition
+        /// holds, and its space is reclaimed **before measurement** when it
+        /// does not.
+        ///
+        /// # ★★ Why this is a second copy of the field rather than a wrapper
+        ///
+        /// [`Self::visible_condition`] used to close with a standing
+        /// instruction, and it is quoted rather than deleted because the
+        /// reasoning is sound and the decision to depart from it has to be
+        /// argued rather than assumed:
+        ///
+        /// > A separator and a custom item cannot carry one yet; when one
+        /// > needs to, the field moves onto a **wrapper** rather than being
+        /// > copied into three variants, because three copies of a rule is
+        /// > three chances for it to drift.
+        ///
+        /// The need arrived on 2026-08-27: pdfce's Format tab carries a Font
+        /// group whose face chooser, size field and colour swatch are all
+        /// custom items, and the whole group must be **absent** in a mode that
+        /// cannot edit page content — R9's rule that an unavailable
+        /// *capability* renders nothing while a temporarily unavailable one
+        /// greys. Without this field, three of that group's seven controls
+        /// would draw in Read mode and the application would have to fake
+        /// their absence by drawing nothing into a slot the band had already
+        /// reserved, which leaves a hole rather than reflowing the group.
+        ///
+        /// **What makes the copy safe is that the rule was never in the
+        /// field.** It is in [`Self::visible_condition`] — one accessor, one
+        /// match, read by exactly one predicate
+        /// (`crate::ribbon::sizing::visible`). Two variants declaring a
+        /// `visible_when` produce two serde attributes and two arms of that
+        /// one match; they do not produce two statements of *when an item is
+        /// drawn*. The drift the old note feared is drift in the **rule**, and
+        /// the rule stayed single.
+        ///
+        /// **What would still justify the wrapper**, and this is the trigger
+        /// to watch for: a *second* per-position property — an `enabled_when`,
+        /// a `label_override`, an `order` — or a `Separator` that needs to
+        /// disappear with its neighbours. At that point the fields stop being
+        /// one field on two variants and become a *record*, and a record
+        /// belongs beside the item rather than inside it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        visible_when: Option<String>,
     },
 }
 
@@ -893,6 +937,15 @@ impl Item {
                 size,
                 visible_when: Some(condition.into()),
             },
+            // ★ A custom item takes one too, since 2026-08-27. A separator
+            // still does not and returns untouched, for the reason
+            // [`Self::visible_condition`] gives: a divider's visibility is a
+            // fact about its neighbours, not about itself.
+            Item::Custom { kind, payload, .. } => Item::Custom {
+                kind,
+                payload,
+                visible_when: Some(condition.into()),
+            },
             other => other,
         }
     }
@@ -903,6 +956,7 @@ impl Item {
         Item::Custom {
             kind: kind.into(),
             payload: None,
+            visible_when: None,
         }
     }
 
@@ -928,15 +982,27 @@ impl Item {
     /// The condition this item is shown under, if any.
     ///
     /// ★ `None` means *always*, which is what the overwhelming majority of
-    /// items are. A separator and a custom item cannot carry one yet; when one
-    /// needs to, the field moves onto a wrapper rather than being copied into
-    /// three variants, because three copies of a rule is three chances for it
-    /// to drift.
+    /// items are.
+    ///
+    /// ★★ **This function is where the rule lives, and that is what let the
+    /// field be copied onto a second variant** on 2026-08-27. The note that
+    /// used to sit here forbade the copy and named a wrapper as the remedy;
+    /// [`Item::Custom`]'s `visible_when` carries the argument for departing
+    /// from it, and the trigger that would still bring the wrapper back.
+    ///
+    /// A **separator** still cannot carry one, and deliberately: a rule for
+    /// when a divider disappears is a rule about its *neighbours*, which is
+    /// the record-shaped problem the wrapper exists for. A separator between
+    /// two hidden items is a cosmetic defect; a separator with its own
+    /// condition, set independently of the items it divides, is a
+    /// contradiction that renders.
     #[must_use]
     pub fn visible_condition(&self) -> Option<&str> {
         match self {
-            Item::Command { visible_when, .. } => visible_when.as_deref(),
-            Item::Separator | Item::Custom { .. } => None,
+            Item::Command { visible_when, .. } | Item::Custom { visible_when, .. } => {
+                visible_when.as_deref()
+            }
+            Item::Separator => None,
         }
     }
 }

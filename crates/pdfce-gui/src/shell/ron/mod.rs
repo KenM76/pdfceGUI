@@ -18,7 +18,7 @@
 //! satisfies the *types* and none of the point. The operator's
 //! customization layer is a file; the application-override layer is a
 //! file; a saved workspace is a file. If the format cannot express the
-//! real ribbon — all eight tabs, thirty-one groups, three modes, the QAT
+//! real ribbon — all eight tabs, thirty-three groups, three modes, the QAT
 //! and twenty key bindings — then "the shell is data" is a description
 //! of a data structure rather than of a product, and nobody finds out
 //! until an operator opens `userdata/shell.ron` and it does not round
@@ -253,8 +253,21 @@ mod tests {
             "caption: \"Page display\"",
             "id: \"review\"",
             "\"Ctrl+1\": \"mode.read\"",
-            "visible_when: \"selection.any\"",
+            // ★ The contextual Format tab's condition, and it is
+            // `selection.formattable` rather than `selection.any` since
+            // 2026-08-27 — the tab now carries controls for two kinds of
+            // selection, so its condition is the union rather than either
+            // operand. Kept in this list because the needle it is here to
+            // prove is *"a condition round-trips into the file legibly"*, and
+            // that is exactly as true of the new name.
+            "visible_when: \"selection.formattable\"",
             "kind: \"colour_swatch\"",
+            // ★ A custom item carrying a `visible_when`, which the format
+            // could not express before 2026-08-27. It is what makes the whole
+            // Font group vanish in Read and Review rather than drawing three
+            // controls into a mode that cannot use them, and a serialization
+            // that dropped it would look correct in every test but this one.
+            "Custom(kind: \"font_face\", visible_when: \"mode.edit_content\")",
         ] {
             assert!(text.contains(needle), "the file should contain {needle}");
         }

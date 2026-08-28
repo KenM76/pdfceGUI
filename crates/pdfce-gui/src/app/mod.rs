@@ -81,6 +81,11 @@ pub mod dispatch;
 /// accept drops, which is a conclusion they will not revisit.
 pub mod dropped;
 pub mod files;
+/// The three Format ▸ Font controls the ribbon cannot draw itself — a face
+/// chooser, a size field and a colour swatch. See its header for why the
+/// greying and the tooltips are this crate's job for a custom item and the
+/// shell's for a command.
+mod fontband;
 
 /// ★ The per-frame update — `eframe`'s entry point, and the one order the
 /// frame's eleven steps may happen in.
@@ -411,6 +416,47 @@ pub struct PdfceApp {
     /// it and dispatches in the same statement pair, and the `file.recent`
     /// arm `take`s it, so it is `None` again before the frame ends.
     pub recent_choice: Option<std::path::PathBuf>,
+
+    /// **The text-style change the operator made in the Format ▸ Font group
+    /// this frame**, waiting for the command that acts on it.
+    ///
+    /// # Why a second parking slot rather than a direct action
+    ///
+    /// [`Self::recent_choice`]'s reasoning, applied to three more controls and
+    /// for exactly the same structural reason: the face chooser, the size
+    /// field and the colour swatch are `Item::Custom`s, drawn inside the
+    /// ribbon's custom-item renderer, and the shell requires that renderer to
+    /// report intent as an `egui_shell::HandlerToken` and nothing else. A
+    /// token has no room for an operand, and "Helvetica-Bold" is an operand.
+    ///
+    /// So the change is parked here for the length of one frame and the
+    /// command's token is returned, which sends it through
+    /// [`Self::dispatch_command`] — the same choke point a ribbon click, a
+    /// chord and a context-menu row reach, and therefore the same place the
+    /// operand is turned into an `Action::TextStyle` for `format.bold` and
+    /// `format.italic`, which need no parking because their operand is the
+    /// button they are.
+    ///
+    /// ★ **The page and the runs are deliberately NOT parked with it.** They
+    /// are re-read from `doc.text_selection` in the dispatch arm, so all five
+    /// Font commands derive their operand the same way and a chord route that
+    /// never touched the ribbon gets the same answer as a click. Parking the
+    /// runs as well would make the custom controls the only ones that could
+    /// work, which is the shape of *"two routes, two implementations"* that
+    /// `Action::Command` exists to prevent.
+    ///
+    /// ★ **One slot, not three.** Two of these controls cannot be operated in
+    /// one frame: each commits on a discrete, exclusive gesture — a click in a
+    /// combo popup, a drag release, a colour accepted — and the pointer is in
+    /// exactly one of them. `Vec` here would be a container whose second
+    /// element is unreachable, which reads as a case that was handled and was
+    /// not.
+    ///
+    /// Emphatically not a half-finished intent living across frames:
+    /// [`Self::ribbon_band`] sets it and dispatches in the same statement
+    /// pair, and the arm `take`s it, so it is `None` again before the frame
+    /// ends.
+    pub font_change: Option<crate::app::actions::textstyle::StyleChange>,
 
     /// The panels' own working state: the page decomposition and the font
     /// inventory, both of which are caches with no equivalent in
@@ -816,6 +862,7 @@ impl PdfceApp {
             closing_others: None,
             tab_menu_target: None,
             recent_choice: None,
+            font_change: None,
             panels: crate::panels::PanelsState::default(),
             find: crate::find::FindState::default(),
             dialogs: crate::dialogs::DialogsState::default(),

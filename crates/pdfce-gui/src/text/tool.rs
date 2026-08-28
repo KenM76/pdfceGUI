@@ -120,14 +120,32 @@ pub const fn row_points() -> &'static str {
 
 /// What the Text tool does, in the tool list.
 ///
-/// ★★ **One row, where there were two**, and the sentence covers both halves in
-/// the order they are tried: click text to change it, click space to start
-/// some. `row_edit_text` and `row_add_text` said those two things separately,
-/// under two rows, for a distinction that no longer exists anywhere the
-/// operator can see — the click decides.
+/// ★★ **One row, where there were two**, and the sentence covers every half in
+/// the order they are tried. `row_edit_text` and `row_add_text` said the first
+/// two things separately, under two rows, for a distinction that no longer
+/// exists anywhere the operator can see — the click decides.
+///
+/// ★★★ **A third clause landed on 2026-08-27, and its absence was a
+/// discoverability defect rather than a missing detail.**
+///
+/// The row read *"Click words to change them, or click empty space to start
+/// new text"* — two true clauses about what a **click** does, on the one tool
+/// whose **drag** is the only route to the Format tab's Font group and to the
+/// Properties panel's *This text* section. So the panel written to teach the
+/// tools taught two of this tool's three uses, and the one it left out was the
+/// one the operator was looking for: O37's *"we should also have all the font
+/// tools available that Word does"* is reached by sweeping and by nothing
+/// else.
+///
+/// ★ The clause is in the **middle** rather than appended. The two
+/// text-acting gestures belong beside each other — both are about words that
+/// are already there — and *"click empty space"* is the one that changes
+/// subject, so it stays last. An operator who reads only the beginning of a
+/// line, which is most operators, still meets both.
 #[must_use]
 pub const fn row_text() -> &'static str {
-    "Click words to change them, or click empty space to start new text."
+    "Click words to change them, sweep across them to restyle them, or click empty space to \
+     start new text."
 }
 
 /// See the module header.

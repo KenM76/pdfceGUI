@@ -48,7 +48,7 @@ pub(crate) fn render_item_at(
         Item::Command { id, .. } => {
             render_command(ui, ctx, id, size, rows_height);
         }
-        Item::Custom { kind, payload } => {
+        Item::Custom { kind, payload, .. } => {
             let request = CustomItem {
                 kind,
                 payload: payload.as_deref(),

@@ -533,7 +533,7 @@ Contents vary by selection type:
 | ce dimension | Group · Scale · Precision · Units · Standard · Witness lines · Delete |
 | Image | Size · Position · Crop · Opacity · Replace · Delete |
 | Vector object | Stroke · Fill · Winding rule · Node tools · Delete |
-| Text run | Font · Size · Colour · Spacing · Alignment · Delete |
+| Text run | Font · Size · **Bold · Italic** · Colour · ~~Spacing · Alignment~~ · Delete — ★ **BUILT 2026-08-27, see the amendment below** |
 | Pages (rail) | Rotate · Delete · Extract · Move |
 
 This tab is the single largest usability change proposed here. It is
@@ -567,6 +567,59 @@ the number is known and the mouse is imprecise.
 Build order: **panel first, tab second.** The panel is the harder half
 and the tab's contents are a subset of it, so building the tab first
 would mean writing the property editors twice.
+
+### ★★★ Amendment, 2026-08-27 — the Font group, and three changes to the row above
+
+**Operator instruction:** O37, *"We should also have all the font tools
+available that Word does"*, followed by *"make the text tool discoverable,
+then the Format tab's Font group."* This section is settled and is not
+improvised around; the amendment is recorded here because the operator
+directed it, and it is written up rather than applied silently.
+
+The **Text run** row shipped as one captioned band called **Font**, placed
+**first on the tab**, ahead of Selection. Three departures from the row as it
+was written, each with its reason:
+
+**1. Bold and Italic were added.** The row did not name them and Word's Font
+group is unusable without them; they are also, literally, the buttons the
+operator pressed. They pass the build-order test — the Properties panel's
+*This text* section already had them — so the tab's contents remain a *subset*
+of the panel's, which is the constraint the build order exists to protect.
+
+**2. Spacing and Alignment were dropped, and it is not a scheduling deferral.**
+`EditSession` has no verb for either. `format_text` sets face, size, weight and
+fill and nothing else, so nothing writes `Tc`, `Tw` or `TL` for an existing
+run. Alignment is worse than missing: it is not a property a PDF text run
+*has*, it is a consequence of where each show operator was positioned, so
+re-aligning existing text means re-laying it out. Both stay in
+`shell::manifest::PLANNED` with those reasons written in, replacing the earlier
+"panel first" note that read as a scheduling fact and was not one.
+
+**3. Grow and Shrink were considered and refused**, though Word has them, for
+the build order's own reason: they exist in no panel section, so adding them
+here would make the tab a **superset** of the panel — which is exactly the
+"writing the editors twice" that the build order is written to prevent.
+
+**Order within the group** is Word's: face, size, a rule, then Bold, Italic,
+colour. The rule separates *which typeface* from *how it is set*.
+
+**The group is first on the tab** because every row of the table above ends in
+Delete, so reading left to right goes "change how this looks", then "describe
+it", then "destroy it" — increasing commitment, which is the ordering rule the
+Selection group already follows internally.
+
+**Two conditions carry it**, and the split is R9 rather than convenience:
+`mode.edit_content` is each item's `visible_when`, so the whole band is
+**absent** in Read and Review, which cannot change page content at all;
+`selection.text` is each command's `enabled_when`, so inside Edit the controls
+**grey** until something is swept, with a tooltip that says how to sweep. That
+greyed state is deliberate and is the answer to O37's own admission that
+nothing on screen told an operator to press `T`.
+
+**The tab's `visible_when` changed** from `selection.any` to
+`selection.formattable` — the union of an object selection and a live text
+selection. The tab now has two kinds of subject and neither operand is its
+question.
 
 A third surface, the **context menu**, carries the same commands again
 for the user who right-clicks. That is not duplication in the P1 sense —

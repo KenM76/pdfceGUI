@@ -86,6 +86,28 @@ impl PdfceApp {
         // frame ended, which is the shape of bug that produces "the control
         // does nothing" reports.
         let pen = &mut self.pen;
+        // ★ The Format ▸ Font group's three custom controls, borrowed as four
+        // disjoint fields. `&self.status` is shared while `&mut self.panels`
+        // and `&mut self.font_change` are exclusive, which the borrow checker
+        // allows only because they are named separately here — a
+        // `&mut self` inside the closure would not compile against the
+        // `&self.commands` the ribbon is holding.
+        //
+        // ★★ `panels.text_style_mut()` is the SAME draft the Properties
+        // panel's *This text* section uses, deliberately. It carries a
+        // `(page, run, epoch)` stamp and the read behind it costs 392 ms on the
+        // operator's benchmark sheet, so a second draft for the ribbon would
+        // pay that twice on every selection change. Whichever surface draws
+        // first in the frame pays; the other gets a stamp hit. `ribbon_band`
+        // runs before `docks`, so on a frame where the selection moved it is
+        // this one.
+        let doc = match &self.status {
+            Status::Open(doc) => Some(&**doc),
+            _ => None,
+        };
+        let font_draft = self.panels.text_style_mut();
+        let font_change = &mut self.font_change;
+        let registry = &self.commands;
         let mut custom = |ui: &mut egui::Ui, item: &egui_shell::ribbon::CustomItem<'_>| {
             // ★ The Markup ▸ Style controls. They return `None` — no handler
             // token — because they invoke no command: they edit the pen the
@@ -95,6 +117,31 @@ impl PdfceApp {
             if item.kind == crate::shell::manifest::COLOUR_SWATCH {
                 crate::canvas::markup::swatch::show(ui, pen);
                 return None;
+            }
+            // ★★ The Font group's face chooser, size field and colour swatch.
+            //
+            // These DO return a token, where the pen's swatch above does not,
+            // and the difference is what the control acts on: the pen is
+            // application state with no undo log, while these three rewrite a
+            // content stream and land in the engine's command log. A capability
+            // that edits the document is a registered command (R8), and a
+            // registered command is invoked through `dispatch_command` — the
+            // same choke point a chord and a context-menu row reach — rather
+            // than by a panel-side shortcut into the action queue.
+            //
+            // The operand is parked in `self.font_change` for the length of
+            // this frame, in `file.recent`'s shape and for its reason: a
+            // `HandlerToken` has no room for "Helvetica-Bold".
+            if let Some(token) = crate::app::fontband::draw(
+                ui,
+                item.kind,
+                registry,
+                &conditions,
+                doc,
+                font_draft,
+                font_change,
+            ) {
+                return Some(token);
             }
             if item.kind != crate::shell::manifest::RECENT_FILES {
                 return None;

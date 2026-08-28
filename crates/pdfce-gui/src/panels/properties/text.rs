@@ -52,9 +52,23 @@
 //! ## ★★★ Bold and Italic are NEVER greyed, and that is the engine's ruling
 //!
 //! `set_font` selects a real face and refuses when the page carries none.
-//! `gate_synthesis` refuses synthesis when a real face **is** available. The
-//! two are exact complements, so between them every page is covered and there
-//! is no page on which bold is unreachable.
+//! `gate_synthesis` refuses synthesis when a real face **is** available.
+//!
+//! ★★★ **They are NOT exact complements, and this paragraph used to say they
+//! were.** It read *"so between them every page is covered and there is no
+//! page on which bold is unreachable"*, quoting the engine — who withdrew the
+//! claim in writing on 2026-08-27 after reproducing the counter-example.
+//! `gate_synthesis` prefers a real face by *family*, and the face it prefers
+//! may not map every glyph in the run, in which case `set_font` refuses it and
+//! synthesis is already gated off. On `textedit/format_family.pdf` bold is
+//! reachable by neither verb. Filed, confirmed, and queued first by the
+//! engine; `crate::app::actions::textstyle`'s header carries the whole of it.
+//!
+//! ★★ The conclusion survives its premise, which is why the two buttons still
+//! do not grey. Greying them would mean predicting a refusal that depends on a
+//! per-run glyph-coverage test this shell cannot run without doing the
+//! engine's work. The honest behaviour is to try and to show the engine's own
+//! named refusal, which is what happens.
 //!
 //! pdfce-core's instruction, verbatim: *"Do not grey out a bold button. Offer
 //! it, and surface the disclosure when synthesis fires."*
@@ -103,6 +117,16 @@ pub const SIZE_REGION: &str = "properties.text.size";
 /// The face chooser's own region.
 // ui-text-exempt: trace region name, never displayed
 pub const FACE_REGION: &str = "properties.text.face";
+/// The region of the sentence shown when text is selected as an **object** and
+/// nothing has been swept — [`route`].
+///
+/// ★ Its own name rather than [`REGION`], because the two are mutually
+/// exclusive states of one section and a driven check has to be able to tell
+/// which one it is looking at. A single region would make *"the panel says
+/// something about this text"* pass in the state where it says *"you cannot
+/// change it from here"*, which is the state the check exists to detect.
+// ui-text-exempt: trace region name, never displayed
+pub const ROUTE_REGION: &str = "properties.text.route";
 
 /// What the selected text looks like now, re-read only when it can have
 /// changed.
@@ -143,7 +167,7 @@ impl TextStyleDraft {
     /// is on screen.
     ///
     /// Returns `true` when there is something to draw — i.e. the run resolved.
-    fn sync(&mut self, doc: &OpenDoc, page: usize, run: usize) -> bool {
+    pub(crate) fn sync(&mut self, doc: &OpenDoc, page: usize, run: usize) -> bool {
         let stamp = (page, run, doc.edit_epoch);
         if self.stamp == Some(stamp) {
             return self.face.is_some();
@@ -177,6 +201,59 @@ impl TextStyleDraft {
         self.colour = read.style.fill.and_then(rgb_of);
         self.face.is_some()
     }
+
+    // -----------------------------------------------------------------------
+    // Accessors, added 2026-08-27 when the Format ▸ Font group shipped.
+    //
+    // ★★ **One draft, two surfaces, and that is the whole reason these exist.**
+    //
+    // The ribbon's Font group and this panel's *This text* section show the
+    // same four values and both need them read back from the document. The
+    // read costs 392 ms on the operator's benchmark sheet — a text extraction
+    // with provenance capture on — so a second draft would double it on every
+    // selection change, on exactly the drawings this program is for.
+    //
+    // So `PanelsState` owns the one draft, `app::surfaces` borrows it for the
+    // ribbon and `panels::properties` borrows it for the panel, and whichever
+    // draws first in the frame pays for the read while the other gets a stamp
+    // hit. These accessors are what let the ribbon read it without the fields
+    // becoming public and without `app::fontband` learning how the stamp works.
+    // -----------------------------------------------------------------------
+
+    /// The run's `/BaseFont`, subset tag and all, or `None` when the
+    /// provenance carried no font resource.
+    #[must_use]
+    pub(crate) fn face(&self) -> Option<&str> {
+        self.face.as_deref()
+    }
+
+    /// The `Tf` size the document currently holds, in points.
+    ///
+    /// ★ Not [`Self::typed_size`]. This is what was **read**; that is what the
+    /// operator is **typing**, and the difference between them is what decides
+    /// whether a release is an edit or a no-op.
+    #[must_use]
+    pub(crate) fn size(&self) -> f64 {
+        self.size
+    }
+
+    /// The size the operator is typing.
+    #[must_use]
+    pub(crate) fn typed_size(&self) -> f64 {
+        self.typed_size
+    }
+
+    /// The size the operator is typing, for a widget to write into.
+    pub(crate) fn typed_size_mut(&mut self) -> &mut f64 {
+        &mut self.typed_size
+    }
+
+    /// The fill colour as sRGB bytes, or `None` when the run is painted in a
+    /// space this control cannot round-trip. See [`rgb_of`].
+    #[must_use]
+    pub(crate) fn colour(&self) -> Option<[u8; 3]> {
+        self.colour
+    }
 }
 
 /// Draw the section, or nothing.
@@ -193,11 +270,11 @@ pub fn section(
     // restyles the WRONG text, so the check lives with the data rather than
     // with each of its readers.
     let Some(selection) = doc.text_selection.as_ref() else {
-        return false;
+        return route(ui, doc);
     };
     let runs = selection.runs(doc.edit_epoch);
     let Some(&first) = runs.first() else {
-        return false;
+        return route(ui, doc);
     };
     let page = selection.page;
 
@@ -221,6 +298,73 @@ pub fn section(
     colour_row(ui, draft, page, &runs, actions);
 
     crate::diag::ui_rect_visible(REGION, ui.min_rect(), ui.clip_rect());
+    ui.separator();
+    true
+}
+
+/// **The route, when a piece of text is selected as an OBJECT and nothing has
+/// been swept.**
+///
+/// Returns whether it drew, so [`section`]'s callers see the panel as having
+/// said something about the selection.
+///
+/// # ★★★ The state this exists for, and why silence was the wrong answer
+///
+/// The operator clicks a piece of text. The Select tool picks the *object* —
+/// a paint-order index — and the Format tab appears, and this section, whose
+/// whole subject is how the text looks, drew **nothing**. Which is honest
+/// about the operand (there is no run range, so there is nothing to restyle)
+/// and dishonest about the capability, because an operator who cannot find a
+/// control concludes it is missing. That is O37's report, in his own words:
+/// *"the Tool tab doesn't switch to giving me the editable stuff for that
+/// object."*
+///
+/// This module's header has claimed since it shipped that *"the empty state
+/// says so in those words"*. It did not; there was no empty state. The
+/// sentence is [`t::text_object_route`] and the claim is now true.
+///
+/// # ★★ Why it is gated on the object being TEXT
+///
+/// Because a rectangle is not text, and a panel that offered a route to the
+/// font controls whenever anything at all was selected would be offering it
+/// wrongly nine times in ten. `summary::object_kind` is the same
+/// classification the Objects panel row and the read-only object section use,
+/// so what this section calls text and what the panel beside it calls text
+/// cannot disagree.
+///
+/// ★ **Only when exactly one object is selected**, matching
+/// [`super::geometry::section`]'s rule and for its reason: a mixed
+/// multi-selection has no single subject, and a sentence about *"these words"*
+/// over a selection of eleven shapes and one label would be describing
+/// something the operator did not do.
+fn route(ui: &mut Ui, doc: &OpenDoc) -> bool {
+    // An annotation is never a page-content text run, and its own sections
+    // have already drawn above this one.
+    if doc.selection.annot().is_some() {
+        return false;
+    }
+    let page = doc.view.page_index;
+    let objects = doc.selection.object_indices_on(page);
+    let [object] = objects.as_slice() else {
+        return false;
+    };
+    let object = *object;
+    let is_text = doc.page_objects().is_some_and(|provider| {
+        provider
+            .page_objects()
+            .objects
+            .get(object)
+            .is_some_and(|o| {
+                crate::panels::objects::summary::object_kind(o)
+                    == crate::panels::objects::summary::ObjectKind::Text
+            })
+    });
+    if !is_text {
+        return false;
+    }
+    ui.heading(t::text_heading());
+    ui.label(t::text_object_route());
+    crate::diag::ui_rect_visible(ROUTE_REGION, ui.min_rect(), ui.clip_rect());
     ui.separator();
     true
 }
@@ -397,7 +541,7 @@ fn colour_row(
 /// The `/BaseFont` names this page carries, deduplicated and sorted.
 ///
 /// See [`face_row`] on why this is a superset rather than an oracle.
-fn faces_on_page(doc: &OpenDoc, page: usize) -> Vec<String> {
+pub(crate) fn faces_on_page(doc: &OpenDoc, page: usize) -> Vec<String> {
     // `fontinfo` numbers pages from 1; a run ordinal's page is 0-based.
     let one_based = u32::try_from(page + 1).unwrap_or(u32::MAX);
     let mut names: Vec<String> = doc
@@ -419,7 +563,7 @@ fn faces_on_page(doc: &OpenDoc, page: usize) -> Vec<String> {
 /// the full one keeps the shell from having to know the stripping rule. What
 /// an operator gains from `ABCDEF+ArialMT` being shown as `ArialMT` is the
 /// ability to read the list at all.
-fn shorten(base_font: &str) -> &str {
+pub(crate) fn shorten(base_font: &str) -> &str {
     match base_font.split_once('+') {
         // A subset tag is exactly six uppercase letters (§9.6.4). Anything else
         // before a `+` is part of the name and is kept — `Foo+Bar` is a legal,

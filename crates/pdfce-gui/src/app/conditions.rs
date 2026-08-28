@@ -221,6 +221,46 @@ impl PdfceApp {
             {
                 set.set("selection.text");
             }
+            // ★★★ **The Format tab has a subject** — either kind of
+            // selection, and it is deliberately NOT a synonym for either.
+            //
+            // # Why a third name, when two already exist
+            //
+            // The contextual Format tab appears *"only while something is
+            // selected"* (`RIBBON_IA.md` §5.8), and since 2026-08-27 it holds
+            // two kinds of control: the Selection group, which acts on a page
+            // **object**, and the Font group, which acts on a swept **text
+            // range**. Those are the two conditions immediately above, and
+            // they are different index spaces — `selection.any` is a
+            // paint-order index, `selection.text` is a run range — so neither
+            // one of them is the tab's condition. Spelling the tab as
+            // `selection.any` means sweeping text in Edit restyles nothing
+            // because the tab carrying the controls never appeared; spelling
+            // it as `selection.text` loses the Delete the tab has carried
+            // since it shipped.
+            //
+            // ★ The expression language is deliberately one condition name
+            // with an optional leading `!` (`egui_shell::commands::Enable`'s
+            // own docs: *"a grammar in a string is a parser and a parser is a
+            // thing that has its own bugs"*), so an `A || B` predicate is
+            // published as a **named fact** rather than assembled in a
+            // manifest. That is the right shape anyway: what the tab is asking
+            // is not *"is A or B true"* but *"is there anything for me to be
+            // about"*, and this is that question's name.
+            //
+            // # It is a union, not a refinement, and the two can BOTH hold
+            //
+            // `selection.text`'s own note above says the object and text
+            // selections are *"mutually exclusive by construction"*, and that
+            // sentence was written before the text tool could be armed in Edit
+            // — `canvas::textsel::takes_the_press` now answers true for an
+            // armed text tool in **any** mode, so an operator who clicks an
+            // object and then presses T and sweeps has both. This condition is
+            // correct either way, which is the point of publishing the
+            // question rather than the operands.
+            if !doc.selection.is_empty() || set.is_set("selection.text") {
+                set.set("selection.formattable");
+            }
             // ★ `selection.bounds` is NOT `selection.any`, and the gap
             // between them is a real state rather than a defensive check.
             //
@@ -336,6 +376,48 @@ impl PdfceApp {
             }
         }
 
+        // ★★★ **This mode may change page content**, and it is the only
+        // condition here that describes the MODE rather than the document, the
+        // view, a gesture or an armed tool.
+        //
+        // # What it is for, and why it is visibility rather than enablement
+        //
+        // The Format tab's **Font** group restyles a swept text range, which
+        // is an edit to page content. Read and Review cannot make one — the
+        // mode taxonomy says so, `Capabilities::edit_content` is where it says
+        // it, and `canvas::gesture::press_kind` already enforces it on the
+        // canvas. R9 then decides how the ribbon must show that: *an
+        // unavailable **capability** renders nothing; greying is reserved for
+        // temporarily unavailable and is always explained on hover.* A mode
+        // that cannot edit content has not temporarily mislaid the ability —
+        // it does not have it — so the group is **absent** there, which is a
+        // `visible_when` on each of its items and not an `enabled_when`.
+        //
+        // The greying is the other half and it is a different question:
+        // `selection.text` greys those same controls inside Edit when there is
+        // no swept range, with a tooltip that says how to get one. Two
+        // conditions, two rules, one group — and it is the second of them that
+        // makes the text tool discoverable at all, because a greyed control an
+        // operator can hover is a control that can explain itself.
+        //
+        // # ★ Outside the `Status::Open` arm, with the armed-tool conditions
+        //
+        // For the reason stated below them: a mode is a property of the
+        // application and survives closing a document. It is safe here because
+        // the tab carrying the group is itself gated on
+        // `selection.formattable`, which cannot hold with nothing open — so
+        // publishing this with no document cannot draw anything.
+        //
+        // # Why it asks the ribbon rather than `self.modes`
+        //
+        // Because [`Self::capabilities`] does, and it says why: the ribbon is
+        // where the operator's click lands and `self.modes` catches up later
+        // in the same frame. A second derivation here would put the Font
+        // group one frame behind the mode selector on exactly the frame a
+        // stray click is most likely.
+        if self.capabilities().edit_content {
+            set.set("mode.edit_content");
+        }
         // ★ **The two toggles whose state lives in `egui::Memory`.**
         //
         // These were the last controls in the ribbon with no pressed state,
@@ -764,6 +846,190 @@ mod tests {
             assert!(
                 !live(&app, &ctx, id),
                 "`{id}` must not offer to mark boxes recorded against an older revision"
+            );
+        }
+    }
+
+    /// ★★★ **`selection.formattable` is the UNION, and the two halves are
+    /// asserted separately because each on its own is a shipped defect.**
+    ///
+    /// It is the contextual Format tab's `visible_when`, and the tab now
+    /// carries controls for two unrelated kinds of selection:
+    ///
+    /// * spelled `selection.any` — the object selection — a text sweep would
+    ///   raise **no tab**, so the Font group could not be reached at all and
+    ///   `format_text` would be a capability with no surface. That is what
+    ///   shipped between the panel landing and this condition existing;
+    /// * spelled `selection.text`, the tab would vanish on an ordinary object
+    ///   selection, taking the Delete it has carried since it shipped with it.
+    ///
+    /// So the assertion is a truth table rather than a pair of positives, and
+    /// the **fourth row** — both at once — is the one that could not happen
+    /// when `selection.text`'s own note was written (*"the two are mutually
+    /// exclusive by construction"*) and can now: `takes_the_press` answers true
+    /// for an armed text tool in **any** mode, so an operator who clicks an
+    /// object and then presses `T` and sweeps has both.
+    #[test]
+    fn the_formattable_condition_is_the_union_of_the_two_selections() {
+        use crate::app::tests::{opened, select_object};
+        use crate::canvas::textsel::TextSelection;
+        use pdfce_core::annot_author::Quad;
+        use pdfce_core::page_tree::Rect as PageRect;
+
+        let ctx = egui::Context::default();
+        let mut app = opened();
+
+        assert!(
+            !app.conditions(&ctx).is_set("selection.formattable"),
+            "nothing is selected, so the Format tab has no subject and must not appear"
+        );
+
+        // 1. An object, and no sweep.
+        select_object(&mut app, 0, false);
+        assert!(app.conditions(&ctx).is_set("selection.any"));
+        assert!(!app.conditions(&ctx).is_set("selection.text"));
+        assert!(
+            app.conditions(&ctx).is_set("selection.formattable"),
+            "an object selection is a subject — this is the Delete the tab has always had"
+        );
+
+        // 2. …and a sweep on top of it: BOTH, which used to be unrepresentable.
+        let epoch = {
+            let Status::Open(doc) = &mut app.status else {
+                unreachable!("`opened` opens a document")
+            };
+            let epoch = doc.edit_epoch;
+            doc.text_selection = Some(TextSelection::for_test(
+                0,
+                epoch,
+                vec![Quad::from_rect(PageRect::from_corners(
+                    72.0, 700.0, 300.0, 710.0,
+                ))],
+            ));
+            epoch
+        };
+        assert!(app.conditions(&ctx).is_set("selection.any"));
+        assert!(app.conditions(&ctx).is_set("selection.text"));
+        assert!(app.conditions(&ctx).is_set("selection.formattable"));
+
+        // 3. A sweep alone — the state the Font group exists for, and the one
+        //    a `selection.any` spelling would have shown no tab for.
+        {
+            let Status::Open(doc) = &mut app.status else {
+                unreachable!()
+            };
+            doc.selection.clear();
+        }
+        assert!(!app.conditions(&ctx).is_set("selection.any"));
+        assert!(app.conditions(&ctx).is_set("selection.text"));
+        assert!(
+            app.conditions(&ctx).is_set("selection.formattable"),
+            "a swept range is a subject: it is what the Font group acts on"
+        );
+
+        // 4. …and a STALE sweep is not. `selection.text` refuses a selection
+        //    recorded against an older revision, and the union must not
+        //    resurrect it — a tab appearing over boxes that may now sit on
+        //    different glyphs is worse than no tab.
+        {
+            let Status::Open(doc) = &mut app.status else {
+                unreachable!()
+            };
+            doc.edit_epoch = epoch.wrapping_add(1);
+        }
+        assert!(!app.conditions(&ctx).is_set("selection.text"));
+        assert!(
+            !app.conditions(&ctx).is_set("selection.formattable"),
+            "a stale sweep is not an operand, so it is not a subject either"
+        );
+    }
+
+    /// ★★★ **The Font group's five commands are drawn in Edit and ABSENT in
+    /// Read and Review**, which is R9 split across two conditions.
+    ///
+    /// `mode.edit_content` is **visibility** — a mode that cannot change page
+    /// content does not have a mislaid ability to restyle text, it does not
+    /// have the ability, so the controls render nothing. `selection.text` is
+    /// **enablement** — inside Edit the capability is present and only the
+    /// operand is missing, which greys and explains itself on hover.
+    ///
+    /// # ★★ Why both are needed, stated as the two one-condition builds
+    ///
+    /// With only `selection.text`, sweeping text in **Read** — which Read does
+    /// with the plain select tool, because copying is not authoring — would
+    /// draw an enabled Bold that the mode gate must then refuse. With only
+    /// `mode.edit_content`, Edit would draw an enabled Bold with nothing
+    /// swept: a control that does nothing on almost every press, which is the
+    /// placeholder shape P3 forbids.
+    ///
+    /// ★ Asserted through `Capabilities::for_mode` and the shipped manifest,
+    /// not through a hand-made `Capabilities` value, so a mode taxonomy edit
+    /// that gave Read `edit_content` fails here as well as wherever else it is
+    /// wrong.
+    #[test]
+    fn the_font_groups_visibility_follows_the_mode_and_its_enablement_the_sweep() {
+        use crate::app::tests::opened;
+        use crate::canvas::textsel::TextSelection;
+        use pdfce_core::annot_author::Quad;
+        use pdfce_core::page_tree::Rect as PageRect;
+
+        let ctx = egui::Context::default();
+        let mut app = opened();
+        let mut reg = egui_shell::CommandRegistry::new();
+        crate::shell::commands::register(&mut reg);
+        // ui-text-exempt: registered command ids, never displayed.
+        let ids = [
+            "format.font",
+            "format.font_size",
+            "format.bold",
+            "format.italic",
+            "format.font_colour",
+        ];
+
+        // Read: the whole group is invisible, whatever is selected.
+        app.ribbon.set_mode("read");
+        assert!(
+            !app.conditions(&ctx).is_set("mode.edit_content"),
+            "Read cannot change page content, so the Font group is not drawn there"
+        );
+
+        app.ribbon.set_mode("edit");
+        assert!(app.conditions(&ctx).is_set("mode.edit_content"));
+
+        // …and inside Edit, with nothing swept, every one of the five is
+        // GREYED rather than absent. That state is the discoverability
+        // surface: the operator has clicked a piece of text, the Format tab is
+        // up, and hovering a greyed Bold is what tells them to sweep.
+        for id in ids {
+            let command = reg.get(id).expect("registered");
+            assert!(
+                !command.is_enabled(&app.conditions(&ctx)),
+                "`{id}` must be greyed with nothing swept — it has no operand"
+            );
+            assert!(
+                command.tooltip.is_some(),
+                "`{id}` is greyed for most of its life, and R9 permits that only when it \
+                 explains itself on hover"
+            );
+        }
+
+        let Status::Open(doc) = &mut app.status else {
+            unreachable!("`opened` opens a document")
+        };
+        let epoch = doc.edit_epoch;
+        doc.text_selection = Some(TextSelection::for_test(
+            0,
+            epoch,
+            vec![Quad::from_rect(PageRect::from_corners(
+                72.0, 700.0, 300.0, 710.0,
+            ))],
+        ));
+        for id in ids {
+            assert!(
+                reg.get(id)
+                    .expect("registered")
+                    .is_enabled(&app.conditions(&ctx)),
+                "`{id}` acts on the swept range there now is"
             );
         }
     }

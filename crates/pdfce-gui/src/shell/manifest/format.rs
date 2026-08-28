@@ -107,35 +107,155 @@
 
 use super::{command, group};
 use crate::text::ribbon;
-use egui_shell::manifest::Tab;
+use egui_shell::manifest::{Item, Tab};
 
 /// The condition, published by the application each frame, under which the
 /// Format tab appears.
 ///
-/// Named rather than inlined because the same string is the enable
-/// predicate of the command inside it: a tab that appears when something
-/// is selected, holding a command that is available when something is
-/// selected. Two spellings of one condition would be a defect that only
-/// shows up as a tab containing one greyed control.
-pub(super) const VISIBLE_WHEN: &str = "selection.any";
+/// # ★★★ It became its own condition on 2026-08-27, and the change is the
+/// whole reason the Font group works
+///
+/// It used to be `"selection.any"` — the **object** selection — and the note
+/// here argued for that spelling on the grounds that the tab and the one
+/// command inside it must ask the same question, so that a Format tab could
+/// never appear holding a single greyed control.
+///
+/// That argument was sound for a tab with one group. It stops being sound the
+/// moment the tab carries controls for a **second kind of selection**, and it
+/// does now: the Selection group acts on a page object, addressed by
+/// paint-order index, and the Font group acts on a swept text range, addressed
+/// by run. Those are unrelated index spaces (`panels::properties::text`'s
+/// header argues why nothing maps between them), and neither one of them is
+/// the tab's question.
+///
+/// The tab's question is *"is there anything for me to be about?"*, and
+/// `selection.formattable` is that question's name. `app::conditions`
+/// publishes it as the union, so:
+///
+/// | state | tab | Selection group | Font group |
+/// |---|---|---|---|
+/// | nothing selected | absent | — | — |
+/// | an object selected | **shown** | enabled | greyed, and explains itself |
+/// | text swept | **shown** | greyed | enabled |
+/// | both | shown | enabled | enabled |
+///
+/// ★ The old note's fear — a tab that appears holding a greyed control — is
+/// therefore now the *designed* middle two rows rather than a defect, and R9
+/// is what makes that legitimate: the capability is present and the **operand**
+/// is missing, which is the textbook temporarily-unavailable case, greyed and
+/// explained on hover. It is also, deliberately, the surface that answers
+/// O37's admission that nothing on screen tells an operator to press `T`
+/// before sweeping — see the Font group below.
+///
+/// Not spelled `crate::shell::manifest::SELECTION_ANY`: that constant is the
+/// object-selection condition and has two other readers (the canvas context
+/// menu among them). It used to be an alias for this one, and de-aliasing them
+/// was the first step of this change, because editing this string in place
+/// would have silently retargeted a Delete in a menu that has nothing to do
+/// with this tab.
+pub(super) const VISIBLE_WHEN: &str = "selection.formattable"; // ui-text-exempt: a condition name, never displayed
+
+/// The condition under which a mode may change page content, and therefore
+/// under which the Font group is drawn at all.
+///
+/// ★★ **Visibility, not enablement**, and R9 is the whole of the reasoning:
+/// *an unavailable capability renders nothing; greying is reserved for
+/// temporarily unavailable and is always explained on hover.* Read and Review
+/// do not have a mislaid ability to restyle text — they do not have the
+/// ability — so the group is **absent** there. Inside Edit the same controls
+/// grey on `selection.text`, because there the capability is present and only
+/// the operand is missing.
+///
+/// One condition would not do both jobs. `selection.text` alone would draw an
+/// enabled Bold in Read, where pressing it must be refused; `mode.edit_content`
+/// alone would draw an enabled Bold in Edit with nothing swept, which is a
+/// control that does nothing on almost every press — the exact placeholder
+/// shape P3 forbids.
+const FONT_VISIBLE_WHEN: &str = "mode.edit_content"; // ui-text-exempt: a condition name, never displayed
 
 /// The Format tab.
 pub(super) fn tab() -> Tab {
     Tab::new("format", ribbon::tab_format())
         .with_question(ribbon::question_format())
         .with_visible_when(VISIBLE_WHEN)
-        .with_groups([group(
-            "selection",
-            ribbon::group_format_selection(),
-            [
-                command("format.properties"),
-                // ★ Between Properties and Delete deliberately. §5.8's menu
-                // rule is least-destructive-first, and the same reading orders
-                // a group: describe, then re-aim, then destroy. It is also the
-                // order of increasing commitment, so the eye meets Delete last
-                // in both surfaces that carry it.
-                command("format.select_form"),
-                command("format.delete"),
-            ],
-        )])
+        .with_groups([
+            // ---------------------------------------------------------------
+            // Font — §5.8's "Text run" row, built 2026-08-27 for O37.
+            //
+            // ★★★ FIRST, ahead of Selection, and the order is the operator's
+            // rather than this file's. §5.8's own table lists a text run's
+            // groups as *Font · Size · Colour · Spacing · Alignment · Delete*,
+            // with Delete last, and every other row in that table ends the
+            // same way. Reading left to right therefore goes "change how this
+            // looks", then "describe it", then "destroy it" — increasing
+            // commitment, which is the ordering rule the Selection group's own
+            // comment below already follows internally.
+            //
+            // It is also where Word puts it. Home ▸ Font is the leftmost
+            // group of the tab an operator lives on, and this tab is the
+            // nearest thing this product has to Home.
+            //
+            // # ★★ What is in it is exactly what the PANEL has, and no more
+            //
+            // §5.8 sets the build order — *"panel first, tab second … the
+            // tab's contents are a **subset** of it"* — and that word decides
+            // two arguments that would otherwise be matters of taste:
+            //
+            // * **Bold and Italic are in**, though §5.8's table does not name
+            //   them, because the panel has them and because they are what O37
+            //   actually asked for: *"all the font tools available that Word
+            //   does."* They are a *subset* of the panel, which is the test.
+            // * **Grow and Shrink are out**, though Word has them. They exist
+            //   in no panel section, so putting them here would make the tab a
+            //   superset — and §5.8's reason for the build order is that
+            //   building the tab first means writing the editors twice. A
+            //   control that exists only on the tab has done exactly that.
+            //
+            // Spacing and Alignment stay in `manifest::PLANNED`, for a reason
+            // that is not about order: `EditSession` has no verb for either.
+            //
+            // # ★ Every item carries `visible_when`, and the SEPARATOR does not
+            //
+            // `egui_shell::manifest::Item::Separator` cannot carry a condition
+            // — deliberately, and its own docs say why: a divider's visibility
+            // is a fact about its **neighbours**, and a separator with an
+            // independently-set condition is a contradiction that renders. Here
+            // that costs nothing, because all five items share one condition:
+            // either the whole group is drawn or none of it is, and a group
+            // with nothing left is not drawn at all (`egui-shell`'s
+            // `a_group_with_nothing_left_is_not_drawn`). The separator can
+            // never be the only thing standing.
+            // ---------------------------------------------------------------
+            group(
+                "font",
+                ribbon::group_format_font(),
+                [
+                    Item::custom(super::FONT_FACE).shown_when(FONT_VISIBLE_WHEN),
+                    Item::custom(super::FONT_SIZE).shown_when(FONT_VISIBLE_WHEN),
+                    // ★ The rule separates *which typeface* from *how it is
+                    // set*, which is the seam Word draws in the same place: a
+                    // face and a size are what the text IS, and bold, italic
+                    // and colour are what is done to it. An operator scanning
+                    // the group meets two clusters rather than five controls.
+                    Item::Separator,
+                    command("format.bold").shown_when(FONT_VISIBLE_WHEN),
+                    command("format.italic").shown_when(FONT_VISIBLE_WHEN),
+                    Item::custom(super::FONT_COLOUR).shown_when(FONT_VISIBLE_WHEN),
+                ],
+            ),
+            group(
+                "selection",
+                ribbon::group_format_selection(),
+                [
+                    command("format.properties"),
+                    // ★ Between Properties and Delete deliberately. §5.8's menu
+                    // rule is least-destructive-first, and the same reading orders
+                    // a group: describe, then re-aim, then destroy. It is also the
+                    // order of increasing commitment, so the eye meets Delete last
+                    // in both surfaces that carry it.
+                    command("format.select_form"),
+                    command("format.delete"),
+                ],
+            ),
+        ])
 }

@@ -4,8 +4,8 @@
 //! captions, and the three mode labels. Everything a person reads on the
 //! ribbon that is **not** a command; command labels and tooltips live in
 //! [`crate::text::commands`], which is a much longer file for a reason
-//! that is worth stating: there are eight tabs and thirty-two groups, and
-//! there are eighty-odd commands. Splitting the catalog along that seam
+//! that is worth stating: there are eight tabs and thirty-three groups, and
+//! there are a hundred and twenty commands. Splitting the catalog along that seam
 //! keeps both halves navigable and both files inside the project's
 //! 1,500-line ceiling.
 //!
@@ -466,14 +466,41 @@ pub fn group_tools_diagnostics() -> &'static str {
 // GROUP CAPTIONS — Format (contextual)
 // ---------------------------------------------------------------------------
 
+/// Format ▸ Font.
+///
+/// ★★ **"Font", not "Text" and not "Type"**, and the choice is the operator's
+/// rather than this file's. Word calls this group *Font*; so does every office
+/// suite that copied Word, which is all of them. `RIBBON_IA.md` §5.8 lists the
+/// controls individually — *Font · Size · Colour · Spacing · Alignment* —
+/// without naming the band they sit in, so the name is ours to pick, and the
+/// convention of the product class is the specification wherever the
+/// specification is silent.
+///
+/// ★ It is deliberately **not** disambiguated to something like *"Text style"*
+/// on the grounds that the first control inside it is also called Font. Word
+/// has exactly that repetition, has had it since 2007, and nobody has ever
+/// been confused by it: the caption names the subject and the control names
+/// the property.
+#[must_use]
+pub fn group_format_font() -> &'static str {
+    "Font"
+}
+
 /// Format ▸ Selection.
 ///
 /// `RIBBON_IA.md` §5.8 varies the Format tab's groups by *selection type* —
 /// a markup gets Colour/Fill/Line width/…, a dimension gets
-/// Group/Scale/Precision/…. None of those property editors exist yet
-/// (§5.8: "build order: panel first, tab second"), so the tab ships with
-/// the one band whose content is real: what can be done to any selection,
-/// whatever it is.
+/// Group/Scale/Precision/…. Most of those property editors still do not exist
+/// (§5.8: "build order: panel first, tab second"), and the ones that never
+/// will until `EditSession` grows a verb are named in `manifest::PLANNED`. So
+/// this band carries what can be done to any selection, whatever it is.
+///
+/// ★ It stopped being the tab's **only** band on 2026-08-27, when the text
+/// run's row of §5.8's table shipped as [`group_format_font`]. That is worth
+/// noting here rather than only there, because this caption's own doc comment
+/// used to assert *"the tab ships with the one band whose content is real"* —
+/// a sentence that was true, that nothing would have failed if it had been
+/// left, and that a reader would have believed.
 #[must_use]
 pub fn group_format_selection() -> &'static str {
     "Selection"

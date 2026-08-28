@@ -393,3 +393,92 @@ fn a_large_control_in_a_popup_is_tall_enough_to_click() {
         drawn
     );
 }
+
+/// ★★★ **A custom item obeys `visible_when` exactly as a command does** —
+/// added 2026-08-27, with the field.
+///
+/// # Why this is asserted through the RENDERER rather than through a rect
+///
+/// A [`Item::Custom`] publishes no `ribbon.item.<id>` region: the shell does
+/// not draw it and has no id to name it by. So *"was it drawn?"* cannot be
+/// read out of the reported rects the way the command tests above read it, and
+/// the honest observation is whether the application's renderer was **called**.
+/// A count is that observation, and it is stronger than a rect would be: it
+/// distinguishes *"the shell skipped the item"* from *"the shell called the
+/// renderer and the renderer chose to draw nothing"*, which is exactly the
+/// difference the new field exists to remove.
+///
+/// # And the group narrows, which is the half that is easy to leave out
+///
+/// `super::sizing::visible` runs **before measurement**, so a hidden custom
+/// item must give back `plan::CUSTOM_ITEM_WIDTH` rather than leaving a hole
+/// the band has already budgeted for. Drawing nothing into a reserved slot is
+/// precisely what pdfce would have had to do without this field, and the gap
+/// it leaves is why the field was added instead.
+#[test]
+fn a_hidden_custom_item_is_never_offered_to_the_renderer_and_gives_its_width_back() {
+    let mut on = ConditionSet::new();
+    on.set("mode.editing");
+    let off = ConditionSet::new();
+
+    let render_counting = |conditions: &ConditionSet| -> (usize, Rect) {
+        let ctx = context();
+        let shell = shell([
+            Item::command("a.one"),
+            Item::custom("swatch").shown_when("mode.editing"),
+        ]);
+        let registry = registry();
+        let mut state = crate::ribbon::RibbonState::new();
+        state.set_active_tab("t");
+        let mut calls = 0usize;
+        let mut rects: Vec<(String, Rect)> = Vec::new();
+        // Two frames, for the reason `render_with_icons` runs twice.
+        for _ in 0..2 {
+            calls = 0;
+            rects.clear();
+            let mut sink = |name: &str, rect: Rect| rects.push((name.to_owned(), rect));
+            // ★ The renderer ALLOCATES. A renderer that drew nothing would
+            // leave both groups the same width and the width half of this
+            // test would pass against an implementation that never filtered
+            // anything — which is what the first draft of it did.
+            let mut custom = |ui: &mut egui::Ui, _: &crate::ribbon::CustomItem<'_>| {
+                calls += 1;
+                ui.allocate_space(egui::Vec2::new(60.0, 20.0));
+                None
+            };
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(1400.0, 400.0),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let _ = crate::ribbon::Ribbon::new()
+                    .with_conditions(conditions)
+                    .with_custom_items(&mut custom)
+                    .reporting_rects_to(&mut sink)
+                    .render(ui, &shell, &registry, &mut state);
+            });
+        }
+        (calls, group_rect(&rects).expect("the group drew"))
+    };
+
+    let (shown_calls, wide) = render_counting(&on);
+    let (hidden_calls, narrow) = render_counting(&off);
+
+    assert_eq!(
+        shown_calls, 1,
+        "while its condition holds the renderer must be offered the item exactly once"
+    );
+    assert_eq!(
+        hidden_calls, 0,
+        "when the condition does not hold the renderer must never be asked to draw"
+    );
+    assert!(
+        narrow.width() < wide.width(),
+        "the group must give the hidden custom item's budgeted width back: {} vs {}",
+        narrow.width(),
+        wide.width()
+    );
+}

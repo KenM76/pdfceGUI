@@ -243,6 +243,13 @@ pub mod dropped_file;
 /// about yesterday's tools and silent about today's.
 pub mod first_frame;
 pub mod fit_places_the_view;
+/// ★★★ **The ribbon route to a restyle, and the sentence that tells an operator
+/// how to reach it.** `restyle_text` below drives the PANEL; this drives the
+/// Format tab's Font group, and it drives the half of O37 that is not a
+/// capability — the two surfaces that answer *"nothing on screen tells you to
+/// press T"*, observed in the state before anything is swept, because that is
+/// the state an operator is in when they need them.
+pub mod font_group;
 /// ★★ **Redaction** — the one operation in this program that cannot be undone,
 /// and the only check in the suite whose verdict is a **byte scan of a file on
 /// disk** rather than a trace field or a pixel. The application's own absence
@@ -760,6 +767,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(shift_constrains::ShiftConstrainsAResize),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(restyle_text::RestylingSelectedTextReachesTheDocument),
+        Box::new(font_group::TheFormatTabOffersFontControlsForSweptText),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
         Box::new(tool_row::TheTextToolTypesOnOneClick),

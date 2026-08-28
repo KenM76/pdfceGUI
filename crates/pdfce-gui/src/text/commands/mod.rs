@@ -954,6 +954,111 @@ pub const fn format_properties() -> CommandText {
     )
 }
 
+// ---------------------------------------------------------------------------
+// The Font group — `RIBBON_IA.md` §5.8's "Text run" row, built 2026-08-27
+//
+// ★★★ **Every tooltip below has to read correctly in TWO states**, and that
+// is the constraint that shaped all five of them.
+//
+// `egui_shell::ribbon::control::render_command` shows a command's tooltip with
+// `on_hover_text` when the control is enabled and `on_disabled_hover_text`
+// when it is not — the **same string**. These five are enabled only while a
+// text range is swept (`selection.text`), which is *not* the state an operator
+// is in when they go looking for them: they have clicked a piece of text with
+// the Select tool, the Format tab has appeared, and the Font controls are
+// greyed.
+//
+// So each tooltip says what the control does **and how to give it something to
+// act on**. That second clause is not padding — it is the answer to O37's own
+// admission that *"you must press T first and nothing on screen says so"*, and
+// a greyed control an operator can hover is the one surface in this
+// application that can say it at the moment the question is asked.
+//
+// ★ It is a **statement**, not a tip. `crate::text::tool`'s rule 2 —
+// *"every sentence states a fact about the program, never a tip"* — is why
+// these read "Sweeping text with the Text tool chooses what this applies to"
+// rather than "Try sweeping some text!".
+// ---------------------------------------------------------------------------
+
+/// `format.font`
+///
+/// ★ Drawn by an `Item::Custom`, not by this command's button, because a face
+/// chooser has to ask *which* of the page's fonts and a button cannot. The
+/// label and tooltip are still registered here and still used: the shell reads
+/// them for the a11y name and for `shell::commands::reach`'s reachability
+/// check, and the custom renderer draws the label beside its combo.
+#[must_use]
+pub const fn format_font() -> CommandText {
+    CommandText::new(
+        "Font",
+        "Set the selected text in another of the fonts this page already carries. Sweeping \
+         text with the Text tool (T) chooses what it applies to.",
+    )
+}
+
+/// `format.font_size`
+#[must_use]
+pub const fn format_font_size() -> CommandText {
+    CommandText::new(
+        "Size",
+        "Set the size of the selected text, in points. Sweeping text with the Text tool (T) \
+         chooses what it applies to.",
+    )
+}
+
+/// `format.bold`
+///
+/// ★★ The tooltip names the **fallback**, exactly as the Properties panel's
+/// does, because the fallback is what an operator would otherwise meet as a
+/// surprise: a page carrying a real bold cut gets the real face, and one that
+/// does not gets thickened letters and a sentence in the status bar saying so.
+/// Rule 4 — the thickened text renders exactly as the saved file will render
+/// it, and the disclosure is off-canvas.
+#[must_use]
+pub const fn format_bold() -> CommandText {
+    CommandText::new(
+        "Bold",
+        "Set the selected text in bold — the page's real bold face where it has one, and \
+         thickened letters with a note in the status bar where it does not. Sweeping \
+         text with the Text tool (T) chooses what it applies to.",
+    )
+}
+
+/// `format.italic`
+#[must_use]
+pub const fn format_italic() -> CommandText {
+    CommandText::new(
+        "Italic",
+        "Slant the selected text — the page's real italic face where it has one, and \
+         slanted letters with a note in the status bar where it does not. Sweeping text \
+         with the Text tool (T) chooses what it applies to.",
+    )
+}
+
+/// `format.font_colour`
+///
+/// ★ `format.colour` was already taken, by the markup property editor in the
+/// same tab's future, and the two are genuinely different subjects — one is an
+/// annotation's ink, the other is a page-content fill. Word calls this one
+/// *Font Color*, which settles the name in the operator's own vocabulary
+/// rather than by disambiguation.
+///
+/// ★★ The tooltip states the **refusal** as well as the act, because the
+/// refusal is common on exactly the documents this program is for: a run
+/// painted in DeviceCMYK or a spot colour has no faithful sRGB, so the swatch
+/// is replaced by a sentence rather than showing a nearest-match that the next
+/// press would write back — converting a drawing's ink on its way to a printer
+/// that cares.
+#[must_use]
+pub const fn format_font_colour() -> CommandText {
+    CommandText::new(
+        "Colour",
+        "Set the colour of the selected text. Text painted in CMYK or a spot colour is left \
+         alone, so a drawing's ink is not converted to screen colour behind your back. \
+         Sweeping text with the Text tool (T) chooses what it applies to.",
+    )
+}
+
 // ===========================================================================
 // MODES
 //
