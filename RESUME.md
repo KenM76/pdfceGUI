@@ -17,7 +17,36 @@ at a section of it.
 
 ---
 
-## ★★★ Last session: 2026-08-27 afternoon — the font tools
+## ★★★ Last session: 2026-08-27 EVENING — the Font group, and form fields became editable
+
+**Read `CONTINUE.md` first.** Two features shipped and both were driven and
+falsified: the Format tab's **Font group** (with the three surfaces that finally
+tell an operator to press `T`), and **editing a placed form field's
+properties** — required, read-only, tooltip, and the type-specific flags.
+
+**What to do next:** the **widget half** — a box's `/Rect`, border, visibility
+and caption, through `edit_widget`. Shell work only; the engine verb and a
+96-line pane design brief both already exist. Three status strings are written
+and have no caller yet, waiting for it.
+
+**★★★ The finding, and it cost him a day.** The Properties pane was telling him
+to *delete his field and place a new one* to change a flag. `edit_field` had
+shipped the same day the sentence was written, three commits before the pin,
+with a design brief in the request channel that nothing read. ⇒ **An absence
+claim about a crate you do not build has a shelf life.** It was true when
+written and false within hours. What catches that is reading the replies.
+
+**★★ Four more stale claims found the same evening**, three of them in our own
+files: `edit.form_flatten` "unbuilt" (it was a citation of a citation), the
+command count out by nineteen, the group count disagreeing with itself across
+five prose sites, and our own retracted claim about synthesised spaces — which
+`pdfce-core` refuted by measuring 256 fixtures. See `CONTINUE.md`; the last one
+leaves a shipped function whose stated justification is void, and **do not
+replace it with a second guess.**
+
+---
+
+## Last session but one: 2026-08-27 afternoon — the font tools
 
 **Read `CONTINUE.md` first.** In one paragraph: `EditSession::format_text` was
 consumed, so **existing text can be restyled** — font, size, Bold, Italic,

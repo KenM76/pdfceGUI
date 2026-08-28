@@ -1,5 +1,109 @@
 # CONTINUE — handoff
 
+## 2026-08-27 (evening) — the Font group, and form fields became editable
+
+**Clean tree. 18/18 gates. 1,838 + 421 + 144 tests, 0 failing. 84 driven checks.
+Re-measure before quoting.** Engine `703a38e`.
+
+### ★★★ WHAT TO DO FIRST: the WIDGET half of form-field editing
+
+`edit_field` is consumed. `edit_widget` is not, and it is the next piece:
+a box's **`/Rect`** (move and resize), its **border**, its **visibility**, its
+**caption**. The engine verb has existed since `Pass 134.0` with a
+`move-widget` CLI subcommand since `Pass 7.1`, so it is shell work only.
+
+**Read `done_2026-08-26-field-property-edit-CONSUMED.md` in the request channel
+before starting.** It is a 96-line pane design brief and it already answers the
+three questions the work will raise:
+
+1. `edit_widget` compares the **extent, not the corners**. A pure translation
+   keeps baked artwork exact and free; a changed extent makes §12.5.5's
+   algorithm *scale* the appearance, so the verb rebuilds. `resized` says which
+   happened.
+2. `appearance_stale` is non-empty when a resize could not rebuild — a push
+   button's baked caption, a signature — and the widget then renders
+   **distorted**. `crate::text::forms::field_appearance_stale` is already
+   written for it and has **no caller yet**.
+3. Cross-page move is not built, and **Acrobat cannot do it either**. A gap
+   against nothing.
+
+★ `field_widget_moved` and `field_siblings_untouched` are also written and
+uncalled, for the same work.
+
+### ★★★ THE FINDING OF THE DAY, and it cost the operator a day
+
+**An absence claim about a crate you do not build has a shelf life.**
+
+The Properties pane shipped on 2026-08-26 telling the operator that required,
+read-only and the tooltip *"can only be set when a field is placed. To change
+one, delete this field and place a new one."* `edit_field` and `edit_widget`
+landed **the same day**, three commits before the revision this shell compiles
+against, and the engine wrote a full design brief into `open/` saying so.
+
+Nothing consumed it. So the program spent a day recommending a **destructive
+workaround** — delete-and-replace loses a field's name, its value and its tab
+position — for a capability it already had.
+
+★ This is not the "grep harder" lesson. The claim was **true when written**.
+What catches it is *reading the replies*, and the reply was sitting unread.
+
+### ★★ Three more stale claims found the same evening, all in our own files
+
+| where | what it said | truth |
+|---|---|---|
+| `reach/register.rs` | `edit.form_flatten` is *"unbuilt … irreversible"* | the panel had called `flatten_fields` for weeks; it is one `Ctrl+Z` |
+| `shell/commands/mod.rs` | the registry holds **101** commands | 115, now 120 — out by nineteen |
+| five prose sites | the ribbon has *"thirty-one groups"* (four sites) / *"thirty-two"* (one) | the test pinned 32; now 33 |
+
+★ The `form_flatten` entry was a **citation of a citation** — its reason cited a
+`FEATURES.md` row that was itself stale. Fifth stale blocker; the fourth was its
+neighbour a day earlier. The staleness test asks whether an id has an **arm**,
+so an entry with no arm and a nonsense reason passes. The rule is now written on
+the assertion: **when you touch that list, re-derive the reason of the entry
+beside the one you came for.**
+
+### ★★ And one retraction of our own, measured by the engine
+
+We wrote, in three places, that `TextRun::text` *"synthesises a space wherever
+a `TJ` offset exceeds the word-gap threshold"*. `pdfce-core` measured 256
+fixtures: **zero** glyph runs contain one. `layout` closes the run and emits the
+derived space as its own glyph-less `TextRun`. The real offender is `/ToUnicode`
+mapping one glyph to several characters.
+
+★★ **So `Reading::find` works and its stated justification is void.** Three
+things could be true and this project cannot tell which; all three are written
+on the field. The engine owes the question that settles it. **Do not replace the
+retracted mechanism with a second guess.**
+
+### What else landed
+
+* **Format ▸ Font** — face, size, Bold, Italic, colour, with `mode.edit_content`
+  for visibility and `selection.text` for enablement. The greyed state IS the
+  discoverability fix: hovering a greyed Bold is what tells an operator to
+  press `T`. `egui-shell`'s `Item::Custom` gained a `visible_when` for it.
+* **A screenshot found what the trace could not** — the greyed size field read
+  `1.0 pt`, a false claim about the operator's document, because `DragValue`'s
+  range clamped a zeroed draft. Both greyed controls show an em dash now.
+* **`ui_rect_visible` deletes a section rect** whenever the section is taller
+  than its dock slot (it needs 60 % inside the clip). Right for a control a
+  check clicks; wrong for a section. Filed to `D:/dev/rag/egui/`.
+
+### How to drive today's two checks
+
+```bash
+ui-verify --check the_format_tab_offers_font_controls_for_swept_text           --check form_field           --exe target/scratch/drive/pdfce-gui.exe           --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,1140,62
+```
+
+★ **Copy the exe to `target/scratch/drive/` first** — never drive the published
+build; the suite's side effects land in his own saved state.
+
+### Not yet published to OneDrive
+
+Tonight's work is committed and **not packaged**. `FEATURES.md` is re-measured;
+run `package-portable.py` when he wants a build.
+
+---
+
 ## 2026-08-27 (afternoon) — the font tools, and four defects only driving could find
 
 **Clean tree. 18/18 gates. 1,831 + 420 + 144 tests, 0 failing. Re-measure
