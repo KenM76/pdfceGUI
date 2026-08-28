@@ -42,6 +42,68 @@ pub const fn save_dialog_title() -> &'static str {
     "Export form data — type .fdf, .xfdf or .csv"
 }
 
+/// The import dialog's title bar.
+#[must_use]
+pub const fn import_dialog_title() -> &'static str {
+    "Import form data — .fdf, .xfdf or .csv"
+}
+
+/// ★★★ **What an import did, and what it could not find.**
+///
+/// The two numbers are not decoration and the second is the important one: a
+/// data file may legitimately name a **superset** of this document's fields —
+/// that is the ordinary case when one FDF fills a family of related forms — and
+/// `import_form_data` counts those and skips them rather than failing.
+///
+/// So an operator who imports forty values into a thirty-field form gets
+/// thirty filled and ten skipped, and **nothing anywhere else would tell
+/// them**. A sentence saying only "imported" would be true and would hide the
+/// ten fields they thought they were setting.
+///
+/// ★ `skipped` is mentioned only when it is non-zero. The overwhelming case is
+/// a file that matches, and a bar that narrated "0 skipped" would be adding a
+/// number to be ignored.
+#[must_use]
+pub fn imported(applied: usize, skipped: usize) -> String {
+    if skipped == 0 {
+        format!("Imported {applied} field value(s).")
+    } else {
+        format!(
+            "Imported {applied} field value(s). {skipped} name(s) in the file are not fields in \
+             this document and were left alone."
+        )
+    }
+}
+
+/// The file could not be read from disk.
+#[must_use]
+pub fn import_unreadable(detail: &str) -> String {
+    format!("That file could not be read: {detail}")
+}
+
+/// ★★ The bytes were read and are not form data pdfce can parse.
+///
+/// Distinct from [`import_unreadable`], and the distinction is the operator's
+/// next move: an unreadable file is a permissions or a path problem, and an
+/// unparseable one means they picked the wrong file or the format is one pdfce
+/// does not read. The remedies share nothing.
+#[must_use]
+pub fn import_unparseable(detail: &str) -> String {
+    format!("That file is not form data pdfce can read: {detail}")
+}
+
+/// The engine refused the import outright.
+///
+/// ★ Its own sentence rather than folding into [`import_unparseable`], because
+/// this is a refusal about the **document** — no form, a certification that
+/// forbids filling, an encrypted file — rather than about the data file. An
+/// operator told their data file was bad when their document is certified would
+/// go and re-export it, twice.
+#[must_use]
+pub fn import_refused(detail: &str) -> String {
+    format!("pdfce would not import into this document: {detail}")
+}
+
 /// The open document carries no `/AcroForm` at all.
 ///
 /// ★ Distinct from [`no_fields`], and the two are not pedantry: a document with

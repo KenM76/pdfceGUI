@@ -222,6 +222,11 @@ pub(super) fn tab() -> Tab {
                 [
                     command("file.export_dxf"),
                     command("file.export_form_data"),
+                    // ★ Import directly after export, in that order, because
+                    // the pair is a round trip and an operator meets the half
+                    // they will do first. It is also the order of increasing
+                    // consequence: exporting reads, importing writes.
+                    command("file.import_form_data"),
                     command("file.copy_page_text"),
                     command("file.copy_document_text"),
                 ],

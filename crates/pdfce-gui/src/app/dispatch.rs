@@ -821,6 +821,23 @@ impl PdfceApp {
             // how every application on this desktop does it and is one modal
             // window rather than two. See `actions::export::form_data`.
             "file.export_form_data" => actions.push(Action::ExportFormData),
+            // ★ The picker runs HERE, before the action, where the export's runs
+            // inside the apply phase. Both are right for their case: an export
+            // computes the bytes before it can honestly ask where they go, and
+            // an import has nothing to compute until it knows which file.
+            //
+            // `dispatch_command` is not a layout pass — it runs between frames,
+            // from the drained token queue — so a modal here blocks nothing
+            // egui is part-way through.
+            "file.import_form_data" => {
+                if let crate::app::files::Picked::Path(path) =
+                    crate::app::files::pick_form_data_source()
+                {
+                    actions.push(Action::Field(
+                        crate::app::actions::forms::FieldAction::Import { path },
+                    ));
+                }
+            }
             // ★ **The keyboard reference.** Its scaffold entry did not merely
             // say blocked — it carried the design, from `SALVAGE.md`: *"Fix
             // `shortcuts_reference()` — it omits six live bindings

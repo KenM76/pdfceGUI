@@ -236,6 +236,24 @@ pub enum FieldAction {
         /// [`Self::EditProperties`]'s field of the same name.
         touched: &'static str,
     },
+    /// **Set this document's field values from an FDF, XFDF or CSV file.**
+    ///
+    /// # ★ The path is carried, and the picker ran BEFORE the action
+    ///
+    /// The opposite arrangement to `Action::ExportFormData`, which carries
+    /// nothing and opens its picker inside the apply phase. Both are right for
+    /// their case: the export has to compute the bytes before it can honestly
+    /// ask where they go, while the import has nothing to compute until it
+    /// knows which file.
+    ///
+    /// What they share is the reason a picker is not opened from a widget's
+    /// `clicked()` branch — `actions::export`'s header — namely that a native
+    /// modal blocks the thread while egui is part-way through building a frame
+    /// that will not finish until the operator answers.
+    Import {
+        /// The data file the operator chose.
+        path: std::path::PathBuf,
+    },
     /// **Rename the selected field.**
     ///
     /// Reaches `EditSession::rename_field`, which takes the fully-qualified
@@ -383,6 +401,7 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
             edit,
             touched,
         } => edit_widget(doc, &field, widget, &edit, touched),
+        FieldAction::Import { path } => import_data(doc, &path),
         FieldAction::Rename { from, to } => rename(doc, &from, &to),
         FieldAction::DeleteField { field } => delete_field(doc, &field),
         FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
@@ -761,6 +780,133 @@ pub(super) fn edit_widget(
             }
             let _ = touched;
             lines
+        })
+    });
+}
+
+/// **Read an FDF, XFDF or CSV file and set this document's field values from
+/// it.**
+///
+/// `file.import_form_data`, 2026-08-27 — the mirror of
+/// `actions::export::form_data` and the last form verb to be wired.
+///
+/// # ★★★ Why this lives in `forms` and its twin lives in `export`
+///
+/// `actions::export`'s header draws that boundary and it is a real one: *"none
+/// of them changes the document at all. No `vector_edit`, no undo entry, no
+/// epoch bump, no cache invalidation. They read the open file and write a
+/// different one."*
+///
+/// An import is the exact opposite. It reads a different file and **changes the
+/// open document** — thirty fields at once, on a good day — so every rule the
+/// mutation funnel enforces applies, and it goes through `vector_edit` like
+/// every other edit. Putting it beside its twin would have put the one verb in
+/// that module that breaks the module's stated property.
+///
+/// # ★★ One undo entry for the whole file, because the ENGINE makes it one
+///
+/// `import_form_data` is a single `EditSession` command however many fields it
+/// sets. That is not this shell's doing and it is worth knowing, because the
+/// same is emphatically *not* true of the panel's recompute — which writes one
+/// command per field and says so.
+///
+/// ★ It also asks the document-wide gate **once, up front**: a certification
+/// that forbids filling forbids it for every entry, so discovering it on entry
+/// seventeen would be both late and destructive. The engine's own comment says
+/// so, and it is why a refusal here leaves the document untouched rather than
+/// half-imported.
+///
+/// # The three failures are told apart, and they have nothing in common
+///
+/// | | what it means | what the operator does |
+/// |---|---|---|
+/// | unreadable | the path or the permissions | find the file |
+/// | unparseable | the bytes are not form data pdfce reads | pick a different file |
+/// | refused | the **document** will not take an import — no form, certified, encrypted | nothing about the data file will help |
+///
+/// A single "import failed" would send an operator whose document is certified
+/// off to re-export their data, twice.
+pub(super) fn import_data(doc: &mut OpenDoc, path: &std::path::Path) {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!("import-form-data-failed stage=read detail={error}")
+            });
+            super::record_note(
+                doc.edit_epoch,
+                crate::text::export_form::import_unreadable(&error.to_string()),
+            );
+            return;
+        }
+    };
+    // ★ The extension decides the parser, matching the export's rule exactly —
+    // one convention for both halves of the round trip, so a file exported as
+    // `.csv` and imported as `.csv` cannot land in a branch nobody chose. FDF
+    // is the default for the same reason it is on the way out: it is the format
+    // §12.7.8 defines for this data.
+    let extension = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let parsed = match extension.as_str() {
+        // ui-text-exempt: file extensions, matched not displayed.
+        "xfdf" => pdfce_core::fdf::FormData::parse_xfdf(&bytes).map_err(|e| e.to_string()),
+        "csv" => pdfce_core::formcsv::parse_csv(&bytes).map_err(|e| e.to_string()),
+        _ => pdfce_core::fdf::FormData::parse_fdf(&bytes).map_err(|e| e.to_string()),
+    };
+    let data = match parsed {
+        Ok(data) => data,
+        Err(detail) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!("import-form-data-failed stage=parse format={extension} detail={detail}")
+            });
+            super::record_note(
+                doc.edit_epoch,
+                crate::text::export_form::import_unparseable(&detail),
+            );
+            return;
+        }
+    };
+
+    let fields = data.fields.len();
+    super::apply::vector_edit(doc, "import-form-data", 0, 1, move |session| {
+        session.import_form_data(&data).map(|outcome| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    // ★★★ `-applied`, NOT plain `import-form-data`, and the
+                    // suffix is a defect this project has now made TWICE in
+                    // twenty-four hours.
+                    //
+                    // `vector_edit` writes its own line for the same edit —
+                    // `import-form-data page=0 n=1 epoch=1 disclosures=…` —
+                    // and trace matching is on the **exact event name**. A
+                    // driven check taking `.last()` therefore reads
+                    // `vector_edit`'s line, which carries no `applied=` key,
+                    // and reports `applied=0` about an import that set every
+                    // field it was given.
+                    //
+                    // That is precisely what happened on the first run of the
+                    // round-trip check, and it is the same defect `text-style`
+                    // had yesterday, fixed the same way and recorded in
+                    // `CONTINUE.md` — *"two lines sharing a name is how a check
+                    // reads the wrong one and then reports failure about a
+                    // gesture that worked."* Reading the note did not prevent
+                    // the repeat; the naming convention is what does.
+                    //
+                    // ⇒ **A module's own summary line takes a verb suffix; the
+                    // funnel's label keeps the bare name.**
+                    "import-form-data-applied read={fields} applied={} skipped={}",
+                    outcome.applied, outcome.skipped
+                )
+            });
+            vec![crate::text::export_form::imported(
+                outcome.applied,
+                outcome.skipped,
+            )]
         })
     });
 }

@@ -64,6 +64,17 @@ pub fn filter_image() -> &'static str {
     "Images (PNG, JPEG, BMP, TIFF)"
 }
 
+/// The picker filter for a form-data file.
+///
+/// ★ It names the three extensions rather than calling them "form data",
+/// because the operator arriving at this dialog has a file with one of those
+/// suffixes in front of them and is matching on what they can see. `filter_image`
+/// makes the same call for the same reason.
+#[must_use]
+pub fn filter_form_data() -> &'static str {
+    "Form data (FDF, XFDF, CSV)"
+}
+
 /// The name of the dialog's everything filter.
 ///
 /// Offered because a PDF with the wrong extension is a real thing an operator

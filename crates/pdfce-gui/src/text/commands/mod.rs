@@ -290,7 +290,24 @@ pub const fn file_export_dxf() -> CommandText {
     )
 }
 
-/// `file.export_form_data`
+/// `file.import_form_data`
+///
+/// ★★ The tooltip says **what it overwrites**, because that is the fact an
+/// operator needs before pressing rather than after. An import sets values in
+/// the document they have open; a data file that names a field they have
+/// already filled replaces what is in it. One `Ctrl+Z` takes the whole import
+/// back — the engine makes it a single command however many fields it sets —
+/// and saying so is what makes the press safe to try.
+#[must_use]
+pub const fn file_import_form_data() -> CommandText {
+    CommandText::new(
+        "Import form data…",
+        "Fill this document's form from an FDF, XFDF or CSV file, replacing any values it \
+         names. One Ctrl+Z takes the whole import back.",
+    )
+}
+
+/// `file.export_form_data`/// `file.export_form_data`
 #[must_use]
 pub const fn file_export_form_data() -> CommandText {
     CommandText::new(

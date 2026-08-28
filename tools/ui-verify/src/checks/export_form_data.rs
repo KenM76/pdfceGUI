@@ -66,6 +66,28 @@ const EXPORTED: &str = "export-form-data";
 const DECLINED: &str = "export-form-data-declined";
 /// The write-failed line.
 const FAILED: &str = "export-form-data-failed";
+/// The import half of the round trip.
+const IMPORT_INVOKE: &str = "mode.edit,file.import_form_data";
+/// The environment variable that answers the import picker.
+///
+/// ★ Its own variable rather than `PDFCE_DIAG_OPEN_PATH`, so a check can name
+/// the data file without also answering the document picker. The application
+/// draws the same distinction, for the same reason.
+const FORM_DATA_ENV: &str = "PDFCE_DIAG_FORM_DATA_PATH";
+/// The import's own summary line.
+///
+/// ★★★ `-applied`, and the suffix is the whole reason this constant has a doc
+/// comment. `vector_edit` writes a **second** line for the same edit under the
+/// bare name — `import-form-data page=0 n=1 epoch=1 disclosures=…` — and trace
+/// matching is on the exact event name, so `.last()` on the bare name reads the
+/// funnel's line, finds no `applied=` key, and reports `applied=0` about an
+/// import that set every field it was given.
+///
+/// **That is exactly what the first run of this check did**, and it is the same
+/// defect `text-style` had one day earlier. Reading the note about it did not
+/// prevent the repeat — the naming convention is what does. `restyle_text`'s
+/// `STYLE_EVENT` carries the same warning.
+const IMPORTED: &str = "import-form-data-applied";
 
 /// See the module documentation.
 pub struct ExportingFormDataWritesAFile;
@@ -267,6 +289,99 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "★★★ the file names {fields} field(s) of the operator's form — the data travelled, not \
          just the format"
+    ));
+
+    // --- the round trip: import what was just exported ----------------------
+    //
+    // ★★★ Two verbs, one check, and it is deliberate rather than an economy.
+    //
+    // An export and an import are a **pair**, and the only defect class that
+    // matters about a pair is an ASYMMETRY — a writer and a reader that each
+    // pass their own test and disagree with each other. That is precisely the
+    // defect this project reported to the engine about widget borders four
+    // hours earlier, and the engine's answer was to make *their* tests round
+    // trips for the same reason: *"a hand-authored fixture would test the
+    // reader against bytes I chose; this tests it against bytes pdfce chose,
+    // which is the pair that has to agree."*
+    //
+    // So this reads back the file the previous half just wrote. A separate
+    // import check fed a fixture would test the parser against bytes the
+    // harness author chose, and would stay green through exactly the drift it
+    // exists to catch.
+    //
+    // ★ A **second process**, not a second command in the first. The document
+    // is reopened clean, so the import is proved against a document that has
+    // never seen the data rather than against one whose fields already hold it
+    // — where every assertion would pass on an import that did nothing.
+    let mut spec = LaunchSpec::new(&exe, ctx.out("import-form-data.trace.txt"));
+    spec.pdf = Some(pdf);
+    spec.env.push((
+        ctx.profile.diag_env.0.to_owned(),
+        ctx.profile.diag_env.1.to_owned(),
+    ));
+    spec.env
+        .push((SHELL_DIAG_ENV.0.to_owned(), SHELL_DIAG_ENV.1.to_owned()));
+    spec.env
+        .push(("PDFCE_DIAG_INVOKE".to_owned(), IMPORT_INVOKE.to_owned()));
+    spec.env.push((
+        FORM_DATA_ENV.to_owned(),
+        target.to_string_lossy().into_owned(),
+    ));
+    spec.allow_stale = ctx.allow_stale;
+    spec.source_root = ctx.source_root.clone();
+
+    let session = Session::launch(&spec, ctx.profile.trace_prefix)?;
+    report.artifact(session.trace_path().to_path_buf());
+    session.settle(60);
+    let trace = session.trace()?;
+
+    let Some(imported) = trace.events(IMPORTED).last() else {
+        return Ok(Some(format!(
+            "★ THE EXPORT WROTE A FILE AND IMPORTING IT BACK DID NOTHING: no `{IMPORTED}` \
+             line.\n\
+             The two halves are a pair, and this is the asymmetry a round trip exists to catch: \
+             pdfce wrote bytes pdfce cannot read. Three candidates — the command has no \
+             dispatch arm; the picker was not answered (`{FORM_DATA_ENV}` supplies it); or the \
+             parse failed, which traces `import-form-data-failed` with its stage and reason. \
+             Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    let applied: usize = imported
+        .get("applied")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let skipped: usize = imported
+        .get("skipped")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if applied == 0 {
+        return Ok(Some(format!(
+            "the import ran and applied NOTHING: `{}`.\n\
+             The file was written by this same program from this same document moments ago, so \
+             every name in it is a name the document has. `applied=0 skipped={skipped}` means \
+             the reader and the writer disagree about what a field is CALLED — the asymmetry \
+             this round trip exists to find, and one that a parser test fed a hand-authored \
+             fixture could never see. Trace: {}.",
+            imported.raw,
+            session.trace_path().display()
+        )));
+    }
+    if applied != fields {
+        return Ok(Some(format!(
+            "the export wrote {fields} field(s) and the import applied {applied} of them \
+             (`skipped={skipped}`): `{}`.\n\
+             A partial round trip. Every name in the file came out of this document, so a \
+             skipped one is a name that did not survive the write-and-read — a qualified name \
+             flattened, an encoding lost, or a field type the writer emits and the reader \
+             dispatches differently. Trace: {}.",
+            imported.raw,
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "★★★ the round trip closes: {applied} of {fields} field(s) written and read back by \
+         the same program, {skipped} skipped"
     ));
     report.artifact(target);
     Ok(None)

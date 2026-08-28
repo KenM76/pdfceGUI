@@ -135,6 +135,15 @@ const DIAG_IMAGE_PATH: &str = "PDFCE_DIAG_IMAGE_PATH"; // ui-text-exempt: an env
 
 pub const DIAG_OPEN_PATH: &str = "PDFCE_DIAG_OPEN_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
+/// The harness seam for [`pick_form_data_source`].
+///
+/// Its own variable rather than sharing [`DIAG_OPEN_PATH`], for the reason
+/// `DIAG_INSERT_PATH` gives: a driven check that imports form data into an
+/// already-open document must be able to name the data file **without** also
+/// answering the document picker, and one variable answering both would make
+/// the two indistinguishable.
+pub const DIAG_FORM_DATA_PATH: &str = "PDFCE_DIAG_FORM_DATA_PATH"; // ui-text-exempt: an environment variable name, never displayed
+
 /// The environment variable that answers the **save** dialog instead of
 /// opening it.
 ///
@@ -363,6 +372,49 @@ pub fn pick_image_source() -> Picked {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!("image-picked source=native answer={answer:?}")
+    });
+    answer
+}
+
+/// **Ask which form-data file to read.**
+///
+/// The mirror of `actions::export::form_data`'s save picker, and the last of
+/// the form verbs to be wired (2026-08-27).
+///
+/// # ★ Three filters, and the format is decided by CONTENT rather than by which
+/// one the operator picked
+///
+/// The filters are a convenience for finding the file. What decides how it is
+/// parsed is the **extension of the file actually chosen**, exactly as it
+/// decides the format on the way out — so the two halves of the round trip use
+/// one rule, and an operator who exported `.csv` and imports `.csv` cannot land
+/// in a branch they did not choose.
+///
+/// ★ The *all files* filter stays beneath them, for [`pick_image_source`]'s
+/// stated reason: a file somebody saved under a different name is still that
+/// file, and an operator who knows what theirs is should not be blocked by its
+/// name.
+#[must_use]
+pub fn pick_form_data_source() -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_FORM_DATA_PATH)) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("form-data-picked source=env answer={answer:?}")
+        });
+        return answer;
+    }
+    let answer = rfd::FileDialog::new()
+        .set_title(crate::text::export_form::import_dialog_title())
+        .add_filter(
+            crate::text::files::filter_form_data(),
+            &["fdf", "xfdf", "csv"],
+        )
+        .add_filter(crate::text::files::filter_all(), &["*"])
+        .pick_file()
+        .map_or(Picked::Cancelled, Picked::Path);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("form-data-picked source=native answer={answer:?}")
     });
     answer
 }

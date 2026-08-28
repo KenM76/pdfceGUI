@@ -297,6 +297,19 @@ pub(super) fn all() -> Vec<Command> {
         command("file.export_form_data", t::file_export_form_data(), 121)
             .with_icon("export")
             .enabled_when("doc.open"),
+        // ★★ Registered beside its twin and reached the same way. The two are
+        // one round trip, and `file.export_form_data`'s note above applies to
+        // both: the FORMAT is the file's extension, not a third dialog.
+        //
+        // ★ `doc.pages` rather than a condition about whether the document has
+        // a form. A certification refusal, an encrypted file and a document
+        // with no `/AcroForm` are all engine answers this shell would have to
+        // ask for per frame, and all three are worded declines at the moment of
+        // the press — `dispatch::forms`' standing ruling: *greying is a hint;
+        // the worded decline is the answer.*
+        command("file.import_form_data", t::file_import_form_data(), 118)
+            .with_icon("import-form-data")
+            .enabled_when("doc.pages"),
         // ★ **Copy page text / Copy document text — were `edit.copy_page_text`
         // and `edit.copy_document_text`, tokens 420 and 421, until the operator
         // decided on 2026-08-14 that they belong here.**

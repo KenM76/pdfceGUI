@@ -1,12 +1,12 @@
 //! # shell::commands — every verb pdfce can perform
 //!
 //! [`register`] populates an `egui_shell::CommandRegistry` with the
-//! **hundred and twenty** commands this build has, which fall into three
+//! **hundred and twenty-one** commands this build has, which fall into three
 //! groups:
 //!
 //! | group | count | how the operator reaches it |
 //! |---|---|---|
-//! | on a tab, the QAT or the keymap | 115 | a control [`super::manifest::built_in`] names by id |
+//! | on a tab, the QAT or the keymap | 116 | a control [`super::manifest::built_in`] names by id |
 //! | drawn by a **custom item** | 4 | `file.recent` and the three Format ▸ Font controls — see [`super::manifest::CUSTOM_BACKED`] |
 //! | drawn on the **status bar** | 1 | `edit.find` — `RIBBON_IA.md` §6 |
 //!
@@ -241,7 +241,7 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 120);
+        assert_eq!(registry().len(), 121);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -288,7 +288,7 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 103, "commands naming an icon");
+        assert_eq!(named, 104, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has

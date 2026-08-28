@@ -303,6 +303,20 @@ pub enum Icon {
     Split,
     /// Insert pages from a file…. ScripTree `icon-upload.svg`.
     InsertPages,
+    /// Import form data… — the same upload art as [`Icon::InsertPages`].
+    ///
+    /// ★★ A **distinct key over shared art**, which is [`Icon::FontFolders`]'s
+    /// arrangement and not the shared-key convention `format.properties` uses.
+    /// The difference matters: a shared *key* says *two controls about one
+    /// thing*, and this is not that — inserting pages and importing form data
+    /// have nothing in common but a direction. What they share is that the only
+    /// honest picture for either is *"something comes in from a file"*, which
+    /// is what the upload arrow draws.
+    ///
+    /// ★ Keying it to `insert-pages` would have been the near-miss reuse this
+    /// catalog's refusal table exists to prevent: a pages-named key on a form
+    /// command reads as a mistake to anyone grepping either.
+    ImportFormData,
     /// Font folders… — the same folder art as [`Icon::Open`].
     FontFolders,
     /// Redaction.
@@ -661,6 +675,7 @@ impl Icon {
         Icon::TextFreeText,
         Icon::TextSticky,
         Icon::Stamp,
+        Icon::ImportFormData,
         Icon::Combine,
         Icon::Split,
         Icon::InsertPages,
@@ -770,7 +785,7 @@ impl Icon {
             Icon::Stamp => assets::STAMP,
             Icon::Combine => assets::LINK,
             Icon::Split => assets::SCISSORS,
-            Icon::InsertPages => assets::UPLOAD,
+            Icon::InsertPages | Icon::ImportFormData => assets::UPLOAD,
             Icon::Redact => assets::REDACT,
             Icon::Print => assets::PRINTER,
             Icon::Export => assets::DOWNLOAD,
@@ -887,6 +902,7 @@ impl Icon {
             Icon::Combine => "combine",
             Icon::Split => "split",
             Icon::InsertPages => "insert-pages",
+            Icon::ImportFormData => "import-form-data",
             Icon::FontFolders => "font-folders",
             Icon::Redact => "redact",
             Icon::Print => "print",
@@ -1002,7 +1018,7 @@ mod tests {
         // reader. Prefer that shape for any future count.
         assert_eq!(
             Icon::ALL.len(),
-            92,
+            93,
             "the catalogue changed size: add the new variant to Icon::ALL and update this count"
         );
     }
@@ -1072,15 +1088,49 @@ mod tests {
         }
     }
 
-    /// The two roles that deliberately share one asset still share it, and
-    /// nothing else accidentally does.
+    /// The roles that deliberately share one asset still share it, and nothing
+    /// else accidentally does.
     ///
-    /// Asset sharing is a real decision (one folder glyph, two places it
-    /// appears, never simultaneously) but an *accidental* share means two
-    /// controls that should be distinguishable are not — which reads to an
-    /// operator as a wiring bug in whichever control they clicked second.
+    /// Asset sharing is a real decision (one glyph, two places it appears,
+    /// never simultaneously) but an *accidental* share means two controls that
+    /// should be distinguishable are not — which reads to an operator as a
+    /// wiring bug in whichever control they clicked second.
+    ///
+    /// # ★★ The second pair, added 2026-08-27, and why the test's shape is what
+    /// made it a decision
+    ///
+    /// This asserted an **exact list** of one pair, so adding a second could
+    /// not be done quietly — which is the whole point of writing it this way
+    /// rather than as "sharing is allowed". The argument had to be made:
+    ///
+    /// `import-form-data` shares `insert-pages`' upload arrow. Both are
+    /// *"something comes in from a file"*, they are on **different tabs**
+    /// (File ▸ Export and Pages) so they are never drawn together, and the only
+    /// alternative was no icon at all — which would leave one control in a
+    /// two-control group bare, and `super`'s own header records what that looks
+    /// like: *"47 named and 41 bare with no rule behind which was which, so a
+    /// band drew pictures and words side by side and the ribbon read as
+    /// half-finished because it was."*
+    ///
+    /// ★ Drawing new art was never the option. `icons/assets/PROVENANCE.md`
+    /// declares that directory the **operator's own work**, which is what
+    /// exempts it from `check-shipped-assets`, and a machine-drawn SVG would
+    /// make that note false.
+    ///
+    /// ★★ What was refused: keying it to `insert-pages` itself. A shared *key*
+    /// says *two controls about one thing*, and inserting pages and importing
+    /// form data have nothing in common but a direction — a pages-named key on
+    /// a form command is the near-miss reuse this catalog's refusal table
+    /// exists to prevent.
+    /// Every pair of icons permitted to share one asset, with the argument for
+    /// each in [`only_the_documented_assets_are_shared`]'s doc comment.
+    const SHARED_PAIRS: &[&[&str]] = &[
+        &["font-folders", "open"],
+        &["import-form-data", "insert-pages"],
+    ];
+
     #[test]
-    fn only_the_folder_asset_is_shared() {
+    fn only_the_documented_assets_are_shared() {
         let mut by_source: std::collections::HashMap<&str, Vec<Icon>> =
             std::collections::HashMap::new();
         for &icon in Icon::ALL {
@@ -1090,10 +1140,11 @@ mod tests {
             if icons.len() > 1 {
                 let mut names: Vec<&str> = icons.iter().map(|i| i.name()).collect();
                 names.sort_unstable();
-                assert_eq!(
-                    names,
-                    vec!["font-folders", "open"],
-                    "an unexpected pair of icons shares one asset"
+                assert!(
+                    SHARED_PAIRS.contains(&names.as_slice()),
+                    "an unexpected pair of icons shares one asset: {names:?}. Sharing is \
+                     permitted and is a DECISION — add the pair to `SHARED_PAIRS` with \
+                     the argument for it, in this test's own doc comment"
                 );
             }
         }
