@@ -215,107 +215,37 @@ pub struct RunStyle {
     /// ★★★ **It is NOT the show operator's decoded text**, and assuming it was
     /// cost this project a driven run. See [`Self::find`].
     pub text: String,
-    /// ★★★ **The longest stretch of [`Self::text`] that is actually IN the
-    /// file** — the `find` a pinned `format_text` request must carry.
-    ///
-    /// # Why these are two fields and not one
-    ///
-    /// A `TextRun`'s `text` can differ from the operator's decoded buffer, and
-    /// handing it to `format_text` as its `find` then fails with *"text to
-    /// format … was not found in an editable run on the page"* — which is
-    /// exactly what a driven Bold press produced on the operator's own drawing:
-    /// eleven runs restyled and the twelfth refused, on a page where nothing
-    /// was wrong. **The symptom is real and reproducible. The cause written
-    /// here was not.**
-    ///
-    /// # ★★★ RETRACTED 2026-08-27 evening, and then NARROWED to one caller
-    ///
-    /// **Read this first: as of `Pass 145.0` this field feeds exactly one thing
-    /// — `preview_font_resources` — and it exists only because that function
-    /// takes the coverage text as a parameter.**
-    ///
-    /// Every *format* path stopped using it the same night.
-    /// `FormatRequest::whole_operator(page, span)` addresses an operator by pin
-    /// alone, so `app::actions::textstyle` builds no `find` at all and
-    /// `pin::Operator` no longer carries one. What is left here would have gone
-    /// with them, except that `preview_font_resources(page, find, pin)` tests
-    /// face coverage with `text.chars()` — and an empty `find` yields **zero
-    /// characters checked and every face reported as accepted**, which is worse
-    /// than the superset it replaced.
-    ///
-    /// ⇒ So this is a **workaround kept to feed a parameter**, filed as
-    /// `request_preview_font_resources_trusts_the_callers_find_where_format_request_now_resolves_it.md`.
-    /// It deletes on the day the pre-flight resolves its own text.
-    ///
-    /// # The mechanism this field's docs used to give is refuted
-    ///
-    /// This paragraph read:
-    ///
-    /// > ~~The extraction synthesises a space wherever a `TJ` offset inside one
-    /// > show operator exceeds the word-gap threshold, so a title-block cell
-    /// > reads `"FINISH         "` in `text` while the operator's decoded
-    /// > buffer holds `"FINISH"` and a run of kerning numbers.~~
-    ///
-    /// `pdfce-core` **measured it** across 256 fixture PDFs, at this project's
-    /// prompting, and answered:
-    ///
-    /// | | |
-    /// |---|---|
-    /// | `derived_word_space` runs (always a **separate** run) | 5 |
-    /// | glyph runs containing a synthesised space | **0** ← the stated cause |
-    /// | glyph runs where `len(text) != len(glyphs)` | 1 |
-    ///
-    /// `layout`'s `Break::Word` arm calls `close_run()` **and then** emits the
-    /// derived space as its own one-character `TextRun` with no glyphs, so a
-    /// `TextOrigin::Glyphs` run's `text` holds only real glyph characters. The
-    /// one offender is `/ToUnicode` mapping one glyph to several characters
-    /// (§9.10.3) — an `ffl` ligature is one glyph and three chars — which is a
-    /// different mechanism with a different consequence.
-    ///
-    /// ★★★ **ANSWERED, and the answer is that the invariant holds.** The
-    /// question filed here — *do the glyphs sharing one `operator_span` always
-    /// slice a contiguous, matchable range out of the run's text?* — was
-    /// measured by `pdfce-core` over **4,289 fixture files, 18,559 runs,
-    /// 669,436 glyphs and 29,246 distinct operator spans: zero non-contiguous
-    /// groups, zero groups whose slice did not index the run's text cleanly.**
-    /// Sabotage-checked, so a green result is not vacuous, and now a documented
-    /// guarantee with a test that re-runs on every `cargo test`.
-    ///
-    /// ⇒ What this walk computes is sound. Its *stated reason* was wrong and
-    /// its *result* was right, which is the least comfortable of the four
-    /// possible combinations and is why the question was worth asking rather
-    /// than assuming.
-    ///
-    /// ★ The lesson, and it is the mirror of the one this channel spent the
-    /// week on: an **absence** claim is *"I looked and did not see it, so it is
-    /// not there"*; this was a **cause** claim — *"I saw an effect and named a
-    /// mechanism"* — written into a doc comment, a handover and a resume file
-    /// without one measurement behind it. Same discipline, opposite sign.
-    ///
-    /// # How it is computed, and what it costs
-    ///
-    /// Walk the glyphs; keep the longest stretch whose byte ranges are
-    /// **contiguous** — each glyph starting exactly where the last one ended.
-    /// A character no glyph covers ends a stretch by construction, and every
-    /// byte of the answer is a byte a glyph put there.
-    ///
-    /// ★ Note what this does **not** catch, now that the mechanism above is
-    /// retracted: a ligature's glyph byte-range *is* contiguous, so a run whose
-    /// `/ToUnicode` maps one glyph to three characters passes this walk whole
-    /// and would still hand `format_text` three characters against a buffer
-    /// holding one code. If that case is reachable, this field is not the fix
-    /// for it. Unmeasured on our side and stated rather than assumed either
-    /// way.
-    ///
-    /// ★ The cost is honest and is disclosed by the caller: on a run with an
-    /// internal derived gap this is **shorter than the run**, so a restyle acts
-    /// on the longest real piece rather than on all of it. `format_text`
-    /// requires a non-empty `find` even when the operator is already pinned —
-    /// the pin names the operator and `find` names a sub-range within it — so
-    /// there is no way today to say *"the whole pinned operator"*. That is
-    /// filed as an engine request; it is a small ask (`find: ""` meaning all of
-    /// it, when `pinned_span` is set) and it would delete this field.
-    pub find: String,
+    // ★★★ `Reading::find` was HERE until 2026-08-28, and its deletion is the
+    // end of a three-act story worth keeping in one place.
+    //
+    // **Act 1 — it was built for a reason that turned out to be false.** It
+    // computed *"the longest stretch of the run's text whose glyph byte-ranges
+    // are contiguous"*, on the stated grounds that the extraction synthesises a
+    // space wherever a `TJ` offset exceeds the word-gap threshold. `pdfce-core`
+    // measured 256 fixtures and found **zero** glyph runs containing one. The
+    // symptom was real and the mechanism was invented — a hypothesis wearing a
+    // fact's clothes, written into a doc comment, a handover and a resume file
+    // without one measurement behind it.
+    //
+    // **Act 2 — it turned out to be correct anyway, and that was the
+    // uncomfortable part.** The question it rested on — *do the glyphs sharing
+    // one `operator_span` always slice a contiguous, matchable range out of the
+    // run's text?* — was filed, and answered by a probe over **4,289 files,
+    // 18,559 runs, 669,436 glyphs and 29,246 operator spans: zero exceptions**,
+    // sabotage-checked. So the walk was sound and its justification was void,
+    // which is the least comfortable of the four possible combinations.
+    //
+    // **Act 3 — the last thing keeping it alive was fixed.** `Pass 145.0` gave
+    // every FORMAT path `FormatRequest::whole_operator`, and this field survived
+    // one more day only to feed `preview_font_resources`, whose coverage gate
+    // took the text as a **parameter** — so an empty `find` there tested zero
+    // characters and reported every face as accepted. That was filed as a trap
+    // rather than absorbed, and `Pass 147.0` made the pre-flight resolve the pin
+    // itself through the same `effective_find` the commit path uses.
+    //
+    // ⇒ Nothing feeds it now, so it is gone rather than kept "in case". A
+    // mechanism with no caller rots, and the next reader cannot tell a
+    // deliberate fallback from a forgotten one.
     /// The fill colour in force, in whatever space the file set it.
     ///
     /// `TextColor::Other` is a real and important answer: the run is painted in
@@ -428,8 +358,24 @@ pub fn font_preflight(
     page: usize,
     read: &Inspected,
 ) -> Option<pdfce_core::text_edit::FontPreflight> {
+    // ★★★ An EMPTY find, since `Pass 147.0`. The pre-flight resolves the
+    // pinned operator's own characters through `effective_find` — the same
+    // function the commit path calls — so the preview and the commit cannot
+    // disagree about what was tested.
+    //
+    // ★★ It was `&read.style.find` for one day, and that field existed for one
+    // day longer than it should have because of it. Passing `""` before `147.0`
+    // would have tested **zero characters** and reported every face on the page
+    // as accepted — silently, and worse than the superset it replaced. That was
+    // filed as a trap rather than worked around; see `Reading`'s own note for
+    // the whole story.
+    //
+    // ★ An empty find with **no** pin is refused by name, which the engine
+    // added in the same Pass after a test showed `s.text.contains("")` is true
+    // of every string — so a caller who forgets to pin gets an error rather
+    // than the first operator on the page.
     doc.session
-        .preview_font_resources(page, &read.style.find, Some(read.pin.span))
+        .preview_font_resources(page, "", Some(read.pin.span))
         .ok()
 }
 
@@ -458,7 +404,6 @@ pub fn inspect(doc: &OpenDoc, page: usize, run: usize) -> Option<Inspected> {
                 .get(run)
                 .map(|r| r.text.clone())
                 .unwrap_or_default(),
-            find: text.runs.get(run).map(longest_sourced).unwrap_or_default(),
             // Lossy rather than strict: a resource key is a PDF name, which is
             // bytes, and a name that is not UTF-8 is legal. Losing a byte in a
             // label is better than showing no label at all, and nothing acts on
@@ -470,52 +415,6 @@ pub fn inspect(doc: &OpenDoc, page: usize, run: usize) -> Option<Inspected> {
             fill: p.fill_color,
         },
     })
-}
-
-/// The longest run of characters in `run.text` that every byte of came from a
-/// glyph — see [`RunStyle::find`] for why this is not simply `run.text`.
-///
-/// # The rule, in one line
-///
-/// A glyph publishes `text_start` and `text_len` into its run's `text`. A
-/// stretch is *sourced* while each glyph begins exactly where the previous one
-/// ended; the first gap is a derived character, and derived characters are not
-/// in the file.
-///
-/// # ★ Longest rather than first
-///
-/// A run reading `"A       LONGER PHRASE"` has its real content after the gap,
-/// not before it. Taking the first stretch would restyle the `A` and leave the
-/// phrase, which is both wrong and hard to notice. Ties keep the earlier one,
-/// which is arbitrary and stated so nobody has to wonder.
-fn longest_sourced(run: &pdfce_core::text_extract::TextRun) -> String {
-    let mut best: (usize, usize) = (0, 0);
-    let mut start: Option<usize> = None;
-    let mut end = 0_usize;
-    for glyph in &run.glyphs {
-        let (gs, ge) = (
-            glyph.text_start as usize,
-            glyph.text_start as usize + glyph.text_len as usize,
-        );
-        match start {
-            Some(_) if gs == end => end = ge,
-            _ => {
-                if let Some(s) = start
-                    && end - s > best.1 - best.0
-                {
-                    best = (s, end);
-                }
-                start = Some(gs);
-                end = ge;
-            }
-        }
-    }
-    if let Some(s) = start
-        && end - s > best.1 - best.0
-    {
-        best = (s, end);
-    }
-    run.text.get(best.0..best.1).unwrap_or_default().to_owned()
 }
 
 /// ★★★ **Every show operator a run is made of**, in content order, each with
