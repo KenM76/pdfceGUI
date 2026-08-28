@@ -148,6 +148,187 @@ pub(super) fn dxf(doc: &mut OpenDoc, page: usize, options: &pdfce_core::export::
     }
 }
 
+/// **Write the form's values out as FDF, XFDF or CSV.**
+///
+/// `file.export_form_data`, wired 2026-08-27 — a command that had been
+/// registered, drawn on File ▸ Export, and **inert for the whole life of the
+/// project**.
+///
+/// # ★★★ The recorded reason was false, and it is the sixth of these
+///
+/// Its `SCAFFOLDED` entry read:
+///
+/// > ~~Blocked on a writer that does not exist. `FEATURES.md`'s Forms row:
+/// > "fill ✅ …; create field, flatten and FDF/XFDF/CSV still ⬜" — and this
+/// > command IS the FDF/XFDF/CSV half.~~
+///
+/// Three writers exist and two of them have since `Pass 7.1`:
+/// `fdf::FormData::to_fdf`, `to_xfdf`, and `formcsv::to_csv`, reached through
+/// `EditSession::export_form_data`. The `FEATURES.md` row it cites was itself
+/// stale, so — like `edit.form_flatten` two hours earlier — the entry was a
+/// **citation of a citation** and nothing had re-read either.
+///
+/// ⇒ The rule now written on the allow-list's own assertion: *when you touch
+/// that list for any purpose, re-derive the reason of the entry beside the one
+/// you came for.* This one was found by doing exactly that.
+///
+/// # ★★ The format is chosen by the EXTENSION, not by a third dialog
+///
+/// One picker, three formats, decided by what the operator types or picks in
+/// the *Save as type* box — which is how every application on this desktop
+/// does it, and which `crate::text::tool`'s rule about conventions makes the
+/// default answer rather than a shortcut.
+///
+/// The alternative — a format dialog, then a picker — is two modal windows for
+/// one act, and it puts the choice **before** the operator has thought about
+/// where the file goes, which is the order they think in reversed.
+///
+/// An unrecognised extension is **FDF**, and that is a decision rather than a
+/// fallback: FDF is the format the standard defines for this data (§12.7.8),
+/// it is what Acrobat writes, and it is the only one of the three that a
+/// reader can import without being told what it is.
+///
+/// # ★★★ The CSV disclosure is not optional, and it is about a spreadsheet
+/// rather than about a PDF
+///
+/// `formcsv::to_csv` **neutralises** values that would otherwise be executed as
+/// formulas when the file is opened in a spreadsheet — a leading `=`, `+`, `-`
+/// or `@`. That is a real and well-known injection route, and pdfce doing the
+/// right thing silently would leave an operator believing their exported data
+/// is byte-identical to what the form holds.
+///
+/// It is not. `neutralised` counts how many, `neutralised_fields` names them,
+/// and both are reported. Rule 4's *"the half that survives is the point"*: an
+/// inference the operator cannot see still owes them an off-canvas sentence.
+///
+/// # Nothing about the document changes
+///
+/// No `vector_edit`, no epoch bump, no cache invalidation — this module's
+/// header explains why that is what makes these verbs a family. The
+/// disclosures ride `record_edit_disclosure` at the current epoch, so they
+/// stand until the next real edit moves past them.
+pub(super) fn form_data(doc: &mut OpenDoc) {
+    // ★ The data first, the picker second — `dxf`'s ordering and its reason:
+    // the operator is never asked where to put a file that turns out to be
+    // empty. A document with no `/AcroForm` has nothing to export, and that is
+    // a decline with a sentence rather than a dialog followed by a zero-byte
+    // file.
+    let Some(data) = doc.session.export_form_data() else {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            "export-form-data-declined reason=no-acroform".to_owned()
+        });
+        super::record_note(
+            doc.edit_epoch,
+            crate::text::export_form::no_form().to_owned(),
+        );
+        return;
+    };
+    if data.fields.is_empty() {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            "export-form-data-declined reason=no-fields".to_owned()
+        });
+        super::record_note(
+            doc.edit_epoch,
+            crate::text::export_form::no_fields().to_owned(),
+        );
+        return;
+    }
+
+    let suggested = suggested_form_path(doc);
+    let crate::app::files::Picked::Path(target) = crate::app::files::pick_save_path(
+        &suggested,
+        crate::text::export_form::save_dialog_title(),
+    ) else {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            "export-form-data-cancelled".to_owned()
+        });
+        return;
+    };
+
+    // ★ The document's own path as the FDF `/F` source, so a reader importing
+    // the data knows which file it came from. `to_fdf`'s parameter is exactly
+    // that, and passing `None` would produce a valid file that has forgotten
+    // its subject.
+    let source = doc.path.to_string_lossy().into_owned();
+    let extension = target
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let (bytes, mut notes) = match extension.as_str() {
+        // ui-text-exempt: file extensions, matched not displayed.
+        "xfdf" => (
+            data.to_xfdf(Some(&source)),
+            vec![crate::text::export_form::wrote_xfdf(data.fields.len())],
+        ),
+        "csv" => {
+            let export = pdfce_core::formcsv::to_csv(&data);
+            let mut notes = vec![crate::text::export_form::wrote_csv(data.fields.len())];
+            // ★★ The neutralisation disclosure — see the header. Reported only
+            // when it fired, because a form with no formula-shaped values owes
+            // no sentence, and a bar that narrates non-events stops being read.
+            if export.neutralised > 0 {
+                notes.push(crate::text::export_form::neutralised(
+                    export.neutralised,
+                    &export.neutralised_fields,
+                ));
+            }
+            (export.csv, notes)
+        }
+        _ => (
+            data.to_fdf(Some(&source)),
+            vec![crate::text::export_form::wrote_fdf(data.fields.len())],
+        ),
+    };
+
+    match std::fs::write(&target, &bytes) {
+        Ok(()) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    "export-form-data format={extension} fields={} bytes={}",
+                    data.fields.len(),
+                    bytes.len()
+                )
+            });
+            notes.push(crate::text::export_form::written_to(
+                &target.display().to_string(),
+            ));
+            super::record_edit_disclosure(Some(super::EditDisclosure {
+                epoch: doc.edit_epoch,
+                notes,
+            }));
+        }
+        Err(error) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!("export-form-data-failed detail={error}")
+            });
+            super::record_note(
+                doc.edit_epoch,
+                crate::text::export_form::export_failed(&error.to_string()),
+            );
+        }
+    }
+}
+
+/// Where the form-data save dialog opens, and what it calls the file.
+///
+/// Beside the document and named after it, with `.fdf` — [`suggested_path`]'s
+/// rule and its reason. The extension is the **default format** as well as a
+/// suggestion, which is why it is FDF: see [`form_data`]'s header.
+fn suggested_form_path(doc: &OpenDoc) -> std::path::PathBuf {
+    let mut path = doc.path.clone();
+    let stem = path
+        .file_stem()
+        .map_or_else(|| "form".to_owned(), |s| s.to_string_lossy().into_owned());
+    path.set_file_name(stem);
+    path.set_extension("fdf"); // ui-text-exempt: a file extension, never displayed as prose
+    path
+}
+
 /// Where the save dialog opens, and what it calls the file.
 ///
 /// Beside the document, named after it, with a `.dxf` extension. The same rule

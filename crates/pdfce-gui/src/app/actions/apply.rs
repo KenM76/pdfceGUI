@@ -1056,6 +1056,7 @@ impl PdfceApp {
             // a different file, which is why its body is in `super::export`
             // rather than beside the mutations. See that module's header.
             Action::ExportDxf { page, options } => super::export::dxf(doc, page, &options),
+            Action::ExportFormData => super::export::form_data(doc),
             // ★ One bookmark, one undo entry, and NO count reported.
             //
             // See the variant: `/Count` is two quantities and its sign is the

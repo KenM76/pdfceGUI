@@ -77,13 +77,26 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // ===================================================================
     // FILE
     // ===================================================================
-    (
-        "file.export_form_data",
-        "Blocked on a writer that does not exist. `FEATURES.md`'s Forms row: “fill ✅ (all \
-         three modes since 2026-08-14); create field, flatten and FDF/XFDF/CSV still ⬜” — \
-         and this command IS the FDF/XFDF/CSV half. Filling a form and serialising the \
-         values to a foreign format are different builds; the first shipped.",
-    ),
+    // ★★★ `file.export_form_data` was HERE until 2026-08-27, and its entry is
+    // **deleted rather than reworded**. It read:
+    //
+    //   "Blocked on a writer that does not exist. `FEATURES.md`'s Forms row:
+    //   “fill ✅ …; create field, flatten and FDF/XFDF/CSV still ⬜” — and this
+    //   command IS the FDF/XFDF/CSV half."
+    //
+    // **The writer exists three times over**, and two of them since `Pass 7.1`:
+    // `fdf::FormData::to_fdf`, `fdf::FormData::to_xfdf` and `formcsv::to_csv`,
+    // reached through `EditSession::export_form_data`. The `FEATURES.md` row it
+    // cites was itself stale.
+    //
+    // ★★ That makes it the **second citation-of-a-citation in one evening** —
+    // `edit.form_flatten` was the first, two hours earlier, and the sixth stale
+    // blocker this project has found. Both were discovered by the rule written
+    // on this list's own count assertion: *when you touch this list for any
+    // purpose, re-derive the reason of the entry beside the one you came for.*
+    // It has now paid for itself twice on the day it was written.
+    //
+    // The arm is in `app::dispatch`; the verb is `app::actions::export::form_data`.
     (
         "view.show_points",
         "★ P3 — and the reason was found on 2026-08-15 rather than written: **there is nothing \

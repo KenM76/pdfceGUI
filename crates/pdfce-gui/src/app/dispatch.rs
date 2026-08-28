@@ -805,6 +805,22 @@ impl PdfceApp {
             // there is no mode in which it should be refused. Read mode
             // exporting a drawing is exactly what a reading stance is for.
             "file.export_dxf" => self.dialogs.open_export_dxf(&self.status),
+            // ★★★ **`file.export_form_data` — registered, drawn on File ▸
+            // Export, and inert for the whole life of the project.**
+            //
+            // Its `SCAFFOLDED` reason said *"blocked on a writer that does not
+            // exist"* and cited a `FEATURES.md` row that was itself stale.
+            // Three writers exist and two have since `Pass 7.1`:
+            // `fdf::FormData::{to_fdf, to_xfdf}` and `formcsv::to_csv`. The
+            // **sixth** stale blocker this project has found, and the second in
+            // one evening — both citations of citations, and nothing had
+            // re-read either.
+            //
+            // ★ No dialog, unlike its DXF neighbour one line above: the format
+            // is the extension the operator types in the save picker, which is
+            // how every application on this desktop does it and is one modal
+            // window rather than two. See `actions::export::form_data`.
+            "file.export_form_data" => actions.push(Action::ExportFormData),
             // ★ **The keyboard reference.** Its scaffold entry did not merely
             // say blocked — it carried the design, from `SALVAGE.md`: *"Fix
             // `shortcuts_reference()` — it omits six live bindings

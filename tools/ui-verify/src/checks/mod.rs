@@ -114,9 +114,14 @@ pub mod delete_key;
 /// group comes back joinable.
 pub mod dimension_groups;
 pub mod driving;
+pub mod export_dxf;
 /// Export to DXF: the file reaches disk, and its contents agree with the
 /// counts the shell reported.
-pub mod export_dxf;
+/// ★★ **Press Export form data and a file appears on disk with the form's
+/// values in it.** The oracle is the FILE, not a trace line: a build that
+/// computed the bytes and wrote them nowhere would satisfy a trace-only check
+/// completely and ship an Export button that exports nothing.
+pub mod export_form_data;
 pub mod find_bar;
 pub mod form_field;
 /// Insert an image: the picture reaches the page, and the resolution the
@@ -662,6 +667,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
+        Box::new(export_form_data::ExportingFormDataWritesAFile),
         Box::new(export_dxf::ExportDxfWritesThePagesGeometry),
         // Insert an image, wired 2026-08-19. Its last assertion is the one
         // that matters: the promised resolution and the reported one are the

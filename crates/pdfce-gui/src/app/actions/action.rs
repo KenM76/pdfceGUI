@@ -708,6 +708,22 @@ pub enum Action {
         /// put a second constructor in the path.
         options: pdfce_core::export::dxf::DxfOptions,
     },
+    /// **Write the form's values out as FDF, XFDF or CSV.**
+    ///
+    /// # ★ It carries nothing, and that is the difference from [`Self::ExportDxf`]
+    ///
+    /// The DXF export carries a page index and an options struct because a
+    /// dialog collected both before the action was raised. This one has no
+    /// dialog: the format is decided by the extension the operator types in the
+    /// save picker, and the picker opens inside the apply phase for the reason
+    /// `actions::export`'s header gives — **a native file dialog must not open
+    /// inside a layout pass**, because it blocks the thread while egui is
+    /// part-way through a frame.
+    ///
+    /// So this is an `Action` purely to move the picker out of the layout pass.
+    /// Nothing about the document is being ordered, and nothing about it
+    /// changes.
+    ExportFormData,
     /// ★ **Place a raster image on the page.**
     ///
     /// Raised by `crate::dialogs::insert_image` and by nothing else.

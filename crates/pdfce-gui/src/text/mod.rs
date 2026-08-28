@@ -122,6 +122,10 @@ pub mod dropped;
 /// `pdfce-core`: every generic PDF-to-DXF converter exports at paper scale and
 /// says nothing, so a 1:2 detail arrives at half size **looking plausible**.
 pub mod export_dxf;
+/// The words form-data export says — `file.export_form_data`, wired
+/// 2026-08-27. Its one load-bearing sentence is the CSV neutralisation
+/// disclosure; see the module header.
+pub mod export_form;
 /// The copy the open/close/recent surface owns — the file dialog's title and
 /// filter names, and every string the Recent control draws. Consumed by
 /// `crate::app::files` and `crate::app::recent`.

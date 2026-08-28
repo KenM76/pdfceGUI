@@ -1283,8 +1283,23 @@ pub const FX_CONST: &str = "fx.constant";
         // rule that comes out of five occurrences is: **when you touch this
         // list for any purpose, re-derive the reason of the entry beside the
         // one you came for.**
+        // ★★★ 12 -> 11 the same evening: `file.export_form_data` was WIRED, and
+        // it is the **sixth** stale blocker and the **second in one evening**.
+        //
+        // Its reason said the writer did not exist. Three do, and two since
+        // `Pass 7.1`. Like `edit.form_flatten` two hours earlier it was a
+        // citation of a `FEATURES.md` row that was itself stale — a citation of
+        // a citation, with nothing re-reading either.
+        //
+        // ⇒ The rule written on this assertion when the fifth was found has now
+        // paid for itself twice on the day it was written: **when you touch
+        // this list for any purpose, re-derive the reason of the entry beside
+        // the one you came for.** Both of tonight's were found by doing exactly
+        // that, and neither could have been found by any test — this one counts
+        // entries, and an entry whose id has no arm and whose reason is nonsense
+        // is indistinguishable from a correct one.
         assert_eq!(
-            total, 12,
+            total, 11,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
