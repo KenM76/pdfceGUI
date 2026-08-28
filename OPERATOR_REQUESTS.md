@@ -272,6 +272,32 @@ except that he could not reach it, because he could not select the thing first.
 in agent memory as well as here, because it governs every future feature rather
 than this one.
 
+
+### ★★ Update 2026-08-28 (afternoon) — the right-click, and what it exposed
+
+The five gestures this ruling covers are click, drag, grips, Delete and the
+**context menu**. The first four reached a form field this morning; the fifth
+did not, and a right-click on a text box offered four zoom levels.
+
+`canvas.field` is now the fourth canvas menu — Properties, then Delete. Rename
+goes through Properties deliberately: a menu cannot ask for text, and a second
+half-built rename that could disagree with the panel's draft-and-commit box is
+worse than one click further.
+
+★★★ **Wiring it found a live divergence.** The Delete *key* has reached a
+selected field since this morning; `format.delete`, the *command*, had not. So
+the two acted on different things — exactly what `app::keyboard`'s single
+dispatcher exists to make impossible — and nothing surfaced it, because the
+command's only route was the Format tab, which is not drawn for a form
+selection. Giving it a second door made it visible in ten minutes.
+
+⇒ **A capability reachable by one route is a capability whose other routes are
+untested.** Adding a route is therefore also an audit.
+
+★ And a second, smaller one: both menu items were gated on `selection.any`,
+which is **false** while a form field is selected. Every item disabled means
+the menu never opens at all — the feature would have shipped as *"right-click
+does nothing"*, which is the D1 shape it was written to remove.
 ---
 
 ## O52 — ★★★ Colour default becomes *Match other PDF viewers*, and the old formula goes entirely

@@ -41,8 +41,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_WHEEL, keybd_event,
-    mouse_event,
+    KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, keybd_event, mouse_event,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GA_ROOT, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
@@ -312,6 +312,29 @@ pub fn mouse_button(down: bool) {
         MOUSEEVENTF_LEFTDOWN
     } else {
         MOUSEEVENTF_LEFTUP
+    };
+    // SAFETY: no pointers; the extra-info argument is unused (0).
+    unsafe { mouse_event(flags, 0, 0, 0, 0) };
+}
+
+/// Press (`true`) or release (`false`) the **secondary** mouse button.
+///
+/// ★★★ Added 2026-08-28, and its absence until then is worth recording: this
+/// harness had driven 92 checks and **had never once opened a context menu**.
+/// pdfce has had canvas right-click menus since Phase 1 — `canvas.object` and
+/// `canvas.empty` — and every assertion about them is a unit test over
+/// `MenuHost::would_open`, which is a question about the manifest rather than
+/// about the running program.
+///
+/// ⇒ A whole gesture class was outside R1's reach for the life of the project,
+/// and nothing said so, because a missing capability in a harness leaves no
+/// failing test behind. It surfaced only when a fourth menu was added and
+/// somebody went looking for the driver to exercise it with.
+pub fn mouse_button_secondary(down: bool) {
+    let flags = if down {
+        MOUSEEVENTF_RIGHTDOWN
+    } else {
+        MOUSEEVENTF_RIGHTUP
     };
     // SAFETY: no pointers; the extra-info argument is unused (0).
     unsafe { mouse_event(flags, 0, 0, 0, 0) };

@@ -402,6 +402,13 @@ mod tests {
             "undo.available",
             "redo.available",
             "selection.any",
+            // ★★ WIDER than `selection.any`, not a refinement: it is also set
+            // for a selected form field, which lives in `doc.selected_field`
+            // rather than in `SelectionState`. `format.delete` and
+            // `format.properties` take this one because both can act on a
+            // field; the contextual Format TAB still takes `selection.any`,
+            // because a field has no font or stroke for it to offer.
+            "selection.actionable",
             // Not a refinement of `selection.any` — see `PdfceApp::conditions`.
             // A selection can exist and resolve to no box.
             "selection.bounds",

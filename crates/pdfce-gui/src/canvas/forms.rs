@@ -1091,13 +1091,38 @@ fn select_click(
     let Some(pos) = ctx.pointer_interact_pos() else {
         return;
     };
-    let Some(page) = drawn
+    // ★★★ **A right-click selects too, and the two buttons are NOT the same
+    // rule.** `OPERATOR_REQUESTS.md` O53's ruling — anything the engine can do
+    // to an object must be reachable by clicking that object — reaches the
+    // context menu, and a menu about a field the operator did not point at is
+    // the `canvas.object` select-first defect in another costume: point at
+    // field B while field A is selected, choose Delete, and A is gone.
+    //
+    // ⇒ The difference is **what happens over PAPER**:
+    //
+    // | | primary | secondary |
+    // |---|---|---|
+    // | over a field | select it | select it |
+    // | over the selected field | no change | no change |
+    // | over blank paper | **clear** | **change nothing** |
+    //
+    // The last row is `canvas::menus`' rule 3 and its reason carries here
+    // unchanged: a left click on paper is an unambiguous *"deselect"*, a
+    // right-click is the opening of a question. An operator who right-clicks
+    // slightly wide of the field they meant, sees the wrong menu and presses
+    // Escape should still have their field.
+    let primary = drawn
         .iter()
         .find(|d| d.response.clicked_by(egui::PointerButton::Primary))
-        .map(|d| d.page)
-    else {
+        .map(|d| d.page);
+    let secondary = drawn
+        .iter()
+        .find(|d| d.response.clicked_by(egui::PointerButton::Secondary))
+        .map(|d| d.page);
+    let Some(page) = primary.or(secondary) else {
         return;
     };
+    let clearing = primary.is_some();
     let Some(map) = pages.iter().find(|v| v.page == page).map(|v| v.map) else {
         return;
     };
@@ -1118,6 +1143,13 @@ fn select_click(
     if picked == doc.selected_field {
         return;
     }
+    // ★ The one asymmetry between the buttons, and it is the table above's
+    // last row. A secondary click that hit nothing leaves the selection alone;
+    // a primary one clears it. Placed after the no-change guard so an
+    // unchanged selection still costs nothing either way.
+    if picked.is_none() && !clearing {
+        return;
+    }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         match &picked {
@@ -1129,6 +1161,50 @@ fn select_click(
         }
     });
     actions.push(FieldAction::Select(picked).into());
+}
+
+/// **Is a right-click at `point` about a form field?**
+///
+/// ## ★★★ Why this exists instead of reading `doc.selected_field`
+///
+/// Because on the frame of the click that field is **not selected yet**.
+/// [`select_click`] does not mutate — it raises `FieldAction::Select`, which
+/// the queue applies at the end of the frame — so `doc.selected_field` still
+/// holds whatever was selected before, and a menu keyed on it would show the
+/// *previous* field's menu, or the view menu, on the first right-click.
+///
+/// ⇒ That is precisely the stale-snapshot hazard `shell::menus::MenuHost::with_conditions`
+/// exists for, met one layer further out: `egui`'s popup is opened **by** the
+/// secondary click, so there is no later frame on which the right answer could
+/// arrive. The first right-click on a field would silently show the wrong menu
+/// for ever.
+///
+/// ★ It is the twin of [`crate::canvas::menus::right_clicked_object`], and it
+/// answers the same question the same way — by hit-testing the click's own
+/// position rather than by consulting state one frame behind it.
+///
+/// ## ★★ It reproduces the surface's own gates, and it must
+///
+/// `edit_content` and `annotations_visible`: a form field is only *selectable*
+/// in Edit mode with annotations shown, and a menu offered where selection is
+/// not is a menu whose Delete acts on nothing. Read from the same two places
+/// [`surface`] reads them, one frame later.
+#[must_use]
+pub fn right_click_hits_a_field(
+    ctx: &egui::Context,
+    doc: &OpenDoc,
+    caps: &crate::app::modes::Capabilities,
+    page: usize,
+    point: egui::Pos2,
+) -> bool {
+    if !caps.edit_content || !doc.annotations_visible() {
+        return false;
+    }
+    // `placed` is memoised on `(path, edit_epoch)`, so this is a map lookup on
+    // every frame after the first of an epoch — the same call `widgetdrag`
+    // makes for the same reason.
+    let placed = placed(ctx, doc);
+    boxes::hit_target(&placed.targets, page, point).is_some()
 }
 
 /// The pointer over a selectable widget in Edit mode.

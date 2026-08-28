@@ -446,6 +446,18 @@ pub fn built_in() -> Shell {
 /// here is what makes the two independently editable.
 pub const SELECTION_ANY: &str = "selection.any"; // ui-text-exempt: a condition name, never displayed
 
+/// **Something Delete and Properties can act on** — wider than
+/// [`SELECTION_ANY`], and named separately for the reason `app::conditions`
+/// gives at the site that publishes it: a selected **form field** lives in
+/// `doc.selected_field`, not in `SelectionState`, so `selection.any` is false
+/// while one is selected.
+///
+/// ★ The Format **tab** still takes `SELECTION_ANY`. A field has no font, no
+/// stroke and no fill for that tab to offer, so widening the tab's own
+/// predicate would draw a band of controls that cannot act on what is
+/// selected.
+pub const SELECTION_ACTIONABLE: &str = "selection.actionable"; // ui-text-exempt: a condition name, never displayed
+
 /// **The `Item::Custom` kinds of the Format ▸ Font controls.**
 ///
 /// Three, and each is a control a **button cannot be** -- which is

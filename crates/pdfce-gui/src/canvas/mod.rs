@@ -270,10 +270,15 @@ mod painting;
 /// Pure: no egui, no pointer, no document. Which is exactly why the popup that
 /// drives it still has to be driven before any of it counts — R1.
 pub mod pick;
+pub mod resizing;
 /// ★★ The eight resize grips, finally committing — built out of `move_nodes`
 /// because `pdfce-core` has no scale verb, which was re-derived against its
 /// source rather than taken from a note.
-pub mod resizing;
+/// **Which of the four canvas menus a secondary click opens.** Its header
+/// carries the frame-ordering hazard that makes the question subtle: egui opens
+/// a popup ON the click, so a menu keyed on state the click is about to change
+/// shows the previous answer for ever.
+pub mod rightclick;
 /// ★★ **The ninth grip** — the rotate handle above the selection box, and the
 /// one gesture the eight could never express. `ui-conventions/handles.md` H2,
 /// and the third word of the operator's *"reposition, resize, or rotate"*. Its

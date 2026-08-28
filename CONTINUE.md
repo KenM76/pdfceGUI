@@ -2,10 +2,10 @@
 
 ## 2026-08-28 (afternoon) — reflow became a command, and the pinned-edit workaround was deleted
 
-**Clean tree. 18/18 gates. 1,895 + 421 + 144 tests, 0 failing. 93 driven checks,
-the newest unrun. Re-measure before quoting.** Engine `1c292bc`.
-**Published**: `OneDrive\pdfceGUI1` is the newest — signed comments, the O52
-seed removed, engine `1c292bc`. `pdfceGUI2` is the 12:28 build behind it.
+**Clean tree. 18/18 gates. 1,896 + 421 + 144 tests, 0 failing. 94 driven checks,
+the newest two unrun. Re-measure before quoting.** Engine `1c292bc`.
+**Published**: `OneDrive\pdfceGUI2` is the newest — the form-field right-click
+menu. `pdfceGUI1` is the build before it (signed comments, O52 seed removed).
 
 ### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
 
@@ -48,6 +48,40 @@ runs as spanning more than one; on those, whole-operator would replace one
 fragment with the whole replacement and leave the rest painting old glyphs —
 visible corruption reported as success. Find-based fails cleanly there instead.
 **Do not widen this without measuring.**
+
+### ★★★ THE HARNESS HAD NO RIGHT-CLICK, FOR THE WHOLE LIFE OF THE PROJECT
+
+92 driven checks, canvas context menus since Phase 1, and **not one check had
+ever opened one**. There was no `Driver::right_click_at`. Everything asserted
+about those menus asked whether the *manifest* would offer something, which is
+a real question and not the same one.
+
+⇒ **A gesture with no driver is a gesture R1 cannot reach, and the gap leaves
+no failing test behind.** It surfaced only because a fourth menu was added and
+somebody went looking for the driver. Worth asking, for any gesture class:
+*which check drives this?* — and treating "none" as a finding.
+
+★ `sys::mouse_button_secondary` is new and has **never been exercised**. If
+`right_clicking_a_form_field_opens_its_menu` fails with "no canvas-menu line",
+suspect the harness first.
+
+### ★★ FORM FIELDS GET A RIGHT-CLICK MENU, AND IT FOUND A DIVERGENCE
+
+`canvas.field`: Properties, then Delete. Rename goes through Properties on
+purpose — a menu cannot ask for text.
+
+★★★ The Delete **key** had reached a selected field since this morning;
+`format.delete`, the **command**, had not. Two Deletes acting on different
+things, which the single dispatcher exists to prevent, invisible because the
+command's only route was a tab that is not drawn for a form selection.
+
+⇒ **Adding a route to a capability is an audit of that capability.** Both times
+today, the second door found something the first had been hiding.
+
+★ The menu is keyed on a **hit test**, not on `doc.selected_field`: the
+selection a right-click raises is applied at the end of the frame and egui
+opens the popup *on* the click, so a state read shows the previous field's menu
+for ever. Do not "simplify" it.
 
 ### ★★ COMMENTS ARE SIGNED NOW, AND HALF THE FEATURE IS BLOCKED
 
@@ -117,9 +151,11 @@ the same voice asks the operator to trust both equally.
    PDFDocEncoding** before `943d482` — every comment with an accent, em dash or
    `Ø` came back as mojibake, flagged `exact: false`. Anything cached or
    displayed from an older build is suspect.
-2. **A right-click context menu for form fields.**
-3. **O51's Inkscape-style stroke-scaling toggle** on the Tool row.
-4. **Drive everything since the 27th's sweep**, when he says the machine is free.
+2. **O51's Inkscape-style stroke-scaling toggle** on the Tool row.
+3. **Drive everything since the 27th's sweep**, when he says the machine is free.
+   ★ Two of the four new checks have never run at all, and one of them uses a
+   **brand-new input primitive**. Expect the first sweep to find harness bugs
+   before it finds program bugs.
 
 ★ **O54(a) is DONE** — the highlighter follows text as of `d66f41d`, earlier
 the same day. It was written into `OPERATOR_REQUESTS.md` as *"next"* first, off

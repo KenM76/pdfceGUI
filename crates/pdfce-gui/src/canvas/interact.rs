@@ -133,8 +133,8 @@ use crate::shell::menus::MenuHost;
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
 use super::{
-    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, menus, overlay, strip, textsel, tool,
-    trace, zoom,
+    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, overlay, strip, textsel, tool, trace,
+    zoom,
 };
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
@@ -1176,27 +1176,24 @@ pub(super) fn interact(
 
     // ---- 5b. the right-click ---------------------------------------------
     //
-    // The hit test is `menus`' own — see `menus::right_clicked_object` for why
-    // it is the object rung only and why it takes a screen position.
-    //
-    // `attach` is called on EVERY frame, not only on the frame of the click,
-    // because `egui` draws an open popup until it is dismissed and a popup
-    // only exists while something is attached to the response. On a frame
-    // with no secondary click and nothing open it does nothing at all.
-    let right_clicked_object = menus::right_clicked_object(
-        secondary_clicked,
-        targets.as_deref(),
+    // ★ Split to [`super::rightclick`] under **R2** on 2026-08-28, when the
+    // fourth canvas menu took this file past 1,500 lines. One subject —
+    // *which menu does a secondary click open* — with three hit tests and a
+    // frame-ordering hazard, all of which belong together and none of which
+    // belongs in the middle of a gesture pipeline.
+    let tokens = super::rightclick::attach(super::rightclick::Click {
+        response,
+        ctx: &ctx,
+        doc,
+        caps: &caps,
+        selection: &mut selection,
+        targets: targets.as_deref(),
         screen_pos,
         map,
         page_index,
-    );
-    let tokens = menus::attach(
-        response,
-        &mut selection,
-        page_index,
-        right_clicked_object,
+        secondary_clicked,
         host,
-    );
+    });
 
     // ---- 6. keys, BEFORE the resolve -----------------------------------
     //

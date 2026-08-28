@@ -112,6 +112,45 @@ pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) 
         // at a rung whose delete verb does not exist yet.
         "format.delete" => {
             if let Status::Open(doc) = &app.status {
+                // ★★★ **A FORM FIELD FIRST, and its absence here was a real
+                // divergence rather than a missing feature.**
+                //
+                // The Delete *key* has reached a selected widget since
+                // 2026-08-28 — `canvas::keys`' ladder, rung 0 of three. This
+                // command did not. So Delete-the-key and Delete-the-command
+                // acted on different things, which is precisely what
+                // `app::keyboard`'s header calls the defect the single
+                // dispatcher exists to make impossible.
+                //
+                // ⇒ Nothing surfaced it while the only route to the command was
+                // the Format tab, because the Format tab is not drawn for a
+                // form selection. Adding `canvas.field` to the right-click
+                // gave the command a second door, and the divergence became
+                // *"the menu's Delete does nothing"*.
+                //
+                // ★★ The guard is `edit_content`, matching `canvas::keys` and
+                // matching where the selection is offered at all: `canvas::forms`
+                // gives the selection surface to Edit and the fill surface to
+                // Read and Review. One predicate per capability.
+                //
+                // ★ `DeleteWidget`, not `DeleteField` — this box, not every box
+                // the field owns. A field with two widgets on two pages is one
+                // field the operator can select from either place, and deleting
+                // the whole field because they pointed at one of its boxes
+                // would destroy work on a page they are not looking at. The
+                // Properties panel offers both, labelled, which is the right
+                // place for a choice.
+                if app.capabilities().edit_content
+                    && let Some(field) = &doc.selected_field
+                {
+                    actions.push(Action::Field(
+                        crate::app::actions::forms::FieldAction::DeleteWidget {
+                            field: field.field.clone(),
+                            widget: field.widget,
+                        },
+                    ));
+                    return;
+                }
                 // ★ An ANNOTATION first — not a tie-break: `SelectionState`
                 // cannot hold both, so these are the two cases of one
                 // question. Locked (§12.5.3 bit 8) does nothing rather than

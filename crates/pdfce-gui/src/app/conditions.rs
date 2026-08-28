@@ -104,6 +104,29 @@ impl PdfceApp {
             if !doc.selection.is_empty() {
                 set.set("selection.any");
             }
+            // ★★★ **Something Delete and Properties can act on**, which is a
+            // WIDER question than `selection.any` and has to be its own name.
+            //
+            // A form field is not in `SelectionState` at all — it lives in
+            // `doc.selected_field`, because a `/Widget` is deliberately not an
+            // annotation selection — so `selection.any` is false while a field
+            // is selected and every control gated on it resolves disabled.
+            //
+            // ⇒ That was invisible while the only route to `format.delete` was
+            // the Format tab, which is not drawn for a form selection. Giving
+            // the canvas a `canvas.field` right-click menu on 2026-08-28 gave
+            // the command a second door and the state became reachable: the
+            // menu's Delete would have been greyed on a field the Delete KEY
+            // removes.
+            //
+            // ★★ It is deliberately NOT a widening of `selection.any`. That
+            // condition also decides whether the contextual **Format tab**
+            // appears, and a form field has no font, no stroke and no fill for
+            // that tab to offer — so widening it would draw a tab of controls
+            // that cannot act on what is selected. Two questions, two names.
+            if !doc.selection.is_empty() || doc.selected_field.is_some() {
+                set.set("selection.actionable");
+            }
             // ★★ **Something selected on this page lives inside a form
             // XObject**, so `format.select_form` has a container to offer.
             //

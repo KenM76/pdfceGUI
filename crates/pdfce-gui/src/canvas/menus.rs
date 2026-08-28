@@ -108,7 +108,7 @@ use egui_shell::HandlerToken;
 
 use crate::canvas::selection::{ClickHit, SelectionState};
 use crate::canvas::target::TargetId;
-use crate::shell::manifest::SELECTION_ANY;
+use crate::shell::manifest::{SELECTION_ACTIONABLE, SELECTION_ANY};
 use crate::shell::menus::{self, MenuHost};
 
 /// `egui::Memory` key for which canvas menu is open.
@@ -149,6 +149,16 @@ pub enum CanvasMenu {
     /// ★ It is `Anchor::Run` only. A caret placing NEW text (`Origin`/`Box`)
     /// has no paragraph behind it, so that operator gets the ordinary menus.
     Text,
+    /// ★★★ **A form field is selected**: act on the field.
+    ///
+    /// Chosen ahead of [`Self::Object`] and [`Self::Empty`], below
+    /// [`Self::Text`]. The precedence is a statement about what can be true at
+    /// once rather than a tie-break — a caret and a field selection are
+    /// mutually exclusive by construction (`canvas::forms` owns `/Widget`
+    /// presses and only Edit mode offers selection at all), so the order here
+    /// is documentation of that, and the field beats the object because a
+    /// widget sits on top of whatever page content is underneath it.
+    Field,
     /// The pointer was over blank page: act on the view.
     ///
     /// The default, so a frame before any right-click has happened attaches
@@ -166,6 +176,7 @@ impl CanvasMenu {
         match self {
             Self::Object => menus::CANVAS_OBJECT,
             Self::Text => menus::CANVAS_TEXT,
+            Self::Field => menus::CANVAS_FIELD,
             Self::Empty => menus::CANVAS_EMPTY,
         }
     }
@@ -315,6 +326,7 @@ pub fn attach(
     selection: &mut SelectionState,
     page: usize,
     object: Option<TargetId>,
+    field_selected: bool,
     host: Option<&MenuHost<'_>>,
 ) -> Vec<HandlerToken> {
     // 1.
@@ -331,6 +343,21 @@ pub fn attach(
         // a paragraph, which the operator did not ask for and cannot see.
         let chosen = if caret_in_existing_text(&ctx) {
             CanvasMenu::Text
+        } else if field_selected {
+            // ★★ Asked BEFORE the hit test, and the ordering is the same
+            // protection the caret rung gets: `select_under_right_click` would
+            // replace the object selection with whatever page content sits
+            // under the widget, which the operator did not ask for and cannot
+            // see behind the field's own outline.
+            //
+            // ★★★ The SELECTION is what is read here, not a hit test, and that
+            // is deliberate: `canvas::forms::select_click` has already made the
+            // field under the pointer the selected one on this very frame — a
+            // secondary click selects exactly as a primary does, minus the
+            // clear-on-paper. So *"is a field selected"* and *"did they
+            // right-click a field"* are one question by the time this runs, and
+            // asking it twice with two hit tests is how the two answers drift.
+            CanvasMenu::Field
         } else {
             select_under_right_click(selection, page, object)
         };
@@ -348,7 +375,24 @@ pub fn attach(
     }
 
     // 3.
-    let conditions = host.with_condition(SELECTION_ANY, !selection.is_empty());
+    // ★★ Both conditions, corrected on the same frame and for one reason.
+    // `PdfceApp::conditions()` ran at the top of the frame, before step 2 could
+    // move the selection, so a first right-click on an object would otherwise
+    // resolve `format.delete` disabled and the engine — correctly — would
+    // decline to open a menu with nothing in it.
+    //
+    // ★ `selection.actionable` is the wider of the two: it is also set for a
+    // selected form field, which is not in `SelectionState`. Without it here,
+    // `canvas.field`'s two items would both resolve disabled and the menu would
+    // never open at all — the state `offers_anything` is built to prevent, met
+    // from the one direction it cannot see.
+    let conditions = host.with_conditions(&[
+        (SELECTION_ANY, !selection.is_empty()),
+        (
+            SELECTION_ACTIONABLE,
+            !selection.is_empty() || field_selected,
+        ),
+    ]);
 
     // 4.
     let chosen = load(&ctx);
@@ -571,6 +615,14 @@ mod tests {
         assert_eq!(
             CanvasMenu::Text.context_id(),
             crate::shell::menus::CANVAS_TEXT
+        );
+        // ★ The fourth, added with the form-field menu. Same argument as the
+        // third: this is the only route to acting on a field by pointing at it,
+        // so a drifted id takes the canvas route away and leaves the Forms
+        // panel working — a half-loss no other test sees.
+        assert_eq!(
+            CanvasMenu::Field.context_id(),
+            crate::shell::menus::CANVAS_FIELD
         );
         assert_eq!(CanvasMenu::Empty.context_id(), CANVAS_EMPTY);
         assert_eq!(

@@ -1341,9 +1341,13 @@ pub(super) fn all() -> Vec<Command> {
         // that appeared with a greyed Delete would be the placeholder P3
         // forbids, arriving through a mismatch rather than a decision.
         // ===================================================================
+        // ★★ `selection.actionable`, not `selection.any`, since 2026-08-28.
+        // Both commands can act on a selected FORM FIELD, which is not in
+        // `SelectionState` — see `app::conditions` for why that is a second
+        // condition rather than a widening of the first.
         command("format.delete", t::format_delete(), 800)
             .with_icon("delete")
-            .enabled_when("selection.any"),
+            .enabled_when("selection.actionable"),
         // ★ A second ROUTE to `file.properties`, not a second command that
         // opens the panel. Its arm raises `Action::Command("file.properties")`,
         // which is the mechanism that keeps one command's guards in one place.
@@ -1358,7 +1362,7 @@ pub(super) fn all() -> Vec<Command> {
         // are never drawn together because Format is contextual.
         command("format.properties", t::format_properties(), 801)
             .with_icon("properties")
-            .enabled_when("selection.any"),
+            .enabled_when("selection.actionable"),
         // ★★ **Greyed, not absent, when the selection is not inside a form.**
         //
         // R9 draws the line by *why* a thing is unavailable: a capability this

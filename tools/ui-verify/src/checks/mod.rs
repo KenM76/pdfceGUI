@@ -125,6 +125,10 @@ pub mod embed_bundled;
 pub mod embed_fonts;
 pub mod export_dxf;
 pub mod export_form_data;
+/// **The first driven context menu in this project.** Its header records the
+/// gap it closed: 92 checks and no `Driver::right_click_at`, so a whole gesture
+/// class was outside R1's reach and left no failing test behind to say so.
+pub mod field_menu;
 pub mod find_bar;
 pub mod form_field;
 /// Insert an image: the picture reaches the page, and the resolution the
@@ -593,6 +597,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // before paying for a keystroke that may never arrive.
         Box::new(markup_move::DraggingAMarkupMovesIt),
         Box::new(widget_move::DraggingAFormFieldMovesIt),
+        // ★ Beside the other form checks. It reuses `widget_move`'s first two
+        // steps verbatim in shape, so a failure in EITHER of them here should
+        // be read against that check's result first.
+        Box::new(field_menu::RightClickingAFormFieldOpensItsMenu),
         Box::new(markup_rectangle::MarkupRectangleArmsFromTheRibbon),
         // ★ Form-field placement and selection. After the markup checks and
         // not before, because it borrows their gesture machinery — a band drag

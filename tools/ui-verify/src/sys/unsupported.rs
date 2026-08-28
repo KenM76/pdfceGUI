@@ -80,6 +80,9 @@ pub fn set_cursor_position(_x: i32, _y: i32) -> Result<()> {
 /// No-op: there is no pointer to click with.
 pub fn mouse_button(_down: bool) {}
 
+/// No-op: the secondary button, off Windows. See the win32 twin.
+pub fn mouse_button_secondary(_down: bool) {}
+
 /// No-op: there is no window to type into.
 /// Turn the mouse wheel. No-op off Windows.
 pub fn wheel(_notches: i32) {}

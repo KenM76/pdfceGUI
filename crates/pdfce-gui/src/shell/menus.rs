@@ -174,6 +174,20 @@ pub const CANVAS_EMPTY: &str = "canvas.empty";
 /// caret; its right-click is this.
 pub const CANVAS_TEXT: &str = "canvas.text";
 
+/// ★★★ Right-click on the page **over a form field**.
+///
+/// The fourth canvas menu, added 2026-08-28. Keyed on `doc.selected_field`,
+/// which is neither a `SelectionState` entry nor a caret — a `/Widget` is
+/// deliberately not an annotation selection — so none of the other three ever
+/// resolved for one, and a right-click on a text box offered *"zoom to fit
+/// width"*.
+///
+/// ⇒ `OPERATOR_REQUESTS.md` **O53**: *"always always always I need objects on
+/// the canvas to be clickable and editable as one would expect."* A context
+/// menu is the fourth of the five gestures that sentence covers, after click,
+/// drag and Delete.
+pub const CANVAS_FIELD: &str = "canvas.field";
+
 /// Right-click on a panel tab in the dock.
 ///
 /// Defined but not attachable from this crate — see the module header.
@@ -210,6 +224,7 @@ pub const CONTEXTS: &[&str] = &[
     CANVAS_OBJECT,
     CANVAS_EMPTY,
     CANVAS_TEXT,
+    CANVAS_FIELD,
     DOCK_TAB,
     DOCUMENT_TAB,
     OBJECTS_ROW,
@@ -368,6 +383,29 @@ pub fn built_in() -> Menus {
             Item::command("view.zoom_fit_width"),
             Item::command("view.zoom_fit_height"),
             Item::command("view.zoom_actual"),
+        ]))
+        // -------------------------------------------------------------------
+        // canvas.field — the form field's menu.
+        //
+        // ★★ TWO items, and the pair is chosen by what an operator does to a
+        // field they have just placed: they check its settings, or they got rid
+        // of it. Properties first, destructive last — the ordering rule every
+        // menu in this file follows.
+        //
+        // ★★★ **Rename is absent and its absence is not an oversight.** It
+        // lives in the Properties panel as a draft box with an explicit commit,
+        // because renaming a field on every keystroke would author one real,
+        // separately-undoable rename per character. A menu item cannot ask for
+        // text, so `format.properties` IS the rename route — one click further
+        // and honest about it, rather than a second half-implemented rename
+        // that could disagree with the first.
+        //
+        // ★ `format.delete` removes THIS BOX, not the whole field. A field with
+        // two widgets on two pages is one field selectable from either place,
+        // and the panel offers both deletions labelled. See `dispatch::format`.
+        .with(Menu::new(CANVAS_FIELD).with_items([
+            Item::command("format.properties"),
+            Item::command("format.delete"),
         ]))
         // -------------------------------------------------------------------
         // canvas.text — the caret's menu.
@@ -661,11 +699,31 @@ impl<'a> MenuHost<'a> {
     /// wants it.
     #[must_use]
     pub fn with_condition(&self, condition: &str, holds: bool) -> ConditionSet {
+        self.with_conditions(&[(condition, holds)])
+    }
+
+    /// The same correction, for **several** conditions at once.
+    ///
+    /// ★★ Added 2026-08-28 with the `canvas.field` menu, and it exists so the
+    /// second caller could not be written as a two-step. [`Self::with_condition`]
+    /// returns an owned `ConditionSet` rather than a builder, so correcting two
+    /// conditions meant taking the result and mutating it — which puts half the
+    /// correction inside this type's documented contract and half outside it,
+    /// where the next reader will not find the argument above for why the
+    /// correction is needed at all.
+    ///
+    /// ⇒ Both conditions the canvas corrects are *the same fact one frame
+    /// later*, and they should arrive by the same route. `with_condition`
+    /// delegates here so there is one implementation.
+    #[must_use]
+    pub fn with_conditions(&self, pairs: &[(&str, bool)]) -> ConditionSet {
         let mut set = self.conditions.clone();
-        if holds {
-            set.set(condition);
-        } else {
-            set.clear(condition);
+        for &(condition, holds) in pairs {
+            if holds {
+                set.set(condition);
+            } else {
+                set.clear(condition);
+            }
         }
         set
     }
@@ -757,6 +815,21 @@ mod tests {
             .with("doc.open")
             .with("doc.pages")
             .with(manifest::SELECTION_ANY)
+            // ★★ 2026-08-28. Without it `canvas.object` stopped opening, and
+            // the failure was correct: `format.delete` and `format.properties`
+            // moved to the wider `selection.actionable` when a form field
+            // became something they can act on, and this fixture's name
+            // promises *"everything open"* while naming conditions one at a
+            // time.
+            //
+            // ⇒ A hand-listed "liveliest state" fixture goes stale the moment a
+            // command's predicate changes, and it fails on the menu that lost
+            // its last enabled item rather than on the condition that moved —
+            // which is a true failure pointing at the wrong file. Adding the
+            // name here is the whole repair; the alternative, deriving the set
+            // from the registry, would make the test assert that the registry
+            // agrees with itself.
+            .with(manifest::SELECTION_ACTIONABLE)
     }
 
     /// **★ Every command every menu names is registered.**
@@ -913,6 +986,43 @@ mod tests {
         }
     }
 
+    /// ★★★ **The field menu opens on a field selection ALONE.**
+    ///
+    /// The state the operator is actually in when they right-click a text box:
+    /// `doc.selected_field` is set and `SelectionState` is **empty**, because a
+    /// `/Widget` is deliberately not an annotation selection. Every other canvas
+    /// menu resolves nothing there.
+    ///
+    /// ⇒ This is the assertion that would have caught the bug this feature
+    /// shipped with for ten minutes: `format.delete` and `format.properties`
+    /// were gated on `selection.any`, which is **false** in exactly this state,
+    /// so both items resolved disabled, `offers_anything` was false, and the
+    /// menu never opened. A right-click on a form field would have done nothing
+    /// at all — `DEFECTS.md` D1's shape, arrived at through a new door.
+    ///
+    /// ★ `everything_open()` is deliberately not used: it sets both conditions
+    /// and would pass on a build where the two are confused. The whole point is
+    /// that only the wider one holds here.
+    #[test]
+    fn the_field_menu_opens_with_a_field_selected_and_nothing_else() {
+        let (shell, registry) = shell_and_registry();
+        let field_only = ConditionSet::new()
+            .with("doc.open")
+            .with("doc.pages")
+            .with(manifest::SELECTION_ACTIONABLE);
+        let host = MenuHost::new(&shell, &registry, &field_only);
+        assert!(
+            host.would_open(CANVAS_FIELD),
+            "a selected form field offers no menu, so right-clicking one does nothing"
+        );
+        // ★★ And the object menu opens here TOO, which is correct and is worth
+        // asserting rather than leaving as a surprise: both its items can act
+        // on a field, so the menus differ by their CONTEXT ID rather than by
+        // what is enabled. `canvas::menus::attach` picks Field first when a
+        // field is in play, which is where the distinction is made.
+        assert!(host.would_open(CANVAS_OBJECT));
+    }
+
     /// **★ …and an empty menu never opens.**
     ///
     /// The engine's rule 2, asserted through the seam this application
@@ -989,7 +1099,15 @@ mod tests {
         assert!(!host.would_open(CANVAS_OBJECT));
 
         // The canvas has since selected the object under the pointer.
-        let corrected = host.with_condition(manifest::SELECTION_ANY, true);
+        //
+        // ★ BOTH conditions, because `attach` corrects both — see
+        // `MenuHost::with_conditions`. Correcting only `selection.any` here
+        // would have this test passing on a build where `attach` forgot the
+        // second, which is the exact hazard the test exists for one level up.
+        let corrected = host.with_conditions(&[
+            (manifest::SELECTION_ANY, true),
+            (manifest::SELECTION_ACTIONABLE, true),
+        ]);
         assert!(
             host.would_open_with(CANVAS_OBJECT, &corrected),
             "the right-click selected an object and the menu still refused to open"
@@ -997,8 +1115,20 @@ mod tests {
 
         // …and the correction goes both ways, so a menu cannot be opened by
         // a condition the caller has just found to be false.
-        let cleared = MenuHost::new(&shell, &registry, &corrected)
-            .with_condition(manifest::SELECTION_ANY, false);
+        //
+        // ★★ BOTH have to be cleared, and the reason is worth a sentence
+        // because the first version of this line cleared only `selection.any`
+        // and the assertion failed. `canvas.object`'s two items now take
+        // `selection.actionable`, so clearing the narrower condition alone
+        // leaves them enabled and the menu opens — correctly.
+        //
+        // ⇒ A "goes both ways" assertion has to clear **every** condition the
+        // forward direction set, or it is asserting about a state the forward
+        // direction never produces.
+        let cleared = MenuHost::new(&shell, &registry, &corrected).with_conditions(&[
+            (manifest::SELECTION_ANY, false),
+            (manifest::SELECTION_ACTIONABLE, false),
+        ]);
         assert!(!host.would_open_with(CANVAS_OBJECT, &cleared));
     }
 

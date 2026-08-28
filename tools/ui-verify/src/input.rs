@@ -195,6 +195,46 @@ impl Driver {
         Ok(())
     }
 
+    /// Move the pointer and click the **secondary** button.
+    ///
+    /// ## ★★★ The first driver for a gesture class this project has shipped
+    /// ## since Phase 1
+    ///
+    /// pdfce has had canvas context menus for months and **not one driven check
+    /// has ever opened one**. Everything asserted about them is a unit test over
+    /// `MenuHost::would_open`, which asks whether the *manifest* would offer
+    /// something — a real question, and not the same question as *"does a right
+    /// -click on this pixel open a menu"*.
+    ///
+    /// ⇒ R1's own words: *"the tests pass" is not a report of working
+    /// software*. A gesture with no driver is a gesture R1 cannot reach, and
+    /// the gap left no failing test behind to advertise itself.
+    ///
+    /// ## ★★ What this deliberately does NOT do
+    ///
+    /// It does not click a menu **item**. An `egui` popup is positioned by the
+    /// pointer and sized by its content, so a harness that aimed at "the second
+    /// row" would be encoding a layout, and would silently start clicking the
+    /// wrong verb the day a menu grows an entry. The oracle is the application's
+    /// own `canvas-menu context=…` trace line, which says which menu it
+    /// resolved and how many items it offered — the fact under test, without a
+    /// coordinate to go stale.
+    ///
+    /// ★ Escape is **not** pressed afterwards, deliberately: leaving the popup
+    /// open is what lets a following screenshot show it. A check that wants it
+    /// closed presses Escape itself, and says why.
+    pub fn right_click_at(&self, p: ScreenPoint) -> Result<()> {
+        self.raise_and_confirm_at(p)?;
+        self.confirm_uncovered(p)?;
+        sys::set_cursor_position(p.x(), p.y())?;
+        std::thread::sleep(MOVE_SETTLE);
+        sys::mouse_button_secondary(true);
+        std::thread::sleep(CLICK_HOLD);
+        sys::mouse_button_secondary(false);
+        std::thread::sleep(MOVE_SETTLE);
+        Ok(())
+    }
+
     /// **Press at `from`, travel to `to`, release** — a real primary-button
     /// drag.
     ///
