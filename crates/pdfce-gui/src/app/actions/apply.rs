@@ -728,9 +728,82 @@ impl PdfceApp {
                 // frame they pressed Accept. There is no window for the value
                 // to go stale across.
                 let ink = self.pen.ink;
+                // ★★★ **The note the operator just typed, signed and dated.**
+                //
+                // `add_text_annotation_with` rather than the bare verb, and the
+                // difference is three keys: `/Contents`, `/T` and `/M`.
+                //
+                // # Why the text is passed TWICE, which looks like a mistake
+                //
+                // The spec already carries it — a sticky's `/Contents` is what
+                // its popup shows, a `/FreeText`'s is what is painted — and
+                // `MarkupOptions::note` writes `/Contents` again over the top.
+                // Identical bytes, so the file is unchanged by the duplication.
+                //
+                // ⇒ The note is passed anyway because **`/T` and `/M` are only
+                // reachable through it.** The engine writes the three as a
+                // group or not at all, so a shell that wanted an author had to
+                // supply the text with it. Splitting them would be a change to
+                // `pdfce-core`, and asking for one to avoid re-passing a string
+                // this frame already holds is not a case worth making.
+                //
+                // # ★★ The author is a PREFERENCE and may be empty
+                //
+                // Empty writes no `/T`, which is legal and is exactly what
+                // every annotation this shell authored before today did. It is
+                // not a defect to leave it unset — an anonymous comment is a
+                // real choice — so there is no nag and no default guessed from
+                // the OS user account.
+                //
+                // # ★ The date is UTC and may be absent
+                //
+                // `app::clock` carries the whole argument, including why a
+                // local time labelled `Z` was the one option ruled out. `None`
+                // means the system clock is before 1970, and omitting `/M`
+                // beats writing a comment dated 1969.
+                // ★ Builders, not a struct literal: `MarkupNote` is
+                // `#[non_exhaustive]`, which is what keeps a future field a
+                // non-breaking addition for us. `by` and `at` take the value,
+                // so both are applied conditionally rather than passed as
+                // `Option`.
+                let mut note = pdfce_core::edit::MarkupNote::new(text.clone());
+                let author = self.prefs.author_name.trim();
+                if !author.is_empty() {
+                    note = note.by(author);
+                }
+                if let Some(stamp) = crate::app::clock::pdf_date_utc() {
+                    note = note.at(stamp);
+                }
+                let options = pdfce_core::edit::MarkupOptions {
+                    note: Some(note),
+                    ..Default::default()
+                };
                 if let Some(spec) = crate::canvas::textannot::spec(kind, rect, &text, stamp, ink) {
+                    // ★★ The note's three keys, on the diagnostic channel and
+                    // NOT on the status line. An operator who typed a comment
+                    // does not need to be told their own name was written; a
+                    // driven check needs to know it, because `/T` and `/M` are
+                    // invisible on the page by construction — a sticky's words
+                    // live in a popup and its author lives nowhere at all
+                    // until a reviewer UI draws a column.
+                    //
+                    // ⇒ Without this line the feature has NO oracle short of
+                    // parsing the saved file. It is the same argument
+                    // `markup_move`'s `keys=` makes for the half of a move a
+                    // screenshot cannot see.
+                    let signed = !self.prefs.author_name.trim().is_empty();
+                    let dated = crate::app::clock::pdf_date_utc().is_some();
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!(
+                            "text-annot-note chars={} signed={signed} dated={dated}",
+                            text.chars().count()
+                        )
+                    });
                     vector_edit(doc, "add-text-annot", page, 1, |session| {
-                        session.add_text_annotation(page, &spec).map(|_| Vec::new())
+                        session
+                            .add_text_annotation_with(page, &spec, &options)
+                            .map(|_| Vec::new())
                     });
                 } else {
                     crate::diag::trace(|| {

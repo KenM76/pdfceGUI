@@ -182,7 +182,20 @@ default is not to check.
 `ui-verify` check and its fixture are written and unrun:
 `reflowing_a_paragraph_rewraps_it` against `fixtures/paragraph.pdf`, whose six
 short ragged lines pack to five, so *"it ran and changed nothing"* fails rather
-than passing. **(a) is next.**
+than passing.
+
+★★★ **(a) SHIPPED EARLIER THE SAME DAY, in `d66f41d`** — and this line was
+first written saying *"(a) is next"*, on the strength of the status field above
+it rather than on the source. `canvas::markup::text::swept` follows the text
+and falls through to the area band where there is none, which is the
+*"strictly dominates the reference"* rule this entry asked for.
+
+⇒ **A backlog row is a record, not evidence.** The same mistake this project
+has now made four times, twice within a day of the thing shipping. The rule
+stands: verify an absence claim against the source before writing it down,
+including — especially — in the file that tracks the claim.
+
+**Status:** ★★ **BOTH HALVES DONE 2026-08-28.** Neither is driven.
 
 ---
 
@@ -326,8 +339,20 @@ compiler finds it — see the request.
 on load, because the option is no longer on screen and leaving them on a value
 they cannot see or change is worse than moving them.
 
-**Status:** ★ **SHELL HALF DONE 2026-08-28**, engine half filed. Not driven —
-he is at the machine.
+**Status:** ★★ **BOTH HALVES DONE 2026-08-28.** The engine landed
+`Pass 153.0` the same afternoon — `Calibrated` is its default and `Naive` is
+deleted — so the shell-side seed is **gone**, exactly as its own tripwire
+instructed. It fired on the first build after the `cargo update`, which is the
+whole reason it was written as a `debug_assert_ne!` rather than a comment.
+
+★ Two tests moved with it and the second is worth recording. One asserted the
+dirty flag by setting `cmyk_intent = Calibrated` — which stopped being a change
+the moment `Calibrated` became the default, and failed on a build whose dirty
+flag works perfectly. **A test that names a value to prove "something changed"
+is coupled to what the default is.** Both now assert their own premise, so the
+next default move fails saying *"the test needs a CHANGE"*.
+
+Not driven — he is at the machine.
 
 ---
 

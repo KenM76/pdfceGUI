@@ -247,6 +247,18 @@ pub const fn group_colour() -> &'static str {
     "Colour"
 }
 
+/// The group holding the one control about the PERSON rather than the document
+/// or the program.
+///
+/// ★ *"Comments"*, not *"Annotations"* or *"Markup"*. Every reviewer UI the
+/// operator has used calls them comments; *annotation* is the PDF's word for
+/// the object and *markup* is ours for the tool. The heading is where somebody
+/// looks, so it takes their word.
+#[must_use]
+pub const fn group_comments() -> &'static str {
+    "Comments"
+}
+
 /// Group 3.
 #[must_use]
 pub const fn group_images() -> &'static str {
@@ -481,7 +493,11 @@ mod tests {
     /// it within one `cargo update`. That is the mechanism working: a setting
     /// the engine honours and the window cannot reach is a setting an operator
     /// can only change by hand-editing a text file.
-    const SETTINGS_COUNT: usize = 25;
+    /// ★★ And 25 → **26** on 2026-08-28 with `author_name` — the **first**
+    /// entry here that is neither an answer to a silent standard nor a
+    /// rendering preference. It is a fact about the *person*, and it is in
+    /// this window because the alternative was a comment nobody signed.
+    const SETTINGS_COUNT: usize = 26;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -510,6 +526,11 @@ mod tests {
                 cmyk_intent_radius(),
             ),
             (polarity_title(), polarity_silence(), polarity_radius()),
+            (
+                author_name_title(),
+                author_name_silence(),
+                author_name_radius(),
+            ),
             (
                 blend_space_title(),
                 blend_space_silence(),
@@ -665,6 +686,18 @@ mod tests {
                 include_str!("../../dialogs/settings/appearance.rs"),
             ),
             ("colour", include_str!("../../dialogs/settings/colour.rs")),
+            // ★★★ Added 2026-08-28 with the author-name control, and its
+            // absence for the first ten minutes is the finding: this list is
+            // HAND-WRITTEN, so a new settings module is invisible to the very
+            // test whose job is to prove the window and the catalog agree.
+            // A new file draws a header nobody counts and describes a setting
+            // nobody checks — the count still adds up and both halves are
+            // wrong. If a third module is ever added, this line is the one to
+            // remember before the control is written.
+            (
+                "comments",
+                include_str!("../../dialogs/settings/comments.rs"),
+            ),
             ("display", include_str!("../../dialogs/settings/display.rs")),
             ("images", include_str!("../../dialogs/settings/images.rs")),
             (

@@ -110,6 +110,7 @@
 
 pub mod appearance;
 pub mod colour;
+mod comments;
 mod preset;
 
 /// ★ The eighth group, and the only one not about the PDF standard: how pdfce
@@ -571,6 +572,13 @@ pub fn show(
                 widgets::group(ui, "measuring", t::group_measuring(), false, |ui| {
                     measuring::parallel(ui, draft);
                 });
+                // ★ Beside Measuring, the other group about AUTHORING rather
+                // than about reading, and before Pages. `comments`' own header
+                // carries why a preference is filed among the document groups
+                // instead of with the other preferences at the end.
+                widgets::group(ui, "comments", t::group_comments(), false, |ui| {
+                    comments::author_name(ui, &mut draft.working_prefs);
+                });
                 widgets::group(ui, "pages", t::group_pages(), false, |ui| {
                     pages::separations(ui, draft);
                     ui.add_space(10.0);
@@ -828,7 +836,21 @@ mod tests {
     #[test]
     fn changing_a_value_makes_the_draft_dirty() {
         let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
-        draft.working.cmyk_intent = CmykIntent::Calibrated;
+        // ★★ `NeutralBlack`, and it was `Calibrated` until 2026-08-28. The
+        // engine's `Pass 153.0` made `Calibrated` the DEFAULT, so assigning it
+        // to a default-seeded draft changed nothing and this test failed — on a
+        // build where the dirty flag works perfectly.
+        //
+        // ⇒ **A test that names a specific value to prove "something changed"
+        // is coupled to what the default is.** The assertion below is the fix:
+        // it states the premise, so the next default move fails with *"the test
+        // needs a CHANGE"* rather than with *"the dirty flag is broken"*.
+        draft.working.cmyk_intent = CmykIntent::NeutralBlack;
+        assert_ne!(
+            draft.working.cmyk_intent,
+            Settings::default().cmyk_intent,
+            "the test needs a CHANGE"
+        );
         assert!(draft.is_dirty());
         assert!(!draft.is_all_default());
     }
@@ -843,7 +865,13 @@ mod tests {
     fn changing_a_value_back_makes_it_clean_again() {
         let mut draft = Draft::new(&Settings::default(), &crate::app::prefs::Prefs::default());
         let was = draft.working.cmyk_intent;
-        draft.working.cmyk_intent = CmykIntent::Naive;
+        // ★ `NeutralBlack` because `Naive` was DELETED by the engine's
+        // `Pass 153.0` on 2026-08-28, hours after O52 asked for it. Any value
+        // other than the default works here — the test is about the flag not
+        // latching, not about colour — and the one requirement is that it
+        // differs from `was`, which the assertion two lines down enforces.
+        draft.working.cmyk_intent = CmykIntent::NeutralBlack;
+        assert_ne!(draft.working.cmyk_intent, was, "the test needs a CHANGE");
         assert!(draft.is_dirty());
         draft.working.cmyk_intent = was;
         assert!(!draft.is_dirty(), "the dirty flag latched");

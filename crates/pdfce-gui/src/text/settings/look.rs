@@ -426,6 +426,58 @@ pub const fn blend_space_note(src: pdfce_core::settings::PageBlendSpaceSource) -
 }
 
 // ===========================================================================
+// Comments — who signs them
+// ===========================================================================
+
+/// Author name: what it is.
+///
+/// ★★ The title says **your comments**, not *"annotation title"* and not
+/// *"the /T entry"*. §12.5.6.4 calls the field a title, which is a word from
+/// the format rather than a word about the job, and an operator scanning
+/// headings for *"why do my comments say nobody"* would not stop at it.
+#[must_use]
+pub const fn author_name_title() -> &'static str {
+    "Your name on the comments you write"
+}
+
+/// What happens if you never touch it.
+///
+/// ★★★ It states the consequence plainly rather than calling the empty value
+/// a problem. An anonymous comment is legal, is what pdfce wrote before this
+/// existed, and is a reasonable choice for a drawing leaving the firm. The
+/// window's job is to say what silence does, not to nag.
+#[must_use]
+pub const fn author_name_silence() -> &'static str {
+    "Comments you write are anonymous — the author column in Acrobat and in pdfce's own Comments panel is blank."
+}
+
+/// What it costs, and what it does not affect.
+///
+/// ★ It names the two boundaries that matter: it goes into the file, and it
+/// does not apply retroactively. Somebody who sets it after a review session
+/// should not expect yesterday's comments to be signed.
+#[must_use]
+pub const fn author_name_radius() -> &'static str {
+    "Written into every comment you make from now on, and it travels with the file to whoever you send it to. Comments already in the document are not changed."
+}
+
+/// The field's own label.
+#[must_use]
+pub const fn author_name_label() -> &'static str {
+    "Your name"
+}
+
+/// The note under the field.
+///
+/// ★ It answers the question the empty box provokes — *"why does pdfce not
+/// already know this?"* — because the answer is a decision rather than an
+/// omission, and one an operator would agree with if told.
+#[must_use]
+pub const fn author_name_note() -> &'static str {
+    "Leave it blank to stay anonymous. pdfce does not take your Windows login for this: the name goes into files you send to other people, so it is yours to choose."
+}
+
+// ===========================================================================
 // Overprint — which colours get the zero-tint rule
 // ===========================================================================
 

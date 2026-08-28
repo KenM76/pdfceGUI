@@ -224,70 +224,6 @@ impl SettingsExt for Settings {
     }
 }
 
-/// **What this shell ships as the CMYK colour default, until the engine agrees.**
-///
-/// `OPERATOR_REQUESTS.md` **O52**, in his words: *"under the colour setting we
-/// are going to change our default to Match other PDF viewers."*
-///
-/// # ★★★ Why a shell overrides an engine default at all, and why it is temporary
-///
-/// `pdfce_core::settings::CmykIntent` still carries `#[default] NeutralBlack`,
-/// and its own type documentation explains that as *"the shipped default, **by
-/// operator ruling**"*. The operator has now reversed that ruling. Moving the
-/// attribute is a `pdfce-core` change and `D:\Dev\pdfce\` is read-only to this
-/// project until fold-in, so it is filed rather than made.
-///
-/// ⇒ Waiting would mean a fresh install still opening on black-ink-is-black for
-/// however long the hand-off takes, which is not what he asked for. So this
-/// shell seeds the value it ships with, in the one place settings are loaded.
-///
-/// # ★★★ It must be DELETED when the engine's default moves, not left
-///
-/// A shell that keeps overriding a default it agrees with is a **second source
-/// of truth**, and the two only ever disagree silently. The `debug_assert`
-/// below is what forces the issue: the day `Settings::default()` returns
-/// `Calibrated`, every debug run of this shell trips it, which is a louder
-/// signal than a comment nobody re-reads.
-///
-/// ★ That is the same mechanism `text_edit`'s deprecated arm used when form
-/// editing landed — a `#[deprecated]` attribute pointing at the one line to
-/// remove — and it worked: the workaround came out the day its cause did.
-///
-/// # ★★ What it does NOT do
-///
-/// It does not touch a value the operator has chosen. `Settings::load` returns
-/// the stored value where a file names one, and this only moves the two states
-/// that mean *"nobody has said"* — the engine's own default, and the retired
-/// formula whose radio button is no longer on screen.
-pub fn colour_default(settings: &mut Settings) {
-    use pdfce_core::settings::CmykIntent;
-    // ★★ The tripwire, and it is the point of this function having a home of
-    // its own rather than being three lines inline. When the engine's default
-    // becomes `Calibrated`, this fires on the first debug run and the whole
-    // function goes.
-    debug_assert_ne!(
-        Settings::default().cmyk_intent,
-        CmykIntent::Calibrated,
-        "pdfce-core's default is now Calibrated, so `colour_default` is a second source of \
-         truth for a value the engine already gets right. Delete it and its call site."
-    );
-    // ★ Both arms are "nobody chose this". `NeutralBlack` is what the engine
-    // hands back for a fresh install; `Naive` is a stored value whose radio
-    // button was removed on the operator's instruction, and leaving somebody on
-    // an option they can neither see nor change is worse than moving them.
-    //
-    // ★★ `Naive` is named rather than matched with a wildcard, deliberately.
-    // The engine is deleting that variant, and when it does this arm stops
-    // compiling — which is exactly the reminder wanted. A `_ =>` would keep
-    // building and quietly do nothing.
-    if matches!(
-        settings.cmyk_intent,
-        CmykIntent::NeutralBlack | CmykIntent::Naive
-    ) {
-        settings.cmyk_intent = CmykIntent::Calibrated;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,37 +237,30 @@ mod tests {
     /// engine's default put through `colour_default` — which is the only claim
     /// worth making while two crates disagree about what the default is. A test
     /// that checked `Settings::default()` would be testing `pdfce-core`, and a
-    /// test that checked `colour_default`'s arms in isolation would pass on a
-    /// build that never called it.
+    /// ★★★ **This test outlived the function it was written for, and that is
+    /// the point rather than an accident.**
+    ///
+    /// It was written on 2026-08-28 against `app::settings::colour_default`, a
+    /// three-line seed this shell carried because `pdfce-core`'s default was
+    /// still `NeutralBlack` and O52 had reversed the operator's earlier ruling.
+    /// That function shipped with a `debug_assert_ne!` tripwire whose message
+    /// said *"delete it and its call site"*.
+    ///
+    /// **`Pass 153.0` landed the same day and the tripwire fired.** The seed is
+    /// gone, its call site is gone, and this assertion now reads the engine
+    /// directly — which is what it was always about. What the operator asked
+    /// for was *"a fresh install opens on Match other PDF viewers"*, and that
+    /// claim is worth a test whichever crate is responsible for making it true.
+    ///
+    /// ⇒ A test written against a temporary mechanism should assert the
+    /// **outcome**, not the mechanism. This one did, so removing the mechanism
+    /// cost one line.
     #[test]
     fn a_fresh_install_matches_other_viewers() {
         use pdfce_core::settings::CmykIntent;
-        let mut fresh = Settings::default();
-        colour_default(&mut fresh);
-        assert_eq!(fresh.cmyk_intent, CmykIntent::Calibrated);
+        assert_eq!(Settings::default().cmyk_intent, CmykIntent::Calibrated);
     }
 
-    /// ★★★ **A value the operator chose is left alone.**
-    ///
-    /// The failure this guards is the one that would make the whole override
-    /// indefensible: a shell that seeded a default by overwriting a stored
-    /// choice would silently undo the operator's own setting on every launch,
-    /// and the setting would appear not to persist.
-    ///
-    /// ★ `NeutralBlack` cannot be tested this way and deliberately is not — it
-    /// is indistinguishable from "nobody chose", because it IS the engine's
-    /// default. That is a real limit of seeding rather than an oversight, and
-    /// it is why this override has to be temporary: an operator who genuinely
-    /// wants black-ink-is-black cannot hold it until the engine's default
-    /// moves and this function goes.
-    #[test]
-    fn a_chosen_value_survives_the_seed() {
-        use pdfce_core::settings::CmykIntent;
-        let mut chosen = Settings::default();
-        chosen.cmyk_intent = CmykIntent::Calibrated;
-        colour_default(&mut chosen);
-        assert_eq!(chosen.cmyk_intent, CmykIntent::Calibrated);
-    }
     use pdfce_core::settings::{
         ActualTextPrecedence, CmykIntent, CmykJpegPolarity, MaskResample, MinifyFilter,
         MissingAppearanceState, TrailingEol, UnmappableCode, XrefEntryEol,

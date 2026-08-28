@@ -2,10 +2,10 @@
 
 ## 2026-08-28 (afternoon) — reflow became a command, and the pinned-edit workaround was deleted
 
-**Clean tree. 18/18 gates. 1,893 + 421 + 144 tests, 0 failing. 93 driven checks,
-the newest unrun. Re-measure before quoting.** Engine `64224d4`.
-**Published**: `OneDrive\pdfceGUI2` is the newest (reflow + the overflow
-disclosure); `pdfceGUI1` is 12:06 and one commit behind it.
+**Clean tree. 18/18 gates. 1,895 + 421 + 144 tests, 0 failing. 93 driven checks,
+the newest unrun. Re-measure before quoting.** Engine `1c292bc`.
+**Published**: `OneDrive\pdfceGUI1` is the newest — signed comments, the O52
+seed removed, engine `1c292bc`. `pdfceGUI2` is the 12:28 build behind it.
 
 ### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
 
@@ -49,6 +49,33 @@ fragment with the whole replacement and leave the rest painting old glyphs —
 visible corruption reported as success. Find-based fails cleanly there instead.
 **Do not widen this without measuring.**
 
+### ★★ COMMENTS ARE SIGNED NOW, AND HALF THE FEATURE IS BLOCKED
+
+Every sticky note, text box and stamp this shell ever authored was anonymous
+and undated. Settings ▸ **Comments ▸ Your name** fixes it; blank is supported
+and means anonymous.
+
+★★ `app::clock` is the **only** place this shell reads a wall clock, and its
+header is worth reading before touching it: UTC with `Z`, because local time
+labelled `Z` is the option that looks right to whoever typed the comment and is
+a lie in the file. `pdfce-core` refuses to read a clock at all, deliberately.
+
+★ A note on a *shape* is blocked — see item 1 below.
+
+### ★★ THE O52 SEED IS GONE, AND ITS TRIPWIRE IS WHY
+
+`app::settings::colour_default` existed for two hours. It forced
+`CmykIntent::Calibrated` while the engine still defaulted to `NeutralBlack`,
+and it shipped with a `debug_assert_ne!` whose message said *"delete it and its
+call site"*. `Pass 153.0` landed the same afternoon and it fired on the first
+build after `cargo update`.
+
+★ Two tests moved with it. One asserted the dirty flag by setting
+`cmyk_intent = Calibrated` — which stopped being a *change* the moment
+`Calibrated` became the default, and failed on a build whose dirty flag is
+fine. **A test that names a value to prove "something changed" is coupled to
+what the default is.** Both now assert their own premise first.
+
 ### ★★ A setting appeared out of a `cargo update`, and our own gate caught it
 
 `Pass 143.0` added `overprint_zero_tint_scope` and
@@ -78,12 +105,25 @@ the same voice asks the operator to trust both equally.
 
 ### What is next, in his likely order
 
-1. **O54(a)** — the highlight tool should follow text on a drag, not draw a
-   box. Both halves exist (`canvas::textsel` quads, `Action::CommitTextMarkup`)
-   and are not connected. It is O53 in another costume.
+1. **A note on a SHAPE**, which is blocked and filed —
+   `request_a_note_can_only_be_written_at_author_time.md`. The signed-and-dated
+   half shipped today for the sticky note, text box and stamp, because those
+   three have a text-entry moment. A cloud, a highlight and an arrow are
+   authored on mouse-release from geometry alone, and there is no verb that
+   sets a note on an annotation that **already exists** — so the conventional
+   route (draw → it is selected → type in the panel) does not exist, and the
+   Comments panel stays read-only.
+   ★ ⚠ The same engine note warns that `pdfce-core` **could not decode
+   PDFDocEncoding** before `943d482` — every comment with an accent, em dash or
+   `Ø` came back as mojibake, flagged `exact: false`. Anything cached or
+   displayed from an older build is suspect.
 2. **A right-click context menu for form fields.**
 3. **O51's Inkscape-style stroke-scaling toggle** on the Tool row.
 4. **Drive everything since the 27th's sweep**, when he says the machine is free.
+
+★ **O54(a) is DONE** — the highlighter follows text as of `d66f41d`, earlier
+the same day. It was written into `OPERATOR_REQUESTS.md` as *"next"* first, off
+the status field rather than off the source. Fourth recurrence of that.
 
 ---
 
