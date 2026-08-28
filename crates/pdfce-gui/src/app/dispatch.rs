@@ -820,6 +820,27 @@ impl PdfceApp {
             // is the extension the operator types in the save picker, which is
             // how every application on this desktop does it and is one modal
             // window rather than two. See `actions::export::form_data`.
+            // ★★ A second ROUTE to the Forms panel, not a second implementation
+            // of anything. Its tooltip promises *"list every form field in this
+            // document, and rename, retype or remove them"* — and every one of
+            // those is already reachable: the Forms panel lists, the Properties
+            // pane renames and removes, and **retyping does not exist anywhere
+            // and never will**, because Acrobat has offered no field-type
+            // conversion since Acrobat 6 and `pdfce-core` models the same limit
+            // by making the request unrepresentable.
+            //
+            // So the honest wiring is the one `format.properties` established:
+            // raise the command that already does it. A manage-fields dialog
+            // would be a third surface for verbs that have two.
+            //
+            // ★ The tooltip's "retype" clause is now the only false promise
+            // left on this command, and it is a copy fix rather than a feature.
+            "edit.form_manage_fields" => {
+                actions.push(Action::Command(
+                    // ui-text-exempt: a registered command id, never displayed
+                    "view.panel_forms".to_owned(),
+                ));
+            }
             "file.export_form_data" => actions.push(Action::ExportFormData),
             // ★ The picker runs HERE, before the action, where the export's runs
             // inside the apply phase. Both are right for their case: an export
@@ -1121,8 +1142,16 @@ impl PdfceApp {
             // | command | engine verb | what is missing |
             // |---|---|---|
             // | `pages.split` | `pdfce_core::pageops::split` | a **boundary chooser**. `plan_split` takes a `SplitPlan` — every N pages, at bookmarks, at an explicit list — and a destination *directory* plus a name template. There is no honest default: splitting a 36-sheet drawing set into 36 files because nobody was asked is not a lesser version of the feature |
-            // | `pages.merge_into` | `pdfce_core::pageops::insert` | a **file picker plus an insertion point**, and — the blocking half — `insert` returns the bytes of a NEW document rather than mutating the session. Wiring it means replacing `OpenDoc::session` wholesale, which discards the command log the undo work is building |
-            // | `pages.insert_from_file` | `pdfce_core::pageops::insert` | the same two things, for the same reason. It is `merge_into`'s twin: the manifest's own table separates them by *where the pages land*, not by which engine verb runs |
+            // | `pages.merge_into` | `EditSession::merge_document` | ★★ **NOT what this row used to say.** It read: *"`insert` returns the bytes of a NEW document rather than mutating the session … wiring it means replacing `OpenDoc::session` wholesale, which discards the command log."* That was true and stopped being true on 2026-08-18, when the engine answered the filed request with `merge_document` — in-session, one undo entry, field collisions renamed. What is left is a **file picker and an insertion point**, both of which `pages.insert_from_file` already has |
+            //
+            // ★★★ `pages.insert_from_file` was a THIRD ROW of this table until
+            // 2026-08-28, claiming *"the same two things, for the same
+            // reason."* **It has had a dispatch arm since 2026-08-18** — in
+            // this same file, two hundred lines above. A table describing a
+            // command as unimplemented, in the file that implements it, is the
+            // clearest possible statement of why a reason is prose and prose is
+            // not checked by anything. Found in an audit of eleven blocker
+            // reasons, of which six were stale.
             //
             // They therefore fall through to `command-unimplemented`, which is
             // the honest report and is what the trace has always said about

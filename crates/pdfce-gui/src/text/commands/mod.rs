@@ -676,10 +676,22 @@ pub const fn edit_form_create_field() -> CommandText {
 
 /// `edit.form_manage_fields`
 #[must_use]
+/// `edit.form_manage_fields`
+///
+/// ★★ **"retype" was struck on 2026-08-28**, because it was a promise nothing
+/// can keep. Acrobat has offered no field-type conversion since Acrobat 6, and
+/// `pdfce-core` models the same limit by making the request **unrepresentable**
+/// rather than by accepting it and returning an error — so there is not even a
+/// control to grey. A tooltip is a contract, and this clause had been offering
+/// an operator something no route in either crate provides.
+///
+/// ★ The label keeps *"Manage fields"* and the command now opens the **Forms
+/// panel**, which is where listing, renaming and removing already live.
 pub const fn edit_form_manage_fields() -> CommandText {
     CommandText::new(
         "Manage fields",
-        "List every form field in this document, and rename, retype or remove them.",
+        "Open the Forms panel to list every field in this document, fill it, rename it or \
+         remove it.",
     )
 }
 

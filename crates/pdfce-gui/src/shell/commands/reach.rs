@@ -1298,8 +1298,35 @@ pub const FX_CONST: &str = "fx.constant";
         // that, and neither could have been found by any test — this one counts
         // entries, and an entry whose id has no arm and whose reason is nonsense
         // is indistinguishable from a correct one.
+        // ★★★ 11 -> 10 on 2026-08-28, and this one came out of an **audit
+        // rather than an accident**, which is the difference worth recording.
+        //
+        // The habit written here two days ago — *re-derive the reason of the
+        // entry beside the one you came for* — found the fifth and sixth stale
+        // blockers within two hours. So the whole list was then re-derived from
+        // primary sources, deliberately, and the result is the argument for
+        // making that a scheduled act rather than an opportunistic one:
+        //
+        // | verdict | count |
+        // |---|---:|
+        // | still true | 5 |
+        // | **stale — the blocker is gone** | **4** |
+        // | partly stale | 2 |
+        //
+        // Six of eleven wrong, on a list whose entire purpose is to explain why
+        // a drawn control does nothing. Two were **citations of citations**;
+        // one was a **dangling back-reference** to an entry that had itself been
+        // deleted; one contradicted its own file twelve lines away.
+        //
+        // ⇒ The audit also found four stale claims OUTSIDE this list, including
+        // a table in `app::dispatch` describing `pages.insert_from_file` as
+        // unimplemented two hundred lines above its own dispatch arm.
+        //
+        // ★ None of it is catchable here. This assertion counts entries; a
+        // reason is prose. **Re-derive the list on a schedule, not on a
+        // collision.**
         assert_eq!(
-            total, 11,
+            total, 10,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

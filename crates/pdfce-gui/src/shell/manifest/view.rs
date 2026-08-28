@@ -266,9 +266,27 @@ pub(super) fn tab() -> Tab {
             // `Sidebar` is the rail toggle — page thumbnails and the
             // active tool's options — which is why there is no separate
             // `Pages` panel command: the thumbnails are the rail's first
-            // pane, not an independently toggleable panel. `Forms` is
-            // likewise not a panel toggle today; the forms surface is
-            // reached from Edit ▸ Forms. Both are in PLANNED.
+            // pane, not an independently toggleable panel.
+            //
+            // ★★★ **Two sentences were struck here on 2026-08-28, and both had
+            // been false for a while.** They read:
+            //
+            // > ~~`Forms` is likewise not a panel toggle today; the forms
+            // > surface is reached from Edit ▸ Forms. Both are in PLANNED.~~
+            //
+            // `view.panel_forms` shipped and is a panel toggle like any other;
+            // `registers.rs` records its removal from `PLANNED` in the same
+            // commit. And `view.sidebar` is **not** in `PLANNED` either — it is
+            // registered, drawn, and on the SCAFFOLDED list, which is a
+            // different register entirely.
+            //
+            // ⇒ Neither claim could fail a test. `PLANNED` is asserted in both
+            // directions against the manifest, so an id wrongly *listed* there
+            // fails loudly — but a **comment** saying an id is in `PLANNED`
+            // when it is not is prose, and prose is checked by readers. This is
+            // the fourth site found in one audit; see
+            // `shell::commands::reach`'s count assertion for the habit that
+            // finds them.
             // ---------------------------------------------------------------
             group(
                 "panels",

@@ -157,12 +157,38 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          in the repository says so, and inferring a deferral is not the same as recording \
          one.",
     ),
-    (
-        "edit.form_manage_fields",
-        "The same structural gate as the entry above, cited at the same place, and the same \
-         backlog row: `FEATURES.md` records forms as “fill ✅ …; create field, flatten and \
-         FDF/XFDF/CSV still ⬜”. Its dialog does not exist either.",
-    ),
+    // ★★★ `edit.form_manage_fields` was HERE until 2026-08-28, and its entry is
+    // **deleted rather than reworded** — the third such deletion in two days
+    // and the one whose reason was most thoroughly hollow. It read:
+    //
+    //   "The same structural gate as the entry above, cited at the same place,
+    //   and the same backlog row: `FEATURES.md` records forms as 'fill ✅ …;
+    //   create field, flatten and FDF/XFDF/CSV still ⬜'. Its dialog does not
+    //   exist either."
+    //
+    // **Every clause failed, in a different way, which is why it is worth
+    // spelling out:**
+    //
+    // * *"the same structural gate as the entry above"* — a **dangling
+    //   back-reference**. The entry that carried the gate left the list when
+    //   `edit.form_create_field` was wired, so "the entry above" is now
+    //   `edit.objects`, which records no gate at all. And the gate never
+    //   existed: `FEATURES.md` calls it this project's **fourth stale
+    //   blocker**, disproved by probing the engine for two minutes.
+    // * *"the same backlog row"* — a **citation of a citation**. The row no
+    //   longer says what is quoted, and its current wording is *also* stale,
+    //   contradicted four times over in its own file.
+    // * *"its dialog does not exist either"* — true, and irrelevant. It does
+    //   not need one.
+    //
+    // ⇒ Wired as a **second route**, not a third surface. Every operation the
+    // tooltip promises — list, rename, retype, remove — is already reachable in
+    // the Forms panel and the Properties pane, so the arm raises
+    // `Action::Command("view.panel_forms")`. `format.properties` set that
+    // precedent and its own docs give the rule: *"it exists so a second route
+    // to an existing command cannot become a second implementation of it."*
+    // Building a manage-fields dialog would have been a third surface for verbs
+    // that already have two.
     // ★★★ `edit.form_flatten` was HERE until 2026-08-27, and its entry is
     // **deleted rather than reworded** — which is what
     // `no_scaffolded_entry_is_stale`'s middle assertion exists to force. It
