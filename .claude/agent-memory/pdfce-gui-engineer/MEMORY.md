@@ -32,3 +32,5 @@
 - [Grep the sibling crate before writing the missing half](feedback_grep_the_sibling_crate_before_writing_the_missing_half.md) — a mirrored enum across the boundary means the other side is already implemented.
 - [A request for something shipped is a discoverability report](feedback_a_request_for_something_shipped_is_a_discoverability_report.md) — fix the route that failed him, and ship the literal ask too.
 - [The canvas is the primary surface, never a panel](feedback_the_canvas_is_the_primary_surface_never_a_panel.md) — if the engine can do it, clicking the object must reach it; a panel is a supplement.
+- [A hand-written list inside a completeness test is the gap](feedback_a_hand_written_list_inside_a_completeness_test_is_the_gap.md) — a new module is invisible to the check built to find it, and the count still adds up.
+- [A temporary shim needs a tripwire that names its own deletion](feedback_a_temporary_shim_needs_a_tripwire_that_names_its_own_deletion.md) — `debug_assert` on the condition that makes it unnecessary; it fired two hours later.
