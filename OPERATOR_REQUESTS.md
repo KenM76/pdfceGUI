@@ -80,6 +80,86 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O50 — ★★★ A permanent font-folder setting, with a checkbox for the OS's own fonts
+
+**His words, 2026-08-28:** *"for fonts there should also be a permanent setting
+where we can add font locations to use from including just a simple checkbox to
+include fonts from the OS installed font folders."*
+
+### ★★ Half of this shipped yesterday, and saying so is not a deflection
+
+**The permanent setting exists.** File ▸ pdfce ▸ Settings ▸ **Fonts** holds a
+list of folders, it persists in `userdata/preferences.txt` as repeated
+`font_folder =` lines, order is search order, duplicates are refused, and Tools
+▸ Font folders opens the same window as a second route.
+
+It is recorded here rather than left implicit because **he asked for it, which
+means he had not found it** — and a setting an operator cannot find is a setting
+that does not exist to them. That is a finding about the *surface*, not about
+the feature:
+
+- The Fonts group **sits below the Settings window's fold**, with four siblings
+  no driven check has ever reached either. `settings_headings_legible` says in
+  its own notes that it does not drive the scroll.
+- Nothing on the Embed window points at it **except when embedding fails**. An
+  operator only meets the setting at the moment it is too late to have set it.
+
+⇒ Both are on this row, not just the checkbox.
+
+### The checkbox itself
+
+**"Use the fonts installed on this computer."** Off by default. On, pdfce also
+searches:
+
+| | |
+|---|---|
+| `C:\Windows\Fonts` | the machine's fonts |
+| `%LOCALAPPDATA%\Microsoft\Windows\Fonts` | fonts installed for **this user only**, which Windows has had since 2018 and which most "install font" double-clicks now write to |
+
+★ **Both, not just the first.** A font the operator installed themselves — which
+is exactly the font they are most likely to have installed *for this drawing* —
+lands in the second one on a modern Windows, and a checkbox that found only the
+machine folder would miss precisely the case that motivated ticking it.
+
+### ★★★ Why it is a checkbox and not the default, and this is the whole design
+
+`app::fonts`' header argues at length that pdfce must **not** search
+`C:\Windows\Fonts` on its own:
+
+> Embedding puts a font **program** — the actual outlines — inside somebody's
+> document, which they then send to somebody else. Which font that is, is a
+> licensing question with a different answer for every foundry, and a program
+> that searched `C:\Windows\Fonts` on its own would be answering it silently on
+> the operator's behalf, in a file that outlives the decision.
+
+**A checkbox does not overrule that argument — it satisfies it.** The objection
+was never to *using* system fonts; it was to pdfce deciding *silently*. An
+explicit, persistent, off-by-default switch is the operator making that decision
+once, visibly, where they can find it again.
+
+⇒ Recorded because the shape recurs: **when a capability is refused on the
+grounds that the program must not decide, the answer is usually a visible
+setting rather than a permanent no.**
+
+### What ships with it
+
+1. The checkbox, persisted beside the folder list.
+2. **The folders it resolves to, drawn under it** — the operator sees
+   `C:\Windows\Fonts` and their user folder listed, greyed, as the consequence
+   of the tick. A checkbox whose effect is invisible is one nobody can verify.
+3. The Embed window's donor rows already name the file each face came from, so a
+   face that arrived via the OS folders is already identifiable. No new
+   disclosure is owed.
+4. A driven check that ticks it and embeds — the existing embed check uses a
+   harness environment variable to supply a folder, which is deliberately **not**
+   the same path an operator takes.
+
+**Status:** ★ **ACCEPTED 2026-08-28**, and it goes first of the four: it is the
+one he asked for in his own words, it is the smallest, and it makes O47's
+bundled faces a genuine last resort rather than a second choice.
+
+---
+
 ## O49 — Zoom loses its place past about 300,000%, and I am telling you rather than quietly widening the test
 
 **Found 2026-08-28 by the full driven sweep. Not something you have hit, and I
@@ -133,9 +213,12 @@ found seven distinct defects in them. Changing when they fire without driving
 the whole ladder again would be trading a defect nobody meets for one somebody
 might.
 
-**Status:** open, not scheduled. Two driven checks are RED and will stay red
-until it is fixed, which is the honest state and is why they are not being
-quieted.
+**Status:** ★ **ACCEPTED 2026-08-28** — *"yes to all three."* Scheduled after
+the two font items and O48, because it is the one furthest from anything he
+does and the one most likely to break something he DOES do: the high-precision
+path has two hand-overs of its own and this project has already found seven
+distinct defects in them. The two checks stay RED until it lands, which is the
+honest state.
 
 ---
 
@@ -188,8 +271,10 @@ deleting pages or images.
 My lean is **1**, as an explicit separate command. It is a day's work and it
 makes three other features honest.
 
-**Status:** open. Nothing is blocked; removal works today and discloses the
-limit.
+**Status:** ★ **ACCEPTED 2026-08-28** — *"yes to all three."* Building option 1:
+a separate compacting Save, named so it cannot be pressed by accident, always to
+a new file, with a plain sentence about what it discards. Removal works today
+and discloses the limit in the meantime.
 
 ---
 
@@ -242,8 +327,16 @@ already substitutes Arial for Helvetica and nobody would call that wrong —
 this is the same act one step further out. But it is your call and I am not
 taking it.
 
-**Status:** open. Nothing is blocked on it; embedding works today with a folder
-configured.
+**Status:** ★ **ACCEPTED 2026-08-28** — *"yes to all three."* No option number
+was named, so this takes the one I recommended and says so: **option 2,
+always, disclosed loudly.** If he meant option 3, say so and it becomes a second
+button in the window rather than a change to the resolver.
+
+★★ **And he added a fourth thing in the same breath, which is O50.** It changes
+what this row is worth: with the OS font folders switched on, pdfce reaches a
+real Arial before it ever reaches its own bundled substitute, so the bundled
+rung becomes the last resort it was always meant to be rather than the second
+one. Build O50 first.
 
 ---
 

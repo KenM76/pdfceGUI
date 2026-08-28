@@ -89,6 +89,7 @@ use super::PdfceApp;
 pub(crate) mod fonts;
 mod forms;
 pub(crate) mod routes;
+pub(crate) mod settings;
 
 use super::actions::Action;
 use super::state::Status;
@@ -396,32 +397,8 @@ impl PdfceApp {
             // one place and not the other is how a dialog ends up opening and
             // vanishing on the same frame.
             "file.about" => self.dialogs.open_about(),
-            // ★ Settings. Application-scoped like About, and for the same
-            // reason: these are choices about pdfce, meaningful with nothing
-            // loaded — an operator who has just launched the program and wants
-            // a dark window should not have to open a document first.
-            //
-            // # Why the draft opens on the LIVE configuration
-            //
-            // `Draft::new(&self.settings)`, not a re-read of the file. If a
-            // previous save failed, the session is honouring a choice the disk
-            // does not have, and the window must show what pdfce is actually
-            // doing rather than what it wished it had written.
-            //
-            // # Why re-opening does not reset a draft in progress
-            //
-            // The guard is the same shape as `DialogsState::open_print`'s: a
-            // second press of a control whose window is already up must not
-            // discard the answers already given. Here it matters more than for
-            // print, because four of these settings change saved bytes and the
-            // window's whole promise is that nothing takes effect until Save.
-            "file.settings" => {
-                if self.settings_draft.is_none() {
-                    self.settings_draft = Some(crate::dialogs::settings::Draft::new(
-                        &self.settings,
-                        &self.prefs,
-                    ));
-                }
+            id if settings::handles(id) => {
+                settings::dispatch(id, &mut self.settings_draft, &self.settings, &self.prefs)
             }
             // ★ Recognise text. A dialog rather than an immediate action, and
             // rather than the `file.copy_document_text` shape one arm below.

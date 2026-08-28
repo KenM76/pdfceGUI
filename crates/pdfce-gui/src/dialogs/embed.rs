@@ -102,7 +102,16 @@ impl EmbedDialog {
     /// instead — see [`open_for`]'s caller.
     #[must_use]
     pub fn open(doc: &OpenDoc, folders: &[std::path::PathBuf]) -> Option<Self> {
-        let library = crate::app::fonts::Library::scan(folders);
+        // ★★★ `true`: pdfce's own standard-14 faces may answer when the
+        // operator's folders cannot. `OPERATOR_REQUESTS.md` O47, answered
+        // "yes" on 2026-08-28.
+        //
+        // Safe to leave on because it is the LAST rung: `resolve_for_embedding`
+        // reaches the bundled table only after an exact name match and a
+        // family equivalence have both failed, so a machine with fonts
+        // configured never sees it. It is a floor, not a preference -- which is
+        // also why it needed no checkbox of its own beside O50's.
+        let library = crate::app::fonts::Library::scan_with(folders, true);
         // ★ Every font whose program is absent, which is what the operator
         // means by "embed the fonts". `EmbedSelection::AllMissing` is the
         // engine's own spelling of it, so this shell is not deciding what
@@ -132,8 +141,21 @@ impl EmbedDialog {
                 pdfce_core::font_embed_missing::SuppliedFont::new(
                     donor.program.to_vec(),
                     donor.face_name.to_owned(),
-                    donor.path.display().to_string(),
-                    if donor.matched.is_inferred() {
+                    donor.source(),
+                    if donor.matched == crate::app::fonts::Match::Bundled {
+                        // ★★★ `Bundled`, reported as itself and not folded into
+                        // `Alias`.
+                        //
+                        // The engine's three rungs are three materially
+                        // different acts and it says so: an alias is a
+                        // documented family equivalence reached on the
+                        // operator's OWN machine, and bundled means *"nothing
+                        // on the operator's machine was consulted."* Collapsing
+                        // them would tell somebody that the Arial on their disk
+                        // answered when what answered was a face compiled into
+                        // pdfce.
+                        pdfce_core::font_embed_missing::FontMatch::Bundled
+                    } else if donor.matched.is_inferred() {
                         // ★★★ `Alias` for both inferred rungs, and reporting
                         // either as `Exact` would be a CORRECTNESS defect
                         // rather than a cosmetic one.
@@ -254,11 +276,7 @@ impl EmbedDialog {
                         // name is only a fallback for a font with no
                         // `/BaseFont` at all.
                         let face = target.base_font.as_deref().unwrap_or(&target.face_name);
-                        ui.small(t::embed_row(
-                            face,
-                            &target.source,
-                            target.matched.is_substitute(),
-                        ));
+                        ui.small(t::embed_row(face, &target.source, rung(target.matched)));
                     }
                     ui.small(t::size_ceiling(self.plan.bytes_added_uncompressed()));
                     ui.add_space(8.0);
@@ -332,6 +350,29 @@ impl EmbedDialog {
                 self.close_requested = true;
             }
         });
+    }
+}
+
+/// The engine's provenance, back in this shell's own terms.
+///
+/// ★★ The two enums exist because the crate boundary is load-bearing —
+/// `pdfce-core` must not depend on `pdfce-render`, so neither can name the
+/// other's type and *"a shell converts between them in one line."* This is the
+/// return leg of that conversion, and it is exhaustive rather than
+/// wildcard-defaulted: `FontMatch` is `#[non_exhaustive]`, and a fourth rung
+/// arriving must fail to compile here rather than quietly render as the row for
+/// the most reassuring of the three.
+fn rung(matched: pdfce_core::font_embed_missing::FontMatch) -> crate::app::fonts::Match {
+    use pdfce_core::font_embed_missing::FontMatch;
+    match matched {
+        FontMatch::Exact => crate::app::fonts::Match::Exact,
+        FontMatch::Alias => crate::app::fonts::Match::Alias,
+        FontMatch::Bundled => crate::app::fonts::Match::Bundled,
+        // ★ The catch-all reports the LOUDEST row, not the quietest. A rung
+        // this build cannot name is one it cannot vouch for, and the honest
+        // rendering of "pdfce chose this and I do not know how" is the sentence
+        // that says it is a stand-in.
+        _ => crate::app::fonts::Match::Bundled,
     }
 }
 

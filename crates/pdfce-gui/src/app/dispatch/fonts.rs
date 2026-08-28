@@ -66,7 +66,14 @@ pub(crate) fn handles(id: &str) -> bool {
 /// ordering that keeps a driven run honest about what a real one would do.
 #[must_use]
 pub(crate) fn folders(prefs: &Prefs) -> Vec<PathBuf> {
-    let mut out = prefs.font_folders.clone();
+    // ★★★ The operator's own folders, then this computer's if they asked for
+    // them (`OPERATOR_REQUESTS.md` O50), then anything the harness named.
+    //
+    // `search_path` owns the second step, including the rule that a folder
+    // already listed by hand is not added twice -- so an operator who typed
+    // `C:\Windows\Fonts` into the list and then ticked the box does not spend
+    // two of their sixteen slots saying one thing.
+    let mut out = crate::app::prefs::fonts::search_path(&prefs.font_folders, prefs.use_os_fonts);
     if let Ok(extra) = std::env::var(FONT_DIR_ENV) {
         // Semicolon-separated, matching the platform's own `PATH` convention
         // rather than inventing one. A colon would be ambiguous with a drive

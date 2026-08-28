@@ -60,39 +60,54 @@ pub const fn nothing_missing() -> &'static str {
     "Every font this document uses is already embedded, so there is nothing to do."
 }
 
-/// No folders are configured, so nothing can be supplied.
-///
-/// ★★ It names the remedy **and where it lives**, because this is the one
-/// refusal an operator can fix in twenty seconds and would otherwise read as
-/// *"pdfce cannot embed fonts"*.
-#[must_use]
-pub const fn no_folders() -> &'static str {
-    "pdfce has no font folders to take fonts from, so it cannot embed anything. Add one under \
-     File > pdfce > Settings, in the Fonts group."
-}
-
 /// How many fonts will be embedded, and from where.
 #[must_use]
 pub fn will_embed(count: usize) -> String {
     format!("{count} font(s) will be embedded:")
 }
 
-/// One font that will be embedded, and the file it comes from.
+/// One font that will be embedded, and where it comes from.
 ///
-/// ★★ It names the **source file**, not just the face. Two files on a machine
-/// can advertise one name and produce visibly different letters, and an
-/// operator embedding into a drawing they will send out is entitled to know
-/// which one is going in.
+/// ★★ It names the **source**, not just the face. Two files on a machine can
+/// advertise one name and produce visibly different letters, and an operator
+/// embedding into a drawing they will send out is entitled to know which one is
+/// going in.
+///
+/// ★★★ Three rungs, three sentences, and the collapse to two would be the
+/// defect. `FontMatch`'s own doc calls them *"three materially different acts:
+/// honouring a name the file already spells, applying a well-known family
+/// equivalence, or falling back to a face pdfce ships"* — and the third is the
+/// one an operator would most want to know about and least expect, because
+/// nothing they configured produced it.
 #[must_use]
-pub fn embed_row(face: &str, source: &str, stem_matched: bool) -> String {
-    if stem_matched {
-        // ★ The weaker match, said plainly. A stem match is this shell deciding
-        // that a file called `Helv.ttf` is the face the document calls
+pub fn embed_row(face: &str, source: &str, matched: crate::app::fonts::Match) -> String {
+    use crate::app::fonts::Match;
+    match matched {
+        Match::Exact => format!("{face} — from {source}"),
+        // ★ The weaker file match, said plainly. A stem match is this shell
+        // deciding that a file called `Helv.ttf` is the face the document calls
         // `Helvetica` — an inference, and Rule 4's surviving half says an
         // inference the operator cannot see owes them a report.
-        format!("{face} — from {source}, matched on the file's name rather than the font's")
-    } else {
-        format!("{face} — from {source}")
+        Match::Stem => {
+            format!("{face} — from {source}, matched on the file's name rather than the font's")
+        }
+        // ★★ A documented family equivalence, and the sentence says the
+        // letterforms differ. `Helvetica` → `Arial` is metric-compatible by
+        // design and the advances come from `/Widths` regardless, so the page
+        // does not reflow — what changes is the shape of every letter, which is
+        // exactly the part a screenshot would not tell them either.
+        Match::Alias => format!(
+            "{face} — from {source}, a different face of the same metrics. The letters \
+             will look different."
+        ),
+        // ★★★ The loud one, and O47's answer was "always, DISCLOSED LOUDLY".
+        // It says three things in order: that nothing of theirs answered, that
+        // pdfce supplied one of its own, and that the result is a stand-in.
+        // Dropping any of the three leaves a row that reads like the others.
+        Match::Bundled => format!(
+            "{face} — none of your fonts matched, so pdfce used {source}. It is a \
+             stand-in, not the font the document asks for."
+        ),
     }
 }
 
@@ -119,8 +134,22 @@ pub fn blocked_row(face: &str, blocker: &EmbedBlocker) -> String {
         EmbedBlocker::ProgramDeclaredButUnreadable => {
             "the document says it carries this font, and those bytes cannot be read".to_owned()
         }
+        // ★★★ Its remedy changed on 2026-08-28 and the sentence had to follow.
+        //
+        // It used to say only *"add a folder that does"*. Since O47 and O50,
+        // there are **two** remedies and the cheap one is a checkbox — so this
+        // names that first, because a row that sends an operator to a folder
+        // picker when one click would do is a row that costs them the
+        // difference.
+        //
+        // ⇒ A refusal's wording is a claim about what would fix it, and the
+        // things that fix it change under it. This one had been true for
+        // exactly one day.
         EmbedBlocker::NoSourceFont => {
-            "none of your font folders holds it — add a folder that does, under Settings".to_owned()
+            "pdfce has nowhere to take it from, and it is not one of the fourteen pdfce \
+             carries itself. Under Settings, switch on the fonts installed on this computer, \
+             or add the folder that has it"
+                .to_owned()
         }
         EmbedBlocker::Composite { .. } => {
             "it is a composite font, which pdfce does not embed into".to_owned()
@@ -435,12 +464,48 @@ mod tests {
         }
     }
 
-    /// **A stem match is disclosed and an exact one is not.**
+    /// ★★★ **Each of the four rungs reads as a different sentence, and the
+    /// bundled one is the loudest.**
+    ///
+    /// `OPERATOR_REQUESTS.md` **O47** was answered *"yes"* — pdfce may use its
+    /// own faces — and the condition attached to that answer was *disclosed
+    /// loudly*. The failure this guards is the quiet collapse: four rungs
+    /// rendering as two, so a document that went out with pdfce's stand-in in
+    /// it reads on screen exactly like one carrying the operator's own Arial.
     #[test]
-    fn only_the_weaker_match_is_disclosed() {
-        let exact = embed_row("ArialMT", "C:/f/Arial.ttf", false);
-        let stem = embed_row("Helvetica", "C:/f/Helv.ttf", true);
+    fn every_rung_says_something_different_and_bundled_says_the_most() {
+        use crate::app::fonts::Match;
+        let exact = embed_row("ArialMT", "C:/f/Arial.ttf", Match::Exact);
+        let stem = embed_row("Helvetica", "C:/f/Helv.ttf", Match::Stem);
+        let alias = embed_row("Helvetica", "C:/f/Arial.ttf", Match::Alias);
+        let bundled = embed_row("Helvetica", "pdfce's own copy of FoxitSans", Match::Bundled);
+
         assert!(!exact.contains("matched on"), "{exact}");
+        assert!(!exact.contains("look different"), "{exact}");
         assert!(stem.contains("matched on the file's name"), "{stem}");
+        assert!(alias.contains("look different"), "{alias}");
+
+        // ★★ The three clauses the loud row must carry, asserted one at a time
+        // so a rewrite that drops one fails naming which.
+        assert!(
+            bundled.contains("none of your fonts matched"),
+            "it does not say nothing of theirs answered: {bundled}"
+        );
+        assert!(
+            bundled.contains("pdfce used"),
+            "it does not say pdfce supplied one: {bundled}"
+        );
+        assert!(
+            bundled.contains("stand-in"),
+            "it does not say the result is a stand-in: {bundled}"
+        );
+
+        // Four rungs, four distinct sentences.
+        let all = [&exact, &stem, &alias, &bundled];
+        for (i, a) in all.iter().enumerate() {
+            for b in all.iter().skip(i + 1) {
+                assert_ne!(a, b, "two rungs render identically");
+            }
+        }
     }
 }

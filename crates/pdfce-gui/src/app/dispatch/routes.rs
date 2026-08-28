@@ -67,15 +67,28 @@ fn target(id: &str) -> Option<&'static str> {
         // is not even a control to grey. That clause was struck from the
         // tooltip when this was wired.
         "edit.form_manage_fields" => Some("view.panel_forms"),
-        // ★★★ Its blocker said the folder list *"needs the pane it lives in"* —
-        // the old shell's unsalvaged batch pane. Every clause about the engine
-        // was true; the last one was an **assumption**, and nothing about a
-        // list of directories needs a batch pane.
+        // ★★★ `tools.font_folders` LEFT this file on 2026-08-28, and the reason
+        // is worth more than the entry was.
         //
-        // ⇒ A blocker naming a missing **host** is weaker than one naming a
-        // missing capability, and it goes stale the moment any other host will
-        // do — silently, because nothing has to happen for it to become false.
-        "tools.font_folders" => Some("file.settings"),
+        // It routed here for a year and the argument was sound: *a second route
+        // to an existing command must not become a second implementation of
+        // it.* What changed is that the two stopped being the same request.
+        // `file.settings` means *"show me the settings"*; `tools.font_folders`
+        // means *"where do font folders live"*, and answering the second by
+        // opening the first at the top of ten **collapsed** headings is the
+        // defect `OPERATOR_REQUESTS.md` O50 opens with — the operator asked for
+        // a setting that had shipped the day before, because the route named
+        // after it did not land on it.
+        //
+        // ⇒ **A route stops being a pure route the moment the target needs to
+        // know WHY it was reached.** The window is still one implementation —
+        // one draft, one Save — so `routes`' argument survives intact; what the
+        // arm gained is an operand, and an operand is exactly what this file's
+        // shape cannot carry (`target` returns a bare id).
+        //
+        // It now shares `file.settings`' own dispatch arm, which is the form
+        // that keeps "one claimant per id" true while letting the two ids differ
+        // in what they ask for.
         // ★★ `format.properties` is the oldest route of this shape and it is
         // deliberately NOT here. It stays in `dispatch::format`, whose subject
         // is *the Format tab's share of the routing table*, and moving it would
@@ -137,7 +150,7 @@ mod tests {
     /// The ids this file claims, as a list, so a fourth added to `target` and
     /// not here fails rather than going untested.
     // ui-text-exempt: registered command ids, never displayed.
-    const ROUTED: &[&str] = &["edit.form_manage_fields", "tools.font_folders"];
+    const ROUTED: &[&str] = &["edit.form_manage_fields"];
 
     /// **`handles` and `target` cannot disagree**, which is why there is one
     /// mapping and not a list beside a match.

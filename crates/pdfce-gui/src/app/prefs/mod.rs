@@ -251,6 +251,26 @@ pub struct Prefs {
     /// See [`fonts`] for the list rules and for why this is a preference rather
     /// than a `pdfce_core::settings` entry.
     pub font_folders: Vec<std::path::PathBuf>,
+    /// **Whether to search the fonts installed on this computer as well.**
+    ///
+    /// `OPERATOR_REQUESTS.md` **O50**, in his words: *"just a simple checkbox
+    /// to include fonts from the OS installed font folders."*
+    ///
+    /// ★★★ **`false` by default, and that is the whole of the licensing
+    /// argument surviving intact.** The field above explains why pdfce must not
+    /// go looking on its own; this does not overrule that, it satisfies it. The
+    /// objection was never to *using* system fonts — it was to pdfce deciding
+    /// silently, and an explicit, persistent, off-by-default switch is the
+    /// operator making that decision once, visibly, where they can find it
+    /// again.
+    ///
+    /// ★ It is a **separate preference** rather than the two OS folders being
+    /// appended to [`Self::font_folders`] when the box is ticked, and the
+    /// difference shows up the day the machine changes: a stored *intent*
+    /// ("use this computer's fonts") still means the right thing on a new
+    /// machine with a different `%WINDIR%`, while two stored *paths* would name
+    /// folders that no longer exist. See [`fonts::os_font_dirs`].
+    pub use_os_fonts: bool,
     /// How the first page of a newly opened document is sized to the window.
     ///
     /// ★ Read **once**, by [`Self::seed_view`], in the one place a document is
@@ -369,6 +389,7 @@ impl Default for Prefs {
             // system font directory would embed whatever that machine holds
             // into the operator's document, which is a licensing decision.
             font_folders: Vec::new(),
+            use_os_fonts: false,
             opening_fit: OpeningFit::default(),
             wheel_paging: WheelPaging::default(),
             chrome: PageChrome::default(),
@@ -543,6 +564,22 @@ impl Prefs {
                         fonts::add(&mut prefs.font_folders, &path);
                     }
                 }
+                // ui-text-exempt: a file KEY, parsed out of preferences.txt.
+                "use_os_fonts" => match value.trim() {
+                    // ui-text-exempt: file VALUES, parsed not displayed.
+                    "true" => prefs.use_os_fonts = true,
+                    "false" => prefs.use_os_fonts = false,
+                    // ★ Reported rather than silently defaulted, and it keeps
+                    // the operator's OLD value: a hand-edited `use_os_fonts =
+                    // yes` is somebody trying to switch it ON, and a parser
+                    // that answered by turning it off would be the opposite of
+                    // what they wrote, with no sentence anywhere.
+                    _ => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "max_zoom_percent" => match value.parse::<f32>() {
                     Ok(pct) if pct.is_finite() => {
                         let clamped = pct.clamp(MIN_MAX_ZOOM_PERCENT, MAX_MAX_ZOOM_PERCENT);
@@ -727,6 +764,7 @@ impl Prefs {
              # 10 to 1000000000000.\n",
         );
         out.push_str(&fonts::write_block(&self.font_folders));
+        out.push_str(&fonts::write_os_flag(self.use_os_fonts));
         // ui-text-exempt: a file KEY, as above.
         out.push_str("max_zoom_percent = ");
         out.push_str(&format_percent(self.max_zoom_percent));
@@ -926,6 +964,7 @@ mod tests {
             for fit in OpeningFit::ALL {
                 let original = Prefs {
                     font_folders: vec![std::path::PathBuf::from("C:/Fonts")],
+                    use_os_fonts: true,
                     // ★ Non-default, like every other field here: a `None`
                     // would pass on a build whose writer emitted no
                     // `chosen_standard` key at all.
@@ -1249,6 +1288,7 @@ mod tests {
     fn the_file_writes_a_readable_number_rather_than_an_exponent() {
         let prefs = Prefs {
             font_folders: Vec::new(),
+            use_os_fonts: false,
             max_zoom_percent: 1e12,
             ..Prefs::default()
         };
@@ -1370,6 +1410,7 @@ mod tests {
             // REPEATED key in the file, so it is the only field whose writer
             // emits a variable number of lines. Two entries rather than one,
             // so a writer that emitted only the first would fail here.
+            use_os_fonts: true,
             font_folders: vec![
                 std::path::PathBuf::from("C:/Fonts"),
                 std::path::PathBuf::from("D:/More Fonts"),

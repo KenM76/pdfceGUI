@@ -79,6 +79,23 @@ pub fn no_name(path: &Path) -> String {
     )
 }
 
+/// Where a **bundled** donor came from, for the row and for the engine's
+/// `SuppliedFont::source`.
+///
+/// ★★★ It says *pdfce's own copy*, in those words, because that is the fact the
+/// operator needs and the one nothing else on screen carries. A row reading
+/// `FoxitSans` beside a row reading `C:\Windows\Fonts\arial.ttf` invites the
+/// reading that both are files and one of them has an odd path.
+///
+/// ★ `pdfce-cli` writes `"bundled: FoxitSans"` for the same value, and this
+/// deliberately does not match it: that string is for a log a developer greps,
+/// and this is a sentence in a window. The engine's field doc says the value is
+/// *"never parsed; only reported"*, which is what makes them free to differ.
+#[must_use]
+pub fn bundled_source(face: &str) -> String {
+    format!("pdfce's own copy of {face}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

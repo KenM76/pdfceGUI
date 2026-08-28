@@ -897,11 +897,22 @@ impl DialogsState {
         if self.embed.is_some() {
             return None;
         }
-        Some(if folders.is_empty() {
-            crate::text::embed::no_folders().to_owned()
-        } else {
-            crate::text::embed::nothing_missing().to_owned()
-        })
+        // ★★★ ONE sentence now, and the branch that used to be here was
+        // FALSIFIED by O47 rather than simplified away.
+        //
+        // It read: with no folders configured, say *"pdfce has no font folders,
+        // so it cannot embed anything."* True until 2026-08-28. Since the
+        // operator answered O47 with *"yes"*, pdfce's own standard-14 faces
+        // answer when nothing of theirs can — so a document with a missing
+        // Helvetica and no folders at all now **opens the window** instead of
+        // declining, and the only thing a decline can mean is that there was
+        // nothing to do.
+        //
+        // ⇒ A decline message is a claim about why, and the reasons a program
+        // declines change under it. This one would have kept telling operators
+        // to configure a folder they no longer need, at the exact moment they
+        // were most likely to believe it.
+        Some(crate::text::embed::nothing_missing().to_owned())
     }
 
     /// Open the Remove-fonts window, and say so when there is nothing to open.

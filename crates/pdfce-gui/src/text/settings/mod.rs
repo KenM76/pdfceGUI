@@ -285,9 +285,75 @@ pub const fn font_folders_hint() -> &'static str {
 }
 
 /// Shown in place of an empty list.
+///
+/// ★★ Its wording changed on 2026-08-28 when the OS-fonts checkbox landed:
+/// "no folders" stopped meaning "nothing to embed from", because the box may be
+/// ticked. An empty-state sentence that contradicts a control four rows below it
+/// is worse than none -- an operator who has ticked the box and reads *"nowhere
+/// to take one from"* has been told their setting does not work.
 #[must_use]
 pub const fn font_folders_none() -> &'static str {
-    "No folders yet, so embedding a missing font has nowhere to take one from."
+    "No folders of your own yet."
+}
+
+/// The same empty state when the OS-fonts box is **not** ticked either.
+///
+/// ★ Two sentences for two states rather than one that hedges. This is the only
+/// configuration in which embedding genuinely cannot take a font from anywhere,
+/// and it is worth saying plainly at the moment it is true -- not at the far end
+/// of an embed, which is where the operator would otherwise meet it.
+#[must_use]
+pub const fn font_folders_none_at_all() -> &'static str {
+    "No folders yet and this computer's fonts are switched off, so embedding a missing \
+     font has nowhere to take one from."
+}
+
+/// The checkbox the operator asked for, in his own words.
+///
+/// ★★★ `OPERATOR_REQUESTS.md` **O50**: *"just a simple checkbox to include fonts
+/// from the OS installed font folders."* "Installed on this computer" rather
+/// than "system fonts" or "OS fonts", because that is what the thing IS to the
+/// person ticking it -- they installed them, or their IT did, and either way
+/// "OS" is a word about implementation.
+#[must_use]
+pub const fn use_os_fonts_label() -> &'static str {
+    "Use the fonts installed on this computer"
+}
+
+/// What ticking it means, including the part pdfce cannot answer for them.
+///
+/// ★★ It states the **licensing** consequence, and that is not legal throat-
+/// clearing: it is the reason this is a checkbox and not the default. The
+/// operator is being handed a decision, and a control that hands somebody a
+/// decision without saying what the decision is about is a control that took it
+/// for them.
+#[must_use]
+pub const fn use_os_fonts_hint() -> &'static str {
+    "Embedding puts a font's outlines inside a document you may send to somebody else, \
+     and whether you may do that depends on the font. pdfce leaves that to you."
+}
+
+/// The heading over the folders the checkbox resolves to.
+///
+/// ★★ The folders are DRAWN, greyed, under the tick. A checkbox whose effect is
+/// invisible is one nobody can verify -- and the per-user folder in particular
+/// is somewhere most operators do not know exists, so listing it is the
+/// difference between a setting they trust and one they re-tick to see if it
+/// took.
+#[must_use]
+pub const fn use_os_fonts_folders() -> &'static str {
+    "pdfce will also search:"
+}
+
+/// Shown when the box is ticked and the machine reports no font folder at all.
+///
+/// ★ A real state and not a defensive one: `%WINDIR%` and `%LOCALAPPDATA%` are
+/// read from the environment rather than assumed, and a stripped or unusual
+/// image can leave both unset. Saying so beats a tick with nothing under it,
+/// which reads as the list still loading.
+#[must_use]
+pub const fn use_os_fonts_none_found() -> &'static str {
+    "pdfce could not find a font folder on this computer."
 }
 
 /// The Add button.

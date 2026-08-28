@@ -120,6 +120,7 @@ pub mod driving;
 /// values in it.** The oracle is the FILE, not a trace line: a build that
 /// computed the bytes and wrote them nowhere would satisfy a trace-only check
 /// completely and ship an Export button that exports nothing.
+pub mod embed_bundled;
 pub mod embed_fonts;
 pub mod export_dxf;
 pub mod export_form_data;
@@ -188,6 +189,7 @@ pub mod ocr;
 /// size: a build that held a gigabyte and still re-requested would pass a size
 /// assertion and fail the operator, and a screenshot cannot help at all,
 /// because a re-rendered page and a remembered one are the same picture.
+pub mod os_fonts_setting;
 pub mod page_cache;
 pub mod page_ops;
 
@@ -672,6 +674,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
         Box::new(embed_fonts::EmbeddingFontsPutsAProgramInTheDocument),
+        Box::new(embed_bundled::EmbeddingWorksWithNoFontFolderAtAll),
+        Box::new(os_fonts_setting::FontFoldersLandsOnTheFontsSetting),
         Box::new(unembed_fonts::RemovingEmbeddedFontsReachesTheDocument),
         Box::new(export_form_data::ExportingFormDataWritesAFile),
         Box::new(export_dxf::ExportDxfWritesThePagesGeometry),

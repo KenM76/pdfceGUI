@@ -182,6 +182,24 @@ pub const REGION_THEME_PREFIX: &str = "settings.theme."; // ui-text-exempt: trac
 /// leaving it to be discovered.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Draft {
+    /// ★★★ **Which group to open and scroll to, once, on the first frame.**
+    ///
+    /// `None` for File ▸ pdfce ▸ Settings, which is the operator saying *"show
+    /// me the settings"* and has no one group in mind. `Some` for a command
+    /// that routes here **because of** one group — today that is Tools ▸ Font
+    /// folders, and the reason it needed this is `OPERATOR_REQUESTS.md` **O50**.
+    ///
+    /// He asked for a font-folder setting that had shipped the day before. The
+    /// interesting half of that is not that he missed a row: it is that the
+    /// route built for exactly his question — a command called *Font folders* —
+    /// dropped him at the top of ten **collapsed** headings and left the
+    /// finding to him. ⇒ **A route that exists because of one setting must land
+    /// on that setting.** Opening the right window is not the same as answering
+    /// the question the command's own name asks.
+    ///
+    /// ★ Taken by [`Self::take_focus`] rather than read, so it fires once. A
+    /// group forced open on every frame is a group the operator cannot collapse.
+    pub focus: Option<&'static str>,
     /// The edits in progress.
     pub working: Settings,
     /// What the settings were when the window opened.
@@ -257,7 +275,18 @@ impl Draft {
     /// actually doing, not what it wished it had written.
     #[must_use]
     pub fn new(current: &Settings, prefs: &crate::app::prefs::Prefs) -> Self {
+        Self::focused_on(current, prefs, None)
+    }
+
+    /// [`Self::new`], opened at one group. See [`Self::focus`].
+    #[must_use]
+    pub fn focused_on(
+        current: &Settings,
+        prefs: &crate::app::prefs::Prefs,
+        focus: Option<&'static str>,
+    ) -> Self {
         Self {
+            focus,
             working: current.clone(),
             original: current.clone(),
             // ★ Seeded from the operator's PERSISTED choice, so the window
@@ -362,6 +391,11 @@ pub fn show(
     store: &StoreLocation,
     open: &mut bool,
 ) -> Outcome {
+    // ★★ TAKEN, not read. See `Draft::focus`: the group is forced open and
+    // scrolled to on the first frame and left alone afterwards, so the operator
+    // can collapse it again. A focus that survived the frame would be a heading
+    // that reopened itself every time they closed it.
+    let focus = draft.focus.take();
     let screen = ctx.input(egui::InputState::content_rect);
     let width = 620.0_f32.min(screen.width() - 40.0).max(420.0);
     let height = (screen.height() * 0.82).clamp(420.0, 900.0);
@@ -497,9 +531,20 @@ pub fn show(
                 // the DOCUMENT is made of, to what pdfce does with it. Fonts is
                 // a thing documents are made of, and it sits with Images and
                 // Text rather than with the rendering knobs.
-                widgets::group(ui, "fonts", t::group_fonts(), false, |ui| {
-                    fonts::folders(ui, &mut draft.working_prefs);
-                });
+                // ★★★ The one group a command routes here FOR. See
+                // `Draft::focus`: Tools ▸ Font folders opens this window
+                // because the folders live in it, and until 2026-08-28 it left
+                // the operator to find a collapsed heading among ten.
+                widgets::group_focused(
+                    ui,
+                    "fonts", // ui-text-exempt: a group key, never displayed.
+                    t::group_fonts(),
+                    false,
+                    focus == Some("fonts"), // ui-text-exempt: a group key.
+                    |ui| {
+                        fonts::folders(ui, &mut draft.working_prefs);
+                    },
+                );
                 widgets::group(ui, "images", t::group_images(), false, |ui| {
                     images::mask_resample(ui, draft);
                     ui.add_space(10.0);

@@ -85,9 +85,43 @@ pub fn group(
     open_by_default: bool,
     body: impl FnOnce(&mut Ui),
 ) {
-    let response = egui::CollapsingHeader::new(RichText::new(heading))
-        .default_open(open_by_default)
-        .show(ui, body);
+    group_focused(ui, key, heading, open_by_default, false, body);
+}
+
+/// [`group`], and whether this is the group the window was opened **for**.
+///
+/// ★★★ `focused` forces it open and scrolls the window to it, once, on the
+/// frame the dialog is built. See [`super::Draft::focus`] for the argument: a
+/// route that exists because of one setting must land on that setting, and
+/// Tools ▸ Font folders was dropping the operator at the top of ten collapsed
+/// headings.
+///
+/// ★★ `open(Some(true))` **only when focused**, never `Some(false)` otherwise.
+/// `CollapsingHeader::open` overrides the operator's own click for as long as it
+/// is passed, so a group forced open every frame is one they cannot collapse —
+/// and the fix for a discoverability problem must not take away a control.
+pub fn group_focused(
+    ui: &mut Ui,
+    key: &str,
+    heading: &str,
+    open_by_default: bool,
+    focused: bool,
+    body: impl FnOnce(&mut Ui),
+) {
+    let mut header = egui::CollapsingHeader::new(RichText::new(heading));
+    if focused {
+        header = header.open(Some(true));
+    }
+    let response = header.default_open(open_by_default).show(ui, body);
+    if focused {
+        // ★ The HEADER's response, so the window lands with the heading at the
+        // top of the view rather than the body's last row. `Align::TOP` for the
+        // same reason — the operator asked for this group and wants to read it
+        // downward, not to arrive at its end.
+        response
+            .header_response
+            .scroll_to_me(Some(egui::Align::TOP));
+    }
     // ★ The HEADER's rect, not the whole collapsible's.
     //
     // `CollapsingHeaderResponse::header_response` is the row carrying the text;

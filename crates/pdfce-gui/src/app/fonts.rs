@@ -109,14 +109,26 @@ const FONT_EXTENSIONS: [&str; 4] = ["ttf", "otf", "pfb", "cff"];
 /// Borrows from the [`Library`] that resolved it. The bytes are held once, in
 /// the environment; a donor that owned a copy would clone a whole face on every
 /// lookup, for a value most callers only read a name out of.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Donor<'a> {
-    /// The file it came from, for the disclosure and for the engine's
-    /// `SuppliedFont::source`.
-    pub path: &'a Path,
-    /// The name that matched — the document's own, an equivalent family's, or
-    /// the file's stem.
-    pub face_name: &'a str,
+    /// The file it came from, or `None` for one of pdfce's **own** faces.
+    ///
+    /// ★★ `Option`, and the `None` is not an absence of information — it is a
+    /// different KIND of donor. A bundled face has no path because it was never
+    /// on this machine's disk; it is compiled into the program. Reporting an
+    /// empty string, or the executable's own path, would both be answers to a
+    /// question the operator did not ask. [`Donor::source`] turns it into the
+    /// sentence instead.
+    pub path: Option<&'a Path>,
+    /// The name that matched — the document's own, an equivalent family's, the
+    /// file's stem, or a bundled face's own label.
+    ///
+    /// ★ Owned, unlike the rest of this struct, and the reason is the bundled
+    /// rung: the engine returns that name in a value that dies with the lookup,
+    /// so there is nothing for a borrow to point at. One `String` per missing
+    /// font, a handful of times per embed — measured against the alternative,
+    /// which is a `Cow` in a public type to save an allocation nobody can find.
+    pub face_name: String,
     /// The program bytes, exactly as they will be embedded.
     pub program: &'a [u8],
     /// **How** it matched, which the operator is owed.
@@ -132,6 +144,17 @@ pub struct Donor<'a> {
 pub enum Match {
     /// A file advertising the name the document spells, tag stripped.
     Exact,
+    /// **One of the faces pdfce itself ships**, used because nothing the
+    /// operator pointed pdfce at could answer.
+    ///
+    /// ★★★ The most inferred rung, and the engine says so in as many words:
+    /// *"nothing on the operator's machine was consulted."* Offered only
+    /// because the operator asked for it — `OPERATOR_REQUESTS.md` **O47**,
+    /// answered *"yes"* on 2026-08-28 — and disclosed loudly wherever it fires,
+    /// because a document that goes out with pdfce's Helvetica substitute in it
+    /// looks different from one with the operator's own, and nothing on the
+    /// canvas says which happened.
+    Bundled,
     /// A **standard-14 family equivalence** — the document says `Helvetica` and
     /// the folder holds `Arial`. Metric-compatible by design, and the advances
     /// come from `/Widths` regardless, but the letterforms are a different
@@ -140,6 +163,24 @@ pub enum Match {
     /// The file's **filename stem** matched where its advertised names did not.
     /// The weakest answer, and named separately so it can be disclosed.
     Stem,
+}
+
+impl<'a> Donor<'a> {
+    /// Where this donor came from, for the engine's `SuppliedFont::source` and
+    /// for the operator's row.
+    ///
+    /// ★★ A path, or the words for a bundled face. `pdfce-cli` writes
+    /// `"bundled: FoxitSans"` for the same value and the engine's own field doc
+    /// says the string is *"never parsed; only reported"* — so it is prose, and
+    /// prose the operator reads belongs in [`crate::text`]. This is the join,
+    /// not the wording.
+    #[must_use]
+    pub fn source(&self) -> String {
+        self.path.map_or_else(
+            || crate::text::fonts::bundled_source(&self.face_name),
+            |p| p.display().to_string(),
+        )
+    }
 }
 
 impl Match {
@@ -167,6 +208,10 @@ pub struct Library {
     paths: BTreeMap<String, PathBuf>,
     /// The names that came **only** from a filename stem. See the header.
     stems: BTreeSet<String>,
+    /// Whether pdfce's **own** standard-14 faces may answer.
+    ///
+    /// ★★★ `false` unless the operator asked. See [`Library::scan`].
+    allow_bundled: bool,
     /// Files that were skipped and why, in the order they were met.
     ///
     /// ★ Kept rather than discarded, because *"pdfce could not embed
@@ -194,6 +239,27 @@ impl Library {
     /// it.
     #[must_use]
     pub fn scan(folders: &[PathBuf]) -> Self {
+        Self::scan_with(folders, false)
+    }
+
+    /// [`Self::scan`], and whether pdfce's **own** faces may answer when the
+    /// folders cannot.
+    ///
+    /// # ★★★ The operator asked for this, and the licensing argument survives
+    ///
+    /// `OPERATOR_REQUESTS.md` **O47**, answered *"yes"* on 2026-08-28. The
+    /// module header's argument — that pdfce must not choose a font program on
+    /// somebody's behalf, silently, in a file that outlives the decision — is
+    /// not overruled by this. It is satisfied the same way **O50**'s checkbox
+    /// satisfies it: the operator decided, once, explicitly.
+    ///
+    /// ★★ And it is the **last** rung, which is what makes it safe to leave on.
+    /// `resolve_for_embedding` consults the bundled table only after an exact
+    /// name match and after a standard-14 family equivalence have both failed,
+    /// so a machine with real fonts configured reaches a real face first and
+    /// this never fires. It is a floor, not a preference.
+    #[must_use]
+    pub fn scan_with(folders: &[PathBuf], allow_bundled: bool) -> Self {
         // ★ `bundled()` rather than an empty environment, and it is safe: the
         // bundled faces live in the FALLBACK table, which
         // `resolve_for_embedding` consults only when it is passed
@@ -202,6 +268,7 @@ impl Library {
         // exactly that.
         let mut library = Self {
             env: FontEnvironment::bundled(),
+            allow_bundled,
             ..Self::default()
         };
         for folder in folders {
@@ -306,11 +373,32 @@ impl Library {
     /// advertises. Matching without stripping would find nothing, ever, on
     /// exactly the documents that need embedding most.
     ///
-    /// ★ `allow_bundled: false`, always. See the module header.
+    /// ★ Whether pdfce's own faces may answer is [`Self::scan_with`]'s
+    /// argument, carried on the library rather than passed here — the decision
+    /// is the operator's and belongs to the whole scan, not to one lookup.
     #[must_use]
     pub fn donor_for(&self, base_font: &str) -> Option<Donor<'_>> {
-        let hit = self.env.resolve_for_embedding(base_font, false)?;
-        let (name, path) = self.paths.get_key_value(hit.face_name.as_str())?;
+        let hit = self
+            .env
+            .resolve_for_embedding(base_font, self.allow_bundled)?;
+        // ★★★ A bundled face has no entry here and that is how it is
+        // RECOGNISED, rather than by matching on `hit.quality`.
+        //
+        // The two agree today and the map is the safer of the two to ask,
+        // because it answers a question about **this** library: a name the
+        // walk never registered cannot have come off a folder, whatever the
+        // engine calls the rung it took. If a future engine version reached a
+        // bundled face under some other quality, this still reports it as
+        // bundled — and the failure mode of the alternative is a face compiled
+        // into pdfce being disclosed as a file on the operator's disk.
+        let Some((name, path)) = self.paths.get_key_value(hit.face_name.as_str()) else {
+            return Some(Donor {
+                path: None,
+                face_name: hit.face_name,
+                program: hit.data.bytes(),
+                matched: Match::Bundled,
+            });
+        };
         let matched = match hit.quality {
             // ★ The re-grade the header explains. The engine says `Exact` for a
             // stem hit because to a renderer the two are the same question; to
@@ -324,8 +412,8 @@ impl Library {
             _ => Match::Alias,
         };
         Some(Donor {
-            path,
-            face_name: name,
+            path: Some(path),
+            face_name: name.clone(),
             program: hit.data.bytes(),
             matched,
         })
@@ -431,7 +519,7 @@ mod tests {
         library.offer("ArialMT", Path::new("C:/first/Arial.ttf"), &stub(), false);
         library.offer("ArialMT", Path::new("C:/second/Arial.ttf"), &stub(), false);
         let donor = library.donor_for("ArialMT").expect("indexed");
-        assert_eq!(donor.path, Path::new("C:/first/Arial.ttf"));
+        assert_eq!(donor.path, Some(Path::new("C:/first/Arial.ttf")));
     }
 
     /// **A tagged `/BaseFont` finds an untagged donor.**
@@ -487,23 +575,65 @@ mod tests {
         );
     }
 
-    /// ★★ **A bundled face is never offered.**
+    /// ★★★ **A bundled face is offered ONLY when it was asked for.**
     ///
     /// `FontEnvironment::bundled()` is what this scans into, so pdfce's own
     /// standard-14 substitutes sit in the table the whole time and one `true`
-    /// would put them into somebody's document without a folder being
-    /// configured at all. Whether to offer them is an operator decision, and
-    /// this is the assertion that keeps it from being taken by accident.
+    /// in the wrong place puts them into somebody's document. The operator said
+    /// yes on 2026-08-28 (`OPERATOR_REQUESTS.md` **O47**) — and *"yes"* is a
+    /// decision that has to be carried, not a reason to stop checking.
+    ///
+    /// ★★ Both halves in one test on purpose: an assertion that only proved the
+    /// `true` case would pass on a build that ignored the flag entirely, which
+    /// is the exact defect the licensing argument is about.
     #[test]
-    fn nothing_resolves_out_of_an_empty_library() {
-        let library = Library::scan(&[]);
-        assert!(library.is_empty());
+    fn a_bundled_face_answers_only_when_it_is_allowed_to() {
+        let refusing = Library::scan_with(&[], false);
+        assert!(refusing.donor_for("Helvetica").is_none());
+        assert!(refusing.donor_for("Times-Roman").is_none());
+        assert!(refusing.donor_for("Courier").is_none());
         assert!(
-            library.donor_for("Helvetica").is_none(),
-            "a bundled substitute was offered with no folder configured"
+            Library::scan(&[]).donor_for("Helvetica").is_none(),
+            "`scan` must be the refusing form: it is what a caller reaches for \
+             without thinking about the question"
         );
-        assert!(library.donor_for("Times-Roman").is_none());
-        assert!(library.donor_for("Courier").is_none());
+
+        let allowing = Library::scan_with(&[], true);
+        let donor = allowing
+            .donor_for("Helvetica")
+            .expect("pdfce ships a standard-14 substitute for Helvetica");
+        assert_eq!(donor.matched, Match::Bundled);
+        assert!(
+            donor.path.is_none(),
+            "a bundled face has no path — it was never on this machine's disk"
+        );
+        assert!(
+            donor.source().contains("pdfce's own"),
+            "the source must say whose face it is: {}",
+            donor.source()
+        );
+        assert!(!donor.program.is_empty(), "the bundled bytes are real");
+    }
+
+    /// ★★★ **A real folder still beats a bundled face.**
+    ///
+    /// The property that makes it safe to leave the bundled rung on. It is the
+    /// LAST rung — reached only after an exact name match and a family
+    /// equivalence have both failed — so a machine with fonts configured never
+    /// sees it. A build that consulted it first would embed pdfce's stand-in
+    /// into every drawing on a machine holding the real thing, and every row
+    /// would say so, and it would still be wrong.
+    #[test]
+    fn a_configured_face_outranks_pdfces_own() {
+        let mut library = Library::scan_with(&[], true);
+        library.offer("ArialMT", Path::new("C:/f/Arial.ttf"), &stub(), false);
+        let donor = library.donor_for("Helvetica").expect("resolved");
+        assert_eq!(
+            donor.matched,
+            Match::Alias,
+            "the bundled rung fired ahead of a real face"
+        );
+        assert_eq!(donor.path, Some(Path::new("C:/f/Arial.ttf")));
     }
 
     /// **A folder that will not open is a note, not a panic and not a stop.**
@@ -601,7 +731,7 @@ mod real_files {
             "Helvetica -> {} ({:?}) from {}",
             donor.face_name,
             donor.matched,
-            donor.path.display()
+            donor.source()
         );
     }
 }

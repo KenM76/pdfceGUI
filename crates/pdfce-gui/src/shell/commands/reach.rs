@@ -719,6 +719,17 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::fonts::handles(id) {
         return Some("handles");
     }
+    // ★ The Settings commands, in `app::dispatch::settings` since 2026-08-28,
+    // when this file crossed 1,500 lines for the third time in one session.
+    //
+    // ★★ It carries an id `routes` used to own — `tools.font_folders` — so this
+    // is also the one split where a command MOVED between two guard-arm modules
+    // rather than out of the parent. `routes`' `ROUTED` list shrank to one in
+    // the same commit, and `every_route_points_at_a_registered_command_that_is_
+    // not_itself` is what would have failed had it not.
+    if crate::app::dispatch::settings::handles(id) {
+        return Some("handles");
+    }
     // ★ The second membership-test guard, added 2026-08-20 with
     // `dispatch::textcopy`. Everything the paragraph above says about
     // `pages::handles` applies to it unchanged — including the mitigation: its

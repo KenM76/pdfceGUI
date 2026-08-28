@@ -46,6 +46,9 @@ pub const REGION: &str = "settings.fonts";
 /// The Add button.
 // ui-text-exempt: trace region name, never displayed
 pub const ADD_REGION: &str = "settings.fonts.add";
+/// The "use this computer's fonts" checkbox.
+// ui-text-exempt: trace region name, never displayed
+pub const OS_REGION: &str = "settings.fonts.use_os";
 
 /// Draw the folder list and its two controls.
 ///
@@ -90,9 +93,18 @@ pub fn folders(ui: &mut Ui, prefs: &mut Prefs) {
         // ★★ The empty state is a SENTENCE, not a blank. An empty list is
         // indistinguishable from a broken control, and this one has a
         // consequence worth stating before the operator meets it at the far end
-        // of an embed: with no folders, embedding has nowhere to take a font
-        // from and will say so then. Better said here.
-        ui.small(t::font_folders_none());
+        // of an embed.
+        //
+        // ★★★ TWO sentences, because as of the OS-fonts checkbox there are two
+        // states and only one of them is a problem. "No folders" no longer
+        // means "nothing to embed from" — the box may be ticked — and an empty
+        // state that contradicted a control four rows below it would tell an
+        // operator who HAS ticked it that their setting does not work.
+        ui.small(if prefs.use_os_fonts {
+            t::font_folders_none()
+        } else {
+            t::font_folders_none_at_all()
+        });
     }
 
     ui.add_space(4.0);
@@ -111,6 +123,54 @@ pub fn folders(ui: &mut Ui, prefs: &mut Prefs) {
         && let crate::app::files::Picked::Path(path) = crate::app::files::pick_font_folder()
     {
         fonts::add(&mut prefs.font_folders, &path);
+    }
+
+    ui.add_space(8.0);
+    ui.separator();
+    // ★★★ **The checkbox the operator asked for — `OPERATOR_REQUESTS.md` O50.**
+    //
+    // *"just a simple checkbox to include fonts from the OS installed font
+    // folders."* Below the list rather than above it, and the order is the
+    // argument: the folders **he** curated are the primary answer and this is
+    // the fallback, which is also the search order `fonts::search_path`
+    // enforces. A control drawn above a list it is subordinate to reads as the
+    // main event.
+    let os = ui.checkbox(&mut prefs.use_os_fonts, t::use_os_fonts_label());
+    crate::diag::ui_rect_visible(OS_REGION, os.rect, ui.clip_rect());
+    // ★★ The hint is DRAWN, not put on hover, and it is the one place in this
+    // window that argues for itself. Every other hint here describes a control;
+    // this one hands the operator a licensing decision, and a decision nobody
+    // reads is a decision the program took. Hover text is for the operator who
+    // went looking — this is for the one who did not.
+    ui.small(t::use_os_fonts_hint());
+
+    // ★★★ The folders the tick resolves to, drawn under it.
+    //
+    // A checkbox whose effect is invisible is one nobody can verify. The
+    // per-user folder in particular — `…\AppData\Local\Microsoft\Windows\Fonts`
+    // — is somewhere most operators do not know exists, and it is where a plain
+    // double-click on a `.ttf` installs by default on a modern Windows. Listing
+    // it is the difference between a setting an operator trusts and one they
+    // re-tick to see whether it took.
+    //
+    // ★ Drawn only when ticked. An unticked box with a list of folders under it
+    // states a fact about the machine and implies a promise about the program.
+    if prefs.use_os_fonts {
+        let found = fonts::os_font_dirs();
+        if found.is_empty() {
+            ui.small(t::use_os_fonts_none_found());
+        } else {
+            ui.small(t::use_os_fonts_folders());
+            for dir in &found {
+                // `weak`, and truncated with the full path on hover, for the
+                // rows above's reason: these are a **consequence** of the tick
+                // rather than entries the operator manages, and drawing them
+                // like the list would invite a Remove button that cannot exist.
+                let text = dir.display().to_string();
+                ui.add(egui::Label::new(egui::RichText::new(&text).weak().small()).truncate())
+                    .on_hover_text(&text);
+            }
+        }
     }
     crate::diag::ui_rect(REGION, ui.min_rect());
 }
