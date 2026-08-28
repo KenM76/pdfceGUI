@@ -39,6 +39,14 @@ pub enum ViewChrome {
     Grid,
     /// `view.guides` — whether the operator's guides are shown and draggable.
     Guides,
+    /// `view.show_points` — an object's anchors, without descending into it.
+    ///
+    /// ★ The fourth variant, and the enum's own docs predicted the shape of
+    /// what would go wrong if one were added carelessly: *"a fourth toggle
+    /// added to the enum with no registration would draw nothing and nothing
+    /// else in the suite would notice."* Both directions are asserted, so this
+    /// one could not be added that way.
+    ShowPoints,
 }
 
 impl ViewChrome {
@@ -49,8 +57,12 @@ impl ViewChrome {
     /// `PageDisplay::ALL` exists for, and for the same reason: a fourth toggle
     /// added to the enum with no registration would draw nothing and nothing
     /// else in the suite would notice.
-    pub const ALL: &'static [ViewChrome] =
-        &[ViewChrome::Rulers, ViewChrome::Grid, ViewChrome::Guides];
+    pub const ALL: &'static [ViewChrome] = &[
+        ViewChrome::Rulers,
+        ViewChrome::Grid,
+        ViewChrome::Guides,
+        ViewChrome::ShowPoints,
+    ];
 
     /// Read this toggle out of a view state.
     #[must_use]
@@ -59,6 +71,7 @@ impl ViewChrome {
             ViewChrome::Rulers => view.rulers,
             ViewChrome::Grid => view.grid,
             ViewChrome::Guides => view.guides,
+            ViewChrome::ShowPoints => view.show_points,
         }
     }
 
@@ -72,6 +85,7 @@ impl ViewChrome {
             ViewChrome::Rulers => view.rulers = on,
             ViewChrome::Grid => view.grid = on,
             ViewChrome::Guides => view.guides = on,
+            ViewChrome::ShowPoints => view.show_points = on,
         }
     }
 }

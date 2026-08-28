@@ -1058,6 +1058,41 @@ pub const fn recovered_status_line() -> &'static str {
     "This file's index was damaged — pdfce rebuilt it to open the document. The Properties panel says what was recovered."
 }
 
+/// ★★★ **Show points was switched on and the object has more anchors than the
+/// canvas will draw.**
+///
+/// # The state this exists for, and why silence was the wrong answer
+///
+/// `overlay::MAX_UNSELECTED_ANCHORS` is 400, and the cap is right: five
+/// thousand hollow squares over a CAD path is noise rather than an answer, and
+/// the cap's own note argues that at length.
+///
+/// But it means `view.show_points` **does nothing visible on exactly the
+/// drawings this program is for**. A 5,000-node path toggled on and off looks
+/// identical, and the operator's report would be *"Show points is broken"* —
+/// which is what the toggle was wired to stop happening in the first place,
+/// arriving through a different door.
+///
+/// Rule 4's half that survives: *an inference the operator cannot see still
+/// owes an off-canvas report.* The canvas is not marked — nothing is drawn on
+/// the page to indicate suppression — and the status bar carries the number.
+///
+/// ★ It names **both** numbers. The count alone would not say the cap is the
+/// reason; the cap alone would not say how far past it they are. An operator
+/// who sees *"5,903 … 400"* knows immediately that no setting is going to help
+/// and that the answer is to enter a part.
+///
+/// ★★ It also names the remedy, and the remedy is real: descending into a
+/// subpath narrows the anchor list to that subpath, which is nearly always
+/// under the cap. That is the route the Points tool takes and it is one click.
+#[must_use]
+pub fn too_many_anchors(count: usize, cap: usize) -> String {
+    format!(
+        "This object has {count} points and pdfce draws at most {cap} at once, so none are \
+         shown. Double-click into a part of it, or use the Points tool, to see that part's."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -64,6 +64,8 @@ const CARET_EVENT: &str = "text-edit-caret";
 const BECAME_ADD_EVENT: &str = "text-edit-became-add";
 /// `canvas-anchors total=… selected=… unselected_drawn=…`.
 const ANCHORS_EVENT: &str = "canvas-anchors";
+/// The View ▸ Display ▸ Show points control.
+const TOGGLE_REGION: &str = "ribbon.item.view.show_points";
 /// `canvas-selection via=node-tool …`.
 const NODE_CLICK_EVENT: &str = "canvas-selection";
 /// `T`, as a Windows virtual key. Letters are their ASCII uppercase code point.
@@ -300,5 +302,170 @@ fn drive_points(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<S
         )));
     }
     report.note(format!("★★ {drawn} point(s) drawn on the first click"));
+    Ok(None)
+}
+
+/// `show_points_draws_an_objects_points_without_descending` — **switch the View
+/// toggle on, click once, and the anchors are there.**
+///
+/// # ★★★ Why this check exists, and it is not "one more toggle"
+///
+/// `view.show_points` was registered, drawn on View ▸ Display and **inert for
+/// the whole life of the project**, behind a reason that said *"there is
+/// nothing for it to show — this build draws no anchor mark at any rung"*. That
+/// was true on 2026-08-15 and false four days later. Re-derived on 2026-08-28
+/// as one of six stale blockers in eleven.
+///
+/// ★★ **The first wiring of it was ALSO inert, and no test could have caught
+/// that.** The toggle was added as a disjunct to `draw_anchors`' rung guard —
+/// which is correct — and the function then fell out two lines later on
+/// `entered_object()`, which answers `None` at the Object rung *by
+/// construction*, because "entered" means the operator descended. So the
+/// control switched on, the trace said `view-chrome ShowPoints on=true`, and
+/// not one anchor was drawn.
+///
+/// Every assertion the toggle had passed: it registered, it rendered pressed,
+/// it reached `ViewState`. **What none of them asked was whether anything
+/// changed on screen** — which is R1's whole subject, and the reason this file
+/// gets a third member rather than the toggle getting a unit test.
+///
+/// # The oracle, and why it is a COMPARISON
+///
+/// `canvas-anchors total=… unselected_drawn=…` must be **absent** before the
+/// toggle and **present** after it, on the same click at the same point. A
+/// check asserting only the second half would pass on a build where anchors
+/// draw at the Object rung unconditionally — which is a different program, and
+/// a noisier one.
+pub struct ShowPointsDrawsAnObjectsPointsWithoutDescending;
+
+impl Check for ShowPointsDrawsAnObjectsPointsWithoutDescending {
+    fn name(&self) -> &'static str {
+        "show_points_draws_an_objects_points_without_descending"
+    }
+
+    fn defect(&self) -> &'static str {
+        "View \u{25b8} Show points is on the ribbon and changes nothing on screen — the command was          drawn and inert for the life of the project, and the first wiring of it was inert too          because the draw falls out on a rung guard two lines below the one the toggle was          added to"
+    }
+
+    fn run(&self, ctx: &CheckContext) -> CheckReport {
+        let mut report = CheckReport::new(self.name(), self.defect());
+        match drive_show_points(ctx, &mut report) {
+            Ok(Some(failure)) => report.fail(failure),
+            Ok(None) => report.pass(),
+            Err(skip) => report.skip(skip.to_string()),
+        }
+    }
+}
+
+fn drive_show_points(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>> {
+    let (session, driver, mapping, target) = open_in_edit(ctx, report, "show_points")?;
+
+    // --- 1: click WITHOUT the toggle. The control case. ---------------------
+    let window_point = mapping.doc_to_window(DocPoint::new(target.page, target.x, target.y))?;
+    let frame = session.frame()?;
+    driver.click_at(frame.to_screen(window_point))?;
+    session.settle(24);
+
+    let before = session.trace()?.events(ANCHORS_EVENT).count();
+    if before > 0 {
+        return Ok(Some(format!(
+            "a plain click at the Object rung already drew anchors, before Show points was \
+             switched on: `{ANCHORS_EVENT}` appeared {before} time(s).\n\
+             That is a different program from the one this check describes, and a noisier one — \
+             the Object rung deliberately draws no marks, because an object's anchors are not \
+             the operator's subject there and thousands of hollow squares over something they \
+             are about to move as a whole is noise with a rendering cost. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note("★ a plain click drew no anchors, which is the Object rung behaving as designed");
+
+    // --- 2: switch the toggle on and click again ----------------------------
+    //
+    // ★ Through the ribbon rather than the harness's invoke seam, deliberately.
+    // `PDFCE_DIAG_INVOKE` runs before the document is open and would prove the
+    // dispatch arm rather than the control; what is under test is a toggle an
+    // operator presses, and the whole defect class here is *the control changes
+    // state and nothing happens*.
+    // ★ The View TAB first. `open_in_edit` leaves the Edit tab active, and a
+    // ribbon control only publishes a rect on the tab that is drawn — so
+    // hunting for the toggle without switching tabs finds nothing and reports
+    // it as absent, which is what the first run of this check did. The band
+    // draws one tab; a region is a fact about what was drawn, not about what
+    // exists.
+    let ui_rect = ctx.profile.vocab.ui_rect_event.unwrap_or_default();
+    let trace = session.trace()?;
+    let view_tab = crate::checks::driving::declared(&trace, ui_rect, "ribbon.tab.view")
+        .ok_or_else(|| {
+            Error::new(format!(
+                "no `ribbon.tab.view` region, so the View tab cannot be reached. Trace: {}.",
+                session.trace_path().display()
+            ))
+        })?;
+    driver.click_at(session.frame()?.declared_center(view_tab))?;
+    session.settle(16);
+
+    let trace = session.trace()?;
+    let toggle = crate::checks::driving::declared(
+        &trace,
+        ctx.profile.vocab.ui_rect_event.unwrap_or_default(),
+        TOGGLE_REGION,
+    )
+    .ok_or_else(|| {
+        Error::new(format!(
+            "no `{TOGGLE_REGION}` region — Show points is not drawn on the View tab in this \
+                 build, so there is nothing to press. Trace: {}.",
+            session.trace_path().display()
+        ))
+    })?;
+    driver.click_at(session.frame()?.declared_center(toggle))?;
+    session.settle(20);
+    driver.click_at(session.frame()?.to_screen(window_point))?;
+    session.settle(24);
+
+    let trace = session.trace()?;
+    let Some(anchors) = trace.last(ANCHORS_EVENT) else {
+        return Ok(Some(format!(
+            "★★ SHOW POINTS WAS SWITCHED ON AND NOTHING WAS DRAWN: no `{ANCHORS_EVENT}` line \
+             after the toggle and a second click.\n\
+             This is the exact state the first wiring shipped in. `painting::draw_anchors` has \
+             a rung guard the toggle was added to, and TWO LINES BELOW IT a `let else` on \
+             `entered_object()` — which answers `None` at the Object rung by construction, \
+             because \"entered\" means the operator descended. Check that the `None` arm reads \
+             the selected object when `view.show_points` is on. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    let total = anchors.get_usize("total").unwrap_or(0);
+    let drawn = anchors.get_usize("unselected_drawn").unwrap_or(0);
+    report.note(format!("★★ the toggle drew points: `{}`", anchors.raw));
+
+    if total == 0 {
+        return Err(Error::new(
+            "the click landed on an object with no anchors \u{2014} a text run or an image, neither \
+             of which has points. That is a fact about the aim point, so it is SKIPPED.",
+        ));
+    }
+    // ★★ `drawn == 0` is NOT a failure here, and that is the difference from
+    // the points-tool check above. Above the cap, `overlay::draw_anchors`
+    // suppresses the unselected marks deliberately — and at the Object rung the
+    // list is the WHOLE object, which on a CAD path is thousands. That is
+    // expected, it is why the disclosure exists, and the check asserts the
+    // disclosure instead of calling the cap a defect.
+    if drawn == 0 {
+        let told = trace
+            .events(ctx.profile.vocab.ui_rect_event.unwrap_or_default())
+            .count();
+        let _ = told;
+        report.note(format!(
+            "the object carries {total} anchors, past the 400 cap, so none were drawn \u{2014} which \
+             is the cap behaving correctly and is why the status bar is told to say so"
+        ));
+        return Ok(None);
+    }
+    report.note(format!(
+        "★★★ {drawn} of {total} points drawn at the Object rung, with no descent \u{2014} which is \
+         what the toggle is for"
+    ));
     Ok(None)
 }

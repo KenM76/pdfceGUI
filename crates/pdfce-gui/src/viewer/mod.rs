@@ -324,6 +324,22 @@ pub struct ViewState {
     /// guides opens with this already `true`, because the presence of the work
     /// is the preference.
     pub guides: bool,
+    /// **`view.show_points` — draw an object's anchors without descending into
+    /// it.**
+    ///
+    /// Wired 2026-08-28, after the blocker on that command was re-derived and
+    /// found stale. The recorded reason was *"there is nothing for it to
+    /// show — this build draws no anchor mark at any rung"*, which was true
+    /// when it was written and stopped being true on 2026-08-19 when the
+    /// multi-node move landed with `canvas::overlay::draw_anchors`. The dead
+    /// sentence had **three copies** and `FEATURES.md` contradicted it twelve
+    /// lines from one of them.
+    ///
+    /// ★ Default **off**, with the other three: it is a drafting aid, and an
+    /// operator who has not asked for hollow squares over their drawing should
+    /// not get them. `crate::app::prefs` can make that an opening preference
+    /// the day somebody wants one.
+    pub show_points: bool,
 }
 
 impl Default for ViewState {
@@ -365,6 +381,10 @@ impl Default for ViewState {
             rulers: false,
             grid: false,
             guides: false,
+            // ★ Off, with the other three. See the field's own note: an
+            // operator who has not asked for hollow squares over their drawing
+            // should not get them.
+            show_points: false,
         }
     }
 }

@@ -570,7 +570,32 @@ fn draw_anchors(
     // it: an operator who descended by double-clicking with the Select tool has
     // done the thing the marks describe, and taking them away because a
     // different tool is armed would punish the route that worked.
+    // ★★★ **Or View ▸ Show points is on**, as of 2026-08-28 — a third disjunct
+    // beside the two above, and added the same way and for the same reason the
+    // second was.
+    //
+    // The command was registered, drawn and inert for the life of the project
+    // behind a reason that said *"there is nothing for it to show"*. That was
+    // true on 2026-08-15 and stopped being true four days later, when the
+    // multi-node move landed with `overlay::draw_anchors` and with the
+    // enumeration this function already calls. Re-derived on 2026-08-28 as one
+    // of six stale blockers in eleven.
+    //
+    // ★★ What it gates and what it deliberately does NOT. It gates the draw at
+    // its existing scope — the entered object, at the Part rung or the Node
+    // rung. Its tooltip promises *"the editable points of every part of the
+    // object you are working inside"*, which is what the existing scope
+    // already means, and **widening it to every object on the page is a
+    // separate decision that is the operator's**: `MAX_UNSELECTED_ANCHORS` is
+    // 400 and has already fired blank once on his own SW41177, so "show all
+    // the points" on a CAD sheet is a question about what to do with five
+    // thousand of them rather than a flag.
+    //
+    // ⇒ Wiring the toggle to the honest scope is not a placeholder. It is the
+    // difference between an operator having to *know a rung ladder exists* and
+    // being able to ask.
     if !tool.is_node()
+        && !doc.view.show_points
         && !matches!(
             selection.level(),
             SelectionLevel::Part | SelectionLevel::Node
@@ -578,8 +603,36 @@ fn draw_anchors(
     {
         return;
     }
-    let Some(entered) = selection.entered_object() else {
-        return;
+    // ★★★ **The Object rung is reachable through `show_points` and through
+    // nothing else**, and getting this wrong shipped an inert toggle for about
+    // ten minutes.
+    //
+    // `entered_object()` answers `None` at the Object rung *by construction* —
+    // "entered" means the operator descended. So the first wiring of
+    // `view.show_points` added a disjunct to the guard above and then fell out
+    // here on every ordinary selection: the toggle switched on, the trace said
+    // `view-chrome ShowPoints on=true`, and **not one anchor was drawn**.
+    //
+    // That is the exact defect the command was being wired to remove — a
+    // control an operator can see, aim at and press with no effect — and it was
+    // caught by asking *"what does this actually change on screen?"* rather
+    // than by any test. Nothing in the suite could have: the toggle's own
+    // assertions are that it registers, renders pressed and reaches
+    // `ViewState`, and all three passed.
+    //
+    // ⇒ With the toggle on, the **selected** object is the subject. That is
+    // what its tooltip promises — *"the editable points of every part of the
+    // object you are working inside"* — and it is bounded by the same
+    // `MAX_UNSELECTED_ANCHORS` cap the descent path already lives under.
+    let entered = match selection.entered_object() {
+        Some(entered) => entered,
+        None if doc.view.show_points => {
+            let Some(first) = selection.outlines().first().map(|(sel, _)| *sel) else {
+                return;
+            };
+            first
+        }
+        None => return,
     };
     if entered.page != page_index {
         return;
@@ -630,6 +683,35 @@ fn draw_anchors(
         // subpath, and five thousand dots would be noise rather than an answer.
         None => provider.object_node_points(object),
     };
+    // ★★ **The cap is disclosed when it fires, since 2026-08-28.**
+    //
+    // `overlay::draw_anchors` draws nothing unselected past
+    // `MAX_UNSELECTED_ANCHORS`, which is correct — five thousand dots is noise
+    // rather than an answer — and it means **Show points does nothing visible
+    // on exactly the drawings this program is for**. A 5,000-node CAD path
+    // toggled on and off looks identical, and an operator would report the
+    // control as broken.
+    //
+    // Rule 4's half that survives: *an inference the operator cannot see still
+    // owes an off-canvas report.* The canvas is not marked; the status bar
+    // says the number and why.
+    //
+    // ★ Only when the operator ASKED — `show_points` on — and not on the
+    // descent path, where the cap has always fired silently and where the
+    // operator's subject is the subpath they entered rather than the whole
+    // object.
+    if doc.view.show_points
+        && selection.entered_object().is_none()
+        && anchors.len() > crate::canvas::overlay::MAX_UNSELECTED_ANCHORS
+    {
+        crate::app::actions::record_note(
+            doc.edit_epoch,
+            crate::text::status::too_many_anchors(
+                anchors.len(),
+                crate::canvas::overlay::MAX_UNSELECTED_ANCHORS,
+            ),
+        );
+    }
     let points: Vec<(usize, egui::Pos2)> = anchors
         .into_iter()
         .filter_map(|(index, p)| {

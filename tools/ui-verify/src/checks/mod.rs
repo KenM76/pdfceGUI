@@ -778,6 +778,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
         Box::new(tool_row::TheTextToolTypesOnOneClick),
         Box::new(tool_row::ThePointsToolShowsPointsOnOneClick),
+        Box::new(tool_row::ShowPointsDrawsAnObjectsPointsWithoutDescending),
         Box::new(dropped_file::ADroppedImageReachesThePlacementWindow),
         Box::new(first_frame::TheFirstFrameNamesTheTools),
         Box::new(redaction::RedactionRemovesAndProvesIt),

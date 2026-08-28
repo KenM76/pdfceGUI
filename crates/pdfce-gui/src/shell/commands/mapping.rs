@@ -122,6 +122,8 @@ pub fn chrome_command(chrome: crate::app::actions::ViewChrome) -> &'static str {
         C::Grid => "view.grid",
         // ui-text-exempt: command ids, never displayed
         C::Guides => "view.guides",
+        // ui-text-exempt: command ids, never displayed
+        C::ShowPoints => "view.show_points",
     }
 }
 

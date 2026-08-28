@@ -1329,8 +1329,11 @@ pub const FX_CONST: &str = "fx.constant";
         // was right and was answered by the engine; its **replacement** reason
         // had the destination backwards. A reason rewritten after a blocker
         // clears gets none of the scrutiny the original had.
+        // ★ 9 -> 8: `view.show_points` WIRED. The audit's second stale entry to
+        // be retired, and the one whose dead sentence had three copies in two
+        // files — one of them twelve lines from its own contradiction.
         assert_eq!(
-            total, 9,
+            total, 8,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
@@ -1343,7 +1346,7 @@ pub const FX_CONST: &str = "fx.constant";
             // is the direction this count exists to make visible, and it is the
             // third retirement it has recorded.
             p3,
-            4,
+            3,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

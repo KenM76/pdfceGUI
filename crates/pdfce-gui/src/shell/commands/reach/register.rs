@@ -97,25 +97,34 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // It has now paid for itself twice on the day it was written.
     //
     // The arm is in `app::dispatch`; the verb is `app::actions::export::form_data`.
-    (
-        "view.show_points",
-        "★ P3 — and the reason was found on 2026-08-15 rather than written: **there is nothing \
-         for it to show.** Its own tooltip says what it governs — “the editable points of every \
-         part of the object you are working inside… Points always appear for the selected part” \
-         — which is the old shell's node-mark population, where `canvas.rs` carries `NODE_MARK_PX`, \
-         `NODE_MARK_OTHER_PART_PX` (“drawn only while the ‘show points’ view option is on”) and \
-         `MAX_DRAWN_NODES`. **This build draws no anchor mark at any rung.** `canvas::overlay`'s \
-         whole output is outlines, eight grips, a move ghost, find hits, a text wash and a \
-         marquee, and `CanvasTargetProvider` offers `nearest_node` — a *query* — with no way to \
-         enumerate a part's anchors to paint them. So the baseline the toggle is defined against \
-         does not exist, and the substrate is unsalvaged: `SALVAGE.md` lists `vector_edit_tool.rs` \
-         (“Node/handle editing. Keeps.”) and a ~1,200-line “Vector object editing, node/handle” \
-         unit, neither brought across. It was ALSO checked against `chrome_for_command` and does \
-         not belong there: every `ViewChrome` variant is a `crate::viewer::ViewState` field the \
-         canvas reads in order to *draw* something, and joining that family would add the one \
-         member whose flag nothing reads — a toggle that toggles nothing, which is worse than \
-         an inert button because it looks like it worked.",
-    ),
+    // ★★★ `view.show_points` was HERE until 2026-08-28. Its reason ran to
+    // twenty lines and said, in substance:
+    //
+    //   "★ P3 — and the reason was found on 2026-08-15 rather than written:
+    //   **there is nothing for it to show.** This build draws no anchor mark at
+    //   any rung … `CanvasTargetProvider` offers `nearest_node` — a *query* —
+    //   with no way to enumerate a part's anchors to paint them."
+    //
+    // **True on 2026-08-15 and false four days later.** The multi-node move
+    // landed on 2026-08-19 with `canvas::overlay::draw_anchors`, and with the
+    // enumeration the reason said did not exist — `object_node_points` and
+    // `subpath_node_points`, both already called by `canvas::painting`.
+    //
+    // ★★ The dead sentence had **three copies**: this entry, a `FEATURES.md`
+    // row, and a third — while `FEATURES.md` itself says twelve lines from one
+    // of them *"the anchors are VISIBLE, and until 2026-08-19 they were not, at
+    // any rung."* **A file contradicting itself is the shape a scheduled audit
+    // finds and an opportunistic one does not.**
+    //
+    // ★ What is wired is the toggle at the draw's EXISTING scope. Widening it
+    // to every object on the page is a separate decision and it is the
+    // operator's: `MAX_UNSELECTED_ANCHORS` is 400 and has already fired blank
+    // once on his own SW41177, so "show all the points" on a CAD sheet is a
+    // question about what to do with five thousand of them rather than a flag.
+    //
+    // No arm in `dispatch` — it is a `ViewChrome` variant, so
+    // `shell::commands::mapping::chrome_command` routes it with the other
+    // three, and `canvas::painting::draw_anchors` reads it.
     (
         "view.sidebar",
         "★ P3 — the only justification on record is provably stale. `panels/pages/mod.rs` \
