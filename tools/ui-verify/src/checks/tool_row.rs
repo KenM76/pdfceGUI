@@ -344,7 +344,10 @@ impl Check for ShowPointsDrawsAnObjectsPointsWithoutDescending {
     }
 
     fn defect(&self) -> &'static str {
-        "View \u{25b8} Show points is on the ribbon and changes nothing on screen — the command was          drawn and inert for the life of the project, and the first wiring of it was inert too          because the draw falls out on a rung guard two lines below the one the toggle was          added to"
+        "View \u{25b8} Show points is on the ribbon and changes nothing on screen — the \
+         command was drawn and inert for the life of the project, and the first wiring of it \
+         was inert too, because the draw falls out on a rung guard two lines below the one \
+         the toggle was added to"
     }
 
     fn run(&self, ctx: &CheckContext) -> CheckReport {
