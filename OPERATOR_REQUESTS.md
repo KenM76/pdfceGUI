@@ -136,8 +136,53 @@ capability. What is owed:
 3. Disclose which branch ran, because a reflow that did not happen looks
    identical to one that did nothing.
 
-**Status:** ★ **ACCEPTED 2026-08-28.** (a) is scoped and next; (b) needs the
-re-derivation first, and that is a read of the engine rather than a guess.
+### ★★ What the re-derivation found, and it changed the answer
+
+Step 1 was done rather than assumed, and the note **was** stale — in the useful
+direction. `EditSession::reflow_block(page, block, &ReflowRequest)` is a
+**verb**, not a policy knob: it re-wraps a named paragraph on demand and
+returns a report of what it did. The thing the shell pins invisibly is
+`FollowerDisposition`, which is a different decision about a different
+operation (what happens to the *rest of a line* when one run is edited).
+
+⇒ So (b) is not *"surface a choice the editor is making silently"*. It is
+*"ship a command the engine has and this shell never called"*. That is a
+smaller, cleaner piece of work than the request assumed, and it is done.
+
+**What shipped, 2026-08-28:**
+
+- **Edit ▸ Reflow paragraph**, acting on the paragraph the caret is in.
+- **A right-click inside text being edited** — `canvas.text`, a *third* canvas
+  menu. The other two are keyed on a selected object and on blank paper, and a
+  caret is neither, so O53's ruling would otherwise have been broken by a
+  command that existed only on the ribbon.
+- **Four refusals, each with its own sentence**: no caret, a caret placing new
+  text, a run that is not in a paragraph, and the big one below.
+
+### ★★★ The one thing an operator will meet and must be told, not left to find
+
+`reflow_block` is planned against the document **as opened** — it re-extracts
+the page to get position information the editing buffer does not carry — so it
+**refuses a file this session has already changed.** One typed character is
+enough.
+
+The shell asks that question before the attempt and answers with the remedy in
+words: *"Save this file and open it again, then reflow."* A refusal naming a
+cause and no remedy leaves somebody trying things; this one has a specific,
+cheap remedy and says it.
+
+★ Point 3 of the ask — *"disclose which branch ran"* — is honoured by the
+engine's own disclosures, forwarded verbatim, plus a line count the shell adds
+because a reflow that changed nothing is a correct outcome that reads as a
+failure in silence. The **page cropbox is supplied** so overflow is disclosed
+too: re-wrapping can push a block below the bottom of the sheet, and the
+default is not to check.
+
+**Status:** ★★ **(b) DONE 2026-08-28**, not driven — he was at the machine. The
+`ui-verify` check and its fixture are written and unrun:
+`reflowing_a_paragraph_rewraps_it` against `fixtures/paragraph.pdf`, whose six
+short ragged lines pack to five, so *"it ran and changed nothing"* fails rather
+than passing. **(a) is next.**
 
 ---
 

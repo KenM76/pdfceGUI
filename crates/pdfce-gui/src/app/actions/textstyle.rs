@@ -565,7 +565,30 @@ pub(super) fn reflow(doc: &mut OpenDoc, page: usize, block: usize) {
         });
         return;
     }
+    // ★★★ **The cropbox is supplied, and supplying it is the whole of the
+    // overflow disclosure.**
+    //
+    // `ReflowRequest::page_cropbox` defaults to `None`, which means *"do not
+    // check whether the re-wrapped block runs off the page"* — and a shell that
+    // takes that default has silently declined a rule-4 disclosure it was
+    // offered for free. Re-wrapping can only ever ADD lines when it narrows a
+    // block, and lines are added downward, so *"your paragraph now ends below
+    // the bottom of the sheet"* is a real outcome the operator cannot see from
+    // a canvas that has scrolled.
+    //
+    // ⇒ It is the same argument the engine makes for its own disclosures and
+    // the same shape as every other one this shell forwards: render normally,
+    // report separately. The report arrives in `report.disclosures` and goes to
+    // the status line verbatim.
     let request = pdfce_core::text_edit::ReflowRequest::new();
+    let request = match doc.pages.get(page) {
+        Some(page_ref) => request.with_page_cropbox(page_ref.crop_box),
+        // ★ A page index this document does not have. The reflow below will
+        // refuse it by name; declining to guess a cropbox is what keeps the
+        // refusal ABOUT the missing page rather than about a rectangle this
+        // shell invented for it.
+        None => request,
+    };
     super::apply::vector_edit(doc, "reflow-block", page, 1, |session| {
         session.reflow_block(page, block, &request).map(|report| {
             crate::diag::trace(|| {

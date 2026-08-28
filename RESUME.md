@@ -7,8 +7,8 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-28 after the font and markup-move
-work.** For a session starting cold on `D:\Dev\pdfceGUI`.
+**Written 2026-08-18, last revised 2026-08-28 after reflow, the whole-operator
+edit and the grey-overprint setting.** For a session starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
 record and is still authoritative for the standing rules, the phase order and

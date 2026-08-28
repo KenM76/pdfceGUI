@@ -313,6 +313,10 @@ pub mod pan_refresh;
 /// argument for why those are two commands rather than a duplicate.
 pub mod read_mode_chrome;
 pub mod redaction;
+/// **Paragraph reflow, driven.** The one check whose operand is a caret in
+/// egui's temporary memory — put there by a click and read by a command, with
+/// no other instrument that can see the handover.
+pub mod reflow;
 pub mod resize;
 /// ★★ **Sweep text, press Bold, and the file changes** — O37's font tools,
 /// driven. `app::actions::textstyle`'s eight unit tests would all still pass on
@@ -796,6 +800,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(dropped_file::ADroppedImageReachesThePlacementWindow),
         Box::new(first_frame::TheFirstFrameNamesTheTools),
         Box::new(redaction::RedactionRemovesAndProvesIt),
+        // ★ Beside the text-editing checks and owning its own fixture, like
+        // `text_edit` and `redaction` above: its verdict is a LINE COUNT that
+        // only `fixtures/paragraph.pdf` produces, so it takes no `--pdf`.
+        Box::new(reflow::ReflowingAParagraphRewrapsIt),
         // ★ Directly after `redaction`, and before the two selection checks,
         // because it is the second most expensive check in the suite — it
         // launches the binary twice, for the same reason `save_copy` does — and

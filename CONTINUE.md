@@ -1,5 +1,93 @@
 # CONTINUE — handoff
 
+## 2026-08-28 (afternoon) — reflow became a command, and the pinned-edit workaround was deleted
+
+**Clean tree. 18/18 gates. 1,893 + 421 + 144 tests, 0 failing. 93 driven checks,
+the newest unrun. Re-measure before quoting.** Engine `64224d4`.
+**Published**: `OneDrive\pdfceGUI2` is the newest (reflow + the overflow
+disclosure); `pdfceGUI1` is 12:06 and one commit behind it.
+
+### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
+
+*"I'm back on the PC so that's why a few of your tests may have gone wonky."*
+The suite drives the real mouse. Nothing since the 27th's sweep has been
+driven, and `FEATURES.md` says so in the row rather than implying otherwise.
+His last word was *"add reflow and release. I'll let you know when you can
+test it."* — so the release is done and the testing is his to schedule.
+
+### ★★★ REFLOW SHIPPED, AND IT IS NOT LIKE THE OTHER TEXT VERBS
+
+**Edit ▸ Reflow paragraph**, plus a **right-click inside text being edited**.
+
+`reflow_block` is planned against the **base** document — it re-extracts the
+page for provenance the staging buffer does not carry — so it **refuses a page
+this session has already rewritten**. One typed character is enough.
+
+⇒ Do not "fix" that. It is a correctness property; the alternative is splicing
+base-relative offsets into a stream that has moved. The shell asks the question
+before the attempt and answers with the remedy in words: *save and reopen*.
+
+★ It needed a **third canvas menu**. `canvas.object` is keyed on a selected
+object, `canvas.empty` on blank paper, and a caret is neither — so without
+`canvas.text` the command would have existed only on the ribbon, which O53's
+ruling forbids.
+
+### ★★★ THE ENGINE ANSWERED THE PINNED-EDIT DEFECT WITHIN THE HOUR, AND THE WORKAROUND IS GONE
+
+`Pass 152.0` names `EditRequest::whole_operator(page, span, replace)`. **It adds
+no behaviour**: an empty `find` beside a pin has meant "the whole show operator"
+since `Pass 145.0`. What was missing was a symbol to grep for.
+
+`textedit::plan` now drops the reconstructed `find` when the run is one
+operator. That string could never match on his CAD drawings — `text_extract`
+synthesises inter-glyph spacing, twenty-one spaces in one traced title-block
+cell — which is what *"text editing is weird"* was.
+
+★★ **Only when `pin::spans_one_operator` says so.** The engine measures 13% of
+runs as spanning more than one; on those, whole-operator would replace one
+fragment with the whole replacement and leave the rest painting old glyphs —
+visible corruption reported as success. Find-based fails cleanly there instead.
+**Do not widen this without measuring.**
+
+### ★★ A setting appeared out of a `cargo update`, and our own gate caught it
+
+`Pass 143.0` added `overprint_zero_tint_scope` and
+`every_setting_the_store_carries_has_a_control_in_this_window` failed within one
+dependency update. It is now **Colour ▸ Grey over a spot colour in print-ready
+files**, directly under the overprint setting, because that one decides whether
+overprint is simulated at all and this one decides which colours the ink rules
+reach.
+
+★ Its third option is **unmeasured** and its note says *"nobody has checked"* in
+those words. Keep that. A radio group that presents a guess and a measurement in
+the same voice asks the operator to trust both equally.
+
+### ★ Three things a cold session would otherwise rediscover
+
+1. **`rustfmt` joins a `\`-continued literal in `text/settings/look.rs` and
+   leaves the indentation in the string.** That file's convention is
+   single-line long literals. Wrapping one there produces a `check-string-gaps`
+   failure that looks like a lost backslash and is not.
+2. **A regex over a whole source file with `[^"]*` matches across newlines.**
+   It ate three literals in `textedit.rs` and eight in `look.rs` in one run
+   today. Line-scoped edits or the Edit tool; never a file-wide `re.sub` on
+   quoted text.
+3. **`fixtures/paragraph.pdf` is new and is the only fixture with a reflowable
+   paragraph.** A title block has none and `tail-alignment.pdf`'s blocks are
+   flush by measurement. Its generator prints the geometry the check quotes.
+
+### What is next, in his likely order
+
+1. **O54(a)** — the highlight tool should follow text on a drag, not draw a
+   box. Both halves exist (`canvas::textsel` quads, `Action::CommitTextMarkup`)
+   and are not connected. It is O53 in another costume.
+2. **A right-click context menu for form fields.**
+3. **O51's Inkscape-style stroke-scaling toggle** on the Tool row.
+4. **Drive everything since the 27th's sweep**, when he says the machine is free.
+
+---
+
+
 ## 2026-08-28 (overnight) — form fields became fully editable, and six stale blockers fell
 
 **Clean tree. 18/18 gates. 1,844 + 421 + 144 tests, 0 failing. 85 driven checks.
