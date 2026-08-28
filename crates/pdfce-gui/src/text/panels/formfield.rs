@@ -570,6 +570,134 @@ pub const fn label_caption_hint() -> &'static str {
     "The words on a button"
 }
 
+// ===========================================================================
+// The BORDER and the VISIBILITY — `Pass 146.0`, consumed 2026-08-27
+//
+// ★★★ Filed at 22:40 as *"a widget's border can be written and not read, so a
+// properties control would lie"*, shipped by the engine within the hour, and
+// consumed here. The whole exchange turned on one sentence of the request, and
+// the engine quoted it back in three places of their own:
+//
+//   A properties control has to show the current value. One seeded from a
+//   default would display *Solid 1 pt* over a widget whose file says
+//   *Dashed 3 pt* and write the invention back on the first press.
+//
+// So `border: None` means **the file states no border**, and this pane renders
+// that as a dash. It is a fact to display, never a value to substitute.
+// ===========================================================================
+
+/// `/BS` — the border style.
+#[must_use]
+pub const fn label_border() -> &'static str {
+    "Border"
+}
+
+/// ★★ Shown when `Widget::border` is `None` — *the file says nothing about a
+/// border.*
+///
+/// **Not "Solid, 1 pt".** `BorderSpec::default()` is solid/1 pt because that
+/// reproduces the bytes pdfce authors, which is correct for a writer and a lie
+/// from a reader. The engine made the field an `Option` specifically so this
+/// distinction survives, and their load-bearing test —
+/// `a_widget_whose_file_states_no_border_reads_a_dash_not_a_default` — goes red
+/// if the reader substitutes.
+///
+/// ★ Distinct from a border of **width 0**, which Table 166 states as a value
+/// meaning *no border*. That is the file saying something definite and it reads
+/// as `0 pt`, not as this. Collapsing the two would tell an operator the file
+/// is silent when it has spoken.
+#[must_use]
+pub const fn border_unstated() -> &'static str {
+    "—  (this file says nothing about a border)"
+}
+
+/// One border style, in the operator's words.
+///
+/// ★ Beveled and Inset are named by their **appearance** rather than by the
+/// standard's word, because *"beveled"* describes a 3-D raised edge that a
+/// person recognises on sight and cannot name, while *"inset"* is the same edge
+/// the other way up. The other three need no help.
+#[must_use]
+pub fn border_style_label(style: pdfce_core::edit::BorderStyle) -> &'static str {
+    use pdfce_core::edit::BorderStyle;
+    match style {
+        BorderStyle::Solid => "Solid",
+        BorderStyle::Dashed => "Dashed",
+        BorderStyle::Beveled => "Raised edge",
+        BorderStyle::Inset => "Sunken edge",
+        BorderStyle::Underline => "Underline only",
+        // ★ NO catch-all arm, and that is deliberate rather than an oversight
+        // the compiler let through. `BorderStyle` is **not**
+        // `#[non_exhaustive]`, so exhaustiveness here means a sixth style added
+        // to `pdfce-core` fails to build in this file — which is exactly where
+        // the decision belongs. A `_ => "Another style"` would compile for ever
+        // and put a word in the operator's mouth about a style nobody had
+        // looked at.
+        //
+        // A malformed `/S` cannot reach here: the engine degrades an
+        // unrecognised name to Solid on the way in, per Table 166's own
+        // default.
+    }
+}
+
+/// The border width field.
+#[must_use]
+pub const fn label_border_width() -> &'static str {
+    "Border width"
+}
+
+/// ★ It states what **zero** means, because Table 166 makes zero a value —
+/// *no border* — rather than an absence, and a spinner showing 0 cannot say
+/// which it is on its own.
+#[must_use]
+pub const fn label_border_width_hover() -> &'static str {
+    "How thick the border is drawn, in points. Zero means the file asks for no border at all, \
+     which is different from the file saying nothing about one."
+}
+
+/// `/F` — where the widget is visible.
+#[must_use]
+pub const fn label_visibility() -> &'static str {
+    "Shown"
+}
+
+/// One visibility, in the operator's words.
+///
+/// ★ Named by **where you see it** rather than by the flag combination, which
+/// is the only framing that answers the question an operator is asking. `/F`'s
+/// four settable combinations are Hidden, Print, NoView and their pairings;
+/// *"on screen and on paper"* is what those mean.
+#[must_use]
+pub fn visibility_label(visibility: pdfce_core::edit::Visibility) -> &'static str {
+    use pdfce_core::edit::Visibility;
+    match visibility {
+        Visibility::VisibleAndPrints => "On screen and on paper",
+        Visibility::ScreenOnly => "On screen only",
+        Visibility::PrintOnly => "On paper only",
+        Visibility::Hidden => "Nowhere — hidden",
+        // ★ Exhaustive, for [`border_style_label`]'s reason: `Visibility` is
+        // the four combinations pdfce can SET, and a fifth would be a decision
+        // this file must be forced to make rather than allowed to paper over.
+    }
+}
+
+/// ★★★ Shown when `Widget::visibility` is `None` — *the file's flags are ones
+/// pdfce cannot set.*
+///
+/// The engine's mapping is **exact-or-`None`**, never nearest, and their note
+/// on why is the same argument as the border's: `/F` admits dozens of
+/// combinations and `Visibility` is the four pdfce can write, so a file
+/// carrying `Print | NoZoom` has no nearest of the four that is not a lie.
+///
+/// ★ `None` here can never mean *absent*: Table 164 makes an absent `/F` equal
+/// to `0`, which **is** one of the four. So this sentence is always about a
+/// file that has said something pdfce cannot express, and it says exactly that
+/// rather than showing nothing.
+#[must_use]
+pub fn visibility_unmappable(flags: u32) -> String {
+    format!("This box uses display flags pdfce cannot set (0x{flags:04X}), so they are left alone.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

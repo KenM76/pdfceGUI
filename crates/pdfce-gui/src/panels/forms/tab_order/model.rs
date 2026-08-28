@@ -1191,6 +1191,13 @@ mod tests {
                 // ★ THE POINT OF THIS FIXTURE.
                 page: None,
                 caption: None,
+                // `Pass 146.0`'s three, in a test fixture: the file states no
+                // border and no unusual flags. `None` is the honest value for a
+                // synthetic widget — it means "this file says nothing", which is
+                // exactly true of one built in a test.
+                border: None,
+                visibility: None,
+                annot_flags: pdfce_core::annot::AnnotFlags(0),
                 has_normal_appearance: true,
                 merged: false,
             }],

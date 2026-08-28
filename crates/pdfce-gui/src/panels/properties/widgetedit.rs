@@ -44,30 +44,50 @@
 //! signature — leaves the widget rendering **distorted**. The engine names it;
 //! this pane prefixes the engine's own string with what it means on screen.
 //!
-//! ## ★★ What is NOT here, and it is a boundary report rather than a deferral
+//! ## ★★★ All four properties are here, and the last two took an hour
 //!
-//! `WidgetEdit` carries four properties and this pane offers **two**.
+//! This section read *"`WidgetEdit` carries four properties and this pane
+//! offers **two**"* for about an hour on 2026-08-27, and the reason is worth
+//! keeping because the outcome is what decision 058 promises and rarely gets to
+//! demonstrate.
 //!
-//! * **rect** — `forms::Widget::rect`. Readable, writable. Here.
-//! * **caption** — `forms::Widget::caption` (`/MK` `/CA`). Readable, writable.
-//!   Here.
-//! * **border** (`/BS` — style and width) — writable, and **not readable**.
-//!   `annot_author::read_border_width` is private, `border_style` is a *writer*,
-//!   and `forms::Widget` models no border at all. Grepped, 2026-08-27.
-//! * **visibility** (`/F`) — writable, and readable only by a detour:
-//!   `annot::page_annotations` returns `Annotation::flags` and a widget would
-//!   have to be matched to its annotation by `ObjId`.
+//! **border** (`/BS`) and **visibility** (`/F`) were writable and **not
+//! readable**: `annot_author::read_border_width` was private, `border_style` is
+//! a *writer*, and `forms::Widget` modelled no border at all. So the controls
+//! were **absent rather than offered**, and the reason was not effort:
 //!
-//! ⇒ The last two are **absent rather than offered**, and the reason is not
-//! effort. A properties control has to show the current value; a border control
-//! that could not read one would display an invented default, and the first
-//! press would write that invention into the operator's file. That is strictly
-//! worse than no control — it is the "shows an approximation and then writes it
-//! back" failure `panels::properties::text`'s colour swatch refuses for CMYK.
+//! > A properties control has to show the current value. One seeded from a
+//! > default would display *Solid 1 pt* over a widget whose file says *Dashed
+//! > 3 pt* and write the invention back on the first press.
 //!
-//! Filed to the request channel rather than worked around, per decision 058:
-//! *anything the GUI has to work around is a place the crate boundary was drawn
-//! wrong.*
+//! That was filed rather than worked around, and `Pass 146.0` shipped
+//! `Widget::border`, `Widget::visibility` and `Widget::annot_flags` within the
+//! hour. The engine checked every claim in the request against their tree
+//! before scoping it, and quoted the sentence above into the field's own doc
+//! comment, into `docs/core-api/`, and into their test file header — *"because
+//! the next person to touch this will be tempted to simplify it."*
+//!
+//! ## ★★★ `None` is a FACT, and this pane must never substitute a default
+//!
+//! Both new fields are `Option`, and both `None`s are load-bearing:
+//!
+//! * **`border: None` means the file states no border.** Not
+//!   `BorderSpec::default()` — that default is solid/1 pt because it reproduces
+//!   the bytes pdfce *authors*, which is correct for a writer and a lie from a
+//!   reader. Their load-bearing test is named
+//!   `a_widget_whose_file_states_no_border_reads_a_dash_not_a_default`, and
+//!   sabotaging the reader to return the default turns it red.
+//! * ★ **A border of width 0 is a VALUE**, not an absence — Table 166 states it
+//!   as *no border*. It reads `0 pt`. Collapsing it to `None` would tell an
+//!   operator the file is silent when it has said something definite.
+//! * **`visibility: None` means the file's flags are ones pdfce cannot set.**
+//!   The mapping is exact-or-nearest-is-refused: `/F` admits dozens of
+//!   combinations and `Visibility` is the four pdfce can write, so a file
+//!   carrying `Print | NoZoom` has no nearest of the four that is not a lie.
+//!   `annot_flags` carries the raw word so the pane can say so.
+//! * ★★ `None` there can never mean *absent*: Table 164 makes an absent `/F`
+//!   equal `0`, which **is** one of the four. So the sentence is always about a
+//!   file that said something inexpressible.
 //!
 //! ## Rule 4
 //!
@@ -98,6 +118,15 @@ pub const REGION: &str = "properties.widget_edit";
 /// The four geometry spinners' shared region prefix.
 // ui-text-exempt: trace region name, never displayed
 pub const GEOMETRY_REGION: &str = "properties.widget_edit.geometry";
+/// The border-style combo's region.
+// ui-text-exempt: trace region name, never displayed
+pub const BORDER_REGION: &str = "properties.widget_edit.border";
+/// The border-width spinner's region.
+// ui-text-exempt: trace region name, never displayed
+pub const BORDER_WIDTH_REGION: &str = "properties.widget_edit.border_width";
+/// The visibility combo's region.
+// ui-text-exempt: trace region name, never displayed
+pub const VISIBILITY_REGION: &str = "properties.widget_edit.visibility";
 /// The Apply button — the one control a driven check presses.
 // ui-text-exempt: trace region name, never displayed
 pub const APPLY_REGION: &str = "properties.widget_edit.apply";
@@ -151,6 +180,10 @@ pub fn section(
     ui.add_space(2.0);
 
     geometry_rows(ui, draft, actions, fqn, widget_index);
+    ui.add_space(4.0);
+    border_rows(ui, widget, fqn, widget_index, actions);
+    ui.add_space(4.0);
+    visibility_row(ui, widget, fqn, widget_index, actions);
     ui.add_space(4.0);
     caption_row(ui, draft, actions, fqn, widget_index);
 
@@ -231,6 +264,176 @@ fn geometry_rows(
             .into(),
         );
     }
+}
+
+/// The border's style and width — `/BS`, `Pass 146.0`.
+///
+/// # ★★★ It reads from the DOCUMENT and shows a dash when the file is silent
+///
+/// There is no draft, deliberately, and the style combo reads
+/// `widget.border` fresh every frame — the same argument
+/// [`super::fieldedit::flag_row`] makes for its checkboxes: a press the engine
+/// refuses leaves the control where it was, because the document did not
+/// change. A draft-backed control would show the operator's intent while the
+/// document silently disagreed.
+///
+/// ★★ **`None` renders [`t::border_unstated`] and offers no width at all.** The
+/// alternative — a combo pre-set to Solid and a spinner at 1 — is exactly the
+/// invention this whole exchange with the engine was about, and the first press
+/// would write it into the operator's file. Choosing a style from the combo is
+/// how a widget with no stated border gets one, which is an act rather than a
+/// default.
+///
+/// ★ A width of **0** is a value, not an absence, and shows as `0 pt`.
+fn border_rows(
+    ui: &mut Ui,
+    widget: &Widget,
+    fqn: &str,
+    widget_index: usize,
+    actions: &mut Vec<Action>,
+) {
+    use pdfce_core::edit::{BorderSpec, BorderStyle};
+    // ★ The five pdfce can write. Not `BorderStyle`'s variants enumerated by
+    // hand somewhere else: this is the list the engine's own `edit_widget`
+    // accepts, and offering a sixth would be a control whose press is refused.
+    const STYLES: [BorderStyle; 5] = [
+        BorderStyle::Solid,
+        BorderStyle::Dashed,
+        BorderStyle::Beveled,
+        BorderStyle::Inset,
+        BorderStyle::Underline,
+    ];
+
+    let current = widget.border;
+    ui.horizontal(|ui| {
+        ui.label(t::label_border());
+        let shown = current.map_or_else(t::border_unstated, |b| t::border_style_label(b.style));
+        let combo = egui::ComboBox::from_id_salt("widget-border-style")
+            .selected_text(shown)
+            .show_ui(ui, |ui| {
+                for style in STYLES {
+                    let selected = current.is_some_and(|b| b.style == style);
+                    if ui
+                        .selectable_label(selected, t::border_style_label(style))
+                        .clicked()
+                        && !selected
+                    {
+                        // ★ The width travels with the style, because `/BS` is
+                        // one dictionary and `BorderSpec` is one value — there
+                        // is no "change the style and leave the width" to
+                        // express. A widget with no stated border gets the
+                        // standard's own Table 166 default of 1, which is
+                        // reading rather than inventing: choosing a style is
+                        // the operator committing to having a border.
+                        let width = current.map_or(1.0, |b| b.width);
+                        actions.push(
+                            FieldAction::EditWidget {
+                                field: fqn.to_owned(),
+                                widget: widget_index,
+                                edit: WidgetEdit::new().with_border(BorderSpec { style, width }),
+                                // ui-text-exempt: a control name carried for a refusal message.
+                                touched: "the border",
+                            }
+                            .into(),
+                        );
+                    }
+                }
+            });
+        crate::diag::ui_rect_visible(BORDER_REGION, combo.response.rect, ui.clip_rect());
+    });
+
+    // ★ The width is offered only once the file has a border to widen. A
+    // spinner over `border: None` would have to show *something*, and any
+    // number it showed would be the invention.
+    let Some(border) = current else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        ui.label(t::label_border_width());
+        let mut width = border.width;
+        let response = ui.add(
+            egui::DragValue::new(&mut width)
+                .speed(0.25)
+                .range(0.0..=72.0)
+                .fixed_decimals(2),
+        );
+        crate::diag::ui_rect_visible(BORDER_WIDTH_REGION, response.rect, ui.clip_rect());
+        let response = response.on_hover_text(t::label_border_width_hover());
+        if (response.drag_stopped() || response.lost_focus()) && !near(width, border.width) {
+            actions.push(
+                FieldAction::EditWidget {
+                    field: fqn.to_owned(),
+                    widget: widget_index,
+                    edit: WidgetEdit::new().with_border(BorderSpec {
+                        style: border.style,
+                        width,
+                    }),
+                    // ui-text-exempt: a control name carried for a refusal message.
+                    touched: "the border width",
+                }
+                .into(),
+            );
+        }
+    });
+}
+
+/// Where the widget is visible — `/F`, `Pass 146.0`.
+///
+/// ★★★ **`None` is a sentence, not an empty combo.** The engine's mapping is
+/// exact-or-refused, so `None` means the file carries flags pdfce cannot set —
+/// `Print | NoZoom`, say — and it can never mean *absent*, because Table 164
+/// makes an absent `/F` equal `0` which is one of the four.
+///
+/// So the pane says which flags, in hex, and says pdfce is leaving them alone.
+/// The alternative — showing the nearest of the four — is the border defect
+/// wearing a different hat, and the operator's first press would collapse a
+/// combination the file meant.
+fn visibility_row(
+    ui: &mut Ui,
+    widget: &Widget,
+    fqn: &str,
+    widget_index: usize,
+    actions: &mut Vec<Action>,
+) {
+    use pdfce_core::edit::Visibility;
+    const SHOWN: [Visibility; 4] = [
+        Visibility::VisibleAndPrints,
+        Visibility::ScreenOnly,
+        Visibility::PrintOnly,
+        Visibility::Hidden,
+    ];
+
+    let Some(current) = widget.visibility else {
+        ui.label(t::label_visibility());
+        ui.small(t::visibility_unmappable(widget.annot_flags.0));
+        return;
+    };
+    ui.horizontal(|ui| {
+        ui.label(t::label_visibility());
+        let combo = egui::ComboBox::from_id_salt("widget-visibility")
+            .selected_text(t::visibility_label(current))
+            .show_ui(ui, |ui| {
+                for choice in SHOWN {
+                    if ui
+                        .selectable_label(choice == current, t::visibility_label(choice))
+                        .clicked()
+                        && choice != current
+                    {
+                        actions.push(
+                            FieldAction::EditWidget {
+                                field: fqn.to_owned(),
+                                widget: widget_index,
+                                edit: WidgetEdit::new().with_visibility(choice),
+                                // ui-text-exempt: a control name carried for a refusal message.
+                                touched: "where the box is shown",
+                            }
+                            .into(),
+                        );
+                    }
+                }
+            });
+        crate::diag::ui_rect_visible(VISIBILITY_REGION, combo.response.rect, ui.clip_rect());
+    });
 }
 
 /// `/MK` `/CA` — the widget's caption.
