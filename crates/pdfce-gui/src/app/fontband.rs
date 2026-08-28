@@ -238,11 +238,21 @@ fn face(
     ready: Option<&(usize, Vec<usize>)>,
     parked: &mut Option<StyleChange>,
 ) -> bool {
+    // ★ The face the draft holds, or the no-value placeholder — see
+    // [`crate::text::panels::properties::text_value_absent`] for why a greyed
+    // control must not show a value it does not have. The draft is only synced
+    // when the control is live, so `None` here is the ordinary greyed state and
+    // not an error.
     let current = draft.face().unwrap_or_default().to_owned();
+    let shown = if current.is_empty() {
+        t::text_value_absent()
+    } else {
+        crate::panels::properties::text::shorten(&current)
+    };
     let mut invoked = false;
     egui::ComboBox::from_id_salt("ribbon-format-font-face")
         .width(FACE_WIDTH)
-        .selected_text(crate::panels::properties::text::shorten(&current))
+        .selected_text(shown)
         .show_ui(ui, |ui| {
             // ★ The popup is only reachable while the control is live, so this
             // closure runs only with a document and a page. Written as a
@@ -286,6 +296,28 @@ fn size(
     parked: &mut Option<StyleChange>,
 ) -> bool {
     let was = draft.size();
+    // ★★★ A greyed size field shows the PLACEHOLDER, not a number.
+    //
+    // Found by looking at a screenshot on 2026-08-27, after the driven check
+    // had passed. With nothing swept the draft holds its `Default` — zero —
+    // and `DragValue`'s own `range(1.0..=1440.0)` clamps that up, so the
+    // greyed control read **`1.0 pt`**: a claim about the operator's document,
+    // and a false one. The check was right to pass; it asserts that the control
+    // is drawn, and it was.
+    //
+    // A `Button` rather than a `DragValue` with clever formatting, because a
+    // `DragValue` in this state is a control that can be dragged: `add_enabled_ui`
+    // makes it inert, but the shape of the thing an operator is looking at
+    // should say *there is no value here*, not *here is a number you may
+    // scrub*. It is disabled, so it takes no clicks and reports nothing.
+    if !live {
+        let response = ui.add_enabled(false, egui::Button::new(t::text_value_absent()));
+        let _ = ui.allocate_space(egui::Vec2::new(
+            (SIZE_WIDTH - response.rect.width()).max(0.0),
+            0.0,
+        ));
+        return false;
+    }
     let response = ui.add(
         egui::DragValue::new(draft.typed_size_mut())
             .speed(0.25)

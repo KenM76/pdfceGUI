@@ -964,6 +964,37 @@ pub const fn text_size_suffix() -> &'static str {
     " pt"
 }
 
+/// What a Format ▸ Font control shows when it is greyed and has no operand.
+///
+/// ★★★ **A screenshot found this and no trace could have**, 2026-08-27, which
+/// is `D:/dev/rag/egui/`'s standing rule arriving in person: *layout and
+/// clipping defects have exactly one oracle, a rendered screenshot.*
+///
+/// The Font group's size field is an `egui::DragValue` over the shared read-back
+/// draft. With nothing swept the draft holds its `Default` — zero — and the
+/// widget's own `range(1.0..=1440.0)` clamps that up, so the greyed control
+/// rendered **`1.0 pt`**. The driven check saw a region at the right place and
+/// passed, correctly: it was asserting that the control is drawn, and it was.
+///
+/// ★★ A greyed control showing a **false value** is worse than one showing
+/// none. Greyed says *"not right now"*; `1.0 pt` says *"this text is one point
+/// tall"*, which is a claim about the operator's document and it is wrong. The
+/// same argument the Properties panel's `text_colour_not_plain` makes about a
+/// converted swatch: a control that shows an approximation invites a press that
+/// writes it back.
+///
+/// ★ An em dash, and the convention is the reason. Word leaves its font-size
+/// box **blank** with nothing selected; every property grid in this class —
+/// Acrobat, SolidWorks, Figma — shows a blank or a dash for *no value* and for
+/// *mixed values*, which are the same state as far as a single field is
+/// concerned. A dash is chosen over a blank because an empty framed control on
+/// a ribbon reads as a rendering fault, and because it is what the operator's
+/// own tools do.
+#[must_use]
+pub const fn text_value_absent() -> &'static str {
+    "—"
+}
+
 /// Label for the bold / italic buttons.
 #[must_use]
 pub const fn text_weight_label() -> &'static str {
