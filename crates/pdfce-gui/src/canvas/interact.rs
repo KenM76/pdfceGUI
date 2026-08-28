@@ -1051,38 +1051,22 @@ pub(super) fn interact(
                 crate::canvas::textedit::begin_box(&ctx, doc, page_index, from, to, page);
             }
         }
+        // ★ The resize, routed. Three destinations share these eight grips —
+        // page content, a markup annotation and a form field's box — and
+        // `canvas::resizing` is the decision. Moved out of this arm's body on
+        // 2026-08-28 for the reason every other arm here states: this is
+        // wiring, and the rules are unit-tested without a window.
         GestureOutcome::Resize { grip, delta, phase } => {
             resize_ghost = crate::canvas::resizing::drag(
                 crate::canvas::resizing::Frame {
                     grip,
                     delta,
                     phase,
-                    // ★★★ The SAME box the hit test used, from the one place
-                    // that answers the question — `pressing::grabbable`. It
-                    // was `overlay::grip_box`, which answers only for page
-                    // CONTENT, so an annotation's grips were hit-tested against
-                    // one rectangle and dragged against `None`: the press would
-                    // be classified as a resize and the drag would decline
-                    // silently, every time.
-                    //
-                    // ★★ Rule H7 in its third form — one predicate for
-                    // painting, hit-testing AND committing. `rotating::drag`
-                    // eight lines above deliberately keeps `grip_box`: rotation
-                    // is offered for page content only (`GripSet::rotate`), so
-                    // the content box is the right question there and using
-                    // this one would hand it a box it must never turn.
                     bounds: crate::canvas::pressing::grabbable(&ctx, doc, map, &selection).bounds,
                     page_index,
-                    // ★ SHIFT PRESERVES ASPECT. Announced here and applied
-                    // inside the drag, because the factors are derived there
-                    // and the ghost it returns must be the pair it commits.
                     constrain: crate::canvas::constrain::resize(&ctx, shift),
                     map: Some(map),
                     page: doc.current_page(),
-                    // ★ The third destination. A form field's selection lives
-                    // on the document rather than on `SelectionState`, because
-                    // the form surface owns those presses — see the field's own
-                    // doc on `resizing::Frame`.
                     selected_field: doc.selected_field.as_ref(),
                 },
                 &selection,
@@ -1240,13 +1224,18 @@ pub(super) fn interact(
     );
 
     keys::canvas_keys(
-        &ctx,
+        keys::Keys {
+            ctx: &ctx,
+            page_index,
+            caps,
+            // ★ The third surface Delete has to know about, and the one it
+            // could not see. See the field's own doc on `keys::Keys`.
+            selected_field: doc.selected_field.as_ref(),
+            escape_consumed: matches!(outcome, GestureOutcome::Cancelled),
+        },
         &mut selection,
         &mut text_selection,
-        page_index,
-        caps,
         actions,
-        matches!(outcome, GestureOutcome::Cancelled),
     );
 
     // ---- 7. re-resolve -------------------------------------------------

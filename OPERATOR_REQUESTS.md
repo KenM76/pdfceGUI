@@ -80,6 +80,67 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O54 — ★★★ The highlight tool should follow text the way Acrobat's does, and paragraph reflow should be offered
+
+**His words, 2026-08-28:**
+
+> *"Also the highlight tool - it's great that we can just drag a box to highlight
+> an area, but we should be able to drag it along to just highlight text too like
+> it works in adobe. Also I think the paragraph reflow was implemented ages ago
+> in the pdfce core, so we should have that option too."*
+
+### ★★★ (a) The highlight tool draws a BOX where it should follow text
+
+Both halves already exist and **they are not connected**:
+
+| piece | state |
+|---|---|
+| sweeping text produces line-grouped quads | `canvas::textsel`, shipped |
+| authoring `/Highlight` from quads | `Action::CommitTextMarkup { quads }`, shipped |
+| **dragging the highlight TOOL over text** | draws a rectangle band |
+
+So an operator can highlight text today only by sweeping it with the *select*
+tool and then pressing a ribbon control. With the highlight tool armed —
+the thing named after the job — a drag draws a box.
+
+⇒ **This is O53 again, in a different costume.** The capability is reachable
+through a panel-shaped route and not through the gesture the operator will try
+first, and it reads as missing because it is.
+
+★★ Acrobat's Highlight follows the text and it is the convergent behaviour of
+the class. The fallback matters too: a drag that finds **no text** should still
+draw the area box, because that is what pdfce already does and is genuinely
+useful on a scan — Acrobat draws nothing there. So the rule is *follow text
+where there is text, box where there is not*, which strictly dominates the
+reference.
+
+★ It applies to all four text markups, not just highlight: underline,
+strike-out and squiggly are the same gesture over the same quads.
+
+### ★★★ (b) Paragraph reflow — he is right that the engine has it
+
+`ReflowEngine` is named in `canvas::textedit` and has been in `pdfce-core` for a
+long time. **What this shell does with it has never been an operator choice**:
+the editor decides between reflowing a block and keeping a single line by
+inspecting the run's provenance, and the decision is invisible and unappealable.
+
+⇒ *"we should have that option too"* is a request for a **control**, not for a
+capability. What is owed:
+
+1. Find what `ReflowEngine` actually offers and what the shell currently pins
+   it to — **re-derive, do not trust the note.** This project has retired ten
+   blocker claims that were stale, and *"implemented ages ago"* is exactly the
+   shape that goes stale in both directions.
+2. Surface the choice where the editing happens, not in Settings — it is a
+   property of *this* edit, like the alignment fix beside it.
+3. Disclose which branch ran, because a reflow that did not happen looks
+   identical to one that did nothing.
+
+**Status:** ★ **ACCEPTED 2026-08-28.** (a) is scoped and next; (b) needs the
+re-derivation first, and that is a read of the engine rather than a guess.
+
+---
+
 ## O53 — ★★★ "always always always": the canvas is the primary surface, and a checkbox proved it is not yet
 
 **His report and his ruling, 2026-08-28:**
