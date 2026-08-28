@@ -212,6 +212,30 @@ pub enum FieldAction {
         /// which control that was, because after the fact nothing else can say.
         touched: &'static str,
     },
+    /// **Change one property of the BOX a field is drawn in.**
+    ///
+    /// Reaches `EditSession::edit_widget`, the widget-scoped twin of
+    /// [`Self::EditProperties`]. See `panels::properties::widgetedit` for the
+    /// scope rule that makes them two verbs rather than one — in a sentence, a
+    /// field with three widgets has one "required" and three boxes.
+    ///
+    /// # ★★ It carries the widget INDEX, and that is the whole difference
+    ///
+    /// `EditProperties` addresses a field by name and every placement follows.
+    /// This addresses one placement, and on a radio group — the case where the
+    /// distinction is visible at all — getting it wrong moves a button the
+    /// operator was not looking at.
+    EditWidget {
+        /// The field's fully-qualified name.
+        field: String,
+        /// Which placement, indexing `Field::widgets`.
+        widget: usize,
+        /// The partial update, built with `WidgetEdit`'s `with_*` builders.
+        edit: pdfce_core::edit::WidgetEdit,
+        /// What the operator touched, for the refusal. See
+        /// [`Self::EditProperties`]'s field of the same name.
+        touched: &'static str,
+    },
     /// **Rename the selected field.**
     ///
     /// Reaches `EditSession::rename_field`, which takes the fully-qualified
@@ -353,6 +377,12 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
             edit,
             touched,
         } => edit_properties(doc, &field, &edit, touched),
+        FieldAction::EditWidget {
+            field,
+            widget,
+            edit,
+            touched,
+        } => edit_widget(doc, &field, widget, &edit, touched),
         FieldAction::Rename { from, to } => rename(doc, &from, &to),
         FieldAction::DeleteField { field } => delete_field(doc, &field),
         FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
@@ -676,6 +706,59 @@ pub(super) fn edit_properties(
             // ★ Nothing at all when the edit was ordinary, which is most of the
             // time. A bar that narrated every checkbox would stop being read,
             // and `vector_edit` treats an empty list as "no line".
+            let _ = touched;
+            lines
+        })
+    });
+}
+
+/// **Move, resize, or re-caption one placement of a field.**
+///
+/// # ★★★ The three disclosures, and the order is the operator's
+///
+/// **1. `appearance_stale` first**, because it is the only one about something
+/// they can *see* and will misread. A resize makes §12.5.5's algorithm scale
+/// the baked artwork to the new rectangle; where it cannot be rebuilt — a push
+/// button's baked caption, a signature — the widget renders **distorted**. The
+/// engine's own string names which and why, and it is prefixed rather than
+/// re-worded, because *"stale appearance"* is a fact about the file and *"it
+/// will look stretched"* is a fact about the screen.
+///
+/// **2. Which act it was.** A move keeps the artwork exact and free; a resize
+/// rebuilt it. Reported from `WidgetEditOutcome::resized` rather than
+/// re-derived here, because the engine compares the **extent** and this crate
+/// comparing corners would eventually disagree with it about a nudge.
+///
+/// **3. `siblings_untouched`**, and only when there are any. It is the mirror
+/// of `widgets_affected` on the field verb, and the pair exists so an operator
+/// working on a field drawn in three places knows which kind of control they
+/// just used. On the ordinary one-widget field it is zero and says nothing.
+///
+/// ## The selection is kept
+///
+/// Like [`edit_properties`] and unlike rename and delete: no name stops
+/// resolving, and the operator's next act is very often a second nudge.
+pub(super) fn edit_widget(
+    doc: &mut OpenDoc,
+    field: &str,
+    widget: usize,
+    edit: &pdfce_core::edit::WidgetEdit,
+    touched: &'static str,
+) {
+    let edit = edit.clone();
+    let field = field.to_owned();
+    super::apply::vector_edit(doc, "edit-widget", 0, 1, move |session| {
+        session.edit_widget(&field, widget, &edit).map(|outcome| {
+            let mut lines = Vec::new();
+            if let Some(why) = outcome.appearance_stale {
+                lines.push(crate::text::forms::field_appearance_stale(&why));
+            }
+            lines.push(crate::text::forms::field_widget_moved(outcome.resized).to_owned());
+            if outcome.siblings_untouched > 0 {
+                lines.push(crate::text::forms::field_siblings_untouched(
+                    outcome.siblings_untouched,
+                ));
+            }
             let _ = touched;
             lines
         })

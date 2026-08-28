@@ -106,7 +106,6 @@ pub fn section(
     };
 
     let epoch = doc.edit_epoch;
-    crate::diag::ui_rect(REGION, ui.max_rect());
     // No `.strong()` — R84 / DEFECTS.md D11: no theme this project ships
     // renders it legibly on a panel.
     ui.label(t::heading());
@@ -132,6 +131,20 @@ pub fn section(
     // it is handed and raises actions, so the borrow ends with the frame.
     super::fieldedit::section(ui, field, &selected.field, state, epoch, actions);
     ui.add_space(6.0);
+    // ★★ The WIDGET half, directly under the field half, in the engine's own
+    // scope order: what belongs to the field, then what belongs to this one
+    // box. `widget_scope_note` explains the distinction in the one state where
+    // it is visible — a field drawn in more than one place.
+    super::widgetedit::section(
+        ui,
+        field,
+        &selected.field,
+        selected.widget,
+        state,
+        epoch,
+        actions,
+    );
+    ui.add_space(6.0);
     delete_row(ui, field, &selected, actions);
     ui.add_space(6.0);
     // ★★ What is left out of reach, and it is now the WIDGET half rather than
@@ -140,6 +153,27 @@ pub fn section(
     ui.small(t::not_editable_note());
     ui.add_space(6.0);
     ui.separator();
+    // ★★★ `ui.min_rect()`, at the END — and it was `ui.max_rect()` at the
+    // START until 2026-08-27, which is a defect only driving could find.
+    //
+    // `max_rect` is the space a `Ui` is ALLOWED to use, not the space it took.
+    // Published before anything is drawn, it reported
+    // `[[786, 465] - [1086, 647]]` on the operator's own layout while this
+    // section's own controls were at y = 735 — **a rect naming a different
+    // panel entirely**, because the Properties dock's slot begins below the
+    // Objects panel and `max_rect` had not been narrowed to it yet.
+    //
+    // Nothing failed. The region was declared, so every check asking *"did the
+    // section draw?"* answered yes and was right. What broke was the second
+    // thing a section rect is for: `ui-verify` scrolls **at** it, and a wheel
+    // event aimed at that centre landed in the **Objects list** and scrolled
+    // that instead — so a check hunting for controls below the fold scrolled
+    // six times, moved nothing, and reported the controls missing.
+    //
+    // ⇒ **A region must name where the thing IS, not where it could have
+    // been.** `min_rect` after drawing is the occupied space, which is the only
+    // rect that is true of what an operator can see and point at.
+    crate::diag::ui_rect(REGION, ui.min_rect());
     true
 }
 

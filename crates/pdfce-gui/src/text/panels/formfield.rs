@@ -458,6 +458,118 @@ pub const fn label_tooltip_hint() -> &'static str {
     "What this field is for"
 }
 
+// ===========================================================================
+// The BOX — `EditSession::edit_widget`, consumed 2026-08-27
+// ===========================================================================
+
+/// The heading over the widget-scoped properties.
+///
+/// ★★ *"This box"*, not *"Widget"*. A widget annotation is what the file calls
+/// it and is a word no operator has any use for; what they are looking at is a
+/// rectangle on a page. The distinction the heading has to carry is not the
+/// spec's vocabulary but the **scope** — that these properties belong to this
+/// one rectangle and the ones above belong to the field — and
+/// [`widget_scope_note`] says that in the one state where it is visible.
+#[must_use]
+pub const fn widget_heading() -> &'static str {
+    "This box"
+}
+
+/// Shown only when the field is drawn in more than one place.
+///
+/// ★★★ **The one sentence that makes the field/widget split legible**, and it
+/// is deliberately conditional. On a one-widget field — the overwhelming
+/// majority — there is no distinction to explain and the sentence would be
+/// noise. On a radio group it is the difference between changing one button and
+/// changing the answer, which is exactly the state where an operator would
+/// otherwise expect this section to behave like the one above it.
+#[must_use]
+pub fn widget_scope_note(boxes: usize) -> String {
+    format!(
+        "This field is drawn in {boxes} places. What follows changes only the one you clicked; \
+         the properties above change all {boxes}."
+    )
+}
+
+/// Lower-left x of the box.
+///
+/// ★ The four are labelled X / Y / Width / Height rather than with the
+/// standard's `/Rect` corners, because a corner pair is a spelling and a
+/// position-and-size is what an operator is thinking about. `super::geometry`
+/// made the same call for page objects and this matches it, so the two
+/// surfaces read the same way.
+#[must_use]
+pub const fn label_widget_x() -> &'static str {
+    "X"
+}
+
+/// Lower-left y of the box.
+#[must_use]
+pub const fn label_widget_y() -> &'static str {
+    "Y"
+}
+
+/// Width of the box.
+#[must_use]
+pub const fn label_widget_w() -> &'static str {
+    "Width"
+}
+
+/// Height of the box.
+#[must_use]
+pub const fn label_widget_h() -> &'static str {
+    "Height"
+}
+
+/// The button that commits the four numbers.
+#[must_use]
+pub const fn widget_apply() -> &'static str {
+    "Apply"
+}
+
+/// ★★★ It says **which of two acts** is about to happen, before the press.
+///
+/// Moving and resizing are the same gesture on this pane and different acts on
+/// the file: a pure translation moves the baked artwork exactly and for
+/// nothing, while a changed extent makes §12.5.5's algorithm *scale* it, so a
+/// text field made twice as wide is redrawn rather than given room for more
+/// text. An operator who expected the second and got the first — or the other
+/// way round — has been surprised by something the program knew in advance.
+#[must_use]
+pub fn widget_apply_hover(resizes: bool) -> &'static str {
+    if resizes {
+        "Resizes the box. What is drawn inside it is redrawn to fit, which for a stamp or a \
+         signature may not be possible."
+    } else {
+        "Moves the box. What is drawn inside it moves with it, unchanged."
+    }
+}
+
+/// Why Apply is greyed.
+///
+/// R9: greying is for a **temporarily** unavailable capability and must be
+/// explained on hover. The capability is present and the operand — a number
+/// the operator has changed — is not.
+#[must_use]
+pub const fn widget_apply_disabled() -> &'static str {
+    "Change one of the four numbers above first."
+}
+
+/// `/MK` `/CA`.
+#[must_use]
+pub const fn label_caption() -> &'static str {
+    "Caption"
+}
+
+/// ★ The hint names the push-button case, because that is the one where a
+/// caption is not decoration: a push button has no value at all (§12.7.4.2.2),
+/// so the caption is the only thing telling anyone reading the field list what
+/// the button does.
+#[must_use]
+pub const fn label_caption_hint() -> &'static str {
+    "The words on a button"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -144,6 +144,11 @@ mod markup;
 /// provenance extraction, so it is stamped and kept rather than re-taken every
 /// frame.
 pub mod text;
+/// The **box** a form field is drawn in — `EditSession::edit_widget`, consumed
+/// 2026-08-27. Its own file rather than four more rows in [`fieldedit`],
+/// because the engine has two verbs and Acrobat's own scripting model has two
+/// scopes; see its header.
+pub mod widgetedit;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;

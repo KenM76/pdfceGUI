@@ -675,6 +675,15 @@ pub struct PanelsState {
     /// Here rather than on `OpenDoc` by this struct's own rule: a half-typed
     /// tooltip is the operator's state, not the document's.
     field_props: properties::fieldedit::FieldPropsDraft,
+    /// ★ The selected WIDGET's four typed numbers and its caption, and the
+    /// `(name, widget index, epoch)` they were read at.
+    ///
+    /// Separate from [`Self::field_props`] rather than a field inside it,
+    /// because the two have different stamps: a field draft is keyed on the
+    /// name and this one has to be keyed on the name **and the placement**. One
+    /// field can be drawn in three places with three different boxes, and a
+    /// merged struct would need both keys and one reset rule for two lifetimes.
+    widget_props: properties::widgetedit::WidgetPropsDraft,
     /// The Properties panel's **geometry** draft — the four typed numbers, and
     /// the `(page, object, epoch)` they were seeded from.
     ///
@@ -967,6 +976,12 @@ impl PanelsState {
     /// would have to be handed that as well.
     pub fn field_props_mut(&mut self) -> &mut properties::fieldedit::FieldPropsDraft {
         &mut self.field_props
+    }
+
+    /// The selected widget's typed-property draft. See
+    /// [`Self::field_props_mut`]; this one's stamp carries the placement too.
+    pub fn widget_props_mut(&mut self) -> &mut properties::widgetedit::WidgetPropsDraft {
+        &mut self.widget_props
     }
 
     pub fn geometry_mut(&mut self) -> &mut properties::geometry::GeometryDraft {

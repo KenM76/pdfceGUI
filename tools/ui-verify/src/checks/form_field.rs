@@ -62,6 +62,7 @@ use crate::checks::driving::{self, declared_names, list};
 use crate::checks::{Check, CheckContext};
 use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
 use crate::error::{Error, Result};
+use crate::geom::LRect;
 use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
@@ -98,6 +99,39 @@ const SELECTED: &str = "form-field-selected";
 const BOX_LINE: &str = "form-target";
 /// The properties section's published region.
 const PROPERTIES_REGION: &str = "properties.form_field";
+/// ★★★ **A window tall enough that a form field's properties fit in the
+/// Properties pane.**
+///
+/// The harness's default window gives the Properties panel about **180 points**
+/// of dock slot — it shares the right column with the Tool and Objects panels —
+/// and a selected form field now draws about **450 points** of content there:
+/// the read-only facts, the rename box, seven editable properties, the two
+/// delete buttons, and the box's own four numbers.
+///
+/// ★★ **That is a real finding about the product and it is recorded here rather
+/// than absorbed.** An operator on a 1,100 × 800 window has to scroll a
+/// 180-point window through 450 points of pane to reach the controls that move
+/// a box, and *"I clicked the field and there is nothing there"* is what that
+/// looks like from a chair. It is written up in `FEATURES.md`; the remedy is a
+/// layout decision (collapsible groups, a taller default slot, or the dialog
+/// route O39 already uses for placement) and it is the operator's call, not
+/// this check's.
+///
+/// What this check does about it is drive at a window with room, which is
+/// `read_mode_chrome`'s precedent and its reasoning: a check's job is to
+/// exercise the feature, and a check that failed because the *window* was small
+/// would be reporting the wrong subject. The scroll loop below is kept anyway
+/// and still works — a taller window makes it need fewer notches, not none.
+const VIEWPORT: &str = "0,0,1400,1300";
+
+/// **The Properties panel's own dock slot** — the scroll anchor.
+///
+/// `egui_shell::dock` publishes `dock.body.<panel command id>` for the body of
+/// every mounted pane, and that rect is the visible slot by construction: it is
+/// what the dock gave the panel, before the panel scrolled anything inside it.
+/// See [`scroll_to`] for the three content rects that were tried first and how
+/// each of them failed.
+const PANE_REGION: &str = "dock.body.file.properties";
 /// The editable-properties section, added with `EditSession::edit_field` on
 /// 2026-08-27.
 ///
@@ -127,6 +161,29 @@ const EDIT_APPLIED: &str = "edit-field";
 /// Properties panel's fold. `restyle_text` spends the same number looking for
 /// Bold, in the same panel, for the same reason.
 const SCROLL_ATTEMPTS: usize = 6;
+// ★★★ `properties.widget_edit` is deliberately NOT a constant here, and the
+// reason is a finding rather than tidiness.
+//
+// It was one, used as this step's scroll anchor, and the wheel went nowhere.
+// That section's rect is published with the **ungated** `ui_rect` — correctly,
+// so it survives being taller than its slot — which means it is published even
+// when the section is **entirely off screen**. Aiming `declared_center` at it
+// then aims the wheel outside the panel, and outside the window.
+//
+// ⇒ **An ungated region is a bad scroll anchor precisely because it is
+// ungated.** A scroll anchor has to be something *known visible*, and the only
+// thing that guarantees that is the visibility gate. So this step anchors on
+// `properties.form_field`, whose rect is the panel's own `max_rect` and is
+// therefore always inside the panel by construction — the same anchor the
+// field-scoped step above uses, and it is not a coincidence that the two
+// working anchors are the two whose rects cannot leave the viewport.
+/// Its X spinner, which this check scrubs.
+const WIDGET_X_REGION: &str = "properties.widget_edit.geometry.x";
+/// Its Apply button.
+const WIDGET_APPLY_REGION: &str = "properties.widget_edit.apply";
+/// The `edit-widget` label `vector_edit` writes when the move reached the
+/// engine.
+const WIDGET_APPLIED: &str = "edit-widget";
 
 /// Placing a form field, and selecting one that already exists.
 pub struct FormFieldPlaceAndSelect;
@@ -187,6 +244,89 @@ fn placed_boxes(trace: &Trace) -> Vec<PlacedBox> {
             })
         })
         .collect()
+}
+
+/// **Scroll the Properties panel until `wanted` is on screen, and answer where
+/// it is.**
+///
+/// # ★★★ Why this is a helper and not two copies of a loop
+///
+/// It was two copies for about ten minutes, and the second copy is what forced
+/// the extraction: the field-scoped controls sit below the fold of the
+/// Properties slot, and the widget-scoped controls sit below *those*. A check
+/// that scrolled once found the first and reported the second missing — which
+/// is the failure this function's existence prevents, and it is worth naming
+/// because the message it produced was confident and wrong (*"the section is
+/// not being called"*, about a section that was in the same trace).
+///
+/// ★★★ **It scrolls at the DOCK PANE, not at the content**, and that took three
+/// wrong anchors to arrive at.
+///
+/// A wheel event has to land inside the scroll area, so the anchor's centre has
+/// to be **on screen**. Three candidates were tried and each failed differently:
+///
+/// | anchor | why it failed |
+/// |---|---|
+/// | `properties.widget_edit` (a section's `min_rect`) | published ungated, so it exists even when the section is entirely off screen. The wheel went outside the window |
+/// | `properties.form_field` published as `max_rect` | that is the space the `Ui` was ALLOWED, not the space it took — it named a rect over the **Objects** panel, and six notches scrolled the object list |
+/// | `properties.form_field` published as `min_rect` | correct about where the section is, and the section is 741 pt tall in a 180 pt slot, so its **centre is below the window** |
+///
+/// ⇒ The generalisation: **content rects are not scroll anchors.** Any region
+/// belonging to scrolled content can have its centre outside the viewport, by
+/// definition, because that is what scrolling means. What is always visible is
+/// the **pane**, and `egui_shell::dock` publishes it as
+/// `dock.body.<panel command id>`.
+///
+/// `D:/dev/rag/egui/` carries the family this belongs to: harness coordinates
+/// go stale when a layout changes, and a wheel aimed at a remembered position
+/// scrolls whatever is there now.
+///
+/// Returns `None` when the region never appears — the caller decides whether
+/// that is a failure or a skip, because only the caller knows what it means.
+fn scroll_to(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    anchor: &str,
+    wanted: &str,
+    report: &mut CheckReport,
+) -> Result<Option<LRect>> {
+    for attempt in 0..SCROLL_ATTEMPTS {
+        let trace = session.trace()?;
+        if let Some(rect) = driving::declared(&trace, ui_rect, wanted) {
+            if attempt > 0 {
+                report.note(format!(
+                    "`{wanted}` was below the panel's fold; {attempt} scroll notch(es) brought \
+                     it into view"
+                ));
+            }
+            return Ok(Some(rect));
+        }
+        let Some(at) = driving::declared(&trace, ui_rect, anchor) else {
+            return Err(Error::new(format!(
+                "`{anchor}` stopped being visible while scrolling for `{wanted}`, so there is \
+                 nothing left to aim the wheel at. Trace: {}.",
+                session.trace_path().display()
+            )));
+        };
+        let point = session.frame()?.declared_center(at);
+        driver.scroll_at(point, -1)?;
+        session.settle(12);
+        // ★ Instrumentation, kept rather than removed. When this loop fails the
+        // question is always the same — *did the wheel move anything?* — and a
+        // note answering it is the difference between "the controls are
+        // missing" and "the wheel landed somewhere that does not scroll".
+        // Three wrong anchors were diagnosed by reading exactly this.
+        if let Some(after) = driving::declared(&session.trace()?, ui_rect, anchor) {
+            report.note(format!(
+                "scroll {attempt}: wheel at ({}, {}), `{anchor}` now {:?}",
+                point.x(),
+                point.y(),
+                after
+            ));
+        }
+    }
+    Ok(None)
 }
 
 /// Run the four phases.
@@ -255,6 +395,12 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         .push(("PDFCE_DIAG_INVOKE".to_owned(), INVOKE.to_owned()));
     spec.env
         .push((ACCEPT_ENV.0.to_owned(), ACCEPT_ENV.1.to_owned()));
+    // ★ See `VIEWPORT`: the default window's Properties slot is shorter than a
+    // selected field's properties, which is a finding about the product and a
+    // wrong subject for this check to fail on.
+    if let Some(name) = ctx.profile.viewport_env {
+        spec.env.push((name.to_owned(), VIEWPORT.to_owned()));
+    }
     spec.allow_stale = ctx.allow_stale;
     spec.source_root = ctx.source_root.clone();
 
@@ -546,5 +692,161 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note("★★ ticking Required reached the document through `edit_field`");
+
+    // --- G: the BOX moves ---------------------------------------------------
+    //
+    // ★★★ The widget half, and it is a different verb with a different scope.
+    // `edit_field` writes one property and every placement follows;
+    // `edit_widget` writes one placement. A check that exercised only the first
+    // would pass on a build where the second was never wired, which is the
+    // state this shell was in an hour before this was written.
+    //
+    // ★ Scrubbed, not typed. `geometry_fields`' own header argues for a scrub
+    // over a double-click-and-type: typing into an `egui::DragValue` needs a
+    // focus dance the harness has no reliable way to drive, while a horizontal
+    // drag is one gesture. The arithmetic does not have to be reconciled here
+    // because the assertion is *"a move reached the document"*, not *"it moved
+    // by exactly N points"* — the engine's own tests own the second question,
+    // and a check that asserted it would be pinning `SPEED`.
+    // ★ Scroll again. The widget-scoped controls sit below the field-scoped
+    // ones, which were themselves below the fold — so one scroll reaches the
+    // first set and not the second, and the first run of this step reported the
+    // box controls missing while `properties.widget_edit` was in the very same
+    // trace. The anchor is that section's own rect, which is why it is
+    // published with the ungated `ui_rect`.
+    let spinner = scroll_to(
+        &session,
+        &driver,
+        ui_rect,
+        PANE_REGION,
+        WIDGET_X_REGION,
+        report,
+    )?;
+    let trace = session.trace()?;
+    // ★ The rect is deliberately discarded and only its PRESENCE is used: the
+    // spinner is re-found after the Apply scroll below, because scrolling for
+    // Apply moves it. Named `_` so that is a statement rather than an oversight.
+    let Some(_) = spinner else {
+        let shot = ctx.out("form_field.no-box-controls.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+        }
+        return Ok(Some(format!(
+            "★ THE FIELD'S BOX CANNOT BE MOVED: no `{WIDGET_X_REGION}` region.\n\
+             `panels::properties::widgetedit` draws X, Y, Width, Height and an Apply for every \
+             widget whose `/Rect` reads back. Two candidates: the section is not being called, \
+             or the widget's `/Rect` was `None` — which is the malformed case only, because a \
+             zero-area rect normalises to a `Rect` rather than to `None`. What an operator \
+             meets if this regresses is a form field a few points out of place and no way to \
+             fix it but deleting and re-placing it. Regions declared: {}. Trace: {}.",
+            list(&declared_names(&trace, ui_rect, "properties.")),
+            session.trace_path().display()
+        )));
+    };
+    // ★ Apply sits below the four spinners, so reaching them is not reaching
+    // it — the same one-more-notch lesson this file has now learned three
+    // times, at three different depths of one pane. Scrolled for by the same
+    // helper rather than assumed.
+    let apply = scroll_to(
+        &session,
+        &driver,
+        ui_rect,
+        PANE_REGION,
+        WIDGET_APPLY_REGION,
+        report,
+    )?
+    .ok_or_else(|| {
+        Error::new(format!(
+            "the box's spinners drew and its Apply never came into view. SKIPPED rather than \
+             failed: a button that was never pressed proves nothing about pressing it. \
+             Trace: {}.",
+            session.trace_path().display()
+        ))
+    })?;
+    // ★ Re-find the spinner AFTER that scroll. The rect read before it names a
+    // position the content has since left, and a drag aimed at it lands on
+    // whatever is there now — the staleness `D:/dev/rag/egui/` records as the
+    // commonest harness defect in a scrolled panel.
+    let trace = session.trace()?;
+    let spinner = driving::declared(&trace, ui_rect, WIDGET_X_REGION).ok_or_else(|| {
+        Error::new(format!(
+            "the X spinner left the view while scrolling for Apply, so there is nothing to \
+             scrub. Trace: {}.",
+            session.trace_path().display()
+        ))
+    })?;
+
+    // ★★ Apply must be GREYED before anything is typed — R9's temporarily
+    // unavailable case, and the assertion that a driven check can make where a
+    // unit test cannot: it is the join between `WidgetPropsDraft::differs` and
+    // the button's `add_enabled`. A build whose epsilon was wrong would render
+    // Apply live the moment the pane opened on any widget whose box is not
+    // exactly hundredths, which is most real documents.
+    //
+    // Observed by PRESSING it and asserting nothing happened, because the
+    // region is published for a greyed control exactly as for a live one —
+    // `egui_shell::ribbon::control`'s note gives the reason and the diag
+    // channel follows it.
+    let before_widget = trace.events(WIDGET_APPLIED).count();
+    driver.click_at(session.frame()?.declared_center(apply))?;
+    session.settle(16);
+    if session.trace()?.events(WIDGET_APPLIED).count() > before_widget {
+        return Ok(Some(format!(
+            "★ APPLY COMMITTED A MOVE WITH NOTHING TYPED: an `{WIDGET_APPLIED}` line appeared \
+             after pressing Apply on an untouched box.\n\
+             The button is `add_enabled(draft.differs())`, so this means `differs()` answered \
+             true for a box nobody changed — which on a real document is what an epsilon that \
+             is too tight produces, because a `/Rect` read out of a file routinely carries more \
+             than the two decimals the spinners show. The operator sees a program that thinks \
+             they have unsaved changes they never made. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note("Apply is dead until a number moves");
+
+    // Now move it, and press.
+    // ★ `offset_from`, not arithmetic on a `ScreenPoint`'s fields — `coords`'
+    // standing rule is that *a coordinate is produced by a conversion and never
+    // assembled*, and this is the one sanctioned displacement: a drag in screen
+    // pixels from a point the application itself published.
+    let frame = session.frame()?;
+    let from = frame.declared_center(spinner);
+    let to = frame.offset_from(from, 40.0, 0.0);
+    driver.drag(from, to)?;
+    session.settle(20);
+
+    let trace = session.trace()?;
+    let apply = driving::declared(&trace, ui_rect, WIDGET_APPLY_REGION).ok_or_else(|| {
+        Error::new(format!(
+            "Apply stopped being declared after the scrub. Trace: {}.",
+            session.trace_path().display()
+        ))
+    })?;
+    let before_widget = trace.events(WIDGET_APPLIED).count();
+    driver.click_at(session.frame()?.declared_center(apply))?;
+    session.settle(24);
+
+    let trace = session.trace()?;
+    if trace.events(WIDGET_APPLIED).count() <= before_widget {
+        let shot = ctx.out("form_field.box-did-not-move.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+        }
+        return Ok(Some(format!(
+            "★ THE BOX'S X WAS SCRUBBED AND APPLY REACHED NOTHING: no new `{WIDGET_APPLIED}` \
+             line.\n\
+             Three candidates. (1) **The scrub did not move the value** — a `DragValue` needs \
+             the press and the move in one gesture, and the screenshot beside this report \
+             shows what the spinner reads. (2) **Apply stayed greyed**, which means \
+             `differs()` answered false for a value that changed — an epsilon too loose. (3) \
+             **`edit_widget` refused**; the status bar carries the sentence. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    let line = trace.events(WIDGET_APPLIED).last().map(|l| l.raw.clone());
+    report.note(format!(
+        "★★★ the box moved, through `edit_widget`: {}",
+        line.unwrap_or_default()
+    ));
     Ok(None)
 }
