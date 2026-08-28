@@ -7,7 +7,7 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-27 after the form-XObject selection
+**Written 2026-08-18, last revised 2026-08-28 after the font and markup-move
 work.** For a session starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
@@ -17,7 +17,60 @@ at a section of it.
 
 ---
 
-## ★★★ Last session: 2026-08-28 OVERNIGHT — every form verb is wired, and six stale blockers fell
+## ★★★ Last session: 2026-08-28 LATE — fonts embed and unembed, markup drags, and the sweep's failure count is not a defect count
+
+**Nothing packaged.** Ask him whether he wants a build. `FEATURES.md` is
+re-measured; `OPERATOR_REQUESTS.md` has **three new questions for him (O47, O48,
+O49)** and none of them blocks anything.
+
+**Measured now:** 1,879 GUI + 421 shell + 144 harness tests, 18/18 gates,
+**89 driven checks**. Engine pinned at `e91dfad9`. Scaffold list **5**.
+
+**What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
+driven end to end; dragging an ordinary markup annotation; the Bold retry using
+the engine's `selector` field.
+
+### ★★★ The three findings, in the order they will bite a cold session
+
+**1. The full sweep reported six failures and three of them were the aim
+point.** The suite takes one `--doc-point`, and it was run with the *text*
+checks' coordinate. Three geometry checks then failed with articulate, plausible
+messages about the wrong subject — one naming a bug fixed two days earlier.
+They pass at `0,300,500`, the point this file's own sweep command uses.
+⇒ **Re-run a failing check alone with the parameter varied before believing
+it.** The sweep command below is verbatim for a reason.
+
+**2. Two checks are RED and staying red.** `zooming_does_not_throw_away_where_the_operator_panned`
+and `zooming_back_out_keeps_the_view` fail past ~300,000 %, reproducibly, at the
+same notch. The measuring instrument is fine — it reads an `f64` line the app
+publishes for exactly this — so the drift is ours: the `f32` scroll offset stops
+holding the position around 300,000 % and the `f64` tier does not engage until
+~1,200,000 %. **Do not widen the tolerance.** Written up as **O49**.
+
+**3. A resolver shipped for one commit that could not have worked**, and the
+class generalises: `pdfce-core` says *"the shell resolves it, we never go
+looking"*, which is a statement about **that crate**. `pdfce-render` had the
+whole three-rung matcher with `Helvetica` → `Arial` in its doctest. Grep the
+**sibling** crates before writing the missing half of a documented seam; a
+mirrored enum across the boundary is the tell.
+
+### ★★ Two things a cold session would otherwise rediscover
+
+**A harness that leaves a tool armed measures a different program.** With a
+markup or measure tool armed, a click on the page is a PICK, not a selection.
+Press `V` first. `sys::vk::V`'s doc comment says so and the first run of the new
+markup check ignored it, then reported *"the shape could not be selected"* about
+a build whose selection is fine.
+
+**An ask with no failing artifact behind it has no forcing function.** The
+engine's `Pass 144.0` reply had two "ACT ON THIS" items. The one with a failing
+test attached was consumed the same evening; the one asking to change a field
+name in *working* code sat for a day, because `..` in the match arm meant the
+new field broke and warned nothing.
+
+---
+
+## Previous session: 2026-08-28 OVERNIGHT — every form verb is wired, and six stale blockers fell
 
 **Read `CONTINUE.md` first.** Seven commits, all driven, **nothing packaged** —
 ask him whether he wants a build. `FEATURES.md` is re-measured and current.
