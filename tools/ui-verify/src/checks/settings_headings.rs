@@ -288,6 +288,42 @@ fn assess(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>
     // was a theme-wide pairing — `widgets.active.fg_stroke` against a fill the
     // palette never assigned — so it would show on every heading at once, not
     // on the seventh.
+    //
+    // ★★★ **ATTEMPTED AND REVERTED on 2026-08-28, and the attempt is recorded
+    // because the estimate above turned out to be exactly right.**
+    //
+    // `driving::scroll_to` had just been written for the form-field pane, so
+    // "a real piece of work" looked like it had become an import. It had not.
+    // Four causes were found and fixed on the way and the dialog still did not
+    // move:
+    //
+    // 1. the body's rect is `ui.max_rect()` published **before** the scroll
+    //    area, so its centre is not reliably inside the scrollable region —
+    //    the same defect fixed in `properties.form_field` the same evening;
+    // 2. anchoring on the last visible heading instead did not help;
+    // 3. the dialog is a **child viewport**, so `session.frame()` maps its
+    //    rects through the wrong window — `frame_of` is required, and using it
+    //    still did not make the wheel land;
+    // 4. the `ui-rect` trace is a **change log**, so a dialog that has finished
+    //    laying out stops emitting its body rect, and re-reading the anchor
+    //    each iteration found `None` on the second pass and stopped the loop
+    //    after one wheel event.
+    //
+    // Fixing all four produced a sweep that reached **fewer** headings than
+    // doing nothing. Whatever the fifth reason is, it is not known, and a sweep
+    // that reports a subset in the confident voice of a whole is worse than a
+    // stated limit.
+    //
+    // ⇒ Reverted to this note. ★ The one thing that survives is
+    // `driving::scroll_to`, which is now shared and does work on dock panels —
+    // three callers in `form_field` rely on it.
+    //
+    // **What is still unmeasured, and it is not a legibility gap:** five of the
+    // seven groups have never been observed by anything, so *"does this group
+    // draw at all"* has no instrument. That was found when a new group was
+    // added below the fold on 2026-08-28 and nothing could say whether it
+    // existed. It is a coverage gap wearing a legibility gap's clothes and it
+    // wants its own check, not a bigger version of this one.
     report.note(format!(
         "measures the {} heading(s) currently IN VIEW; the dialog scrolls and this check does not drive the scroll, so headings below the fold are not measured. D2 was a theme-wide foreground/background pairing and would show on the first heading as readily as the last",
         trace_regions.matched.len()

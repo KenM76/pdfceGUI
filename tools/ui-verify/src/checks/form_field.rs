@@ -62,7 +62,6 @@ use crate::checks::driving::{self, declared_names, list};
 use crate::checks::{Check, CheckContext};
 use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
 use crate::error::{Error, Result};
-use crate::geom::LRect;
 use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
@@ -246,88 +245,19 @@ fn placed_boxes(trace: &Trace) -> Vec<PlacedBox> {
         .collect()
 }
 
-/// **Scroll the Properties panel until `wanted` is on screen, and answer where
-/// it is.**
-///
-/// # ★★★ Why this is a helper and not two copies of a loop
-///
-/// It was two copies for about ten minutes, and the second copy is what forced
-/// the extraction: the field-scoped controls sit below the fold of the
-/// Properties slot, and the widget-scoped controls sit below *those*. A check
-/// that scrolled once found the first and reported the second missing — which
-/// is the failure this function's existence prevents, and it is worth naming
-/// because the message it produced was confident and wrong (*"the section is
-/// not being called"*, about a section that was in the same trace).
-///
-/// ★★★ **It scrolls at the DOCK PANE, not at the content**, and that took three
-/// wrong anchors to arrive at.
-///
-/// A wheel event has to land inside the scroll area, so the anchor's centre has
-/// to be **on screen**. Three candidates were tried and each failed differently:
-///
-/// | anchor | why it failed |
-/// |---|---|
-/// | `properties.widget_edit` (a section's `min_rect`) | published ungated, so it exists even when the section is entirely off screen. The wheel went outside the window |
-/// | `properties.form_field` published as `max_rect` | that is the space the `Ui` was ALLOWED, not the space it took — it named a rect over the **Objects** panel, and six notches scrolled the object list |
-/// | `properties.form_field` published as `min_rect` | correct about where the section is, and the section is 741 pt tall in a 180 pt slot, so its **centre is below the window** |
-///
-/// ⇒ The generalisation: **content rects are not scroll anchors.** Any region
-/// belonging to scrolled content can have its centre outside the viewport, by
-/// definition, because that is what scrolling means. What is always visible is
-/// the **pane**, and `egui_shell::dock` publishes it as
-/// `dock.body.<panel command id>`.
-///
-/// `D:/dev/rag/egui/` carries the family this belongs to: harness coordinates
-/// go stale when a layout changes, and a wheel aimed at a remembered position
-/// scrolls whatever is there now.
-///
-/// Returns `None` when the region never appears — the caller decides whether
-/// that is a failure or a skip, because only the caller knows what it means.
-fn scroll_to(
-    session: &Session,
-    driver: &Driver,
-    ui_rect: &str,
-    anchor: &str,
-    wanted: &str,
-    report: &mut CheckReport,
-) -> Result<Option<LRect>> {
-    for attempt in 0..SCROLL_ATTEMPTS {
-        let trace = session.trace()?;
-        if let Some(rect) = driving::declared(&trace, ui_rect, wanted) {
-            if attempt > 0 {
-                report.note(format!(
-                    "`{wanted}` was below the panel's fold; {attempt} scroll notch(es) brought \
-                     it into view"
-                ));
-            }
-            return Ok(Some(rect));
-        }
-        let Some(at) = driving::declared(&trace, ui_rect, anchor) else {
-            return Err(Error::new(format!(
-                "`{anchor}` stopped being visible while scrolling for `{wanted}`, so there is \
-                 nothing left to aim the wheel at. Trace: {}.",
-                session.trace_path().display()
-            )));
-        };
-        let point = session.frame()?.declared_center(at);
-        driver.scroll_at(point, -1)?;
-        session.settle(12);
-        // ★ Instrumentation, kept rather than removed. When this loop fails the
-        // question is always the same — *did the wheel move anything?* — and a
-        // note answering it is the difference between "the controls are
-        // missing" and "the wheel landed somewhere that does not scroll".
-        // Three wrong anchors were diagnosed by reading exactly this.
-        if let Some(after) = driving::declared(&session.trace()?, ui_rect, anchor) {
-            report.note(format!(
-                "scroll {attempt}: wheel at ({}, {}), `{anchor}` now {:?}",
-                point.x(),
-                point.y(),
-                after
-            ));
-        }
-    }
-    Ok(None)
-}
+// ★★★ `scroll_to` was HERE until 2026-08-28 and now lives in
+// `checks::driving`. It was written in this file because two copies of one loop
+// in one check forced the extraction; a THIRD caller — the Settings dialog's
+// heading sweep — is what moved it to where the shared helpers live.
+//
+// That check's own note had said the fix for its coverage gap was *"a real
+// piece of work"*, and it was, until this existed. The gap it named — five of
+// seven groups never measured — closed for the cost of an import.
+//
+// `driving`'s existing occupants make the same argument at length:
+// *"a rule stated twice is a rule that drifts"*, and this file's own header
+// records what that drift looked like when `declared_or_in_overflow` gained a
+// third case and a hand-rolled copy did not.
 
 /// Run the four phases.
 #[allow(
@@ -714,12 +644,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // box controls missing while `properties.widget_edit` was in the very same
     // trace. The anchor is that section's own rect, which is why it is
     // published with the ungated `ui_rect`.
-    let spinner = scroll_to(
+    let spinner = driving::scroll_to(
         &session,
         &driver,
         ui_rect,
         PANE_REGION,
         WIDGET_X_REGION,
+        SCROLL_ATTEMPTS,
         report,
     )?;
     let trace = session.trace()?;
@@ -747,12 +678,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // it — the same one-more-notch lesson this file has now learned three
     // times, at three different depths of one pane. Scrolled for by the same
     // helper rather than assumed.
-    let apply = scroll_to(
+    let apply = driving::scroll_to(
         &session,
         &driver,
         ui_rect,
         PANE_REGION,
         WIDGET_APPLY_REGION,
+        SCROLL_ATTEMPTS,
         report,
     )?
     .ok_or_else(|| {
