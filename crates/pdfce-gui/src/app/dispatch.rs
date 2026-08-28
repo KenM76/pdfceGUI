@@ -388,6 +388,29 @@ impl PdfceApp {
             // window's closure has returned. Paper is as irreversible as it
             // gets; it is the rule being kept, not the mechanism.
             "file.print" => self.dialogs.open_print(&self.status),
+            // ★★★ Save a compacted copy — `OPERATOR_REQUESTS.md` O48.
+            //
+            // The only `open_*` on this list that can fail rather than decline:
+            // `pdfce-core` refuses a full rewrite of a hybrid-reference file by
+            // name, and of one whose object numbering is too sparse for §7.5.4's
+            // single-section table. Both are facts about the operator's file and
+            // both are recorded rather than swallowed — `app::save`'s header
+            // states the rule this obeys: *"the honest response is to refuse and
+            // say so, not to fall back to a full rewrite"*, read here in the
+            // other direction.
+            "file.save_compacted" => {
+                let epoch = match &self.status {
+                    Status::Open(doc) => doc.edit_epoch,
+                    _ => return,
+                };
+                if let Some(refusal) = self.dialogs.open_compact(&self.status) {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("compact-refused detail={refusal}")
+                    });
+                    crate::app::actions::record_note(epoch, refusal);
+                }
+            }
             // About. Takes no `&self.status`, unlike every other dialog on
             // this list, and that asymmetry is the point rather than an
             // omission: it describes the program, so it opens with nothing
@@ -840,7 +863,9 @@ impl PdfceApp {
                 fonts::dispatch(id, &mut self.dialogs, &self.status, &self.prefs);
             }
             id if routes::handles(id) => routes::dispatch(id, actions),
-            "file.export_form_data" => actions.push(Action::ExportFormData),
+            "file.export_form_data" => actions.push(Action::Write(
+                crate::app::actions::write::WriteAction::FormData,
+            )),
             // ★ The picker runs HERE, before the action, where the export's runs
             // inside the apply phase. Both are right for their case: an export
             // computes the bytes before it can honestly ask where they go, and

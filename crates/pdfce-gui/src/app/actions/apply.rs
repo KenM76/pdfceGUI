@@ -1059,8 +1059,21 @@ impl PdfceApp {
             // no epoch bump, no invalidation. It reads the open page and writes
             // a different file, which is why its body is in `super::export`
             // rather than beside the mutations. See that module's header.
-            Action::ExportDxf { page, options } => super::export::dxf(doc, page, &options),
-            Action::ExportFormData => super::export::form_data(doc),
+            // ★ One arm for the three file-picker verbs. See
+            // `super::write::WriteAction` for why they are a family: they are
+            // `Action`s only because a native dialog must not open inside a
+            // layout pass, and none of them changes the open document.
+            Action::Write(write) => match write {
+                // (the enum is `super::write::WriteAction`)
+                super::write::WriteAction::Dxf { page, options } => {
+                    super::export::dxf(doc, page, &options)
+                }
+                super::write::WriteAction::FormData => super::export::form_data(doc),
+                super::write::WriteAction::Compacted { bytes, before } => {
+                    crate::app::save::compacted(doc, &bytes, before);
+                }
+            },
+
             // ★ Unlike its two neighbours above, this one DOES change the
             // document - it is here rather than in `super::export` for that
             // reason alone. One undo entry, one epoch bump, and every page

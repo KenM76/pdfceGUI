@@ -109,17 +109,18 @@
 //! both cases the check says in its own output which one it used.
 
 pub mod blend_space;
-pub mod delete_key;
-/// The Manage-dimension-groups window: it opens, it creates a group, and the
-/// group comes back joinable.
-pub mod dimension_groups;
-pub mod driving;
 /// Export to DXF: the file reaches disk, and its contents agree with the
 /// counts the shell reported.
 /// ★★ **Press Export form data and a file appears on disk with the form's
 /// values in it.** The oracle is the FILE, not a trace line: a build that
 /// computed the bytes and wrote them nowhere would satisfy a trace-only check
 /// completely and ship an Export button that exports nothing.
+pub mod compact_save;
+pub mod delete_key;
+/// The Manage-dimension-groups window: it opens, it creates a group, and the
+/// group comes back joinable.
+pub mod dimension_groups;
+pub mod driving;
 pub mod embed_bundled;
 pub mod embed_fonts;
 pub mod export_dxf;
@@ -675,6 +676,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // other verb that writes a file the operator hands to somebody else.
         Box::new(embed_fonts::EmbeddingFontsPutsAProgramInTheDocument),
         Box::new(embed_bundled::EmbeddingWorksWithNoFontFolderAtAll),
+        Box::new(compact_save::ACompactedCopyIsActuallySmaller),
         Box::new(os_fonts_setting::FontFoldersLandsOnTheFontsSetting),
         Box::new(unembed_fonts::RemovingEmbeddedFontsReachesTheDocument),
         Box::new(export_form_data::ExportingFormDataWritesAFile),

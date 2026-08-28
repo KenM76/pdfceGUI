@@ -163,7 +163,16 @@ pub(super) fn tab() -> Tab {
             group(
                 "save",
                 ribbon::group_file_save(),
-                [command("file.save"), command("file.save_copy")],
+                // ★★ Third and last in the group, which is the order of
+                // increasing consequence: overwrite what you have, write
+                // another one beside it, write another one that has dropped
+                // things. A destructive-adjacent command at the bottom of a
+                // group is one an operator arrives at deliberately.
+                [
+                    command("file.save"),
+                    command("file.save_copy"),
+                    command("file.save_compacted"),
+                ],
             ),
             // ---------------------------------------------------------------
             // Export — writing this document out as something else.

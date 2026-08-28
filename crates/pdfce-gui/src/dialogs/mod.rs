@@ -60,16 +60,20 @@
 //! general.
 
 pub mod about;
-/// The render report `tools.render_diagnostics` opens — what the renderer did
-/// with the page currently on the canvas, with the room the status bar's one
-/// elided line does not have.
-pub mod diagnostics;
 /// The Embed-fonts confirmation - everything `embed_fonts` would do to the
 /// document, computed by the verb's own planner and shown before any of it
 /// happens.
 ///
 /// Its header carries the reason it has no settings: the only configuration an
 /// embed has is *which folders*, and that lives in Settings.
+/// The window before a full rewrite. Its header carries the reason it writes
+/// the file BEFORE it opens: when a window asks somebody to trade something
+/// irreversible for a benefit, the benefit must be measured, not predicted.
+pub mod compact;
+/// The render report `tools.render_diagnostics` opens — what the renderer did
+/// with the page currently on the canvas, with the room the status bar's one
+/// elided line does not have.
+pub mod diagnostics;
 pub mod embed;
 /// ★ The Insert-image window — a picture placed on the page as content, by a
 /// rectangle in millimetres.
@@ -280,6 +284,13 @@ pub struct DialogsState {
     /// open document's font inventory, so it describes nothing once that
     /// document is gone.
     embed: Option<embed::EmbedDialog>,
+
+    /// The compacted-copy confirmation, when one is open.
+    ///
+    /// **Document-scoped**: it holds a serialisation of the open document, which
+    /// describes nothing once that document is gone — and holds it by value, so
+    /// closing the document frees it.
+    compact: Option<compact::CompactDialog>,
 
     /// The Remove-fonts window, when one is open.
     ///
@@ -714,6 +725,9 @@ impl DialogsState {
         if self.embed.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.embed = None;
         }
+        if self.compact.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.compact = None;
+        }
         if self.unembed.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.unembed = None;
         }
@@ -835,6 +849,7 @@ impl DialogsState {
         self.export_dxf = None;
         self.embed = None;
         self.unembed = None;
+        self.compact = None;
     }
 
     /// Open the Export-DXF window for the page on screen.
@@ -913,6 +928,31 @@ impl DialogsState {
         // to configure a folder they no longer need, at the exact moment they
         // were most likely to believe it.
         Some(crate::text::embed::nothing_missing().to_owned())
+    }
+
+    /// Open the compacted-copy window, or answer why the engine refused.
+    ///
+    /// **The dispatch target for `file.save_compacted`.** Returns `Some` only
+    /// for a refusal, which is the same shape [`Self::open_embed_fonts`] uses
+    /// and for the same reason: the caller records the sentence where every
+    /// other outcome of a command is recorded, and a refusal nobody surfaces is
+    /// a button that does nothing.
+    ///
+    /// ★ Unlike the two font commands, this **cannot** decline for want of
+    /// anything to do. A file with nothing to reclaim still gets the window,
+    /// which says so — an operator who asked for a copy is owed one even when it
+    /// comes out the same size.
+    pub fn open_compact(&mut self, status: &Status) -> Option<String> {
+        if self.compact.is_some() {
+            return None;
+        }
+        match compact::open_for(status)? {
+            Ok(dialog) => {
+                self.compact = Some(dialog);
+                None
+            }
+            Err(sentence) => Some(sentence),
+        }
     }
 
     /// Open the Remove-fonts window, and say so when there is nothing to open.

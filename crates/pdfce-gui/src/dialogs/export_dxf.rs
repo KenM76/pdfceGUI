@@ -171,10 +171,12 @@ impl ExportDxfDialog {
                     self.options.text
                 )
             });
-            actions.push(Action::ExportDxf {
-                page: self.page_index,
-                options: self.options,
-            });
+            actions.push(Action::Write(
+                crate::app::actions::write::WriteAction::Dxf {
+                    page: self.page_index,
+                    options: self.options,
+                },
+            ));
             return false;
         }
         open && !std::mem::take(&mut self.close_requested)

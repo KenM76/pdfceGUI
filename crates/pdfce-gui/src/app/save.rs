@@ -614,6 +614,82 @@ fn suggested_path(doc: &OpenDoc) -> PathBuf {
         .map_or_else(|| PathBuf::from(&name), |dir| dir.join(&name))
 }
 
+/// **Write an already-serialised compacted copy to a file the operator picks.**
+///
+/// `OPERATOR_REQUESTS.md` **O48**, and the counterpart to [`save_copy`] one
+/// question along: that one asks *where*, this one has already asked *whether*.
+///
+/// # ★★★ Why this does not serialise
+///
+/// `crate::dialogs::compact` did, before it opened, and its headline number is a
+/// measurement of the result rather than an estimate. Serialising again here
+/// would put a second computation between the number the operator accepted and
+/// the file they receive — see `Action::SaveCompacted`, which carries the bytes
+/// for exactly that reason.
+///
+/// # ★★ Why it never writes in place
+///
+/// Because it destroys things the original still has: the earlier revision, and
+/// every digital signature (§12.8.1). A command that could overwrite the
+/// operator's file with a copy that has lost both is one keystroke from a loss
+/// nothing can undo — so this offers only [`files::pick_save_path`], and the
+/// window says *"this always writes a new one"* before the picker opens.
+///
+/// ★ The suggested name is [`suggested_path`]'s, shared with save-a-copy: the
+/// operator's own file with a suffix, in its own folder. A second naming scheme
+/// for the same act is how two commands come to disagree about what a copy is
+/// called.
+pub fn compacted(doc: &OpenDoc, bytes: &[u8], before: u64) -> bool {
+    let suggested = suggested_path(doc);
+    let Picked::Path(target) =
+        files::pick_save_path(&suggested, crate::text::compact::window_title())
+    else {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "compact-cancelled".to_owned()
+        });
+        return false;
+    };
+    match std::fs::write(&target, bytes) {
+        Ok(()) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // `before=` and `after=` rather than a saving, so a reader of a
+                // trace can see which of the two the build got wrong. A single
+                // difference is the one number that cannot be checked against
+                // anything.
+                format!(
+                    "compact-written path={:?} before={before} after={} epoch={}",
+                    target,
+                    bytes.len(),
+                    doc.edit_epoch
+                )
+            });
+            crate::app::actions::record_note(
+                doc.edit_epoch,
+                crate::text::compact::written(
+                    &target.display().to_string(),
+                    before,
+                    bytes.len() as u64,
+                ),
+            );
+            true
+        }
+        Err(error) => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!("compact-failed path={target:?} detail={error}")
+            });
+            crate::app::actions::record_note(
+                doc.edit_epoch,
+                crate::text::compact::write_failed(&error.to_string()),
+            );
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

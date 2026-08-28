@@ -698,55 +698,14 @@ pub enum Action {
         /// The 0-based page it points at — the one the operator is looking at.
         page: usize,
     },
-    /// ★ **Write one page's vector geometry out as a DXF.**
+    /// ★★★ **Write something out to a file the operator picks.**
     ///
-    /// Raised by `crate::dialogs::export_dxf` and by nothing else.
-    ///
-    /// # Why an export is an `Action` when it changes no document
-    ///
-    /// The same reason [`Self::SaveCopy`] and `PageAction::ExtractPages` are:
-    /// **a native file dialog must not open inside a layout pass.** It is a
-    /// modal OS window that blocks the thread, so opening one from a widget's
-    /// `clicked()` branch leaves egui part-way through a frame that will not
-    /// finish until the operator has answered.
-    ///
-    /// Nothing about the document is being ordered — there is nothing to order.
-    /// The funnel's *invariant* does not apply here; its **reason** does.
-    ///
-    /// # Why the geometry is not carried
-    ///
-    /// `PageObjects` is a whole page decomposed, and the shell already holds
-    /// one cached on `(page, epoch)`. Carrying it would clone it for a value
-    /// the apply phase can borrow — and a **stale** clone: the queue drains
-    /// after the frame, so an edit raised earlier in the same frame would leave
-    /// the export describing the page as it was. See `export::dxf`.
-    ExportDxf {
-        /// The 0-based page, frozen when the dialog opened.
-        page: usize,
-        /// The engine's own options struct, edited in place by the dialog.
-        ///
-        /// Carried whole rather than decomposed into scale, units and two
-        /// flags, for [`Self::Dimension`]'s reason one feature along: it **is**
-        /// the value the writer takes, and rebuilding it in the apply arm would
-        /// put a second constructor in the path.
-        options: pdfce_core::export::dxf::DxfOptions,
-    },
-    /// **Write the form's values out as FDF, XFDF or CSV.**
-    ///
-    /// # ★ It carries nothing, and that is the difference from [`Self::ExportDxf`]
-    ///
-    /// The DXF export carries a page index and an options struct because a
-    /// dialog collected both before the action was raised. This one has no
-    /// dialog: the format is decided by the extension the operator types in the
-    /// save picker, and the picker opens inside the apply phase for the reason
-    /// `actions::export`'s header gives — **a native file dialog must not open
-    /// inside a layout pass**, because it blocks the thread while egui is
-    /// part-way through a frame.
-    ///
-    /// So this is an `Action` purely to move the picker out of the layout pass.
-    /// Nothing about the document is being ordered, and nothing about it
-    /// changes.
-    ExportFormData,
+    /// Three verbs — DXF, form data, and a compacted copy — moved into
+    /// [`super::write::WriteAction`] under R2 on 2026-08-28. Its header carries
+    /// the one property they share and no other family here does: they are
+    /// `Action`s **only** because a native file dialog must not open inside a
+    /// layout pass.
+    Write(super::write::WriteAction),
     /// **Put the font programs a document references but does not carry into
     /// it**, as one undoable command.
     ///

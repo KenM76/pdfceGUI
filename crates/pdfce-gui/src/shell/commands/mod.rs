@@ -241,7 +241,10 @@ mod tests {
     /// `super::manifest`'s, and a silent drift makes both wrong.
     #[test]
     fn registration_succeeds_and_registers_every_command() {
-        assert_eq!(registry().len(), 121);
+        // ★ 121 → 122 on 2026-08-28: `file.save_compacted`
+        // (`OPERATOR_REQUESTS.md` O48), the save that rewrites the whole file
+        // so the space a deletion freed is actually reclaimed.
+        assert_eq!(registry().len(), 122);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -298,8 +301,16 @@ mod tests {
         // false. Without an icon a `Small` item resolves to `Medium`, so the
         // labels render, and "Bold" is less ambiguous than a home-made glyph
         // would have been.
+        // ★ 17 → 18 on 2026-08-28: `file.save_compacted` refuses a glyph, and
+        // it refuses one for a reason worth stating rather than inheriting.
+        // Its two neighbours in the Save group carry icons, and a third disc
+        // beside them would be a picture whose only job is to look like the
+        // other two — which is exactly the confusion this command's NAME is
+        // built to prevent. `icons/assets/PROVENANCE.md` makes that directory
+        // the operator's own work, so the alternative is not "draw one" but
+        // "ask him for one", and the label reads better than any of the three.
         assert_eq!(
-            refused, 17,
+            refused, 18,
             "commands with no icon, each argued at its registration"
         );
         // Each refusal is argued at its own registration and listed in the

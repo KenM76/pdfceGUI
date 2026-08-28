@@ -280,6 +280,29 @@ pub const fn file_save_copy() -> CommandText {
     )
 }
 
+/// `file.save_compacted`
+///
+/// ★★★ **The name is the disclosure**, and it is the first line of defence
+/// against a press nobody meant. `OPERATOR_REQUESTS.md` **O48** asked for it
+/// *"named so it cannot be pressed by accident"*, and *Save a compacted copy…*
+/// is a phrase nobody reaches for while looking for Save.
+///
+/// ★★ The tooltip names **both losses before the gain**. That inverts the usual
+/// order and it is deliberate: an operator scanning tooltips reads the first
+/// clause, and the first clause of this one has to be the part they cannot see.
+/// A smaller file needs no advocacy — it is why they are hovering.
+#[must_use]
+pub const fn file_save_compacted() -> CommandText {
+    CommandText::new(
+        "Save a compacted copy…",
+        "Write the whole document fresh to a file you choose, dropping anything no longer \
+         used. Unlike Save a copy, this does NOT keep the previous version inside the \
+         file and CANNOT keep a digital signature — so the copy may be much smaller, \
+         and your original is left untouched. Use it after removing pages, images or \
+         embedded fonts.",
+    )
+}
+
 /// `file.export_dxf`
 #[must_use]
 pub const fn file_export_dxf() -> CommandText {
@@ -1148,6 +1171,7 @@ mod tests {
             file_close(),
             file_recent(),
             file_save_copy(),
+            file_save_compacted(),
             file_export_dxf(),
             file_export_form_data(),
             // Moved from the Edit block below on 2026-08-14 with the commands

@@ -153,6 +153,11 @@ pub mod textstyle;
 pub mod vector;
 
 mod action;
+/// The three verbs that exist only to move a native file picker out of the
+/// layout pass — DXF, form data and a compacted copy. Split out of [`action`]
+/// under R2 on 2026-08-28; its header carries the property they share and the
+/// reason a SAVE is filed with two exports.
+pub mod write;
 
 pub use action::Action;
 pub use vector::VectorAction;

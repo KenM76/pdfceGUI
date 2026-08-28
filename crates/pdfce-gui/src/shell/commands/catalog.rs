@@ -285,6 +285,13 @@ pub(super) fn all() -> Vec<Command> {
             .with_icon("save")
             .enabled_when("doc.open"),
         command("file.save_copy", t::file_save_copy(), 110).enabled_when("doc.open"),
+        // ★ `doc.open`, like its two neighbours, and NOT gated on the document
+        // having anything to reclaim. A file with nothing unused still gets a
+        // copy — the window says so — because an operator who asked for one is
+        // owed it, and because whether there is anything to reclaim is not
+        // knowable without serialising the document, which a ribbon predicate
+        // evaluated every frame must not do.
+        command("file.save_compacted", t::file_save_compacted(), 112).enabled_when("doc.open"),
         // Both export verbs share `export`, and that is the header's
         // shared-key convention rather than an oversight: the glyph is the
         // download twin of `insert-pages`' upload art, reserved for exactly
