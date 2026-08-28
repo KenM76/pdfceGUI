@@ -825,7 +825,8 @@ impl PdfceApp {
         } else {
             pdfce_core::settings::resolve_store()
         };
-        let (settings, _report) = pdfce_core::settings::Settings::load(settings_store.clone());
+        let (mut settings, _report) = pdfce_core::settings::Settings::load(settings_store.clone());
+        crate::app::settings::colour_default(&mut settings);
 
         // Same `cfg(test)` reasoning as the settings and the recent list above:
         // a suite that read the developer's own preferences would pass on this

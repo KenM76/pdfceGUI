@@ -392,6 +392,16 @@ pub struct Frame<'a> {
     pub map: Option<&'a PageMapping>,
     /// The page itself, for the canvas → PDF hop.
     pub page: Option<&'a pdfce_core::page_tree::Page>,
+    /// The selected form field, when one is selected.
+    ///
+    /// ★★ Carried rather than looked up, because a resize has THREE
+    /// destinations and only one of them is on `SelectionState`: page content
+    /// and a markup annotation both live there, and a form field's selection
+    /// lives on the document — `canvas::selection::annot` excludes `/Widget`
+    /// outright so the form surface owns those presses. A drag that had to ask
+    /// two places which one applied would be re-deriving a fact the caller
+    /// already has.
+    pub selected_field: Option<&'a crate::app::state::SelectedField>,
 }
 
 /// **Apply one frame of a resize drag: preview it, or commit it.**
@@ -407,6 +417,16 @@ pub struct Frame<'a> {
 /// reason applies unchanged: an in-flight gesture is a question, and answering a
 /// question the operator has not finished asking would put a sentence on the
 /// status row sixty times a second while they were still deciding.
+fn to_pdf(
+    at: egui::Pos2,
+    map: &PageMapping,
+    page: &pdfce_core::page_tree::Page,
+) -> Option<(f64, f64)> {
+    let canvas = map.to_page(at);
+    let pdf = crate::viewer::canvas_to_pdf_space(canvas, page)?;
+    Some((f64::from(pdf.x), f64::from(pdf.y)))
+}
+
 pub fn drag(
     frame: Frame<'_>,
     selection: &SelectionState,
@@ -422,6 +442,7 @@ pub fn drag(
         constrain,
         map,
         page,
+        selected_field,
     } = frame;
     let Some(bounds) = bounds else {
         // No grip box means no selection outline, which means there was nothing
@@ -546,6 +567,57 @@ pub fn drag(
             // what the parity reference does. A uniform scale is always safe.
             uniform: (sx - sy).abs() <= f32::EPSILON,
         });
+        return Some((sx, sy));
+    }
+    // ★★★ A FORM FIELD's box, and it is the third destination this one gesture
+    // reaches. `OPERATOR_REQUESTS.md` **O53**.
+    //
+    // The verb differs from the annotation one and the engine says why: a
+    // widget goes to `edit_widget(fqn, index, WidgetEdit::new().with_rect(..))`,
+    // *"which rebuilds the appearance into the new box as part of the same
+    // command"* -- a check box's tick and a text field's border have to be
+    // redrawn at the new size, which `resize_annotation` would not do.
+    //
+    // ★★ So this one takes a RECTANGLE where the annotation takes anchor and
+    // factors, and the conversion happens here rather than in the engine
+    // because it is the same arithmetic the eight grips already did: the ghost
+    // the operator was watching IS `bounds` scaled about the pivot, and
+    // deriving the rect from it is what makes what they saw and what is
+    // written the same box.
+    if let Some(selected) = selected_field.cloned() {
+        // The ghost the operator was watching, in page space. `pivot` is the
+        // corner that stays still — the one opposite the grip — so this is the
+        // same box the preview drew, converted rather than recomputed.
+        let pivot = grip.pivot(bounds);
+        let far = egui::pos2(
+            pivot.x + (bounds.min.x + bounds.max.x - 2.0 * pivot.x) * sx,
+            pivot.y + (bounds.min.y + bounds.max.y - 2.0 * pivot.y) * sy,
+        );
+        let (Some(a), Some(b)) = (to_pdf(pivot, map, page), to_pdf(far, map, page)) else {
+            decline(Refusal::Degenerate);
+            return None;
+        };
+        // ★ `from_corners`, not a literal: §7.9.5 lets a `/Rect`'s corners
+        // arrive in any order and normalises them, and a grip dragged past its
+        // anchor produces exactly that — a mirrored box, which is a supported
+        // gesture rather than an error to guard against.
+        let pdf_rect = pdfce_core::page_tree::Rect::from_corners(a.0, a.1, b.0, b.1);
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                "resize-widget-commit field={} widget={} grip={grip:?} sx={sx:.4} sy={sy:.4}",
+                selected.field, selected.widget
+            )
+        });
+        actions.push(Action::Field(
+            crate::app::actions::forms::FieldAction::EditWidget {
+                field: selected.field,
+                widget: selected.widget,
+                edit: pdfce_core::edit::WidgetEdit::new().with_rect(pdf_rect),
+                // ui-text-exempt: a control name carried for a refusal message.
+                touched: "the box",
+            },
+        ));
         return Some((sx, sy));
     }
     match action(selection, page_index, provider, anchor, (sx, sy)) {

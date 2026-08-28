@@ -31,3 +31,4 @@
 - [Unit tests cannot see the chain in front of the verb](feedback_unit_tests_that_call_the_verb_cannot_see_the_chain_in_front_of_it.md) — eight green tests while the feature did 1 of 14; write the driven check before believing it.
 - [Grep the sibling crate before writing the missing half](feedback_grep_the_sibling_crate_before_writing_the_missing_half.md) — a mirrored enum across the boundary means the other side is already implemented.
 - [A request for something shipped is a discoverability report](feedback_a_request_for_something_shipped_is_a_discoverability_report.md) — fix the route that failed him, and ship the literal ask too.
+- [The canvas is the primary surface, never a panel](feedback_the_canvas_is_the_primary_surface_never_a_panel.md) — if the engine can do it, clicking the object must reach it; a panel is a supplement.

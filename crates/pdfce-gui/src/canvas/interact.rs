@@ -1079,6 +1079,11 @@ pub(super) fn interact(
                     constrain: crate::canvas::constrain::resize(&ctx, shift),
                     map: Some(map),
                     page: doc.current_page(),
+                    // ★ The third destination. A form field's selection lives
+                    // on the document rather than on `SelectionState`, because
+                    // the form surface owns those presses — see the field's own
+                    // doc on `resizing::Frame`.
+                    selected_field: doc.selected_field.as_ref(),
                 },
                 &selection,
                 targets.as_deref(),

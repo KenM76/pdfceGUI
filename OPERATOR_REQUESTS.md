@@ -80,6 +80,151 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O53 — ★★★ "always always always": the canvas is the primary surface, and a checkbox proved it is not yet
+
+**His report and his ruling, 2026-08-28:**
+
+> *"I'm noticing that when I make a checkbox, I can't select it on the canvas to
+> move or resize. Note that if the engine is capable, I should be able to select
+> the object and do all of the ordinary editing one would expect a GUI editor to
+> be able to do. It is great that there is a properties box that allows this, but
+> **always always always** I need objects on the canvas to be clickable and
+> editable as one would expect given our research of other programs."*
+
+### ★★★ The ruling is the bigger half and is now a standing acceptance criterion
+
+**Anything the engine can do to an object, a gesture on the canvas must reach.**
+The Properties panel is a *supplement* — the precise route for typed values —
+and is never the answer to *"how do I move this."*
+
+⇒ When an engine verb lands, the question is **"what gesture reaches it"**, not
+"which panel gets a field". Four numbers and an Apply button are a form for
+editing a rectangle; **dragging is how a person moves a box.**
+
+★★ It has been got wrong twice, the same way: form-field geometry and then
+annotation geometry were both reachable only by typing into the panel, and both
+were reported as done. Both read as missing to him, because they were.
+
+### The specific defect: the placement tool never disarms
+
+He draws a checkbox, clicks it to select it — and the checkbox tool is **still
+armed**, so the click places a *second* checkbox instead. `FieldAction::Commit`
+authors the field and leaves the tool exactly as it was.
+
+★★★ **This project's own harness has been working around it for a day**:
+
+```rust
+// ★ Escape first. The tool stays armed after a placement, exactly as a
+// markup pen does, so a second click without this would place a SECOND
+// field rather than select one
+```
+
+That comment is in `dragging_a_form_field_moves_it`, written yesterday, treating
+the arming as normal because a markup pen behaves the same way.
+
+⇒ **When a driven check needs a step the operator would never know to take, that
+step is a bug report.** It was recorded as scenery instead. The lesson is filed.
+
+### What the reference programs actually do, which settles it
+
+Acrobat is the parity reference for forms. Placing a field there returns to the
+selection tool and **selects the new field**, unless the operator has explicitly
+ticked *Keep tool selected*. Word, PowerPoint and Visio all do the same for a
+drawn shape. Illustrator and Inkscape keep the tool armed — but they are drawing
+programs where placing twenty of a thing is the common case, and they select the
+new object either way.
+
+⇒ **Every one of them leaves the new object SELECTED.** That is the convergent
+answer, and it is the half this shell gets wrong regardless of arming.
+
+### What is owed, in the order it will be built
+
+| # | piece | state |
+|---|---|---|
+| 1 | after placing a field, **select it and return to the Select tool** | building |
+| 2 | **resize grips on a form field's box** — select, drag a corner | building |
+| 3 | the same for every kind, not just the one he named | building |
+| 4 | a driven check that does **not** press Escape, because an operator would not | queued — he is at the machine |
+
+★ Moving a form field on the canvas shipped earlier today and is unaffected —
+except that he could not reach it, because he could not select the thing first.
+
+**Status:** ★ **ACCEPTED 2026-08-28.** The ruling is recorded as a standing rule
+in agent memory as well as here, because it governs every future feature rather
+than this one.
+
+---
+
+## O52 — ★★★ Colour default becomes *Match other PDF viewers*, and the old formula goes entirely
+
+**His instruction, 2026-08-28:**
+
+> *"under the colour setting we are going to change our default to Match other
+> PDF viewers. you can also remove the The old pdfce formula from that section,
+> even the code for it."*
+
+### ★★★ This REVERSES an earlier ruling of his, and that is the important part
+
+`CmykIntent`'s own type documentation in `pdfce-core` currently reads:
+
+> `Calibrated` — **Not the shipped default, despite being the best-evidenced
+> option**
+>
+> `NeutralBlack` — **The shipped default, by operator ruling**
+
+So `Calibrated` was always the strongest evidence in the register — tier (a)/(c),
+Acrobat's shipped profile *and* pdfium both produce it — and it lost to a
+deliberate operator decision about what calibrated rendering does to pure-K line
+art on a CAD drawing.
+
+⇒ **He has now looked at it again and changed his mind.** That is not a defect
+report and must not be filed as one. What it means practically is that a doc
+comment saying *"by operator ruling"* becomes a lie the moment the default
+flips, and **the ruling it cites is the one being reversed** — so the change
+carries a documentation obligation the code change alone does not discharge.
+
+★★ It also removes the reason the *divergence note* exists. That sentence —
+*"pdfce's default deliberately differs from Acrobat here"* — was written so a
+future session would not investigate a render-parity difference as a bug. With
+the default matching, the note is not merely redundant: **it is backwards**, and
+leaving it would tell somebody pdfce diverges when it no longer does.
+
+### What is whose
+
+| piece | whose | state |
+|---|---|---|
+| the `#[default]` on `CmykIntent` | **`pdfce-core`** | filed with the engine |
+| deleting the `Naive` variant and its colour maths | **`pdfce-core`** | filed with the engine |
+| the third radio button and its copy | this shell | **done** |
+| the divergence note | this shell | **done** — deleted, not reworded |
+| what a fresh install gets today | this shell | **done** — seeded, see below |
+
+★ `D:\Dev\pdfce\` is read-only to this project until fold-in, so the first two
+are a hand-off rather than a change I make. The request is
+`request_cmyk_default_flips_and_the_naive_formula_goes.md`.
+
+### ★★ You get the new default TODAY, before the engine lands
+
+The engine's `Settings::load` returns its own default for anything a stored file
+does not name, so until the `#[default]` moves, a fresh install would still get
+black-ink-is-black. Rather than wait, this shell **seeds** `Calibrated` when
+there is no stored value — one line, in the one place settings are loaded, with
+the reason attached.
+
+⇒ When the engine's default moves, that line becomes a no-op and should be
+**deleted rather than left**: a shell that keeps overriding a default it agrees
+with is a second source of truth waiting to disagree. It is written so the
+compiler finds it — see the request.
+
+★ An operator whose stored file already says `naive` is moved to the new default
+on load, because the option is no longer on screen and leaving them on a value
+they cannot see or change is worse than moving them.
+
+**Status:** ★ **SHELL HALF DONE 2026-08-28**, engine half filed. Not driven —
+he is at the machine.
+
+---
+
 ## O51 — ★★★ Inkscape-style scale toggles: line weight follows a resize, if you say so
 
 **His ruling, 2026-08-28**, on reading my answer to the engine about resize

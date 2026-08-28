@@ -57,18 +57,29 @@ pub fn intent(ui: &mut Ui, draft: &mut Draft) {
         t::cmyk_intent_calibrated_label(),
         Some(t::cmyk_intent_calibrated_note()),
     );
-    widgets::option(
-        ui,
-        &mut draft.working.cmyk_intent,
-        CmykIntent::Naive,
-        t::cmyk_intent_naive_label(),
-        Some(t::cmyk_intent_naive_note()),
-    );
-    // A disclosure rather than a note: it is about the SETTING, not about the
-    // option it sits under, and it must not be weak-grey. A future session must
-    // be able to see that pdfce chose differently on purpose, or the next
-    // render-parity difference gets investigated as a defect.
-    widgets::disclosure(ui, t::cmyk_intent_divergence());
+    // ★★★ TWO options now, and the third is gone with its copy and — once the
+    // engine lands it — its arithmetic. `OPERATOR_REQUESTS.md` **O52**:
+    // *"you can also remove the The old pdfce formula from that section, even
+    // the code for it."*
+    //
+    // It was offered for one purpose, stated in its own note: *"only useful for
+    // comparing against something pdfce produced earlier."* That was true while
+    // pdfce had recently produced such files. It is a control whose entire
+    // justification expires with time, which is a shape worth naming — nothing
+    // fails when it stops being useful, so nothing prompts anybody to remove it.
+    //
+    // ★★ AND THE DIVERGENCE NOTE IS DELETED RATHER THAN REWORDED.
+    //
+    // It said *"pdfce's default deliberately differs from Acrobat here"*, and
+    // it existed so a future session would not investigate a render-parity
+    // difference as a defect. With the default now MATCHING, that sentence is
+    // not redundant — it is **backwards**, and a reworded version would be a
+    // second copy of a fact the radio group already states by which button is
+    // selected.
+    //
+    // => A note explaining a divergence must die with the divergence. Keeping
+    // it "for context" is how a window comes to describe a program that no
+    // longer exists.
 }
 
 /// Whether a CMYK JPEG's ink values are stored inverted.

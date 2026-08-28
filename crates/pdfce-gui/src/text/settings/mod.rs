@@ -878,18 +878,42 @@ mod tests {
         );
     }
 
-    /// The divergence from Acrobat is stated, and states which way to go back.
+    /// ★★★ **The colour section offers two options and neither is the deleted
+    /// third.**
     ///
-    /// A note saying only "pdfce differs" would leave the operator who wants
-    /// parity with nothing to click. It has to name the option.
+    /// This replaces `the_acrobat_divergence_names_the_option_that_matches`,
+    /// which asserted that a note naming the divergence from Acrobat also named
+    /// the option that restores parity. That note is **gone** — the default now
+    /// matches Acrobat (`OPERATOR_REQUESTS.md` O52), so a sentence saying pdfce
+    /// deliberately differs is backwards rather than redundant.
+    ///
+    /// ★★ The replacement asserts the **absence**, which is the harder half. A
+    /// deleted string leaves no test behind it, so nothing would notice a
+    /// future edit reinstating either one — and *"the old pdfce formula"* is
+    /// exactly the kind of option somebody restores while looking for
+    /// something else.
     #[test]
-    fn the_acrobat_divergence_names_the_option_that_matches() {
-        let note = cmyk_intent_divergence();
-        assert!(note.contains("Acrobat"));
-        assert!(
-            note.contains(cmyk_intent_calibrated_label()),
-            "the divergence note does not name the matching option: {note:?}"
+    fn the_superseded_formula_and_its_divergence_note_are_gone() {
+        let section = format!(
+            "{} {} {} {} {}",
+            cmyk_intent_title(),
+            cmyk_intent_neutral_label(),
+            cmyk_intent_neutral_note(),
+            cmyk_intent_calibrated_label(),
+            cmyk_intent_calibrated_note()
         );
+        assert!(
+            !section.contains("old pdfce formula"),
+            "the superseded formula is back in the colour section: {section:?}"
+        );
+        assert!(
+            !section.contains("deliberately differs"),
+            "the divergence note is back, and the default no longer diverges: {section:?}"
+        );
+        // ★ The two that remain still say what they are for, so this cannot
+        // pass by the whole section having been emptied.
+        assert!(cmyk_intent_calibrated_label().contains("Match other PDF viewers"));
+        assert!(cmyk_intent_neutral_note().contains("CAD"));
     }
 
     /// The unknown-theme sentence quotes the token and promises to keep it.

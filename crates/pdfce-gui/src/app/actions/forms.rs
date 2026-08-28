@@ -586,6 +586,12 @@ pub(super) fn author(
         width: draft.border_width.max(0.0),
     };
     let kind = draft.kind;
+    // ★★★ The epoch BEFORE, so the selection below is set only if the field was
+    // actually authored. `vector_edit` bumps it on success and leaves it alone
+    // on a refusal, which is the one signal available here -- the closure's
+    // `Result` is consumed inside the funnel.
+    let before = doc.edit_epoch;
+    let placed_name = draft.name.trim().to_owned();
 
     super::apply::vector_edit(doc, "add-form-field", page, 1, |session| {
         let outcome = match kind {
@@ -663,6 +669,32 @@ pub(super) fn author(
         };
         outcome.map(|o| disclosures(&o, kind))
     });
+
+    // ★★★ SELECT WHAT WAS JUST PLACED. `OPERATOR_REQUESTS.md` **O53**.
+    //
+    // Every program in this class leaves a newly drawn object selected --
+    // Acrobat, Word, PowerPoint, Visio, Illustrator, Inkscape -- and they
+    // disagree about whether the TOOL stays armed. So the arming is a taste
+    // question with a convergent default (`dialogs::formfield` takes Acrobat's)
+    // and this is not: it is the half none of them differ on.
+    //
+    // ★★ It is what makes the operator's next gesture work. He drew a checkbox
+    // and reported *"I can't select it on the canvas to move or resize"*; with
+    // the tool put down AND the field selected, the grips are already there and
+    // the drag is already live. Requiring a click to select something he just
+    // created is a step no other editor asks for.
+    //
+    // ★ Widget 0, because a field authored here has exactly one -- `add_*_field`
+    // places a single widget. A field with several is one that grew later,
+    // through `merge_document` or a hand-edited file, and there is no "the new
+    // one" to name in that case.
+    if doc.edit_epoch != before && !placed_name.is_empty() {
+        doc.selected_field = Some(crate::app::state::SelectedField {
+            field: placed_name,
+            widget: 0,
+            page,
+        });
+    }
 }
 
 /// **Rename the selected field.**

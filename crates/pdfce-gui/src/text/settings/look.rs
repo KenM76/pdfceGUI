@@ -190,42 +190,24 @@ pub const fn cmyk_intent_calibrated_note() -> &'static str {
      document the way someone else will."
 }
 
-/// The superseded formula.
-#[must_use]
-pub const fn cmyk_intent_naive_label() -> &'static str {
-    "The old pdfce formula"
-}
-
-/// Why it is still offered.
-#[must_use]
-pub const fn cmyk_intent_naive_note() -> &'static str {
-    "A rough calculation pdfce used before it was measured. Only useful for \
-     comparing against something pdfce produced earlier."
-}
-
-/// **pdfce's default here knowingly differs from Acrobat, and says so.**
-///
-/// # Why this sentence exists, and why it is at the setting
-///
-/// By the standing rule the default would be *Match other PDF viewers* — that
-/// is tier (a)/(c) evidence, the strongest in the whole register, since
-/// Acrobat's shipped profile and pdfium both produce it. It is not, because
-/// the operator looked at what calibrated rendering does to pure-K line art
-/// and overruled it.
-///
-/// That has to be **visible at the point of choosing**, not in a footnote,
-/// because the person reading this radio group is precisely the person who has
-/// noticed pdfce and Acrobat disagree and is deciding whether it is a bug. A
-/// future session must be able to see that pdfce chose differently **on
-/// purpose**, or the next render-parity difference gets investigated as a
-/// defect — and this default gets read as evidence of what other readers do,
-/// which it is the opposite of.
-#[must_use]
-pub const fn cmyk_intent_divergence() -> &'static str {
-    "Note: pdfce's default deliberately differs from Acrobat here. \"Match other \
-     PDF viewers\" is the option that agrees with them; black-ink-is-black was \
-     chosen because line drawings are what this is mostly used for."
-}
+// ★★★ `cmyk_intent_naive_label`, `cmyk_intent_naive_note` and
+// `cmyk_intent_divergence` were DELETED here on 2026-08-28
+// (`OPERATOR_REQUESTS.md` O52), and the deletion is recorded because two of the
+// three carried arguments worth keeping even though the strings are gone.
+//
+// **The naive option** was offered for one stated purpose — *"only useful for
+// comparing against something pdfce produced earlier"* — which was true while
+// pdfce had recently produced such files. ⇒ A control whose entire
+// justification **expires with time** is one nothing will ever prompt anybody
+// to remove: no test fails, no gate fires, and the copy still reads sensibly.
+// The operator asked for it and that is what it took.
+//
+// **The divergence note** said pdfce's default deliberately differed from
+// Acrobat, and existed so a future session would not investigate a
+// render-parity difference as a defect. The default now matches, so the
+// sentence is not redundant but **backwards**. ⇒ A note explaining a divergence
+// must die with the divergence; keeping it "for context" is how a window comes
+// to describe a program that no longer exists.
 
 // ===========================================================================
 // Colour — CMYK JPEG polarity

@@ -183,6 +183,29 @@ impl FormFieldDialog {
                 }
                 .into(),
             );
+            // ★★★ PUT THE TOOL DOWN. `OPERATOR_REQUESTS.md` **O53**.
+            //
+            // The tool stayed armed after a placement, so the operator's very
+            // next click -- the one aimed at the checkbox they had just made,
+            // to select it -- placed a SECOND checkbox instead. His report was
+            // *"I can't select it on the canvas"*, and he was right: nothing he
+            // could do reached the selection, because the click never got there.
+            //
+            // ★★★ **This project's own harness had been working around it for a
+            // day.** `dragging_a_form_field_moves_it` presses Escape before it
+            // selects, with a comment calling the arming normal *"exactly as a
+            // markup pen does"*. => When a driven check needs a step the
+            // operator would never know to take, that step is a bug report. It
+            // was written down as scenery.
+            //
+            // ★★ Acrobat is the parity reference for forms and returns to the
+            // selection tool after placing a field unless *Keep tool selected*
+            // is ticked; Word, PowerPoint and Visio do the same for a drawn
+            // shape. Illustrator and Inkscape keep the tool -- they are drawing
+            // programs where placing twenty is the common case -- but **every
+            // one of them leaves the new object selected**, which is the half
+            // that is not a matter of taste.
+            crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Select);
             return false;
         }
         // ★ The window's own close button counts as Cancel and authors nothing:

@@ -651,6 +651,29 @@ pub(super) fn overlay(
             let placed = placed(&ctx, doc);
             select_click(&ctx, doc, pages, drawn, &placed.targets, actions);
             select_cursor(&ctx, pages, &placed.targets);
+            // ★★★ DRAW THE SELECTION. `OPERATOR_REQUESTS.md` **O53**.
+            //
+            // Nothing painted a selected form field. The click landed, the
+            // action was raised, `doc.selected_field` was set, the Properties
+            // panel filled in -- and **the canvas showed no change at all**.
+            //
+            // ★★★ That is the largest part of his *"I can't select it on the
+            // canvas to move or resize"*: a selection with no visible outline
+            // is not a selection an operator can believe in, whatever the state
+            // underneath says. They click, see nothing, and conclude the click
+            // did not work -- which is the correct conclusion from the evidence
+            // available to them.
+            //
+            // => A selection is a claim the program makes to the operator. If
+            // it is not drawn, the claim was never made, and every capability
+            // that depends on it is unreachable however well it works.
+            //
+            // ★★ The grips come with it, which is H7: `pressing::grabbable`
+            // hands `GripSet::scale_only()` for this selection, so the eight
+            // squares are hit-tested whether or not they are painted -- and an
+            // invisible target that steals a press is worse than a visible
+            // control that does nothing.
+            selection_overlay(&ctx, ui.visuals(), doc, pages, &placed.targets);
         }
         return;
     }
@@ -1126,6 +1149,66 @@ fn select_cursor(ctx: &egui::Context, pages: &[PageView], targets: &[boxes::Fiel
             return;
         }
     }
+}
+
+/// **Paint the selected form field: its outline and its eight grips.**
+///
+/// `OPERATOR_REQUESTS.md` **O53**. Nothing drew this before 2026-08-28, so a
+/// selected field looked exactly like an unselected one.
+///
+/// ★★★ It is drawn **here** rather than in `canvas::overlay::draw_selection`,
+/// and the reason is that a form field is not in `SelectionState` at all:
+/// `canvas::selection::annot` excludes `/Widget` outright so the form surface
+/// owns those presses, and the selection lives on the document. The overlay
+/// draws what the selection state holds; this draws what this surface owns.
+///
+/// ★★ The rectangle is the **same one** `hit_target` matched and
+/// `widgetdrag::grab_box` projects — one rectangle for what the operator can
+/// see, what they can grab and what moves. That is rule H7, and the third use
+/// is the one that was missing.
+///
+/// ★ Nothing is drawn when the selection names a widget the form no longer has
+/// — a field deleted while selected, or a page that has changed underneath.
+/// An outline around nothing is a claim about a field that is gone.
+fn selection_overlay(
+    ctx: &egui::Context,
+    visuals: &egui::Visuals,
+    doc: &OpenDoc,
+    pages: &[PageView],
+    targets: &[boxes::FieldTarget],
+) {
+    let Some(selected) = doc.selected_field.as_ref() else {
+        return;
+    };
+    let Some(target) = targets.iter().find(|t| {
+        t.page == selected.page && t.field == selected.field && t.widget == selected.widget
+    }) else {
+        return;
+    };
+    let Some(view) = pages.iter().find(|v| v.page == target.page) else {
+        return;
+    };
+    let screen = view.map.rect_to_screen(target.rect);
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("form-field-selection"), // ui-text-exempt: a layer id.
+    ));
+    // ★ The caller's visuals, not a theme looked up here. `ui.visuals()` is
+    // the live theme including the operator's own choice, and a painter that
+    // resolved its own would draw a selection outline in the wrong colour on
+    // exactly the build where somebody had changed it.
+    let stroke = egui::Stroke::new(1.5, visuals.selection.stroke.color);
+    painter.rect_stroke(
+        screen,
+        egui::CornerRadius::ZERO,
+        stroke,
+        egui::StrokeKind::Middle,
+    );
+    // ★★ Published under the SAME region name every other selection outline
+    // uses, so a driven check aiming at a grip reads one name whatever is
+    // selected. `handles::grip_rects` derives all eight from this box.
+    crate::diag::ui_rect(crate::canvas::overlay::SELECTION_OUTLINE_REGION, screen);
+    crate::canvas::overlay::draw_grips(&painter, visuals, screen);
 }
 
 #[cfg(test)]
