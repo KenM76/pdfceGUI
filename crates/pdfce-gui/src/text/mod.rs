@@ -133,6 +133,10 @@ pub mod files;
 /// Every string the Find bar shows, plus the status bar's Find toggle.
 /// Consumed by `crate::find::bar` and `crate::app::status`.
 pub mod find;
+/// What the font-donor scan says when it skips a file — five sentences, all
+/// about something that did not happen. See its header for why a skip is worth
+/// a sentence.
+pub mod fonts;
 /// Every string the Forms panel shows. Consumed by `crate::panels::forms`.
 pub mod formfield;
 pub mod forms;

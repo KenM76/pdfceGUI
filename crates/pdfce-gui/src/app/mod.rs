@@ -86,6 +86,10 @@ pub mod files;
 /// greying and the tooltips are this crate's job for a custom item and the
 /// shell's for a command.
 mod fontband;
+/// Turning the operator's font folders into donors an embed can use — the half
+/// of font embedding the engine says is the shell's. See its header for why
+/// pdfce never goes looking on its own.
+pub mod fonts;
 
 /// ★ The per-frame update — `eframe`'s entry point, and the one order the
 /// frame's eleven steps may happen in.
