@@ -514,6 +514,14 @@ pub fn show(
                     ui.add_space(10.0);
                     colour::page_blend_space(ui, draft);
                     ui.add_space(10.0);
+                    // ★ Immediately under `page_blend_space`, because it is
+                    // meaningless above it: that setting decides whether a page
+                    // is composited in ink, and this one decides which source
+                    // colours the ink rules then reach. Reversed, the window
+                    // would ask about grey-over-spot before saying whether
+                    // overprint is simulated at all.
+                    colour::zero_tint(ui, draft);
+                    ui.add_space(10.0);
                     // ★ Directly after `page_blend_space`, and the order is an
                     // argument rather than a preference: that setting decides
                     // WHETHER a page is blended in ink, and this one decides how

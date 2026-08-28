@@ -1070,6 +1070,9 @@ impl PdfceApp {
             // `super::write::WriteAction` for why they are a family: they are
             // `Action`s only because a native dialog must not open inside a
             // layout pass, and none of them changes the open document.
+            Action::Text(super::text::TextAction::Reflow { page, block }) => {
+                super::textstyle::reflow(doc, page, block);
+            }
             Action::Write(write) => match write {
                 // (the enum is `super::write::WriteAction`)
                 super::write::WriteAction::Dxf { page, options } => {

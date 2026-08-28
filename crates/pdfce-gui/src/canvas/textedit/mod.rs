@@ -175,13 +175,6 @@
 //!   draft. Named rather than left implied, because a highlight that some keys
 //!   respect and others silently ignore is worse than none.
 
-/// ★ **Where a press puts the caret** — the three gestures that start a draft,
-/// and the refusals each of them can raise. Split out under R2 on 2026-08-21;
-/// its header carries why a text BOX must be a drag rather than a click.
-/// ★★ **The page's lines, reassembled into paragraphs** — and the arrow keys
-/// that walk between them. SALVAGE from the shell this project replaces, on the
-/// operator's report of 2026-08-21; its header carries the four lines it came
-/// from and why the reassembly was always `pdfce-core`'s.
 pub mod blocks;
 /// The caret's own arithmetic - insert, delete, and the four movements -
 /// split out under R2 on 2026-08-20. Pure functions of a `&str` and an index,
@@ -199,6 +192,18 @@ pub mod keys;
 /// the text and the caret are measured from ONE layout.
 pub mod paint;
 pub mod place;
+/// ★ **Where a press puts the caret** — the three gestures that start a draft,
+/// and the refusals each of them can raise. Split out under R2 on 2026-08-21;
+/// its header carries why a text BOX must be a drag rather than a click.
+/// ★★ **The page's lines, reassembled into paragraphs** — and the arrow keys
+/// that walk between them. SALVAGE from the shell this project replaces, on the
+/// operator's report of 2026-08-21; its header carries the four lines it came
+/// from and why the reassembly was always `pdfce-core`'s.
+/// Which paragraph the caret is in — the one question `reflow_block` needs and
+/// the shell has to answer. Its header carries the refusal that shapes the
+/// whole feature: a reflow is planned against the BASE document, so a page
+/// already edited this session is refused by name.
+pub mod reflow;
 /// ★ **What an edit report is worth telling anyone** — which of
 /// `EditReport`'s eleven fields reach the operator, which reach the diagnostic
 /// channel, and which reach neither. Split out under R2; its header carries
@@ -800,6 +805,41 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
                 request.pinned_span = Some(p.span);
                 matrices = (p.text_matrix, p.ctm);
                 request.target = p.target;
+                // ★★★ **The find string is DROPPED when the pin is exact.**
+                //
+                // `EditRequest::whole_operator` (`Pass 152.0`): an empty `find`
+                // beside a pin means *"this whole show operator"*, which is
+                // precisely what a caret in a run means and what a rebuilt
+                // `find` was only ever an approximation of.
+                //
+                // ## Why the approximation had to go
+                //
+                // A run's `text` is not in 1:1 correspondence with its glyphs —
+                // `/ToUnicode` may map one glyph to several characters — so the
+                // reconstructed find *"fails invisibly on unligatured test text
+                // and routinely on real typeset copy"*, in the engine's words.
+                // On this operator's own CAD drawings it is worse than that:
+                // `text_extract` synthesises inter-glyph spacing (a trace of one
+                // of his title-block cells showed **twenty-one** spaces), so the
+                // string this shell holds contains characters no show operator
+                // ever wrote and the match can never succeed.
+                //
+                // ⇒ That was reported as *"text editing is weird"*, filed as a
+                // defect against the engine, and answered by naming a capability
+                // that already existed. The workaround is deleted rather than
+                // kept beside the fix.
+                //
+                // ## ★★ And why only when the run is one operator
+                //
+                // See [`pin::spans_one_operator`]. On a split run the whole
+                // -operator form would replace one fragment's text with the
+                // whole replacement and leave the other fragments painting their
+                // old glyphs — visible corruption reported as success. The
+                // find-based form fails cleanly there instead, which is the
+                // right outcome for a case this shell cannot yet edit at all.
+                if pin::spans_one_operator(&model, run) {
+                    request.find.clear();
+                }
             }
             // ★ The SAME model the caret's hit test used, with the same
             // options — `BlockRecognitionOptions::default()` — because the

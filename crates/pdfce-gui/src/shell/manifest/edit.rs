@@ -83,6 +83,11 @@ pub(super) fn tab() -> Tab {
                 [
                     command("edit.text"),
                     command("edit.add_text"),
+                    // ★ Beside the text verbs it belongs with, and after them:
+                    // an operator reflows a paragraph *because* they have just
+                    // retyped a sentence in it, so it follows the tool that
+                    // does the retyping.
+                    command("edit.reflow_block"),
                     command("edit.objects"),
                 ],
             ),

@@ -244,7 +244,9 @@ mod tests {
         // ★ 121 → 122 on 2026-08-28: `file.save_compacted`
         // (`OPERATOR_REQUESTS.md` O48), the save that rewrites the whole file
         // so the space a deletion freed is actually reclaimed.
-        assert_eq!(registry().len(), 122);
+        // ★ 122 → 123 on 2026-08-28: `edit.reflow_block` (O54b), the
+        // paragraph re-wrap `pdfce-core` has carried since Pass 91.
+        assert_eq!(registry().len(), 123);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -309,8 +311,16 @@ mod tests {
         // built to prevent. `icons/assets/PROVENANCE.md` makes that directory
         // the operator's own work, so the alternative is not "draw one" but
         // "ask him for one", and the label reads better than any of the three.
+        // ★ 18 → 19 on 2026-08-28: `edit.reflow_block` refuses a glyph. Its
+        // three neighbours in the Edit ▸ Content group carry one, so this is
+        // the same judgment as `file.save_compacted` one paragraph up and
+        // reached the same way: the operator's own art is the only art this
+        // build ships, and *"re-wrap this paragraph"* has no conventional
+        // glyph to borrow — Word gives it a menu line, not a picture. A
+        // home-made pilcrow-with-arrows would be a symbol nobody has been
+        // taught. The label says it and the tooltip qualifies it.
         assert_eq!(
-            refused, 18,
+            refused, 19,
             "commands with no icon, each argued at its registration"
         );
         // Each refusal is argued at its own registration and listed in the

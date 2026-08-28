@@ -155,6 +155,82 @@ pub fn pinned_tail_disclosure(reason: Reason) -> String {
     )
 }
 
+/// Why reflow declined on a page this session has already changed.
+///
+/// ★★★ The remedy is the sentence, not the refusal. `reflow_block` is planned
+/// against the **base** document — it needs provenance the staging buffer does
+/// not carry — so it refuses a page whose content object this session has
+/// rewritten, by name, rather than mis-splicing. One typed character is enough
+/// to trip it.
+///
+/// ★★ It says **save and reopen**, in those words, because that is the whole of
+/// what an operator has to do and it is not guessable from *"cannot reflow"*.
+/// A refusal naming a cause with no remedy is a sentence that leaves somebody
+/// trying things — the rule `text::embed`'s blocker rows already follow.
+///
+/// ★ It does not apologise or call it a limitation. It is a correctness
+/// property: the alternative to refusing is splicing base-relative byte offsets
+/// into a stream that has moved, which corrupts the page silently.
+#[must_use]
+pub const fn reflow_after_edit() -> &'static str {
+    "Reflowing a paragraph needs the document as it was when you opened it, so it cannot run \
+     after other changes. Save this file and open it again, then reflow."
+}
+
+/// A reflow that ran and produced the same number of lines.
+///
+/// ★★ A correct outcome that reads as a failure without a sentence: the
+/// paragraph already fitted its box, so re-wrapping it changed nothing visible.
+/// Silence here is indistinguishable from a command that did not work, which is
+/// the shape this project keeps finding.
+#[must_use]
+pub const fn reflow_unchanged() -> &'static str {
+    "This paragraph already fitted its box, so re-wrapping it changed nothing."
+}
+
+/// A reflow asked for with no caret placed.
+///
+/// ★★★ **The three reflow refusals below are one design decision**: a
+/// paragraph command whose operand is the caret has three ways to find no
+/// operand, and each of them leaves the operator in a different place. Merging
+/// them into one *"nothing to reflow"* would be shorter and would tell somebody
+/// with the text tool armed but unclicked exactly nothing.
+///
+/// ★ It names the tool by the word on its button — *Edit text* — because
+/// "place the caret" is our language and not theirs.
+#[must_use]
+pub const fn reflow_needs_caret() -> &'static str {
+    "Click inside the paragraph you want to re-wrap first, using the Edit text tool, then choose \
+     Reflow paragraph."
+}
+
+/// A reflow asked for while the caret is placing NEW text.
+///
+/// ★★ `Anchor::Origin` and `Anchor::Box` mean the operator clicked bare page:
+/// they are composing text that is not on the page yet, so there is no
+/// paragraph to re-wrap and there will not be one until they commit. The
+/// sentence says that rather than implying they mis-clicked — they did not.
+#[must_use]
+pub const fn reflow_needs_existing_text() -> &'static str {
+    "The caret is placing new text, so there is no paragraph on the page to re-wrap yet. Finish \
+     this text, then click into a paragraph that is already on the page."
+}
+
+/// A caret on a run the block recogniser does not place in a paragraph.
+///
+/// ★★★ The honest one, and the one most likely to be met on the drawings this
+/// program is for. A CAD title block is isolated cells, not prose: pdfce finds
+/// no paragraph because there is none, and a re-wrap of a two-word cell would
+/// be meaningless even if it ran.
+///
+/// ★ It says what pdfce concluded about the text rather than that something
+/// failed, because nothing did.
+#[must_use]
+pub const fn reflow_no_block() -> &'static str {
+    "This text is not laid out as a paragraph — it is a single line or an isolated label — so \
+     there is nothing to re-wrap."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

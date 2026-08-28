@@ -525,3 +525,73 @@ fn refusal_of(error: &FormatError) -> t::TextStyleRefusal {
 
 #[cfg(test)]
 mod tests;
+
+/// **Re-wrap one paragraph to its own box.** `OPERATOR_REQUESTS.md` **O54**.
+///
+/// ★★★ The disclosures are the ENGINE'S, passed through verbatim.
+/// `ReflowApplyReport::disclosures` is already a `Vec<String>` written for an
+/// operator, and it names the things this shell could not: how many lines the
+/// paragraph had before and after, whether justification was applied, whether
+/// the block now overflows the page. Re-wording them here would be a second
+/// author for one fact — the rule `textstyle`'s synthesis disclosure already
+/// follows, and for the same reason.
+///
+/// ★★ **The refusal is the interesting half.** Unlike every other verb in this
+/// module, `reflow_block` is planned against the base document and refuses a
+/// page this session has already edited. That is not a defect and it is not
+/// rare: one typed character makes it fire. The remedy is specific — save and
+/// reopen — and `vector_edit`'s error arm traces but does not word a refusal, so
+/// this one is worded here, before the funnel, on the one condition the shell
+/// can see without asking.
+pub(super) fn reflow(doc: &mut OpenDoc, page: usize, block: usize) {
+    // ★★★ Asked BEFORE the attempt, so the operator is told the remedy rather
+    // than shown a silence. `edit_epoch` is non-zero exactly when this session
+    // has changed the document, which is the shell-side shadow of the engine's
+    // own condition — it is broader (an edit to ANOTHER page also trips it) and
+    // deliberately so: a sentence that says *"save and reopen"* one page too
+    // eagerly costs a save, and one that says nothing costs an operator who
+    // thinks the feature is broken.
+    //
+    // ⇒ The engine's own refusal remains the backstop and is traced by the
+    // funnel. This is the wording, not the gate.
+    if doc.edit_epoch != 0 {
+        super::record_note(
+            doc.edit_epoch,
+            crate::text::textedit::reflow_after_edit().to_owned(),
+        );
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            format!("reflow-declined page={page} block={block} reason=session-has-edits")
+        });
+        return;
+    }
+    let request = pdfce_core::text_edit::ReflowRequest::new();
+    super::apply::vector_edit(doc, "reflow-block", page, 1, |session| {
+        session.reflow_block(page, block, &request).map(|report| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    // `-applied`, per the convention `forms::import_data`
+                    // records: the funnel writes its own bare-named line for
+                    // the same edit and `.last()` would read that one.
+                    "reflow-block-applied page={page} block={block} lines={}->{} \
+                         justified={} height_delta={:.2}",
+                    report.lines_before,
+                    report.lines_after,
+                    report.justified_lines,
+                    report.height_delta
+                )
+            });
+            let mut notes = report.disclosures;
+            // ★★ The line count, added because the engine's own list does
+            // not always carry one and it is the fact the operator can
+            // check by looking. A reflow that changed nothing is a correct
+            // outcome — the paragraph already fitted — and reads as a
+            // failure without a sentence.
+            if report.lines_before == report.lines_after && notes.is_empty() {
+                notes.push(crate::text::textedit::reflow_unchanged().to_owned());
+            }
+            notes
+        })
+    });
+}

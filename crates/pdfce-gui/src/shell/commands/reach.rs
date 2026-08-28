@@ -730,6 +730,13 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::settings::handles(id) {
         return Some("handles");
     }
+    // ★ `dispatch::text`, split out 2026-08-28 with paragraph reflow. Same
+    // shape, same reason, one difference worth naming: this one's `dispatch`
+    // cannot trace an "unrouted" line for a member it does not know, because it
+    // has exactly one member. If it grows a second, it owes that trace.
+    if crate::app::dispatch::text::handles(id) {
+        return Some("handles");
+    }
     // ★ The second membership-test guard, added 2026-08-20 with
     // `dispatch::textcopy`. Everything the paragraph above says about
     // `pages::handles` applies to it unchanged — including the mitigation: its

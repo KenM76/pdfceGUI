@@ -82,6 +82,53 @@ pub fn intent(ui: &mut Ui, draft: &mut Draft) {
     // longer exists.
 }
 
+/// **Which colours get overprint's zero-tint rule** — `Pass 143.0`.
+///
+/// ## ★★ Why it sits with the blend-space setting and not on its own
+///
+/// Because it is meaningless without it. `page_blend_space` decides *whether a
+/// page is composited in ink at all*; this decides *which source colours the
+/// ink rules then apply to*. An operator who has the first switched off will
+/// never see this one do anything, and the window's ordering rule — read
+/// downward and each setting has the context of the one above — is what makes
+/// that legible without a cross-reference.
+///
+/// ## ★ It is a spec ambiguity, not a preference, and the copy says so
+///
+/// §8.6.7 scopes the zero-tint rule to `DeviceCMYK`. `DeviceGray` is not one,
+/// so pdfce's original literal reading was defensible; Acrobat converts grey to
+/// K-only CMYK first and *then* applies the rule, which is equally defensible
+/// and is what the print-conformance suite is scored against. The default
+/// follows the instrument.
+///
+/// ⇒ The third option is **unmeasured** and its note says so in those terms.
+/// A radio group that presents a guess and a measurement in the same voice is
+/// asking the operator to trust three things equally when only two earned it.
+pub fn zero_tint(ui: &mut Ui, draft: &mut Draft) {
+    use pdfce_core::settings::OverprintZeroTintScope as Scope;
+    widgets::header(
+        ui,
+        t::zero_tint_title(),
+        t::zero_tint_silence(),
+        t::zero_tint_radius(),
+    );
+    // ★ Default first, exactly as `intent` argues: an operator reads what pdfce
+    // is doing now before they read the alternatives.
+    for scope in [
+        Scope::GreyAsKOnly,
+        Scope::DeviceCmykOnly,
+        Scope::AllProcessSpaces,
+    ] {
+        widgets::option(
+            ui,
+            &mut draft.working.overprint_zero_tint_scope,
+            scope,
+            t::zero_tint_label(scope),
+            Some(t::zero_tint_note(scope)),
+        );
+    }
+}
+
 /// Whether a CMYK JPEG's ink values are stored inverted.
 ///
 /// # ★ The one well-sourced default in the whole window

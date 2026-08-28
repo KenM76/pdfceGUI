@@ -160,6 +160,20 @@ pub const CANVAS_OBJECT: &str = "canvas.object";
 /// act *on*, so the menu is about how the page is shown.
 pub const CANVAS_EMPTY: &str = "canvas.empty";
 
+/// ★★★ Right-click on the page **with a caret placed in existing text**.
+///
+/// The third canvas menu, added 2026-08-28 with paragraph reflow. It is keyed
+/// on the *caret*, not on a selection, and that is the whole reason it is a
+/// separate context: while the operator is editing text there is no selected
+/// object, so [`CANVAS_OBJECT`] never resolves and [`CANVAS_EMPTY`] would
+/// offer four zoom levels to somebody with a cursor blinking in a paragraph.
+///
+/// ⇒ **Without this, reflow would be reachable only from the ribbon**, and the
+/// standing rule is that anything the engine can do to a thing on the page is
+/// reachable by clicking that thing on the page. A paragraph's "click" is the
+/// caret; its right-click is this.
+pub const CANVAS_TEXT: &str = "canvas.text";
+
 /// Right-click on a panel tab in the dock.
 ///
 /// Defined but not attachable from this crate — see the module header.
@@ -195,6 +209,7 @@ pub const DOCUMENT_TAB: &str = "document.tab";
 pub const CONTEXTS: &[&str] = &[
     CANVAS_OBJECT,
     CANVAS_EMPTY,
+    CANVAS_TEXT,
     DOCK_TAB,
     DOCUMENT_TAB,
     OBJECTS_ROW,
@@ -354,6 +369,21 @@ pub fn built_in() -> Menus {
             Item::command("view.zoom_fit_height"),
             Item::command("view.zoom_actual"),
         ]))
+        // -------------------------------------------------------------------
+        // canvas.text — the caret's menu.
+        //
+        // ★★ ONE item, and it is the one that has no other canvas route. Cut,
+        // Copy and Paste are conspicuously absent and their absence is
+        // deliberate: `edit.cut`/`edit.copy` act on the OBJECT selection, not
+        // on a text draft's selected characters, so offering them here would
+        // put three items on the menu of which two act on something other than
+        // what the operator is pointing at. That is the `canvas.object`
+        // select-first defect in a different costume.
+        //
+        // ⇒ When a draft-scoped cut and copy exist they belong here, above the
+        // reflow, in the order every editor uses. Until then the menu is
+        // honest at one item.
+        .with(Menu::new(CANVAS_TEXT).with_items([Item::command("edit.reflow_block")]))
         // -------------------------------------------------------------------
         // dock.tab — a panel tab.
         //

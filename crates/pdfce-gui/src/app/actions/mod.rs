@@ -157,6 +157,10 @@ mod action;
 /// layout pass — DXF, form data and a compacted copy. Split out of [`action`]
 /// under R2 on 2026-08-28; its header carries the property they share and the
 /// reason a SAVE is filed with two exports.
+/// The verbs that re-shape a page's own text. Its header carries the reason
+/// reflow is not like its neighbours: it is planned against the BASE document
+/// and refuses a page this session has already rewritten.
+pub mod text;
 pub mod write;
 
 pub use action::Action;

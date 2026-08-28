@@ -90,6 +90,10 @@ pub(crate) mod fonts;
 mod forms;
 pub(crate) mod routes;
 pub(crate) mod settings;
+/// **The three commands whose subject is a text caret** — the two that arm it
+/// and the reflow that acts on the paragraph it is in. The arming pair moved
+/// there from this file on 2026-08-28 so the subject lives in one place.
+pub(crate) mod text;
 
 use super::actions::Action;
 use super::state::Status;
@@ -420,6 +424,7 @@ impl PdfceApp {
             // one place and not the other is how a dialog ends up opening and
             // vanishing on the same frame.
             "file.about" => self.dialogs.open_about(),
+            id if text::handles(id) => text::dispatch(self, ctx, id, actions),
             id if settings::handles(id) => {
                 settings::dispatch(id, &mut self.settings_draft, &self.settings, &self.prefs)
             }
@@ -715,28 +720,6 @@ impl PdfceApp {
                 // gap from the other end when the mode changes underneath.
                 if self.capabilities().edit_content {
                     crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Node);
-                } else {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-edit-content")
-                    });
-                }
-            }
-            "edit.text" | "edit.add_text" => {
-                let kind = if id == "edit.add_text" {
-                    crate::canvas::textedit::TextEditKind::Add
-                } else {
-                    crate::canvas::textedit::TextEditKind::Edit
-                };
-                if self.capabilities().edit_content {
-                    // ★ Both ids still arm the caret directly, and both are kept
-                    // — two doors into one room. `edit.text` is the one an
-                    // operator finds on the Edit tab; `view.tool_text` (T) is
-                    // the one they find in the tool row. Since 2026-08-19 the
-                    // CLICK decides edit-versus-add, so the `kind` here is a
-                    // starting bias rather than a mode: `textedit::click` turns
-                    // an `Edit` that lands on no run into an origin.
-                    let _ = crate::canvas::tool::arm_text_edit(ctx, kind);
                 } else {
                     crate::diag::trace(|| {
                         // ui-text-exempt: diagnostic trace, never displayed.

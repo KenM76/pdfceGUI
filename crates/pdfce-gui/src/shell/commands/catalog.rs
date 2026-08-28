@@ -924,6 +924,14 @@ pub(super) fn all() -> Vec<Command> {
         command("edit.add_text", t::edit_add_text(), 401)
             .with_icon("add-text")
             .enabled_when("doc.pages"),
+        // ★★ `doc.pages` only, like its three neighbours, and NOT a mode guard.
+        // A reflow does rewrite the page's own content stream, so a reading
+        // stance must not offer it — but that is settled by **visibility**: the
+        // whole Edit tab is absent outside the Edit mode
+        // (`mode.edit_content`, see `app::conditions`). Adding a second,
+        // enable-time gate would be a duplicate rule that can disagree with the
+        // first, which is the shape `conditions`' own header argues against.
+        command("edit.reflow_block", t::edit_reflow_block(), 406).enabled_when("doc.pages"),
         command("edit.objects", t::edit_objects(), 402)
             .with_icon("edit-objects")
             .enabled_when("doc.pages"),

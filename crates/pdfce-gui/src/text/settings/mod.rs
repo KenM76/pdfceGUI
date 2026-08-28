@@ -475,7 +475,13 @@ mod tests {
     /// is a `#[test]` and not a note. The engine shipped it in v0.14.0 at this
     /// shell's own request; the number moved in the same session the control
     /// was written, which is the property this constant exists to guarantee.
-    const SETTINGS_COUNT: usize = 24;
+    /// ★★ And 24 → **25** on 2026-08-28, when the engine's `Pass 143.0` added
+    /// `overprint_zero_tint_scope` and this window's own completeness test —
+    /// `every_setting_the_store_carries_has_a_control_in_this_window` — caught
+    /// it within one `cargo update`. That is the mechanism working: a setting
+    /// the engine honours and the window cannot reach is a setting an operator
+    /// can only change by hand-editing a text file.
+    const SETTINGS_COUNT: usize = 25;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -509,6 +515,7 @@ mod tests {
                 blend_space_silence(),
                 blend_space_radius(),
             ),
+            (zero_tint_title(), zero_tint_silence(), zero_tint_radius()),
             (
                 cmyk_ceiling_title(),
                 cmyk_ceiling_silence(),

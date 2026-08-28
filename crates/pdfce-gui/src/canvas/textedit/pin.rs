@@ -155,6 +155,53 @@ pub fn of_run(model: &EditableTextModel<'_>, run: usize) -> Option<Pinned> {
     })
 }
 
+/// **Do all of this run's glyphs come from ONE show operator?**
+///
+/// ## ★★★ Why this question is worth its own function
+///
+/// Because the answer decides whether the run can be addressed as a *whole
+/// operator* — `EditRequest::whole_operator`, `Pass 152.0` — and getting it
+/// wrong is the difference between an edit that refuses and an edit that
+/// duplicates text on the page.
+///
+/// [`of_run`] pins on **glyph 0's** operator. The engine's own measurement is
+/// that **13% of runs over its corpus carry glyphs from more than one show
+/// operator**, and on those runs:
+///
+/// | request | what happens |
+/// |---|---|
+/// | `find` = the run's text, pinned | `NoMatch` — the pinned operator holds only part of it |
+/// | whole-operator (empty find), pinned | the pinned operator's text is replaced **with the whole replacement**, and the run's other operators keep their glyphs |
+///
+/// ⇒ The second is worse. A refusal costs an operator a puzzled moment; the
+/// other writes `Rev BEV A` onto a drawing and reports success. So the
+/// whole-operator form is taken **only** when this answers `true`, and the
+/// find-based form — with its clean refusal — is what a split run keeps.
+///
+/// ★ It walks the glyphs rather than trusting a count, because
+/// [`EditableTextModel::provenance`] answers `None` one past the end and that
+/// is the same termination a length would give with one fewer thing to keep in
+/// step.
+///
+/// ★★ `false` when there is no provenance at all. A caller with no pin is not
+/// entitled to the whole-operator form in the first place — the engine refuses
+/// an empty `find` without a pin, by name — and answering `true` here would
+/// build a request it would then reject.
+#[must_use]
+pub fn spans_one_operator(model: &EditableTextModel<'_>, run: usize) -> bool {
+    let Some(first) = model.provenance(GlyphRef::new(run, 0)) else {
+        return false;
+    };
+    let mut glyph = 1;
+    while let Some(p) = model.provenance(GlyphRef::new(run, glyph)) {
+        if p.operator_span != first.operator_span {
+            return false;
+        }
+        glyph += 1;
+    }
+    true
+}
+
 /// The pin for `run` on `page`, extracting the page with provenance on.
 ///
 /// The convenience form for a caller that does not already hold a model — the

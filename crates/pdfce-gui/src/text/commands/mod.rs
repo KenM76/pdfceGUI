@@ -303,6 +303,29 @@ pub const fn file_save_compacted() -> CommandText {
     )
 }
 
+/// `edit.reflow_block`
+///
+/// ★★★ **The label says what it does to a paragraph, and the tooltip says the
+/// one thing that will otherwise surprise.** `OPERATOR_REQUESTS.md` **O54**.
+///
+/// A reflow is planned against the document *as opened* — it needs position
+/// information the in-session staging buffer does not carry — so it refuses a
+/// page this session has already changed. One typed character is enough. That
+/// is a correctness property rather than a limitation (the alternative is
+/// splicing offsets into a stream that has moved), and the remedy is specific,
+/// so both are in the tooltip where an operator meets them before the refusal
+/// rather than after it.
+#[must_use]
+pub const fn edit_reflow_block() -> CommandText {
+    CommandText::new(
+        "Reflow paragraph",
+        "Re-wrap the paragraph the caret is in so its lines fill their box again — after \
+         retyping a sentence that made a line too long or too short. It works on the document \
+         as you opened it, so if you have already changed this file, save it and open it \
+         again first.",
+    )
+}
+
 /// `file.export_dxf`
 #[must_use]
 pub const fn file_export_dxf() -> CommandText {
@@ -1171,6 +1194,7 @@ mod tests {
             file_close(),
             file_recent(),
             file_save_copy(),
+            edit_reflow_block(),
             file_save_compacted(),
             file_export_dxf(),
             file_export_form_data(),

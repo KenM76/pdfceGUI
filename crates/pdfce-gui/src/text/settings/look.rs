@@ -426,6 +426,81 @@ pub const fn blend_space_note(src: pdfce_core::settings::PageBlendSpaceSource) -
 }
 
 // ===========================================================================
+// Overprint — which colours get the zero-tint rule
+// ===========================================================================
+
+/// Zero-tint scope: what it is.
+///
+/// ★★★ **The title asks about GREY, not about "OPM 1's scope".** The engine's
+/// own account of this setting is four screens on a genuine ambiguity in
+/// §8.6.7; the operator's version of the same question is *"does a grey fill
+/// wipe out the spot colour underneath it, or not?"* — which is what he would
+/// have seen on paper and what would send him looking.
+///
+/// ⇒ The window's rule is that a heading names the SYMPTOM. A heading reading
+/// *"Overprint zero-tint scope"* is the field name, and a field name is
+/// findable only by somebody who already knows the answer.
+#[must_use]
+pub const fn zero_tint_title() -> &'static str {
+    "Grey over a spot colour in print-ready files"
+}
+
+/// What happens if you never touch it.
+#[must_use]
+pub const fn zero_tint_silence() -> &'static str {
+    "A grey overprinting a spot colour leaves the spot showing through, the way Acrobat draws it."
+}
+
+/// What it costs, and what it does not affect.
+///
+/// ★ It names the same narrow reach the blend-space setting does, because it
+/// has the same one: nothing happens on a file that never asked for overprint,
+/// which is nearly every file that is not print-ready.
+#[must_use]
+pub const fn zero_tint_radius() -> &'static str {
+    "Changes how overprinted areas are drawn and printed. It never changes the file, and it does nothing at all unless a page actually asks for overprint — which almost none do outside print-ready artwork."
+}
+
+/// One scope's name.
+#[must_use]
+pub const fn zero_tint_label(scope: pdfce_core::settings::OverprintZeroTintScope) -> &'static str {
+    use pdfce_core::settings::OverprintZeroTintScope as S;
+    match scope {
+        S::GreyAsKOnly => "Let grey behave like black ink (pdfce's default)",
+        S::DeviceCmykOnly => "What the standard literally says",
+        S::AllProcessSpaces => "Let every colour behave like ink",
+        // ★ `#[non_exhaustive]`, so a newer engine may add a scope. Named as
+        // unknown rather than folded onto a neighbour — see `blend_space_label`
+        // for the argument, which is the same one and is made once there.
+        _ => "A newer pdfce added this option; this build cannot describe it",
+    }
+}
+
+/// One scope's description.
+///
+/// ★★ Each note says what comes out on paper, with the measured numbers where
+/// there are any and an admission where there are none. The third option is
+/// unmeasured and its note says so in the operator's terms — *"nobody has
+/// checked"* — rather than leaving him to infer it from the absence of a
+/// figure.
+#[must_use]
+pub const fn zero_tint_note(scope: pdfce_core::settings::OverprintZeroTintScope) -> &'static str {
+    use pdfce_core::settings::OverprintZeroTintScope as S;
+    match scope {
+        S::GreyAsKOnly => {
+            "A grey fill is treated as black ink alone, so it lays down black and leaves the spot colour underneath it showing. This is what Acrobat does, and it is what the print test suite is scored against."
+        }
+        S::DeviceCmykOnly => {
+            "Only a colour written as CMYK gets the rule; a grey knocks the spot colour out completely. Defensible — the standard's sentence does say CMYK — and it is how pdfce drew these pages before this setting existed."
+        }
+        S::AllProcessSpaces => {
+            "Extends the rule to red-green-blue colours as well as grey. The most consistent reading, but nobody has checked it against Acrobat: pdfce's red-green-blue to ink conversion is a rough one, so a pure red could preserve a cyan backdrop where Acrobat would not."
+        }
+        _ => "Not described by this build.",
+    }
+}
+
+// ===========================================================================
 // Images and transparency — mask resampling
 // ===========================================================================
 

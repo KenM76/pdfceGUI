@@ -726,6 +726,14 @@ pub enum Action {
         /// The 0-based page it points at — the one the operator is looking at.
         page: usize,
     },
+    /// ★★★ **Re-shape the page's own text** — a reflow today, and the caret
+    /// and restyle commits when they follow.
+    ///
+    /// Moved into [`super::text::TextAction`] under R2 on 2026-08-28. Its
+    /// header carries the one thing a reader must not assume: reflow does NOT
+    /// accumulate the way its neighbours do, so a page already edited this
+    /// session refuses it by name.
+    Text(super::text::TextAction),
     /// ★★★ **Write something out to a file the operator picks.**
     ///
     /// Three verbs — DXF, form data, and a compacted copy — moved into

@@ -136,6 +136,19 @@ const MENU_SLOT: &str = "canvas-menu"; // ui-text-exempt: trace slot name, never
 pub enum CanvasMenu {
     /// The pointer was over an object: act on it.
     Object,
+    /// ★★★ **A caret is placed in text already on the page**: act on the
+    /// paragraph.
+    ///
+    /// Chosen ahead of both others when it applies, and the precedence is the
+    /// design. A caret in a run means the operator is *in* that text — a
+    /// right-click there is about the words, never about the object underneath
+    /// them and never about the zoom level. Deciding by hit test first would
+    /// give them the view menu, because a text run is not a hit-testable
+    /// object.
+    ///
+    /// ★ It is `Anchor::Run` only. A caret placing NEW text (`Origin`/`Box`)
+    /// has no paragraph behind it, so that operator gets the ordinary menus.
+    Text,
     /// The pointer was over blank page: act on the view.
     ///
     /// The default, so a frame before any right-click has happened attaches
@@ -152,6 +165,7 @@ impl CanvasMenu {
     pub fn context_id(self) -> &'static str {
         match self {
             Self::Object => menus::CANVAS_OBJECT,
+            Self::Text => menus::CANVAS_TEXT,
             Self::Empty => menus::CANVAS_EMPTY,
         }
     }
@@ -311,7 +325,15 @@ pub fn attach(
 
     // 2.
     if response.secondary_clicked() {
-        let chosen = select_under_right_click(selection, page, object);
+        // ★★ The caret wins, and it is asked BEFORE the hit test so the
+        // selection is not disturbed on the way past: `select_under_right_click`
+        // would replace the object selection with whatever happens to sit under
+        // a paragraph, which the operator did not ask for and cannot see.
+        let chosen = if caret_in_existing_text(&ctx) {
+            CanvasMenu::Text
+        } else {
+            select_under_right_click(selection, page, object)
+        };
         store(&ctx, chosen);
         crate::diag::trace(|| {
             format!(
@@ -342,6 +364,19 @@ pub fn attach(
         });
     }
     tokens
+}
+
+/// Whether a caret is placed in text that is **already on the page**.
+///
+/// The one question that separates [`CanvasMenu::Text`] from the other two, and
+/// it is asked of the draft rather than of the tool: an *armed but unclicked*
+/// text tool has no paragraph, and an operator who has armed it and then
+/// right-clicked a rectangle wants the rectangle's menu.
+fn caret_in_existing_text(ctx: &egui::Context) -> bool {
+    matches!(
+        crate::canvas::textedit::read(ctx).map(|draft| draft.anchor),
+        Some(crate::canvas::textedit::Anchor::Run { .. })
+    )
 }
 
 /// Read which canvas menu the last right-click asked for.
@@ -529,6 +564,14 @@ mod tests {
     #[test]
     fn each_canvas_menu_names_a_context_the_shell_defines() {
         assert_eq!(CanvasMenu::Object.context_id(), CANVAS_OBJECT);
+        // ★ The third, added with paragraph reflow. Its menu is the only route
+        // to that command that does not go through the ribbon, so a context id
+        // that drifted from `shell::menus` would silently take the canvas route
+        // away and leave the ribbon working — a half-loss no other test sees.
+        assert_eq!(
+            CanvasMenu::Text.context_id(),
+            crate::shell::menus::CANVAS_TEXT
+        );
         assert_eq!(CanvasMenu::Empty.context_id(), CANVAS_EMPTY);
         assert_eq!(
             CanvasMenu::default(),
