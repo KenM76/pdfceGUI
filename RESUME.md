@@ -17,7 +17,40 @@ at a section of it.
 
 ---
 
-## ★★★ Last session: 2026-08-27 EVENING — the Font group, and form fields became editable
+## ★★★ Last session: 2026-08-28 OVERNIGHT — every form verb is wired, and six stale blockers fell
+
+**Read `CONTINUE.md` first.** Seven commits, all driven, **nothing packaged** —
+ask him whether he wants a build. `FEATURES.md` is re-measured and current.
+
+**What shipped:** a form field's properties AND its box (position, size, border,
+visibility, caption), Flatten on the ribbon, and form-data **export and import**
+as FDF/XFDF/CSV. Nothing in the forms family is drawn-and-dead any more.
+
+**★★★ The finding: a blocker's reason is prose, and no test can check prose.**
+Six SCAFFOLDED entries went stale in twenty-four hours; **two were citations of
+citations**. The rule now written on the allow-list's own assertion — *when you
+touch that list, re-derive the reason of the entry beside the one you came for*
+— found the fifth and sixth within two hours of being written. **An audit of
+the remaining eleven was dispatched; read its result.**
+
+**★★ The lesson that repeated within a day:** a module's summary line and
+`vector_edit`'s label must not share a trace name, or a check reads the funnel's
+line and reports *"the verb did nothing"* about a verb that worked. It happened
+to `text-style`, was written up, and happened again to `import-form-data` — by
+the session that wrote the note. ⇒ **An incident does not generalise itself.**
+The fix is a naming convention at the point of use, not a third note.
+
+**★ Before any driven run:** Windows toasts steal foreground. Killing
+`ShellExperienceHost` buys one run; turn `ToastEnabled` off *reversibly*, prior
+value read and restored. `D:/dev/rag/egui/`.
+
+**★★ Known and his call:** the Properties pane is now ~450 pt of content in a
+~180 pt dock slot, so the box controls take three scrolls to reach. Three
+remedies and their costs are in `FEATURES.md`.
+
+---
+
+## Last session but one: 2026-08-27 EVENING — the Font group, and form fields became editable
 
 **Read `CONTINUE.md` first.** Two features shipped and both were driven and
 falsified: the Format tab's **Font group** (with the three surfaces that finally

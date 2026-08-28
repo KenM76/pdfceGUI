@@ -1,5 +1,133 @@
 # CONTINUE — handoff
 
+## 2026-08-28 (overnight) — form fields became fully editable, and six stale blockers fell
+
+**Clean tree. 18/18 gates. 1,844 + 421 + 144 tests, 0 failing. 85 driven checks.
+Re-measure before quoting.** Engine `8aa9cea`.
+
+### ★★★ WHAT TO DO FIRST: ask him whether to publish
+
+Seven commits landed overnight and **nothing is packaged**. `FEATURES.md` is
+re-measured and current. He was offered a build four times and did not take it;
+he may simply want it in the morning. `package-portable.py` alternates
+`OneDrive\pdfceGUI1` / `2` itself, so the previous one survives.
+
+### ★★★ EVERY FORM VERB IS NOW WIRED
+
+Nothing in the forms family is drawn-and-dead any more. What shipped:
+
+| | |
+|---|---|
+| **a field's properties** | required, read-only, tooltip, and the type flags — `edit_field` |
+| **a field's BOX** | position, size, border style and width, visibility, caption — `edit_widget` |
+| **Flatten** | on the ribbon, where only the panel had it |
+| **Export form data** | FDF / XFDF / CSV, the **extension** choosing the format |
+| **Import form data** | the mirror, one `Ctrl+Z` for the whole file |
+
+★ The pane used to tell the operator to **delete the field and place a new
+one** to change a flag. `edit_field` had shipped the same day that sentence was
+written, three commits before the pin, with a 96-line design brief in `open/`
+that nothing read.
+
+### ★★★ THE FINDING OF THE NIGHT, and it is a rule about our own documents
+
+**A blocker's reason is prose, and no test can check prose.**
+
+Six SCAFFOLDED entries turned out to be stale in twenty-four hours. Two of them
+were **citations of citations** — the reason cited a `FEATURES.md` row that was
+itself out of date, and nothing had re-read either.
+
+The rule is now written on the allow-list's own count assertion, and it found
+the fifth and sixth within two hours of being written:
+
+> **When you touch that list for any purpose, re-derive the reason of the entry
+> beside the one you came for.**
+
+★ The count assertion **cannot** catch this class. It asks whether an id has an
+arm. An entry with no arm and a nonsense reason is indistinguishable from a
+correct one. A reader is the only instrument.
+
+⇒ **An audit of the remaining eleven entries was dispatched and its result is
+the next thing to read.** Expect more.
+
+### ★★ The second lesson, and it repeated within a day
+
+**A module's summary line and `vector_edit`'s label must not share a trace
+name.** `.last()` reads the funnel's line, finds no keys, and reports *"the verb
+did nothing"* about a verb that worked — a **confident** false negative.
+
+It happened to `text-style` on the 27th, was written up the same day, and
+happened again to `import-form-data` on the 28th — by the session that had
+written the note. Reading it did not prevent it, because the first write-up was
+about *text-style* rather than about *every edit through the funnel*.
+
+⇒ The fix is a **naming convention** at the point of use — a module's summary
+takes a verb suffix, the funnel keeps the bare name — not a third note. Filed to
+`D:/dev/rag/egui/` with the general form: **an incident does not generalise
+itself.**
+
+### ★★ `Reading::find` is deleted, and the three acts are worth reading
+
+In `canvas::textedit::pin`. Built on a mechanism this project **invented and
+never measured**; refuted by the engine over 256 fixtures; found to be *correct
+anyway* once the invariant was measured (4,289 files, 29,246 operator spans,
+zero exceptions); then kept alive one extra day only to feed a parameter that
+`Pass 147.0` removed the need for. Gone.
+
+★ The engine's reply on that one: our *alternative* suggestion was needed too.
+They fixed the pinned case and assumed an unpinned empty `find` already errored
+— a test showed `s.text.contains("")` is true of every string.
+
+### ★ Three engine Passes were asked for and shipped the same night
+
+`142.1` (font pre-flight), `146.0` (widget border/visibility readable), `147.0`
+(pre-flight resolves the pin). Plus `144.0` and `145.0` from the afternoon's
+filings. **Every one was consumed the night it landed** and the replies are
+renamed `done_*`.
+
+★ `142.1` closed a hole we had not reported: the old face list matched on
+`/BaseFont`, and a page with two subsets of one face — **87 % of embedding
+files** — reached one of the twins *arbitrarily*. The wrong font, applied,
+with no refusal to show for it. We had classified our own defect as *"a
+refusal the operator can see"*.
+
+### ★ The desktop needs clearing before a driven run
+
+Windows toasts hold foreground and `SetForegroundWindow` is refused. Killing
+`ShellExperienceHost` buys **one** run — Windows respawns it. Turn
+`ToastEnabled` off under
+`HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications`,
+**reading the prior value first and restoring it after**; it is his machine.
+Written up in `D:/dev/rag/egui/`.
+
+### ★★ Known, said rather than hidden: the Properties pane is too tall
+
+A selected form field draws ~450 pt into a ~180 pt dock slot, so reaching the
+box controls takes three scrolls. *"I clicked the field and there is nothing
+there"* is what that looks like from a chair. The driven check works around it
+by driving at a taller window, which is right for a **check** and is not an
+answer for the product. Three remedies and their costs are in `FEATURES.md`;
+**the choice is his.**
+
+### How to drive tonight's checks
+
+```bash
+ui-verify --check form_field \
+          --check the_format_tab_offers_font_controls_for_swept_text \
+          --check restyling_selected_text_reaches_the_document \
+          --exe target/scratch/drive/pdfce-gui.exe \
+          --pdf D:/Dev/temp/pdfce/SW41177.pdf --doc-point 0,1140,62
+
+ui-verify --check exporting_form_data_writes_a_file \
+          --exe target/scratch/drive/pdfce-gui.exe \
+          --pdf D:/Dev/pdfce/fixtures/synthetic/forms/demo-form.pdf
+```
+
+★ **Copy the exe to `target/scratch/drive/` first** — never drive the published
+build; the suite's side effects land in his own saved state.
+
+---
+
 ## 2026-08-27 (evening) — the Font group, and form fields became editable
 
 **Clean tree. 18/18 gates. 1,838 + 421 + 144 tests, 0 failing. 84 driven checks.
