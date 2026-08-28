@@ -253,6 +253,84 @@ pub const fn group_images() -> &'static str {
     "Images and transparency"
 }
 
+/// The Fonts group's caption.
+///
+/// ★ *"Fonts"*, not *"Font folders"*. A group caption names the subject and the
+/// control inside it names the property — the same call `text::ribbon`'s
+/// `group_format_font` makes, and it leaves room for a second font setting to
+/// join without the caption becoming a list.
+#[must_use]
+pub const fn group_fonts() -> &'static str {
+    "Fonts"
+}
+
+/// The folder list's label.
+#[must_use]
+pub const fn font_folders_label() -> &'static str {
+    "Folders to take fonts from"
+}
+
+/// ★★ The hint states the **consequence of leaving it empty**, which is the
+/// one fact an operator cannot discover from an empty list.
+///
+/// pdfce does not search the system font directory and will not: embedding
+/// whatever a machine happens to hold into somebody's document is a licensing
+/// decision, and it is not pdfce's to make silently. So an empty list is not a
+/// default that works — it is embedding switched off, and the sentence says so
+/// before the operator meets it at the far end of a failed embed.
+#[must_use]
+pub const fn font_folders_hint() -> &'static str {
+    "When a document names a font it does not carry, pdfce looks here to embed it. It \
+     never searches your system fonts on its own."
+}
+
+/// Shown in place of an empty list.
+#[must_use]
+pub const fn font_folders_none() -> &'static str {
+    "No folders yet, so embedding a missing font has nowhere to take one from."
+}
+
+/// The Add button.
+#[must_use]
+pub const fn font_folder_add() -> &'static str {
+    "Add a folder…"
+}
+
+/// See [`font_folder_add`].
+#[must_use]
+pub const fn font_folder_add_hover() -> &'static str {
+    "Folders are searched in the order they are listed, and the first one holding the face wins."
+}
+
+/// The per-row remove button.
+///
+/// ★ A word rather than a `×`. This list is at most sixteen rows and every row
+/// is a path an operator typed or picked; a glyph that means *delete* on a row
+/// whose other content is a file path is one mis-click from removing the wrong
+/// one, and the word is two characters wider.
+#[must_use]
+pub const fn font_folder_remove() -> &'static str {
+    "Remove"
+}
+
+/// See [`font_folder_remove`].
+#[must_use]
+pub const fn font_folder_remove_hover() -> &'static str {
+    "Stop searching this folder. Nothing on disk is touched."
+}
+
+/// The Add button when the list is at its cap.
+#[must_use]
+pub fn font_folders_full(cap: usize) -> String {
+    format!("{cap} folders is the most pdfce will search. Remove one to add another.")
+}
+
+/// The folder picker's title bar.
+#[must_use]
+pub const fn font_folder_dialog_title() -> &'static str {
+    "Choose a folder pdfce may take fonts from"
+}
+
 /// Group 4.
 #[must_use]
 pub const fn group_text() -> &'static str {

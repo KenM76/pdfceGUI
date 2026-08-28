@@ -116,6 +116,10 @@ mod preset;
 /// draws, as distinct from what it draws. Two settings out of seven that were
 /// commissioned — its header says which five had nothing behind them.
 pub mod display;
+/// The Fonts group — where pdfce may take a font from when it has to embed
+/// one. See its header for why the list lives here rather than on the batch
+/// pane its blocker named.
+mod fonts;
 pub mod images;
 pub mod measuring;
 pub mod pages;
@@ -486,6 +490,15 @@ pub fn show(
                     colour::cmyk_ceiling(ui, draft);
                     ui.add_space(10.0);
                     colour::mesh_patch_padding(ui, draft);
+                });
+                // ★ Between Appearance/Colour and Images, and the placement is
+                // the window's own ordering rule rather than a gap-filling:
+                // the groups run from what the PROGRAM looks like, through what
+                // the DOCUMENT is made of, to what pdfce does with it. Fonts is
+                // a thing documents are made of, and it sits with Images and
+                // Text rather than with the rendering knobs.
+                widgets::group(ui, "fonts", t::group_fonts(), false, |ui| {
+                    fonts::folders(ui, &mut draft.working_prefs);
                 });
                 widgets::group(ui, "images", t::group_images(), false, |ui| {
                     images::mask_resample(ui, draft);

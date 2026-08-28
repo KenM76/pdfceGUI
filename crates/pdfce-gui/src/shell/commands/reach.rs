@@ -695,6 +695,17 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::pages::handles(id) {
         return Some("handles");
     }
+    // ★ The third membership-test guard, added 2026-08-28 with
+    // `dispatch::routes` — the commands that perform nothing and raise
+    // `Action::Command` at something that does. Everything the paragraph above
+    // says about `pages::handles` applies unchanged, with one improvement worth
+    // naming: `routes` has **one** mapping rather than a list beside a match,
+    // and its `handles` is defined as `target(id).is_some()`. So the two
+    // statements that could grow apart are one statement, which is what that
+    // paragraph asks for as the eventual fix.
+    if crate::app::dispatch::routes::handles(id) {
+        return Some("handles");
+    }
     // ★ The second membership-test guard, added 2026-08-20 with
     // `dispatch::textcopy`. Everything the paragraph above says about
     // `pages::handles` applies to it unchanged — including the mitigation: its
@@ -1332,8 +1343,11 @@ pub const FX_CONST: &str = "fx.constant";
         // ★ 9 -> 8: `view.show_points` WIRED. The audit's second stale entry to
         // be retired, and the one whose dead sentence had three copies in two
         // files — one of them twelve lines from its own contradiction.
+        // ★ 8 -> 7: `tools.font_folders` WIRED. The third stale entry the audit
+        // retired, and the only one whose reason went false without any event
+        // — it named a missing HOST, and another host was always available.
         assert_eq!(
-            total, 8,
+            total, 7,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

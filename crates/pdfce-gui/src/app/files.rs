@@ -144,6 +144,13 @@ pub const DIAG_OPEN_PATH: &str = "PDFCE_DIAG_OPEN_PATH"; // ui-text-exempt: an e
 /// the two indistinguishable.
 pub const DIAG_FORM_DATA_PATH: &str = "PDFCE_DIAG_FORM_DATA_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
+/// The harness seam for [`pick_font_folder`].
+///
+/// ★ Its own variable, for `DIAG_FORM_DATA_PATH`'s reason: a driven check that
+/// adds a font folder must be able to name it without also answering the
+/// document picker.
+pub const DIAG_FONT_FOLDER_PATH: &str = "PDFCE_DIAG_FONT_FOLDER"; // ui-text-exempt: an environment variable name, never displayed
+
 /// The environment variable that answers the **save** dialog instead of
 /// opening it.
 ///
@@ -415,6 +422,32 @@ pub fn pick_form_data_source() -> Picked {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!("form-data-picked source=native answer={answer:?}")
+    });
+    answer
+}
+
+/// **Ask which folder pdfce may take fonts from.**
+///
+/// ★ A *directory* picker, not a file one. `--font-dir`'s own name says the
+/// unit is a folder, and asking for a font FILE would make an operator add
+/// twenty-six entries to embed a family — while the engine searches a folder
+/// for whatever face it needs.
+#[must_use]
+pub fn pick_font_folder() -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_FONT_FOLDER_PATH)) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("font-folder-picked source=env answer={answer:?}")
+        });
+        return answer;
+    }
+    let answer = rfd::FileDialog::new()
+        .set_title(crate::text::settings::font_folder_dialog_title())
+        .pick_folder()
+        .map_or(Picked::Cancelled, Picked::Path);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("font-folder-picked source=native answer={answer:?}")
     });
     answer
 }

@@ -308,12 +308,31 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          document-set twin of the Pages tab's split, and it inherits that one's missing \
          boundary chooser on top of the missing pane.",
     ),
-    (
-        "tools.font_folders",
-        "The fourth verb on that same unsalvaged batch pane row. `manifest/tools.rs` \
-         describes it as a session-scoped setting, which is what it will be — a directory \
-         list an operator edits — and a list needs the pane it lives in.",
-    ),
+    // ★★★ `tools.font_folders` was HERE until 2026-08-28. Its reason was
+    // **accurate about the engine and wrong about this shell**, which is a
+    // third distinct way for one of these to go stale and worth naming.
+    //
+    // It said the setting is session-scoped and reachable only through the old
+    // shell's batch pane, *"and a list needs the pane it lives in"*. Every
+    // clause about `--font-dir` and about the batch pane being unsalvaged was
+    // **true and still is**. The false clause is the last one: nothing about a
+    // list of directories needs a batch pane, and `dialogs::settings` has nine
+    // modules, seven groups, and a stated subject of *settings that persist
+    // across documents*.
+    //
+    // ⇒ **A blocker naming a missing HOST is weaker than one naming a missing
+    // capability**, and it goes stale the moment any other host will do —
+    // silently, because nothing about the shell changed to make it stale. Six
+    // of eleven entries were wrong on the day this was found and this is the
+    // only one whose falsity required no event at all.
+    //
+    // ★ It also concealed a **real** dependency in the entry below it:
+    // `EmbedRequest::supplied` needs donor files and pdfce *"never goes
+    // looking"*, so `tools.embed_fonts` was blocked on this and neither entry
+    // said so.
+    //
+    // The list is `dialogs::settings::fonts`; the preference is
+    // `app::prefs::fonts`; the arm raises `Action::Command("file.settings")`.
     (
         "tools.embed_fonts",
         "`panels/fonts.rs` argues it, and the argument is DATED: “Both push a mutation \

@@ -83,6 +83,11 @@ pub(crate) mod zoom;
 
 use super::PdfceApp;
 mod forms;
+/// The commands that perform nothing and point somewhere else — three of them,
+/// each raising `Action::Command` and doing no more. Split out under R2 when
+/// this file crossed 1,500 lines for the fourth time; see its header for why
+/// the seam is a subject rather than a size.
+pub(crate) mod routes;
 
 use super::actions::Action;
 use super::state::Status;
@@ -843,27 +848,17 @@ impl PdfceApp {
             // is the extension the operator types in the save picker, which is
             // how every application on this desktop does it and is one modal
             // window rather than two. See `actions::export::form_data`.
-            // ★★ A second ROUTE to the Forms panel, not a second implementation
-            // of anything. Its tooltip promises *"list every form field in this
-            // document, and rename, retype or remove them"* — and every one of
-            // those is already reachable: the Forms panel lists, the Properties
-            // pane renames and removes, and **retyping does not exist anywhere
-            // and never will**, because Acrobat has offered no field-type
-            // conversion since Acrobat 6 and `pdfce-core` models the same limit
-            // by making the request unrepresentable.
+            // ★★★ The SECOND-ROUTE arms live in `dispatch::routes` — three of
+            // them as of 2026-08-28, and they moved out under R2 when this file
+            // crossed 1,500 lines for the fourth time.
             //
-            // So the honest wiring is the one `format.properties` established:
-            // raise the command that already does it. A manage-fields dialog
-            // would be a third surface for verbs that have two.
-            //
-            // ★ The tooltip's "retype" clause is now the only false promise
-            // left on this command, and it is a copy fix rather than a feature.
-            "edit.form_manage_fields" => {
-                actions.push(Action::Command(
-                    // ui-text-exempt: a registered command id, never displayed
-                    "view.panel_forms".to_owned(),
-                ));
-            }
+            // The seam is a real subject rather than a size-driven cut, and it
+            // is the property every member shares and no other arm here does:
+            // **they raise `Action::Command`, so they perform nothing.** A
+            // second route to an existing command must not become a second
+            // implementation of it, which is the whole of what they are for and
+            // is the one thing a reader has to check about any of them.
+            id if routes::handles(id) => routes::dispatch(id, actions),
             "file.export_form_data" => actions.push(Action::ExportFormData),
             // ★ The picker runs HERE, before the action, where the export's runs
             // inside the apply phase. Both are right for their case: an export

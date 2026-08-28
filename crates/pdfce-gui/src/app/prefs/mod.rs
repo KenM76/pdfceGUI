@@ -96,6 +96,11 @@
 /// reader would otherwise carry out wrongly: the cache pruned itself to the
 /// VISIBLE SET on every frame, so the budget had never bitten, and raising the
 /// number alone would have changed nothing at all.
+/// Where pdfce looks for a font it has to embed — the input `tools.embed_fonts`
+/// has been waiting for, and an unrecorded dependency found by re-deriving that
+/// command's blocker. See its header.
+pub mod fonts;
+
 pub mod cache;
 pub mod chrome;
 /// What an operator is shown when a page **first appears** — read once per
@@ -233,6 +238,19 @@ pub struct Prefs {
     /// rounds, which is immaterial at zooms where one screen pixel is a
     /// millionth of a point.
     pub max_zoom_percent: f32,
+    /// **Folders pdfce searches when it has to embed a font a document names
+    /// but does not carry**, in search order.
+    ///
+    /// ★★ Empty by default, and the emptiness is honest rather than a gap:
+    /// `pdfce-cli`'s own note is that **"the source fonts come from
+    /// `--font-dir`; pdfce never goes looking"**, so a shell that guessed
+    /// `C:\Windows\Fonts` would be embedding whatever that machine happened
+    /// to hold into an operator's document — a licensing decision made on
+    /// their behalf, silently.
+    ///
+    /// See [`fonts`] for the list rules and for why this is a preference rather
+    /// than a `pdfce_core::settings` entry.
+    pub font_folders: Vec<std::path::PathBuf>,
     /// How the first page of a newly opened document is sized to the window.
     ///
     /// ★ Read **once**, by [`Self::seed_view`], in the one place a document is
@@ -347,6 +365,10 @@ impl Default for Prefs {
             // Raising it is the operator's decision, which is the whole
             // point of the setting.
             max_zoom_percent: DEFAULT_MAX_ZOOM_PERCENT,
+            // ★ Empty, deliberately. See the field's own note: guessing a
+            // system font directory would embed whatever that machine holds
+            // into the operator's document, which is a licensing decision.
+            font_folders: Vec::new(),
             opening_fit: OpeningFit::default(),
             wheel_paging: WheelPaging::default(),
             chrome: PageChrome::default(),
@@ -510,6 +532,17 @@ impl Prefs {
                         (!value.trim().is_empty()).then(|| value.trim().to_owned());
                 }
                 // ui-text-exempt: a file KEY, matched literally.
+                // ★ A REPEATED key: every occurrence appends. That is why this
+                // arm pushes where every other arm assigns, and it is the one
+                // place the file's grammar is not "one key, one value".
+                // `fonts::add` applies the cap and the duplicate rule, so a
+                // hand-edited file with twenty entries is bounded the same way
+                // the picker is.
+                "font_folder" => {
+                    if let Some(path) = fonts::parse_one(value) {
+                        fonts::add(&mut prefs.font_folders, &path);
+                    }
+                }
                 "max_zoom_percent" => match value.parse::<f32>() {
                     Ok(pct) if pct.is_finite() => {
                         let clamped = pct.clamp(MIN_MAX_ZOOM_PERCENT, MAX_MAX_ZOOM_PERCENT);
@@ -693,6 +726,7 @@ impl Prefs {
              # the two out against each other.\n\
              # 10 to 1000000000000.\n",
         );
+        out.push_str(&fonts::write_block(&self.font_folders));
         // ui-text-exempt: a file KEY, as above.
         out.push_str("max_zoom_percent = ");
         out.push_str(&format_percent(self.max_zoom_percent));
@@ -891,6 +925,7 @@ mod tests {
         for quality in RenderQuality::ALL {
             for fit in OpeningFit::ALL {
                 let original = Prefs {
+                    font_folders: vec![std::path::PathBuf::from("C:/Fonts")],
                     // ★ Non-default, like every other field here: a `None`
                     // would pass on a build whose writer emitted no
                     // `chosen_standard` key at all.
@@ -1213,6 +1248,7 @@ mod tests {
     #[test]
     fn the_file_writes_a_readable_number_rather_than_an_exponent() {
         let prefs = Prefs {
+            font_folders: Vec::new(),
             max_zoom_percent: 1e12,
             ..Prefs::default()
         };
@@ -1330,6 +1366,14 @@ mod tests {
         // A non-default in every field, so no emitted value can coincide with
         // what a failed parse would have left behind.
         let prefs = Prefs {
+            // ★ Non-default, like every field here — and this one is the only
+            // REPEATED key in the file, so it is the only field whose writer
+            // emits a variable number of lines. Two entries rather than one,
+            // so a writer that emitted only the first would fail here.
+            font_folders: vec![
+                std::path::PathBuf::from("C:/Fonts"),
+                std::path::PathBuf::from("D:/More Fonts"),
+            ],
             // Non-default, for the reason this test states about every field.
             chosen_standard: Some("pdf-x4".to_owned()),
             // Non-default, for the reason stated below about every other field.
