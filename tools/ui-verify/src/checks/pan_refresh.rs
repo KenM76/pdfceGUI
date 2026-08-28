@@ -64,8 +64,30 @@ const CANVAS_EVENT: &str = "canvas";
 /// The `f64` position line, which carries the region actually drawn.
 const POS_EVENT: &str = "canvas-pos";
 
-/// The worker's completion line.
+/// The worker's **asynchronous** completion line.
 const RENDER_EVENT: &str = "render-async-done";
+
+/// The worker's **inline** completion line — the other half of the same fact.
+///
+/// ★★★ Added 2026-08-28, after this check reported *"NO RENDER WAS REQUESTED"*
+/// against a build that had spawned and completed **nineteen** of them.
+///
+/// `render::worker` has two completion paths and takes whichever is cheaper: a
+/// raster that finishes fast enough is done **inline**, on the frame that asked
+/// for it, and only a slow one goes to the thread and comes back as
+/// `render-async-done`. A region raster above the pixmap ceiling covers the
+/// viewport rather than the page, so it is *small* — 3 ms on the fixture this
+/// check now uses — and it never takes the asynchronous path at all.
+///
+/// ⇒ **A check that counts one completion path fails on a build that took the
+/// other one**, and it fails by naming the feature rather than the instrument.
+/// This one printed `render::settle`'s staleness test as the suspect, in detail,
+/// down to `RenderKey::same_region` — and that mechanism was working perfectly.
+///
+/// ★★ The general rule, which this project has now met three times in one day:
+/// **ask what the check SAMPLED before asking what is broken.** A failing
+/// measurement is a claim about an instrument as much as about a program.
+const RENDER_INLINE_EVENT: &str = "render-inline";
 
 /// How far to zoom before panning, in Ctrl+wheel notches.
 ///
@@ -116,13 +138,20 @@ impl Check for PanningPastTheOverscanRendersTheNewArea {
     }
 }
 
-/// How many renders have completed so far.
+/// How many renders have completed so far, **by either path**.
+///
+/// ★ The asynchronous line carries an `outcome`, because a thread can come back
+/// with a cancellation or a failure; the inline one cannot fail asynchronously
+/// and carries none, so it is counted unconditionally. Two shapes for one fact,
+/// and the asymmetry is the worker's rather than this function's.
 fn renders_done(session: &Session) -> Result<usize> {
-    Ok(session
-        .trace()?
+    let trace = session.trace()?;
+    let asynchronous = trace
         .events(RENDER_EVENT)
         .filter(|l| l.get("outcome").is_some_and(|o| o == "done"))
-        .count())
+        .count();
+    let inline = trace.events(RENDER_INLINE_EVENT).count();
+    Ok(asynchronous + inline)
 }
 
 /// A field of the canvas's `canvas-pos` line, as text.

@@ -17,6 +17,56 @@ at a section of it.
 
 ---
 
+## ★★★ THE SWEEP NEEDS THREE FIXTURES, NOT ONE — read before running it
+
+**`--doc-point` is one coordinate and the suite is not one family.** Running the
+whole suite with a single fixture and point produced **ten failures on
+2026-08-28, of which seven were the harness aiming at the wrong thing.** The
+articulate failure messages named real mechanisms and were about nothing.
+
+★★★ **THE OPERATOR'S OWN TEST FILES LIVE AT `D:\Dev\pdfTests\`** — he said so
+on 2026-08-28 after this file recorded them as lost. `D:\Dev	emp\pdfce\` was
+swept and is **not** where they live; that folder was scratch and this one is
+his. It holds `SW41177\SW41177.pdf` (the drawing every text and selection check
+was calibrated against), `ncored-benchmark-cad-drawing.pdf` (129,758 objects,
+the benchmark), `banana-at-scale.pdf` (the deep-zoom subject) and the Ghent
+output suite.
+
+⇒ Use it. The repo fixtures below are the portable floor — they keep the sweep
+runnable on a clean checkout — but a check calibrated against his drawing should
+be aimed at his drawing.
+
+| family | fixture | point | why |
+|---|---|---|---|
+| geometry — resize, rotate, shift-constrain, node move | `fixtures/polyline-nodes.pdf` | `0,150,260` | needs a vector object with anchors under the pointer |
+| scrolling, wheel-paging, pan | `fixtures/four-pages.pdf` | `0,300,500` | needs **more than one page**, and something to scroll |
+| text — edit, sweep, the Format tab's font controls | `D:/Dev/pdfTests/SW41177/SW41177.pdf` | `0,1140,62` | needs a real run of text under the pointer; this point is on one |
+| everything else | `fixtures/a1-titleblock.pdf` | `0,300,500` | a real CAD sheet with missing fonts and a title block |
+
+```bash
+for f in "polyline-nodes 0,150,260" "four-pages 0,300,500" "a1-titleblock 0,300,500"; do
+  set -- $f
+  ./target/release/ui-verify.exe --exe target/release/pdfce-gui.exe     --pdf fixtures/$1.pdf --doc-point $2 >> evidence/ui-verify-run.txt 2>&1
+done
+```
+
+⇒ **Re-run a failing check alone with the fixture varied before believing it.**
+A check that needs a particular kind of thing under the pointer should SKIP, not
+FAIL, when it does not find one — that is unbuilt and is the standing fix.
+
+★★★ **And one of the ten was the CHECK, not the program**:
+`panning_past_the_overscan_renders_the_new_area` counted `render-async-done` and
+the renders were completing **inline** — `render-inline … async=0`, nineteen of
+them, 3 ms each. A region raster above the pixmap ceiling is small enough never
+to take the thread. The check reported *"NO RENDER WAS REQUESTED"* and named
+`RenderKey::same_region`, which was working perfectly. Fixed to count both paths;
+it now reports 23.
+
+⇒ **Ask what the check SAMPLED before asking what is broken.** Third instance in
+one day.
+
+---
+
 ## ★★★ Last session: 2026-08-28 LATE — fonts embed and unembed, markup drags, and the sweep's failure count is not a defect count
 
 **Nothing packaged.** Ask him whether he wants a build. `FEATURES.md` is
