@@ -998,6 +998,21 @@ impl PdfceApp {
                 };
                 forms::arm(self, ctx, id, kind);
             }
+            // ★★★ **`edit.form_flatten` — a drawn control that did nothing, for
+            // the whole life of the project.**
+            //
+            // The capability shipped with the Forms panel: `flatten_fields` is
+            // called from `panels::forms::edit`, and the panel draws a Flatten
+            // button that raises the identical `FormEdit::Flatten`. What was
+            // missing was only this line, and what kept it missing was a
+            // SCAFFOLDED entry whose stated reason — *"the third of the unbuilt
+            // forms-authoring verbs … irreversible on the document"* — had
+            // become false in both halves without anything being able to fail.
+            //
+            // The manifest's own comment beside the item said what that costs:
+            // *"a command buried in a panel is reachable only by someone who
+            // already opened the panel."*
+            "edit.form_flatten" => forms::flatten(self, id, actions),
             id if crate::shell::commands::markup_for_command(id).is_some() => {
                 if !self.capabilities().author_markup {
                     crate::diag::trace(|| {

@@ -256,38 +256,242 @@ pub fn delete_box_hover() -> String {
         .to_owned()
 }
 
-/// ★★★ **What cannot be changed after a field is placed, and what to do
-/// instead.**
+/// ★★★ **RETIRED 2026-08-27 — this sentence was false, and it recommended a
+/// destructive workaround.**
 ///
-/// The sentence this file exists for. See the header: `pdfce-core` has no verb
-/// for a field's flags, so this panel can show them and not change them, and an
-/// absence with no explanation is indistinguishable from an oversight.
+/// It read:
 ///
-/// It names the remedy — delete and place again — because that remedy actually
-/// works and takes about five seconds, which is worth knowing before spending a
-/// minute hunting for a control that is not there.
+/// > ~~Required, read-only, the tooltip and the border can only be set when a
+/// > field is placed. To change one, delete this field and place a new one.~~
+///
+/// `EditSession::edit_field` and `edit_widget` landed on **2026-08-26**, the
+/// same day this sentence was written, three commits before the revision the
+/// shell compiles against — and the engine wrote a full pane design brief into
+/// the request channel saying so. Nothing consumed it, so for a day the program
+/// told an operator to **delete their field and start again** for a capability
+/// it already had. Delete-and-replace loses the field's name, its filled value
+/// and its place in the tab order, every one of which an FDF import or a
+/// filling script keys on.
+///
+/// The function is **kept and rewritten** rather than deleted, because there is
+/// still something true to say in the same place: the properties that remain
+/// out of reach are the *widget*-scoped ones — the box, the border, where it is
+/// visible — and an operator who has just found six editable flags will
+/// reasonably wonder where the seventh is. An absence with no explanation is
+/// indistinguishable from an oversight; that was the right instinct in the old
+/// sentence and it is the only part of it that survives.
+///
+/// ★ It names no remedy now, because there is no honest one. Delete-and-replace
+/// still "works" for a border and it is not advice this program should give.
 #[must_use]
 pub fn not_editable_note() -> String {
-    "Required, read-only, the tooltip and the border can only be set when a \
-     field is placed. To change one, delete this field and place a new one."
+    "A box's size, border and visibility belong to that one placement rather than to the field, \
+     and are not editable here yet."
         .to_owned()
+}
+
+// ===========================================================================
+// The editable properties — `EditSession::edit_field`, consumed 2026-08-27
+//
+// ★★ Every hover answers "what does this DO to the document", never "what is
+// this called". `crate::text::tool`'s rule 2 — a sentence states a fact about
+// the program, never a tip — and the practical test each one below passes: an
+// operator who does not know what `/Ff` bit 2 is should be able to decide
+// whether they want it from the hover alone.
+// ===========================================================================
+
+/// The heading over the editable properties.
+///
+/// ★ *"Properties"*, not *"Editable properties"*. The section directly above it
+/// is headed with the facts that are genuinely read-only, and a heading that
+/// advertised editability would invite the question of why the other section is
+/// not editable — which is a fact about the file (a name, a type, a page) and
+/// not a limitation.
+#[must_use]
+pub const fn editable_heading() -> &'static str {
+    "Properties"
+}
+
+/// `/Ff` bit 2.
+#[must_use]
+pub const fn flag_required() -> &'static str {
+    "Required"
+}
+
+/// ★ It says what happens **at submit**, because that is the only moment the
+/// flag does anything. A required field is not enforced while typing and is not
+/// enforced on save; a reader checks it when the form is sent.
+#[must_use]
+pub const fn flag_required_hover() -> &'static str {
+    "The form cannot be submitted while this field is empty. It does not stop anyone leaving it \
+     empty while filling in the rest."
+}
+
+/// `/Ff` bit 1.
+#[must_use]
+pub const fn flag_read_only() -> &'static str {
+    "Read only"
+}
+
+/// ★★ It names what read-only does **not** do, which is the half that gets
+/// people: the value is still there, still exported and still printed. An
+/// operator who sets this expecting the field to disappear has misread it.
+#[must_use]
+pub const fn flag_read_only_hover() -> &'static str {
+    "Nobody filling in the form can change this field. Its value is still stored, still exported \
+     and still printed."
+}
+
+/// `/Ff` bit 13, text fields only.
+#[must_use]
+pub const fn flag_multiline() -> &'static str {
+    "Multiple lines"
+}
+
+/// See [`flag_multiline`].
+#[must_use]
+pub const fn flag_multiline_hover() -> &'static str {
+    "Text wraps and Enter starts a new line. A single-line field ignores Enter and scrolls \
+     sideways instead."
+}
+
+/// `/Ff` bit 14, text fields only.
+#[must_use]
+pub const fn flag_password() -> &'static str {
+    "Hide as typed"
+}
+
+/// ★★★ It states the security fact, because the control's name invites exactly
+/// the wrong conclusion. `/Ff` bit 14 changes how a *reader draws* the value;
+/// the characters are stored in the file in plain text and anyone with the file
+/// can read them. An operator who used this for a password because it is called
+/// one has been misled by the standard's own name for it, and this program is
+/// not going to repeat the mistake silently.
+#[must_use]
+pub const fn flag_password_hover() -> &'static str {
+    "Shows bullets instead of the characters while someone types. It does NOT protect anything \
+     — the text is stored in the file in the clear and can be read out of it."
+}
+
+/// `/Ff` bit 25, text fields only.
+#[must_use]
+pub const fn flag_comb() -> &'static str {
+    "Equal cells"
+}
+
+/// ★★ It names the maximum-length requirement, because the standard makes them
+/// inseparable (Table 228) and the pane sends both — so an operator who ticks
+/// this on a field with no limit will see a number appear above and should know
+/// why rather than think the program changed something they did not ask for.
+#[must_use]
+pub const fn flag_comb_hover() -> &'static str {
+    "Spreads the characters into equally-spaced boxes, the way a form asks for a postcode one \
+     letter per square. It needs a maximum length, so turning it on sets one if there is none."
+}
+
+/// `/Ff` bit 15, radio groups only.
+#[must_use]
+pub const fn flag_no_toggle_off() -> &'static str {
+    "Cannot be cleared"
+}
+
+/// See [`flag_no_toggle_off`].
+#[must_use]
+pub const fn flag_no_toggle_off_hover() -> &'static str {
+    "Once one of these buttons is chosen, clicking it again does not clear it — the only way \
+     to change the answer is to choose a different button."
+}
+
+/// `/Ff` bit 18, choice fields only.
+#[must_use]
+pub const fn flag_combo() -> &'static str {
+    "Drop-down"
+}
+
+/// See [`flag_combo`].
+#[must_use]
+pub const fn flag_combo_hover() -> &'static str {
+    "One line that opens a list when clicked. Turn it off for a box that shows several options \
+     at once."
+}
+
+/// `/Ff` bit 22, choice fields only.
+#[must_use]
+pub const fn flag_multi_select() -> &'static str {
+    "Allow several"
+}
+
+/// See [`flag_multi_select`].
+#[must_use]
+pub const fn flag_multi_select_hover() -> &'static str {
+    "More than one option in the list can be chosen at the same time."
+}
+
+/// `/MaxLen`.
+#[must_use]
+pub const fn label_max_len() -> &'static str {
+    "Maximum length"
+}
+
+/// ★ It says what **zero** means, because that is the one thing the control's
+/// appearance cannot say. A spinner reading 0 looks like a limit of nothing;
+/// the pane spells zero as *no limit* because `/MaxLen` of zero is not
+/// meaningful in a file and the value is free to carry the absence.
+#[must_use]
+pub const fn label_max_len_hover() -> &'static str {
+    "How many characters this field accepts. Zero means no limit."
+}
+
+/// `/TU`.
+///
+/// ★ *"Tooltip"* is the word the standard's own name (`/TU`, "alternate field
+/// name") does not use and every application does. It is also what a screen
+/// reader announces, which is the fact the hover carries.
+#[must_use]
+pub const fn label_tooltip() -> &'static str {
+    "Tooltip"
+}
+
+/// See [`label_tooltip`].
+#[must_use]
+pub const fn label_tooltip_hint() -> &'static str {
+    "What this field is for"
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// ★★ **The limitation note names both halves: what is fixed, and the way
-    /// round it.**
+    /// ★★★ **The limitation note does not tell the operator to delete their
+    /// field**, which is what it did until 2026-08-27.
     ///
-    /// A note that only said "cannot be changed" would leave the operator
-    /// stuck; one that only said "delete and replace" would not say why. Tested
-    /// because the tempting edit is to shorten it to the first half.
+    /// The test it replaces asserted the opposite — it required the string
+    /// `"delete this field"` to be present, on the reasoning that *"a note that
+    /// only said 'cannot be changed' would leave the operator stuck"*. That
+    /// reasoning was sound and its premise was false: the capability existed,
+    /// so the operator was not stuck, and the test was pinning a sentence that
+    /// recommended destroying a field's name, value and tab position for
+    /// nothing.
+    ///
+    /// ★ A test can pin a sentence and cannot know whether the sentence is
+    /// true. This one is written in the negative for that reason: it does not
+    /// try to say what the note should claim, only that it must not send an
+    /// operator down the destructive route again.
     #[test]
-    fn the_limitation_note_names_the_remedy_as_well_as_the_limit() {
+    fn the_limitation_note_never_advises_deleting_the_field() {
         let note = not_editable_note();
-        assert!(note.contains("only be set when"), "the limit: {note}");
-        assert!(note.contains("delete this field"), "the remedy: {note}");
+        assert!(
+            !note.contains("delete this field"),
+            "the note recommends a destructive workaround: {note}"
+        );
+        assert!(
+            !note.contains("place a new one"),
+            "the note recommends a destructive workaround: {note}"
+        );
+        assert!(
+            note.contains("placement"),
+            "it still says what IS out of reach: {note}"
+        );
     }
 
     /// ★★ **A field with no type is described as a defect, not as "unknown".**

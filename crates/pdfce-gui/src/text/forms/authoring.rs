@@ -187,6 +187,103 @@ pub fn form_widget_deleted_last() -> String {
     "That was the field's last box, so the field was removed from the form too.".to_owned()
 }
 
+// ===========================================================================
+// EDITING A FIELD THAT IS ALREADY PLACED — `Pass 134.0`, consumed 2026-08-27
+// ===========================================================================
+
+/// **The `Sort` flag was set over a list nobody has sorted.**
+///
+/// ★★ pdfce will not reorder `/Opt` on the operator's behalf and this sentence
+/// is why that is the right refusal rather than an omission. Table 230 makes
+/// `Sort` *"intended for use by writers, not by readers"* and requires a
+/// conforming reader to display the options *"in the order in which they occur
+/// in the Opt array"* — so `Sort` is a **claim about provenance**, not an
+/// instruction. Setting it over an unsorted list makes the file say something
+/// untrue; silently sorting would change what the operator sees in a
+/// drop-down without being asked.
+///
+/// So the operator gets the flag they asked for and the sentence that says what
+/// it now claims. Both, which is Rule 4's *render normally, report separately*.
+#[must_use]
+pub const fn field_sort_claim_unmet() -> &'static str {
+    "The Sort flag now says this list was sorted by whoever wrote the file, and it is not in \
+     order. pdfce has not reordered it — the order options appear in is what a reader shows."
+}
+
+/// **One field's flag changed and several boxes on the page followed.**
+///
+/// ★★ The engine's scope table, taken verbatim from Acrobat's own scripting
+/// model: some properties *"apply to all widgets that are children of that
+/// field"* and others *"are specific to individual widgets"*. Required,
+/// read-only, the tooltip and the type flags are all in the first group — one
+/// write, every placement.
+///
+/// The operator is looking at **one** box. A field drawn in three places has
+/// just changed in three places, two of which may be on other pages, and
+/// nothing on screen would otherwise say so. `widgets_affected` is reported by
+/// the engine *"to be shown"*, in its own words.
+///
+/// ★ Said only when the count is above one. On the overwhelming majority of
+/// fields it is exactly one, and a bar that narrated that would stop being
+/// read.
+#[must_use]
+pub fn field_widgets_affected(widgets: usize) -> String {
+    format!(
+        "This field is drawn in {widgets} places, and all {widgets} changed — including any \
+         on other pages."
+    )
+}
+
+/// **The widget was resized and its artwork could not be rebuilt.**
+///
+/// ★★★ The one disclosure here that is about something the operator can SEE
+/// and will misread. §12.5.5 derives the appearance matrix from the appearance
+/// box's corners and the `/Rect` corners, so a pure translation moves baked
+/// artwork exactly and a changed **extent** makes the same algorithm *scale*
+/// it. `edit_widget` rebuilds the appearance when the extent changed — except
+/// where it cannot: a push button's baked caption, or a signature.
+///
+/// The widget then renders **distorted**, and `appearance_stale` is the
+/// engine's own string saying which one and why. It is passed through verbatim
+/// and this sentence prefixes it, because "stale appearance" is a phrase about
+/// the file and "it will look stretched" is a fact about the screen.
+#[must_use]
+pub fn field_appearance_stale(why: &str) -> String {
+    format!(
+        "This box was resized and its artwork could not be redrawn, so it will look stretched: {why}"
+    )
+}
+
+/// **A widget was moved or resized.**
+///
+/// ★ It names which of the two happened, because the engine distinguishes them
+/// and the consequences differ: a move keeps the baked artwork exact and free,
+/// a resize rebuilds it. An operator who dragged a corner and one who dragged
+/// the middle have done different things to the file.
+#[must_use]
+pub fn field_widget_moved(resized: bool) -> &'static str {
+    if resized {
+        "The box was resized and its contents were redrawn to fit."
+    } else {
+        "The box was moved."
+    }
+}
+
+/// **The other placements of this field were left where they are.**
+///
+/// The mirror of [`field_widgets_affected`], and the reason the two exist as a
+/// pair: a *field* edit changes every box and a *widget* edit changes one, so
+/// an operator working on a field drawn in three places needs to know which
+/// kind of control they just used. `siblings_untouched` is the engine's own
+/// count, reported *"to be shown"*.
+#[must_use]
+pub fn field_siblings_untouched(siblings: usize) -> String {
+    format!(
+        "The other {siblings} box(es) of this field are unchanged — a box's size and border \
+         belong to that placement alone."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

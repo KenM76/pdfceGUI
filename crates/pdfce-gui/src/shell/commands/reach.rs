@@ -1264,8 +1264,27 @@ pub const FX_CONST: &str = "fx.constant";
         // that turned out not to exist. Probing the engine took two minutes;
         // the entry had sat there since 2026-08-17. Fourth stale blocker in
         // this project — a backlog row is a record, not evidence.
+        // ★★ 13 -> 12 on 2026-08-27: `edit.form_flatten` left the list because
+        // it was WIRED, and it is the **fifth** stale blocker this project has
+        // found — the fourth was its neighbour `edit.form_create_field`, a day
+        // earlier, and the pattern is now unmistakable.
+        //
+        // Its recorded reason had two halves and both were false. *"Unbuilt"*
+        // cited a `FEATURES.md` row that was itself stale; *"irreversible"* was
+        // contradicted by the shell's own tooltip copy, which had argued at
+        // length that flatten appends an overlay and is one `Ctrl+Z`. So the
+        // entry was a citation of a citation, and nothing re-read either.
+        //
+        // ⇒ **This assertion cannot catch that**, and it is worth being exact
+        // about why: it asks whether an id has an arm. An entry whose id has no
+        // arm and whose *reason* is nonsense is indistinguishable from a
+        // correct one, and there is no mechanism that could tell them apart —
+        // a reason is prose. A reader is the only instrument, and the practical
+        // rule that comes out of five occurrences is: **when you touch this
+        // list for any purpose, re-derive the reason of the entry beside the
+        // one you came for.**
         assert_eq!(
-            total, 13,
+            total, 12,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

@@ -954,6 +954,40 @@ pub fn adopted(name: &str, typed: bool, acroform_created: bool) -> String {
     }
     line
 }
+/// **`edit.form_flatten` was invoked on a document whose certification forbids
+/// it.**
+///
+/// # ★★ Why the ribbon control is live at all, when the panel's is greyed
+///
+/// The Forms panel asks `EditSession::flatten_refusal` every frame and greys
+/// its own Flatten with the reason on hover, because it is already reading the
+/// session to draw the field list. A **ribbon** `enabled_when` is a condition
+/// name evaluated against a published set, and publishing this one would mean
+/// a certification query per frame for a control that is almost never pressed.
+///
+/// So the ribbon control is `enabled_when("doc.pages")` and the arm declines in
+/// words. That is this project's standing division and `app::dispatch::forms`'
+/// own header states it: *greying is a hint; the worded decline is the answer.*
+///
+/// # What the sentence has to carry
+///
+/// **Which gate refused**, because flatten and fill take *different* ones and
+/// an operator who has just successfully typed into the form will otherwise
+/// conclude the button is broken. On the ordinary real-world shape — a
+/// certified fillable form at `/P 2` — filling is permitted and flattening is
+/// refused, by design and by the standard.
+///
+/// **What it would cost**, because "the signature would be broken" is the fact
+/// that makes the refusal reasonable rather than arbitrary.
+///
+/// ★ It does **not** offer a way round. There is one — remove the signature —
+/// and pdfce will not suggest defeating a certification as a workaround for a
+/// convenience.
+#[must_use]
+pub const fn flatten_declined_certified() -> &'static str {
+    "This document is certified, and flattening its fields would break the signature. Filling \
+     is still allowed; turning the values into page content is not."
+}
 
 /// **A button cannot be given anything to do.**
 ///

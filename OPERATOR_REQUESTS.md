@@ -685,10 +685,39 @@ keyboard shortcut, say — it now tells you why instead of doing nothing.
    pdfce numbers new fields so that cannot happen by accident. Radio buttons in
    one set are *supposed* to share a name, so those keep theirs and get
    different values instead.
-3. **Required, read-only, the tooltip and the border can only be set when a
-   field is placed.** The engine has no way to change them afterwards yet. The
-   Properties pane says so rather than leaving you hunting, and the request is
-   filed.
+3. ~~**Required, read-only, the tooltip and the border can only be set when a
+   field is placed.** The engine has no way to change them afterwards yet.~~
+   ★★★ **WRONG, and fixed on 2026-08-27 — see the note below.**
+
+### ★★★ Correction, 2026-08-27: point 3 above was false the day it was written
+
+**You can change a placed field's properties now.** Click a form field on the
+page and the Properties pane offers **Required**, **Read only**, a **tooltip**,
+and — for a text field — **multiple lines**, **hide as typed**, **equal cells**
+and a **maximum length**. A drop-down gets its own two. Each is one press and
+one Ctrl+Z.
+
+★ **The pane used to tell you to delete the field and place a new one.** That
+was bad advice as well as unnecessary: deleting a field loses its name, the
+value in it, and its position in the tab order — all three of which anything
+importing data into the form keys on. The sentence is gone.
+
+**What went wrong, said plainly, because it cost you a day.** `edit_field` and
+`edit_widget` shipped in the engine on 2026-08-26 — *the same day* that
+sentence was written, and three commits before the version this build uses.
+The engine also wrote us a full page of design notes saying so, which sat
+unread. So the program spent a day telling you it could not do something it
+could do.
+
+★ The general shape, and it is the one this project keeps meeting: **a claim
+that something is missing from the engine has a shelf life**, because the
+engine moves daily. That claim was true when written and false within hours,
+and nothing in either repository can fail a test about it.
+
+**Still not editable, and now it is the honest list:** a box's **size**,
+**border** and **visibility**. Those belong to one placement rather than to the
+field — a field drawn in three places has one "required" and three borders —
+and they are the next piece of work rather than a limitation.
 
 **Verified:** driven. `ui-verify form_field` launches the real program, arms the
 tool, clicks the page, watches the field get created, then clicks an existing

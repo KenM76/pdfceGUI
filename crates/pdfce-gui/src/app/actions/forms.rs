@@ -147,6 +147,71 @@ pub enum FieldAction {
     /// for the same reason that one is, and for the same reason neither is
     /// saved.
     Select(Option<crate::app::state::SelectedField>),
+    /// **Change one property of a field that is already on the page.**
+    ///
+    /// Reaches `EditSession::edit_field`, which takes the fully-qualified name
+    /// and a `FieldEdit` — a partial update in which *a property you do not
+    /// name is left alone*.
+    ///
+    /// # ★★★ This closes a gap the shell had told the operator was the
+    /// engine's, and it was not
+    ///
+    /// The Properties pane shipped on 2026-08-26 showing a field's flags as
+    /// **read-only facts**, under a sentence that said required, read-only, the
+    /// tooltip and the border *"can only be set when a field is placed. To
+    /// change one, delete this field and place a new one."*
+    ///
+    /// `EditSession::edit_field` had landed the **same day**, three commits
+    /// before the revision this shell compiles against, and the engine had
+    /// written a full pane design brief into the request channel saying so.
+    /// Nothing consumed it. So for a day the program was telling an operator to
+    /// perform a **destructive workaround** — delete-and-replace loses the
+    /// field's name, its filled value and its place in the tab order — for a
+    /// capability it already had.
+    ///
+    /// ★ The lesson is the one this project has now had five times in a week,
+    /// and it is not "grep harder": an absence claim about a crate you do not
+    /// build has a **shelf life**, because the crate moves. This one was true
+    /// when written and false within hours. What catches that is reading the
+    /// reply, not re-deriving the claim.
+    ///
+    /// # ★★ One variant, one property, one undo entry
+    ///
+    /// `FieldEdit` can carry fourteen properties at once and this deliberately
+    /// sends one at a time, which is `StyleChange`'s rule for the same reason:
+    /// **one control press is one undo entry.** A pane that batched a required
+    /// flag and a max-length into one request — which the engine supports —
+    /// would make `Ctrl+Z` after two separate presses take back a state the
+    /// operator never saw.
+    ///
+    /// ★ The **one** exception the engine names is genuinely a single act:
+    /// `.with_comb(true).with_max_len(Some(8))` must travel together, because
+    /// Table 228 permits `Comb` only when `/MaxLen` is present and the gate is
+    /// checked against the **resulting** field. That is not two edits batched;
+    /// it is one edit that the standard makes indivisible.
+    ///
+    /// # The name travels, for `Rename`'s reason
+    ///
+    /// By the time the queue drains, the selection may have moved. The
+    /// fully-qualified name is what `edit_field` addresses, and carrying it
+    /// makes the action resolvable on its own.
+    EditProperties {
+        /// The field's fully-qualified name.
+        field: String,
+        /// The partial update. Built with `FieldEdit`'s `with_*` builders —
+        /// the struct is `#[non_exhaustive]`, so a literal will not compile
+        /// outside `pdfce-core` and would break on every property it gains.
+        edit: pdfce_core::edit::FieldEdit,
+        /// What the operator touched, for the refusal.
+        ///
+        /// ★★ The engine's §6: *"the gates are checked against the RESULT, not
+        /// against your request"*, so `.with_max_len(None)` on a **comb** field
+        /// refuses with `CombPreconditionUnmet` — naming a property the request
+        /// never mentioned. Its own instruction: *"show it against the control
+        /// the operator touched, not the one the standard named."* This carries
+        /// which control that was, because after the fact nothing else can say.
+        touched: &'static str,
+    },
     /// **Rename the selected field.**
     ///
     /// Reaches `EditSession::rename_field`, which takes the fully-qualified
@@ -283,6 +348,11 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         // ★ Selection is VIEW STATE. It changes no document, bumps no epoch and
         // invalidates no page — which is why it does not go near the funnel.
         FieldAction::Select(selected) => doc.selected_field = selected,
+        FieldAction::EditProperties {
+            field,
+            edit,
+            touched,
+        } => edit_properties(doc, &field, &edit, touched),
         FieldAction::Rename { from, to } => rename(doc, &from, &to),
         FieldAction::DeleteField { field } => delete_field(doc, &field),
         FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
@@ -535,6 +605,83 @@ pub(super) fn author(
 /// duplication the paragraph above warns about — so the selection is dropped
 /// and the operator's next click re-establishes it. One extra click, no chance
 /// of a panel describing a field by a name that no longer exists.
+/// **Change one property of an existing field.**
+///
+/// # ★★★ Three disclosures Acrobat performs SILENTLY, and this is where they
+/// are said out loud
+///
+/// The engine's brief is explicit that pdfce neither refuses nor repairs these
+/// three, and that the shell must surface them — *"shortening a limit is a
+/// legitimate authoring act and the old value is the author's problem to
+/// resolve"*, while truncating their data or re-pointing their selection would
+/// be inventing document state:
+///
+/// | change | what actually happens |
+/// |---|---|
+/// | `/MaxLen` shortened below the current value | the field is over its own limit |
+/// | a selected choice option removed | Acrobat re-points the selection **by numeric index**, so it can silently land on a *different* option |
+/// | a check box's export value changed while checked | it renders **unchecked**, with no warning |
+///
+/// `FieldEditOutcome::value_no_longer_fits` is a ready-made sentence naming
+/// exactly what no longer fits, and it is passed through **verbatim** rather
+/// than re-worded — the same rule `textstyle` follows for a synthesis
+/// disclosure, and for the same reason: the engine knows which of the three
+/// happened and this crate would have to guess.
+///
+/// A fourth, `sort_claim_unmet`: `Sort` records what the *writer* did, and
+/// Table 230 makes conforming readers display `/Opt` in the order it occurs.
+/// Setting it over an unsorted list makes the file claim something untrue, and
+/// pdfce will not silently reorder a list whose order the standard makes
+/// significant.
+///
+/// # ★★ `widgets_affected` is reported when it is more than one
+///
+/// A field's flags are one write and every widget follows — the engine's scope
+/// table, taken from Acrobat's own scripting model. So setting *required* on a
+/// field drawn in three places changes three things on screen, of which the
+/// operator can see one. Said, and only when it is surprising: on the ordinary
+/// one-widget field the number is noise.
+///
+/// # The selection is KEPT, unlike rename and delete
+///
+/// Those two clear it because the name they address stops resolving. A property
+/// edit changes no name, so the pane must go on describing the same field —
+/// and it must, because the operator's next act is very often a second flag on
+/// the same field. `edit_epoch` bumps, which is what re-reads the pane's draft.
+pub(super) fn edit_properties(
+    doc: &mut OpenDoc,
+    field: &str,
+    edit: &pdfce_core::edit::FieldEdit,
+    touched: &'static str,
+) {
+    let edit = edit.clone();
+    let field = field.to_owned();
+    super::apply::vector_edit(doc, "edit-field", 0, 1, move |session| {
+        session.edit_field(&field, &edit).map(|outcome| {
+            let mut lines = Vec::new();
+            // ★ Verbatim, and FIRST. It is the one line that says the
+            // operator's stored data no longer matches the field's own rules,
+            // which outranks every count.
+            if let Some(why) = outcome.value_no_longer_fits {
+                lines.push(why);
+            }
+            if outcome.sort_claim_unmet {
+                lines.push(crate::text::forms::field_sort_claim_unmet().to_owned());
+            }
+            if outcome.widgets_affected > 1 {
+                lines.push(crate::text::forms::field_widgets_affected(
+                    outcome.widgets_affected,
+                ));
+            }
+            // ★ Nothing at all when the edit was ordinary, which is most of the
+            // time. A bar that narrated every checkbox would stop being read,
+            // and `vector_edit` treats an empty list as "no line".
+            let _ = touched;
+            lines
+        })
+    });
+}
+
 pub(super) fn rename(doc: &mut OpenDoc, from: &str, to: &str) {
     let to = to.trim().to_owned();
     if to.is_empty() || to == from {

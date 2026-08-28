@@ -150,12 +150,36 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          backlog row: `FEATURES.md` records forms as “fill ✅ …; create field, flatten and \
          FDF/XFDF/CSV still ⬜”. Its dialog does not exist either.",
     ),
-    (
-        "edit.form_flatten",
-        "The third of the unbuilt forms-authoring verbs, on `FEATURES.md`'s same row — and \
-         the one that is irreversible on the document, so it also needs the disclosure \
-         surface a destructive verb takes before it can honestly be offered.",
-    ),
+    // ★★★ `edit.form_flatten` was HERE until 2026-08-27, and its entry is
+    // **deleted rather than reworded** — which is what
+    // `no_scaffolded_entry_is_stale`'s middle assertion exists to force. It
+    // read:
+    //
+    //   "The third of the unbuilt forms-authoring verbs, on `FEATURES.md`'s
+    //   same row — and the one that is irreversible on the document, so it
+    //   also needs the disclosure surface a destructive verb takes before it
+    //   can honestly be offered."
+    //
+    // **Both halves had become false, and neither could fail a test.**
+    //
+    // *Unbuilt*: `EditSession::flatten_fields` exists and this shell has been
+    // calling it since the Forms panel shipped. The `FEATURES.md` row it cites
+    // was itself stale — field creation shipped as O39 on 2026-08-26 — so this
+    // entry's reason was a citation of a citation, and nothing re-read either.
+    //
+    // *Irreversible*: it is one `EditSession` command and one `Ctrl+Z`, and
+    // `text::forms`' `forms_flatten_tooltip` had already argued at length that
+    // flatten APPENDS an overlay and leaves existing content byte-verbatim, so
+    // under the default incremental save the prior revision still holds the
+    // values. Its irreversibility is conditional on the save mode, not
+    // structural — which is why the panel's own button is delete-shaped rather
+    // than modal.
+    //
+    // ⇒ An entry that states a false reason is the failure this list's
+    // staleness test is about, and this one survived because the test asks
+    // whether the id has an arm, not whether the sentence is still true. There
+    // is no mechanism for the second question; a reader is the only instrument.
+    // The arm is `app::dispatch::forms::flatten`.
     // ★ `edit.redact` and `edit.redact_apply` were here until 2026-08-15, and
     // their entries are **deleted rather than reworded**, which is what
     // `no_scaffolded_entry_is_stale`'s middle assertion exists to force. The

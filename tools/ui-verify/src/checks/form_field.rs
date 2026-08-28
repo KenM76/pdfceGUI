@@ -58,6 +58,7 @@
 //! | C | Escape, then click a published `form-box` | `form-field-selected field=…` |
 //! | D | read the properties region | `properties.form_field` declared |
 
+use crate::checks::driving::{self, declared_names, list};
 use crate::checks::{Check, CheckContext};
 use crate::coords::{CanvasMapping, DocPoint, PageGeometry};
 use crate::error::{Error, Result};
@@ -97,6 +98,35 @@ const SELECTED: &str = "form-field-selected";
 const BOX_LINE: &str = "form-target";
 /// The properties section's published region.
 const PROPERTIES_REGION: &str = "properties.form_field";
+/// The editable-properties section, added with `EditSession::edit_field` on
+/// 2026-08-27.
+///
+/// ★★★ Its own region, distinct from [`PROPERTIES_REGION`], and that is the
+/// whole point of adding it. The section above it — the read-only facts, the
+/// rename box, the delete buttons — drew perfectly well for a day while the
+/// panel told the operator that required, read-only and the tooltip *"can only
+/// be set when a field is placed. To change one, delete this field and place a
+/// new one."* A check asserting only `properties.form_field` passed on that
+/// build, correctly, because what it asserts was true.
+///
+/// So the two are separate names for the two separate claims: *"clicking a
+/// field describes it"* and *"clicking a field lets you change it"*.
+const EDITABLE_REGION: &str = "properties.field_edit";
+/// The Required checkbox — the single control an operator reaches for first,
+/// and the one O39's row named by name.
+const REQUIRED_REGION: &str = "properties.field_edit.required";
+/// The `edit-field` label `vector_edit` writes when the change reached the
+/// engine.
+///
+/// ★★ Named after the ENGINE verb, so the line says which crate did the work —
+/// the convention `format-text` follows, and the one that was learned the hard
+/// way when a module's summary line and `vector_edit`'s label shared a name and
+/// a check read the wrong one.
+const EDIT_APPLIED: &str = "edit-field";
+/// How many notches to spend looking for the editable properties below the
+/// Properties panel's fold. `restyle_text` spends the same number looking for
+/// Bold, in the same panel, for the same reason.
+const SCROLL_ATTEMPTS: usize = 6;
 
 /// Placing a form field, and selecting one that already exists.
 pub struct FormFieldPlaceAndSelect;
@@ -387,5 +417,134 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note("the form-field properties section drew");
+
+    // --- E: …and it lets the operator CHANGE something --------------------
+    //
+    // ★★★ The assertion this check was missing for a day, and the day is the
+    // argument for it. Steps A–D all passed on a build whose properties pane
+    // was **read-only** and which told the operator, in shipped UI text, to
+    // *"delete this field and place a new one"* — a destructive workaround for
+    // a capability the engine already had. Every one of those steps was
+    // asserting something true; none of them asked whether the pane could edit.
+    // ★★ SCROLL FOR IT, the way an operator would. Found by driving: the
+    // Properties panel is a `ScrollArea` whose dock slot is shorter than its
+    // content, and on the operator's own drawing the form-field section runs
+    // Name / Type / Page / Rename before it reaches anything editable — so the
+    // new controls sit below the fold at the shipped layout.
+    //
+    // That is not a product defect and it is not a harness convenience either:
+    // `restyle_text` had to learn the same thing for the Bold button, and both
+    // are the same fact about this panel. A check that failed here would be
+    // reporting "the controls are missing" about controls that are present and
+    // one notch away.
+    //
+    // ★ It scrolls **at the section it can already see**, not at a guessed
+    // point: `properties.form_field` is declared, so its centre is a coordinate
+    // inside the scroll area rather than over the canvas or another panel.
+    let mut required = None;
+    for attempt in 0..SCROLL_ATTEMPTS {
+        let trace = session.trace()?;
+        if let Some(rect) = driving::declared(&trace, ui_rect, REQUIRED_REGION) {
+            required = Some(rect);
+            if attempt > 0 {
+                report.note(format!(
+                    "the editable properties were below the panel's fold; {attempt} scroll \
+                     notch(es) brought them into view"
+                ));
+            }
+            break;
+        }
+        let Some(anchor) = driving::declared(&trace, ui_rect, PROPERTIES_REGION) else {
+            return Err(Error::new(format!(
+                "the form-field section stopped being visible while scrolling for its editable \
+                 properties, so there is nothing left to aim at. Trace: {}.",
+                session.trace_path().display()
+            )));
+        };
+        driver.scroll_at(session.frame()?.declared_center(anchor), -1)?;
+        session.settle(12);
+    }
+
+    let trace = session.trace()?;
+    let Some(required) = required else {
+        let shot = ctx.out("form_field.not-editable.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+        }
+        return Ok(Some(format!(
+            "★ A FIELD IS SELECTED AND ITS PROPERTIES CANNOT BE CHANGED: no `{REQUIRED_REGION}` \
+             region, though `{PROPERTIES_REGION}` drew.\n\
+             `panels::properties::fieldedit` draws Required, Read only and a tooltip for every \
+             field type, so the section is either not being called or returned early. What an \
+             operator meets if this regresses is the state O39 shipped in: a pane that describes \
+             their field and offers no way to change it, under a sentence advising them to \
+             delete it and start again, after {SCROLL_ATTEMPTS} scroll notches looking for \
+             them. Regions declared: {}. Trace: {}.",
+            list(&declared_names(&trace, ui_rect, "properties.")),
+            session.trace_path().display()
+        )));
+    };
+    // ★★ This block used to FAIL when `EDITABLE_REGION` was absent while a
+    // control inside it was present, on the reasoning that it *"should be
+    // impossible — the section publishes its own rect after its controls."*
+    //
+    // **That was an invariant asserted without being measured, and the first
+    // driven run refuted it.** The section published through
+    // `diag::ui_rect_visible`, which suppresses a region less than 60 % inside
+    // the clip; a seven-control section in a short dock slot is never 60 %
+    // inside anything. So the controls were visible, the section was not, and
+    // the check called the correct state impossible.
+    //
+    // The product side was fixed — a section rect is not a surface anybody
+    // samples, so it takes the plain `ui_rect` now — and the assertion is kept
+    // as a **note rather than a failure**, because that is what it can honestly
+    // be. If it goes missing again the cause is a publishing convention, not a
+    // broken feature, and a check that failed on it would be reporting the
+    // wrong subject.
+    if driving::declared(&trace, ui_rect, EDITABLE_REGION).is_none() {
+        report.note(format!(
+            "note: `{REQUIRED_REGION}` drew and `{EDITABLE_REGION}` did not. That is a \
+             publishing-convention question rather than a defect in the feature — see this \
+             check's own comment and `panels::properties::fieldedit`'s"
+        ));
+    }
+
+    // --- F: press it, and the change reaches the document ------------------
+    //
+    // ★★ A checkbox, deliberately, and not the tooltip box or the max-length
+    // spinner. It is **one click with a binary outcome**: a text box needs
+    // typing and a focus loss to commit, and a spinner needs a scrub that has
+    // to be reconciled against a speed constant — either of which makes a
+    // failure ambiguous between the program and the harness's own arithmetic.
+    // The same argument `restyle_text` makes for pressing Bold rather than
+    // scrubbing the size.
+    //
+    // ★ It also toggles a real flag on a real field and leaves it toggled. That
+    // is a side effect on the fixture in `--out`, not on the operator's file —
+    // which is why the suite is driven against a copy of the exe and a fixture,
+    // and why `CONTINUE.md` says never to drive the published build.
+    let before = trace.events(EDIT_APPLIED).count();
+    driver.click_at(session.frame()?.declared_center(required))?;
+    session.settle(24);
+
+    let trace = session.trace()?;
+    if trace.events(EDIT_APPLIED).count() <= before {
+        let shot = ctx.out("form_field.edit-did-nothing.png");
+        if crate::capture::window_to_png(&session, &shot).is_ok() {
+            report.artifact(shot);
+        }
+        return Ok(Some(format!(
+            "★ REQUIRED WAS TICKED AND NOTHING REACHED THE DOCUMENT: no new `{EDIT_APPLIED}` \
+             line.\n\
+             Three candidates. (1) **The click missed** — the region was declared, so the \
+             screenshot beside this report settles it. (2) **The press raised no action**, which \
+             on a plain `ui.checkbox` means the section re-drew between the press and the read. \
+             (3) **`edit_field` refused** — the engine checks its gates against the RESULTING \
+             field, so a refusal can name a property the request never mentioned; the status \
+             bar carries the sentence and the trace carries the decline. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note("★★ ticking Required reached the document through `edit_field`");
     Ok(None)
 }

@@ -663,6 +663,18 @@ pub struct PanelsState {
     field_rename: String,
     /// The fully-qualified name [`Self::field_rename`] was seeded from.
     field_rename_key: Option<String>,
+    /// ★ The two TYPED properties of the selected form field — its tooltip and
+    /// its maximum length — and the `(name, epoch)` they were read at.
+    ///
+    /// Only two, and the omission is the design: every other property in
+    /// `properties::fieldedit` is a checkbox that reads `field.flags` straight
+    /// from the session each frame, so a press the engine refuses leaves the
+    /// box where it was. A draft-backed boolean would show the operator's
+    /// intent while the document silently disagreed with it.
+    ///
+    /// Here rather than on `OpenDoc` by this struct's own rule: a half-typed
+    /// tooltip is the operator's state, not the document's.
+    field_props: properties::fieldedit::FieldPropsDraft,
     /// The Properties panel's **geometry** draft — the four typed numbers, and
     /// the `(page, object, epoch)` they were seeded from.
     ///
@@ -944,6 +956,17 @@ impl PanelsState {
     /// and a caller would have to be handed that as well.
     pub fn text_style_mut(&mut self) -> &mut properties::text::TextStyleDraft {
         &mut self.text_style
+    }
+
+    /// The selected form field's typed-property draft.
+    ///
+    /// No re-seed argument, like [`Self::text_style_mut`] and unlike
+    /// [`Self::field_rename_mut`]: the draft owns its own `(name, epoch)` stamp
+    /// and decides for itself when what it holds is stale, which is right here
+    /// because the staleness condition includes the edit epoch and a caller
+    /// would have to be handed that as well.
+    pub fn field_props_mut(&mut self) -> &mut properties::fieldedit::FieldPropsDraft {
+        &mut self.field_props
     }
 
     pub fn geometry_mut(&mut self) -> &mut properties::geometry::GeometryDraft {

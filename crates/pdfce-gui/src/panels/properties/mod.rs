@@ -122,6 +122,10 @@ mod dimension;
 /// ★★ The **form field** clicked on the page in Edit mode — the operator's
 /// request of 2026-08-26. `pub` for the same reason [`geometry`] is: its rename
 /// box holds a draft in `crate::panels::PanelsState`.
+/// The editable half of a placed form field's properties —
+/// `EditSession::edit_field`, consumed 2026-08-27. See its header for the
+/// sentence it deletes and for the field-vs-widget scope rule.
+pub mod fieldedit;
 pub mod formfield;
 pub mod geometry;
 pub mod info;

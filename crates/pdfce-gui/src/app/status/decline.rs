@@ -368,6 +368,25 @@ pub(crate) enum Declined {
     /// next thing the operator does, which is the right lifetime for a sentence
     /// about one press.
     PushButtonInert,
+    /// **`edit.form_flatten` was invoked and the document's certification
+    /// forbids it.**
+    ///
+    /// The ribbon control is `enabled_when("doc.pages")` and is therefore live
+    /// on any open document, where the Forms panel's own Flatten button greys
+    /// itself from `EditSession::flatten_refusal`. The two disagree on
+    /// *appearance* and agree on *behaviour*, which is the intended shape:
+    /// publishing a certification condition would cost a query per frame for a
+    /// control that is almost never pressed, so the ribbon asks at the moment
+    /// of the press and answers in a sentence.
+    ///
+    /// ★ It asks `flatten_refusal` and **not** `fill_refusal`, which is the
+    /// distinction the panel's own comment spent twenty lines earning: flatten
+    /// removes the form, so it takes the strict structural gate, and on a
+    /// certified fillable form at `/P 2` filling is permitted while flattening
+    /// is not. An operator who has just typed into the form and then finds
+    /// Flatten refusing is meeting a real rule rather than a broken control,
+    /// and the sentence says which.
+    FlattenCertified,
     NothingToUndo,
     /// **`edit.redo` was invoked with an empty redo stack.**
     ///
@@ -457,6 +476,18 @@ impl Declined {
             // parameters are deliberately ignored rather than being joined by a
             // third that would always be `true`.
             Self::SaveFailed | Self::SettingsNotSaved | Self::PushButtonInert => true,
+            // ★ `true`, with the others whose state cannot change between two
+            // frames. A document's certification is a property of the file: it
+            // does not lapse while the operator looks at the status bar, and
+            // the only thing that would retire this sentence is opening a
+            // different document — which retires every sentence.
+            //
+            // Deliberately NOT re-asked through `flatten_refusal`. It is a
+            // certification census over the whole document, and putting it in
+            // the per-frame path that decides whether a status line is still
+            // true would pay for it sixty times a second to learn an answer
+            // that never moves.
+            Self::FlattenCertified => true,
             // ★ Same ruling, third and fourth cases. A name is not going to
             // stop being taken, and a widget is not going to grow a `/T`,
             // between one frame and the next. Both are corrected by the
@@ -503,6 +534,7 @@ impl Declined {
             Self::FieldNameTaken => t::adopt_declined_name_taken(),
             Self::WidgetHasNoName => t::adopt_declined_no_name(),
             Self::PushButtonInert => t::push_button_inert(),
+            Self::FlattenCertified => t::flatten_declined_certified(),
             Self::TextStyle(why) => why.line(),
         }
     }
@@ -613,6 +645,16 @@ pub(crate) fn record(outcome: ZoomOutcome) {
 /// in the crate.
 pub(crate) fn record_text_style(why: crate::text::status::TextStyleRefusal) {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::TextStyle(why)));
+}
+
+/// Record that a flatten was refused by the document's certification.
+///
+/// Called from the dispatch arm rather than from the apply phase, unlike
+/// [`record_save_failure`], because the refusal is knowable **before** the
+/// action is raised — `flatten_refusal` is a query — and raising an action the
+/// apply arm would then have to refuse would put the same rule in two places.
+pub(crate) fn record_flatten_certified() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::FlattenCertified));
 }
 
 pub(crate) fn record_push_button_inert() {

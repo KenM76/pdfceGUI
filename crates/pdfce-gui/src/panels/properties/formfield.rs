@@ -105,6 +105,7 @@ pub fn section(
         return false;
     };
 
+    let epoch = doc.edit_epoch;
     crate::diag::ui_rect(REGION, ui.max_rect());
     // No `.strong()` — R84 / DEFECTS.md D11: no theme this project ships
     // renders it legibly on a panel.
@@ -117,11 +118,25 @@ pub fn section(
     ui.add_space(6.0);
     rename_row(ui, state, &selected, actions);
     ui.add_space(6.0);
+    ui.separator();
+    ui.add_space(6.0);
+    // ★★★ The editable properties — `EditSession::edit_field`, consumed
+    // 2026-08-27. Placed between the rename box and the delete buttons on
+    // purpose: reading the pane top to bottom now goes "what this field IS",
+    // then "what you can change about it", then "how to get rid of it", which
+    // is the order of increasing commitment every other surface in this shell
+    // uses. Delete was directly under rename before, which put the most
+    // destructive control in the middle of the panel.
+    //
+    // `field.clone()` is deliberately NOT taken: the section reads the field
+    // it is handed and raises actions, so the borrow ends with the frame.
+    super::fieldedit::section(ui, field, &selected.field, state, epoch, actions);
+    ui.add_space(6.0);
     delete_row(ui, field, &selected, actions);
     ui.add_space(6.0);
-    // ★ The limitation, said in the panel. See the header: an absence is
-    // indistinguishable from an oversight, and an operator looking for
-    // "required" needs to be told it is not here rather than left hunting.
+    // ★★ What is left out of reach, and it is now the WIDGET half rather than
+    // the field half. See `text::panels::formfield::not_editable_note` for the
+    // sentence this replaced and why it was worse than a gap.
     ui.small(t::not_editable_note());
     ui.add_space(6.0);
     ui.separator();
