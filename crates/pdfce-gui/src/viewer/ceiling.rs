@@ -41,7 +41,49 @@ use super::{MAX_ZOOM, MIN_ZOOM, max_zoom_for_page};
 /// Letter page drew at a content extent of 20.5 billion — a 2,048 px step —
 /// and stopped at 41 billion. Drawing is therefore NOT the limit that matters;
 /// usability gives out four orders of magnitude earlier, and this is that point.
-pub(super) const SUB_PIXEL_CONTENT_EXTENT: f32 = 16_777_216.0;
+pub(super) const SUB_PIXEL_CONTENT_EXTENT: f32 = 1_048_576.0;
+
+// ★★★ 2^24 -> 2^20 on 2026-08-28. `OPERATOR_REQUESTS.md` **O49**, answered
+// "yes to all three".
+//
+// The old value answered the question the doc comment above still asks --
+// *where does an `f32` offset stop addressing every PIXEL* -- and that was the
+// right question while this constant was a CAP, because a view that moves in
+// two-pixel steps is a view that has stopped working. It is the wrong question
+// for a tier hand-over.
+//
+// ★★★ **Holding a position is a proportional requirement, and addressing a
+// pixel is an absolute one.** The two part company as the zoom rises:
+//
+// | | |
+// |---|---|
+// | the `f32` error, in PAGE POINTS | `page_pt x 2^-23` -- **constant**, because the offset grows with the zoom and the division by zoom cancels |
+// | what "holding the point under the cursor" allows | a fraction of the VIEWPORT in page points -- `viewport_px / zoom` -- which **shrinks** |
+//
+// So there is a crossing, it is well below 2^24, and past it the view drifts
+// off the cursor while still addressing every pixel perfectly.
+//
+// ★★ Measured rather than derived, on `SW41177.pdf` (1,224 pt tall) through the
+// running binary: `zooming_does_not_throw_away_where_the_operator_panned`
+// failed reproducibly at notch 7 of stage 5, between 292,415 % and 357,156 % --
+// a content extent near **3.6 million**, where one `f32` step is 0.43 px and
+// seven wheel notches had accumulated 19 px of drift against a tolerance of 8.
+//
+// 2^20 puts one step at 0.125 px, which is 3.4x finer than the point that
+// failed, and hands over at 85,700 % on that sheet and 132,400 % on US Letter.
+//
+// ★ The old value's own justification survives the change and is why the doc
+// comment above is kept rather than rewritten: it is a correct measurement of a
+// different quantity, and it was correct for the use this constant used to
+// have. **A constant that changes what it gates has to be re-derived, not
+// re-tuned** -- the number was never wrong, the question was.
+//
+// ★ And the "one number, two uses" note further down this file is now STALE in
+// its own terms: the positional cap it refers to was removed when tier 3
+// landed, so this constant has exactly one live use and cannot drift against
+// anything. Left in place because the paragraph is a record of why the cap was
+// correct at the time; flagged here because a reader meeting it will otherwise
+// look for the second use.
 
 /// The highest zoom this page can reach **when the region tier is
 /// available** — `OPERATOR_REQUESTS.md` O24.

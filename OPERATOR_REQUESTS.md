@@ -154,9 +154,17 @@ setting rather than a permanent no.**
    harness environment variable to supply a folder, which is deliberately **not**
    the same path an operator takes.
 
-**Status:** ★ **ACCEPTED 2026-08-28**, and it goes first of the four: it is the
-one he asked for in his own words, it is the smallest, and it makes O47's
-bundled faces a genuine last resort rather than a second choice.
+**Status:** ★★★ **SHIPPED AND DRIVEN, 2026-08-28.** The checkbox is in
+Settings ▸ Fonts, off by default, and lists the two folders it resolves to
+underneath it — including the per-user one at
+`…\AppData\Local\Microsoft\Windows\Fonts`, which is where a plain
+double-click installs a font on this machine.
+
+★★★ **And the route now lands on it.** Tools ▸ Font folders opens the Settings
+window with the Fonts group expanded and scrolled to, instead of at the top of
+ten collapsed headings — which is the reason he asked for a setting that had
+shipped the day before. Driven; with the landing removed the check reports the
+three headings he would have seen.
 
 ---
 
@@ -213,12 +221,24 @@ found seven distinct defects in them. Changing when they fire without driving
 the whole ladder again would be trading a defect nobody meets for one somebody
 might.
 
-**Status:** ★ **ACCEPTED 2026-08-28** — *"yes to all three."* Scheduled after
-the two font items and O48, because it is the one furthest from anything he
-does and the one most likely to break something he DOES do: the high-precision
-path has two hand-overs of its own and this project has already found seven
-distinct defects in them. The two checks stay RED until it lands, which is the
-honest state.
+**Status:** ★★★ **FIXED AND DRIVEN, 2026-08-28.** Both checks are GREEN, and
+the drift now holds at **33 % of tolerance all the way to 105 billion percent**
+— it used to breach at 292,415 %.
+
+★★ **The fix was one constant, and the interesting part is that it was never
+wrong.** The hand-over fired where an `f32` offset stops addressing every
+*pixel* — `2^24` — which is exactly the right question for the CAP that constant
+used to be, and the wrong one for a tier hand-over. Holding a point under the
+cursor is a **proportional** requirement and addressing a pixel is an
+**absolute** one, so the two part company as the zoom rises: the `f32` error in
+page points is constant, and the tolerance shrinks. `2^24` → `2^20`.
+
+⇒ **A constant that changes what it gates has to be re-derived, not re-tuned.**
+The number was never wrong; the question was.
+
+★ The feared cost did not materialise: the deep tier now engages at 85,700 % on
+his own sheet instead of 1,370,000 %, and every stage above it reports the same
+33 %. Driven with the pixmap-ceiling check beside it, which also passes.
 
 ---
 
@@ -271,10 +291,17 @@ deleting pages or images.
 My lean is **1**, as an explicit separate command. It is a day's work and it
 makes three other features honest.
 
-**Status:** ★ **ACCEPTED 2026-08-28** — *"yes to all three."* Building option 1:
-a separate compacting Save, named so it cannot be pressed by accident, always to
-a new file, with a plain sentence about what it discards. Removal works today
-and discloses the limit in the meantime.
+**Status:** ★★★ **SHIPPED AND DRIVEN, 2026-08-28.** File ▸ Save ▸ *Save a
+compacted copy…*, always to a new file, with the three losses stated before the
+picker opens.
+
+Measured through the running binary on a fixture built to be exactly this
+problem: **1,709,629 bytes → 43,073**. The fixture is a drawing that had fonts
+embedded and then removed — which left it 889 bytes *bigger* than before the
+removal, which is the sentence this row opens with, reproduced in a file.
+
+★ Falsified: swapping the full writer for the incremental one makes the check
+fail with `1709629` against `1709629` and name the substitution.
 
 ---
 
@@ -327,9 +354,14 @@ already substitutes Arial for Helvetica and nobody would call that wrong —
 this is the same act one step further out. But it is your call and I am not
 taking it.
 
-**Status:** ★ **ACCEPTED 2026-08-28** — *"yes to all three."* No option number
-was named, so this takes the one I recommended and says so: **option 2,
-always, disclosed loudly.** If he meant option 3, say so and it becomes a second
+**Status:** ★★★ **SHIPPED AND DRIVEN, 2026-08-28** — option 2, always,
+disclosed loudly. With no font folder configured at all, a drawing asking for
+Helvetica now embeds: 3 fonts, 46 KB, every row saying *"none of your fonts
+matched, so pdfce used its own copy. It is a stand-in, not the font the document
+asks for."* It is the LAST rung — a real font on your machine wins every time —
+and there is a driven check that turning it off makes fail by name.
+
+★ No option number was named, so this took the one I recommended: If he meant option 3, say so and it becomes a second
 button in the window rather than a change to the resolver.
 
 ★★ **And he added a fourth thing in the same breath, which is O50.** It changes
