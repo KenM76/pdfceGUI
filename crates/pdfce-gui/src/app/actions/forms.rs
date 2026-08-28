@@ -282,6 +282,34 @@ pub enum FieldAction {
         /// The field's fully-qualified name.
         field: String,
     },
+    /// ★★★ **Move one widget of a field by a page-space delta.**
+    ///
+    /// Raised by `crate::canvas::widgetdrag` on the release of a drag, and by
+    /// nothing else.
+    ///
+    /// # ★★ Why not `Action::MoveAnnotation`, when a widget IS an annotation
+    ///
+    /// Because the engine refuses that by name and says why: `move_widget`
+    /// *"does strictly more, and quietly doing less under this name would give
+    /// you a second way to move the same thing that silently produces a worse
+    /// result."* What it does more of is the **field** -- a widget is addressed
+    /// by its field's fully-qualified name and an index within it, because one
+    /// field can draw boxes on three pages and the `/Annots` entry is not the
+    /// thing the operator renamed.
+    ///
+    /// => The two verbs differ in their ADDRESS, not in their geometry. Worth
+    /// stating because the alternative reading -- that widgets need different
+    /// arithmetic -- would invite somebody to unify them later.
+    MoveWidget {
+        /// The field's fully-qualified name.
+        field: String,
+        /// Which of its widgets.
+        widget: usize,
+        /// Horizontal displacement, PDF points.
+        dx: f64,
+        /// Vertical displacement, PDF points. **Positive is up.**
+        dy: f64,
+    },
     /// **Delete one widget of the selected field**, leaving the field itself.
     DeleteWidget {
         /// The field's fully-qualified name.
@@ -404,6 +432,12 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         FieldAction::Import { path } => import_data(doc, &path),
         FieldAction::Rename { from, to } => rename(doc, &from, &to),
         FieldAction::DeleteField { field } => delete_field(doc, &field),
+        FieldAction::MoveWidget {
+            field,
+            widget,
+            dx,
+            dy,
+        } => move_widget(doc, &field, widget, dx, dy),
         FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
         FieldAction::Adopt { page, widget, name } => adopt(doc, page, widget, name),
         FieldAction::Edit(edit) => crate::panels::forms::edit::apply(doc, &edit),
@@ -1160,4 +1194,42 @@ mod authoring_is_available {
             "authoring a text field is not blocked; if this fails, a REAL gate has appeared and the register entry needs rewriting again"
         );
     }
+}
+
+/// **Move one widget by a page-space delta.**
+///
+/// ★★ The disclosure is CONDITIONAL and reports what the operator cannot see:
+/// `WidgetMove` names whether the field's other widgets stayed put, and on a
+/// field drawn on three pages that is the whole question. Moving one box of a
+/// three-box field is correct — they are separate placements of one value — and
+/// it is also exactly the thing an operator would assume had gone wrong when
+/// the other two did not follow.
+///
+/// ★ Nothing is disclosed for the ordinary one-widget field, for
+/// `text::embed`'s reason applied here: a sentence that fires on every drag is
+/// one an operator learns to skip, and the day it says something is the day
+/// they skip it too.
+pub(super) fn move_widget(doc: &mut OpenDoc, field: &str, widget: usize, dx: f64, dy: f64) {
+    super::apply::vector_edit(doc, "move-widget", 0, 1, |session| {
+        session.move_widget(field, widget, dx, dy).map(|outcome| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    // `-applied`, per the convention this module records at
+                    // length: the funnel writes its own bare-named line for the
+                    // same edit and `.last()` would read that one.
+                    "move-widget-applied field={field} widget={widget} dx={dx:.3} \
+                     dy={dy:.3} siblings={}",
+                    outcome.siblings_left_behind
+                )
+            });
+            if outcome.siblings_left_behind > 0 {
+                vec![crate::text::forms::widget_siblings_unmoved(
+                    outcome.siblings_left_behind,
+                )]
+            } else {
+                Vec::new()
+            }
+        })
+    });
 }

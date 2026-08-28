@@ -199,6 +199,10 @@ pub mod handles;
 /// most bug-prone rule on this canvas, learned three separate times in one day.
 pub mod pressing;
 pub mod presspick;
+/// Dragging a form field's box. The third module on the annotation branch of
+/// `dragroute`'s fork, and its header records that it exists because the
+/// ADDRESS differs from a markup's, not because the geometry does.
+pub mod widgetdrag;
 // Reading this frame's pointer — what a click landed on at every rung, which
 // of the two panning gestures is in flight, and where the in-flight press is
 // kept between frames. Split out under R2 when the rulers landed; see its

@@ -142,6 +142,7 @@ pub mod markup_rectangle;
 pub mod markup_shapes;
 pub mod progressive;
 pub mod unembed_fonts;
+pub mod widget_move;
 
 /// `ocr_recognises_a_page_and_the_document_keeps_it` — the whole Recognise-text
 /// chain against a genuinely image-only document, ending in the one assertion
@@ -587,6 +588,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // the two typing checks because a run that fails here should fail
         // before paying for a keystroke that may never arrive.
         Box::new(markup_move::DraggingAMarkupMovesIt),
+        Box::new(widget_move::DraggingAFormFieldMovesIt),
         Box::new(markup_rectangle::MarkupRectangleArmsFromTheRibbon),
         // ★ Form-field placement and selection. After the markup checks and
         // not before, because it borrows their gesture machinery — a band drag

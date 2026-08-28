@@ -81,7 +81,7 @@ mod outcome;
 use outcome::Drag;
 pub use outcome::*;
 
-pub use meaning::{DimensionPress, DragKind, MarqueeIntent, PressMeaning, press_kind};
+pub use meaning::{DimensionPress, DragKind, MarqueeIntent, Press, PressMeaning, press_kind};
 
 use egui::Pos2;
 

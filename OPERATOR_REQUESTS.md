@@ -80,6 +80,115 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O51 — ★★★ Inkscape-style scale toggles: line weight follows a resize, if you say so
+
+**His ruling, 2026-08-28**, on reading my answer to the engine about resize
+semantics:
+
+> *"if that was the resize question about scaling line weight, etc with resize
+> it got the answer wrong. default should be what it said, but there should be
+> an option that they do scale with resize. Inkscape has options for this and I
+> want the same."*
+
+### ★★★ The correction, and it is about reasoning rather than about strokes
+
+I had told the engine that a resize must **not** scale stroke width, with three
+arguments:
+
+1. a CAD line weight is a **drafting standard**, not decoration;
+2. a non-uniform scale makes a single `/BS /W` scalar **ill-defined**;
+3. Acrobat does not scale a comment's border, and Illustrator ships *Scale
+   Strokes & Effects* **off**.
+
+All three stand. The **conclusion** does not.
+
+⇒ **Convergence among reference implementations argues for a DEFAULT, not
+against an OPTION.** *"Everyone does X"* and *"nobody should be able to do Y"*
+are different claims, and the first does not establish the second.
+
+★★ My own third argument contained the refutation and I walked past it:
+*Illustrator ships the toggle off by default* — which means **Illustrator has
+the toggle**. So does Inkscape, on the selector tool's control bar. **The
+existence of the toggle is the industry answer**; the default is the separate
+question, and that one was right.
+
+★ This is the second time a well-reasoned answer of mine has been too narrow in
+the same way — see `feedback_use_the_conventional_interaction_never_invent_one`.
+The rule there was *the convergence of the product class IS the spec*. The
+amendment is: **read the convergence completely.** Every one of those programs
+converges on *"off by default"* **and** on *"available"*, and quoting the first
+half as though it were the whole is how a correct observation becomes a wrong
+conclusion.
+
+### What Inkscape actually offers, which is the parity target
+
+Four toggles on the selector tool's control bar. His words are *"Inkscape has
+options for this and I want the same"*, so the target is the set, not one flag:
+
+| Inkscape toggle | pdfce equivalent | default |
+|---|---|---|
+| Scale stroke width | `/BS /W`, `/Border`'s width element | **off** |
+| Scale rounded corners | — (no PDF annotation equivalent yet) | n/a |
+| Move gradients | — | n/a |
+| Move patterns | — | n/a |
+
+Plus one the engine raised that Inkscape has no analogue for:
+
+| `/RD` — the inset distances | **on**, and the opposite default to stroke width |
+
+⇒ `/RD` scales because an inset **is a length in the space being scaled**;
+leaving it fixed while the `/Rect` doubles changes the annotation's proportions.
+That is the reverse of the translate case, where leaving it fixed *preserved*
+them — the same key, opposite correct answers under two verbs.
+
+### ★★★ And the engine found something that changes what "off" can even mean
+
+**No per-axis stroke width exists**, in SVG or in PDF: `stroke-width` and `w`
+are both scalars. So *"keep the line weight constant under a NON-UNIFORM
+scale"* — the toggle-off case, my default — is **mathematically unsatisfiable**
+whenever the stroke is drawn through a matrix applied after stroking.
+
+Inkscape hit exactly this (Launchpad #1335376) and closed it **Invalid**: a
+mathematical limit, not a defect. Its actual behaviour is to **silently produce
+a distorted stroke**.
+
+★★ It transfers to pdfce unchanged, because an annotation's artwork is placed
+through §12.5.5's matrix and a resize makes that matrix a non-uniform scale.
+So carrying the appearance stream untouched — which is exactly right for a
+*move* — is **wrong for a non-uniform resize**: the stroke distorts whatever the
+toggle says.
+
+Two cases, and only one is fixable:
+
+- **An appearance pdfce authored** can be rebuilt from the scaled geometry at
+  the new size, and both toggle states become exactly satisfiable.
+- **A foreign appearance** cannot be rebuilt without replacing somebody else's
+  artwork with pdfce's rendering of it. There the honest options are refuse, or
+  proceed and **state the residual distortion** — never silently pick a fudge
+  factor, which is the one thing the parity reference does.
+
+⇒ The engine's own RAG recommends pdfce be **better than the parity reference
+here, not equal to it.** Agreed, and it is why the grips must report whether a
+drag was proportional.
+
+### What this shell owes
+
+1. **The toggles**, where an operator expects them — Inkscape puts them on the
+   selector tool's control bar, which is this shell's **Tool row**, not a
+   settings dialog. They are a per-drag modifier, not a preference.
+2. **The disclosure either way.** *"Border width left at 1.0 pt"* is the
+   sentence rule 4 exists for, and the engine's outcome type names which branch
+   ran.
+3. **Proportionality reported to the verb**, so the engine can distinguish the
+   satisfiable case from the one it must disclose.
+
+**Status:** ★ **ACCEPTED 2026-08-28**, blocked on `resize_annotation`, which the
+engine is building to this shape. The toggles are a Tool-row surface and can be
+built before the verb lands; the disclosure cannot, because it reports what the
+verb did.
+
+---
+
 ## O50 — ★★★ A permanent font-folder setting, with a checkbox for the OS's own fonts
 
 **His words, 2026-08-28:** *"for fonts there should also be a permanent setting

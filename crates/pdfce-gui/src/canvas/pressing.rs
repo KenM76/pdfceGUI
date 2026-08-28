@@ -54,7 +54,7 @@ use crate::canvas::handles::Grip;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::canvas::tool::CanvasTool;
-use crate::canvas::{annotdrag, dimdrag, handledrag, handles, overlay, zoom};
+use crate::canvas::{annotdrag, dimdrag, handledrag, handles, overlay, widgetdrag, zoom};
 
 /// Everything the frame learned by looking at where a press would land.
 ///
@@ -197,13 +197,26 @@ pub fn look(
     let markup_body =
         origin.is_some_and(|p| annotdrag::grab_box(map, selection).is_some_and(|b| b.contains(p)));
 
+    // Whether the press landed inside the selected FORM FIELD's box.
+    //
+    // ★ Same shape as `markup_body` above and the same contract:
+    // `widgetdrag::grab_box` answers `None` unless a widget is selected and
+    // still present in the form, so no gesture is started that could not
+    // commit. The target list it consults is cached on `(path, edit_epoch)`,
+    // so asking every frame costs a map lookup rather than a form walk.
+    let widget_body =
+        origin.is_some_and(|p| widgetdrag::grab_box(ctx, doc, map).is_some_and(|b| b.contains(p)));
+
     let meaning = gesture::press_kind(
-        active_tool,
-        grip,
-        handle,
-        dimension,
-        markup_body,
-        zoom::region_zoom_armed(ctx),
+        gesture::Press {
+            tool: active_tool,
+            grip,
+            handle,
+            dimension,
+            markup_body,
+            widget_body,
+            zoom_armed: zoom::region_zoom_armed(ctx),
+        },
         caps,
     );
 

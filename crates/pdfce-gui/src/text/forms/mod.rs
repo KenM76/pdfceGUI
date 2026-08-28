@@ -1063,6 +1063,26 @@ pub fn forms_structural_certification_disabled_tooltip() -> &'static str {
      can still be filled in; the form itself cannot be removed."
 }
 
+/// Disclosure: the field's other boxes stayed where they were.
+///
+/// ★★★ The engine's own words for why this is owed: *"A field with widgets on
+/// pages 1, 2 and 3 looks like one thing to an operator who asked to move 'the
+/// signature box'. Moving one and silently leaving two behind is the kind of
+/// partial result that reads as a bug later."*
+///
+/// ★★ It says the move was **correct**, not that something went wrong. The
+/// boxes are separate placements of one value and moving one is exactly what
+/// the operator dragged — so the sentence's job is to stop them hunting for a
+/// fault, not to apologise for one.
+#[must_use]
+pub fn widget_siblings_unmoved(count: usize) -> String {
+    format!(
+        "This field is drawn in {} other place(s) as well, and those boxes have not moved. That \
+         is deliberate — they are separate positions for the same value.",
+        count
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

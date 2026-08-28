@@ -779,7 +779,7 @@ pub(super) fn interact(
                 actions,
             );
             ghost = previews.ghost;
-            annot_ghost = previews.annot;
+            annot_ghost = previews.annot.or(previews.widget);
             dimension_preview = previews.dimension;
         }
         // ★ The markup band. `markup::drag` owns every rule — the canvas→page

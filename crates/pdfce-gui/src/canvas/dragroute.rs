@@ -61,6 +61,13 @@ pub struct Previews {
     pub ghost: Option<Vec2>,
     /// Where a dragged markup would land, in canvas space.
     pub annot: Option<egui::Rect>,
+    /// Where a dragged form-field box would land, in canvas space.
+    ///
+    /// ★ A fourth field rather than sharing [`Self::annot`], even though the
+    /// two are the same shape and can never both be `Some`. The painter reads
+    /// each independently, and one rectangle whose meaning depends on which
+    /// selection is live is a value the paint loop has to interrogate.
+    pub widget: Option<egui::Rect>,
     /// A ce dimension redrawn at its new placement, in page space.
     pub dimension: Option<Vec<(pdfce_core::vector::Point, pdfce_core::vector::Point)>>,
 }
@@ -173,6 +180,24 @@ pub fn moved(frame: &Frame<'_>, delta: Vec2, phase: Phase, actions: &mut Vec<Act
                 actions,
             );
         }
+    // ★★★ A FORM FIELD's box, and it needs its own top-level arm because a
+    // widget is not an annotation selection.
+    //
+    // `canvas::selection::annot` excludes `/Widget` outright — *"the form field
+    // surface owns it; a click there focuses an editor, and two owners of one
+    // press is how a field becomes unfillable"* — so a selected widget lives on
+    // `doc.selected_field` and the branch above never sees it. Before this arm
+    // existed the press fell into the CONTENT branch below, where
+    // `moving::eligible` found nothing and the gesture was eaten, which is the
+    // same defect the annotation branch had for ten days and is why it was
+    // looked for here.
+    } else if doc.selected_field.is_some() {
+        out.widget = crate::canvas::widgetdrag::drag(
+            &crate::canvas::widgetdrag::Frame { delta, phase },
+            ctx,
+            doc,
+            actions,
+        );
     } else {
         out.ghost = moving::drag(
             delta,
