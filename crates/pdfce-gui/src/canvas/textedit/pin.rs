@@ -334,6 +334,84 @@ pub fn operators(doc: &OpenDoc, page: usize, run: usize) -> Vec<Operator> {
     operators_in_run(&model, &text, run)
 }
 
+/// **Which faces on this page `set_font` would actually ACCEPT for this run**,
+/// and the string to pass for each.
+///
+/// `Pass 142.1`, consumed 2026-08-27. This project asked for it by name after
+/// shipping a face chooser built the only way that was then possible.
+///
+/// # ★★★ What the list used to be, and the two ways it was wrong
+///
+/// The face combo was built from `fontinfo::FontInventory`, filtered to the
+/// records naming this page, showing each `/BaseFont` with its §9.6.4 subset
+/// tag stripped. The engine's own summary of that arrangement: *"a list built
+/// from the first key is a superset of the second that is usually right, and
+/// when it is wrong the operator finds out by pressing a button and getting a
+/// refusal."*
+///
+/// Two failures, and the second is much worse than the first:
+///
+/// **1. Entries that cannot work.** `fontinfo` is keyed on the font
+/// **dictionary**; `set_font` matches on `/BaseFont` and then asks whether the
+/// face can encode *this run's characters*. A face that cannot — `Times-Bold`
+/// with no code for `o` — was offered, pressed, and refused. A control whose
+/// entries may not work is what this project spends its time removing.
+///
+/// **2. ★★ The wrong twin, silently.** One page can carry **two font
+/// dictionaries sharing one `/BaseFont`** — two subsets of one face — which the
+/// survey behind the Fonts panel found in **87 % of embedding files**. A name
+/// match reaches exactly one of them, arbitrarily, and the operator is given no
+/// hint that a choice was made on their behalf. That is not a refusal an
+/// operator can see; it is the wrong font, applied.
+///
+/// `FontResourceEntry::selector` is the fix for both: it is *the string to pass
+/// to `set_font` to reach THIS resource* — normally the stripped `/BaseFont`,
+/// and the **resource key** instead when the page carries twins, with
+/// `base_font_ambiguous` set so a chooser can say so.
+///
+/// # Why it takes the run and not just the page
+///
+/// Because acceptance is per-run. The same face is accepted for one line of a
+/// page and refused for another, depending on which characters each contains —
+/// so a page-scoped list would be back to being a superset. The `find` and the
+/// pinned span are the same operands `format_text` takes, which is what makes
+/// the preview and the commit incapable of disagreeing (the engine moved the
+/// four conditions into one `accept_font_target` for exactly that reason, R221).
+///
+/// ## Cost, and why this is not called per frame
+///
+/// It is `&self` and side-effect-free, and it runs one extraction plus one
+/// acceptance test per page `/Font` resource. The callers hold it behind the
+/// same `(page, run, epoch)` stamp their style read-back uses, so it is paid
+/// once per selection change rather than sixty times a second.
+///
+/// `None` when the run does not pin or the preview refuses — a chooser then
+/// falls back to the inventory list, which is the behaviour that shipped and is
+/// wrong only in the two ways above, rather than to an empty combo.
+/// ## ★★★ It takes the ALREADY-INSPECTED reading, and the first draft did not
+///
+/// The first version of this function called [`inspect`] itself, which reads
+/// well and is a **doubling of the most expensive thing this shell does**: its
+/// only caller is the properties draft's `sync`, which had just run `inspect`
+/// to get the face, size and colour. Two extractions with provenance capture on
+/// is **784 ms** on the operator's benchmark sheet where one is 392 — paid on
+/// every selection change, to answer two halves of one question.
+///
+/// Caught by asking what the caller already had rather than by measuring a slow
+/// build, which is the cheap direction to catch it in. The signature is now the
+/// honest one: this function's job is the **preview**, and the extraction is the
+/// caller's.
+#[must_use]
+pub fn font_preflight(
+    doc: &OpenDoc,
+    page: usize,
+    read: &Inspected,
+) -> Option<pdfce_core::text_edit::FontPreflight> {
+    doc.session
+        .preview_font_resources(page, &read.style.find, Some(read.pin.span))
+        .ok()
+}
+
 /// The pin **and** the current style for `run` on `page`, in one extraction.
 ///
 /// The form a properties panel wants. [`resolve`] is this with the reading

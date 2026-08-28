@@ -952,6 +952,36 @@ pub const fn text_face_label() -> &'static str {
     "Font"
 }
 
+/// Shown in the face chooser when no font on this page can show this run.
+///
+/// ★★★ **A real state, and the one `Pass 142.1` made visible.** Before the
+/// pre-flight the chooser listed every `/BaseFont` on the page and an operator
+/// found out which ones could not work by pressing them. Now the list holds
+/// only faces `set_font` has already accepted **for this run** — and on a page
+/// where that set is empty, an empty combo would read as a broken control.
+///
+/// ★ It names the reason at the level an operator can act on: the fonts are
+/// there, and what they cannot do is show *these characters*. That is why a
+/// title-block label in a symbol font offers nothing while the paragraph beside
+/// it offers four.
+#[must_use]
+pub const fn text_face_none() -> &'static str {
+    "No other font on this page can show these characters."
+}
+
+/// Hover for a face whose `/BaseFont` is shared by a second resource.
+///
+/// ★★ Two rows reading identically is otherwise indistinguishable from a bug,
+/// and the survey behind the Fonts panel found **two subsets of one face in
+/// 87 % of embedding files** — so this is the routine case, not the exotic one.
+/// The operator has a real choice between them and pdfce reaches the one the
+/// row is about, by resource key rather than by name.
+#[must_use]
+pub const fn text_face_ambiguous() -> &'static str {
+    "This page carries two fonts with this name — two subsets of one face. Choosing this \
+     row uses this one."
+}
+
 /// Label for the size field.
 #[must_use]
 pub const fn text_size_label() -> &'static str {

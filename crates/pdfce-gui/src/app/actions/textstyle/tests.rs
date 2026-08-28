@@ -211,36 +211,64 @@ fn bold_applies_on_a_page_with_no_bold_face() {
     );
 }
 
-/// ★★★ **The two-verb retry — and the engine defect it found.**
+/// ★★★ **The two-verb retry, and the engine defect it found — now FIXED, and
+/// this test predicted its own failure.**
 ///
 /// `textedit/format_family.pdf` is a `/Times-Roman` run `hello world` on a page
 /// that also carries `/F2` (`Calibri-Bold`, fully covering) and `/F3`
 /// (`Times-Bold`, whose `/Differences` remaps `o` to `/bullet`, so it does NOT
 /// cover the run).
 ///
-/// Asking for synthetic bold is refused by `gate_synthesis` — *"a REAL bold
-/// face is available"* — **naming `Times-Bold`**, presumably because it matches
-/// the run's family. This module takes that offer, and the offer is refused for
-/// coverage. So **bold is unreachable on that page** through either verb, which
-/// contradicts the engine's own "between the two verbs every page is covered",
-/// while `format-text --set-font F2` succeeds from the command line throughout.
+/// # What this test used to assert, and why it was right to
 ///
-/// Filed with the engine. What is asserted here is the half that is this
-/// shell's to get right:
+/// Asking for synthetic bold was refused by `gate_synthesis` — *"a REAL bold
+/// face is available"* — **naming `Times-Bold`**, because it matched the run's
+/// family. This module took that offer and the offer was refused for coverage.
+/// So **bold was unreachable on that page through either verb**, while
+/// `format-text --set-font F2` succeeded from the command line throughout.
 ///
-/// 1. **nothing is half-applied** — the run is left exactly as it was;
-/// 2. **the operator is told the actionable thing.** The refusal reported is
-///    the RETRY's (*"that face has no shape for one of these characters"*), not
-///    the synthesis refusal that sent us there — *"there is a real bold face,
-///    use it"* is useless advice when using it is what just failed.
+/// It was written as a **characterisation** test, with the engine revision
+/// named, and it closed with a prediction:
 ///
-/// ★ Written as a **characterisation** test with the engine revision named,
-/// because half of what it pins is a defect and not an intention. When the
-/// engine picks a covering face, this test starts failing on assertion 1 — and
-/// that failure is the good news, not a regression. `pdfce-core` at `914389c`,
-/// 2026-08-27.
+/// > When the engine picks a covering face, this test starts failing on
+/// > assertion 1 — and **that failure is the good news, not a regression**.
+/// > `pdfce-core` at `914389c`, 2026-08-27.
+///
+/// ## The prediction came true the same night
+///
+/// `Pass 144.0` (`cfa2c44`): *"the face a synthesis refusal names is now one
+/// `set_font` accepts."* The engine reproduced all three commands on the
+/// release binary before accepting the report, found the cause —
+/// `gate_synthesis` decided *"a real bold face is available"* from **two string
+/// tests on `/BaseFont`** and never asked whether the face could show this
+/// run's characters — and moved the four acceptance conditions into one shared
+/// predicate so a gate and a commit cannot disagree.
+///
+/// ★ Their own note on it is worth keeping: it is R221's third instance — *a
+/// predicate deciding whether a capability applies, written by hand at a
+/// different call site as a parallel description of when the real function
+/// succeeds* — and it **inverts** the usual risk analysis, because a false
+/// positive here removes the capability entirely rather than costing a slow
+/// path or a wrong pixel.
+///
+/// # What is asserted NOW
+///
+/// The three things that were the point all along, with the first two flipped
+/// from "nothing happened" to "the right thing happened":
+///
+/// 1. **Bold reaches the run**, and the face it lands on is one that can
+///    actually show `hello world` — which on this page is `/F2`, not the `/F3`
+///    the old gate named;
+/// 2. **the epoch moves**, because the page really changed;
+/// 3. **nothing is declined**, because nothing refused.
+///
+/// ★ The **face is asserted by name**, not merely "something changed". A build
+/// that fell back to synthesis would also change the run and bump the epoch,
+/// and would be a *worse* answer on a page that carries a covering real face —
+/// so a test that only checked for movement would pass on the second-best
+/// outcome.
 #[test]
-fn bold_when_the_named_real_face_cannot_cover_the_run() {
+fn bold_takes_the_covering_real_face_on_a_page_that_has_one() {
     use crate::app::state::open_fixture;
     let mut doc = open_fixture("textedit/format_family.pdf");
     let (size_before, face_before) = style_of(&doc, 0);
@@ -257,20 +285,32 @@ fn bold_when_the_named_real_face_cannot_cover_the_run() {
     );
 
     let (size_after, face_after) = style_of(&doc, 0);
-    assert_eq!(
-        (size_before, &face_before),
-        (size_after, &face_after),
-        "nothing may be half-applied when both routes to bold refuse"
+    assert_ne!(
+        face_before, face_after,
+        "bold must reach the run: `Pass 144.0` makes `gate_synthesis` name a face `set_font` \
+         accepts, and on this page that face is `/F2` (Calibri-Bold). If this fails, either the \
+         engine regressed or this shell stopped taking the offer the refusal names"
     );
     assert_eq!(
+        face_after.as_deref(),
+        Some("F2"),
+        "and it must be the COVERING face. `/F3` is Times-Bold, which remaps `o` to a bullet \
+         and cannot show `hello world`; falling back to synthesis would also move the run and \
+         would be the second-best answer on a page carrying a real bold that works"
+    );
+    assert_eq!(
+        size_before, size_after,
+        "a weight change must not move the size"
+    );
+    assert_ne!(
         doc.edit_epoch, epoch_before,
-        "a refusal must not bump the epoch — the page did not change"
+        "the page changed, so the epoch must move — it is what re-reads every panel"
     );
     assert_eq!(
         crate::app::status::decline::recorded_for_test(),
-        Some(crate::app::status::decline::Declined::TextStyle(
-            crate::text::status::TextStyleRefusal::FaceLacksCharacters
-        )),
-        "the operator must be told the ACTIONABLE refusal — the retry's coverage failure, not the synthesis refusal that named a face which then would not take"
+        None,
+        "nothing refused, so the operator is owed no sentence. A decline here would mean the \
+         retry path recorded a refusal it then recovered from, which reads as a failure that \
+         worked"
     );
 }

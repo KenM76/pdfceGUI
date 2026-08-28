@@ -160,6 +160,45 @@ pub struct TextStyleDraft {
     /// The size the operator is typing, kept separate from [`Self::size`] so a
     /// half-typed number does not become an edit.
     typed_size: f64,
+    /// ★★★ **Which faces on this page `set_font` would accept for this run**,
+    /// and the string to pass for each — `Pass 142.1`, consumed 2026-08-27.
+    ///
+    /// Read behind the same stamp as everything else here, because it costs
+    /// another extraction and answers a question that only changes when the
+    /// selection or the document does.
+    ///
+    /// `Vec<(selector, label, ambiguous)>`, flattened at read time rather than
+    /// holding the engine's `FontPreflight`: the chooser needs three strings
+    /// per row and holding the whole preflight would mean this struct's
+    /// lifetime being tied to a `pdfce-core` type that will grow.
+    ///
+    /// **Empty is a real answer and is not the same as "not read".** A page
+    /// whose every font refuses this run — which `format_family.pdf` was until
+    /// `Pass 144.0` — has no face to offer, and the chooser says so rather than
+    /// falling back to a list of entries that cannot work.
+    faces: Vec<FaceChoice>,
+}
+
+/// One row of the face chooser, as the pre-flight answered it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FaceChoice {
+    /// **The string to pass to `set_font`** to reach this resource.
+    ///
+    /// ★ Not the `/BaseFont`. Normally it is the subset-stripped base font, and
+    /// it is the **resource key** instead when the page carries two dictionaries
+    /// sharing one base font — which the Fonts panel's own survey found in 87 %
+    /// of embedding files. A chooser that sent the name would reach exactly one
+    /// of the twins, arbitrarily, and the operator would get the wrong font with
+    /// no refusal to tell them.
+    pub(crate) selector: String,
+    /// What the row says, which is the human `/BaseFont`.
+    pub(crate) label: String,
+    /// Whether this page carries another resource with the same `/BaseFont`.
+    ///
+    /// Shown, because *"there are two of these and this is the second"* is a
+    /// fact about the operator's document that nothing else surfaces, and
+    /// because it explains why two rows can read identically.
+    pub(crate) ambiguous: bool,
 }
 
 impl TextStyleDraft {
@@ -199,6 +238,30 @@ impl TextStyleDraft {
                 .and_then(|record| record.base_font.clone())
         });
         self.colour = read.style.fill.and_then(rgb_of);
+        // ★★ The pre-flight, in the same stamped read as everything else. It
+        // costs a second extraction, which is why it is here and not in the
+        // chooser: a combo is drawn every frame it is open.
+        //
+        // ★ `accepted()` only. A refused entry is deliberately **not** offered
+        // greyed-with-a-reason, though the engine hands us the reason: the
+        // refusals are per-character encoding facts (*"'o' has no code in
+        // Times-Bold's encoding"*), and a list of twelve faces with nine greyed
+        // rows each carrying a sentence about a character is a control an
+        // operator cannot read. R9's absent-rather-than-greyed case: for THIS
+        // run those faces are not a capability that is temporarily
+        // unavailable, they are not applicable.
+        self.faces = crate::canvas::textedit::pin::font_preflight(doc, page, &read)
+            .map(|preflight| {
+                preflight
+                    .accepted()
+                    .map(|entry| FaceChoice {
+                        selector: entry.selector.clone(),
+                        label: shorten(&entry.base_font).to_owned(),
+                        ambiguous: entry.base_font_ambiguous,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         self.face.is_some()
     }
 
@@ -253,6 +316,18 @@ impl TextStyleDraft {
     #[must_use]
     pub(crate) fn colour(&self) -> Option<[u8; 3]> {
         self.colour
+    }
+
+    /// The faces `set_font` would accept for this run, in the order the engine
+    /// listed the page's resources.
+    ///
+    /// **Empty means no face on this page can show this run's characters** —
+    /// a real state, and one a chooser must render as a sentence rather than as
+    /// an empty list. It is not the same as "the pre-flight was not read":
+    /// [`Self::sync`] clears it on every re-read and fills it from the engine.
+    #[must_use]
+    pub(crate) fn faces(&self) -> &[FaceChoice] {
+        &self.faces
     }
 }
 
@@ -396,26 +471,44 @@ fn face_row(
     actions: &mut Vec<Action>,
 ) {
     let current = draft.face.clone().unwrap_or_default();
-    let faces = faces_on_page(doc, page);
+    let _ = doc;
     ui.horizontal(|ui| {
         ui.label(t::text_face_label());
         let combo = egui::ComboBox::from_id_salt("properties-text-face")
             .selected_text(shorten(&current))
             .show_ui(ui, |ui| {
-                for face in &faces {
+                // ★★ The pre-flight's list, since 2026-08-27. Every row here is
+                // a face `set_font` has already said it would accept **for this
+                // run**, so a press cannot earn a refusal — which is what the
+                // superset built from `fontinfo` could not promise.
+                if draft.faces().is_empty() {
+                    ui.label(t::text_face_none());
+                    return;
+                }
+                for face in draft.faces() {
+                    let selected = face.label == shorten(&current);
                     // `selectable_label` rather than `selectable_value`: the
                     // value is not held anywhere between frames, because the
                     // document is the state. A press is an edit, not a
                     // selection to be committed later.
-                    if ui
-                        .selectable_label(*face == current, shorten(face))
-                        .clicked()
-                        && *face != current
-                    {
+                    let row = ui.selectable_label(selected, &face.label);
+                    // ★ The twin disclosure. Two rows reading identically is
+                    // otherwise indistinguishable from a bug, and the operator
+                    // has a real choice to make between them.
+                    let row = if face.ambiguous {
+                        row.on_hover_text(t::text_face_ambiguous())
+                    } else {
+                        row
+                    };
+                    if row.clicked() && !selected {
                         actions.push(Action::TextStyle {
                             page,
                             runs: runs.to_vec(),
-                            change: StyleChange::Face(face.clone()),
+                            // ★★★ `selector`, NOT the label. On a page with two
+                            // subsets of one `/BaseFont` the name reaches one of
+                            // them arbitrarily; the selector reaches the one
+                            // this row is about.
+                            change: StyleChange::Face(face.selector.clone()),
                         });
                     }
                 }
@@ -538,23 +631,29 @@ fn colour_row(
     });
 }
 
-/// The `/BaseFont` names this page carries, deduplicated and sorted.
-///
-/// See [`face_row`] on why this is a superset rather than an oracle.
-pub(crate) fn faces_on_page(doc: &OpenDoc, page: usize) -> Vec<String> {
-    // `fontinfo` numbers pages from 1; a run ordinal's page is 0-based.
-    let one_based = u32::try_from(page + 1).unwrap_or(u32::MAX);
-    let mut names: Vec<String> = doc
-        .font_inventory()
-        .fonts
-        .iter()
-        .filter(|record| record.pages.contains(&one_based))
-        .filter_map(|record| record.base_font.clone())
-        .collect();
-    names.sort_unstable();
-    names.dedup();
-    names
-}
+// ★★★ `faces_on_page` was HERE until 2026-08-27, and it is **deleted rather
+// than kept**, which is this project's standing rule the moment a workaround's
+// cause is removed: a mechanism with no caller rots, and the next reader cannot
+// tell a deliberate fallback from a forgotten one.
+//
+// It built the face chooser's list from `fontinfo::FontInventory`, filtered to
+// the records naming this page, and its own doc comment named the flaw
+// honestly: *"this is a superset that is usually exactly right, and when it is
+// not, the press earns a named refusal rather than silence. A proper pre-flight
+// is filed with the engine as `Pass 142.1`."*
+//
+// `Pass 142.1` shipped, the same night it was asked for.
+// `canvas::textedit::pin::font_preflight` is the replacement and it closes
+// **two** holes, not one: the entries that could not work (offered, pressed,
+// refused), and — much worse — the page carrying two subsets of one
+// `/BaseFont`, where a name match reached one of the twins arbitrarily and
+// applied the wrong font with no refusal to show for it. The Fonts panel's own
+// survey puts that at 87 % of embedding files.
+//
+// ★ The filed request said the superset was "usually right". It was, and
+// "usually right" about which font is applied to an operator's drawing is not
+// a standard this program should have been holding itself to. The pre-flight is
+// not an optimisation of it; it is the correct answer where that was a guess.
 
 /// A `/BaseFont` without its §9.6.4 subset tag, for display only.
 ///

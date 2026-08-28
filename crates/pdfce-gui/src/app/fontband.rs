@@ -259,22 +259,42 @@ fn face(
             // `let else` rather than an `expect` anyway: a paint-loop panic on
             // a state that is merely unexpected is a worse failure than a
             // popup that opens empty.
-            let (Some(doc), Some((page, _runs))) = (doc, ready) else {
+            let (Some(_doc), Some(_ready)) = (doc, ready) else {
                 return;
             };
-            for face in crate::panels::properties::text::faces_on_page(doc, *page) {
+            // ★★★ The PRE-FLIGHT's list, since 2026-08-27 (`Pass 142.1`), and
+            // the change fixes two defects rather than one.
+            //
+            // This combo used to list every `/BaseFont` on the page, from
+            // `fontinfo`. That list is keyed on the font **dictionary** while
+            // `set_font` matches on `/BaseFont` and then asks whether the face
+            // can encode **this run's characters** — so it offered entries that
+            // could not work (pressed, refused), and on a page carrying two
+            // subsets of one face it reached one of the twins **arbitrarily**,
+            // which is the wrong font applied with no refusal to show for it.
+            // The Fonts panel's own survey puts that second case at 87 % of
+            // embedding files.
+            //
+            // The draft holds the answer behind the same stamp as the style
+            // read-back, so a combo drawn every frame it is open costs nothing.
+            if draft.faces().is_empty() {
+                ui.label(t::text_face_none());
+                return;
+            }
+            for face in draft.faces() {
+                let selected = face.label == crate::panels::properties::text::shorten(&current);
                 // `selectable_label`, not `selectable_value`: nothing is held
                 // between frames, because the **document** is the state. A
                 // press is an edit, not a choice to be committed later.
-                if ui
-                    .selectable_label(
-                        face == current,
-                        crate::panels::properties::text::shorten(&face),
-                    )
-                    .clicked()
-                    && face != current
-                {
-                    *parked = Some(StyleChange::Face(face.clone()));
+                let row = ui.selectable_label(selected, &face.label);
+                let row = if face.ambiguous {
+                    row.on_hover_text(t::text_face_ambiguous())
+                } else {
+                    row
+                };
+                if row.clicked() && !selected {
+                    // ★ `selector`, not the label — see the panel's twin.
+                    *parked = Some(StyleChange::Face(face.selector.clone()));
                     invoked = true;
                 }
             }
