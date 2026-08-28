@@ -128,6 +128,14 @@ pub(super) struct Frame<'a> {
     pub rotate_ghost: Option<f32>,
     /// The markup band, if one would commit.
     pub band: Option<markup::band::Preview>,
+    /// The lines a text-following highlight would cover, in canvas space.
+    ///
+    /// ★★ A separate slot from [`Self::band`] and never `Some` beside it: the
+    /// two are the same gesture taking different geometry, and the drag decides
+    /// which on every frame. Folding them into one value would mean the painter
+    /// asking *"is this two points or a list?"* — a question the type can
+    /// answer for free.
+    pub text_marks: Option<Vec<egui::Rect>>,
     /// The freehand trail, already simplified, in canvas space.
     pub ink_trail: Option<Vec<egui::Pos2>>,
     /// The armed tool — read by the previews that draw whenever a tool is
@@ -181,6 +189,7 @@ pub(super) fn draw(
     let text_selection = f.text_selection;
     let measure_hover = f.measure_hover;
     let measure_picked = f.measure_picked;
+    let text_marks = f.text_marks.as_deref();
     let ctx = ctx.clone();
 
     // ---- 8. draw --------------------------------------------------------
@@ -455,6 +464,15 @@ pub(super) fn draw(
     // would obscure the one thing the operator is aiming.
     if let Some(band) = f.band {
         markup::band::draw_preview(&painter, map, band, pen);
+    }
+    // ★★★ The text-following highlight's preview — one wash per line the drag
+    // crosses. `OPERATOR_REQUESTS.md` O54.
+    //
+    // Drawn with the SAME wash the area band uses, deliberately: they are one
+    // feature reached by one tool, and a preview that changed colour depending
+    // on whether the pointer had found text would read as two.
+    if let Some(marks) = text_marks {
+        markup::band::draw_text_marks(&painter, map, marks, pen);
     }
     // …and the freehand trail, on the same argument and in the same layer: while
     // the button is down the stroke IS the cursor, and it is drawn from the

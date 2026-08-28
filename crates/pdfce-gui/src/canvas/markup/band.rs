@@ -325,6 +325,32 @@ fn highlight_wash(kind: MarkupKind, pen: super::pen::Pen) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 90)
 }
 
+/// **Paint a text-following highlight's preview: one wash per line.**
+///
+/// `OPERATOR_REQUESTS.md` **O54**. The sibling of [`draw_preview`] for the
+/// gesture that found text under it.
+///
+/// ★★ It uses `highlight_wash` — the identical colour the area band draws —
+/// because they are one feature reached by one tool. A preview that changed
+/// colour depending on whether the pointer had found text would tell the
+/// operator they had switched tools when they had not.
+///
+/// ★ Rectangles rather than quads: the quads a text sweep produces are already
+/// axis-aligned per line in canvas space, which is what `TextSelection::
+/// highlights` hands back. A rotated run is drawn by the committed appearance
+/// stream, not by this — the same division `draw_preview` makes.
+pub fn draw_text_marks(
+    painter: &egui::Painter,
+    map: &crate::canvas::mapping::PageMapping,
+    marks: &[egui::Rect],
+    pen: super::pen::Pen,
+) {
+    let wash = highlight_wash(MarkupKind::Highlight, pen);
+    for mark in marks {
+        painter.rect_filled(map.rect_to_screen(*mark), CornerRadius::ZERO, wash);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

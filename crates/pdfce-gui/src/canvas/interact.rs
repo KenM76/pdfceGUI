@@ -664,6 +664,13 @@ pub(super) fn interact(
     // is one fewer place to be wrong, and it is the arrangement the five slots
     // above already establish.
     let mut annot_ghost: Option<egui::Rect> = None;
+    // The quads a text-following highlight would cover, in canvas space.
+    //
+    // ★ An eighth preview slot, for the reason the seven above it are separate:
+    // this one is a LIST of rectangles — one per line the drag crosses — where a
+    // band is two points, and the painter draws them with the same wash the
+    // band uses so the two gestures look like one feature.
+    let mut text_marks: Option<Vec<egui::Rect>> = None;
     let mut band = None;
     // The freehand trail, already simplified, in canvas space. A second
     // preview value beside `band` rather than a variant of it, because the two
@@ -859,38 +866,33 @@ pub(super) fn interact(
         // rules are unit-tested without a window. Note what neither needs: a
         // decomposition. A markup hit-tests nothing, which is why this outcome is
         // absent from `needs_targets` above.
+        // ★ The markup drag, routed. Three gesture modules behind one outcome
+        // — a band, a freehand trail, and the line-grouped quads of a highlight
+        // that found text under it — and `markup::route` is the decision. Moved
+        // out of this arm on 2026-08-28 when the third destination landed, for
+        // the reason every arm here states: this is wiring.
         GestureOutcome::Markup {
             kind,
             from,
             to,
             phase,
         } => {
-            if kind.is_freehand() {
-                ink_trail = markup::ink::drag(
-                    pen,
-                    markup::ink::Stroke {
-                        ctx: &ctx,
-                        kind,
-                        from,
-                        to,
-                        phase,
-                        page_index,
-                        page: doc.current_page(),
-                    },
-                    actions,
-                );
-            } else {
-                band = markup::band::drag(
-                    pen,
+            let previews = markup::route::drag(
+                markup::route::Drag {
+                    ctx: &ctx,
                     kind,
+                    pen,
+                    doc,
+                    page_index,
                     from,
                     to,
                     phase,
-                    page_index,
-                    doc.current_page(),
-                    actions,
-                );
-            }
+                },
+                actions,
+            );
+            band = previews.band;
+            ink_trail = previews.trail;
+            text_marks = previews.text_marks;
         }
         // ★ A text-annotation band. It draws exactly as a markup band does and
         // COMMITS NOTHING — on `Phase::Complete` it raises the request that
@@ -1322,6 +1324,7 @@ pub(super) fn interact(
             vertex_snap,
             rotate_ghost,
             band,
+            text_marks: text_marks.clone(),
             ink_trail,
             active_tool,
             pen,

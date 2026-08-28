@@ -253,6 +253,18 @@ pub fn markup_for_command(id: &str) -> Option<crate::canvas::markup::MarkupKind>
 pub fn text_mark_command(kind: crate::canvas::markup::text::TextMarkKind) -> &'static str {
     use crate::canvas::markup::text::TextMarkKind as K;
     match kind {
+        // ★★ Highlight has no text-markup COMMAND of its own, and that is not
+        // an omission. It is the one kind reachable by two gestures — an armed
+        // tool that follows text where there is text and draws an area box
+        // where there is not (`OPERATOR_REQUESTS.md` O54) — so its control is
+        // `markup.highlight`, which arms that tool, and there is no separate
+        // "highlight the selection" verb to name here.
+        //
+        // ⇒ Returning the tool's own id would be wrong in a way that compiles:
+        // this function answers *"which command authors this from a selection"*,
+        // and for Highlight the answer is that none does.
+        // ui-text-exempt: command ids, never displayed
+        K::Highlight => "markup.highlight",
         // ui-text-exempt: command ids, never displayed
         K::Underline => "markup.underline",
         // ui-text-exempt: command ids, never displayed

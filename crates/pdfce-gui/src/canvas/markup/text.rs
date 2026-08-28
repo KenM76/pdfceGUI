@@ -275,6 +275,28 @@ use crate::canvas::textsel::TextSelection;
 /// ribbon's Text markup group lists them, after Highlight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextMarkKind {
+    /// ★★★ `/Highlight` — a translucent wash over each quad.
+    ///
+    /// **Added 2026-08-28** (`OPERATOR_REQUESTS.md` **O54**), and it is the one
+    /// kind in this enum that is *also* a [`super::MarkupKind`] — the armed
+    /// tool that draws an area highlight by dragging a box.
+    ///
+    /// ★★ That is not a duplication, and the reason is what these two enums
+    /// actually encode: **not identity, but GEOMETRY.** `MarkupKind` is *"kinds
+    /// whose operand is a shape the pointer draws"*; this one is *"kinds whose
+    /// operand is a run of text"*. Highlight is the only kind that is honestly
+    /// both, because a highlight over text follows the lines and a highlight
+    /// over a scan is an area — and Acrobat's own tool does exactly that.
+    ///
+    /// ⇒ A kind reachable by two gestures needs an entry in both tables. The
+    /// alternative — one enum with a geometry field — would put a branch in
+    /// every arm that today cannot be wrong, to express a thing that is true of
+    /// one variant.
+    ///
+    /// ★ It takes the **highlighter**, not the ink, unlike the other three —
+    /// see [`Self::rgb`]. Same instrument, same swatch, whichever gesture
+    /// reached it.
+    Highlight,
     /// `/Underline` — a line near each quad's baseline.
     Underline,
     /// `/StrikeOut` — a line through each quad's vertical middle.
@@ -320,6 +342,7 @@ impl TextMarkKind {
     #[must_use]
     fn subtype(self) -> TextMarkupKind {
         match self {
+            Self::Highlight => TextMarkupKind::Highlight,
             Self::Underline => TextMarkupKind::Underline,
             Self::StrikeOut => TextMarkupKind::StrikeOut,
             Self::Squiggly => TextMarkupKind::Squiggly,
@@ -388,6 +411,14 @@ impl TextMarkKind {
     #[must_use]
     fn rgb(self, pen: super::pen::Pen) -> (f64, f64, f64) {
         match self {
+            // ★★ The HIGHLIGHTER, not the ink, and it is the one arm that
+            // differs. `pen.rs`: *"an operator who sets the pen to green does
+            // not thereby want a green highlight, any more than picking a green
+            // biro changes the marker in their other hand."* A highlight is a
+            // wash whichever gesture drew it, so a text-following one and an
+            // area one must come out of the same swatch — the alternative is
+            // one feature that changes colour depending on how it was reached.
+            Self::Highlight => pen.highlighter,
             Self::Underline | Self::StrikeOut | Self::Squiggly => pen.ink,
         }
     }
@@ -553,6 +584,111 @@ pub fn trace_commit(kind: TextMarkKind, page: usize, quads: usize) {
         // ui-text-exempt: diagnostic trace, never displayed in the UI
         format!("text-markup-commit kind={kind:?} page={page} quads={quads}")
     });
+}
+
+/// **A markup drag that found text under it: the quads it would cover, and the
+/// commit on release.** `OPERATOR_REQUESTS.md` **O54**.
+///
+/// Returns `Some(marks)` — canvas-space rectangles, one per line the drag
+/// crosses — when the gesture is following text, and `None` when it is not, so
+/// the caller falls through to the area band.
+///
+/// # ★★★ Why this is the DEFAULT for a highlight and the band is the fallback
+///
+/// The operator: *"we should be able to drag it along to just highlight text
+/// too like it works in adobe."* Acrobat's Highlight follows text, and it is the
+/// convergent behaviour of the class.
+///
+/// ★★ pdfce's fallback is **better than the reference** and is kept for that
+/// reason: over a scan with no text layer Acrobat's highlight draws nothing at
+/// all, and an area highlight there is exactly what a drawing office wants. So
+/// the rule is *follow text where there is text, box where there is not*, which
+/// strictly dominates the behaviour being matched.
+///
+/// # ★★ Only Highlight, and the other seven band kinds are not offered this
+///
+/// A rectangle, an ellipse, an arrow or a cloud drawn over a paragraph means the
+/// shape, not the words — nobody drags an arrow expecting it to follow a line of
+/// text. Highlight is the one band kind whose *subject* is the text it covers,
+/// which is why it is the one kind that appears in both geometry enums.
+///
+/// # ★ It commits nothing before the release
+///
+/// Same contract every preview in this crate is held to: the marks are handed
+/// back on every frame so the operator can see what they are about to get, and
+/// the action is raised once, on `Phase::Complete`. A preview that promised
+/// quads and then committed a box would be the dishonesty rule 4 forbids.
+pub struct Swept<'a> {
+    /// The armed markup kind. Only `Highlight` is answered — see the docs.
+    pub kind: super::MarkupKind,
+    /// The pen, for the wash.
+    pub pen: super::pen::Pen,
+    /// The open document, for its text and its page.
+    pub doc: &'a crate::app::state::OpenDoc,
+    /// The page on screen.
+    pub page_index: usize,
+    /// The drag's two endpoints, in canvas space.
+    pub from: egui::Pos2,
+    /// See [`Self::from`].
+    pub to: egui::Pos2,
+    /// Where the gesture is.
+    pub phase: crate::canvas::gesture::Phase,
+}
+
+pub fn swept(frame: Swept<'_>, actions: &mut Vec<Action>) -> Option<Vec<egui::Rect>> {
+    let Swept {
+        kind,
+        pen,
+        doc,
+        page_index,
+        from,
+        to,
+        phase,
+    } = frame;
+    if kind != super::MarkupKind::Highlight {
+        return None;
+    }
+    let page_text = doc.page_text()?;
+    let page = doc.pages.get(page_index)?;
+    // ★ The SAME options the extraction ran with — `textsel::PageContext::opts`
+    // — so the runs this drag sweeps are segmented exactly as the runs the
+    // canvas paints and the find bar searches.
+    let ctx = crate::canvas::textsel::PageContext {
+        text: &page_text,
+        page,
+        index: page_index,
+        epoch: doc.edit_epoch,
+    };
+    let selection = crate::canvas::textsel::drag(&ctx, from, to)?;
+    let marks = selection.highlights(page_index, doc.edit_epoch);
+    if marks.is_empty() {
+        // ★★ No quads is NOT the same as no text: a drag that began and ended
+        // inside one glyph selects nothing, and so does one over a page whose
+        // text could not be extracted. Both mean *"this gesture is not
+        // following text"*, and both fall through to the band — which is the
+        // honest answer rather than a highlight of nothing.
+        return None;
+    }
+    let marks = marks.to_vec();
+    if phase == crate::canvas::gesture::Phase::Complete {
+        match mark(
+            TextMarkKind::Highlight,
+            Some(&selection),
+            doc.edit_epoch,
+            pen,
+        ) {
+            Ok(raised) => {
+                trace_commit(TextMarkKind::Highlight, page_index, marks.len());
+                actions.push(raised);
+            }
+            Err(reason) => decline(TextMarkKind::Highlight, reason),
+        }
+        // Nothing is previewed on the frame that commits: the annotation is
+        // about to be drawn for real, and a wash left over it would be a second
+        // copy of the same colour, one frame stale.
+        return None;
+    }
+    Some(marks)
 }
 
 #[cfg(test)]
