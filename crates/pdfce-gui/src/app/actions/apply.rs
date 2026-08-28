@@ -1063,6 +1063,7 @@ impl PdfceApp {
             // re-rasterized, because a font gaining a program changes how it
             // draws everywhere it is used.
             Action::EmbedFonts { request } => super::fonts::embed(doc, &request),
+            Action::UnembedFonts { request } => super::fonts::unembed(doc, &request),
             // ★ One bookmark, one undo entry, and NO count reported.
             //
             // See the variant: `/Count` is two quantities and its sign is the

@@ -5,18 +5,20 @@
 //!
 //! ## ★★ The seam, and why it is a subject rather than a size
 //!
-//! Both commands here — `tools.embed_fonts` and, when it is wired, its mirror
-//! `tools.unembed_fonts` — share a property no other command in this shell has:
-//! **their operand is not in the document and not in the dialog either.** It is
-//! on the operator's disk, found through a folder list the operator maintains,
-//! by a resolver this shell owns outright because `pdfce-core` *"never goes
-//! looking"*.
+//! Both commands here open a **confirmation window over a plan**, and both can
+//! answer *"there is nothing to do"* — which is what gives them a dispatch shape
+//! nothing else in this shell has. Every other window-opening arm is one line,
+//! `self.dialogs.open_x(&self.status)`, because a document is the only input
+//! and opening always succeeds. These two **decline with a sentence**, and a
+//! decline that is not recorded is an operator pressing a button and seeing
+//! nothing happen.
 //!
-//! That gives them a dispatch shape nothing else here has. Every other
-//! window-opening arm is one line — `self.dialogs.open_x(&self.status)` —
-//! because a document is the only input. These two need the preference as well,
-//! and they can **decline with a sentence**, which is a branch a one-line arm
-//! cannot express.
+//! ★ They are otherwise mirror images, and the asymmetry is worth stating
+//! because it explains why only one of them was blocked on a preference:
+//! **embedding needs an operand from outside the document** — a font file on
+//! the operator's disk, found through a folder list they maintain, because
+//! `pdfce-core` *"never goes looking"* — and **removal needs none**, since it
+//! deletes what the document already carries.
 //!
 //! ## ★ The harness seam lives here, not in the preference
 //!
@@ -53,7 +55,7 @@ const FONT_DIR_ENV: &str = "PDFCE_DIAG_FONT_DIR";
 #[must_use]
 pub(crate) fn handles(id: &str) -> bool {
     // ui-text-exempt: registered command ids, never displayed.
-    matches!(id, "tools.embed_fonts")
+    matches!(id, "tools.embed_fonts" | "tools.unembed_fonts")
 }
 
 /// Where pdfce may look for a donor font on this run.
@@ -105,26 +107,49 @@ pub(crate) fn folders(prefs: &Prefs) -> Vec<PathBuf> {
 /// uses, for the same reason: the operator still believes the gesture worked,
 /// and silence is what would leave them believing it.
 pub(crate) fn dispatch(id: &str, dialogs: &mut DialogsState, status: &Status, prefs: &Prefs) {
-    // ui-text-exempt: registered command ids, never displayed.
-    if id != "tools.embed_fonts" {
-        return;
-    }
-    // The epoch is read before the window is built, so the note is stamped with
+    // The epoch is read before a window is built, so a decline is stamped with
     // the revision the operator is looking at. Nothing here edits, so it cannot
     // move underneath.
     let Status::Open(doc) = status else {
         return;
     };
     let epoch = doc.edit_epoch;
-    let folders = folders(prefs);
-    if let Some(note) = dialogs.open_embed_fonts(status, &folders) {
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            format!(
-                "embed-fonts-declined folders={} detail=nothing-to-open",
-                folders.len()
+    // ui-text-exempt: registered command ids, never displayed.
+    let (declined, detail) = match id {
+        "tools.embed_fonts" => {
+            let folders = folders(prefs);
+            let note = dialogs.open_embed_fonts(status, &folders);
+            (
+                note,
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!("embed-fonts-declined folders={}", folders.len()),
             )
-        });
+        }
+        // ★★ **`tools.unembed_fonts` — the LAST scaffolded command the font
+        // work reached, and the only one of the ten whose recorded blocker was
+        // TRUE.**
+        //
+        // It said the confirmation window this needs does not exist, because
+        // *"three of unembedding's four consequences are invisible on the
+        // canvas"*. It did not, and they are. `dialogs::unembed` is that
+        // window; there is now a fourth consequence in it that nobody had
+        // written down.
+        //
+        // => A blocker naming a SURFACE THAT DOES NOT EXIST is the strong kind.
+        // It cannot go stale by accident, because nothing makes a window appear
+        // except somebody building one. That is the distinction worth keeping
+        // after an audit found six of eleven entries wrong: the register is not
+        // noise, it is unevenly reliable, and the reliable entries are the ones
+        // whose truth condition is inside this repository.
+        "tools.unembed_fonts" => (
+            dialogs.open_unembed_fonts(status),
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "unembed-fonts-declined".to_owned(),
+        ),
+        _ => return,
+    };
+    if let Some(note) = declined {
+        crate::diag::trace(|| format!("{detail} detail=nothing-to-open"));
         crate::app::actions::record_note(epoch, note);
     }
 }

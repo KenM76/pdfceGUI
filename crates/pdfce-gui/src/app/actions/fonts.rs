@@ -1,7 +1,7 @@
 //! # `app::actions::fonts` — the document-level font verbs
 //!
-//! One so far: embedding the font programs a document references but does not
-//! carry. `tools.unembed_fonts` is its mirror and lands here when it is wired.
+//! Two: embedding the font programs a document references but does not carry,
+//! and removing the ones it does.
 //!
 //! ## ★★ Why this is its own module rather than an arm in `apply`
 //!
@@ -61,6 +61,45 @@ pub(super) fn embed(doc: &mut OpenDoc, request: &pdfce_core::font_embed_missing:
                 plan.targets.len(),
                 plan.missing_after(),
                 plan.substitutes_any(),
+            )
+        })
+    });
+}
+
+/// **Remove every embedded font program the request names, as one undoable
+/// command.**
+///
+/// ★ No pre-flight refusal check, for [`embed`]'s reason: `unembed_fonts` runs
+/// `unembed_refusal` itself before mutating.
+///
+/// ★★ And **no PDF/A gate here either**, deliberately. The engine leaves PDF/A
+/// out of its refusal and says why: *"unembedding genuinely breaks that
+/// conformance … but it is a consequence the operator may knowingly accept, not
+/// a structural impossibility. The core reports it and **the shells gate on
+/// it**."* This shell's gate is the sentence in `dialogs::unembed`, which the
+/// operator reads before pressing the button — a disclosure, not a refusal,
+/// because the decision is theirs and the engine says so.
+pub(super) fn unembed(doc: &mut OpenDoc, request: &pdfce_core::font_unembed::UnembedRequest) {
+    super::apply::vector_edit(doc, "unembed-fonts", 0, 1, |session| {
+        session.unembed_fonts(request).map(|plan| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    // `-applied`, per the convention `forms::import_data`
+                    // records: `vector_edit` writes its own bare-named line for
+                    // the same edit, and `.last()` on a shared name reads the
+                    // wrong one.
+                    "unembed-fonts-applied removed={} blocked={} bytes={} renamed={}",
+                    plan.targets.len(),
+                    plan.blocked.len(),
+                    plan.bytes_reclaimable(),
+                    plan.renames_any()
+                )
+            });
+            crate::text::unembed::removed_disclosure(
+                plan.targets.len(),
+                plan.bytes_reclaimable(),
+                plan.renames_any(),
             )
         })
     });

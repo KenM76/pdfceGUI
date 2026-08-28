@@ -216,6 +216,10 @@ pub mod ribbon;
 /// explaining what a ratio is measured *against*, when the honest answer for a
 /// PDF is 1/72 inch and nobody's intuition is in those.
 pub mod scale;
+/// What the Remove-fonts window says before it takes something out - the
+/// destructive twin of `embed`, and the four consequences an operator cannot
+/// see on the canvas.
+pub mod unembed;
 
 /// Every word the Settings window shows — the thirteen spec-ambiguity choices,
 /// what each leaves open, and what each costs.

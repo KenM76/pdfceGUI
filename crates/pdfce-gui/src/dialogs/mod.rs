@@ -102,6 +102,9 @@ pub mod print;
 /// removal runs on open, why confirmation is three gates rather than one click,
 /// and why the destination is asked for every time.
 pub mod redact;
+/// The Remove-fonts confirmation - the destructive twin of `embed`, and the
+/// disclosure surface its own scaffold entry named as the thing blocking it.
+pub mod unembed;
 /// ★★ The question `file.close` promised in its own tooltip and never asked —
 /// the confirmation that stands between an operator's afternoon of markup and
 /// `Status::Empty`.
@@ -277,6 +280,12 @@ pub struct DialogsState {
     /// open document's font inventory, so it describes nothing once that
     /// document is gone.
     embed: Option<embed::EmbedDialog>,
+
+    /// The Remove-fonts window, when one is open.
+    ///
+    /// **Document-scoped**, for its sibling's reason: its content is a plan
+    /// computed against the open document's font inventory.
+    unembed: Option<unembed::UnembedDialog>,
 
     /// The Export-DXF window, when one is open.
     ///
@@ -705,6 +714,9 @@ impl DialogsState {
         if self.embed.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.embed = None;
         }
+        if self.unembed.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.unembed = None;
+        }
         // ★ The Manage-dimension-groups WINDOW used to be drawn here, and the
         // comment that stood in its place said the order was load-bearing —
         // its *Set scale…* button parked a request drained on the next line.
@@ -822,6 +834,7 @@ impl DialogsState {
         self.insert_image = None;
         self.export_dxf = None;
         self.embed = None;
+        self.unembed = None;
     }
 
     /// Open the Export-DXF window for the page on screen.
@@ -889,6 +902,31 @@ impl DialogsState {
         } else {
             crate::text::embed::nothing_missing().to_owned()
         })
+    }
+
+    /// Open the Remove-fonts window, and say so when there is nothing to open.
+    ///
+    /// **The dispatch target for `tools.unembed_fonts`.** The same shape as
+    /// [`Self::open_embed_fonts`] and for the same reason: a document with
+    /// nothing removable is an ordinary document, not an error, and a window
+    /// saying so is a modal an operator dismisses to learn they did not need
+    /// it.
+    ///
+    /// ★ It takes no folder list. Removal needs no donor - it deletes what the
+    /// document already carries - which is the whole asymmetry between the two
+    /// commands and the reason only one of them was blocked on a preference.
+    pub fn open_unembed_fonts(&mut self, status: &Status) -> Option<String> {
+        if self.unembed.is_some() {
+            return None;
+        }
+        let Status::Open(_) = status else {
+            return None;
+        };
+        self.unembed = unembed::open_for(status);
+        if self.unembed.is_some() {
+            return None;
+        }
+        Some(crate::text::unembed::nothing_removable().to_owned())
     }
 
     /// Open the Insert-image window for an already-imported picture.

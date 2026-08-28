@@ -171,6 +171,21 @@ impl EmbedDialog {
         if plan.targets.is_empty() && shown.is_empty() {
             return None;
         }
+        // ★★ The window's own plan counts, traced when it opens - see
+        // `dialogs::unembed`'s equivalent for the argument. A window with
+        // `targets=0` is correct for a document nothing on the machine can
+        // answer for, and is indistinguishable from a broken button without
+        // this line.
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed
+            format!(
+                "embed-fonts-opened targets={} blocked={} shown={} supplied={}",
+                plan.targets.len(),
+                plan.blocked.len(),
+                shown.len(),
+                request.supplied.len()
+            )
+        });
         Some(Self {
             plan,
             request,

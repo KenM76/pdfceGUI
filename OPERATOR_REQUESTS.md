@@ -80,6 +80,60 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O48 — Removing embedded fonts does not make the file smaller, and I think that is the wrong answer
+
+**Found 2026-08-28, while wiring Tools > Remove embedded fonts. Not a defect —
+a design decision that was made for a different reason and now has a cost.**
+
+### What works
+
+Remove embedded fonts is live. On a document carrying a removable font it takes
+the outlines out, keeps every letter exactly where it was, and reports what it
+did. Driven: one font removed, 15,025 bytes of program freed.
+
+### And the number is a lie by omission unless the window says this
+
+**pdfce's Save will not make the file smaller.** It saves by appending your
+changes to the end of the file and leaving the earlier version intact — that is
+what the Save-a-copy tooltip has promised since day one — so the font outlines
+stop being *used* and are still *there*. The file gets slightly bigger.
+
+The window says so, in as many words, right above the button. But the whole
+reason anybody removes an embedded font is to shrink a file, so today the
+feature does the work and cannot deliver the point of it.
+
+### Why Save works that way, and why it is a good reason
+
+Appending is what lets pdfce promise the previous version of your drawing is
+still recoverable inside the file, and it is what keeps a **digital signature**
+valid — a save that rewrites the whole file destroys every signature in it.
+Those are not small things and I do not want to trade them away by default.
+
+### What I would build if you want it
+
+A second save that **rewrites the file completely**: smaller file, no previous
+version kept, and any signature is gone. Named so it cannot be pressed by
+accident — *Save a compacted copy…* — always to a new file, never over yours,
+with a plain sentence about what it discards.
+
+That would also help elsewhere: the same rewrite is what reclaims space after
+deleting pages or images.
+
+### What I need from you
+
+1. **Build it** — a separate compacting Save, as above.
+2. **Leave it** — the window explains the limit and that is enough.
+3. **Something else** — e.g. do it automatically when the document is unsigned
+   and has no earlier revision worth keeping.
+
+My lean is **1**, as an explicit separate command. It is a day's work and it
+makes three other features honest.
+
+**Status:** open. Nothing is blocked; removal works today and discloses the
+limit.
+
+---
+
 ## O47 — A question, not a complaint: should pdfce embed its OWN fonts?
 
 **Asked 2026-08-28, by me, and it needs your answer before I build either

@@ -333,14 +333,6 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     //
     // The list is `dialogs::settings::fonts`; the preference is
     // `app::prefs::fonts`; the arm raises `Action::Command("file.settings")`.
-    (
-        "tools.unembed_fonts",
-        "Its sibling above, plus a reason of its own that has NOT expired: `panels/fonts.rs` \
-         records that the old shell's confirmation window exists because “three of \
-         unembedding's four consequences are invisible on the canvas (a broken PDF/A claim, \
-         an invalidated signature, a renamed font)”. That disclosure surface is rule 4 work \
-         and is not built.",
-    ),
 ];
 
 /// **The mirror defect: a literal arm that no token can reach, and why each is

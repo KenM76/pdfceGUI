@@ -105,6 +105,13 @@ const REQUESTED: &str = "embed-fonts-requested";
 /// worked. That defect has been made twice in this project and the naming
 /// convention is what prevents the third.
 const APPLIED: &str = "embed-fonts-applied";
+/// The line the window writes when it opens, carrying its plan's counts.
+///
+/// ★★ The check reads `targets=` off this to tell a GREYED button from a broken
+/// one. Both look identical from outside - no click reaches anything - and
+/// exactly one of them is a fact about the fixture rather than about the
+/// program.
+const OPENED: &str = "embed-fonts-opened";
 /// The line the dispatcher writes when there is nothing to open.
 const DECLINED: &str = "embed-fonts-declined";
 
@@ -206,6 +213,29 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              no font that is missing its program, which is the harness's aim rather than the \
              program's behaviour. Point it at a document a CAD tool exported. Trace: {}.",
             declined.raw,
+            session.trace_path().display()
+        )));
+    }
+
+    // ★★ The same fixture guard `unembed_fonts` documents at length - but here
+    // it is a FAILURE, not a skip, and the asymmetry is the point.
+    //
+    // "Nothing removable" is a fact about the document alone. "Nothing
+    // embeddable" is a fact about the document AND the folder this check aimed
+    // the program at, and this check aims it at the system font folder on a
+    // fixture asking for Helvetica. `targets=0` there means the resolver did
+    // not reach its alias rung, which is a defect in the program.
+    if let Some(opened) = trace.events(OPENED).last()
+        && opened.get("targets") == Some("0")
+    {
+        return Ok(Some(format!(
+            "★ THE WINDOW OPENED WITH NOTHING TO EMBED: `{}`.
+             The document names fonts it does not carry and {SYSTEM_FONTS} was supplied, so a \
+              plan with no targets means the donor map reaching the engine is empty. Read \
+              `supplied=`: zero means `app::fonts::Library::donor_for` answered nothing, which \
+              on a fixture asking for Helvetica means the ALIAS rung of \
+              `FontEnvironment::resolve_for_embedding` was not reached. Trace: {}.",
+            opened.raw,
             session.trace_path().display()
         )));
     }

@@ -749,6 +749,29 @@ pub enum Action {
         /// Which fonts, and the program the shell resolved for each.
         request: Box<pdfce_core::font_embed_missing::EmbedRequest>,
     },
+    /// **Take the embedded font programs OUT of a document**, as one undoable
+    /// command.
+    ///
+    /// Raised by `crate::dialogs::unembed` and by nothing else.
+    ///
+    /// # ★ Why it carries a request at all, when the selection is always the
+    /// # same today
+    ///
+    /// The dialog sends `UnembedSelection::AllRemovable` every time, so this
+    /// could be a unit variant like [`Self::ExportFormData`]. It carries the
+    /// request because the request is what `unembed_preview` was called with,
+    /// and the preview the operator READ is only the plan for that exact
+    /// request. Rebuilding it in the apply arm would put a second constructor
+    /// on the path between what was shown and what is done - which is the
+    /// property `embed_preview` and `embed_fonts` are built to have and the one
+    /// this variant exists to preserve.
+    ///
+    /// Boxed for [`Self::EmbedFonts`]' reason: `Action` moves through a queue
+    /// by value on every gesture and its size is the largest variant's.
+    UnembedFonts {
+        /// Which fonts, and what happens to their subset tags.
+        request: Box<pdfce_core::font_unembed::UnembedRequest>,
+    },
     /// ★ **Place a raster image on the page.**
     ///
     /// Raised by `crate::dialogs::insert_image` and by nothing else.

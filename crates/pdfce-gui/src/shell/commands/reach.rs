@@ -1372,8 +1372,30 @@ pub const FX_CONST: &str = "fx.constant";
         // no arm, the reason is prose, and the only thing that finds it is
         // asking what the verb's own REQUEST STRUCT requires rather than
         // whether the verb exists.
+        // ★★★ 6 -> 5: `tools.unembed_fonts` WIRED, and it is the ONE entry in
+        // this whole audit whose recorded reason was TRUE and stayed true until
+        // the work was done.
+        //
+        // It said the confirmation window did not exist, because three of
+        // unembedding's four consequences are invisible on the canvas. It did
+        // not exist. It does now, and it discloses a FOURTH that was in no
+        // register: this shell saves incrementally, so removing a font program
+        // does not make the file smaller and never has.
+        //
+        // => **A blocker whose truth condition is inside this repository is the
+        // strong kind.** Nothing makes a window appear except somebody building
+        // it, so this entry could not have gone stale by accident - unlike the
+        // one that named a missing HOST, the two that cited other citations,
+        // and the one that quoted an expired premise.
+        //
+        // That distinction is what stops the audit's headline - six of eleven
+        // wrong - from being read as "the register is noise". It is not noise.
+        // It is unevenly reliable, and the reliable half is identifiable in
+        // advance: an entry that names something absent from THIS repo can be
+        // checked by looking, and an entry that cites another document or
+        // another repository cannot.
         assert_eq!(
-            total, 6,
+            total, 5,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(

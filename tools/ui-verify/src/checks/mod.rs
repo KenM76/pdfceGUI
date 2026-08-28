@@ -138,6 +138,7 @@ pub mod markup_rectangle;
 /// **greyed at a specific moment mid-gesture**. Its header carries the argument.
 pub mod markup_shapes;
 pub mod progressive;
+pub mod unembed_fonts;
 
 /// `ocr_recognises_a_page_and_the_document_keeps_it` — the whole Recognise-text
 /// chain against a genuinely image-only document, ending in the one assertion
@@ -669,6 +670,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
         Box::new(embed_fonts::EmbeddingFontsPutsAProgramInTheDocument),
+        Box::new(unembed_fonts::RemovingEmbeddedFontsReachesTheDocument),
         Box::new(export_form_data::ExportingFormDataWritesAFile),
         Box::new(export_dxf::ExportDxfWritesThePagesGeometry),
         // Insert an image, wired 2026-08-19. Its last assertion is the one
