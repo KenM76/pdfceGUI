@@ -327,3 +327,23 @@ pub fn text_style_multi(count: usize) -> String {
         "That selection covered {count} separate pieces of text on the page, so pdfce restyled each one. Ctrl+Z takes them back one at a time."
     )
 }
+
+/// Disclosure: bold or italic was applied by switching to a face from a
+/// **different family**.
+///
+/// ★★★ A separate sentence from [`text_style_used_real_face`], because the
+/// engine draws the distinction itself and says why: a fallback to another
+/// family is *"a bigger change than a weight swap"*, offered only when no face
+/// of the run's own family on that page can show the run.
+///
+/// ★★ It is also the one substitution the operator **will** see. A weight swap
+/// within a family looks like bold; a family change looks like different
+/// letters. Reporting it in the same words as an ordinary real-face
+/// substitution would be true and would bury the half they can notice — which
+/// is Rule 4 read backwards, disclosing the invisible and hiding the visible.
+#[must_use]
+pub fn text_style_used_other_family(style: &str, face: &str) -> String {
+    format!(
+        "No {style} face of this text's own family is on the page, so pdfce used {face} instead. The letterforms will look different, not just heavier or slanted."
+    )
+}

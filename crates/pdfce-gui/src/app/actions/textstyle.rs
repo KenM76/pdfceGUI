@@ -353,14 +353,50 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
                     // page. See the module header — the alternative is showing
                     // the operator a sentence telling them to do a thing the
                     // program could have done.
+                    // ★★★ `selector`, NOT `real_font`, and the engine had to
+                    // tell this project so.
+                    //
+                    // They are the same string on almost every page and differ
+                    // exactly where two `/Font` resources share one
+                    // `/BaseFont`. A retry built from the NAME reaches only one
+                    // of the twins - *"possibly the twin that refuses"* - and
+                    // `selector` is defined as the string that reaches the face
+                    // pdfce actually checked.
+                    //
+                    // ★★ The failure it prevents is silent and would have read
+                    // as a font bug: the operator presses Bold, the engine
+                    // names a face it has verified can show the run, the shell
+                    // asks for that face BY NAME, and lands on a different
+                    // resource that refuses. Every sentence in the chain is
+                    // true and the button does nothing.
+                    //
+                    // => Filed by the engine in `Pass 144.0`'s reply, under
+                    // "ACT ON THIS", and this shell kept using `real_font` for
+                    // a day. A reply read is not a reply consumed.
                     Err(FormatError::RealFaceAvailable {
-                        real_font, style, ..
+                        selector,
+                        real_font,
+                        style,
+                        same_family,
+                        ..
                     }) => {
                         let retry = request(page, op.pin)
-                            .font(pdfce_core::text_edit::FontSelector::new(&real_font));
+                            .font(pdfce_core::text_edit::FontSelector::new(&selector));
                         match session.format_text(&retry, &FormatOptions::default()) {
                             Ok(report) => {
-                                notes.push(t::text_style_used_real_face(style, &real_font));
+                                // ★★ `same_family` gets its own sentence. The
+                                // engine says outright that a fallback to
+                                // another family is *"a bigger change than a
+                                // weight swap"*, and it is the one an operator
+                                // will SEE - the letterforms change, not just
+                                // their weight. Reporting it as an ordinary
+                                // real-face substitution would be true and
+                                // would bury the part they can notice.
+                                notes.push(if same_family {
+                                    t::text_style_used_real_face(style, &real_font)
+                                } else {
+                                    t::text_style_used_other_family(style, &real_font)
+                                });
                                 notes.extend(report.disclosures);
                                 Ok(notes.clone())
                             }
