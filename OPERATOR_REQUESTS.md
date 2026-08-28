@@ -80,6 +80,60 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O47 — A question, not a complaint: should pdfce embed its OWN fonts?
+
+**Asked 2026-08-28, by me, and it needs your answer before I build either
+side of it.**
+
+Embedding now works. Tools > Embed fonts, on a drawing that asks for a font it
+does not carry, finds the file on your machine and puts the outlines in. Driven
+end to end on the A1 title block: three fonts missing before, none after.
+
+### The question
+
+pdfce **ships with its own copies** of the fourteen standard PDF fonts —
+Helvetica, Times, Courier and the rest — because it needs them to draw a
+document whose fonts are missing. Those are pdfce's to embed.
+
+Right now they are **not offered**. If none of your font folders answers for a
+font, that font is reported as one pdfce cannot embed, and the reason it gives
+is *"add a folder that does"*.
+
+The alternative is to offer them: press Embed on any drawing and every
+standard-14 font gets one, with no folder configured at all.
+
+### Why I did not just do it
+
+Because embedding a stand-in **changes what the letters look like** in a
+document you send to somebody else, and doing that because a substitute
+happened to be available is the *sneaky* half of rule 4. It is your drawing and
+your client's screen.
+
+The command-line tool makes it an explicit switch for the same reason. Mine has
+no switch, because that window has no settings by design — so this is a choice
+about what pdfce does, not a checkbox I can add without asking.
+
+### What I need from you
+
+One of three:
+
+1. **Never** — leave it as it is. A missing font stays missing until you point
+   pdfce at a folder that has it.
+2. **Always** — offer them, disclosed in the window as "pdfce's own copy" so it
+   is never silent.
+3. **Ask** — a second button in the window, *Embed, using pdfce's own fonts
+   where yours have none*.
+
+My own lean is **2**, disclosed loudly, because on your machine the alias rung
+already substitutes Arial for Helvetica and nobody would call that wrong —
+this is the same act one step further out. But it is your call and I am not
+taking it.
+
+**Status:** open. Nothing is blocked on it; embedding works today with a folder
+configured.
+
+---
+
 ## O46 — ★★★ Editing should work like every other graphics program. It does not.
 
 **Asked:** 2026-08-26. **THE LARGEST REQUEST IN THIS FILE**, and it is not a

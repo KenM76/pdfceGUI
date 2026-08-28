@@ -127,34 +127,27 @@ impl EmbedDialog {
             let Some(donor) = library.donor_for(base_font) else {
                 continue;
             };
-            let Ok(program) = std::fs::read(&donor.path) else {
-                continue;
-            };
             request.supplied.insert(
                 base_font.to_owned(),
                 pdfce_core::font_embed_missing::SuppliedFont::new(
-                    program,
-                    donor.face_name.clone(),
+                    donor.program.to_vec(),
+                    donor.face_name.to_owned(),
                     donor.path.display().to_string(),
-                    match donor.matched {
-                        crate::app::fonts::Match::Exact => {
-                            pdfce_core::font_embed_missing::FontMatch::Exact
-                        }
-                        // ★★★ `Alias`, and calling it `Exact` would be a
-                        // CORRECTNESS defect rather than a cosmetic one.
+                    if donor.matched.is_inferred() {
+                        // ★★★ `Alias` for both inferred rungs, and reporting
+                        // either as `Exact` would be a CORRECTNESS defect
+                        // rather than a cosmetic one.
                         //
-                        // A stem match is this shell deciding that a file named
-                        // `Helv.ttf` is the face a document spells `Helvetica`
-                        // — the file's own advertised name is not what matched.
                         // `FontMatch::is_substitute` is what the engine's
                         // symbolic guard turns on, and its reason is exact: a
                         // symbolic font's codes mean what its own program says
                         // they mean, so a stand-in draws a different repertoire
-                        // rather than a different style. Claiming `Exact` would
-                        // walk such a font straight past that guard.
-                        crate::app::fonts::Match::Stem => {
-                            pdfce_core::font_embed_missing::FontMatch::Alias
-                        }
+                        // rather than a different style. Claiming `Exact` for
+                        // the Arial that answered a document's `Helvetica`
+                        // would walk it straight past that guard.
+                        pdfce_core::font_embed_missing::FontMatch::Alias
+                    } else {
+                        pdfce_core::font_embed_missing::FontMatch::Exact
                     },
                 ),
             );
