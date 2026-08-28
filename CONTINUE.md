@@ -2,10 +2,10 @@
 
 ## 2026-08-28 (afternoon) — reflow became a command, and the pinned-edit workaround was deleted
 
-**Clean tree. 18/18 gates. 1,896 + 421 + 144 tests, 0 failing. 94 driven checks,
-the newest two unrun. Re-measure before quoting.** Engine `1c292bc`.
-**Published**: `OneDrive\pdfceGUI1` is the newest — the field right-click menu
-and Edit ▸ Objects. `pdfceGUI2` is the build before it.
+**Clean tree. 18/18 gates. 1,899 + 421 + 144 tests, 0 failing. 95 driven checks,
+the newest three unrun. Re-measure before quoting.** Engine `1c292bc`.
+**Published**: `OneDrive\pdfceGUI2` is the newest — the O51 scale switches.
+`pdfceGUI1` is the build before it (field menu, Edit ▸ Objects).
 
 ### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
 
@@ -82,6 +82,31 @@ today, the second door found something the first had been hiding.
 selection a right-click raises is applied at the end of the frame and egui
 opens the popup *on* the click, so a state read shows the previous field's menu
 for ever. Do not "simplify" it.
+
+### ★★★ THE O51 SCALE SWITCHES SHIPPED, AND ITS BLOCKER WAS STALE WHEN WRITTEN
+
+*"Blocked on `resize_annotation`, which the engine is building to this shape."*
+It had shipped in `Pass 151.0` and this shell was already calling it.
+
+Three checkboxes on the Tool row when Select is armed: **Scale line weight**,
+**Keep the inner margins the same size**, **Allow the artwork to distort**. All
+off by default.
+
+★★★ **They replaced a DERIVATION, and do not put it back.** `annots::resize`
+was passing `scale_stroke_width: uniform` — the flag taken from whether the
+drag was proportional. A workaround for a refusal, defensible while no control
+existed, and it would have silently overridden the operator on exactly the
+resizes where he was most likely to have an opinion. In a request that is
+itself a correction about that shape of reasoning.
+
+★★ What replaced it is a **worded decline**, in `app::status::decline` —
+`ResizeNotRebuildable { uniform }`. Two sentences, because only one switch helps
+in each case: proportional → *Scale line weight* makes it exact; stretched →
+only *Allow the artwork to distort* proceeds.
+
+★ Each switch publishes **its own** `ui_rect` (`tool.scale.stroke` and two
+siblings) so a driven check clicks a control rather than guessing a row. Same
+rule as the popup rows in `field_menu`.
 
 ### ★★ EDIT ▸ OBJECTS WORKS, AND THE AUDIT ENDS WITH A SHARPER RULE
 
@@ -170,8 +195,7 @@ the same voice asks the operator to trust both equally.
    PDFDocEncoding** before `943d482` — every comment with an accent, em dash or
    `Ø` came back as mojibake, flagged `exact: false`. Anything cached or
    displayed from an older build is suspect.
-2. **O51's Inkscape-style stroke-scaling toggle** on the Tool row.
-3. **Drive everything since the 27th's sweep**, when he says the machine is free.
+2. **Drive everything since the 27th's sweep**, when he says the machine is free.
    ★ Two of the four new checks have never run at all, and one of them uses a
    **brand-new input primitive**. Expect the first sweep to find harness bugs
    before it finds program bugs.

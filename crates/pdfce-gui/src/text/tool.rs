@@ -439,6 +439,80 @@ pub const fn manage_groups_button() -> &'static str {
 }
 
 // ===========================================================================
+// The Select tool — what rides along with a resize
+// ===========================================================================
+
+/// The heading over the Select tool's three scale switches.
+///
+/// ★★ *"When you resize something"*, not *"Scaling"* or *"Transform options"*.
+/// It names the **gesture** these modify, because that is how the operator will
+/// arrive: they have just dragged a grip and something did or did not come with
+/// it. A noun heading would be correct and would not connect to anything they
+/// did.
+#[must_use]
+pub const fn scale_heading() -> &'static str {
+    "When you resize something"
+}
+
+/// The stroke-width switch.
+///
+/// ★★★ **His own vocabulary.** `OPERATOR_REQUESTS.md` O51 says *"scaling line
+/// weight, etc with resize"* — *line weight*, which is the drafting term and
+/// the one on every CAD program's layer table. The PDF calls it a border width
+/// and Inkscape calls it a stroke width; neither is what he said.
+#[must_use]
+pub const fn scale_stroke_label() -> &'static str {
+    "Scale line weight"
+}
+
+/// The `/RD` switch.
+///
+/// ★★★ **Phrased as KEEPING, matching the field it sets.** `/RD` scales by
+/// default, so the switch is an opt-out, and `canvas::scaling` spells it that
+/// way deliberately so `Default::default()` is correct in every field.
+///
+/// ⇒ A label reading *"Scale the inner margins"* would read better and would
+/// put an inversion between the words and the value. That is the single easiest
+/// way to ship a control that does the opposite of what it says, and no test
+/// catches it — both states are legal and both produce a plausible picture.
+///
+/// ★ *"inner margins"* rather than *"rect differences"*: `/RD` is the gap
+/// between an annotation's rectangle and the drawing inside it, which is a
+/// margin, and nobody outside the specification says *rect difference*.
+#[must_use]
+pub const fn scale_insets_label() -> &'static str {
+    "Keep the inner margins the same size"
+}
+
+/// The distortion escape.
+///
+/// ★★★ **It says the result will be uneven, in the label itself.** This is the
+/// one switch whose ON state makes the output worse, and O51's ruling on it is
+/// explicit: proceed and **state** the residual distortion, *"never silently
+/// pick a fudge factor, which is the one thing the parity reference does."*
+/// A label reading *"Allow non-uniform resize"* would be true, neutral, and
+/// would hide the cost inside a word the operator does not have to decode.
+#[must_use]
+pub const fn scale_distort_label() -> &'static str {
+    "Allow the artwork to distort (borders may come out uneven)"
+}
+
+/// The note under the three switches.
+///
+/// ★★ It states the default in the operator's terms and names **why** the line
+/// weight stays put — *a drafting standard* — because on his documents that is
+/// not a preference, it is a convention his drawings are read against. Without
+/// the reason, "off by default" reads as an arbitrary choice somebody made.
+///
+/// ★ It also says the switches apply to the **next** resize, which is the fact
+/// that makes them a per-drag modifier rather than a setting, and the fact an
+/// operator needs in order to use them at all: tick, then drag.
+#[must_use]
+pub const fn scale_note() -> &'static str {
+    "These apply to the next resize. Line weight stays put by default, because on a drawing it is a drafting standard rather than decoration — the same default Acrobat, Illustrator and Inkscape all ship."
+}
+
+// ===========================================================================
 // The text pen — what NEW page text is written in
 // ===========================================================================
 

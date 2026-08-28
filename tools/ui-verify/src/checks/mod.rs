@@ -334,6 +334,10 @@ pub mod ribbon_captions;
 /// the wrong verb, and why the sign of the committed angle is the assertion
 /// that matters.
 pub mod rotate;
+/// **The Tool-row scale switches, driven.** `OPERATOR_REQUESTS.md` O51's
+/// `Scale line weight`, from the checkbox to the engine's `/BS /W`. Three of
+/// the five links in front of the verb are wiring no unit test can see.
+pub mod scale_switch;
 
 /// **Text that does not run along the page's x axis** — the operator's
 /// 2026-08-26 report about a vertical stamp in a title block, driven end to
@@ -795,6 +799,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(zoom_gallery::ThePageStillRendersAtEveryDecadeOfZoom),
         Box::new(pan_refresh::PanningPastTheOverscanRendersTheNewArea),
         Box::new(resize::ResizeScalesAShape),
+        // ★ Directly after `resize`, because it is that check plus one switch:
+        // a failure in `resize_scales_a_shape` should be read first, since
+        // every link it covers is in front of this one.
+        Box::new(scale_switch::TheLineWeightSwitchReachesTheResize),
         Box::new(rotate::RotateHandleTurnsASelection),
         Box::new(shift_constrains::ShiftConstrainsAResize),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),

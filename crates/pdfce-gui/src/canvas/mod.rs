@@ -271,13 +271,6 @@ mod painting;
 /// drives it still has to be driven before any of it counts — R1.
 pub mod pick;
 pub mod resizing;
-/// ★★ The eight resize grips, finally committing — built out of `move_nodes`
-/// because `pdfce-core` has no scale verb, which was re-derived against its
-/// source rather than taken from a note.
-/// **Which of the four canvas menus a secondary click opens.** Its header
-/// carries the frame-ordering hazard that makes the question subtle: egui opens
-/// a popup ON the click, so a menu keyed on state the click is about to change
-/// shows the previous answer for ever.
 pub mod rightclick;
 /// ★★ **The ninth grip** — the rotate handle above the selection box, and the
 /// one gesture the eight could never express. `ui-conventions/handles.md` H2,
@@ -285,6 +278,18 @@ pub mod rightclick;
 /// header carries why a rotation is not a resize with different arithmetic:
 /// the pointer's DISTANCE from the centre must mean nothing.
 pub mod rotating;
+/// ★★ The eight resize grips, finally committing — built out of `move_nodes`
+/// because `pdfce-core` has no scale verb, which was re-derived against its
+/// source rather than taken from a note.
+/// **Which of the four canvas menus a secondary click opens.** Its header
+/// carries the frame-ordering hazard that makes the question subtle: egui opens
+/// a popup ON the click, so a menu keyed on state the click is about to change
+/// shows the previous answer for ever.
+/// **What rides along when a resize scales an annotation** — the three Tool-row
+/// switches of `OPERATOR_REQUESTS.md` O51. Its header carries the correction
+/// they are: convergence among reference implementations argues for a DEFAULT,
+/// not against an OPTION.
+pub mod scaling;
 // The ruler gutters, the 1-2-5 tick ladder they and the grid share, and what
 // unit the whole thing reads in. Its header carries the three decisions this
 // feature turns on: the unit, the space the grid lives in, and why the

@@ -162,35 +162,66 @@ pub(super) fn resize(
     anchor: (f64, f64),
     (sx, sy): (f64, f64),
     uniform: bool,
+    modifiers: crate::canvas::scaling::Modifiers,
 ) {
-    // ★★ The default options: nothing rides with the geometry except `/RD`.
+    // ★★★ **THE OPERATOR'S SWITCHES, and they replaced a derivation.**
     //
-    // The discriminator the engine promoted from this shell's own CAD argument
-    // is *"is the property a length in the space being transformed?"* An inset
-    // is; a line weight is a drafting convention. That is why `/RD` scales by
-    // default and `/BS /W` does not, and why the two opposite defaults are
-    // consistent rather than arbitrary.
+    // Until 2026-08-28 this read `with_scale_stroke_width(uniform)` — the flag
+    // taken from whether the drag was proportional rather than from anything
+    // anybody asked for. That was a **workaround for a refusal**: with a
+    // foreign appearance and a uniform scale the engine refuses unless either
+    // the stroke scales or distortion is allowed, and forcing the first made
+    // the common case work when no control existed.
     //
-    // ★ Built with the BUILDERS. `ResizeOptions` is `#[non_exhaustive]`, so the
-    // struct-expression form — including `..Default::default()` — is a compile
-    // error outside `pdfce-core`, and the fields being `pub` makes that look
-    // like a mistake at this end. The engine flagged it after an integration
-    // test in a third crate refused to compile.
-    let opts = pdfce_core::edit::ResizeOptions::new()
-        // ★★★ `uniform` decides this, and it is not the operator's toggle.
-        //
-        // For a UNIFORM scale, scaling the stroke is not a workaround — the
-        // placement matrix scales it by exactly the factor asked for, so
-        // carrying a foreign appearance IS the correct result and the engine
-        // proceeds with no flag. For a non-uniform one it stays off, which is
-        // the shipped default and the case the engine may refuse.
-        //
-        // The operator's Inkscape-style toggle is a separate control and is not
-        // built yet; when it is, it ORs with this.
-        .with_scale_stroke_width(uniform);
+    // ⇒ It also made the operator's answer unreachable, on exactly the resizes
+    // where they were most likely to have one. `OPERATOR_REQUESTS.md` **O51**
+    // is a correction about precisely this shape of reasoning, so deriving the
+    // flag from geometry after building the control would be making the same
+    // mistake twice in one file.
+    //
+    // ★ What replaced the workaround is the worded decline below, not a
+    // different guess.
+    //
+    // The discriminator behind the DEFAULTS is unchanged and is the engine's,
+    // promoted from this shell's own CAD argument: *is the property a length in
+    // the space being transformed?* An inset is; a line weight is a drafting
+    // convention. `canvas::scaling` carries the whole account.
+    let opts = modifiers.to_options();
     super::apply::vector_edit(doc, "resize-annotation", 0, 1, |session| {
         session
             .resize_annotation(id, anchor, sx, sy, &opts)
+            .inspect_err(|error| {
+                // ★★★ **The refusal is caught here and worded**, rather than
+                // being left to `vector_edit`'s generic arm, which traces and
+                // says nothing to the operator.
+                //
+                // A resize that silently did nothing is this project's founding
+                // failure: the operator drags a grip, lets go, the shape snaps
+                // back, and no surface anywhere says why. It is the same shape
+                // as the annotation drag that was consumed and discarded, and
+                // the same shape as the markup move that had no branch.
+                //
+                // ★★ Recorded from INSIDE the closure because the condition is
+                // not knowable before the call — whether an appearance is
+                // pdfce's own is a property of the file. `record_save_failure`
+                // is called from the apply phase for the identical reason;
+                // `record_flatten_certified` is not, because its refusal is a
+                // query.
+                //
+                // ★ Only this one variant. Every other `EditError` keeps
+                // today's trace-only behaviour, which is honest: wording a
+                // decline is catalog work per refusal, and a `format!` of an
+                // `EditError`'s `Display` would route diagnostic prose into the
+                // UI — the thing `check-ui-strings`' exclusion 3 names in as
+                // many words.
+                if let pdfce_core::edit::EditError::ResizeAppearanceNotRebuildable {
+                    uniform: was_uniform,
+                    ..
+                } = error
+                {
+                    crate::app::status::decline::record_resize_not_rebuildable(*was_uniform);
+                }
+            })
             .map(|outcome| {
                 crate::diag::trace(|| {
                     // ui-text-exempt: diagnostic trace, never displayed

@@ -158,10 +158,12 @@ pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) 
                 // itself should be absent, which is the Format tab's work.
                 if let Some(annot) = doc.selection.annot() {
                     if !annot.target.locked {
-                        actions.push(Action::DeleteAnnotation {
-                            page: annot.target.page,
-                            id: annot.target.id,
-                        });
+                        actions.push(Action::Annot(
+                            crate::app::actions::annot::AnnotAction::Delete {
+                                page: annot.target.page,
+                                id: annot.target.id,
+                            },
+                        ));
                     }
                 } else {
                     let page = doc.view.page_index;

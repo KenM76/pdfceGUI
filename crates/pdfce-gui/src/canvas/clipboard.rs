@@ -421,10 +421,12 @@ pub fn cut(
     // than performed here: this module changes no document.
     match (&clipped, doc.selection.annot()) {
         (Clipped::Markup { .. }, Some(selected)) => {
-            actions.push(Action::DeleteAnnotation {
-                page: selected.target.page,
-                id: selected.target.id,
-            });
+            actions.push(Action::Annot(
+                crate::app::actions::annot::AnnotAction::Delete {
+                    page: selected.target.page,
+                    id: selected.target.id,
+                },
+            ));
         }
         (Clipped::Content { page, .. }, _) => {
             let objects = doc.selection.object_indices_on(*page);

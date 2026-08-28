@@ -202,11 +202,13 @@ pub fn drag(
     // here would mean this shell deciding, from a float comparison, that an
     // operator's gesture was not a gesture. It costs one undo entry for a move
     // of nothing, which is what every drawing program in this class does.
-    actions.push(Action::MoveAnnotation {
-        id,
-        dx: d.dx,
-        dy: d.dy,
-    });
+    actions.push(Action::Annot(
+        crate::app::actions::annot::AnnotAction::Move {
+            id,
+            dx: d.dx,
+            dy: d.dy,
+        },
+    ));
     None
 }
 

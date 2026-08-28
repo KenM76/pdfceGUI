@@ -1010,6 +1010,41 @@ pub fn push_button_inert() -> &'static str {
     "pdfce cannot give a button something to do yet, so it will not place one."
 }
 
+/// **A resize was refused because the artwork cannot be rebuilt.**
+///
+/// `OPERATOR_REQUESTS.md` O51. Two sentences, chosen by whether the drag was
+/// proportional, and the split is the whole value of the message: **only one of
+/// the two switches helps in each case**, and naming the wrong one would send
+/// the operator to a control that changes nothing.
+///
+/// | drag | what fixes it |
+/// |---|---|
+/// | proportional | *Scale line weight* — the resize then comes out **exact** |
+/// | not proportional | nothing fixes it; only *Allow the artwork to distort* proceeds |
+///
+/// ★★★ **It does not say "cannot".** The operator resized a shape and got
+/// nothing; what they need is the next click, not a diagnosis. Both sentences
+/// name a switch by the words on it, and the non-uniform one is honest that the
+/// result will be imperfect rather than dressing the option up.
+///
+/// ★★ Neither sentence mentions appearance streams, placement matrices or
+/// §12.5.5. The *reason* is real and is written down in `canvas::scaling`; what
+/// belongs in a status bar is what to do. A sentence that explained the matrix
+/// would be correct, unactionable, and too long to read where it appears.
+///
+/// ★ *"pdfce did not draw this shape"* is in the uniform sentence because it is
+/// the part an operator can verify and act on — shapes pdfce drew resize
+/// perfectly, so the message quietly tells them the difference between the two
+/// kinds of object on their page.
+#[must_use]
+pub const fn resize_not_rebuildable(uniform: bool) -> &'static str {
+    if uniform {
+        "pdfce did not draw this shape, so its border will thicken as the shape grows. Turn on Scale line weight in the Tool panel and the resize comes out exactly right."
+    } else {
+        "pdfce did not draw this shape, and stretching it more in one direction than the other would leave its border uneven — no PDF can describe that. Resize it proportionally, or turn on Allow the artwork to distort in the Tool panel to go ahead anyway."
+    }
+}
+
 /// Shown when the renderer reports `cmyk_buffer_refused` — the page's raster
 /// grew past the size the engine will composite in subtractive CMYK, so
 /// blending fell back to sRGB and the colours moved.

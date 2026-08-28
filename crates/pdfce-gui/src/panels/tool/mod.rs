@@ -153,6 +153,18 @@ pub const REGION_TOOLS: &str = "tool.tools"; // ui-text-exempt: trace region nam
 pub const REGION_ARMED: &str = "tool.armed";
 /// The region the text pen's controls publish.
 pub const REGION_TEXT_PEN: &str = "tool.text_pen"; // ui-text-exempt: trace region name, never displayed
+/// The region the Select tool's three scale switches publish.
+///
+/// ★ Its own name rather than sharing `REGION_TEXT_PEN`: a driven check aiming
+/// at "the options row" would find whichever tool happened to be armed, and the
+/// two option sets belong to different tools.
+pub const REGION_SCALE_SWITCHES: &str = "tool.scale_switches"; // ui-text-exempt: trace region name, never displayed
+/// The *Scale line weight* switch's own rect.
+pub const REGION_SCALE_STROKE: &str = "tool.scale.stroke"; // ui-text-exempt: trace region name, never displayed
+/// The *Keep the inner margins* switch's own rect.
+pub const REGION_SCALE_INSETS: &str = "tool.scale.insets"; // ui-text-exempt: trace region name, never displayed
+/// The *Allow the artwork to distort* switch's own rect.
+pub const REGION_SCALE_DISTORT: &str = "tool.scale.distort"; // ui-text-exempt: trace region name, never displayed
 /// The region Block C publishes.
 pub const REGION_DISCLOSURES: &str = "tool.disclosures"; // ui-text-exempt: trace region name, never displayed
 /// The prefix of one arming row's region; the command id is appended.
@@ -267,6 +279,10 @@ mod tests {
             super::REGION_TOOLS,
             super::REGION_ARMED,
             super::REGION_TEXT_PEN,
+            super::REGION_SCALE_SWITCHES,
+            super::REGION_SCALE_STROKE,
+            super::REGION_SCALE_INSETS,
+            super::REGION_SCALE_DISTORT,
             super::REGION_DISCLOSURES,
             super::REGION_ROW_PREFIX,
         ];

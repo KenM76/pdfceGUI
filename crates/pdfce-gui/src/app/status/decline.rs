@@ -368,6 +368,39 @@ pub(crate) enum Declined {
     /// next thing the operator does, which is the right lifetime for a sentence
     /// about one press.
     PushButtonInert,
+    /// ★★★ **A resize was refused because the appearance cannot be rebuilt**
+    /// (`OPERATOR_REQUESTS.md` O51, engine `Pass 151.0`).
+    ///
+    /// The one decline in this enum that names a **remedy the operator can
+    /// reach in one click**, and it exists because of a fact about the format
+    /// rather than about pdfce.
+    ///
+    /// An annotation's artwork is placed through §12.5.5's matrix, which a
+    /// resize makes a scale, and that matrix is applied *after* stroking. So
+    /// the drawn stroke scales with it whatever `/BS /W` says — and **no
+    /// per-axis stroke width exists** in PDF or in SVG. Two states are
+    /// therefore unsatisfiable when pdfce did not author the appearance:
+    ///
+    /// | scale | *Scale line weight* | why |
+    /// |---|---|---|
+    /// | uniform | **off** | the matrix scales it anyway, against the request |
+    /// | non-uniform | either | the stroke is anisotropic; no scalar describes it |
+    ///
+    /// ⇒ `uniform` is carried so the sentence can name the remedy that
+    /// actually applies. Under a uniform scale, turning *Scale line weight* on
+    /// makes the resize **exact**; under a non-uniform one it does not help and
+    /// only *Allow the artwork to distort* will proceed.
+    ///
+    /// ★★ Inkscape hit the identical limit in SVG (Launchpad #1335376) and
+    /// closed it **Invalid** — correct spec behaviour — and its response is to
+    /// silently produce a distorted stroke. This is the sentence that makes
+    /// pdfce better than the parity reference rather than equal to it, which is
+    /// what the engine's own note recommended.
+    ResizeNotRebuildable {
+        /// Whether the drag was proportional, which decides which remedy the
+        /// sentence names.
+        uniform: bool,
+    },
     /// **`edit.form_flatten` was invoked and the document's certification
     /// forbids it.**
     ///
@@ -475,7 +508,15 @@ impl Declined {
             // which `retire` catches. See the variant's own docs; the two
             // parameters are deliberately ignored rather than being joined by a
             // third that would always be `true`.
-            Self::SaveFailed | Self::SettingsNotSaved | Self::PushButtonInert => true,
+            // ★ `ResizeNotRebuildable` joins them: whether an appearance can
+            // be rebuilt is a property of the FILE, and it does not change
+            // while the operator reads the status bar. What retires it is their
+            // next act — including, in the good case, ticking the switch the
+            // sentence just named.
+            Self::SaveFailed
+            | Self::SettingsNotSaved
+            | Self::PushButtonInert
+            | Self::ResizeNotRebuildable { .. } => true,
             // ★ `true`, with the others whose state cannot change between two
             // frames. A document's certification is a property of the file: it
             // does not lapse while the operator looks at the status bar, and
@@ -534,6 +575,7 @@ impl Declined {
             Self::FieldNameTaken => t::adopt_declined_name_taken(),
             Self::WidgetHasNoName => t::adopt_declined_no_name(),
             Self::PushButtonInert => t::push_button_inert(),
+            Self::ResizeNotRebuildable { uniform } => t::resize_not_rebuildable(uniform),
             Self::FlattenCertified => t::flatten_declined_certified(),
             Self::TextStyle(why) => why.line(),
         }
@@ -655,6 +697,18 @@ pub(crate) fn record_text_style(why: crate::text::status::TextStyleRefusal) {
 /// apply arm would then have to refuse would put the same rule in two places.
 pub(crate) fn record_flatten_certified() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::FlattenCertified));
+}
+
+/// Record that a resize was refused because the artwork cannot be rebuilt.
+///
+/// ★★ Called from **inside** the `vector_edit` closure, which is unusual and is
+/// the honest place for it: whether an appearance is pdfce's own is not
+/// knowable before the call, so — unlike [`record_flatten_certified`], whose
+/// refusal is a query — this one can only be recognised from the error the verb
+/// returns. `record_save_failure` is called from the apply phase for the same
+/// reason.
+pub(crate) fn record_resize_not_rebuildable(uniform: bool) {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::ResizeNotRebuildable { uniform }));
 }
 
 pub(crate) fn record_push_button_inert() {

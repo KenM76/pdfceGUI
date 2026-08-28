@@ -484,10 +484,49 @@ drag was proportional.
 3. **Proportionality reported to the verb**, so the engine can distinguish the
    satisfiable case from the one it must disclose.
 
-**Status:** ★ **ACCEPTED 2026-08-28**, blocked on `resize_annotation`, which the
-engine is building to this shape. The toggles are a Tool-row surface and can be
-built before the verb lands; the disclosure cannot, because it reports what the
-verb did.
+### ★★ The blocker was already stale when it was written down
+
+*"Blocked on `resize_annotation`, which the engine is building to this shape."*
+It had **shipped** — `Pass 151.0`, with `ResizeOptions` carrying all three
+fields — and this shell was already calling it. The row was a record of a
+conversation rather than of the code, which is this project's fourth-commonest
+defect and the reason the standing rule is to verify an absence claim against
+source before writing it down.
+
+### What shipped, 2026-08-28
+
+**Three switches on the Tool row**, live whenever the Select tool is armed,
+because a modifier is set *before* the gesture it modifies:
+
+| switch | default |
+|---|---|
+| **Scale line weight** | off |
+| **Keep the inner margins the same size** | off, i.e. `/RD` scales |
+| **Allow the artwork to distort (borders may come out uneven)** | off |
+
+★★★ **And the derivation they replaced is the interesting part.** `annots::resize`
+was passing `scale_stroke_width: uniform` — taking the flag from whether the
+drag was proportional rather than from anything anybody asked for. That was a
+workaround for a refusal, defensible while no control existed, and it would have
+**silently overridden the operator's answer** on exactly the resizes where they
+were most likely to have one.
+
+⇒ Making the same mistake twice in one file, in a request that is itself a
+correction about that shape of reasoning, was close enough to be worth naming.
+
+★★ **What replaced the workaround is a worded decline, not a different guess.**
+The engine refuses when the artwork cannot be rebuilt, and the refusal was
+trace-only — the operator dragged a grip, the shape snapped back, and nothing
+anywhere said why. It now names the remedy, and **which remedy depends on the
+drag**: proportional → *Scale line weight* makes it exact; not proportional →
+only *Allow the artwork to distort* proceeds, and the sentence says the result
+will be uneven rather than dressing it up.
+
+**Status:** ★★ **DONE 2026-08-28.** Not driven — he is at the machine. The
+check is written and unrun: `the_line_weight_switch_reaches_the_resize`, which
+reads `stroke=` off the applied line because a screenshot cannot tell a border
+that thickened because `/BS /W` changed from one that thickened because the
+placement matrix scaled it.
 
 ---
 

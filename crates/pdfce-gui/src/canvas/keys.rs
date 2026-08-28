@@ -674,10 +674,12 @@ pub(super) fn canvas_keys(
             });
             return;
         }
-        actions.push(Action::DeleteAnnotation {
-            page: annot.target.page,
-            id: annot.target.id,
-        });
+        actions.push(Action::Annot(
+            crate::app::actions::annot::AnnotAction::Delete {
+                page: annot.target.page,
+                id: annot.target.id,
+            },
+        ));
         return;
     }
 

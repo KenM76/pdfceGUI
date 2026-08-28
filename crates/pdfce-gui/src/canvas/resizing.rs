@@ -388,6 +388,13 @@ pub struct Frame<'a> {
     /// operator who starts a free resize, sees it going crooked and grabs Shift
     /// expects the shape to snap to proportion under their hand.
     pub constrain: bool,
+    /// **The operator's Tool-row scale switches**, sampled at the commit.
+    ///
+    /// ★ Carried on the [`Frame`] rather than read from `egui::Memory` inside
+    /// this module, so `resizing` stays a pure decision over its inputs and
+    /// stays testable without a `Context`. Every other live fact on this struct
+    /// arrives the same way, including `constrain`.
+    pub modifiers: crate::canvas::scaling::Modifiers,
     /// The frame's screen ⟷ canvas mapping.
     pub map: Option<&'a PageMapping>,
     /// The page itself, for the canvas → PDF hop.
@@ -443,6 +450,7 @@ pub fn drag(
         map,
         page,
         selected_field,
+        modifiers,
     } = frame;
     let Some(bounds) = bounds else {
         // No grip box means no selection outline, which means there was nothing
@@ -551,22 +559,32 @@ pub fn drag(
                 annot.target.id.num, anchor.x, anchor.y
             )
         });
-        actions.push(Action::ResizeAnnotation {
-            id: annot.target.id,
-            anchor: (anchor.x, anchor.y),
-            sx: f64::from(sx),
-            sy: f64::from(sy),
-            // ★★ Whether the drag was PROPORTIONAL, sent because the engine
-            // asked for it by name: *"if your grips can report whether a drag
-            // was proportional, that distinction is worth having."*
-            //
-            // A non-uniform scale of a FOREIGN appearance stream distorts the
-            // stroke -- a mathematical limit, not a defect, because neither PDF
-            // nor SVG has a per-axis stroke width -- and the engine refuses
-            // that case rather than silently producing an oval border, which is
-            // what the parity reference does. A uniform scale is always safe.
-            uniform: (sx - sy).abs() <= f32::EPSILON,
-        });
+        actions.push(Action::Annot(
+            crate::app::actions::annot::AnnotAction::Resize {
+                id: annot.target.id,
+                anchor: (anchor.x, anchor.y),
+                sx: f64::from(sx),
+                sy: f64::from(sy),
+                // ★★ Whether the drag was PROPORTIONAL, sent because the engine
+                // asked for it by name: *"if your grips can report whether a drag
+                // was proportional, that distinction is worth having."*
+                //
+                // A non-uniform scale of a FOREIGN appearance stream distorts the
+                // stroke -- a mathematical limit, not a defect, because neither PDF
+                // nor SVG has a per-axis stroke width -- and the engine refuses
+                // that case rather than silently producing an oval border, which is
+                // what the parity reference does. A uniform scale is always safe.
+                uniform: (sx - sy).abs() <= f32::EPSILON,
+                // ★★★ **What the operator asked to ride along** — O51's switches.
+                //
+                // `uniform` above and this are different facts and both travel: the
+                // first is a measurement of the drag, the second is a decision by
+                // the operator, and until 2026-08-28 the apply arm derived the
+                // second from the first. See `canvas::scaling` for why that was a
+                // workaround rather than a rule.
+                modifiers,
+            },
+        ));
         return Some((sx, sy));
     }
     // ★★★ A FORM FIELD's box, and it is the third destination this one gesture

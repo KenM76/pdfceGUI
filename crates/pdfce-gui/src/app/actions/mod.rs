@@ -157,6 +157,10 @@ mod action;
 /// layout pass — DXF, form data and a compacted copy. Split out of [`action`]
 /// under R2 on 2026-08-28; its header carries the property they share and the
 /// reason a SAVE is filed with two exports.
+/// The verbs whose subject is a whole annotation — move, resize, remove. Its
+/// header carries what makes them a family: all three find their operand by
+/// stable object id, so none needs a page to locate one.
+pub mod annot;
 /// The verbs that re-shape a page's own text. Its header carries the reason
 /// reflow is not like its neighbours: it is planned against the BASE document
 /// and refuses a page this session has already rewritten.

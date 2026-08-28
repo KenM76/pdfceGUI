@@ -591,15 +591,18 @@ impl PdfceApp {
             // The move's twin, and it takes no page for the reason the variant
             // states: `move_annotation` finds the annotation by id, and the
             // disclosure this one owes is about a pop-up rather than a sheet.
-            Action::MoveAnnotation { id, dx, dy } => super::annots::move_annot(doc, id, dx, dy),
-            Action::ResizeAnnotation {
+            Action::Annot(crate::app::actions::annot::AnnotAction::Move { id, dx, dy }) => {
+                super::annots::move_annot(doc, id, dx, dy)
+            }
+            Action::Annot(crate::app::actions::annot::AnnotAction::Resize {
                 id,
                 anchor,
                 sx,
                 sy,
                 uniform,
-            } => super::annots::resize(doc, id, anchor, (sx, sy), uniform),
-            Action::DeleteAnnotation { page, id } => {
+                modifiers,
+            }) => super::annots::resize(doc, id, anchor, (sx, sy), uniform, modifiers),
+            Action::Annot(crate::app::actions::annot::AnnotAction::Delete { page, id }) => {
                 super::annots::delete(doc, page, id);
             }
             // ★ A paste is an `add_markup` and nothing more, which is the

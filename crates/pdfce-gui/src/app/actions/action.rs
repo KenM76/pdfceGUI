@@ -203,66 +203,15 @@ pub enum Action {
         /// increases upward in PDF user space.
         dy: f64,
     },
-    /// ★★★ **Move a markup annotation by a page-space delta**, as one undoable
-    /// command.
+    /// ★★★ **The verbs whose subject is a whole annotation** — move it, resize
+    /// it, remove it.
     ///
-    /// Raised by `crate::canvas::annotdrag` on the release of a drag, and by
-    /// nothing else. **That module's header is the argument** for why this
-    /// carries a delta rather than a new rectangle, and it is not repeated
-    /// here: a `/Rect` names only the half of a move a renderer can see, and
-    /// the absolute-coordinate geometry keys — which any *other* tool rebuilds
-    /// an appearance from — are the half that would be silently left behind.
-    ///
-    /// ★ No page, for [`Self::DeleteAnnotation`]'s reason inverted: that one
-    /// carries a page purely for its trace and its disclosure, and this one
-    /// needs neither — `move_annotation` finds the annotation by id, and the
-    /// disclosure it owes is about a pop-up rather than a sheet.
-    MoveAnnotation {
-        /// The annotation, by stable object id.
-        id: pdfce_core::object::ObjId,
-        /// Horizontal displacement, PDF points.
-        dx: f64,
-        /// Vertical displacement, PDF points. **Positive is up** -- y increases
-        /// upward in PDF user space (§8.3.2.3).
-        dy: f64,
-    },
-    /// ★★★ **Scale a markup annotation about an anchor**, as one undoable
-    /// command. `OPERATOR_REQUESTS.md` **O51**.
-    ///
-    /// Raised by `crate::canvas::resizing` on the release of a grip drag, and
-    /// by nothing else. **Anchor plus FACTORS, not a target rectangle** — the
-    /// shape this shell asked the engine for so it would match
-    /// `transform_objects`, and the argument is at that call site.
-    ///
-    /// ★★ [`Self::uniform`] travels because the engine **asked for it by
-    /// name**, and it is not a number the engine could derive equally well: it
-    /// reports what the operator did with their hand — a Shift-constrained
-    /// corner drag versus a free edge drag. Neither PDF nor SVG has a per-axis
-    /// stroke width, so a non-uniform scale of a foreign appearance produces an
-    /// anisotropic border by arithmetic, and that case is refused rather than
-    /// silently distorted.
-    ResizeAnnotation {
-        /// The annotation, by stable object id.
-        id: pdfce_core::object::ObjId,
-        /// The point that stays still, in PDF page space — the corner
-        /// **opposite** the grip that was grabbed.
-        anchor: (f64, f64),
-        /// Horizontal scale factor.
-        sx: f64,
-        /// Vertical scale factor.
-        sy: f64,
-        /// Whether the two factors are equal. See the variant docs.
-        uniform: bool,
-    },
-    DeleteAnnotation {
-        /// The page it is on — for the trace and the disclosure, not for the
-        /// verb, which finds the annotation by id wherever it lives. A reply
-        /// may sit on a different page from the comment it replies to, so a
-        /// page-scoped delete would miss it.
-        page: usize,
-        /// The annotation, by stable object id.
-        id: pdfce_core::object::ObjId,
-    },
+    /// Moved into [`super::annot::AnnotAction`] under R2 on 2026-08-28. Its
+    /// header carries the property that makes the three a family: they find
+    /// their operand by **stable object id**, so none of them takes a page to
+    /// locate one — and `Delete`'s page, which looks like a counter-example, is
+    /// for the trace and the disclosure only.
+    Annot(super::annot::AnnotAction),
     New,
     /// **Make a new document at a chosen sheet size.**
     ///

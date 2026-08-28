@@ -1061,6 +1061,10 @@ pub(super) fn interact(
         GestureOutcome::Resize { grip, delta, phase } => {
             resize_ghost = crate::canvas::resizing::drag(
                 crate::canvas::resizing::Frame {
+                    // ★ Read live from `egui::Memory`, at the frame the commit
+                    // happens. See `canvas::scaling` for why they are a
+                    // per-drag modifier rather than a preference.
+                    modifiers: crate::canvas::scaling::read(&ctx),
                     grip,
                     delta,
                     phase,

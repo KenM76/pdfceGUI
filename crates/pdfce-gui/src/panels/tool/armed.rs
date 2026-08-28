@@ -94,6 +94,21 @@ pub(super) fn block(
 /// in `egui::Memory` precisely so this one could be built today — see its
 /// header, which argues the difference.
 fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
+    // ★★★ **The Select tool's options: what rides along with a resize.**
+    //
+    // `OPERATOR_REQUESTS.md` **O51**: *"Inkscape has options for this and I
+    // want the same."* Inkscape puts them on the **selector tool's control
+    // bar**, which is this panel, and that placement is the request rather than
+    // a detail of it — they are a per-drag modifier, not a preference, so a
+    // settings dialog would be the wrong home even though it would be easier.
+    //
+    // ★ It returns early after drawing them, so the text-pen block below stays
+    // exactly what it was: two tools, two option sets, no shared branch to get
+    // subtly wrong.
+    if tool == CanvasTool::Select {
+        scale_switches(ui, ctx);
+        return;
+    }
     // ★ **Add only, not Edit**, and the distinction is the point of the whole
     // module. `TextEditKind::Add` writes a NEW run, so a face, a size and a
     // colour are exactly what it needs. `TextEditKind::Edit` replaces the words
@@ -161,6 +176,85 @@ fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
             )
         });
         pen::store(ctx, current);
+    }
+}
+
+/// The Select tool's option row — the three switches of `OPERATOR_REQUESTS.md`
+/// **O51**.
+///
+/// ## ★★★ Why three, when Inkscape's parity set is one
+///
+/// Inkscape offers four toggles and only *Scale stroke width* has a PDF
+/// equivalent — rounded corners, gradients and patterns have no annotation
+/// analogue. The other two here come from PDF's own shape:
+///
+/// * **`/RD`, the inset distances**, which have no Inkscape counterpart and
+///   scale by default. An inset **is** a length in the space being scaled;
+///   leaving it fixed while `/Rect` doubles changes the proportions.
+/// * **Allow the artwork to distort**, which exists because *no per-axis stroke
+///   width exists* in PDF or in SVG. Under a non-uniform scale a carried
+///   appearance's stroke becomes anisotropic and no `/BS /W` describes it, so
+///   pdfce refuses rather than silently producing an oval border — which is
+///   what the parity reference does.
+///
+/// ## ★★ The order, which is by how often it is wanted
+///
+/// Stroke width first: it is the one he asked for by name and the one every
+/// comparable program puts first. Insets second — a real switch nobody reaches
+/// for weekly. The distortion escape last, because it is the one that makes the
+/// result imperfect, and a control that degrades the output belongs after the
+/// two that do not. The destructive-last rule from the context menus, applied
+/// to a different kind of cost.
+///
+/// ## ★ Always drawn, never greyed
+///
+/// They are live with nothing selected and with a form field selected, and that
+/// is deliberate: an operator sets a modifier **before** the gesture it
+/// modifies. Greying them until an annotation happens to be selected would hide
+/// the control exactly when somebody is deciding how to resize.
+fn scale_switches(ui: &mut Ui, ctx: &egui::Context) {
+    let mut current = crate::canvas::scaling::read(ctx);
+    let before = current;
+
+    ui.label(t::scale_heading());
+    crate::diag::ui_rect(super::REGION_SCALE_SWITCHES, ui.min_rect());
+
+    // ★★★ **One published rect per switch**, not one for the block.
+    //
+    // A driven check aiming at "the options row" and then guessing which line
+    // is the second checkbox would be encoding a layout — the same mistake
+    // `field_menu` refuses to make about popup rows, and it goes wrong the same
+    // way: silently, by ticking the wrong switch, the day a label wraps to two
+    // lines at a narrower dock width.
+    //
+    // ⇒ `ui_rect` after each `checkbox`, from the response's own rect, so the
+    // harness clicks what the operator clicks.
+    let stroke = ui.checkbox(&mut current.scale_stroke_width, t::scale_stroke_label());
+    crate::diag::ui_rect(super::REGION_SCALE_STROKE, stroke.rect);
+    // ★ The `/RD` switch is spelled as an opt-OUT in the engine and in
+    // `canvas::scaling`, and it is presented here as one too — *"keep"*, not
+    // *"scale"*. An inverted label over an opt-out field is the single easiest
+    // way to ship a control that does the opposite of what it says, and the
+    // temptation is real because "scale the margins" reads better.
+    let insets = ui.checkbox(&mut current.keep_rect_differences, t::scale_insets_label());
+    crate::diag::ui_rect(super::REGION_SCALE_INSETS, insets.rect);
+    let distort = ui.checkbox(&mut current.allow_distortion, t::scale_distort_label());
+    crate::diag::ui_rect(super::REGION_SCALE_DISTORT, distort.rect);
+    ui.label(egui::RichText::new(t::scale_note()).small().weak());
+    ui.add_space(6.0);
+
+    // ★ Written back only when it CHANGED — the text pen's rule above, for its
+    // reason: an unconditional `insert_temp` is harmless and would make the
+    // trace line fire sixty times a second.
+    if current != before {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                "resize-modifiers stroke={} keep_rd={} distort={}",
+                current.scale_stroke_width, current.keep_rect_differences, current.allow_distortion
+            )
+        });
+        crate::canvas::scaling::store(ctx, current);
     }
 }
 
