@@ -137,18 +137,33 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
          a name template, and “there is no honest default: splitting a 36-sheet drawing set \
          into 36 files because nobody was asked is not a lesser version of the feature”.",
     ),
-    (
-        "pages.merge_into",
-        "★ P3 — needs a file picker and a destination, and is NOT blocked the way it was. \
-         Its old entry said `insert` “returns the bytes of a NEW document rather than \
-         mutating the session … which discards the command log the undo work is building”. \
-         That was true, was filed rather than worked around, and `pdfce-core` answered on \
-         2026-08-18 with `EditSession::insert_pages` — which `pages.insert_from_file` now \
-         uses. What remains here is a genuine question rather than a blocker: merge_into and \
-         insert_from_file differ by WHERE the pages land, so this one wants a destination \
-         document, and a shell that can only edit the open document has nowhere to put it \
-         yet.",
-    ),
+    // ★★★ `pages.merge_into` was HERE until 2026-08-28, and its entry is
+    // **deleted rather than reworded** — the fourth such deletion in two days.
+    // It is also the entry whose history best shows what this list is FOR and
+    // where it fails, because it had two reasons and they were wrong in
+    // opposite ways.
+    //
+    // **The first was right and was answered.** It read: *"`insert` returns the
+    // bytes of a NEW document rather than mutating the session … wiring it
+    // means replacing `OpenDoc::session` wholesale, which discards the command
+    // log the undo work is building."* True when written, filed rather than
+    // worked around, and answered on 2026-08-18 with `merge_document` —
+    // in-session, one undo entry, field collisions renamed. **That is this list
+    // working exactly as intended.**
+    //
+    // **The second was written to replace it and had the destination
+    // backwards**: *"merge_into wants a destination document, and a shell that
+    // can only edit the open document has nowhere to put it yet."* The
+    // manifest's own taxonomy says the opposite two files away — Pages ▸ Merge
+    // *adds pages to this document*, Tools ▸ Merge *combines files into a new
+    // one* — so the open document **is** the destination and always was.
+    //
+    // ⇒ The lesson is not "check harder when you write one". It is that a
+    // reason **rewritten after a blocker clears** gets none of the scrutiny the
+    // original had, and lands in a list nothing re-reads. Found by re-deriving
+    // all eleven entries; six were wrong.
+    //
+    // The arm is in `app::dispatch`; the verb is `app::actions::pages::merge_into`.
     (
         "edit.objects",
         "★ P3 — NO RECORDED REASON ANYWHERE. It appears in a test list and in an argument \

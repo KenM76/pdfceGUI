@@ -1325,8 +1325,12 @@ pub const FX_CONST: &str = "fx.constant";
         // ★ None of it is catchable here. This assertion counts entries; a
         // reason is prose. **Re-derive the list on a schedule, not on a
         // collision.**
+        // ★ 10 -> 9 the same night: `pages.merge_into` WIRED. Its first reason
+        // was right and was answered by the engine; its **replacement** reason
+        // had the destination backwards. A reason rewritten after a blocker
+        // clears gets none of the scrutiny the original had.
         assert_eq!(
-            total, 10,
+            total, 9,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
@@ -1334,8 +1338,12 @@ pub const FX_CONST: &str = "fx.constant";
             // It went from 8 to 7 when `pages.insert_from_file` was wired on
             // 2026-08-18 — a P3 breach retired, which is the direction this
             // count exists to make visible.
+            // ★ 5 -> 4: `pages.merge_into` was a P3 breach — a control drawn on
+            // the Pages tab that did nothing — and it is not one any more. This
+            // is the direction this count exists to make visible, and it is the
+            // third retirement it has recorded.
             p3,
-            5,
+            4,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

@@ -836,6 +836,86 @@ pub const fn insert_cancel() -> &'static str {
     "Cancel"
 }
 
+// ===========================================================================
+// MERGING A WHOLE DOCUMENT IN — `EditSession::merge_document`, wired 2026-08-28
+//
+// ★★★ Why this is a different verb from an insert, and not a convenience over
+// it. `insert_pages` takes SOME pages and **orphans** the widgets on them; a
+// form field that arrives that way is drawn and unfillable. `merge_document`
+// re-parents the widgets to their fields, so — the engine's own words —
+// *"a merged field arrives fillable … that is the whole point of the verb"*.
+//
+// So the two commands are not "some pages" versus "all pages". They are
+// *"pages"* versus *"a document, with the things that make its pages work"*:
+// its form, its bookmarks, its named destinations. The copy below has to carry
+// that, because an operator choosing between two entries on one tab has no
+// other way to find out.
+// ===========================================================================
+
+/// What a merge brought across, and what it had to rename to do it.
+///
+/// # ★★★ Two renames, and both are disclosures rather than warnings
+///
+/// **`fields_renamed`** — a field whose name was already taken here arrives
+/// under a different one. The engine's note on why that is still the right
+/// behaviour is worth carrying: *"two fields sharing a fully qualified name are
+/// ONE field, and filling either fills both."* But the operator now has a field
+/// whose name is not the one the source document showed them, and **any script,
+/// FDF or calculation keyed on the old name no longer matches it.** Nothing
+/// else would tell them.
+///
+/// **`named_destinations_renamed`** — the same for §12.3.2.3 destinations, with
+/// a second consequence the engine spells out and this sentence must not lose:
+/// pdfce rewrites the *carried* bookmarks to the new keys, and **cannot rewrite
+/// a link in a document it did not copy.** An outside `/GoToR` reference to the
+/// old key now resolves to *this* document's destination rather than the
+/// source's — a link that still works and goes somewhere else.
+///
+/// ★ Each clause appears only when its count is non-zero. A clean merge of a
+/// form-free drawing set says one thing: how many pages arrived.
+#[must_use]
+pub fn merged(outcome: &pdfce_core::edit::MergeOutcome) -> Vec<String> {
+    let mut notes = vec![format!(
+        "Merged {} page(s) into this document.",
+        outcome.pages_merged
+    )];
+    if outcome.fields_merged > 0 {
+        notes.push(format!(
+            "{} form field(s) came across and are fillable here.",
+            outcome.fields_merged
+        ));
+    }
+    if outcome.fields_renamed > 0 {
+        notes.push(format!(
+            "{} field name(s) were already in use here, so the arriving ones were renamed. \
+             Anything that fills this form by name — a script, an FDF, a calculation — will \
+             not match them.",
+            outcome.fields_renamed
+        ));
+    }
+    if outcome.named_destinations_renamed > 0 {
+        notes.push(format!(
+            "{} link target name(s) clashed and were renamed. Bookmarks that came with the \
+             file were updated; a link from a THIRD document to the old name now points at \
+             this document's own target instead.",
+            outcome.named_destinations_renamed
+        ));
+    }
+    if outcome.outline_items_carried > 0 {
+        notes.push(format!(
+            "{} bookmark(s) came across, added after this document's own.",
+            outcome.outline_items_carried
+        ));
+    }
+    notes
+}
+
+/// The merge could not read the file it was given.
+#[must_use]
+pub fn merge_failed(detail: &str) -> String {
+    format!("That document could not be merged: {detail}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

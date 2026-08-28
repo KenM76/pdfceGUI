@@ -154,6 +154,18 @@ pub enum PageAction {
     /// `crate::text::pages::inserted` says so, because an operator whose
     /// bookmarks did not come across is entitled to know that before they go
     /// looking for a bug.
+    /// **Merge a whole document into this one**, with its form, bookmarks and
+    /// named destinations.
+    ///
+    /// ★ It carries a path and nothing else, where [`Self::InsertPagesFromFile`]
+    /// carries a page list and a position. That asymmetry IS the difference
+    /// between the two verbs: a merge takes the whole document and appends it,
+    /// so there is nothing to choose. See [`super::merge_into`] for why
+    /// `InsertPosition::End` is a decision rather than a default.
+    MergeIntoDocument {
+        /// The document to merge in.
+        path: std::path::PathBuf,
+    },
     InsertPagesFromFile {
         /// The document to take pages from.
         path: std::path::PathBuf,
@@ -575,6 +587,89 @@ fn delete_disclosures(
 /// | the file would not open | [`crate::text::pages::insert_failed`], carrying the engine's own reason — encrypted, truncated, not a PDF |
 /// | it opened and has no pages | [`crate::text::pages::insert_empty`] — **not a failure**, and collapsing it into one would send the operator looking for corruption that is not there |
 /// | the insert itself refused | `vector_edit`'s own decline path, as every other edit |
+/// **Merge a whole document into this one**, with its form, its bookmarks and
+/// its named destinations.
+///
+/// `pages.merge_into`, wired 2026-08-28 — the audit's first pick, and shell
+/// work only since `Pass` `merge_document` landed on 2026-08-18.
+///
+/// # ★★★ It is not [`insert_from_file`] with "all pages" ticked
+///
+/// `insert_pages` takes some pages and **orphans** the widgets on them: a form
+/// field arriving that way is drawn and cannot be filled. `merge_document`
+/// re-parents each widget to its field, so the field arrives working — the
+/// engine's own words, *"that is the whole point of the verb"* — and carries
+/// the source's `/AcroForm`, its outline and its named destinations with it.
+///
+/// So the two commands on the Pages tab are *"pages"* and *"a document, with
+/// the things that make its pages work"*, and an operator choosing between them
+/// has no way to find that out except from the tooltips.
+///
+/// # ★★ The blocker this had was real, and it was answered
+///
+/// Its `SCAFFOLDED` entry read: *"`insert` returns the bytes of a NEW document
+/// rather than mutating the session … wiring it means replacing
+/// `OpenDoc::session` wholesale, which discards the command log the undo work
+/// is building."* That was **true when written**, was filed rather than worked
+/// around, and the engine answered it with an in-session verb that is one undo
+/// entry.
+///
+/// ★ What the entry then said — that this *"wants a destination document, and a
+/// shell that can only edit the open document has nowhere to put it"* — had the
+/// destination backwards: the manifest's own taxonomy is that Pages ▸ Merge
+/// *adds to this document* and Tools ▸ Merge *combines files into a new one*.
+/// The open document **is** the destination. Found by re-deriving the list.
+///
+/// # Position
+///
+/// `InsertPosition::End`, and it is not a placeholder. Merging is *"add this
+/// document to mine"*, and every application that offers it appends — the
+/// alternative, asking where, is `pages.insert_from_file`'s question and that
+/// command already asks it. A merge that opened a position dialog would be the
+/// insert command wearing a different label.
+pub(super) fn merge_into(doc: &mut OpenDoc, path: &Path) {
+    // Loaded OUTSIDE the edit closure and borrowed inside it, for
+    // `insert_from_file`'s stated reason: `merge_document` takes a
+    // `DocumentView` over it, so it must outlive the call, and loading it
+    // inside would mean reporting a *load* failure from a context that can only
+    // report an *edit* failure.
+    let source = match pdfce_core::document::Document::load(path) {
+        Ok(source) => source,
+        Err(error) => {
+            let detail = error.to_string();
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!("merge-refused path={path:?} reason={detail}")
+            });
+            super::record_note(doc.edit_epoch, crate::text::pages::merge_failed(&detail));
+            return;
+        }
+    };
+    let view = source.view();
+    super::apply::vector_edit(doc, "merge-document", 0, 1, move |session| {
+        session
+            .merge_document(&view, pdfce_core::pageops::InsertPosition::End)
+            .map(|outcome| {
+                crate::diag::trace(|| {
+                    // ★ `-applied`, not the bare `merge-document` `vector_edit`
+                    // writes. Two lines sharing a trace name is how a driven
+                    // check reads the wrong one and reports that a verb did
+                    // nothing — this project has made that mistake twice, and
+                    // the convention is what stops the third.
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!(
+                        "merge-document-applied pages={} fields={} renamed={} bookmarks={}",
+                        outcome.pages_merged,
+                        outcome.fields_merged,
+                        outcome.fields_renamed,
+                        outcome.outline_items_carried
+                    )
+                });
+                crate::text::pages::merged(&outcome)
+            })
+    });
+}
+
 pub(super) fn insert_from_file(
     doc: &mut OpenDoc,
     path: &Path,
@@ -1073,6 +1168,7 @@ pub(super) fn apply(
         // action whose consequence is a navigation rather than an
         // invalidation: `insert_from_file` goes to what it inserted, because
         // an operator who inserts four sheets wants to see them.
+        PageAction::MergeIntoDocument { path } => merge_into(doc, &path),
         PageAction::InsertPagesFromFile {
             path,
             pages,

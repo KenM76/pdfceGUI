@@ -212,6 +212,29 @@ impl PdfceApp {
             // between frames, as `file.open`'s does, and has its OWN
             // diagnostic seam so a harness can drive an insert without also
             // answering an open.
+            // ★★★ `pages.merge_into` — the audit's first pick, and shell work
+            // only since `merge_document` landed on 2026-08-18.
+            //
+            // ★ It opens **no dialog**, where its neighbour below opens one.
+            // That is the difference between the verbs rather than an economy:
+            // an insert asks *which pages* and *where*, and a merge takes the
+            // whole document and appends it, so there is nothing left to ask.
+            // A merge that opened a position dialog would be the insert command
+            // wearing a different label.
+            "pages.merge_into" => {
+                if !self.capabilities().edit_content {
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("command-declined id={id} reason=mode-cannot-edit-content")
+                    });
+                } else if let crate::app::files::Picked::Path(path) =
+                    crate::app::files::pick_insert_source()
+                {
+                    actions.push(Action::Page(
+                        crate::app::actions::pages::PageAction::MergeIntoDocument { path },
+                    ));
+                }
+            }
             "pages.insert_from_file" => {
                 if !self.capabilities().edit_content {
                     crate::diag::trace(|| {
