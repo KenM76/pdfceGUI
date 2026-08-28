@@ -31,10 +31,17 @@ is **one run made of several `Tj`s**. So:
   engine for a code range spanning several string elements, which it correctly
   refuses — *"text to format ("FINISH ") was not found in an editable run on the
   page"* — **on a page where the identical unpinned search succeeds instantly**;
-* and `TextRun::text` contains characters **that are not in the file**: the
+* and `TextRun::text` can differ from the operator's decoded buffer, so the
+  cell read `"FINISH         "` while the buffer held `FINISH`. ★★★ **The
+  mechanism this bullet named is RETRACTED, same evening.** It said the
   extraction synthesises a space wherever a `TJ` offset exceeds the word-gap
-  threshold, so the cell reads `"FINISH         "` while the buffer holds
-  `FINISH` and kerning numbers.
+  threshold; `pdfce-core` measured 256 fixture PDFs and found **zero** glyph
+  runs containing a synthesised space — `layout` closes the run and emits the
+  derived space as its own glyph-less `TextRun`. The one real offender is
+  `/ToUnicode` mapping one glyph to several characters. The symptom stands, the
+  cause was inferred and written down as a fact in three places, and this
+  project did not measure it. See `pin.rs`'s `Reading::find` and the reply on
+  the request channel.
 
 ⇒ **The unit of a text edit is the operator.** `canvas::textedit::pin::operators_in_run`
 is the hop, and its header is the place to read before touching anything that

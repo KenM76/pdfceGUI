@@ -31,9 +31,15 @@ the operator's own drawing, falsified, published to `OneDrive\pdfceGUI1`.
    be one run made of three `Tj`s. Anything that edits text must work per
    operator — `canvas::textedit::pin::operators_in_run`, and read its header
    first.
-2. ★★ **`TextRun::text` contains characters that are not in the file.** The
-   extraction synthesises spaces from `TJ` offsets. Never hand it to
-   `format_text` as a `find`.
+2. ★★ **Never hand `TextRun::text` to `format_text` as a `find`** — the
+   symptom is real, reproducible and still guarded against. ★★★ **The reason
+   this file gave for it is RETRACTED**: it said the extraction synthesises
+   spaces from `TJ` offsets, and `pdfce-core` measured 256 fixtures and found
+   **zero** glyph runs containing one (`layout` emits a derived space as its
+   own glyph-less run). The real offender is `/ToUnicode` mapping one glyph to
+   several characters. ⇒ `Reading::find` works and its stated justification is
+   void; read its doc comment before touching it, and do not replace the
+   retracted mechanism with a second guess.
 3. ★ **In Edit mode you must press `T` before sweeping text**, or the drag is an
    object marquee. Nothing on screen says so; that is the next piece of work.
 

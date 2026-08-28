@@ -220,24 +220,71 @@ pub struct RunStyle {
     ///
     /// # Why these are two fields and not one
     ///
-    /// A `TextRun`'s `text` includes **derived** characters. The extraction
-    /// synthesises a space wherever a `TJ` offset inside one show operator
-    /// exceeds the word-gap threshold, so a title-block cell reads
-    /// `"FINISH         "` in `text` while the operator's decoded buffer holds
-    /// `"FINISH"` and a run of kerning numbers.
+    /// A `TextRun`'s `text` can differ from the operator's decoded buffer, and
+    /// handing it to `format_text` as its `find` then fails with *"text to
+    /// format … was not found in an editable run on the page"* — which is
+    /// exactly what a driven Bold press produced on the operator's own drawing:
+    /// eleven runs restyled and the twelfth refused, on a page where nothing
+    /// was wrong. **The symptom is real and reproducible. The cause written
+    /// here was not.**
     ///
-    /// Handing `text` to `format_text` as its `find` therefore fails with
-    /// *"text to format … was not found in an editable run on the page"* —
-    /// which is exactly what a driven Bold press produced on the operator's own
-    /// drawing: eleven runs restyled and the twelfth refused, on a page where
-    /// nothing was wrong.
+    /// # ★★★ RETRACTED 2026-08-27 evening — the mechanism below is refuted
+    ///
+    /// This paragraph read:
+    ///
+    /// > ~~The extraction synthesises a space wherever a `TJ` offset inside one
+    /// > show operator exceeds the word-gap threshold, so a title-block cell
+    /// > reads `"FINISH         "` in `text` while the operator's decoded
+    /// > buffer holds `"FINISH"` and a run of kerning numbers.~~
+    ///
+    /// `pdfce-core` **measured it** across 256 fixture PDFs, at this project's
+    /// prompting, and answered:
+    ///
+    /// | | |
+    /// |---|---|
+    /// | `derived_word_space` runs (always a **separate** run) | 5 |
+    /// | glyph runs containing a synthesised space | **0** ← the stated cause |
+    /// | glyph runs where `len(text) != len(glyphs)` | 1 |
+    ///
+    /// `layout`'s `Break::Word` arm calls `close_run()` **and then** emits the
+    /// derived space as its own one-character `TextRun` with no glyphs, so a
+    /// `TextOrigin::Glyphs` run's `text` holds only real glyph characters. The
+    /// one offender is `/ToUnicode` mapping one glyph to several characters
+    /// (§9.10.3) — an `ffl` ligature is one glyph and three chars — which is a
+    /// different mechanism with a different consequence.
+    ///
+    /// ★★ **So this field works and its reason is void**, and that is written
+    /// here rather than repaired with a second guess. Three things could be
+    /// true and this project cannot yet tell which: the walk is a no-op on
+    /// every run it has ever seen and something else in the same commit fixed
+    /// the refusal; it is doing real work for a reason nobody has stated; or
+    /// the concatenation `pdfce-core` suspects is real and is ours, upstream of
+    /// here. Filed as
+    /// `reply_my_mechanism_was_wrong_and_here_is_the_measurement_for_your_open_question.md`,
+    /// together with the request that settles it — whether the glyphs sharing
+    /// one `operator_span` always slice a contiguous range out of the run's
+    /// text. If they do, this walk is deleted and the span is sliced directly.
+    ///
+    /// ★ The lesson, and it is the mirror of the one this channel spent the
+    /// week on: an **absence** claim is *"I looked and did not see it, so it is
+    /// not there"*; this was a **cause** claim — *"I saw an effect and named a
+    /// mechanism"* — written into a doc comment, a handover and a resume file
+    /// without one measurement behind it. Same discipline, opposite sign.
     ///
     /// # How it is computed, and what it costs
     ///
     /// Walk the glyphs; keep the longest stretch whose byte ranges are
     /// **contiguous** — each glyph starting exactly where the last one ended.
-    /// A derived character is one no glyph covers, so it ends a stretch by
-    /// construction, and every byte of the answer is a byte a glyph put there.
+    /// A character no glyph covers ends a stretch by construction, and every
+    /// byte of the answer is a byte a glyph put there.
+    ///
+    /// ★ Note what this does **not** catch, now that the mechanism above is
+    /// retracted: a ligature's glyph byte-range *is* contiguous, so a run whose
+    /// `/ToUnicode` maps one glyph to three characters passes this walk whole
+    /// and would still hand `format_text` three characters against a buffer
+    /// holding one code. If that case is reachable, this field is not the fix
+    /// for it. Unmeasured on our side and stated rather than assumed either
+    /// way.
     ///
     /// ★ The cost is honest and is disclosed by the caller: on a run with an
     /// internal derived gap this is **shorter than the run**, so a restyle acts
