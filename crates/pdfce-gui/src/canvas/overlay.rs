@@ -575,6 +575,33 @@ pub fn draw_grips(painter: &Painter, visuals: &Visuals, bounds: Rect) {
 /// release: the ghost exists only while the pointer is down. The one-line test
 /// in this module's header still answers no — with nothing being dragged, this
 /// paints nothing at all.
+/// Paint the **annotation move ghost**: one rectangle, where the markup would
+/// land.
+///
+/// ★★ Its own function beside [`draw_move_ghost`] rather than a case of it, and
+/// the reason is what the two iterate. That one walks
+/// `SelectionState::outlines()` -- the CONTENT selection's rectangles -- which
+/// is empty for an annotation selection by construction, because the two
+/// selections are mutually exclusive and live in different fields. Handing an
+/// annotation drag to it would draw nothing at all, silently, which is the
+/// "the gesture does nothing" symptom in the place hardest to notice: the drag
+/// would still commit on release.
+///
+/// ★ It takes the rectangle already computed rather than a delta plus the
+/// selection, because `annotdrag` has to decide the same rectangle to know
+/// whether a drag is eligible at all. One computation, one answer, and the
+/// preview cannot promise a landing spot the commit disagrees with.
+pub fn draw_annot_ghost(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    rect: egui::Rect,
+) {
+    let stroke = Stroke::new(1.5, ghost(visuals.selection.stroke.color));
+    let screen = visible_outline_rect(mapping.rect_to_screen(rect), MIN_OUTLINE_EXTENT_PX);
+    painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
+}
+
 pub fn draw_move_ghost(
     painter: &Painter,
     visuals: &Visuals,

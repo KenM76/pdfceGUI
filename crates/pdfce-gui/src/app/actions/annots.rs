@@ -80,3 +80,60 @@ pub(super) fn delete(doc: &mut OpenDoc, page: usize, id: ObjId) {
     // second Delete would refuse.
     doc.selection.clear_annot();
 }
+
+/// **Move one markup annotation by a page-space delta.**
+///
+/// Reached from `canvas::annotdrag` on the release of a drag, and from nothing
+/// else.
+///
+/// # ★★★ The disclosure is about the half the canvas cannot show
+///
+/// A move writes `/Rect` *and* the absolute-coordinate geometry keys, and the
+/// canvas renders from the appearance stream, so the operator sees the same
+/// picture whether one half was written or both. There is therefore nothing to
+/// disclose about the move having worked -- they can see that.
+///
+/// What they cannot see is the **pop-up left behind**. §12.5.6.14 makes a
+/// pop-up a separate annotation with its own placement and leaves whether it
+/// follows to the reader; `pdfce-core` reports the object number and says the
+/// decision is the shell's. This shell does not draw pop-ups at all, so one
+/// stranded across the sheet is invisible here and visible in Acrobat.
+///
+/// ⇒ ★★ **That is Rule 4's surviving half exactly**: an inference or a
+/// consequence the operator cannot see still owes an off-canvas report. Render
+/// normally; report separately. Both.
+///
+/// # ★ What is deliberately NOT disclosed
+///
+/// **`geometry_keys_moved` being empty**, which the engine warns about by name:
+/// a Text note, a Stamp or a Link has no geometry key because its `/Rect` *is*
+/// its geometry, so empty is a correct answer and reporting it would manufacture
+/// an anomaly out of the commonest case.
+///
+/// **`rect_differences_untouched`**, for a different reason: `/RD` holds inset
+/// distances rather than coordinates, translating them would deform the
+/// annotation, and not translating them is therefore not a limitation to
+/// confess but the only correct behaviour. A sentence about it would teach an
+/// operator to worry about something that is right.
+pub(super) fn move_annot(doc: &mut OpenDoc, id: ObjId, dx: f64, dy: f64) {
+    super::apply::vector_edit(doc, "move-annotation", 0, 1, |session| {
+        session.move_annotation(id, dx, dy).map(|outcome| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                format!(
+                    // `-applied`, per the convention `forms::import_data`
+                    // records: the funnel writes its own bare-named line for
+                    // the same edit and `.last()` would read that one.
+                    "move-annotation-applied id={} dx={dx:.3} dy={dy:.3} keys={} popup={}",
+                    id.num,
+                    outcome.geometry_keys_moved.len(),
+                    outcome.popup_left_behind.is_some()
+                )
+            });
+            outcome
+                .popup_left_behind
+                .map(|_| vec![crate::text::markup::popup_left_behind()])
+                .unwrap_or_default()
+        })
+    });
+}

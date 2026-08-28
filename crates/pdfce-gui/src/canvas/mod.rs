@@ -157,6 +157,15 @@ pub mod guides;
 // along the seam that module's header already drew: a ruler is chrome beside
 // the canvas that reserves layout space, a grid is chrome over the page that
 // reserves none.
+/// A placement drag on a selected ce dimension - the operator's report of
+/// 2026-08-20, *"I need to be able to move the dimension after it has been laid
+/// down"*. Reaches `place_dimension`, never `move_dimension`; its header says
+/// why that distinction is the whole design.
+/// Dragging an ordinary markup annotation — the other half of the annotation
+/// fork `dimdrag` opened. Its header carries the reason the shell sends a
+/// DELTA and not a rectangle: a move has two halves and a renderer can only
+/// see one of them.
+pub mod annotdrag;
 /// ★ Dragging a **Bézier handle** — the last Phase 1 row, and one `pdfce`'s
 /// own `gui` column ticked `[x]` while nothing here drew a handle at all.
 /// `EditSession::move_handle` had existed since Pass 30.1; what was missing was
@@ -176,11 +185,11 @@ pub mod clipboard;
 /// D5, found absent from every one of them by the conventions sweep of
 /// 2026-08-20. Its header carries why one module rather than five call sites.
 pub mod constrain;
-/// A placement drag on a selected ce dimension - the operator's report of
-/// 2026-08-20, *"I need to be able to move the dimension after it has been laid
-/// down"*. Reaches `place_dimension`, never `move_dimension`; its header says
-/// why that distinction is the whole design.
 pub mod dimdrag;
+/// Which of the three move verbs one drag reaches. Split out of `interact`
+/// under R2; its header carries the argument that a fork whose branches can
+/// all answer "not mine" eats the gesture.
+pub mod dragroute;
 pub mod grid;
 pub mod handledrag;
 pub mod handles;

@@ -203,6 +203,29 @@ pub enum Action {
         /// increases upward in PDF user space.
         dy: f64,
     },
+    /// ★★★ **Move a markup annotation by a page-space delta**, as one undoable
+    /// command.
+    ///
+    /// Raised by `crate::canvas::annotdrag` on the release of a drag, and by
+    /// nothing else. **That module's header is the argument** for why this
+    /// carries a delta rather than a new rectangle, and it is not repeated
+    /// here: a `/Rect` names only the half of a move a renderer can see, and
+    /// the absolute-coordinate geometry keys — which any *other* tool rebuilds
+    /// an appearance from — are the half that would be silently left behind.
+    ///
+    /// ★ No page, for [`Self::DeleteAnnotation`]'s reason inverted: that one
+    /// carries a page purely for its trace and its disclosure, and this one
+    /// needs neither — `move_annotation` finds the annotation by id, and the
+    /// disclosure it owes is about a pop-up rather than a sheet.
+    MoveAnnotation {
+        /// The annotation, by stable object id.
+        id: pdfce_core::object::ObjId,
+        /// Horizontal displacement, PDF points.
+        dx: f64,
+        /// Vertical displacement, PDF points. **Positive is up** -- y increases
+        /// upward in PDF user space (§8.3.2.3).
+        dy: f64,
+    },
     DeleteAnnotation {
         /// The page it is on — for the trace and the disclosure, not for the
         /// verb, which finds the annotation by id wherever it lives. A reply

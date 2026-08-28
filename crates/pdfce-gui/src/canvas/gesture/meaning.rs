@@ -453,6 +453,7 @@ pub fn press_kind(
     grip: Option<Grip>,
     handle: Option<(usize, pdfce_core::vector::Handle)>,
     dimension: Option<DimensionPress>,
+    markup_body: bool,
     zoom_armed: bool,
     caps: Capabilities,
 ) -> PressMeaning {
@@ -709,6 +710,29 @@ pub fn press_kind(
             // what it says; `canvas::dimdrag`'s header carries that argument.
             DimensionPress::Body => DragKind::Move,
         })
+    // ★★★ A press inside a selected MARKUP annotation, in a mode that may author
+    // markup. Added 2026-08-28, and it is the branch whose absence made the
+    // whole annotation drag a dead end.
+    //
+    // Below the dimension branch and above `edit_content`, and both placements
+    // are decisions:
+    //
+    // * **Below the dimension**, because the two are mutually exclusive by
+    //   `AnnotKind` and the ordering is therefore a statement rather than a
+    //   tie-break -- the same relationship the measure tool has to the markup
+    //   tool at the top of this function.
+    //
+    // * **Above `edit_content`**, because it must fire in REVIEW, where
+    //   `edit_content` is false. That is the whole reason it could not simply
+    //   be another arm in the grip match below: markup is authored in Review,
+    //   and an operator who has just drawn a shape there and wants to nudge it
+    //   is in the mode where the content branch does not run at all.
+    //
+    // => The absence of this branch is what made the fork in `canvas::interact`
+    // a dead end. `annotdrag` was reachable and never reached, because no press
+    // on a markup ever became a `DragKind::Move` to route.
+    } else if caps.author_markup && markup_body {
+        Some(DragKind::Move)
     } else if caps.edit_content {
         match (handle, grip) {
             // ★★ A Bézier handle outranks everything below it, and it has to.
@@ -820,8 +844,15 @@ mod tests {
                     caps.author_markup = author_markup;
                     caps.author_measure = author_measure;
                     for kind in [TextEditKind::Edit, TextEditKind::Add] {
-                        let m =
-                            press_kind(CanvasTool::TextEdit(kind), None, None, None, false, caps);
+                        let m = press_kind(
+                            CanvasTool::TextEdit(kind),
+                            None,
+                            None,
+                            None,
+                            false,
+                            false,
+                            caps,
+                        );
                         assert_eq!(
                             m.click, edit_content,
                             "the caret needs `edit_content` and nothing else"
@@ -842,6 +873,7 @@ mod tests {
                         None,
                         None,
                         None,
+                        false,
                         true,
                         caps,
                     );
@@ -867,7 +899,7 @@ mod tests {
         for grip in [None, Some(Grip::SouthEast), Some(Grip::Move)] {
             for zoom in [false, true] {
                 assert_eq!(
-                    press_kind(armed, grip, None, None, zoom, Capabilities::FULL),
+                    press_kind(armed, grip, None, None, false, zoom, Capabilities::FULL),
                     PressMeaning::dragging(DragKind::Markup(MarkupKind::Rectangle)),
                     "grip={grip:?} zoom_armed={zoom}"
                 );
@@ -883,24 +915,32 @@ mod tests {
         let select = CanvasTool::Select;
         let full = Capabilities::FULL;
         assert_eq!(
-            press_kind(select, Some(Grip::SouthEast), None, None, false, full),
+            press_kind(
+                select,
+                Some(Grip::SouthEast),
+                None,
+                None,
+                false,
+                false,
+                full
+            ),
             PressMeaning::dragging(DragKind::Resize(Grip::SouthEast))
         );
         assert_eq!(
-            press_kind(select, Some(Grip::Move), None, None, false, full),
+            press_kind(select, Some(Grip::Move), None, None, false, false, full),
             PressMeaning::dragging(DragKind::Move)
         );
         assert_eq!(
-            press_kind(select, None, None, None, true, full),
+            press_kind(select, None, None, None, false, true, full),
             PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Zoom))
         );
         assert_eq!(
-            press_kind(select, None, None, None, false, full),
+            press_kind(select, None, None, None, false, false, full),
             PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select))
         );
         // A grip beats an armed zoom, as it always did.
         assert_eq!(
-            press_kind(select, Some(Grip::SouthEast), None, None, true, full),
+            press_kind(select, Some(Grip::SouthEast), None, None, false, true, full),
             PressMeaning::dragging(DragKind::Resize(Grip::SouthEast))
         );
     }
@@ -955,7 +995,7 @@ mod tests {
         // half is in a different file — `HANDOFF.md` §2's lesson about a test
         // that checks a relation rather than a magnitude.
         for grip in [None, Some(Grip::SouthEast), Some(Grip::Move)] {
-            let meaning = press_kind(select, grip, None, None, false, read);
+            let meaning = press_kind(select, grip, None, None, false, false, read);
             assert!(
                 !matches!(
                     meaning.drag,
@@ -970,7 +1010,7 @@ mod tests {
             );
         }
         assert_eq!(
-            press_kind(select, None, None, None, false, read),
+            press_kind(select, None, None, None, false, false, read),
             PressMeaning {
                 drag: Some(DragKind::TextSelect),
                 click: true,
@@ -984,6 +1024,7 @@ mod tests {
                 None,
                 None,
                 false,
+                false,
                 read
             ),
             PressMeaning::NOTHING,
@@ -991,7 +1032,7 @@ mod tests {
              because an armed pen keeps its own press"
         );
         assert_eq!(
-            press_kind(select, None, None, None, true, read),
+            press_kind(select, None, None, None, false, true, read),
             PressMeaning {
                 drag: Some(DragKind::Marquee(MarqueeIntent::Zoom)),
                 click: true,
@@ -1035,11 +1076,11 @@ mod tests {
             },
         ] {
             let text = matches!(
-                press_kind(CanvasTool::Select, None, None, None, false, caps).drag,
+                press_kind(CanvasTool::Select, None, None, None, false, false, caps).drag,
                 Some(DragKind::TextSelect)
             );
             let content = matches!(
-                press_kind(CanvasTool::Select, None, None, None, false, caps).drag,
+                press_kind(CanvasTool::Select, None, None, None, false, false, caps).drag,
                 Some(DragKind::Marquee(MarqueeIntent::Select))
             );
             assert!(text ^ content, "exactly one, for {caps:?}");
@@ -1050,7 +1091,7 @@ mod tests {
             // and only in Edit.
             for grip in [None, Some(Grip::SouthEast), Some(Grip::Move)] {
                 assert_eq!(
-                    press_kind(CanvasTool::Text, grip, None, None, false, caps),
+                    press_kind(CanvasTool::Text, grip, None, None, false, false, caps),
                     PressMeaning {
                         drag: Some(DragKind::TextSelect),
                         click: true,
@@ -1080,7 +1121,7 @@ mod tests {
     fn the_text_tool_sweeps_in_edit_and_retiring_it_gives_the_marquee_back() {
         let edit = Capabilities::FULL;
         assert_eq!(
-            press_kind(CanvasTool::Text, None, None, None, false, edit),
+            press_kind(CanvasTool::Text, None, None, None, false, false, edit),
             PressMeaning {
                 drag: Some(DragKind::TextSelect),
                 click: true,
@@ -1088,7 +1129,7 @@ mod tests {
             "Edit is the mode this tool was built for"
         );
         assert_eq!(
-            press_kind(CanvasTool::Select, None, None, None, false, edit),
+            press_kind(CanvasTool::Select, None, None, None, false, false, edit),
             PressMeaning::dragging(DragKind::Marquee(MarqueeIntent::Select)),
             "…and putting it down restores the content marquee unchanged"
         );
@@ -1100,6 +1141,7 @@ mod tests {
                 Some(Grip::SouthEast),
                 None,
                 None,
+                false,
                 false,
                 edit
             ),
@@ -1126,7 +1168,7 @@ mod tests {
     fn a_region_zoom_outranks_the_text_tool_but_not_a_pen() {
         for caps in [Capabilities::NONE, Capabilities::FULL] {
             assert_eq!(
-                press_kind(CanvasTool::Text, None, None, None, true, caps),
+                press_kind(CanvasTool::Text, None, None, None, false, true, caps),
                 PressMeaning {
                     drag: Some(DragKind::Marquee(MarqueeIntent::Zoom)),
                     click: true,
@@ -1141,6 +1183,7 @@ mod tests {
                 None,
                 None,
                 None,
+                false,
                 true,
                 Capabilities::FULL
             ),
@@ -1179,7 +1222,7 @@ mod tests {
                 for zoom in [false, true] {
                     for caps in [review, Capabilities::FULL] {
                         assert_eq!(
-                            press_kind(armed, grip, None, None, zoom, caps),
+                            press_kind(armed, grip, None, None, false, zoom, caps),
                             PressMeaning::clicking(),
                             "{kind:?} grip={grip:?} zoom={zoom} {caps:?}"
                         );
@@ -1189,7 +1232,7 @@ mod tests {
             // …and a mode that cannot author markup gives it nothing at all,
             // which is the same answer an armed band kind gets in Read.
             assert_eq!(
-                press_kind(armed, None, None, None, false, Capabilities::NONE),
+                press_kind(armed, None, None, None, false, false, Capabilities::NONE),
                 PressMeaning::NOTHING,
                 "{kind:?} in a mode that authors no markup"
             );
@@ -1204,6 +1247,7 @@ mod tests {
                 None,
                 None,
                 None,
+                false,
                 false,
                 Capabilities::FULL
             ),
@@ -1229,6 +1273,7 @@ mod tests {
                 None,
                 None,
                 false,
+                false,
                 review
             ),
             PressMeaning {
@@ -1245,6 +1290,7 @@ mod tests {
                     None,
                     None,
                     false,
+                    false,
                     review
                 )
                 .drag,
@@ -1253,7 +1299,7 @@ mod tests {
             "a reviewer does not move the page's own content"
         );
         assert_eq!(
-            press_kind(CanvasTool::Select, None, None, None, false, review),
+            press_kind(CanvasTool::Select, None, None, None, false, false, review),
             PressMeaning {
                 drag: Some(DragKind::TextSelect),
                 click: true,

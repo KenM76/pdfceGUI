@@ -129,6 +129,7 @@ pub mod form_field;
 /// window promised is the one the document reports.
 pub mod insert_image;
 pub mod legibility;
+pub mod markup_move;
 pub mod markup_rectangle;
 /// ★ The three Phase 6 markup kinds that are **not drag-shaped** — Freehand,
 /// Polyline and Polygon — and the one control in this application whose
@@ -582,6 +583,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // reader comparing ribbon verdicts wants them together; placed before
         // the two typing checks because a run that fails here should fail
         // before paying for a keystroke that may never arrive.
+        Box::new(markup_move::DraggingAMarkupMovesIt),
         Box::new(markup_rectangle::MarkupRectangleArmsFromTheRibbon),
         // ★ Form-field placement and selection. After the markup checks and
         // not before, because it borrows their gesture machinery — a band drag

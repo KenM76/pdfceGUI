@@ -137,6 +137,28 @@ pub fn deleted_collateral(
     Some(format!("Deleted — {}.", parts.join("; ")))
 }
 
+/// Disclosure: the annotation moved and its pop-up note did not.
+///
+/// ★★★ **The one consequence of a move that this program cannot show.** §12.5.6.14
+/// makes a pop-up a separate annotation with its own placement and leaves to the
+/// reader whether it follows; `pdfce-core` reports the object it left behind and
+/// says the decision is the shell's.
+///
+/// This shell does not draw pop-ups, so a stranded one is invisible here and
+/// perfectly visible in Acrobat — which is Rule 4's surviving half in its
+/// purest form: render normally, report separately, both.
+///
+/// ★ It says pdfce did **not** move it, rather than offering to. Moving it
+/// would be a second undo entry for something the operator cannot see, and a
+/// gesture that produces two entries is one `Ctrl+Z` away from a state nobody
+/// can explain.
+#[must_use]
+pub fn popup_left_behind() -> String {
+    "The note attached to this markup stayed where it was. pdfce does not show those \
+     notes, so you will only see it in a reader that does."
+        .to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

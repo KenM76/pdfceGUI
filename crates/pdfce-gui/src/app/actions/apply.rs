@@ -588,6 +588,10 @@ impl PdfceApp {
             // Deleting the selected annotation — an ANNOTATION verb, so its
             // body lives in `annots` beside the ones the Format tab will add.
             // This arm routes. See `annots::delete`.
+            // The move's twin, and it takes no page for the reason the variant
+            // states: `move_annotation` finds the annotation by id, and the
+            // disclosure this one owes is about a pop-up rather than a sheet.
+            Action::MoveAnnotation { id, dx, dy } => super::annots::move_annot(doc, id, dx, dy),
             Action::DeleteAnnotation { page, id } => {
                 super::annots::delete(doc, page, id);
             }

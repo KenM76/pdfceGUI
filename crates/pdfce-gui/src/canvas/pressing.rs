@@ -54,7 +54,7 @@ use crate::canvas::handles::Grip;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::{SelectionLevel, SelectionState};
 use crate::canvas::tool::CanvasTool;
-use crate::canvas::{dimdrag, handledrag, handles, overlay, zoom};
+use crate::canvas::{annotdrag, dimdrag, handledrag, handles, overlay, zoom};
 
 /// Everything the frame learned by looking at where a press would land.
 ///
@@ -187,11 +187,22 @@ pub fn look(
             })
     });
 
+    // Whether the press landed inside a selected MARKUP annotation's own box.
+    //
+    // ★ Sampled here with the other hit tests, resolved to a bool rather than
+    // left for `press_kind` to compute, so that function stays free of geometry
+    // — this module's stated contract. `annotdrag::grab_box` answers `None`
+    // unless the selection is a markup this shell can actually move, so no
+    // gesture is started that could not commit.
+    let markup_body =
+        origin.is_some_and(|p| annotdrag::grab_box(map, selection).is_some_and(|b| b.contains(p)));
+
     let meaning = gesture::press_kind(
         active_tool,
         grip,
         handle,
         dimension,
+        markup_body,
         zoom::region_zoom_armed(ctx),
         caps,
     );

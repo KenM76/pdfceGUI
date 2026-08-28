@@ -133,8 +133,8 @@ use crate::shell::menus::MenuHost;
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
 use super::{
-    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, menus, moving, overlay, strip, textsel,
-    tool, trace, zoom,
+    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, menus, overlay, strip, textsel, tool,
+    trace, zoom,
 };
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
@@ -653,6 +653,17 @@ pub(super) fn interact(
     // polyline is page-space geometry and this is one screen-space glyph, drawn
     // by a different painter at a different moment.
     let mut vertex_snap: Option<pdfce_core::vector::snap::SnapCandidate> = None;
+    // A markup annotation being dragged, as the CANVAS-SPACE rectangle it would
+    // occupy on release.
+    //
+    // ★★ A seventh preview slot, and it is deliberately not `ghost` even though
+    // it is the same shape -- an `egui::Rect`. `ghost` is the content move's,
+    // and the two can never be non-`None` on one frame, so sharing would work
+    // and would make the painter's question "which kind of thing is this
+    // rectangle about?" answerable only by looking at the selection. Two names
+    // is one fewer place to be wrong, and it is the arrangement the five slots
+    // above already establish.
+    let mut annot_ghost: Option<egui::Rect> = None;
     let mut band = None;
     // The freehand trail, already simplified, in canvas space. A second
     // preview value beside `band` rather than a variant of it, because the two
@@ -744,52 +755,32 @@ pub(super) fn interact(
         // release would commit. Nothing about the move is decided here, on
         // purpose: this arm is wiring, and the rules are unit-tested without a
         // window in `moving`.
+        // ★★★ The move, routed. Three verbs share this one gesture and the
+        // selection decides which — `canvas::dragroute` is that decision and
+        // carries the whole argument, including what the ABSENCE of its third
+        // branch cost: an annotation drag that was consumed and discarded for
+        // ten days, because the fork's two branches could both answer "not
+        // mine" and the gesture had nowhere to go.
+        //
+        // Moved out of this file under R2 on 2026-08-28. Nothing about a move
+        // is decided here, which is this arm's whole shape: it is wiring.
         GestureOutcome::Move { delta, phase } => {
-            // ★★ SHIFT LOCKS THE MOVE TO ONE AXIS — once, above the fork
-            // below, so both verbs get the same constrained delta from one
-            // filter. `ui-conventions/drag-moves.md` D5.
-            //
-            // ★ `shift` is THIS FRAME's modifier, not the press-time flag the
-            // gesture machine carries. See `resizing::Frame::constrain` for why
-            // those are two different facts that happen to read one key.
-            let delta = crate::canvas::constrain::translate(&ctx, shift, delta);
-            // ★★ Two different verbs share one gesture, and the selection
-            // decides which.
-            //
-            // A content move reaches `move_objects` / `move_nodes`; a ce
-            // dimension reaches `place_dimension`, which changes only where the
-            // dimension is DRAWN and cannot alter the number it prints. They
-            // are the same gesture to the operator - press inside the thing,
-            // drag it - and that is why they share `DragKind::Move` rather than
-            // getting a mode or a modifier. See `canvas::dimdrag`'s header for
-            // why placement, and not translation, is what dragging a dimension
-            // means.
-            //
-            // Mutually exclusive by construction: `dimdrag` answers only for an
-            // annotation selection and `moving::eligible` only for content, so
-            // the `else` is a statement of that rather than a precedence.
-            if selection.annot().is_some() {
-                dimension_preview = dimdrag::drag(
-                    dimdrag::Frame {
-                        delta,
-                        phase,
-                        page: doc.current_page(),
-                    },
+            let previews = crate::canvas::dragroute::moved(
+                &crate::canvas::dragroute::Frame {
+                    ctx: &ctx,
                     doc,
-                    &selection,
-                    actions,
-                );
-            } else {
-                ghost = moving::drag(
-                    delta,
-                    phase,
-                    &selection,
+                    selection: &selection,
                     page_index,
-                    targets.as_deref(),
-                    doc.current_page(),
-                    actions,
-                );
-            }
+                    provider: targets.as_deref(),
+                    shift,
+                },
+                delta,
+                phase,
+                actions,
+            );
+            ghost = previews.ghost;
+            annot_ghost = previews.annot;
+            dimension_preview = previews.dimension;
         }
         // ★ The markup band. `markup::drag` owns every rule — the canvas→page
         // conversion, the degenerate-drag refusal, which endpoints stay raw —
@@ -1316,6 +1307,7 @@ pub(super) fn interact(
             selection: &selection,
             marquee,
             ghost,
+            annot_ghost,
             resize_ghost,
             handle_drag: handle_preview,
             dimension_preview: dimension_preview.as_deref(),

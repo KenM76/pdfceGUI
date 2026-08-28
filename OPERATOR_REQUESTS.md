@@ -80,6 +80,65 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O49 — Zoom loses its place past about 300,000%, and I am telling you rather than quietly widening the test
+
+**Found 2026-08-28 by the full driven sweep. Not something you have hit, and I
+do not think you will — recorded because it is real and because the alternative
+was to make the test stop asking.**
+
+### What the sweep found
+
+Zooming in past roughly **300,000%**, the point under your pointer drifts. Not
+by much: at that magnification it is about twenty pixels after seven wheel
+notches. Zooming back out from a million percent does the same thing on the way
+down.
+
+Reproducible — same notch, twice — so it is a boundary rather than noise.
+
+### Why it happens, as far as I have taken it
+
+pdfce has **two** ways of remembering where the view is. An ordinary one that
+works up to about a million percent, and a high-precision one that takes over
+above that. The ordinary one starts losing accuracy at around 300,000%, and the
+high-precision one does not engage until roughly 1,200,000%.
+
+**There is a band between them where neither is quite good enough.** The
+hand-over threshold was calibrated on a different question — the point at which
+the ordinary numbers can no longer address every *pixel* — and holding your
+place needs better than that.
+
+### What I did NOT do
+
+**I did not widen the test's tolerance**, which would have made the red go away
+in one line. This project has a standing rule about that and it is the right
+one: an extreme-end failure is usually the measuring instrument running out, so
+the first job is to check the instrument — and here the instrument is fine. It
+reads a high-precision number the application already publishes for exactly
+this. The drift is the application's.
+
+### What it costs you today
+
+Nothing I can see. Your own reported working range tops out around 800%, and
+300,000% is 375 times past that. The page is still drawn, still panned, still
+correct; what moves is the *anchor point* under the cursor, by a fraction of a
+point.
+
+### What I would do about it
+
+Lower the hand-over threshold so the high-precision path takes over where the
+ordinary one actually stops holding, rather than where it stops addressing
+pixels. That is a one-constant change **and it is not free** — the
+high-precision path has its own two hand-overs, and this project has already
+found seven distinct defects in them. Changing when they fire without driving
+the whole ladder again would be trading a defect nobody meets for one somebody
+might.
+
+**Status:** open, not scheduled. Two driven checks are RED and will stay red
+until it is fixed, which is the honest state and is why they are not being
+quieted.
+
+---
+
 ## O48 — Removing embedded fonts does not make the file smaller, and I think that is the wrong answer
 
 **Found 2026-08-28, while wiring Tools > Remove embedded fonts. Not a defect —

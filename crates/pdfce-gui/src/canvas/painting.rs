@@ -80,6 +80,15 @@ pub(super) struct Frame<'a> {
     /// gesture does nothing" symptom this project keeps finding, in its most
     /// literal form.
     pub handle_drag: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)>,
+    /// Where a dragged markup annotation would land, in canvas space.
+    ///
+    /// ★ Separate from [`Self::ghost`] even though both are one rectangle's
+    /// worth of preview: that one is a *displacement* applied to the content
+    /// selection's outlines, and this is an absolute rectangle for a selection
+    /// that has no content outlines at all. They can never both be `Some`, and
+    /// sharing the field would make the painter's question — *which kind of
+    /// thing is this about?* — answerable only by re-inspecting the selection.
+    pub annot_ghost: Option<egui::Rect>,
     /// The resize ghost's grip and factors, if a resize would commit.
     pub resize_ghost: Option<(handles::Grip, (f32, f32))>,
     /// A ce dimension being dragged to a new placement, as the **page-space**
@@ -157,6 +166,7 @@ pub(super) fn draw(
         selection,
         marquee,
         ghost,
+        annot_ghost,
         resize_ghost,
         handle_drag,
         active_tool,
@@ -267,6 +277,12 @@ pub(super) fn draw(
     guides::draw(ui, doc, pages, clip);
     if let Some(delta) = ghost {
         overlay::draw_move_ghost(&painter, ui.visuals(), map, selection, delta);
+    }
+    // The annotation ghost, on the same layer and under the same contract:
+    // `annotdrag::drag` returns `Some` only for a selection whose release will
+    // commit, so a locked annotation or a ce dimension draws none.
+    if let Some(rect) = annot_ghost {
+        overlay::draw_annot_ghost(&painter, ui.visuals(), map, *rect);
     }
     // ★ The resize ghost, on the same layer and under the same contract: it is
     // `Some` only when `resizing::drag` has established that a release would
