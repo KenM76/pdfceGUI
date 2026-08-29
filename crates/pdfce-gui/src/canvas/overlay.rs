@@ -349,11 +349,51 @@ pub fn draw_anchors(
     points: &[(usize, egui::Pos2)],
     selected: &std::collections::BTreeSet<usize>,
 ) {
+    let stroke = Stroke::new(1.0, visuals.selection.stroke.color);
+    let draw_unselected = points.len() <= MAX_UNSELECTED_ANCHORS;
+
+    // ★★★ **The census is written BEFORE the empty return, since 2026-08-29.**
+    //
+    // It used to sit at the bottom, after `if points.is_empty() { return; }` —
+    // so an object with no anchors and a draw that never happened produced the
+    // **same trace**: nothing. That is the shape `tools/ui-verify`'s own rule 4
+    // forbids from the other side (an absence is not evidence unless the thing
+    // that would have produced it is known to run), and it cost a whole sweep's
+    // worth of misclassification:
+    //
+    // * `the_points_tool_shows_points_on_one_click` and
+    //   `show_points_draws_an_objects_points_without_descending` **FAILED**,
+    //   each accusing a named line of `painting::draw_anchors`;
+    // * `multi_node_move_moves_every_picked_anchor` and
+    //   `bezier_handle_drag_changes_a_curve` **SKIPPED**, on the identical
+    //   absence, saying *"the point named a text run or an image"*;
+    //
+    // and all four had aimed at the same `--doc-point 0,1140,62` on
+    // `SW41177.pdf`, where `the_text_tool_types_on_one_click` passed on
+    // `text-edit-caret run=426` — i.e. the aim is a **text run**, which has no
+    // anchors, and the two failures were reports about the aim wearing the
+    // clothes of reports about the code. All three of the callers that read
+    // this line already have a `total == 0` arm written for exactly that case;
+    // none of them could reach it, because the line they read it from was the
+    // one being suppressed.
+    //
+    // ⇒ A census line states *what the draw was asked to draw*, which is a fact
+    // even when the answer is nothing. Writing it unconditionally costs one
+    // formatted string per frame in which anchors are in scope at all, and buys
+    // the difference between "this object has no points" and "this function did
+    // not run" — which is the whole question every anchor check asks first.
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!(
+            "canvas-anchors total={} selected={} unselected_drawn={}",
+            points.len(),
+            selected.len(),
+            if draw_unselected { points.len() } else { 0 }
+        )
+    });
     if points.is_empty() {
         return;
     }
-    let stroke = Stroke::new(1.0, visuals.selection.stroke.color);
-    let draw_unselected = points.len() <= MAX_UNSELECTED_ANCHORS;
 
     for (index, point) in points {
         let is_selected = selected.contains(index);
@@ -413,15 +453,6 @@ pub fn draw_anchors(
             );
         }
     }
-    crate::diag::trace(|| {
-        // ui-text-exempt: diagnostic trace, never displayed.
-        format!(
-            "canvas-anchors total={} selected={} unselected_drawn={}",
-            points.len(),
-            selected.len(),
-            if draw_unselected { points.len() } else { 0 }
-        )
-    });
 }
 
 /// The diameter of a Bézier-handle mark, in screen pixels.

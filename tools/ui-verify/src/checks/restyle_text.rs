@@ -36,6 +36,21 @@
 //! most plausibly: `sync` runs every frame, and a stamp recomputed too eagerly
 //! re-reads the document between the operator's press and the button's read.
 //!
+//! ## ★★ There is a link 0, and this check spent a red run learning it
+//!
+//! **The panel has to be on screen before any of the six can be observed**, and
+//! the dock arrangement is *persisted per machine* — so it is not a constant
+//! this check may assume. Until 2026-08-29 it assumed it, found no
+//! `properties.text` region, and reported the panel as saying nothing about 266
+//! selected characters. The panel was not saying nothing; it was not there.
+//! [`INVOKE`] carries the fix and the evidence.
+//!
+//! ⇒ The general form, and it is worth stating because it will apply again:
+//! **a driven check must put the surface it is about on screen itself.** An
+//! arrangement that happens to be right on the machine the check was written on
+//! is not a precondition, it is a coincidence, and the failure it produces
+//! accuses the program of exactly the defect the check exists to find.
+//!
 //! # ★ Why Bold and not the size field
 //!
 //! Because it is **one click on a button** and the size field is an
@@ -77,6 +92,49 @@ use crate::report::CheckReport;
 /// The mode whose canvas may select page content and whose panels carry
 /// Properties.
 const MODE: &str = "edit";
+/// The commands run at startup, in order, before this check touches anything.
+///
+/// # ★★★ The Properties panel has to be ASKED FOR, and not asking for it cost
+/// a red run
+///
+/// `file.properties` is the command that mounts and activates the Properties
+/// panel from **any** arrangement (`app::panels::show_panel` — it activates the
+/// panel if it is already mounted and otherwise looks its home up in the `edit`
+/// default, and it is idempotent rather than a toggle). Two sibling checks —
+/// `field_delete_gate` and `annot_delete_gate` — already launch this way, and
+/// the reason they give is the one that applies here:
+///
+/// > so the check does not have to know what dock layout the machine it runs
+/// > on happens to have persisted.
+///
+/// This check did not, and on 2026-08-29 it failed with *"266 character(s) are
+/// selected and the Properties panel says nothing about them"*. Its own failure
+/// text named three candidates and **candidate (1) was the right one**. The
+/// trace settles it without ambiguity:
+///
+/// | evidence | in `restyle-text.trace.txt` |
+/// |---|---|
+/// | six panel **bodies** were on screen | `dock.body.view.panel_tool`, `.panel_objects`, `.panel_pages`, `.panel_layers`, `.panel_forms`, `dock.body.measure.manage_groups` |
+/// | ten panel **tabs** were declared | none of them `dock.tab.file.properties` |
+/// | the Properties panel | **no tab, no body, and no `panel-shown` line** |
+///
+/// So the section was not guarded out and the run did not fail to pin — there
+/// was no panel for `panels::properties::text::section` to draw into at all.
+/// Candidates (2) and (3) could not have been reached, and neither can be
+/// judged until this line exists.
+///
+/// ★ `mode.edit` is first and is load-bearing: `dispatch`'s mode arm sets the
+/// ribbon mode and *"the dock follows on the same frame"*, so a panel mounted
+/// before the mode moved would be mounted into the workspace the check is about
+/// to leave. Ordering them here rather than clicking afterwards is what makes
+/// that impossible.
+///
+/// ★★ The Edit-mode segment is still **clicked** below, and that is not
+/// redundant: `docks` compares `ribbon.mode()` against `modes.active()` and
+/// does nothing when they agree, so the click cannot disturb the panel, and it
+/// keeps the check driving the operator's own gesture rather than trusting an
+/// environment variable to have taken.
+const INVOKE: &str = "mode.edit,file.properties";
 /// The Text section's own region — its presence is the whole of link 3.
 const SECTION_REGION: &str = "properties.text";
 /// The Bold button.
@@ -226,13 +284,18 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     ));
     spec.env
         .push((SHELL_DIAG_ENV.0.to_owned(), SHELL_DIAG_ENV.1.to_owned()));
+    // ★ See [`INVOKE`]: without this the Properties panel is only on screen if
+    // the machine happens to have persisted an arrangement containing it, and
+    // on 2026-08-29 it had not.
+    spec.env
+        .push(("PDFCE_DIAG_INVOKE".to_owned(), INVOKE.to_owned()));
     spec.allow_stale = ctx.allow_stale;
     spec.source_root = ctx.source_root.clone();
 
     let session = Session::launch(&spec, ctx.profile.trace_prefix)?;
     report.artifact(session.trace_path().to_path_buf());
     report.note(format!(
-        "launched {} as pid {}",
+        "launched {} as pid {} with PDFCE_DIAG_INVOKE={INVOKE}",
         exe.display(),
         session.pid()
     ));
@@ -302,13 +365,22 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         return Ok(Some(format!(
             "★ {swept} CHARACTER(S) ARE SELECTED AND THE PROPERTIES PANEL SAYS NOTHING ABOUT \
              THEM: no `{SECTION_REGION}` region.\n\
-             Three candidates, in the order worth checking. (1) **The Properties panel is not \
-             mounted in this mode's dock**, so the section is drawing into nothing — look at \
-             the screenshot beside this report. (2) **The section's guard is wrong** — it reads \
-             `doc.text_selection` and the staleness gate inside `TextSelection::runs`, and a \
-             gate that answers empty returns before drawing. (3) **The run would not pin**, in \
-             which case the section should still draw its heading and one sentence, so an \
-             absent region rules this out rather than in. Trace: {}.",
+             ★★ **The panel being absent is no longer one of the candidates.** This check now \
+             launches with `PDFCE_DIAG_INVOKE={INVOKE}`, so the panel is mounted and active \
+             before anything else happens — that was the 2026-08-29 failure and it is closed. \
+             Confirm it in the trace before reading further: a `dock.body.file.properties` \
+             region says the panel drew. If it is missing, the finding is that \
+             `file.properties` no longer mounts a panel, which is a defect in \
+             `app::panels::show_panel` and not in this section.\n\
+             Two candidates remain. (1) **The section's guard is wrong** — \
+             `panels::properties::text::section` reads `doc.text_selection` and the staleness \
+             gate inside `TextSelection::runs`, which answers an empty vec whenever \
+             `selection.epoch != doc.edit_epoch`; an empty vec returns to `route` before \
+             drawing. (2) **The run would not pin** — `TextStyleDraft::sync` answers `false` \
+             when `textedit::pin::inspect` finds nothing or the `/BaseFont` join fails — in \
+             which case the section should still draw its heading and one sentence and publish \
+             this very region, so an absent region rules this out rather than in. The \
+             screenshot beside this report shows which. Trace: {}.",
             session.trace_path().display()
         )));
     }

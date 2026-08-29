@@ -231,7 +231,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         centre.0, centre.1
     ));
 
-    // --- B: disarm, then select it -----------------------------------------
+    // --- B: disarm, CLEAR, then select it ----------------------------------
     //
     // ★ Escape first. The tool stays armed after a placement, exactly as a
     // markup pen does, so a second click without this would place a SECOND
@@ -239,6 +239,56 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // about selection when the cause was arming.
     driver.press(crate::sys::vk::ESCAPE)?;
     session.settle(12);
+
+    // ★★★ AND THEN A CLICK ON BLANK PAPER — `checks::formaim`'s header carries
+    // the trace lines that put it here, and `widget_move`'s phase B is the same
+    // step for the same reason.
+    //
+    // A field this check authored is ALREADY SELECTED (`OPERATOR_REQUESTS.md`
+    // O53), and `canvas::forms::select_click` traces only on a CHANGE. So
+    // clicking it without clearing first asks the program to announce a
+    // selection that has not moved, and the check fails naming a click that in
+    // fact landed dead centre. Clearing makes the assertion answerable and adds
+    // an observation: the clearing line proves the selection channel is live
+    // before its silence is read as a failure — `crate::checks` rule 4.
+    let boxes = crate::checks::formaim::targets(&trace);
+    let blank =
+        crate::checks::formaim::blank_canvas_point(&boxes, page, 0, centre).ok_or_else(|| {
+            Error::new(format!(
+                "no blank paper could be found on page 1 near the field this check placed: every \
+                 candidate around ({:.1}, {:.1}) is inside one of the {} widget(s) the canvas \
+                 named, or off the sheet. Without a clearing click the field stays selected from \
+                 authoring and the selecting click below changes nothing to observe. Reported as \
+                 a SKIP: this is a property of the document, not of the menu under test.",
+                centre.0,
+                centre.1,
+                boxes.len()
+            ))
+        })?;
+    let blank_point = mapping.doc_to_window(DocPoint::new(0, blank.0, page.height_pt - blank.1))?;
+    driver.click_at(session.frame()?.to_screen(blank_point))?;
+    session.settle(20);
+
+    let trace = session.trace()?;
+    // ★ `field=` absent IS the cleared line: the application writes
+    // `form-field-selected none` with no key/value pairs for a cleared
+    // selection, and `field=…` for every other one.
+    if !trace.events(SELECTED).any(|l| l.get("field").is_none()) {
+        return Ok(Some(format!(
+            "THE SELECTION COULD NOT BE CLEARED: a click on blank paper at canvas ({:.1}, {:.1}) \
+             produced no `{SELECTED} none` line. A primary click on paper is an unambiguous \
+             deselect and `canvas::forms::select_click` traces it, so this says the click never \
+             reached the form surface at all — which would make the assertion below unreadable \
+             either way. Trace: {}.",
+            blank.0,
+            blank.1,
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "★ the selection was cleared on blank paper at canvas ({:.1}, {:.1})",
+        blank.0, blank.1
+    ));
 
     // The census is canvas space and `doc_to_window` takes PDF space, so the
     // flip is the one arithmetic this check does: `canvas_y = height - doc_y`.
@@ -255,8 +305,9 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     {
         return Ok(Some(format!(
             "THE FIELD COULD NOT BE SELECTED: a click at its centre produced no `{SELECTED}` \
-             line naming {field:?}. Selecting has worked since the form surface landed, so this \
-             says the click missed or the tool was still armed. Trace: {}.",
+             line naming {field:?}, on a frame where the clearing click above proved the \
+             selection channel is live. So this says the click missed the widget's rect or the \
+             tool was still armed. Trace: {}.",
             session.trace_path().display()
         )));
     }

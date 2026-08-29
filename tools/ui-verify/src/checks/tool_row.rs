@@ -63,7 +63,49 @@ const CARET_EVENT: &str = "text-edit-caret";
 /// `text-edit-became-add reason=…` — the caret fell back to a fresh origin.
 const BECAME_ADD_EVENT: &str = "text-edit-became-add";
 /// `canvas-anchors total=… selected=… unselected_drawn=…`.
+///
+/// ★★★ **Written even when `total=0`, since 2026-08-29** — and the two checks
+/// below are the reason. `overlay::draw_anchors` used to return before this line
+/// when there was nothing to draw, so *"this object has no points"* and *"the
+/// draw never ran"* were the same trace: nothing. Both checks have a `total == 0`
+/// SKIP arm written for the first case, and neither could reach it.
 const ANCHORS_EVENT: &str = "canvas-anchors";
+/// `canvas-anchors-declined reason=…` — the enumeration stopped before it had a
+/// count, and why.
+///
+/// ★★ The suffix is load-bearing twice over. It keeps `last(ANCHORS_EVENT)` from
+/// ever returning one of these — which reads `total=`, and these carry no
+/// `total` — and it is the convention `tools/gates/check-trace-names.py`
+/// enforces against `vector_edit`'s funnel labels, for exactly that failure.
+const DECLINED_EVENT: &str = "canvas-anchors-declined";
+/// The decline reasons that are facts about **the aim or the fixture**, not
+/// about the program, and therefore SKIP rather than FAIL.
+///
+/// ★★★ This list is the whole difference between the sweep of 2026-08-29 and an
+/// honest one. Four checks read anchors on that run — these two plus
+/// `multi_node` and `bezier_handle` — all four aimed at the same
+/// `--doc-point 0,1140,62` on `SW41177.pdf`, all four saw no `canvas-anchors`
+/// line, and they split two-and-two on what that meant: two SKIPPED saying *"the
+/// point named a text run or an image"* and two FAILED naming specific lines of
+/// `painting::draw_anchors`. The SKIPs were right — at that point
+/// `the_text_tool_types_on_one_click` passes with `text-edit-caret run=426`, so
+/// the aim **is** a text run, and a text run has no anchors — and the two
+/// failures were reports about the aim wearing the clothes of reports about the
+/// code.
+///
+/// ⇒ With the reason in the trace, no check has to guess. `not-entered` stays a
+/// failure, because it means the click did not reach the rung and that is the
+/// program's job; everything here means the driver pointed somewhere the feature
+/// has nothing to say about.
+const AIM_REASONS: [&str; 3] = ["nothing-selected", "leaf-in-form-xobject", "other-page"];
+
+/// The decline line's `reason=`, if the enumeration declined on the last frame.
+fn decline_reason(trace: &crate::trace::Trace) -> Option<String> {
+    trace
+        .last(DECLINED_EVENT)
+        .and_then(|l| l.get("reason"))
+        .map(str::to_owned)
+}
 /// The View ▸ Display ▸ Show points control.
 const TOGGLE_REGION: &str = "ribbon.item.view.show_points";
 /// `canvas-selection via=node-tool …`.
@@ -270,15 +312,34 @@ fn drive_points(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<S
             .events(NODE_CLICK_EVENT)
             .filter(|l| l.raw.contains("node-tool"))
             .count();
+        // ★★★ The decline reason first, because it is the only thing here that
+        // knows whose fault this is. See `AIM_REASONS`.
+        if let Some(reason) = decline_reason(&trace)
+            && AIM_REASONS.contains(&reason.as_str())
+        {
+            return Err(Error::new(format!(
+                "the node tool armed and the click was routed to it {routed} time(s), and the \
+                 anchor enumeration declined with `{DECLINED_EVENT} reason={reason}` — which \
+                 is a fact about WHERE THIS RUN AIMED and not about the feature. SKIPPED \
+                 rather than failed. Aim `--doc-point` at a stroked path: a text run, an \
+                 image and a target inside a form XObject each have no anchors to show. \
+                 Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+        let declined = decline_reason(&trace).map_or_else(
+            || "no decline line either".to_owned(),
+            |r| format!("`{DECLINED_EVENT} reason={r}`"),
+        );
         return Ok(Some(format!(
             "★★ A THEN ONE CLICK DREW NO POINTS. The click was routed to the node tool \
-             {routed} time(s).\n\
+             {routed} time(s), and the enumeration reported: {declined}.\n\
              If that count is zero the bare `A` armed nothing — check the keymap and that \
              `view.tool_node` is not being declined by the mode gate. If it is non-zero the \
              click reached `SelectionState::click_direct` and the selection did not end up at \
              the Part rung, which is the one line that makes the points appear: a click naming \
              a subpath must set `SelectionLevel::Part`, because `painting::draw_anchors` draws \
-             from that rung up. Trace: {}.",
+             from that rung up — `reason=not-entered` says exactly that happened. Trace: {}.",
             session.trace_path().display()
         )));
     };
@@ -428,9 +489,34 @@ fn drive_show_points(ctx: &CheckContext, report: &mut CheckReport) -> Result<Opt
 
     let trace = session.trace()?;
     let Some(anchors) = trace.last(ANCHORS_EVENT) else {
+        // ★★★ Same three-way split as `drive_points`, and it matters more here,
+        // because this check's control case has already established that the
+        // click lands and selects. If the enumeration declines for an aim
+        // reason, what this run measured is the aim.
+        if let Some(reason) = decline_reason(&trace)
+            && AIM_REASONS.contains(&reason.as_str())
+        {
+            return Err(Error::new(format!(
+                "Show points was switched on — the toggle's own region was clicked and the \
+                 shell traced it — and the anchor enumeration declined with `{DECLINED_EVENT} \
+                 reason={reason}`, which is a fact about WHERE THIS RUN AIMED and not about \
+                 the toggle. SKIPPED rather than failed. Aim `--doc-point` at a stroked path. \
+                 Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+        let declined = decline_reason(&trace).map_or_else(
+            || {
+                format!(
+                    " There is no `{DECLINED_EVENT}` line either, so the draw ran and the \
+                        census was suppressed, or the paint pass did not reach it at all."
+                )
+            },
+            |r| format!(" The enumeration reported `{DECLINED_EVENT} reason={r}`."),
+        );
         return Ok(Some(format!(
             "★★ SHOW POINTS WAS SWITCHED ON AND NOTHING WAS DRAWN: no `{ANCHORS_EVENT}` line \
-             after the toggle and a second click.\n\
+             after the toggle and a second click.{declined}\n\
              This is the exact state the first wiring shipped in. `painting::draw_anchors` has \
              a rung guard the toggle was added to, and TWO LINES BELOW IT a `let else` on \
              `entered_object()` — which answers `None` at the Object rung by construction, \

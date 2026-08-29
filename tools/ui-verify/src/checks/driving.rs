@@ -933,6 +933,100 @@ pub fn scroll_to(
     Ok(None)
 }
 
+/// How many times [`press_until_traced`] will send a keystroke before
+/// concluding it is not arriving.
+///
+/// ★ Four rather than two, and the number comes from a measurement rather than
+/// from taste: `scale_switch`'s header records a bare `V` **arriving zero times
+/// in six runs** with a dock panel raised. A non-arrival on this machine is not
+/// a rare coincidence to be papered over with one retry — it is a routine
+/// outcome of a window-manager transition landing between the raise and the
+/// key — so a loop that gives up at two would report "not delivered" on runs
+/// where a third press would have landed, and the suite would learn nothing on
+/// those runs either.
+///
+/// It is bounded, and small, because a press is not free of consequence: see
+/// this function's contract about repeatability below.
+pub const PRESS_TRIES: usize = 4;
+
+/// **Press a key until the application's own trace shows it was heard**, and
+/// answer whether it ever was.
+///
+/// Returns `true` as soon as any line named in `evidence` appears that was not
+/// there before the first press, and `false` after [`PRESS_TRIES`] presses with
+/// no new line.
+///
+/// # ★★★ THE RULE THIS ENCODES
+///
+/// > **Nothing measured after a press is evidence about the program until the
+/// > press is shown to have arrived.**
+///
+/// `Driver::press` answers `Ok(())` when the **keystroke was sent**. It refuses
+/// with no target window and it raises the target first — both real guards, and
+/// neither of them is the statement *"the application processed that key"*.
+/// Between the two lie a foreground transition, an egui frame boundary, and, on
+/// this machine, a measured failure rate that is not small: `scale_switch`'s
+/// header records a bare `V` arriving **zero times in six** runs with a dock
+/// panel raised.
+///
+/// A check that presses once, measures nothing, and reports a defect has
+/// reported a defect about a program it never spoke to. That is strictly worse
+/// than reporting nothing, because it is a confident accusation naming a
+/// specific line — and this suite has now produced one of those (`annot_delete_gate`
+/// phase D on 2026-08-29 said *"the keystroke did not reach `canvas::keys` at
+/// all"* about a keystroke whose effect was four lines further up the same
+/// trace). ⇒ A press that cannot be shown to have landed is a **SKIP**.
+///
+/// # ★★ The caller owes two things, and both are contracts rather than advice
+///
+/// 1. **`evidence` must name every line the key could produce**, including the
+///    ones that mean the program is wrong. A list containing only the
+///    good outcome turns a broken build into "the key did not arrive", which is
+///    the same false negative in a new place. `annot_delete_gate` lists three:
+///    the decline it wants, the funnel line that means the gate was walked past,
+///    and the funnel's refusal line that means it was walked past and the engine
+///    caught it.
+/// 2. **The key must be safe to press more than once.** Every press after the
+///    one that lands is suppressed — the loop returns immediately — but presses
+///    before it are real and may repeat. Delete on a document that refuses every
+///    delete is safe by construction; Delete on a document that performs them is
+///    not, and such a caller must press once and take the SKIP.
+///
+/// # Relation to `read_mode_chrome::press_until_invoked`
+///
+/// That is this function's **click** half — same rule, same shape, and it
+/// additionally re-reads the control's rect between attempts because a click
+/// needs a target and a ribbon relays itself out when the window resizes. A key
+/// has no rect, so there is nothing to re-read and the two cannot share a body
+/// without one of them carrying a parameter it ignores. They are kept as a pair
+/// deliberately, and this module's own rule applies to folding them: *"a third
+/// copy is the point at which folding becomes worth doing on its own rather
+/// than in the change that happens to need it."*
+pub fn press_until_traced(
+    session: &Session,
+    driver: &Driver,
+    vk: u16,
+    evidence: &[&str],
+) -> Result<bool> {
+    let count = |session: &Session| -> Result<usize> {
+        let trace = session.trace()?;
+        Ok(evidence.iter().map(|name| trace.events(name).count()).sum())
+    };
+    let before = count(session)?;
+    for _ in 0..PRESS_TRIES {
+        driver.press(vk)?;
+        // The same settle a single-press check would have used. What the loop
+        // adds is another look, not a longer one: a key that is going to be
+        // processed is processed within a frame or two of arriving, and a key
+        // that never arrived will not arrive by being waited for.
+        session.settle(12);
+        if count(session)? > before {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

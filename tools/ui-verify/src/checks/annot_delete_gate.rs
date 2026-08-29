@@ -63,7 +63,7 @@
 //! | A | launch on the **certified** fixture in Review with the Properties panel shown | the `page` region declared |
 //! | B | click the centre of the square's `/Rect` | `annot-select` naming it |
 //! | C | read the census and the regions | `annot-delete-gates … refused=1`, `properties.annot_delete.refused` declared, `…collateral` **not** |
-//! | D | press Delete | `canvas-delete-declined … reason=annot-delete-refused`, and **no** `delete-annotation` funnel line |
+//! | D | press Delete **until the trace shows it was heard** | `canvas-delete-declined … reason=annot-delete-refused`, and **neither** `delete-annotation` nor `delete-annotation-refused` |
 //! | E | relaunch on the **ordinary** twin, click the same point | `annot-delete-gates … refused=0`, and `properties.annot_delete.refused` **not** declared |
 //!
 //! # ★ Why Review mode rather than Edit
@@ -129,6 +129,28 @@ const DECLINED_EVENT: &str = "canvas-delete-declined";
 /// exactly, and which no region assertion above would catch, because the panel
 /// would still have drawn its sentence on the frames before the press.
 const FUNNEL_EVENT: &str = "delete-annotation";
+/// ★★★ The **funnel's refusal** line — the one the pre-fix build actually wrote.
+///
+/// `app::actions::apply::vector_edit` writes `<label>` on success and
+/// `<label>-refused` on an `Err`, and it is the second that a Delete which
+/// walked past the gate produces on a certified document: the ladder raised
+/// `AnnotAction::Delete`, `EditSession::delete_annotation` refused it, and this
+/// line went to the trace **and nothing went to the operator**.
+///
+/// ★★ Reading it is what turns phase D from an accusation into a diagnosis. On
+/// 2026-08-29 this check reported *"the keystroke did not reach `canvas::keys`
+/// at all — check that the canvas had focus"* while the trace carried this line
+/// four rows above the region the same phase went on to read: the key had
+/// arrived, been processed, and been silently refused. The failure was real and
+/// severe — `canvas::keys::Keys::annot_delete_refused` was a constant `false`,
+/// because `canvas::interact` filled it from `annotdelete::refuses_selected`,
+/// which reads `doc.selection` at a point in the frame where the selection has
+/// been moved off the document — and the check's own message pointed at focus.
+///
+/// ⇒ A check that reads only the line it hopes for can only say *"nothing
+/// happened"*. Naming the line that means *"the wrong thing happened"* is what
+/// lets it say which.
+const FUNNEL_REFUSED_EVENT: &str = "delete-annotation-refused";
 /// The refusal sentence's region, published only when a gate refuses.
 const REFUSED_REGION: &str = "properties.annot_delete.refused";
 /// The collateral sentence's region, published only when there is collateral.
@@ -361,9 +383,65 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // not: the sentence would be drawn, and Delete would still raise the
     // action, be refused into the trace, and clear the selection — taking the
     // sentence away with it.
-    certified.driver.press(vk::DELETE)?;
-    certified.session.settle(12);
+    // ★★★ **Pressed until the trace shows it was heard, not pressed once.**
+    //
+    // See `driving::press_until_traced`'s header for the rule and the day that
+    // bought it. The three names are the complete list of what this key can
+    // produce here, and giving all three is the contract: a list containing only
+    // `DECLINED_EVENT` would turn a build that walks past the gate into *"the
+    // key never arrived"*, which is the same false negative wearing the
+    // opposite face.
+    //
+    // ★ Repeating the press is safe on THIS fixture by construction — every
+    // delete on a certified document is refused, so a press that lands changes
+    // nothing about the file — and the loop stops on the first one that lands
+    // regardless. It would not be safe on the ordinary twin, which is why phase
+    // E presses nothing.
+    let heard = crate::checks::driving::press_until_traced(
+        &certified.session,
+        &certified.driver,
+        vk::DELETE,
+        &[DECLINED_EVENT, FUNNEL_EVENT, FUNNEL_REFUSED_EVENT],
+    )?;
+    if !heard {
+        return Err(Error::new(format!(
+            "Delete was pressed {} time(s) at the canvas and the application traced no \
+             response to any of them — no `{DECLINED_EVENT}`, no `{FUNNEL_EVENT}`, no \
+             `{FUNNEL_REFUSED_EVENT}`. **SKIPPED rather than failed**, on this suite's \
+             standing rule: a check that cannot show its input was delivered has learned \
+             nothing about the program, and a defect report is worse than no report. A bare \
+             key has been measured on this machine arriving zero times in six attempts with a \
+             dock panel raised, and this check raises one. Trace: {}.",
+            crate::checks::driving::PRESS_TRIES,
+            certified.session.trace_path().display()
+        )));
+    }
     let trace = certified.session.trace()?;
+    // ★★★ The pre-fix build's signature, and the arm that names it.
+    //
+    // Checked BEFORE `FUNNEL_EVENT` because on a certified document it is the
+    // one that actually appears: the delete reaches the engine and the engine
+    // refuses, so the funnel takes its `Err` arm and writes the `-refused`
+    // spelling. A phase D that read only the success spelling saw neither line
+    // and fell through to *"the keystroke did not arrive"*.
+    if let Some(refused) = trace.last(FUNNEL_REFUSED_EVENT) {
+        return Ok(Some(format!(
+            "★★★ DELETE WALKED PAST THE GATE AND WAS REFUSED BY THE ENGINE: \
+             `{FUNNEL_REFUSED_EVENT} {}`.\n\
+             The keystroke arrived and was processed — this is not a delivery problem — and \
+             `canvas::keys`' annotation rung raised `AnnotAction::Delete` anyway, which means \
+             `Keys::annot_delete_refused` was `false` on a document the Properties panel had \
+             already traced `refused=1` for. Those two answers come from one function, so a \
+             disagreement means the caller is asking it about the wrong thing: \
+             `canvas::interact` takes the selection off the document for the length of the \
+             frame (`std::mem::take(&mut doc.selection)`), so a gate reading `doc.selection` \
+             there sees an empty one and answers *permitted* for every document. The refusal \
+             then lands in `actions::apply::vector_edit`'s `Err` arm, which says nothing to \
+             the operator, and `actions::annots::delete` clears the selection regardless — \
+             taking the panel sentence that explained it away with it.",
+            refused.raw
+        )));
+    }
     if let Some(funnel) = trace.last(FUNNEL_EVENT) {
         return Ok(Some(format!(
             "Delete reached the engine on a certified document: `{FUNNEL_EVENT} {}`. The \
@@ -386,10 +464,28 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             )));
         }
         None => {
+            // ★ Unreachable by construction, and written out anyway.
+            //
+            // `press_until_traced` returned `true`, which means one of the three
+            // names appeared; the two funnel arms above returned; so this one is
+            // the decline and cannot be `None`. It is spelled out rather than
+            // `unreachable!()` because the three names are a list a future
+            // change can add to, and the day one is added without a matching arm
+            // this must say *"the trace moved and this check does not know
+            // which line moved it"* rather than panic inside a sweep.
+            //
+            // ★★ What it must NOT say is what it used to say — *"the keystroke
+            // did not reach `canvas::keys` at all"*. Delivery is settled above,
+            // by the loop, and re-litigating it here is how a real defect was
+            // reported as a focus problem.
             return Ok(Some(format!(
-                "Delete produced neither a `{FUNNEL_EVENT}` nor a `{DECLINED_EVENT}` line. \
-                 The keystroke did not reach `canvas::keys` at all — check that the canvas \
-                 had focus and that no dialog is in front."
+                "Delete was heard — `driving::press_until_traced` saw the event count move — \
+                 and then produced neither a `{FUNNEL_EVENT}`, a `{FUNNEL_REFUSED_EVENT}` nor \
+                 a `{DECLINED_EVENT}` line as the last of its kind. Delivery is not the \
+                 question: some other line named in the evidence list moved, so the ladder's \
+                 vocabulary has changed and this phase's three arms no longer cover it. Trace: \
+                 {}.",
+                certified.session.trace_path().display()
             )));
         }
     }

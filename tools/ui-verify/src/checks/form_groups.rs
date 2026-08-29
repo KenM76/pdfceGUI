@@ -81,7 +81,16 @@
 //! |---|---|---|
 //! | F | Edit mode, View ▸ Forms, then **open** the Field-groups header | `form-groups nodes=2 refused=1`, and — with the body laid out — **no** `forms.groups.arm.*` region |
 //! | G | click a widget the canvas census names | `form-field-selected field=…` |
-//! | H | read the Properties pane's gate census | `form-field-gates rename_refused=1 delete_refused=1`, and **neither** `properties.form_field.rename` nor `properties.form_field.delete` declared |
+//! | H | File ▸ Properties, then read the Properties pane's gate census | `form-field-gates rename_refused=1 delete_refused=1`, and **neither** `properties.form_field.rename` nor `properties.form_field.delete` declared |
+//!
+//! ★★★ **H opens the Properties panel, and that is a correction rather than a
+//! flourish.** Edit's default dock puts Properties and Forms in ONE tabbed
+//! stack, and a tabbed stack draws only its active tab — so phase F's own
+//! `View ▸ Forms` click pushed Properties to the back and
+//! `panels::properties::formfield::section` stopped running. The 2026-08-29
+//! sweep reported *"a field is selected and the Properties pane traced no
+//! `form-field-gates` line"* about a pane the check had itself hidden; the
+//! selection in that same trace is real. See `PROPERTIES_ITEM`.
 //!
 //! ★ Phase F is what makes phase H's absences readable: a build that simply
 //! failed to draw the Properties section would produce the same missing
@@ -142,6 +151,29 @@ const CERTIFIED: &str = "../../fixtures/certified-nested-form.pdf";
 /// The command that shows the Forms panel, and the tab it lives on.
 const PANEL_TAB: &str = "view";
 const PANEL_ITEM: &str = "ribbon.item.view.panel_forms";
+/// The command that shows the **Properties** panel, and the tab it lives on.
+///
+/// ★★★ **Needed because the two panels share one tabbed dock stack, and a
+/// tabbed stack draws only its active tab.** Edit's default arrangement puts
+/// Properties, Comments, Forms, Redact, Dimension groups and Attachments in one
+/// stack (`app::modes::defaults`), so phase F's own `ribbon.item.view.panel_forms` click — the
+/// one that brings the Forms panel forward to read the Field-groups section —
+/// **pushes Properties to the back of the same stack**, and
+/// `panels::properties::formfield::section` stops running entirely.
+///
+/// That is why the 2026-08-29 sweep reported *"a field is selected and the
+/// Properties pane traced no `form-field-gates` line"*: the selection was real
+/// (`form-field-selected page=0 field=Personal.Address.Zip widget=0` is in the
+/// trace) and the pane that would have written the census was a background tab
+/// the check had itself put there. Phase H now brings it back before reading.
+///
+/// ★ `file.properties` is `show_panel`, not a toggle, so it is idempotent and
+/// scrolls the tab into view — which matters, because the dock publishes a
+/// `dock.tab.*` rect only for tabs its bar is currently showing, and clicking
+/// that rect directly would work only when the bar happened to be scrolled
+/// right. Going through the ribbon command asks for the panel by name instead.
+const PROPERTIES_TAB: &str = "file";
+const PROPERTIES_ITEM: &str = "ribbon.item.file.properties";
 /// The mode the structural surfaces are reached in.
 const MODE: &str = "edit";
 
@@ -722,10 +754,28 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
     }
 
     // --- H: the Properties pane, and the two absences ----------------------
+    //
+    // ★★★ BRING THE PROPERTIES PANEL BACK TO THE FRONT FIRST. See
+    // `PROPERTIES_ITEM` for the whole reason: phase F put the **Forms** panel
+    // at the front of the tabbed stack that also holds Properties, and a
+    // tabbed stack draws only its active tab, so the section whose census this
+    // phase reads had not run on any frame since. Without this the phase reads
+    // the absence of a line from a panel that was never asked to draw — the
+    // exact vacuity `crate::checks` rule 4 forbids, one surface along from the
+    // two instances phases E and F already guard against.
+    //
+    // ★ It is done AFTER the selection rather than before, because phase F–G's
+    // work is all on the Forms panel and swapping the tabs twice is one more
+    // gesture than swapping them once. The selection survives it: showing a
+    // panel touches the dock, never `doc.selected_field`.
+    open_from_tab(&session, &driver, ui_rect, PROPERTIES_TAB, PROPERTIES_ITEM)?;
+    session.settle(24);
+
     let trace = session.trace()?;
     let Some(gates) = trace.events(GATES).last() else {
         return Ok(Some(format!(
-            "a field is selected and the Properties pane traced no `{GATES}` line, so neither \
+            "a field is selected, `{PROPERTIES_ITEM}` was clicked so the Properties panel is the \
+             front tab of its stack, and the pane traced no `{GATES}` line — so neither \
              `rename_refusal` nor `deletion_refusal` was asked. That is the audit's finding \
              exactly: two pure queries the engine ships, documented with this call site in \
              their own doctest, consulted by nothing — so Rename and both Delete buttons are \

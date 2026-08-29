@@ -420,12 +420,55 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // half of the system. The refusal detail is quoted verbatim because the
     // engine's sentence is the whole of the diagnosis and any paraphrase here
     // would be a second account of it that could drift.
+    // ★★★ A REFUSAL ON A SPLIT RUN IS THE PROGRAM WORKING, AND THIS CHECK CALLED
+    // IT A DEFECT.
+    //
+    // `pdfce-core` `Pass 152.0` lets an empty `find` beside a pin mean *"this
+    // whole show operator"*, which is what a caret in a run actually means — and
+    // the shell uses it **only** when `pin::spans_one_operator` says so. On a run
+    // split across two operators the whole-operator form would replace one
+    // fragment's text with the whole replacement and leave the other painting its
+    // old glyphs: **visible corruption reported as success.** The engine measures
+    // 13 % of runs as split. There, the shell deliberately sends the
+    // reconstructed `find`, which on this operator's CAD drawings cannot match —
+    // `text_extract` synthesises inter-glyph spacing, and a title-block cell came
+    // back with twenty-one spaces in it — so the engine refuses **cleanly**,
+    // which is the designed outcome and the safe one.
+    //
+    // ⇒ On the sweep of 2026-08-29 this check met exactly that case and reported
+    // *"This is a `pdfce-core` verdict and belongs in a request"*. It does not.
+    // Nothing in the trace said which path had been taken, so neither the check
+    // nor its reader could tell the two apart — `edit-text-pin` was added for
+    // this, and it answered `one_operator=false find_len=30` on the very first
+    // run.
+    //
+    // ★ Note the distinction the old note blurred: it said *"this point is on a
+    // single-run line"*, and a **run** is not an **operator**. One run, two
+    // operators, is exactly this case.
+    if let Some(pin) = trace.last("edit-text-pin")
+        && pin.get("one_operator") == Some("false")
+        && trace.last("edit-text-refused").is_some()
+    {
+        return Err(Error::new(format!(
+            "the caret landed on a run that spans MORE THAN ONE show operator (`{}`), so the \
+             shell deliberately sent the reconstructed `find` rather than the whole-operator \
+             form — the split case, where whole-operator would corrupt the page and \
+             find-based fails cleanly instead. The refusal that followed is the DESIGNED \
+             outcome, not a defect. ★ To exercise the commit, aim at a single-operator run: \
+             `edit-text-pin … one_operator=true` is the tell, and the engine measures ~87 % of \
+             runs as single-operator. SKIPPED rather than failed, because at this coordinate \
+             this check has learned nothing about the half it exists to test.",
+            pin.raw
+        )));
+    }
     if let Some(refused) = trace.last("edit-text-refused") {
         return Ok(Some(format!(
             "the caret took keystrokes, the commit REACHED the engine, and the engine refused \
              it: `{}`. The shell half of this works — a caret was placed on run {}, characters \
-             were typed and the plan was built. This is a `pdfce-core` verdict and belongs in a \
-             request, not in the shell. Trace: {}.",
+             were typed and the plan was built. ★ The split-run case is handled above and is \
+             NOT this, so `edit-text-pin` said `one_operator=true` and the whole-operator form \
+             was used: the engine refused a request that named a pin and an empty find, which \
+             is a `pdfce-core` verdict and belongs in a request. Trace: {}.",
             refused.raw,
             line.get("run").unwrap_or("?"),
             session.trace_path().display()

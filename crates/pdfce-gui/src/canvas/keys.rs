@@ -313,8 +313,19 @@ pub(super) struct Keys<'a> {
     /// had the fact in front of it.
     pub selected_field: Option<&'a crate::app::state::SelectedField>,
     /// ★★★ **Whether deleting the selected annotation would be refused** —
-    /// `crate::panels::properties::annotdelete::refuses_selected`, computed by
-    /// the caller.
+    /// `crate::panels::properties::annotdelete::refuses`, computed by the
+    /// caller.
+    ///
+    /// ★★★ **`refuses`, taking the live selection — never `refuses_selected`.**
+    /// The caller is `canvas::interact`, and that function opens by moving the
+    /// selection off the document (`std::mem::take(&mut doc.selection)`), so a
+    /// query that reads `doc.selection` sees an empty one and answers `false`
+    /// for every document there is. That is precisely what this field carried
+    /// from 2026-08-28 to 2026-08-29: the gate below was written, reviewed and
+    /// unit-tested, and the flag feeding it was a constant `false` in the
+    /// running program. See `annotdelete::refuses_selected`'s header for what
+    /// that looked like from a chair, and note that no unit test in this file
+    /// could have caught it — every one of them sets this field by hand.
     ///
     /// # Why the ANSWER arrives here and not the document
     ///

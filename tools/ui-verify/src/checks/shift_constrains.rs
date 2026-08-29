@@ -22,8 +22,9 @@
 //! happen by luck is *the same travel producing unequal factors without the key
 //! and equal ones with it*.
 //!
-//! So the check drags **deliberately lopsided** — far on x, barely on y — twice
-//! from the same grip, with an undo between them, and asserts:
+//! So the check drags **deliberately lopsided** — far on x, barely on y, both
+//! measured as fractions of the selection box's own extents — twice from the
+//! same grip, with an undo between them, and asserts:
 //!
 //! | | assertion | what a wrong build does |
 //! |---|---|---|
@@ -38,6 +39,24 @@
 //! to dominate. The check therefore drags **x-dominant** and asserts the kept
 //! factor equals the x factor of the *unconstrained* run, which is a number the
 //! wrong build has no way to produce for a y-dominant travel.
+//!
+//! ## ★★★ "Dominant" means RELATIVE travel, and getting that wrong cost a run
+//!
+//! `aspect` keeps the factor further from unity, and
+//! `canvas::constrain`'s header derives why that metric *is* relative
+//! travel: `factors` computes `s = 1 + d/extent`, so `|s − 1|` is the travel
+//! expressed as a fraction of the box's own extent on that axis. **Dominance is
+//! therefore a property of the drag AND the shape together, never of the drag
+//! alone.**
+//!
+//! Until 2026-08-29 this check chose its travel in **screen pixels** — 90 by 12
+//! — and then asserted that x was dominant. On `SW41177` the selection box is
+//! 390.6 × 41.0 px, so 90 px is 0.230 of the width while 12 px is 0.293 of the
+//! height: the drag was **y-dominant in the only space that decides**, the
+//! shell correctly kept `sy = 1.9888`, and the check reported it as *"the wrong
+//! factor"*. The shell was right; the constant was wrong. It is now a fraction
+//! of the shape, so the premise assertion 3 rests on is true by construction on
+//! any fixture. See [`DRAG_X_OF_SHAPE`] for the measured numbers.
 //!
 //! # ★ Why the trace and not the pixels
 //!
@@ -81,21 +100,71 @@ const CONSTRAIN_EVENT: &str = "constrain";
 /// The region the selection outline publishes.
 const OUTLINE_REGION: &str = "canvas.selection-outline";
 
-/// How far to drag the grip on x, in screen pixels.
+/// How far the south-east grip travels on x, as a fraction of **the selection
+/// box's own width**.
 ///
-/// ★ Deliberately far more than [`DRAG_Y_PX`]. See the module header: a
+/// ★ Deliberately far more than [`DRAG_Y_OF_SHAPE`]. See the module header: a
 /// lopsided travel is what makes assertions 1 and 3 able to fail.
-const DRAG_X_PX: f32 = 90.0;
-/// How far to drag the grip on y, in screen pixels.
-const DRAG_Y_PX: f32 = 12.0;
+///
+/// # ★★★ It was `90.0` SCREEN PIXELS until 2026-08-29, and that was the defect
+///
+/// The old pair — `90.0` px on x against `12.0` px on y — expressed the travel
+/// in **the screen's** space, and assertion 3 then read *"x travelled further,
+/// so `sx` is the dominant factor"*. That inference is only sound when the
+/// drag's pixel ratio beats the selection box's own aspect ratio, and on
+/// `SW41177` it does not:
+///
+/// | | measured, 2026-08-29 |
+/// |---|---|
+/// | the selection box | 390.6 × 41.0 px — **9.53 : 1** |
+/// | the old travel | 90 × 12 px — **7.5 : 1** |
+/// | relative travel | x: `90/390.6` = **0.230** · y: `12/41.0` = **0.293** |
+///
+/// So the pointer travelled further **along y in the operand's own terms**, the
+/// shell kept `sy`, and the check called it *"the wrong factor"* while stating
+/// a rule the shell never claimed. `canvas::constrain::aspect` keeps the factor
+/// further from unity and its header says why that metric *is* relative travel;
+/// the run bore that out exactly — `sx=1.7799 sy=1.9888` unmodified, and
+/// `1.9888` kept. **The shell was right and this constant was wrong.**
+///
+/// ⇒ This is the fourth time this project has spent a red run on the same
+/// mistake, and the sibling check states the lesson in full
+/// (`scale_switch`'s `GRIP_TRAVEL_OF_SHAPE`, whose own three wrong answers were
+/// page fractions, then points, then — correctly — fractions of the shape):
+///
+/// > **A uniform scale is equal RATIOS, not equal distances**, and the space
+/// > the travel must be expressed in is the operand's, not the page's and not
+/// > the screen's.
+///
+/// A *lopsided* scale is the same statement with the equality removed: to make
+/// `sx` dominate by construction, on any shape, the x travel must be a larger
+/// fraction of the box's **width** than the y travel is of its **height**.
+/// `0.25` against `0.04` is a 6.25 : 1 margin in the space that decides, and it
+/// no longer depends on what the fixture's aspect ratio happens to be.
+///
+/// ★ It is also indifferent to the 1/zoom inflation recorded as `DEFECTS.md`
+/// **D18**: that scales both factors by the same constant, and a common factor
+/// cannot change which of two numbers is further from unity.
+const DRAG_X_OF_SHAPE: f32 = 0.25;
+/// How far the south-east grip travels on y, as a fraction of **the selection
+/// box's own height**.
+///
+/// ★ Small on purpose, and allowed to round to zero screen pixels on a short
+/// box: `factors` answers `sy = 1.0` for a zero-travel axis, `aspect` can never
+/// keep a factor at unity, and assertion 1's discrimination guard compares the
+/// pair rather than requiring both to move. A y travel that vanishes therefore
+/// makes this check *sharper*, not blind — which is why there is no pixel floor
+/// underneath it to drag the constant back into the screen's space.
+const DRAG_Y_OF_SHAPE: f32 = 0.04;
 
 /// How different the two unconstrained factors must be before this check will
 /// claim to have measured anything.
 ///
 /// Below this the drags are effectively square, assertion 2 could pass by luck,
 /// and the honest outcome is SKIP. Chosen as five per cent because the intended
-/// travel is 7.5:1 and anything close to square means the selection's aspect
-/// ratio swallowed the lopsidedness — a fact about the fixture, not the build.
+/// travel is 6.25:1 **in the operand's space**, so anything close to square
+/// means the drag did not reach the grip at all — a fact about the fixture and
+/// the harness, not about the build.
 const MIN_DISCRIMINATION: f64 = 0.05;
 
 /// See the module documentation.
@@ -246,10 +315,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             "the unconstrained drag produced sx={:.4} and sy={:.4}, which differ by only \
              {spread:.4}. This check proves a constraint by the DIFFERENCE between a free drag \
              and a locked one, so a control run that is already square cannot discriminate: a \
-             build that ignored Shift entirely would pass. That is a fact about this shape's \
-             aspect ratio against a {DRAG_X_PX:.0}×{DRAG_Y_PX:.0} px travel, not about the \
-             build, so it is SKIPPED rather than passed. Aim at a shape whose selection box is \
-             not far taller than it is wide.",
+             build that ignored Shift entirely would pass. The travel is \
+             {DRAG_X_OF_SHAPE}×{DRAG_Y_OF_SHAPE} of the box's OWN extents, so a square pair \
+             means the drag never reached the grip, not that the shape swallowed the \
+             lopsidedness — a fact about the fixture and the aim, not about the \
+             build, so it is SKIPPED rather than passed. The box's aspect ratio is no longer \
+             one of the candidates: since 2026-08-29 the travel is expressed in the box's own \
+             space, so a tall box and a wide one produce the same pair of factors.",
             free.sx, free.sy
         )));
     }
@@ -282,7 +354,8 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             report.artifact(shot);
         }
         return Ok(Some(format!(
-            "★ SHIFT DID NOT PRESERVE ASPECT. The same {DRAG_X_PX:.0}×{DRAG_Y_PX:.0} px drag \
+            "★ SHIFT DID NOT PRESERVE ASPECT. The same drag — {DRAG_X_OF_SHAPE}×\
+             {DRAG_Y_OF_SHAPE} of the selection box's own extents — \
              gave sx={:.4} sy={:.4} unmodified and sx={:.4} sy={:.4} with Shift held — the two \
              are the same shape of answer, so the modifier changed nothing.\n\
              Look at `canvas::interact`'s `GestureOutcome::Resize` arm: the flag reaches \
@@ -378,17 +451,42 @@ fn one_drag(
     // `declared_at(1.0, 1.0)` — the bottom-right corner, where `handles` centres
     // the south-east grip. Not the centre: that is `Grip::Move`.
     let from = frame.declared_at(outline, 1.0, 1.0);
-    let w = (outline.max.x - outline.min.x).max(1.0);
-    let h = (outline.max.y - outline.min.y).max(1.0);
-    let to = frame.declared_at(outline, 1.0 + DRAG_X_PX / w, 1.0 + DRAG_Y_PX / h);
+    // ★★ The travel is a FRACTION OF THE OUTLINE and nothing else, so
+    // `declared_at` is handed the fraction directly rather than a pixel count
+    // divided by an extent. That division is what used to be here, and turning
+    // pixels into a fraction at the last moment is not the same thing as
+    // *choosing* the travel in the operand's space: the number a reader saw was
+    // `90.0` px, the number that decided the outcome was `90/w`, and the two
+    // parted company on the first fixture whose box was not roughly square.
+    // See [`DRAG_X_OF_SHAPE`] for the run that proved it.
+    let to = frame.declared_at(outline, 1.0 + DRAG_X_OF_SHAPE, 1.0 + DRAG_Y_OF_SHAPE);
     // A mid-point so the drag passes through frames where the constraint is
     // live rather than teleporting from press to release. `drag_via`'s own
     // header makes the same argument for holding the modifier throughout.
     let via = frame.declared_at(
         outline,
-        1.0 + DRAG_X_PX / (2.0 * w),
-        1.0 + DRAG_Y_PX / (2.0 * h),
+        1.0 + DRAG_X_OF_SHAPE / 2.0,
+        1.0 + DRAG_Y_OF_SHAPE / 2.0,
     );
+    // ★ The grip must still be reachable with a real cursor. A fraction of a
+    // very wide box can put the release point off the window, where the driver
+    // clamps and the drag measured is not the drag asked for — a harness fault
+    // that would read as a program one. `client_logical` is the same space
+    // `ui-rect` publishes in, so this compares like with like.
+    let window = frame.client_logical();
+    let release_x = outline.max.x + DRAG_X_OF_SHAPE * (outline.max.x - outline.min.x);
+    let release_y = outline.max.y + DRAG_Y_OF_SHAPE * (outline.max.y - outline.min.y);
+    if release_x > window.max.x || release_y > window.max.y {
+        return Err(Error::new(format!(
+            "a {DRAG_X_OF_SHAPE} × {DRAG_Y_OF_SHAPE} fraction of this selection box releases at \
+             ({release_x:.0}, {release_y:.0}), which is outside the {:.0} × {:.0} pt window. \
+             The driver would clamp the cursor and the factors committed would be smaller than \
+             the ones asked for — a fact about the harness, so it is SKIPPED rather than \
+             reported as a constraint that did not hold. Aim at a smaller shape, or give the \
+             window more room.",
+            window.max.x, window.max.y
+        )));
+    }
 
     let before = session.trace()?.events(COMMIT_EVENT).count();
     driver.drag_via(

@@ -669,7 +669,49 @@ fn draw_anchors(
             SelectionLevel::Part | SelectionLevel::Node
         )
     {
+        // ★ Silent, and it is the ONE return in this function that is. Past
+        // this point somebody has asked for points — the node tool is armed, or
+        // Show points is on, or the operator descended a rung — and a request
+        // that produces nothing owes an account of why (see `declined`). Above
+        // it nobody asked, and this is the branch taken on essentially every
+        // frame the program runs; a line here would become the trace's largest
+        // single contributor and would say only *"the operator is not editing
+        // nodes"*.
         return;
+    }
+    // ★★★ **Why every return below this line writes a reason.**
+    //
+    // `overlay::draw_anchors`' census answers *how many points were there*.
+    // These answer the question before it — *did the enumeration get far enough
+    // to have a count at all* — and without them the two are the same silence.
+    //
+    // The four driven checks that read anchors (`tool_row`'s two, `multi_node`,
+    // `bezier_handle`) all begin by asking whether `canvas-anchors` appeared,
+    // and every one of them has to guess when it did not. On the sweep of
+    // 2026-08-29 two guessed *"the program is broken"* and two guessed *"the
+    // aim is wrong"*, on the same fixture at the same `--doc-point`. A reason
+    // token settles that in the trace instead of in four checks' prose:
+    //
+    // | reason | what it means | what it is about |
+    // |---|---|---|
+    // | `nothing-selected` | Show points is on and the selection is empty | the driver: click something first |
+    // | `not-entered` | a rung above Part, with nothing asking to see points | the driver, or the tool never armed |
+    // | `other-page` | the entered object is on a page this call is not painting | neither; continuous view, normal |
+    // | `leaf-in-form-xobject` | the target is inside a form XObject, whose geometry is not writable | the aim: pick a page-level object |
+    // | `no-page` / `no-provider` | the document or its decomposition is not available this frame | the program, or a load still in flight |
+    //
+    // ★ Deliberately NOT named `canvas-anchors …`.
+    // `tools/gates/check-trace-names.py` compares FIRST TOKENS, and a harness
+    // asking `last("canvas-anchors")` must never be handed one of these by
+    // accident — that caller reads `total=`, `selected=` and
+    // `unselected_drawn=`, none of which is here. The suffix is the whole guard,
+    // and it is the same convention the gate enforces against `vector_edit`'s
+    // funnel labels.
+    fn declined(reason: &'static str) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("canvas-anchors-declined reason={reason}")
+        });
     }
     // ★★★ **The Object rung is reachable through `show_points` and through
     // nothing else**, and getting this wrong shipped an inert toggle for about
@@ -696,27 +738,27 @@ fn draw_anchors(
         Some(entered) => entered,
         None if doc.view.show_points => {
             let Some(first) = selection.outlines().first().map(|(sel, _)| *sel) else {
-                return;
+                return declined("nothing-selected");
             };
             first
         }
-        None => return,
+        None => return declined("not-entered"),
     };
     if entered.page != page_index {
-        return;
+        return declined("other-page");
     }
     // ★ `None` for a target inside a form XObject. Anchor dots are grab
     // targets for a node drag, and a leaf's geometry cannot be written, so
     // drawing them would offer a gesture that must then refuse — the
     // "placeholder" failure R9 forbids, in its most misleading form.
     let Some(object) = entered.object.page_object_index() else {
-        return;
+        return declined("leaf-in-form-xobject");
     };
     let Some(page) = doc.pages.get(page_index) else {
-        return;
+        return declined("no-page");
     };
     let Some(provider) = doc.page_objects() else {
-        return;
+        return declined("no-provider");
     };
     // ★★ **The entered SUBPATH's anchors, not the object's** — and this is the
     // difference between a usable feature and a decoration.

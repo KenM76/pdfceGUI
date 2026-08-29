@@ -837,7 +837,35 @@ pub fn plan(doc: &OpenDoc, page: usize, run: usize, original: &str, replacement:
                 // old glyphs — visible corruption reported as success. The
                 // find-based form fails cleanly there instead, which is the
                 // right outcome for a case this shell cannot yet edit at all.
-                if pin::spans_one_operator(&model, run) {
+                // ★★★ THE DECISION IS TRACED, because without it the two
+                // outcomes are indistinguishable from outside the process and
+                // one of them is correct.
+                //
+                // A driven run on the operator's own drawing produced
+                // `edit-text-refused … detail=text to edit ("0.00[21 spaces]0.030")
+                // was not found in an editable run`, and **nothing anywhere said
+                // whether the pin path had been taken.** So the check reported a
+                // program defect and aimed the reader at `pdfce-core`, when the
+                // honest reading might have been *"this run spans two operators,
+                // the find-based form was used deliberately, and it failed
+                // cleanly as designed"*.
+                //
+                // ⇒ Those two need different responses — one is a request to the
+                // engine, the other is the shell working — and a trace that
+                // cannot separate them turns a correct build into a filed
+                // defect. `find_len` carries the number that made the string
+                // unmatchable, because a reader seeing 30 characters for a
+                // six-character cell has the whole story in one line.
+                let one_operator = pin::spans_one_operator(&model, run);
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!(
+                        "edit-text-pin page={page} run={run} one_operator={one_operator} \
+                         find_len={}",
+                        request.find.chars().count()
+                    )
+                });
+                if one_operator {
                     request.find.clear();
                 }
             }

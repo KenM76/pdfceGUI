@@ -167,6 +167,17 @@ pub mod form_field;
 /// where nothing calls the query. That is the state the audit found, under
 /// 2,538 passing tests. Its header carries both fixtures' arguments.
 pub mod form_groups;
+/// ★★★ **Where to click so that a form-field selection CHANGES**, shared by the
+/// three checks that author a field and then try to select it.
+///
+/// Its header carries the 2026-08-29 finding in full: authoring a field leaves
+/// it SELECTED (`OPERATOR_REQUESTS.md` O53) and `canvas::forms::select_click`
+/// traces only on a change, so a check that clicked the field it had just
+/// placed was asking the program to announce a selection that had not moved.
+/// Neither the mapping nor the hit test was at fault — the clicks landed dead
+/// centre — and the repair is to clear the selection on blank paper first,
+/// which makes the checks assert both halves of `select_click`'s own table.
+pub mod formaim;
 /// Insert an image: the picture reaches the page, and the resolution the
 /// window promised is the one the document reports.
 pub mod insert_image;

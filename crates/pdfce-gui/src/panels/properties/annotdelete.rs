@@ -233,13 +233,73 @@ pub fn gate(
 /// is a worse one, because the operator has no gesture left that reports it.
 ///
 /// ★ It exists so that [`gate`]'s three-check ladder has exactly one spelling.
-/// `crate::canvas::interact` calls this in **one line** by deliberate necessity
-/// — that file sits two lines below R2's 1,500-line ceiling — and the argument
-/// that would otherwise have been a comment there is here instead, which is
-/// where a rule with four readers belongs anyway.
+/// `crate::canvas::interact` calls [`refuses`] in **one line** by deliberate
+/// necessity — that file sits ON R2's 1,500-line ceiling — and the argument that
+/// would otherwise have been a comment there is here instead, which is where a
+/// rule with four readers belongs anyway.
+///
+/// # ★★★ WHY THIS IS NOT THE FUNCTION `canvas::interact` MAY CALL
+///
+/// It reads `doc.selection`, and **inside a canvas frame `doc.selection` is
+/// empty**. `canvas::interact` opens with
+///
+/// ```ignore
+/// let mut selection = std::mem::take(&mut doc.selection);
+/// ```
+///
+/// and puts it back a thousand lines later, so every line between those two
+/// sees a `SelectionState::default()` on the document. From 2026-08-28 to
+/// 2026-08-29 this function was what filled in
+/// `canvas::keys::Keys::annot_delete_refused`, which meant that flag was
+/// **`false` on every frame of the program's life, on every document**:
+/// `doc.selection.annot()` answered `None`, `is_some_and` short-circuited, and
+/// the Delete key's annotation rung never declined.
+///
+/// What that looked like from a chair is the R83 defect the gate was written to
+/// close, intact: on a certified drawing the Properties panel drew *"this
+/// document carries a certification signature…"* beside the selected comment,
+/// the operator pressed Delete, `AnnotAction::Delete` was raised anyway,
+/// `EditSession::delete_annotation` refused it, `actions::apply::vector_edit`'s
+/// `Err` arm wrote `delete-annotation-refused` to the trace **and said nothing
+/// to the operator**, and `actions::annots::delete` cleared the selection
+/// regardless — taking the panel sentence that explained the refusal away with
+/// it. Three visible controls' worth of gate, and the keyboard walked straight
+/// past it.
+///
+/// It was invisible to every unit test in the crate, because a unit test builds
+/// an `OpenDoc` and asks the question with the selection **on** it — which is
+/// the state this function documents and the state the caller was not in. Only
+/// driving the running binary could see it, and `ui-verify`'s `annot_delete_gate`
+/// phase D did, on its first real run.
+///
+/// ⇒ The remedy is structural rather than a comment: [`refuses`] takes the
+/// selection it is to ask about **by argument**, so a caller holding a detached
+/// one cannot silently ask about the wrong one. This wrapper stays for the
+/// callers that genuinely hold an intact document — `crate::app::conditions`
+/// runs in the panel pass, outside `interact`'s take — and is one line so that
+/// the ladder still has exactly one spelling.
 #[must_use]
 pub fn refuses_selected(doc: &OpenDoc) -> bool {
-    doc.selection
+    refuses(doc, &doc.selection)
+}
+
+/// [`refuses_selected`], asking about **the selection handed in** rather than
+/// the one on the document.
+///
+/// The form `crate::canvas::interact` must use, and the reason is on
+/// [`refuses_selected`] at length: inside a canvas frame the document's own
+/// selection has been moved out into a local, so a query that reaches for
+/// `doc.selection` is asking about an empty one and answers `false` — *"the
+/// delete is permitted"* — for every document there is.
+///
+/// `doc` is still needed and is still the whole document: `gate`'s second and
+/// third checks are `EditSession::annotation_deletion_refusal`, which is a fact
+/// about the **file** (its `/Encrypt`, its `/Perms /DocMDP`) and not about
+/// anything selected. Only the first check — §12.5.3 Table 165 bit 8 — is
+/// per-annotation, and it is read off the target the selection carries.
+#[must_use]
+pub fn refuses(doc: &OpenDoc, selection: &crate::canvas::selection::SelectionState) -> bool {
+    selection
         .annot()
         .is_some_and(|selected| gate(doc, &selected.target).is_some())
 }
@@ -604,6 +664,68 @@ mod fixtures {
             refuses_selected(&doc) == doc.selection.annot().is_some(),
             "with nothing selected the convenience form answers `false` — it asks \
              *would the engine refuse?*, not *is the document certified?*"
+        );
+    }
+
+    /// ★★★ **The gate answers about the selection it is HANDED, not the one on
+    /// the document** — the regression test for the defect of 2026-08-29.
+    ///
+    /// # What went wrong, in one sentence
+    ///
+    /// `canvas::interact` moves the selection off the document for the length of
+    /// a canvas frame (`std::mem::take(&mut doc.selection)`), and it filled in
+    /// `canvas::keys::Keys::annot_delete_refused` by calling
+    /// [`refuses_selected`] — which reads `doc.selection`. So the flag was
+    /// `false` on every frame, on every document, and the Delete key's
+    /// annotation rung never declined once: it raised the action, the engine
+    /// refused it into `vector_edit`'s silent `Err` arm, and the selection was
+    /// cleared anyway, removing the panel sentence that explained the refusal.
+    ///
+    /// # ★★ Why THIS shape of test, and why the old one could not have caught it
+    ///
+    /// The assertion in `a_certified_document_withholds_the_delete_control`
+    /// above is `refuses_selected(&doc) == doc.selection.annot().is_some()`,
+    /// which on a freshly-opened fixture is `false == false` — true of the fixed
+    /// build and true of the broken one. Every unit test in `canvas::keys`
+    /// likewise sets `annot_delete_refused` **by hand**, so none of them was
+    /// ever downstream of the call that was wrong.
+    ///
+    /// What this test asserts is the property the caller actually needs: that
+    /// the two arguments are independent, by putting the annotation in a
+    /// **detached** selection and leaving `doc.selection` empty — which is
+    /// precisely the state `canvas::interact` is in when it asks. A build that
+    /// reaches for `doc.selection` answers `false` here and fails.
+    #[test]
+    fn the_gate_reads_the_selection_it_is_given() {
+        let doc = open_local_fixture(CERTIFIED);
+        assert!(
+            doc.selection.annot().is_none(),
+            "the premise: a freshly-opened document has selected nothing, which is also \
+             what `canvas::interact` leaves behind on the document for a whole frame"
+        );
+
+        let mut detached = crate::canvas::selection::SelectionState::default();
+        detached.select_annot(crate::canvas::selection::AnnotSelection {
+            target: square_target(),
+            outline: egui::Rect::from_min_max(egui::pos2(120.0, 142.0), egui::pos2(320.0, 282.0)),
+        });
+
+        assert!(
+            refuses(&doc, &detached),
+            "the certification refuses this delete, and the selection naming the annotation \
+             is the DETACHED one — a gate that reads `doc.selection` instead answers `false` \
+             here, which is the exact state the Delete key shipped in"
+        );
+        assert!(
+            !refuses(&doc, &crate::canvas::selection::SelectionState::default()),
+            "and the other direction, so the assertion above is not satisfied by a gate that \
+             refuses unconditionally: with nothing selected there is no delete to refuse"
+        );
+        assert!(
+            !refuses_selected(&doc),
+            "the convenience form still asks about the DOCUMENT's selection, which is empty \
+             — the two forms are the same ladder asked about two different selections, and \
+             that difference is the whole point of the pair"
         );
     }
 

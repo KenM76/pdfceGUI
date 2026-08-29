@@ -74,7 +74,23 @@ use crate::trace::Trace;
 /// mode has to be entered first. Using it here rather than clicking a mode
 /// segment also removes a whole class of flake from this check — a mode segment
 /// click that misses is a failure about the ribbon, not about forms.
-const INVOKE: &str = "mode.edit,edit.form_text_field";
+///
+/// ★★★ **`file.properties` is in the middle of the list, and phases D–F cannot
+/// run without it.** Edit mode's default dock puts Properties in a TABBED stack
+/// with Comments, Forms, Redact, Dimension groups and Attachments
+/// (`app::modes::defaults`), and a tabbed stack draws only its **active** tab.
+/// On 2026-08-29's sweep the active tab of that stack was not Properties, so
+/// `panels::properties::formfield::section` never ran on a single frame, no
+/// `properties.form_field` region was ever declared, and phase D would have
+/// reported a properties pane that "did not draw" about a pane that was never
+/// asked to draw. `file.properties` is `show_panel`, not a toggle — it mounts
+/// the panel and brings it to the front of whatever stack holds it, from any
+/// mode (`app::tests` asserts exactly that), so ringing it is idempotent.
+///
+/// ★ It goes AFTER `mode.edit`, because a mode change re-applies that mode's
+/// default arrangement and would undo it, and BEFORE `edit.form_text_field`, so
+/// that nothing runs after the tool is armed that could put it down.
+const INVOKE: &str = "mode.edit,file.properties,edit.form_text_field";
 
 /// The seam that answers the placement dialog. See the module header.
 const ACCEPT_ENV: (&str, &str) = ("PDFCE_DIAG_FORM_ACCEPT", "1");
@@ -446,6 +462,72 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         "aiming at the field {:?} the application placed at canvas ({:.1}, {:.1})",
         existing.field, existing.centre.0, existing.centre.1
     ));
+
+    // ★★★ CLEAR THE SELECTION ON BLANK PAPER FIRST, AND ASSERT THAT IT
+    // CLEARED. `checks::formaim`'s header carries the whole finding.
+    //
+    // The field authored above is ALREADY SELECTED — `app::actions::forms`
+    // selects what it places (`OPERATOR_REQUESTS.md` O53) — and
+    // `canvas::forms::select_click` raises its action and writes its trace line
+    // **only on a change**. So the previous shape of this phase clicked a field
+    // that was already selected and then demanded the program announce a
+    // selection that had not moved. It failed a full sweep with a sentence
+    // about a click that had landed dead centre of the widget: the trace shows
+    // the click resolving to page (1221.00, 1151.52) inside a rect spanning
+    // x ∈ [1140.6, 1300.6], y ∈ [1141.8, 1161.8].
+    //
+    // ⇒ The clearing click is not a workaround; it is the missing half of the
+    // observation. `select_click`'s own table says a primary click on blank
+    // paper CLEARS, so this phase now asserts both rows of it, and the clearing
+    // line is what makes the naming line's absence admissible evidence
+    // afterwards — `crate::checks` rule 4.
+    let widgets = crate::checks::formaim::targets(&trace);
+    let blank =
+        crate::checks::formaim::blank_canvas_point(&widgets, page, target.page, existing.centre)
+            .ok_or_else(|| {
+                Error::new(format!(
+                    "no blank paper could be found on page {} near the field this check placed: \
+                     every candidate around ({:.1}, {:.1}) is inside one of the {} widget(s) the \
+                     canvas named, or off the sheet. Without a clearing click the field stays \
+                     selected from authoring and the selecting click below changes nothing to \
+                     observe. Reported as a SKIP: that is a property of `--pdf`, not the defect \
+                     under test.",
+                    target.page + 1,
+                    existing.centre.0,
+                    existing.centre.1,
+                    widgets.len()
+                ))
+            })?;
+    let blank_point = mapping.doc_to_window(DocPoint::new(
+        target.page,
+        blank.0,
+        page.height_pt - blank.1,
+    ))?;
+    driver.click_at(frame.to_screen(blank_point))?;
+    session.settle(20);
+
+    let trace = session.trace()?;
+    // ★ `field=` absent IS the cleared line: the application writes
+    // `form-field-selected none`, with no key/value pairs at all, for a cleared
+    // selection and `field=…` for every other one.
+    if !trace.events(SELECTED).any(|l| l.get("field").is_none()) {
+        return Ok(Some(format!(
+            "a click on blank paper at canvas ({:.1}, {:.1}) cleared nothing: no `{SELECTED} \
+             none` line. A primary click on paper is an unambiguous deselect and \
+             `canvas::forms::select_click` traces it, so this says the click never reached the \
+             form surface — and without it the selection below cannot change, so its absence \
+             would say nothing about the hit test. Trace: {}.",
+            blank.0,
+            blank.1,
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "a click on blank paper at canvas ({:.1}, {:.1}) cleared the selection the placement \
+         left behind",
+        blank.0, blank.1
+    ));
+
     // The census is canvas space; `doc_to_window` takes PDF space. The flip is
     // the one arithmetic this check does, and it is the mapping's own formula
     // read backwards: `canvas_y = page_height - doc_y`.
@@ -462,8 +544,9 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     else {
         return Ok(Some(format!(
             "clicking an existing form field selected nothing: no `{SELECTED}` line with a \
-             field name. In Edit mode a click on a widget must select it for its properties; \
-             what an operator meets if this regresses is a field they can see, can place, and \
+             field name, on a run where the clearing click above proved the selection channel \
+             is live. In Edit mode a click on a widget must select it for its properties; what \
+             an operator meets if this regresses is a field they can see, can place, and \
              cannot rename or delete. Trace: {}.",
             session.trace_path().display()
         )));

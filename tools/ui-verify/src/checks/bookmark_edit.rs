@@ -106,6 +106,9 @@ const RENAME_BOX: &str = "bookmarks.rename";
 const DELETE_BUTTON: &str = "bookmarks.delete";
 /// The panel's per-frame census.
 const CENSUS: &str = "bookmarks-panel";
+/// The dock body the rows are drawn inside — the bound a clickable row must sit
+/// within. See the row-picking comment in [`drive`].
+const PANEL_BODY: &str = "dock.body.view.panel_bookmarks";
 /// ★★★ **One line per outline row drawn, carrying that row's own rectangle.**
 ///
 /// This is how the row is aimed at, and it is not a `ui_rect` region because a
@@ -278,7 +281,36 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // reporting THE SELECTED-BOOKMARK BLOCK NEVER APPEARED about a panel
     // behaving exactly as its own module header says it does.
     let trace = session.trace()?;
-    let Some(row) = trace.last(ROW) else {
+    // ★★★ A row that is ON SCREEN, not merely the last one traced.
+    //
+    // `bookmark-row` is a diagnostic line, not a `ui_rect`: the panel writes one
+    // per row per frame **whether or not the row is inside the visible scroll
+    // area**, because the listing has to be provable from a trace without
+    // anybody clicking. So `.last()` answers with the BOTTOM row of the last
+    // frame — and on the operator's own drawing that is row 124 of 124, at
+    // y=3767 in a panel whose body ends at y=766.
+    //
+    // Measured, not reasoned: the failing run clicked **three thousand points
+    // below the panel**, off the window entirely, and then reported that the
+    // Selected-bookmark block never appeared. The panel was right; the aim was
+    // three metres low.
+    //
+    // ⇒ The general form, and this suite has now met it twice: **a trace line
+    // written for every item is not a list of the items you can click.** The
+    // `ui-rect` census answers *what is on screen*; a per-item diagnostic
+    // answers *what was computed*. Aiming with the second is aiming at
+    // something that may not be there.
+    let body = declared(&trace, ui_rect, PANEL_BODY);
+    let visible_row = |line: &crate::trace::TraceLine| {
+        let Some(rect) = line.get_rect("rect") else {
+            return false;
+        };
+        body.is_none_or(|body| rect.min.y >= body.min.y && rect.max.y <= body.max.y)
+    };
+    // The LAST visible one: the trace holds every frame, so later lines describe
+    // the arrangement the click is about to land in.
+    let row = trace.events(ROW).filter(|line| visible_row(line)).last();
+    let Some(row) = row else {
         return Err(Error::new(format!(
             "the panel counted {after_add} item(s) and traced no `{ROW}` line, so the outline \
              was read and no row was drawn. There is nothing to click and therefore nothing to \
