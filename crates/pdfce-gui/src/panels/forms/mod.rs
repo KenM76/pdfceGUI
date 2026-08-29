@@ -10,7 +10,15 @@
 //! **a reader fills forms; it does not create fields.** So this panel offers
 //! text fields, check boxes, radio groups, choice lists, a reviewed reset, a
 //! reviewed native recompute of script-driven fields, an appearance redraw and
-//! a flatten. Nothing here adds, removes, renames or moves a field.
+//! a flatten. Nothing here adds, renames or moves a field.
+//!
+//! ★★ **One exception, added 2026-08-28, and it is stated rather than left to
+//! be discovered:** the [`groups`] section removes a *field group* — a name the
+//! form files fields under — and every field beneath it. It is here and not on
+//! an authoring surface because a grouping node is reachable from nowhere else:
+//! it has no widget to click on the page, no row in the fill list, and no entry
+//! in the tab order, so the Properties pane can never be pointed at one. See
+//! that module's header.
 //!
 //! ## ★ This is the first panel that changes the document
 //!
@@ -146,6 +154,11 @@
 
 /// The verbs this panel can ask for, and the one place they are applied.
 pub mod edit;
+/// The names this form files its fields under, and the shell's only route to
+/// deleting one. See that module's header for why a grouping node is reachable
+/// from nowhere else in the shell, and for the two-press protocol its
+/// invisibility forces.
+mod groups;
 /// One field, one row — the per-field controls.
 pub mod rows;
 /// The order this form is tabbed through, per page — a **read-only** second
@@ -345,6 +358,29 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // only thing it can raise is `Action::GoToPage` — navigation, not a form
     // verb, and `FormEdit` has no variant that could carry it.
     tab_order::section(ui, doc, &view, Some(form), actions);
+    // ★★ THE THIRD LIST, and it is placed here for the two constraints
+    // [`groups`]' header sets out.
+    //
+    // It must be **above** the fill list, because that list's own `ScrollArea`
+    // takes the rest of the pane and the panel's top level does not scroll — so
+    // anything after it is laid out past the bottom of a container with no way
+    // to reach it. This panel has already shipped that defect once, measured in
+    // a driven run at y=773 in a body ending at y=770.
+    //
+    // It sits beside Tab order rather than beside the fill list because the two
+    // are the panel's **structural** surfaces: that one lists controls the form
+    // does not claim and offers to register them, this one lists the names the
+    // form files fields under and offers to remove them. The fill list is about
+    // the form's contents; these two are about its shape.
+    //
+    // It is handed the SAME parsed `form` the rows above came from rather than
+    // re-deriving it: two parses of one form per frame is a cost with no
+    // benefit, and a second parse could in principle disagree with the first.
+    //
+    // It takes `actions` directly rather than the `edits` vector, because what
+    // it raises is a `FieldAction` — a form verb with its own two-press
+    // protocol — and `FormEdit` has no variant that could carry it.
+    groups::section(ui, doc, form, actions);
     ui.separator();
     field_list(ui, doc, form, fill_refusal, &mut edits);
 

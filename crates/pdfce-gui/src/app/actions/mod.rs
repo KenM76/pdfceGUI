@@ -143,7 +143,7 @@ pub use disclosure::{EditDisclosure, last_edit_disclosure};
 // must not change what any caller can see or how they spell it. Widening these
 // to `pub` to make one `pub use` compile would have made a private recording
 // path part of the crate's surface as a side effect of a file split.
-pub(crate) use disclosure::{record_edit_disclosure, record_note};
+pub(crate) use disclosure::{record_edit_disclosure, record_note, record_notes};
 
 /// The three arms that mark content for removal. Split out of `apply` under
 /// rule R2; its header carries the seam argument and names the one thing
@@ -204,6 +204,23 @@ pub mod annot;
 /// and refuses a page this session has already rewritten.
 pub mod text;
 pub mod write;
+/// ★★ The verbs whose subject is a **form XObject** — the shared drawing a CAD
+/// producer invokes from every sheet (§8.10.1).
+///
+/// One verb today, `unshare_form`, wired 2026-08-28 after `EDITABLE_SURFACES.md`
+/// found it implemented in the engine and called by nothing here. Its header
+/// carries the property that makes this a family rather than a stray: **the
+/// operand is a stream object paired with the page that invokes it**, a
+/// `(usize, ObjId)` whose halves are not independent, and no other family in
+/// this crate addresses anything of that shape.
+///
+/// It also carries the one fact a reader must not get wrong — the granularity
+/// is **one page, not one invocation**, which is the engine's decision — and
+/// the reason every one of the verb's seven refusals is worded when its
+/// neighbours word one of six: after a refusal here the page looks exactly as
+/// it does after a success, so silence reads as *"it worked"* and sends the
+/// operator on to edit content they still share.
+pub mod xobject;
 
 pub use action::Action;
 pub use vector::VectorAction;

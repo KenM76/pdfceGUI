@@ -73,7 +73,7 @@ const MODE: &str = "edit";
 /// `rotate-commit deg=… px=… py=… objects=… constrained=…`.
 const COMMIT_EVENT: &str = "rotate-commit";
 /// The label `vector_edit` traces when the edit reached the engine.
-const APPLIED: &str = "transform-objects";
+const APPLIED: &str = "transform-objects-applied";
 /// The region the selection outline publishes.
 const OUTLINE_REGION: &str = "canvas.selection-outline";
 

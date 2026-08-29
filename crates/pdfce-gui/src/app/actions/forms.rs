@@ -6,8 +6,10 @@
 //!
 //! ## Why the family is a family
 //!
-//! Eight verbs — fill, select, place, author, rename, delete a field, delete one
-//! of its widgets, register an unclaimed one — sharing a property nothing else
+//! Ten verbs — fill, select, place, author, rename, delete a field, delete one
+//! of its widgets, register an unclaimed one, and (2026-08-28) ask what
+//! deleting a grouping node would take and then take it — sharing a property
+//! nothing else
 //! in `actions` has: **every one of them addresses a control by its fully
 //! qualified NAME, or by the widget's `ObjId`. None of them uses a paint-order
 //! index.** That is not a coincidence of style; it follows from where the data
@@ -93,6 +95,17 @@
 //! undo entry, so it goes through [`super::apply::vector_edit`] like every
 //! other one — the render worker stopped, the mutation, the epoch bumped, the
 //! page invalidated. Nothing here is special except the wording.
+
+/// Deleting a **grouping node** — the two-press verb, its preview store and
+/// both apply paths.
+///
+/// ★ A submodule rather than more lines here, and the seam is subject rather
+/// than size: everything in this file addresses a control an operator can see
+/// and fill; a grouping node is a name with no type, no value, no widget and no
+/// rectangle, whose entire difficulty is that its removal is invisible. That
+/// module's header carries the two-press protocol, why the preview cannot run
+/// in a panel, and where the armed preview is kept.
+pub mod groups;
 
 use pdfce_core::object::ObjId;
 
@@ -317,6 +330,45 @@ pub enum FieldAction {
         /// Which of its widgets.
         widget: usize,
     },
+    /// **Ask what deleting a grouping node would remove**, or forget the
+    /// answer.
+    ///
+    /// `Some(fqn)` runs `EditSession::field_group_deletion_preview` and stores
+    /// the report for the Forms panel to draw; `None` clears it, which is what
+    /// Cancel raises.
+    ///
+    /// ★ It **changes no document** and must never bump the edit epoch — the
+    /// preview writes nothing. It is here rather than in the panel for one
+    /// reason: the engine's signature is `&mut self`, a panel body holds
+    /// `&OpenDoc`, and `Arc::get_mut` only succeeds inside the funnel. So a
+    /// query that changes nothing is nonetheless an action, exactly as
+    /// [`Self::Select`] is.
+    ///
+    /// ★★ `Option` rather than a second variant, for [`Self::Select`]'s reason:
+    /// clearing is a real event, not a no-op — a destructive-confirmation block
+    /// that will not let go is worse than none, because its contents look
+    /// current.
+    ///
+    /// See [`groups`] for the two-press protocol, why the answer is kept in a
+    /// thread-local, and the epoch rule that retires it.
+    ArmGroupDeletion(Option<String>),
+    /// **Delete a grouping node and every field beneath it**, as one undoable
+    /// command.
+    ///
+    /// ★★★ Distinct from [`Self::DeleteField`], and the engine refuses to let
+    /// them be the same call: `delete_field` resolves through the **terminal**
+    /// field list, so it *cannot name a grouping node at all*, and a loop of it
+    /// would produce N undo entries for one gesture and could leave a subtree
+    /// half-removed having reported failure. `delete_field_group` computes the
+    /// whole removal set first and commits once.
+    ///
+    /// The name travels for [`Self::Rename`]'s reason: by the time the queue
+    /// drains the selection may have moved, and the fully-qualified name is
+    /// what the engine addresses.
+    DeleteGroup {
+        /// The grouping node's fully-qualified name.
+        group: String,
+    },
     /// **A form control has been placed and now needs its details.**
     ///
     /// Raised by the canvas on the click or release that finishes the placing
@@ -439,6 +491,12 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
             dy,
         } => move_widget(doc, &field, widget, dx, dy),
         FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
+        // ★ The arm changes no document and bumps no epoch, so it does not go
+        // near `vector_edit`; the deletion does, like every other structural
+        // form verb. See `groups`' header for why a query needs to be an action
+        // at all.
+        FieldAction::ArmGroupDeletion(group) => groups::arm(doc, group),
+        FieldAction::DeleteGroup { group } => groups::delete(doc, &group),
         FieldAction::Adopt { page, widget, name } => adopt(doc, page, widget, name),
         FieldAction::Edit(edit) => crate::panels::forms::edit::apply(doc, &edit),
         // ★ Unreachable rather than unhandled, and named so the compiler will

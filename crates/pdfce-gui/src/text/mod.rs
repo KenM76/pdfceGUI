@@ -256,6 +256,13 @@ pub mod unembed;
 /// list that omitted six live bindings and that nothing exercised.
 pub mod shortcuts;
 
+/// **What this shell says about a digital signature before and after it
+/// writes.** The claim-bearing area of the catalog: every sentence is a
+/// translation of a distinction `pdfce-core`'s `signature` module draws, and
+/// its header carries the three things no string in it is allowed to say.
+/// Consumed by [`crate::dialogs::signature`] and [`crate::app::save`].
+pub mod signature;
+
 pub mod settings;
 
 /// Every string the status bar shows. Consumed by `crate::app::status`.
@@ -286,6 +293,23 @@ pub mod tool;
 /// because this build has no Save and a button that claimed one would be the
 /// same lie as the tooltip that exposed the defect.
 pub mod unsaved;
+/// ★★ Every sentence *"give this page its own copy"* can say — seven refusals,
+/// the disclosure a **successful** unshare owes, and the remedy sentence this
+/// shell appends to the engine's `SHARED CONTENT` report.
+///
+/// Its header carries the two things a reader must not have to rediscover.
+/// First, why a feature this small needs the biggest refusal catalog on the
+/// canvas: `unshare_form` is a *structural* verb, so it runs the whole
+/// engine-wide guard ladder before it acts, and **not one** of its seven
+/// declines is visible on the page. Second, why the SUCCESS owes a sentence
+/// too — the copy is byte-identical to the original, so a page that has just
+/// been unshared renders pixel-for-pixel as it did before, and without a
+/// sentence the operator's evidence that it worked is indistinguishable from
+/// their evidence that nothing happened.
+///
+/// Consumed by `crate::app::actions::xobject`,
+/// `crate::app::dispatch::format` and the `CommitTextEdit` apply arm.
+pub mod unshare;
 
 use std::path::Path;
 

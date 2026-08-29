@@ -770,6 +770,20 @@ impl eframe::App for PdfceApp {
         // and this line may have just replaced it.
         self.resume_after_unsaved();
 
+        // ★★ The signature warning's answer, drained on the same line of
+        // reasoning and immediately after — a frame-level observation that a
+        // window has been answered, whose act (a write, possibly over the
+        // operator's own file) belongs to the application rather than to a
+        // dialog.
+        //
+        // AFTER the unsaved drain, and `resume_after_signature`'s own header
+        // carries why: that drain may close or replace the open document, and
+        // a save resumed before it could then write a document the operator
+        // was never asked about. The two questions cannot currently be live at
+        // once; the order is fixed in the direction that stays correct if that
+        // ever changes.
+        self.resume_after_signature();
+
         // ★ The calibration round trip: dialog -> canvas gesture -> dialog.
         //
         // Two edges, read once per frame, in this order.

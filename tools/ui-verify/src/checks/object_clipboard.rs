@@ -63,7 +63,7 @@ const COPY_EVENT: &str = "clipboard-copy";
 /// `clipboard-paste kind=content page=… from=… objects=… offset=…`.
 const PASTE_EVENT: &str = "clipboard-paste";
 /// `paste-objects page=… pasted=… resources_added=… at=[…]`.
-const APPLIED_EVENT: &str = "paste-objects";
+const APPLIED_EVENT: &str = "paste-objects-applied";
 
 /// See the module documentation.
 pub struct CopyAndPastePageContent;

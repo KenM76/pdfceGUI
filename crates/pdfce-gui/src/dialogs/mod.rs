@@ -106,6 +106,14 @@ pub mod print;
 /// removal runs on open, why confirmation is three gates rather than one click,
 /// and why the destination is asked for every time.
 pub mod redact;
+/// ★★ The question Save has never asked about a **signed** document — the
+/// warning that stands between a structural edit and a revision written over a
+/// legal artifact.
+///
+/// Its header carries the gap it closes, why the engine says the question can
+/// only be asked at save time, the table of which impact earns which surface,
+/// and why the compacted-save path needed nothing from it.
+pub mod signature;
 /// The Remove-fonts confirmation - the destructive twin of `embed`, and the
 /// disclosure surface its own scaffold entry named as the thing blocking it.
 pub mod unembed;
@@ -321,6 +329,24 @@ pub struct DialogsState {
     /// It is cleared by its own answer instead, in `PdfceApp`'s drain, which is
     /// the only place that can know the question was finished with.
     unsaved: Option<unsaved::UnsavedDialog>,
+
+    /// The signature warning that stands in front of an invalidating save,
+    /// when one is open.
+    ///
+    /// **Document-scoped, and NOT closed by [`Self::close_document_scoped`]**
+    /// — the second exception in this struct, and it is the same exception as
+    /// [`Self::unsaved`]'s for a slightly different reason worth stating.
+    ///
+    /// That window survives the close because the close is the act it
+    /// authorised. This one survives because the act it authorises — a write —
+    /// is performed by `crate::app::lifecycle` in the drain *after* the
+    /// dialogs draw, and any path that closed the document in between would
+    /// take the question away from an operator who is mid-answer. There is no
+    /// such path today; the field is written so there cannot be one later.
+    ///
+    /// Like `unsaved`, it is cleared by its own answer, in `PdfceApp`'s drain,
+    /// which is the only place that can know the question was finished with.
+    signature: Option<signature::SignatureDialog>,
 }
 
 impl DialogsState {
@@ -771,6 +797,93 @@ impl DialogsState {
         if self.unsaved.as_mut().map(|d| d.show(ctx)) == Some(false) {
             self.unsaved = None;
         }
+        // ★ LAST of all, one place beyond the unsaved question, and the
+        // position is argued the same way its neighbour's is.
+        //
+        // This window's answer WRITES — over the operator's own file, on the
+        // in-place route. Drawing it before its siblings would let a frame
+        // exist in which the operator has pressed *Save anyway*, `PdfceApp`
+        // has not drained the answer yet, and every dialog above is still
+        // drawing over a document whose bytes are about to be replaced on
+        // disk. Nothing would crash — the drain happens between frames — but
+        // the ordering that makes that true should be a statement rather than
+        // an accident.
+        //
+        // After `unsaved` rather than before it because the two can only ever
+        // be raised on separate gestures (see `dialogs::signature`'s §7), and
+        // if a future change ever makes both live at once the destructive-est
+        // question should be the one on top.
+        if self.signature.as_mut().map(|d| d.show(ctx)) == Some(false) {
+            self.signature = None;
+        }
+    }
+
+    /// **Take the operator's answer to the signature warning**, if they have
+    /// given one.
+    ///
+    /// Drained by `crate::app::PdfceApp` immediately after [`Self::show`], for
+    /// the reason [`Self::take_unsaved_answer`] is: the act it authorises — a
+    /// write — belongs to the application, not to a dialog. A window that
+    /// could call `save_in_place` would be a second route to the one operation
+    /// in this shell that can destroy the operator's file.
+    ///
+    /// ★ **It clears the window on the way out.** The answer and the window's
+    /// lifetime are one fact, and separating them is how a confirmation gets
+    /// answered once and acted on every frame — which here means writing the
+    /// operator's file sixty times a second.
+    pub fn take_signature_answer(&mut self) -> Option<signature::PendingSave> {
+        let answer = self.signature.as_mut()?.take_confirmation()?;
+        self.signature = None;
+        Some(answer)
+    }
+
+    /// **Ask before `pending` if this save would invalidate a signature.**
+    ///
+    /// Returns `true` when the question was raised and the caller must
+    /// **stop** — the save is now this window's to authorise. `false` means
+    /// there was nothing to ask about and the caller saves as before.
+    ///
+    /// # ★ The return value is "did I interrupt you", exactly as
+    /// [`Self::ask_unsaved`]'s is
+    ///
+    /// And for the identical reason, restated because it is the property that
+    /// makes the guard safe to add to a third save route later: a guard read
+    /// as *"may I proceed"* fails **open** when somebody inverts it or forgets
+    /// it, and the unannounced write happens. Read this way it fails
+    /// **closed** — a missing `if` raises the question and its answer performs
+    /// the save anyway, so the operator sees one redundant window rather than
+    /// a signed document silently rewritten.
+    ///
+    /// The already-open guard is the same one, and it matters here for the
+    /// same reason it matters there: `Ctrl+S` held down while the question is
+    /// on screen would otherwise replace the pending save with a second one,
+    /// and an operator who asked for a copy would get an in-place write.
+    pub fn ask_signature(&mut self, status: &Status, pending: signature::PendingSave) -> bool {
+        if self.signature.is_some() {
+            // Already asking. Swallow the second request rather than stacking
+            // it — the operator is looking at a question and has not answered
+            // it, and the honest reading of a second press is impatience.
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "signature-ask-ignored reason=already-asking".to_owned()
+            });
+            return true;
+        }
+        let Some(dialog) = signature::ask_for(status, pending) else {
+            return false;
+        };
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // ★ The pending save is IN the line. A reader of a trace from a
+            // machine they cannot see needs to know which write was held: an
+            // in-place save held at this question is the operator's own file
+            // still carrying its previous bytes, and a copy held here is
+            // simply a file that never appeared.
+            format!("signature-asked pending={pending:?}")
+        });
+        self.signature = Some(dialog);
+        true
     }
 
     /// Take the operator's answer to the unsaved-edits question, if they have

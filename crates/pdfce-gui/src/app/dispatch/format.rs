@@ -63,6 +63,13 @@ pub(crate) fn handles(id: &str) -> bool {
         "format.delete"
             | "format.properties"
             | "format.select_form"
+            // ★ The form-XObject unshare, 2026-08-28. It sits with
+            // `format.select_form` rather than with the Font group because it
+            // asks the same first question every arm in this file has to ask —
+            // *which of the two index spaces is this?* — and answers it the
+            // same way: from a LEAF, which is the only operand either command
+            // can be built from.
+            | "format.unshare_form"
             // The Font group, 2026-08-27. All five, including the three whose
             // ribbon control is an `Item::Custom` — a custom control REPORTS
             // (it parks an operand and returns a token) and this file ACTS, so
@@ -257,6 +264,86 @@ pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) 
                     // has gone. Both are honestly reported by the same
                     // sentence: this verb had nothing to reach.
                     None => crate::app::status::decline::record_inside_form(),
+                }
+            }
+        }
+        // ★★★ **Give this page its own copy of the shared drawing.**
+        //
+        // The "option" half of `pdfce-core`'s decision 076, and the only route
+        // in this shell to `EditSession::unshare_form`.
+        //
+        // # What this arm computes, and why it is the dispatcher's job
+        //
+        // Two hops, both of which must happen on the near side of the action
+        // funnel:
+        //
+        // 1. the selection's **first leaf** on this page — the same accessor,
+        //    in the same ascending, de-duplicated order, that
+        //    `format.select_form` above takes its container from, so the two
+        //    commands cannot come to different answers about which form the
+        //    operator means;
+        // 2. that leaf's **outermost** enclosing form, as an `ObjId`, through
+        //    `ObjectModelProvider::containing_form_object`.
+        //
+        // `containing_form` (paint order) and `containing_form_object`
+        // (`ObjId`) are the two halves of one question, and this verb needs the
+        // second: `unshare_form`'s signature is `(page_index, form: ObjId)`. Its
+        // doc comment carries the argument for why an `ObjId` cannot serve the
+        // *selection* act and a paint-order index cannot serve this one.
+        //
+        // ★★ **OUTERMOST, and passing the innermost would be a live defect.**
+        // `FormLeaf::containment` is *"outermost first"*, so position 0 is the
+        // form the PAGE invokes and the last entry is the form the object sits
+        // directly inside. `unshare_form` refuses a nested invocation by name —
+        // `FormNestedInAnotherForm` — because re-binding one means editing the
+        // parent, whose blast radius depends on the document's nesting
+        // structure. Handing it `parent()` would therefore produce a worded
+        // refusal on every nested drawing, for an operand nobody chose.
+        //
+        // # The FIRST leaf, not all of them
+        //
+        // `format.select_form`'s reason, unchanged: a multi-selection can hold
+        // leaves from several forms and there is no single container for such a
+        // set. Taking the first in a deterministic order makes the act mean one
+        // thing always.
+        //
+        // ⇒ And it is honest here in a way it would not be for a bulk verb: the
+        // granularity of `unshare_form` is **one page, one form**, so "unshare
+        // everything selected" is not a call the engine offers. See
+        // `app::actions::xobject`'s header.
+        //
+        // # Why the arm re-asks what `enabled_when` already asked
+        //
+        // The file header's rule, applied: greying is a hint and enforces
+        // nothing — the context menu, a chord and a future script all arrive
+        // here without consulting it — so the arm asks again **and says why**.
+        // The sentence is `UnshareRefusal::NothingInAForm`, which deliberately
+        // is not `record_inside_form`'s: that one reports a verb refusing
+        // BECAUSE the selection is in a form, and this one refuses because it is
+        // not. Reusing it would state the exact inverse of what happened.
+        "format.unshare_form" => {
+            if let Status::Open(doc) = &app.status {
+                let page = doc.view.page_index;
+                let form = doc
+                    .selection
+                    .leaf_indices_on(page)
+                    .first()
+                    .and_then(|&leaf| {
+                        let target = crate::canvas::target::TargetId::Leaf(leaf as u64);
+                        doc.page_objects()?.containing_form_object(page, target)
+                    });
+                match form {
+                    Some(form) => actions.push(crate::app::actions::Action::XObject(
+                        crate::app::actions::xobject::XObjectAction::Unshare { page, form },
+                    )),
+                    // Nothing selected is inside a form, the page's model has
+                    // gone, or a leaf carried an empty containment chain (which
+                    // the engine documents as impossible). All three mean the
+                    // same thing to the operator — this verb had no operand —
+                    // and the sentence tells them where to click to make one.
+                    None => crate::app::status::decline::record_unshare(
+                        crate::text::unshare::UnshareRefusal::NothingInAForm,
+                    ),
                 }
             }
         }

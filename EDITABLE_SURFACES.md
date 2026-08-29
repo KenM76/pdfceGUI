@@ -64,7 +64,7 @@ The twelve gaps this audit found, and what happened to each:
 | `rotate_annotation` | 155.0 | 🔨 in progress |
 | `rotate_dimension` | 159.0 | 🔨 in progress |
 | `attach_file` / `detach_file` | — | 🔨 in progress |
-| `unshare_form` | — | ⬜ **open** — see the row below; the engine asked us by name |
+| `unshare_form` | — | ✅ **Wired** — Format ▸ Selection ▸ *Give this page its own copy*, and the canvas right-click; seven worded refusals; the SHARED CONTENT disclosure now names it |
 | `copy_annotations` | 120.x | ⬜ **open** — a fidelity gap in the object clipboard |
 | `delete_field_group` | — | ⬜ **open** |
 | `field_defaults` | — | ⬜ **open** |

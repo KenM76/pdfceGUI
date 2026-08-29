@@ -43,6 +43,34 @@
 //! delete controls are *in this panel*, labelled, and there are two of them
 //! because "remove this box" and "remove this field" are different requests.
 //!
+//! ## ★★★ Rename and Delete are OFFERED ONLY WHERE THEY WOULD WORK (R83)
+//!
+//! Added 2026-08-28, closing a gap an audit of `EditSession`'s public surface
+//! found: **nothing in this shell consulted `deletion_refusal`**, a pure query
+//! that has existed for the whole life of the crate and whose own doctest
+//! spells out this call site. It appeared here only inside comments in
+//! `crate::panels::forms`, arguing about which query *Flatten* should ask, while
+//! Delete asked none.
+//!
+//! The consequence, on the ordinary real-world certified fillable form: three
+//! live controls — Rename, Delete field, Delete this box — every press of which
+//! returned a refusal to the trace and nothing at all to the operator. That is
+//! the failure this project is named after in miniature: a visible control that
+//! is silently inert.
+//!
+//! Both gates are now asked in [`section`], **before anything is drawn**, and
+//! each control asks **its own question**: `rename_refusal` for the rename box,
+//! `deletion_refusal` for the two delete buttons. They compute the same answer
+//! today and are deliberately separate functions on core's side; that
+//! reasoning, and why borrowing one for the other is a silent-failure waiting
+//! on a spec nuance, is quoted in full at the call site.
+//!
+//! Where a gate refuses, the controls **are not drawn at all** and a sentence
+//! takes their place. R9: greying is for the temporarily unavailable and must
+//! explain itself on hover; a certification signature is neither temporary nor
+//! arguable. And a sentence rather than a silence, because a panel that simply
+//! omits half its controls looks half-drawn.
+//!
 //! ## The rename box is a draft, not a live write
 //!
 //! Typing into a `TextEdit` bound straight to the field would rename on every
@@ -66,6 +94,25 @@ use crate::text::panels::formfield as t;
 /// asserts on it by string, so renaming one turns a check into a skip rather
 /// than a failure.
 const REGION: &str = "properties.form_field";
+/// The **Rename** control's rect, published only when the control is drawn.
+///
+/// ★★★ "Only when drawn" is the whole value of it. On a document that refuses a
+/// rename this section draws a sentence and no control at all (R9), so the
+/// region's *absence* is the evidence a driven check reads — and it is
+/// admissible evidence only because [`TRACE_GATES`] is written on every frame
+/// either way, so a check can tell "the control was withheld" from "the section
+/// never drew". `crate::checks`' rule 4 in the harness states the same
+/// obligation from the other side: never treat an absence as evidence unless
+/// you have shown the thing that would have produced it was working.
+const REGION_RENAME: &str = "properties.form_field.rename";
+/// The **Delete field** control's rect, published only when the control is
+/// drawn. See [`REGION_RENAME`].
+const REGION_DELETE: &str = "properties.form_field.delete";
+/// The per-frame census of what the two structural gates answered.
+///
+/// Written whether or not either control is drawn, which is what makes the
+/// regions above readable as evidence rather than as noise.
+const TRACE_GATES: &str = "form-field-gates";
 
 /// Draw the selected form field's properties, if one is selected.
 ///
@@ -106,6 +153,55 @@ pub fn section(
     };
 
     let epoch = doc.edit_epoch;
+
+    // ★★★ R83 — ASKED HERE, ONCE, BEFORE EITHER CONTROL IS DRAWN, AND EACH
+    // CONTROL ASKS ITS OWN QUESTION.
+    //
+    // Both are **pure queries**: they read the signature census and the trailer
+    // and mutate nothing, so they are safe to call every frame from a UI, and
+    // core says so in as many words.
+    //
+    // # Why two calls and not one, when the two answers are identical today
+    //
+    // They are. `rename_refusal` and `deletion_refusal` both delegate to
+    // `structural_form_refusal`, and core's doc comment says outright that a
+    // shell *"could call that one and be correct"* — and then says it should
+    // not, in terms this file is the exact instance of:
+    //
+    // > the two gates *happen* to be computable together and are answers to
+    // > different questions, and a call site that asks the wrong question is
+    // > correct only until the answers diverge — at which point it is wrong
+    // > silently, in a control that stays enabled while its verb refuses.
+    //
+    // > A GUI disabling a Rename button through a method named
+    // > `deletion_refusal` is that hazard with the name spelled out at the call
+    // > site.
+    //
+    // The coupling is explicit on core's side precisely so that if a future
+    // spec nuance separates renaming from deletion, the split happens THERE,
+    // once, and every caller keeps asking its own question. Two lines here is
+    // the entire price of that.
+    //
+    // The same panel already carries the measured version of this argument the
+    // other way round: `crate::panels::forms` gates its Flatten control on
+    // `flatten_refusal` after a period of borrowing `deletion_refusal`, because
+    // flatten additionally creates page content and carries a guard deletion
+    // does not — two checks of three, which works until it does not, on
+    // documents that are not exotic.
+    let rename_refusal = doc.session.rename_refusal();
+    let delete_refusal = doc.session.deletion_refusal();
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI.
+        // Written EVERY frame this section draws, refused or not — see
+        // `REGION_RENAME` for why the regions are only readable as evidence
+        // when this line is unconditional.
+        format!(
+            "{TRACE_GATES} rename_refused={} delete_refused={}",
+            u8::from(rename_refusal.is_some()),
+            u8::from(delete_refusal.is_some()),
+        )
+    });
+
     // No `.strong()` — R84 / DEFECTS.md D11: no theme this project ships
     // renders it legibly on a panel.
     ui.label(t::heading());
@@ -115,7 +211,7 @@ pub fn section(
     ui.add_space(6.0);
     ui.separator();
     ui.add_space(6.0);
-    rename_row(ui, state, &selected, actions);
+    rename_row(ui, state, &selected, rename_refusal.is_some(), actions);
     ui.add_space(6.0);
     ui.separator();
     ui.add_space(6.0);
@@ -145,7 +241,7 @@ pub fn section(
         actions,
     );
     ui.add_space(6.0);
-    delete_row(ui, field, &selected, actions);
+    delete_row(ui, field, &selected, delete_refusal.is_some(), actions);
     ui.add_space(6.0);
     // ★★ What is left out of reach, and it is now the WIDGET half rather than
     // the field half. See `text::panels::formfield::not_editable_note` for the
@@ -231,12 +327,41 @@ fn row(ui: &mut Ui, label: &str, value: &str) {
 }
 
 /// The rename draft and its button.
+///
+/// # ★★★ On a document that refuses a rename, this draws a SENTENCE and no box
+///
+/// `refused` is `EditSession::rename_refusal`'s answer, asked in [`section`]
+/// before anything was drawn. When it is true the operator gets one line saying
+/// the document forbids it, and **no text field and no button** — which is R9's
+/// ruling rather than a preference:
+///
+/// - Greying is for a capability that is *temporarily* unavailable, and is
+///   always explained on hover. A certification signature is not temporary and
+///   cannot be argued out of.
+/// - A permanently-refused capability renders **nothing**, or a sentence saying
+///   where the thing actually lives. Here there is no elsewhere, so it is the
+///   sentence.
+///
+/// And a sentence rather than silence, because the section around it is full of
+/// controls: an operator who finds the rename box missing with no explanation
+/// has found a panel that looks half-drawn.
+///
+/// ★★ What this replaces is worse than either. Before this, the box and the
+/// button were drawn unconditionally, the operator typed a new name, pressed
+/// Rename, and the engine refused **after** the typing — with the refusal
+/// reaching the trace and nothing else. That is the shape R83 exists to remove:
+/// discovery by pressing, on a control the program already knew would refuse.
 fn rename_row(
     ui: &mut Ui,
     state: &mut PanelsState,
     selected: &crate::app::state::SelectedField,
+    refused: bool,
     actions: &mut Vec<Action>,
 ) {
+    if refused {
+        ui.label(t::rename_refused());
+        return;
+    }
     ui.label(t::rename_label());
     // ★ The draft is seeded from the selection and re-seeded when the selection
     // changes, so clicking a second field does not leave the first field's name
@@ -256,6 +381,11 @@ fn rename_row(
     let typed = draft.trim().to_owned();
     let ready = !typed.is_empty() && !typed.contains('.');
     let commit = ui.add_enabled(ready, egui::Button::new(t::rename_button()));
+    // ★ Published only on the path where the control exists — see
+    // `REGION_RENAME`. Greying is still correct HERE: "you have not typed a
+    // usable name yet" is exactly the temporary, operator-fixable condition R9
+    // reserves greying for, and it is explained on hover two lines down.
+    crate::diag::ui_rect(REGION_RENAME, commit.rect);
     let pressed = commit.clicked();
     if !ready {
         commit.on_disabled_hover_text(t::rename_disabled());
@@ -284,18 +414,42 @@ fn rename_row(
 /// The per-box control renders **nothing** when the field has one widget, which
 /// is R9 rather than greying: with one box the two buttons would do the same
 /// thing, and a control that duplicates its neighbour is worse than absent.
+///
+/// # ★★★ `refused` — the second half of a finding, and this is what it cost
+///
+/// `EditSession::deletion_refusal` has existed for the whole life of this
+/// shell, carries a doctest that spells out this exact call site, and was
+/// **consulted by nothing**. It appeared in this crate only inside comments
+/// — three of them, in `panels::forms`, arguing correctly about which query
+/// Flatten should ask and never noticing that Delete asked none at all.
+///
+/// So both of these buttons were drawn live on every document, including a
+/// certified one, and every press of them returned the same refusal to the
+/// trace and nothing to the operator. R83's whole subject.
+///
+/// The remedy is the same as the rename box's, for the same reason: the
+/// controls are **not drawn**, and a sentence takes their place. Deleting a
+/// field and deleting one of its boxes are both structural, so they share one
+/// gate and one sentence — unlike rename, which asks its own query in
+/// [`section`] because it is a different question that happens to have the same
+/// answer today.
 fn delete_row(
     ui: &mut Ui,
     field: &pdfce_core::forms::Field,
     selected: &crate::app::state::SelectedField,
+    refused: bool,
     actions: &mut Vec<Action>,
 ) {
+    if refused {
+        ui.label(t::delete_refused());
+        return;
+    }
     ui.horizontal(|ui| {
-        if ui
+        let remove = ui
             .button(t::delete_field())
-            .on_hover_text(t::delete_field_hover(field.widgets.len()))
-            .clicked()
-        {
+            .on_hover_text(t::delete_field_hover(field.widgets.len()));
+        crate::diag::ui_rect(REGION_DELETE, remove.rect);
+        if remove.clicked() {
             actions.push(
                 FieldAction::DeleteField {
                     field: selected.field.clone(),

@@ -183,55 +183,45 @@ impl PdfceApp {
             // session (`to_incremental_bytes(&self)`), so there is no worker to
             // cancel, no `Arc::get_mut` to fail, no epoch to bump and no texture
             // to drop — see `save`'s section 2.
-            // ★ Save-in-place. The `bool` is discarded for the same reason
-            // `SaveCopy`'s is - see the note in that arm. A blank document with
-            // no file behind it never reaches here: `dispatch` routes it to
-            // `file.save_copy` first, because *"where does this go?"* is a
-            // question only the operator can answer.
+            // ★ Save-in-place. A blank document with no file behind it never
+            // reaches here: `dispatch` routes it to `file.save_copy` first,
+            // because *"where does this go?"* is only the operator's to answer.
             Action::Save => {
-                match &mut self.status {
-                    Status::Open(doc) => {
-                        // ★★ The `bool` is READ here, where `SaveCopy`'s is
-                        // discarded, and the difference is the whole point: an
-                        // in-place save that succeeded means the file on disk
-                        // now holds this revision, and `OpenDoc::saved_epoch`
-                        // is the only record of that. A failed save must not
-                        // move it — the disk still holds the older bytes, and
-                        // claiming otherwise would let OCR read a file that
-                        // does not have the operator's work in it.
-                        if crate::app::save::save_in_place(doc) {
-                            doc.saved_epoch = doc.edit_epoch;
-                            crate::diag::trace(|| {
-                                // ui-text-exempt: diagnostic trace, never displayed
-                                format!("save-epoch-recorded epoch={}", doc.saved_epoch)
-                            });
-                        }
-                    }
-                    _ => crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed
-                        "save-declined reason=no-document".to_owned()
-                    }),
+                // ★★★ The signature guard, added 2026-08-28.
+                //
+                // `crate::dialogs::unsaved`'s shape exactly: `true` means *the
+                // question is on screen and you must stop*, and the save is now
+                // that window's to authorise. Read as *"did I interrupt you"*
+                // rather than *"may I proceed"* — the first fails closed, the
+                // second fails open; `DialogsState::ask_signature` argues it and
+                // `crate::dialogs::signature` carries the design. FIRST in the
+                // arm: it answers `false` for every state the body handles
+                // differently, so it skips nothing but the write.
+                if self.dialogs.ask_signature(
+                    &self.status,
+                    crate::dialogs::signature::PendingSave::InPlace,
+                ) {
+                    return;
                 }
+                // ★★ The body lives in `crate::app::lifecycle::write_in_place`
+                // so the window's answer resumes THIS save rather than re-raise
+                // the action into its own guard; that header carries the
+                // argument and the defect the `return` below closes.
+                self.write_in_place();
+                return;
             }
             Action::SaveCopy => {
-                match &self.status {
-                    // ★ The `bool` is DISCARDED here, deliberately, and that is
-                    // not the same as ignoring it. `save_copy` answers "did a
-                    // file get written" for exactly one caller —
-                    // `crate::dialogs::unsaved`, which must not destroy a
-                    // document on the strength of a save that did not happen.
-                    // A plain `file.save_copy` has nothing waiting on the
-                    // answer: it succeeded or it reported its own failure, and
-                    // either way the next thing that happens is the operator's
-                    // choice rather than this arm's.
-                    Status::Open(doc) => {
-                        let _ = crate::app::save::save_copy(doc);
-                    }
-                    _ => crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        "save-copy-declined reason=no-document".to_owned()
-                    }),
+                // The same guard, and asked for a copy deliberately: the copy
+                // is the file the operator sends somewhere, and one pdfce calls
+                // invalidated is worse than an invalidated original still on
+                // disk.
+                if self
+                    .dialogs
+                    .ask_signature(&self.status, crate::dialogs::signature::PendingSave::Copy)
+                {
+                    return;
                 }
+                self.write_copy_somewhere();
                 return;
             }
             // ★ The third arm matched before the document guard, and it is
@@ -654,13 +644,33 @@ impl PdfceApp {
             // translates it before raising this — so `dx`/`dy` here are carried
             // for the trace and the disclosure only. They are not applied
             // twice, and the field docs say so.
-            Action::PasteMarkup { page, spec, dx, dy } => {
+            Action::PasteMarkup {
+                page,
+                spec,
+                dx,
+                dy,
+                options,
+            } => {
                 crate::diag::trace(|| {
                     // ui-text-exempt: diagnostic trace, never displayed.
-                    format!("paste-markup page={page} dx={dx:.1} dy={dy:.1}")
+                    //
+                    // ★ `note` and `ca` are traced because they are the two
+                    // things a lossy paste gets wrong while LOOKING correct: a
+                    // comment with no words lives in a pop-up this shell does
+                    // not draw, and an opacity difference is only visible
+                    // against the artwork underneath. A screenshot cannot tell
+                    // a faithful paste from a lossy one; this line can.
+                    format!(
+                        "paste-markup-requested page={page} dx={dx:.1} dy={dy:.1} \
+                         note={} ca={:?}",
+                        options.note.is_some(),
+                        options.opacity
+                    )
                 });
                 vector_edit(doc, "paste-markup", page, 1, |session| {
-                    session.add_markup(page, &spec).map(|_| Vec::new())
+                    session
+                        .add_markup_with(page, &spec, &options)
+                        .map(|_| Vec::new())
                 });
             }
             Action::CommitMarkup {
@@ -901,6 +911,13 @@ impl PdfceApp {
                         plan.request.pinned_span.is_some()
                     )
                 });
+                // ★ Gathered BEFORE the edit, because it reads a `Ref` into the
+                // decomposition cache and `vector_edit` wants `&mut OpenDoc`.
+                // It decides whether the engine's SHARED CONTENT sentence may
+                // be followed by a remedy; `report::PageLevelForms` carries the
+                // whole argument, including the nested-form case where the
+                // remedy would succeed and change nothing.
+                let page_forms = crate::canvas::textedit::report::PageLevelForms::of(doc);
                 vector_edit(doc, "edit-text", page, 1, |session| {
                     session
                         .edit_text(&plan.request, &plan.options)
@@ -911,10 +928,15 @@ impl PdfceApp {
                             // what a wrong build gets wrong about them; this arm
                             // routes, as every other arm here does.
                             crate::canvas::textedit::report::trace_target(page, run, &report);
-                            let mut notes = report.disclosures;
+                            let mut notes = report.disclosures.clone();
                             if reason.pins_the_tail() {
                                 notes.push(crate::text::textedit::pinned_tail_disclosure(reason));
                             }
+                            // ★ The engine's SHARED CONTENT sentence says WHAT
+                            // happened; it cannot say what to do, because it
+                            // has never heard of this shell's commands. Nothing
+                            // here re-words it — this is appended after it.
+                            notes.extend(page_forms.remedy_for(&report));
                             notes
                         })
                 });
@@ -1180,6 +1202,15 @@ impl PdfceApp {
             // changes nothing and bumping the epoch for it would retire a
             // disclosure that is still true.
             Action::Attachment(action) => super::attachments::apply(doc, action),
+            // ★ The form-XObject family — give this page its own copy, today.
+            //
+            // One line, like its three neighbours. The one thing its module
+            // carries that a reader of THIS file needs: every refusal is worded
+            // from inside the `vector_edit` closure rather than falling to the
+            // generic `Err` arm below, because a silent decline on this verb
+            // reads as SUCCESS — the copy is byte-identical, so refused and
+            // applied look exactly alike on the canvas.
+            Action::XObject(action) => super::xobject::apply(doc, action),
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].

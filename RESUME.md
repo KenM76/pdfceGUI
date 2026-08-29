@@ -7,13 +7,43 @@
 
 
 
-**Written 2026-08-18, last revised 2026-08-28 after reflow, the whole-operator
-edit and the grey-overprint setting.** For a session starting cold on `D:\Dev\pdfceGUI`.
+**Written 2026-08-18, last revised 2026-08-28 after the editable-surface
+audit.** For a session starting cold on `D:\Dev\pdfceGUI`.
 
 This file is the **entry point**. `HANDOFF.md` is the long-form institutional
 record and is still authoritative for the standing rules, the phase order and
 the accumulated findings — read it after this one, or when this one points you
 at a section of it.
+
+---
+
+## ★★★ RUN `tools/verb-coverage.py` BEFORE BELIEVING ANY CAPABILITY CLAIM
+
+**One command, two seconds, and on 2026-08-28 it found twelve gaps** — including
+two operator settings that were honoured by nothing and three capabilities the
+engine had shipped **in answer to this shell's own requests** and this shell had
+then never consumed.
+
+```
+python tools/verb-coverage.py         # the EditSession verbs nothing here calls
+```
+
+The register it feeds is **[`EDITABLE_SURFACES.md`](EDITABLE_SURFACES.md)**,
+which carries a hand-written reason per miss. Read it before starting any
+feature work: *"is there a verb `pdfce-core` implements that nothing here
+calls?"* is a question `FEATURES.md`, `NO_SURFACE.md` and `GUI_ROADMAP.md` are
+all structurally unable to answer, because none of the three is keyed on the
+engine's verb list.
+
+⇒ **A reply arriving is not a capability landing.** The engine session works in
+parallel and answers within the hour; three separate times its answer sat
+unconsumed for days while this project's own documents recorded the capability
+as blocked.
+
+★ A **miss** is strong evidence (the identifier appears nowhere). A **hit** is
+weak (the name appears — a call site behind a condition nothing sets is a hit
+here and dead in the running program). `tools/ui-verify` is the only instrument
+for the second question.
 
 ---
 

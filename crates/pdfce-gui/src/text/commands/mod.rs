@@ -1024,6 +1024,69 @@ pub const fn format_select_form() -> CommandText {
     )
 }
 
+/// `format.unshare_form`
+///
+/// ★★★ **The "option" half of `pdfce-core`'s decision 076, and the remedy the
+/// SHARED CONTENT disclosure needs somewhere to point at.**
+///
+/// Since `Pass 119.0` this shell can edit text **inside a form XObject**. ISO
+/// 32000-1 §8.10.1 names a CAD system's standard component as the *purpose* of
+/// that construct, and no clause in either edition binds a form to a page — a
+/// confirmed permanent negative in pdfce's spec corpus (`FX-N1`). So one title
+/// block is one stream object invoked from thirty-six sheets, and an operator
+/// fixing a typo on sheet 12 changes all thirty-six.
+///
+/// pdfce cannot prevent that structurally: there is exactly one stream to
+/// write. Decision 076 ruled edit-in-place-and-disclose the **default**, and
+/// `R206` requires that two defensible behaviours ship as two options with a
+/// chosen default. **This is the second option**, and for a week it did not
+/// exist — the engine's own note calls that *"the state R206 exists to
+/// prevent"*.
+///
+/// # Every clause of the label and the tooltip, and what it answers
+///
+/// **"Give this page its own copy"** is the label, and it is a *sentence in the
+/// imperative*, which no other command on this tab is. That is deliberate. The
+/// alternatives were all worse in the same way: **"Unshare"** is the engine's
+/// word and means nothing to a drafter; **"Detach"** implies the drawing is
+/// removed from the page; **"Make unique"** is Inkscape's phrasing for a
+/// different act and invites the reading *"make it look different"*. What the
+/// operator wants is stated exactly by what happens: this page gets a copy.
+///
+/// **"drawn on other pages too"** is the fact that makes the command make
+/// sense, and it is the fact nothing else on screen states. The Objects panel
+/// does not say a form is shared; the canvas cannot; the SHARED CONTENT
+/// disclosure says it only *after* an edit has already fanned out.
+///
+/// **"changes here will not affect them"** is the reason to press it — the
+/// promise, in the operator's terms, and the only clause that distinguishes
+/// this command from `format.select_form` one row above.
+///
+/// **"Everything looks exactly the same afterwards"** is the clause an operator
+/// would otherwise report as a bug. The copy is byte-identical to the original
+/// until it is edited, so a successful unshare renders pixel-for-pixel as
+/// before. A tooltip that promised a visible result would make every success
+/// look like a failure.
+///
+/// # ★★ Why the tooltip does not say "before you edit it"
+///
+/// It is the true instruction — unsharing *after* an edit copies the
+/// already-edited stream and leaves every other page changed as well — but a
+/// tooltip is read while deciding whether to press, and a sequencing
+/// instruction there competes with the four clauses above for the one line an
+/// operator actually reads. The sequence belongs where it is acted on, which is
+/// the disclosure that fires the moment an edit *has* fanned out:
+/// `crate::text::unshare::shared_content_remedy` states it in order, and its
+/// doc comment carries the argument.
+#[must_use]
+pub const fn format_unshare_form() -> CommandText {
+    CommandText::new(
+        "Give this page its own copy",
+        "This drawing is drawn on other pages too. Give this page its own copy so changes here \
+         will not affect them. Everything looks exactly the same afterwards.",
+    )
+}
+
 /// `format.properties`
 ///
 /// ★ **A second route to `file.properties`, not a second implementation of

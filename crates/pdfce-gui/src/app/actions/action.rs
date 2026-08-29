@@ -202,6 +202,16 @@ pub enum Action {
         /// Vertical displacement, PDF points. **Negative is down** — y
         /// increases upward in PDF user space.
         dy: f64,
+        /// ★★★ **The keys the spec cannot carry** — `/CA`, `/Contents`, `/T`
+        /// and `/M` — read off the annotation at COPY time and reproduced
+        /// verbatim.
+        ///
+        /// Not re-derived from the operator's current pen, deliberately: a
+        /// paste is a reproduction of what was copied, and one that picked up
+        /// today's opacity would be a different mark wearing the copied one's
+        /// geometry. `canvas::clipboard::carried_options` carries the whole
+        /// argument, including why this field will need to grow again.
+        options: Box<pdfce_core::edit::MarkupOptions>,
     },
     /// ★★★ **The verbs whose subject is a whole annotation** — move it, resize
     /// it, remove it.
@@ -675,6 +685,29 @@ pub enum Action {
     ///   [`Self::Bookmark`]'s rename, which owes none because the row the
     ///   operator is looking at already says what happened.
     Attachment(super::attachments::AttachmentAction),
+    /// ★★★ **Everything whose subject is a form XObject** — one verb today:
+    /// give this page its own private copy of a shared drawing.
+    ///
+    /// A sub-enum from the day it was written, under **R2** and this file's own
+    /// rule, for a reason [`super::xobject`]'s header states in full: this file
+    /// was at 1,441 of 1,500 lines, and the variant needs a doc comment it
+    /// cannot afford. [`Self::Attachment`] is the precedent for arriving as a
+    /// sub-enum rather than growing into one.
+    ///
+    /// Its header carries the two things a reader must not have to rediscover:
+    ///
+    /// * **The granularity is one PAGE, not one invocation**, and that is the
+    ///   engine's decision. A page that draws the same form under three names
+    ///   has all three re-pointed at the one copy — so there is deliberately no
+    ///   variant here that names *which* invocation was clicked, because that
+    ///   would offer a granularity `unshare_form` does not implement.
+    /// * **The operand is resolved before the action is raised.**
+    ///   `crate::app::dispatch::format` reads the selection's first leaf and
+    ///   asks for its **outermost** enclosing form's `ObjId`; the innermost one
+    ///   is exactly what `EditError::FormNestedInAnotherForm` refuses. A
+    ///   `TargetId` is not resolvable after the frame that raised it and an
+    ///   `ObjId` is, which is what the funnel requires of an operand.
+    XObject(super::xobject::XObjectAction),
     /// ★★★ **Re-shape the page's own text** — a reflow today, and the caret
     /// and restyle commits when they follow.
     ///

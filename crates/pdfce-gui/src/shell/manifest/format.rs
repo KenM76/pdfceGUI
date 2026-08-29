@@ -254,6 +254,21 @@ pub(super) fn tab() -> Tab {
                     // order of increasing commitment, so the eye meets Delete last
                     // in both surfaces that carry it.
                     command("format.select_form"),
+                    // ★★ Between "select the form" and Delete, and the ordering
+                    // rule two comments up decides it without needing a new
+                    // one: §5.8's menu rule is least-destructive-first, and the
+                    // same reading orders a group — **describe, then re-aim,
+                    // then detach, then destroy**. Giving a page its own copy
+                    // adds an object and changes nothing an operator can see;
+                    // it is strictly less committing than a delete and strictly
+                    // more than a re-aim, so it lands exactly here and the eye
+                    // still meets Delete last.
+                    //
+                    // ★ It is also the order the two form commands are USED in.
+                    // "Select the form" answers *what am I looking at*, and
+                    // this answers *make it mine before I change it*. A reader
+                    // scanning the group top to bottom reads the workflow.
+                    command("format.unshare_form"),
                     command("format.delete"),
                 ],
             ),

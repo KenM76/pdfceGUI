@@ -1045,6 +1045,76 @@ impl ObjectModelProvider {
         Some(TargetId::Object(leaf.paint_order as u64))
     }
 
+    /// The **object id** of the outermost form enclosing a form-interior
+    /// target — the operand half of the same question
+    /// [`Self::containing_form`] answers in paint order.
+    ///
+    /// # ★★★ Why there have to be two of these, and it is not an oversight
+    ///
+    /// [`Self::containing_form`]'s own doc comment argues at length for
+    /// answering in `paint_order` rather than in `containment`, and every word
+    /// of it is still true **for the act it serves**. Selecting the container
+    /// is a *selection*, and this shell's selection vocabulary is paint-order
+    /// indices: `TargetId::Object(n)` is what `object-move`, `object-delete`
+    /// and the outline renderer all take. An `ObjId` would have to be searched
+    /// back into an index, and a search can find the wrong invocation when a
+    /// page draws one form twice.
+    ///
+    /// `EditSession::unshare_form` inverts that. Its signature is
+    /// `(page_index: usize, form: ObjId)` — it addresses the **stream object**,
+    /// not a position in any paint order — and it is explicit that the unit of
+    /// the operation is the PAGE rather than the invocation:
+    ///
+    /// > *"If this page invokes the form under several names, **all of them**
+    /// > are re-pointed at the one copy."*
+    ///
+    /// ⇒ So the ambiguity `containing_form` refuses to resolve is one this verb
+    /// **does not have**. "Which of the two invocations did you mean?" has no
+    /// answer here, because the engine's answer is *both, always*. The two
+    /// methods are therefore not two spellings of one fact; they are the two
+    /// different facts two different verbs need, and offering only one of them
+    /// is what left `unshare_form` unreachable from this shell until
+    /// 2026-08-28.
+    ///
+    /// # Why `containment[0]` and not `parent()`
+    ///
+    /// [`pdfce_core::vector::FormLeaf::containment`] is documented as *"the
+    /// chain of enclosing form XObjects, **outermost first**, ending with the
+    /// form this object is directly inside"*, and is never empty for a leaf.
+    /// `FormLeaf::parent()` returns the **last** entry — the innermost form —
+    /// and that is precisely the operand `unshare_form` refuses:
+    /// `EditError::FormNestedInAnotherForm` fires when a form is reached only
+    /// from inside another form, because re-binding a nested invocation means
+    /// editing the parent, whose own blast radius depends on the document's
+    /// nesting structure.
+    ///
+    /// ⇒ Passing `parent()` would therefore produce a **worded refusal on every
+    /// nested drawing** where the outermost form is the one the operator wants
+    /// and the one the engine can privatise. Taking position 0 is not a
+    /// preference; it is the only element of the chain the verb accepts, and
+    /// it is the same element `containing_form` reports the paint order of, so
+    /// "select the form" and "unshare the form" cannot come to disagree about
+    /// which form they mean.
+    ///
+    /// # Returns
+    ///
+    /// `None` for a page object (it is not inside anything), for a stale leaf
+    /// index, for a query about another page, and — defensively — for a leaf
+    /// with an empty containment chain, which the engine documents as
+    /// impossible but which is cheaper to tolerate than to trust.
+    #[must_use]
+    pub fn containing_form_object(
+        &self,
+        page_index: usize,
+        target: TargetId,
+    ) -> Option<pdfce_core::object::ObjId> {
+        if page_index != self.page_index {
+            return None;
+        }
+        let leaf = self.objects.leaves.get(target.leaf_index()?)?;
+        leaf.containment.first().copied()
+    }
+
     /// The **topmost** object under the pointer, or `None`.
     ///
     /// Defined as the head of [`Self::hit_test_all`] rather than as a second

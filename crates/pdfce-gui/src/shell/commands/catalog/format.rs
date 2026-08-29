@@ -105,6 +105,54 @@ pub(super) fn band() -> Vec<Command> {
         command("format.select_form", t::format_select_form(), 802)
             .with_icon("pick-form-xobject")
             .enabled_when("selection.in_form"),
+        // ★★★ **The "option" half of decision 076**, registered 2026-08-28
+        // after `EDITABLE_SURFACES.md` found `EditSession::unshare_form`
+        // implemented in the engine and named nowhere in this crate.
+        //
+        // `RIBBON_IA.md` §5.8 is what puts it here. That section's table gives
+        // the **Vector object** row as `Stroke · Fill · Winding rule · Node
+        // tools · Delete` and describes the tab's job in one line: it *"carries
+        // what a user changes **while working**"*, as against the Properties
+        // panel's complete property set. Giving a page its own copy of a shared
+        // drawing is exactly a mid-gesture act — it is what an operator does in
+        // the second between noticing a typo in the title block and typing over
+        // it — so it belongs on the tab rather than in the panel, and it
+        // belongs in the **selection** group beside the two commands that are
+        // also about *the thing you just clicked and what encloses it*.
+        //
+        // It is not in §5.8's table, because that table was written on
+        // 2026-08-12 and this verb did not exist in the engine until this
+        // month. §5.8's amendment convention is followed: the placement is
+        // argued from the section's stated principle rather than from a row.
+        //
+        // ★★ **`selection.in_form`, the same predicate as `select_form` one
+        // line above, and that is the correct answer rather than a convenient
+        // one.** `app::conditions` publishes it as *"something selected on this
+        // page lives inside a form XObject"*, and this verb's operand is
+        // derived from a **leaf** — the outermost form enclosing it. The
+        // condition is therefore literally the question "is there an operand?",
+        // asked in the one place both controls read it from.
+        //
+        // ⇒ It is also why the two commands must not be collapsed into one that
+        // selects-and-unshares: after `format.select_form` there is no leaf any
+        // more, so the predicate is false and this control correctly greys.
+        // Two acts, two conditions, both honest about what they need.
+        //
+        // ★ Greyed rather than absent, on `format.select_form`'s R9 reading
+        // exactly: the capability is present in this build and on this
+        // document, and what is missing is the operand, which the next click
+        // supplies. The tooltip explains it on hover, which is the half of R9
+        // that makes greying legitimate rather than lazy.
+        //
+        // ★ The glyph is `pick-form-xobject`, shared with `format.select_form`
+        // under the header's shared-key convention. The two commands are about
+        // one structure — a form XObject — and a family sharing a glyph is how
+        // a ribbon reads as grouped. Drawing new art was never the alternative:
+        // `icons/assets/PROVENANCE.md` declares that directory the operator's
+        // own art, and a machine-drawn SVG would make that note false.
+        command("format.unshare_form", t::format_unshare_form(), 808)
+            .with_icon("pick-form-xobject")
+            .enabled_when("selection.in_form"),
         // -------------------------------------------------------------------
         // The Font group — `RIBBON_IA.md` §5.8's "Text run" row.
         //

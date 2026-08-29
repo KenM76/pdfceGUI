@@ -166,6 +166,41 @@
 //! **On cancel: nothing at all**, which matches `crate::app::files::raise`'s
 //! ruling for a dismissed Open — the operator changed their mind, and that is a
 //! complete and correct outcome that must not put a line anywhere.
+//!
+//! ## 6. ★★★ What a save says about a DIGITAL SIGNATURE, added 2026-08-28
+//!
+//! Until then: nothing, on any surface, before or after, on any of the three
+//! write paths this module owns. `pdfce-core` exposes
+//! `EditSession::signature_impact_of_save` and `EditSession::changes_structure`
+//! written specifically so a front end could answer the question, and this
+//! shell called neither. A structural edit followed by `Ctrl+S` wrote a
+//! revision over a signed document and said nothing about it.
+//!
+//! The whole design lives in [`crate::dialogs::signature`]; what belongs in
+//! this header is the half this module performs:
+//!
+//! | when | who | what |
+//! |---|---|---|
+//! | **before** an invalidating save | `crate::app::actions::apply`, through `DialogsState::ask_signature` | a window, which the operator may cancel — so [`save_in_place`] and [`save_copy`] are simply **not reached** |
+//! | **after** any successful write | [`signature_note`], here | one sentence on the disclosure row, for a signed document only |
+//!
+//! Three properties of that split are worth stating where the writes are:
+//!
+//! 1. **An unsigned document is untouched by all of it.** The engine's own
+//!    instruction for `SignatureImpact::None` is *"a front end should add no
+//!    friction at all"*, and that is the case for nearly every document this
+//!    operator opens.
+//! 2. **The note is recorded on the write paths rather than in the action
+//!    arms**, so `crate::app::lifecycle::resume_after_unsaved` — which calls
+//!    [`save_copy`] directly, from inside an already-answered question — gets
+//!    it without a fourth call site having to remember to.
+//! 3. **The compacted path is not routed through any of it.** It is a full
+//!    rewrite, `crate::dialogs::compact` already discloses the loss before its
+//!    picker opens, in stronger words than this module is entitled to, and
+//!    those words are correct there and only there. See
+//!    `crate::dialogs::signature`'s §4 and §5 — including the trap that
+//!    `SignatureImpact::documentation_basis` cannot see the `SaveMode` and so
+//!    must not be asked about a rewrite.
 
 use std::path::{Path, PathBuf};
 
@@ -173,6 +208,55 @@ use pdfce_core::writer::{SaveReport, WriteError};
 
 use crate::app::files::{self, Picked};
 use crate::app::state::OpenDoc;
+use crate::dialogs::signature::{Disclosure, impact_of_saving};
+
+/// **The sentence this save owes about the document's digital signatures, if
+/// it owes one.**
+///
+/// `None` for the overwhelmingly common case — a document with no signature —
+/// and that is the engine's instruction rather than an optimisation:
+/// `SignatureImpact::None` means *"Nothing to say, and a front end should add
+/// no friction at all."* A save of an unsigned drawing costs one census walk,
+/// which is bounded (`signature::MAX_FIELD_TREE_NODES`), and produces no
+/// string, no allocation past the census and no row on the bar.
+///
+/// # ★★ It is computed BEFORE the bytes are written, and the reason is the
+/// engine's contract rather than caution
+///
+/// `EditSession::signature_impact_of_save`'s own documentation: *"A front end
+/// asks this **immediately before Save**, not at edit time: per §11.1 the
+/// dirty set is a diff computed at save time."* Asking after the write would
+/// in fact return the same answer today — a save changes nothing about the
+/// session, which is §3 of this module's header and is asserted by
+/// `saving_a_copy_changes_nothing_about_the_open_document` — but it would be
+/// asking a question the engine documented as a *pre*-save question, and the
+/// day that stops being harmless is the day a save starts touching the
+/// session.
+///
+/// # The two sentences, and why they are not one
+///
+/// | [`Disclosure`] | sentence | what it says |
+/// |---|---|---|
+/// | `Silent` | none | there is no signature |
+/// | `NoteAfterSaving` | [`crate::text::signature::preserved_note`] | the bytes each signature covers are unchanged — **paired with** the fact that this is not the same as still being valid |
+/// | `WarnBeforeSaving(_)` | [`crate::text::signature::invalidated_note`] | pdfce reports this save as invalidating |
+///
+/// The third row is a **receipt for something the operator was asked about**
+/// on the two routes that ask — and on `crate::app::lifecycle`'s
+/// resume-after-unsaved route it is the whole of what they are told, because
+/// that route deliberately does not stack a second window on an
+/// already-answered question. `crate::dialogs::signature`'s §7 carries the
+/// argument. Repeating it here for the routes that did warn is cheap and is
+/// the right trade: a confirmation dismissed quickly is a confirmation not
+/// read, and the bar is where every other consequence of a write is recorded.
+fn signature_note(doc: &OpenDoc) -> Option<String> {
+    let (disclosure, count) = impact_of_saving(doc);
+    match disclosure {
+        Disclosure::Silent => None,
+        Disclosure::NoteAfterSaving => Some(crate::text::signature::preserved_note(count)),
+        Disclosure::WarnBeforeSaving(_) => Some(crate::text::signature::invalidated_note(count)),
+    }
+}
 
 /// **Ask where the copy goes, write it there, and say what happened.**
 ///
@@ -329,6 +413,10 @@ pub fn has_a_file(doc: &OpenDoc) -> bool {
 pub fn save_in_place(doc: &OpenDoc) -> bool {
     let target = doc.path.clone();
     let temporary = target.with_extension("pdfce-tmp");
+    // ★ Asked before a byte moves — see [`signature_note`]'s ★★ for why the
+    // engine documented this as a pre-save question, and why asking after
+    // would return the same answer today and be wrong on principle.
+    let signature = signature_note(doc);
 
     // Step 1 - materialise the whole replacement somewhere else on the same
     // volume. A failure here has touched nothing the operator owns.
@@ -372,7 +460,18 @@ pub fn save_in_place(doc: &OpenDoc) -> bool {
     // only observable change is that a marker disappeared from a tab - which is
     // a change you have to already know about to notice. One line naming the
     // file it went into, on the channel every other edit reports on.
-    crate::app::actions::record_note(doc.edit_epoch, crate::text::files::saved_in_place(&target));
+    //
+    // ★★ And, for a signed document, the sentence that receipt owes beside it.
+    // `record_notes` rather than two `record_note` calls: the slot holds ONE
+    // disclosure, so a second call replaces the first, and the sentence it
+    // would have dropped would have been chosen by statement order rather than
+    // by importance. The receipt leads because it answers *"did my save
+    // happen"*, which is the question the operator actually pressed the button
+    // to have answered; the signature sentence follows because it answers one
+    // they did not know they had.
+    let mut notes = vec![crate::text::files::saved_in_place(&target)];
+    notes.extend(signature);
+    crate::app::actions::record_notes(doc.edit_epoch, notes);
     true
 }
 
@@ -385,6 +484,8 @@ pub fn save_in_place(doc: &OpenDoc) -> bool {
 /// Returns whether the bytes reached the disk — see [`save_copy`] for the
 /// caller that turns that answer into *may this document be destroyed*.
 fn write_and_report(doc: &OpenDoc, target: &Path) -> bool {
+    // Before the write, for [`signature_note`]'s reason.
+    let signature = signature_note(doc);
     match write_copy(doc, target) {
         Ok(report) => {
             crate::diag::trace(|| {
@@ -428,6 +529,25 @@ fn write_and_report(doc: &OpenDoc, target: &Path) -> bool {
                     doc.origin,
                 )
             });
+            // ★★ The one sentence a successful save-a-copy is allowed to put
+            // on the bar, and §5's *"no sentence is added"* ruling is not
+            // being overturned by it.
+            //
+            // That ruling is about **narrating the act**: a status line saying
+            // "a copy was written" would describe something whose whole
+            // product is already visible in the operating system's own file
+            // browser, at a path the operator typed a moment earlier. This is
+            // not that. It is a fact about the **integrity of the file they
+            // now have**, which appears nowhere — not on the canvas, not in
+            // Explorer, and not in this shell's Signatures panel, which
+            // reports what a document carries rather than what a save did to
+            // it. Rule 4 governs, and it points the other way from §5.
+            //
+            // It is `None` for every unsigned document, so the common case
+            // still adds nothing at all.
+            if let Some(note) = signature {
+                crate::app::actions::record_note(doc.edit_epoch, note);
+            }
             true
         }
         Err(error) => {

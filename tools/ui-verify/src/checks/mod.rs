@@ -146,6 +146,17 @@ pub mod export_form_data;
 pub mod field_menu;
 pub mod find_bar;
 pub mod form_field;
+/// ★★★ The two forms surfaces `EDITABLE_SURFACES.md` found the engine had
+/// shipped and this shell had never grown: **deleting a field group**, which no
+/// control in the program could name, and **the structural refusal queries**,
+/// which nothing consulted — so Rename and both Delete buttons were drawn live
+/// on documents that refuse them.
+///
+/// The second is the shape a unit test cannot see: the correct behaviour is an
+/// **absence**, and a test asserting "the query returns Some" passes on a build
+/// where nothing calls the query. That is the state the audit found, under
+/// 2,538 passing tests. Its header carries both fixtures' arguments.
+pub mod form_groups;
 /// Insert an image: the picture reaches the page, and the resolution the
 /// window promised is the one the document reports.
 pub mod insert_image;
@@ -160,6 +171,11 @@ pub mod markup_rectangle;
 /// **greyed at a specific moment mid-gesture**. Its header carries the argument.
 pub mod markup_shapes;
 pub mod progressive;
+/// ★★ **A signed document is warned about before it is saved.** The guard both
+/// HOLDS the write while the question is on screen and RELEASES it when the
+/// operator authorises one — asserted as a pair, because a build that showed
+/// the window and wrote the file anyway satisfies either half alone.
+pub mod signature_save;
 pub mod unembed_fonts;
 pub mod widget_move;
 
@@ -213,6 +229,19 @@ pub mod ocr;
 pub mod os_fonts_setting;
 pub mod page_cache;
 pub mod page_ops;
+/// `the_context_menu_gives_this_page_its_own_copy_of_a_shared_form` — the
+/// driven proof that `EditSession::unshare_form` has an operator route, and
+/// that the route is **not** the ribbon.
+///
+/// ★★ Two things no other check in this file can claim. It is the first to
+/// **press a context-menu row** — until 2026-08-28 pdfce's menus published no
+/// `ui_rect` for any row, so no coordinate existed to aim at and the whole
+/// "does the row do the thing" question was unaskable. And its subject is a
+/// command whose SUCCESS is invisible: the copy `unshare_form` makes is
+/// byte-identical to the original, so a page that was unshared renders
+/// pixel-for-pixel as one that was not, and *"nothing appeared to happen"* is
+/// what a pass and every possible failure look like alike.
+pub mod unshare_form;
 
 /// ★ `file.print` — the dialog that told every operator this build could not
 /// print, on a machine with twelve printers, in a build that had the printing
@@ -436,6 +465,11 @@ pub mod about;
 pub mod add_text;
 /// Insert a form's pages to make orphaned widgets, then register one back.
 pub mod adopt_widget;
+/// ★★★ **The attachments round trip** — attach a file, read it back out, and
+/// compare the BYTES. Its header carries why a trace line is not enough here:
+/// an embedded file changes no pixel, so a truncated stream has no visible
+/// symptom at all.
+pub mod attachments;
 /// A bookmark can be written into a document that has no outline.
 /// ★★ **The cursor walks between blocks of text** — salvage from the shell this
 /// project replaces, on the operator's report of 2026-08-21. Its header carries
@@ -647,6 +681,19 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // and a canvas click — so a failure in either would be reported there
         // first, where the cause is, rather than here where the symptom is.
         Box::new(form_field::FormFieldPlaceAndSelect),
+        // ★★ Directly after it, and the order is a **dependency** rather than a
+        // preference. The refusals half ends by clicking a widget the canvas
+        // census names and reading the Properties pane — which is
+        // `form_field`'s phases C and D exactly. A run in which canvas
+        // selection is broken should report that as `form_field`'s failure,
+        // where the cause is, and a reader who has already seen it fail knows
+        // to ignore this one's phase G.
+        //
+        // The group half comes first of the two because it needs no canvas
+        // gesture at all: it is three panel clicks, so a failure in it is
+        // unambiguously about the Forms panel's own wiring.
+        Box::new(form_groups::FieldGroupDeleteRemovesTheSubtree),
+        Box::new(form_groups::StructuralRefusalsAreSentencesNotControls),
         // ★ The blend-space disclosure. After the zoom checks, because it
         // climbs with Ctrl+wheel and a wheel that does not reach the canvas is
         // `zoom_gallery`'s failure to report, not this one's.
@@ -731,6 +778,17 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(embed_fonts::EmbeddingFontsPutsAProgramInTheDocument),
         Box::new(embed_bundled::EmbeddingWorksWithNoFontFolderAtAll),
         Box::new(compact_save::ACompactedCopyIsActuallySmaller),
+        // ★★★ The signature warning, wired 2026-08-28. Beside the save checks
+        // because it is the fourth thing this shell can do to a file somebody
+        // else will open — and the only one whose subject is what the file
+        // CLAIMS about itself rather than what it contains.
+        //
+        // After `compact_save` deliberately: that check drives the one save
+        // path that already disclosed its effect on signatures (a full rewrite
+        // destroys them all, §12.8.1, and its window says so before the picker
+        // opens), so a reader comparing the two verdicts is reading the two
+        // halves of one subject in the order they were built.
+        Box::new(signature_save::AnInvalidatingSaveIsWarnedAbout),
         Box::new(os_fonts_setting::FontFoldersLandsOnTheFontsSetting),
         Box::new(unembed_fonts::RemovingEmbeddedFontsReachesTheDocument),
         Box::new(export_form_data::ExportingFormDataWritesAFile),
@@ -883,6 +941,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(draft_selection::ShiftArrowsSelectText),
         Box::new(bookmark_add::BookmarkCanBeWritten),
         Box::new(bookmark_edit::ABookmarkCanBeRenamedAndRemoved),
+        Box::new(attachments::AFileCanBeAttachedAndTakenBackOut),
         Box::new(comment_note::ANoteCanBeWrittenOntoAShape),
         // Last of the three new ones and the most expensive: it drives Insert
         // pages, the Forms panel and the Tab-order section in one session,
@@ -932,6 +991,13 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // cheap ones so a run that is going to fail on something structural
         // fails before spending it.
         Box::new(form_selection::AClickInsideAFormSelectsWhatIsDrawnThere),
+        // ★ Immediately after it, and the order is a dependency rather than a
+        // preference: this check's second step is `form_selection`'s first
+        // assertion — a click inside a form must select the leaf — and it
+        // SKIPs rather than fails when that does not hold, so that a broken
+        // deep hit test is reported once, by the check that owns it, instead of
+        // twice with the second reading blaming the wrong file.
+        Box::new(unshare_form::TheContextMenuGivesThisPageItsOwnCopyOfASharedForm),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),
         Box::new(text_tool::TextToolSelectsAndMarksInEdit),
         // Last, because it is the only check that TYPES. Everything above

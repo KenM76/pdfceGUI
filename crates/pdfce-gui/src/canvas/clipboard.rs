@@ -72,6 +72,7 @@
 //! collision the same way. This module's copy runs only when no text is swept.
 
 use pdfce_core::annot_author::MarkupSpec;
+use pdfce_core::object::ObjId;
 
 /// **Whether a text gesture owns `Ctrl+C` / `Ctrl+X` this frame**, so the object
 /// clipboard must stand aside.
@@ -153,6 +154,34 @@ pub enum Clipped {
         spec: Box<MarkupSpec>,
         /// The 0-based page it was copied from.
         page: usize,
+        /// ★★★ **Everything the spec cannot say** — `/CA`, `/Contents`, `/T`
+        /// and `/M`.
+        ///
+        /// # Why this field exists, and why it did not on 2026-08-27
+        ///
+        /// A copy used to be a round trip through `MarkupSpec`: read the
+        /// annotation into a spec, author a new one from it. That is lossless
+        /// only for what a spec can express, and on 2026-08-28 this shell
+        /// gained the ability to author two things it cannot — a **note** with
+        /// an author and a date, and an **opacity**.
+        ///
+        /// Without this field, copying a signed, dated, 40 %-opaque cloud and
+        /// pasting it produced an anonymous, undated, opaque one — **which
+        /// looks right on the page**, because the words live in a pop-up this
+        /// shell does not draw and the opacity difference is only visible
+        /// against the artwork underneath. A loss nobody would report.
+        ///
+        /// ⇒ The general form, worth stating because it will recur: **a copy
+        /// implemented as a re-author is only as faithful as the authoring
+        /// type**, and it silently loses ground every time the authoring side
+        /// gains a key. `pdfce-core`'s `copy_annotations` is the route that
+        /// does not have that property — it returns an `ObjectClip` owning the
+        /// annotation itself — and moving to it is filed as a question rather
+        /// than assumed, because it is not yet known whether a `/Popup`, an
+        /// `/IRT` reply chain or an `/RC` rich-text body survive that path
+        /// either. This field closes the two losses this shell **created
+        /// today**; it does not claim to close the family.
+        options: Box<pdfce_core::edit::MarkupOptions>,
     },
     /// ★★★ **Page content** — a path, a text run, an image, in any mixture.
     ///
@@ -266,9 +295,18 @@ pub fn copy(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> {
         return Err(Refusal::Unreadable);
     };
     let spec = spec_from_dict(&graph, dict).map_err(|_| Refusal::Unreadable)?;
+    // ★★ The keys the spec cannot carry, read from the SAME dictionary the spec
+    // came from — one read, so the two halves of the copy cannot describe
+    // different annotations.
+    let options = Box::new(carried_options(
+        doc,
+        selected.target.page,
+        selected.target.id,
+    ));
     let clipped = Clipped::Markup {
         spec: Box::new(spec),
         page: selected.target.page,
+        options,
     };
     store(ctx, clipped.clone());
     crate::diag::trace(|| {
@@ -461,8 +499,12 @@ pub fn cut(
 ///
 /// [`Refusal::NothingCopied`] when the clipboard is empty.
 pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Result<(), Refusal> {
-    let (spec, from) = match read(ctx) {
-        Some(Clipped::Markup { spec, page: from }) => (spec, from),
+    let (spec, from, options) = match read(ctx) {
+        Some(Clipped::Markup {
+            spec,
+            page: from,
+            options,
+        }) => (spec, from, options),
         // ★ Page content takes its own path: the clip is bytes and the verb is
         // `paste_objects`, which takes a page-space MATRIX rather than a
         // displacement — so the offset below cannot be shared even though the
@@ -486,6 +528,11 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
     });
     actions.push(Action::PasteMarkup {
         page,
+        // ★ The note and the opacity, forwarded unchanged. The paste is a
+        // *reproduction* of what was copied, so nothing here is re-derived from
+        // the operator's current pen — a paste that picked up today's opacity
+        // would be a different mark wearing the copied one's geometry.
+        options,
         // Translated HERE, where the offset is decided, rather than in `apply`
         // — the funnel's own rule: an action carries a complete statement of
         // what the operator asked for, and geometry computed in the apply arm
@@ -699,6 +746,83 @@ fn translated(spec: MarkupSpec, dx: f64, dy: f64) -> MarkupSpec {
         other @ M::TextMarkup { .. } => other,
         other => other,
     }
+}
+
+/// **The keys a `MarkupSpec` cannot carry**, read off the annotation being
+/// copied.
+///
+/// # ★★★ Why this is a function rather than three lines at the call site
+///
+/// Because it is the *list* that matters and the list will grow. Every key here
+/// is one this shell can now author and a spec cannot express, and each was
+/// added to the authoring side on a different day by somebody who was not
+/// thinking about the clipboard:
+///
+/// | key | authored since | what a lossy paste produced |
+/// |---|---|---|
+/// | `/CA` | 2026-08-28 | an opaque copy of a translucent mark |
+/// | `/Contents` | 2026-08-28 | a comment with no words |
+/// | `/T` | 2026-08-28 | a comment from nobody |
+/// | `/M` | 2026-08-28 | a comment dated never |
+///
+/// A named function with this table on it is the thing a future author of a
+/// fifth key will find. Three lines inside `copy` are not.
+///
+/// # ★★ `/T` and `/M` travel with `/Contents` and cannot travel without it
+///
+/// `MarkupNote` writes the three as a group, so an annotation with an author
+/// and **no** note contributes nothing here — correctly: `pdfce-core` refuses a
+/// note whose text is absent, and a byline with no comment under it is not a
+/// state this shell can author in the first place.
+///
+/// # ★ Absent is absent, never a default
+///
+/// `opacity: None` writes no `/CA` at all, which is not the same as `Some(1.0)`
+/// in the bytes even though it is the same on screen — the engine's own rule,
+/// and the reason a copy of an ordinary opaque mark produces byte-identical
+/// output to what it always did.
+fn carried_options(doc: &OpenDoc, page: usize, id: ObjId) -> pdfce_core::edit::MarkupOptions {
+    let graph = doc.session.graph();
+    // ★★ `page_annotations`, not a hand-rolled read of four dictionary keys.
+    //
+    // `/Contents` and `/T` are PDF **text strings** (§7.9.2.2): PDFDocEncoding
+    // or UTF-16BE with a byte-order mark, decided by the bytes themselves. A
+    // shell decoding them by hand gets mojibake on every comment with an
+    // accent, an em dash or a `Ø` — which `pdfce-core` reported as a defect of
+    // its OWN reader in August, so it is not a theoretical hazard.
+    //
+    // ⇒ The cost is a walk of the page's `/Annots` for one annotation, bounded
+    // by `MAX_ANNOTS_PER_PAGE`, on a Ctrl+C. Paid deliberately: there is no
+    // public verb that models ONE annotation dictionary, and the shell's own
+    // Comments panel takes the same route for the same reason.
+    let annot = doc
+        .pages
+        .get(page)
+        .map(|p| pdfce_core::annot::page_annotations(&graph, p.id))
+        .unwrap_or_default()
+        .into_iter()
+        .find(|a| a.id == Some(id));
+    let mut options = pdfce_core::edit::MarkupOptions::default();
+    let Some(annot) = annot else {
+        // The annotation is on a page this shell has not modelled, or the
+        // walk truncated. An empty options struct authors exactly what the
+        // spec alone authored before this function existed, which is the
+        // right degradation: a copy that loses the note is worse than a copy,
+        // and a copy that fails outright is worse than both.
+        return options;
+    };
+    options.opacity = annot.constant_alpha;
+    if let Some(text) = annot.contents.clone() {
+        let mut note = pdfce_core::edit::MarkupNote::new(text);
+        if let Some(author) = annot.title.clone() {
+            note = note.by(author);
+        }
+        if let Some(modified) = annot.mod_date.clone() {
+            note = note.at(modified);
+        }
+        options.note = Some(note);
+    }
+    options
 }
 
 #[cfg(test)]

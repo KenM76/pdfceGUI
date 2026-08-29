@@ -362,8 +362,24 @@ fn attach(doc: &mut OpenDoc, description: Option<&str>) {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed. The name and the
         // SIZE, not the bytes.
+        //
+        // ★★★ `attach-file-READ`, not `attach-file`, and the suffix is not
+        // decoration. `vector_edit` writes its own `attach-file page=… n=…`
+        // line for the same edit two statements below, and a harness reads a
+        // trace by its FIRST TOKEN — so two lines sharing a name means
+        // `.last("attach-file")` returns the funnel's, which carries no `name`
+        // and no `bytes`, and a check asserting on them reports *"the verb did
+        // nothing"* about a verb that worked.
+        //
+        // ⇒ This project has made that exact mistake twice — `text-style` on
+        // 2026-08-27 and `import-form-data` on 2026-08-28, the second by the
+        // session that had written up the first — and the fix agreed then was a
+        // **naming convention at the point of use**: a module's own line takes
+        // a verb suffix, the funnel keeps the bare name. This is that
+        // convention, and it was caught here by a driven check being written
+        // rather than by a reader.
         format!(
-            "attach-file name={name:?} bytes={size} described={}",
+            "attach-file-read name={name:?} bytes={size} described={}",
             description.is_some()
         )
     });
@@ -412,7 +428,11 @@ fn attach(doc: &mut OpenDoc, description: Option<&str>) {
 fn detach(doc: &mut OpenDoc, key: &[u8], name: &str) {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed
-        format!("detach-file key_len={} name={name:?}", key.len())
+        // ★ `-requested`, for `attach-file-read`'s reason two functions up: the
+        // funnel writes its own bare `detach-file` line for the same edit on
+        // the next statement, and two lines sharing a first token means a
+        // harness reading either one reads the wrong one.
+        format!("detach-file-requested key_len={} name={name:?}", key.len())
     });
     super::apply::vector_edit(doc, "detach-file", 0, 1, |session| {
         session.detach_file(key).map(|()| vec![t::removed(name)])

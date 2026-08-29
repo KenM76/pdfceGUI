@@ -523,8 +523,8 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             crate::diag::trace(|| {
                 // ui-text-exempt: diagnostic trace, never displayed.
                 format!(
-                    "paste-objects page={page} pasted={pasted} resources_added={added} \
-                     at=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
+                    "paste-objects-applied page={page} pasted={pasted} \
+                     resources_added={added} at=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
                     at.a, at.b, at.c, at.d, at.e, at.f,
                 )
             });
@@ -561,8 +561,8 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
                 // the same argument: a trace line must carry the number a
                 // wrong build would get wrong.
                 format!(
-                    "transform-objects page={page} asked={} transformed={transformed} \
-                     m=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
+                    "transform-objects-applied page={page} asked={} \
+                     transformed={transformed} m=[{:.4} {:.4} {:.4} {:.4} {:.2} {:.2}]",
                     objects.len(),
                     matrix.a,
                     matrix.b,

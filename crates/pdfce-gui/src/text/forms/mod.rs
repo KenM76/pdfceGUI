@@ -57,6 +57,13 @@
 /// module's header for why this is the seam R2 forced and why it was the right
 /// one anyway.
 mod authoring;
+/// Every word the Field-groups section shows.
+///
+/// Re-exported below, so the split is invisible at every call site — the same
+/// R2 seam [`authoring`] and [`tab_order`] were cut along, and for the same
+/// reason: a reviewer of one surface's wording should be reading a file that
+/// contains only that surface's wording.
+mod groups;
 mod tab_order;
 
 pub use authoring::{
@@ -67,6 +74,7 @@ pub use authoring::{
     form_widget_deleted, form_widget_deleted_last,
 };
 
+pub use groups::*;
 pub use tab_order::*;
 
 // ---------------------------------------------------------------------------

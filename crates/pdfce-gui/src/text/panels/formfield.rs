@@ -211,6 +211,58 @@ pub fn rename_button() -> String {
     "Rename".to_owned()
 }
 
+/// **Why there is no rename box at all** — `EditSession::rename_refusal`
+/// answered `Some` (R83).
+///
+/// # ★★★ Drawn INSTEAD of the control, not under it
+///
+/// This is the sentence R9 asks for when a capability is refused *permanently
+/// for this document*: the box and the button are not drawn, and this line
+/// takes their place. A greyed box would say the state is temporary — a
+/// certification signature is not — and would hide its own explanation behind a
+/// hover.
+///
+/// ★★ It names **renaming**, not "editing", and that is deliberate. The pane
+/// around it still offers seven editable properties, because a certified form
+/// at `/P 2` permits filling and forbids restructuring (§12.8.2.2 Table 257). A
+/// sentence saying "this document cannot be changed" would be false about the
+/// controls directly below it, and an operator who believed it would stop
+/// trying things that work.
+///
+/// ★ It does not name the *cause* by name. `rename_refusal` answers for
+/// encryption as well as certification, and this shell has already shipped one
+/// structural-refusal string that names certification unconditionally — which
+/// is silently wrong on an encrypted file and sends the operator looking for a
+/// signature that is not there. Here the sentence says what is true of both:
+/// the document forbids it.
+#[must_use]
+pub fn rename_refused() -> String {
+    "This document does not allow its form fields to be renamed. The values below can still \
+     be filled in and changed."
+        .to_owned()
+}
+
+/// **Why there are no delete buttons** — `EditSession::deletion_refusal`
+/// answered `Some` (R83).
+///
+/// ★★ One sentence for both buttons, because both are refused by one gate:
+/// deleting a field and deleting one of its boxes are both *structural* changes
+/// to the form, which is precisely what a certification signature exists to
+/// freeze. Two sentences saying the same thing twice, one above the other,
+/// would read as two separate problems.
+///
+/// ★★★ It says what the operator can do **instead**, and the answer is not
+/// "delete it anyway" — it is that the form's structure is fixed and its
+/// contents are not. Without that clause the sentence is a dead end, and a dead
+/// end in a properties pane reads as a broken program rather than as a
+/// protected document.
+#[must_use]
+pub fn delete_refused() -> String {
+    "This document does not allow form fields to be removed. Its structure is fixed; the \
+     values in it can still be filled in and changed."
+        .to_owned()
+}
+
 /// Why Rename is greyed.
 #[must_use]
 pub fn rename_disabled() -> String {

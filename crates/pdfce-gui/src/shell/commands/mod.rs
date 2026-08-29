@@ -251,7 +251,12 @@ mod tests {
         // `extract_attachment` had existed in `pdfce-core` with no command, no
         // menu item and no panel, which is a capability that does not exist as
         // far as the operator is concerned.
-        assert_eq!(registry().len(), 124);
+        // ★ 124 → 125 on 2026-08-28: `format.unshare_form`, the "option"
+        // half of `pdfce-core`'s decision 076. `EditSession::unshare_form` had
+        // existed in the engine with no command, no menu item and no route of
+        // any kind — so the operator had the edit-in-place default and no
+        // choice at all, which is the state `R206` exists to prevent.
+        assert_eq!(registry().len(), 125);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -298,7 +303,16 @@ mod tests {
         // Failing here means the registry changed. Read the diff, decide
         // whether the new command should have a glyph, and move the number
         // that is genuinely wrong.
-        assert_eq!(named, 104, "commands naming an icon");
+        // ★ 104 → 105 on 2026-08-28: `format.unshare_form` NAMES a glyph,
+        // breaking the run of four refusals above it, and the reason it is
+        // entitled to one is that it is not new art. It reuses
+        // `pick-form-xobject` — the pick filter's form class — under the
+        // header's shared-key convention, exactly as `format.select_form` does
+        // one registration earlier. Two controls whose entire subject is a form
+        // XObject, drawn the same, is the convention working rather than an
+        // economy; `icons/assets/PROVENANCE.md` is untouched, because nothing
+        // was drawn.
+        assert_eq!(named, 105, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has

@@ -284,6 +284,32 @@ pub(crate) enum Declined {
     /// the operator reads the status bar. What retires it is their next
     /// command, which [`retire`] catches.
     Rotate(crate::text::rotating::RotateRefusal),
+    /// **"Give this page its own copy" did not happen** — the form-XObject
+    /// verb, 2026-08-28.
+    ///
+    /// The payload is [`crate::text::unshare::UnshareRefusal`], modelled on
+    /// [`Self::TextStyle`]'s and [`Self::Rotate`]'s and for the identical
+    /// reasons: a `Copy` enum keeps this type `Copy` and [`Declined::line`]
+    /// `&'static str`, and it keeps the engine's own diagnostic prose off the
+    /// status bar.
+    ///
+    /// # ★★★ Why this refusal matters more than any other in this enum
+    ///
+    /// Because **a successful unshare and a refused one look identical on the
+    /// canvas**, and no other decline here has that property: the copy is
+    /// byte-identical until it is edited, so the page renders pixel-for-pixel
+    /// the same either way. Silence therefore does not read as *"nothing
+    /// happened"* — it reads as *"it worked"*, and the operator's very next act
+    /// is to edit the drawing they believe they have just privatised. On this
+    /// operator's documents that is a title block shared by thirty-six sheets.
+    /// `crate::text::unshare`'s header carries the full account and is why all
+    /// seven of the verb's refusals are worded where `resize` words one of six.
+    ///
+    /// ★★ Recorded from two positions, like [`Self::Rotate`] — see
+    /// [`record_unshare`] for the split — and retired by the operator's next
+    /// act: [`Self::still_true`] answers `true` unconditionally, deliberately
+    /// **not** on `selection_in_form` the way [`Self::InsideForm`] does.
+    Unshare(crate::text::unshare::UnshareRefusal),
     /// **The Settings window's Save wrote nothing.**
     ///
     /// # ★ Why this is not [`Self::SaveFailed`], although both are failed writes
@@ -577,6 +603,13 @@ impl Declined {
             // Register again — and pressing Register is a command, which
             // `retire` catches.
             Self::FieldNameTaken | Self::WidgetHasNoName => true,
+            // ★★ Same ruling, and here the temptation to key on
+            // `selection_in_form` is strongest: six of the seven sentences are
+            // about the DOCUMENT (encrypted, signed, damaged index, nested
+            // drawing), which does not change while the bar is read, and the
+            // seventh sends the operator to click INSIDE a form — so re-asking
+            // would delete the instruction the instant they began to follow it.
+            Self::Unshare(_) => true,
             // ★ The stack filled up. Something was authored — or, for redo,
             // something was undone — and the sentence is now history, exactly
             // as `NothingToFrame` is once something is selected. The operator
@@ -627,6 +660,7 @@ impl Declined {
             Self::FlattenCertified => t::flatten_declined_certified(),
             Self::TextStyle(why) => why.line(),
             Self::Rotate(why) => why.line(),
+            Self::Unshare(why) => why.line(),
         }
     }
 }
@@ -781,6 +815,25 @@ pub(crate) fn record_resize_not_rebuildable(uniform: bool) {
 /// guess about a call that has not happened yet.
 pub(crate) fn record_rotate(why: crate::text::rotating::RotateRefusal) {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::Rotate(why)));
+}
+
+/// Record that *"give this page its own copy"* did not happen.
+///
+/// ★★ Called from **two positions**, on [`record_rotate`]'s split and for its
+/// reasons: `app::dispatch::format` records `NothingInAForm` before any verb
+/// runs, because it is a condition answered from the **selection**
+/// ([`record_inside_form`]'s placement); `app::actions::xobject` records what
+/// the **engine** returns from inside the `vector_edit` closure
+/// ([`record_resize_not_rebuildable`]'s).
+///
+/// ★★★ **There is deliberately no matching "it worked" call**, unlike
+/// [`record`], which writes `None` on a grant. This verb's success is narrated
+/// instead — `crate::text::unshare::unshared`, carried out through
+/// `vector_edit`'s **disclosure** list rather than through this store, because
+/// a disclosure and a decline are different speech acts and this module's
+/// header forbids sharing a slot between them.
+pub(crate) fn record_unshare(why: crate::text::unshare::UnshareRefusal) {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::Unshare(why)));
 }
 
 pub(crate) fn record_push_button_inert() {

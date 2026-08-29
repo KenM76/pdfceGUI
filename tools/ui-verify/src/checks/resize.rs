@@ -73,7 +73,7 @@ const DECLINED_EVENT: &str = "resize-declined";
 /// carried `transform-objects … transformed=1`. Worth knowing, because a check
 /// that pins a MECHANISM rather than an OUTCOME goes red on the day the
 /// mechanism improves, and the reflex when that happens is to doubt the code.
-const APPLIED: &str = "transform-objects";
+const APPLIED: &str = "transform-objects-applied";
 
 /// How far to drag the grip, in screen pixels, on each axis.
 ///

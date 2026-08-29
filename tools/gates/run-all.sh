@@ -168,6 +168,22 @@ run "check-clipboard-chords" bash "$HERE/check-clipboard-chords.sh"
 # name into a public CI log, which is an artifact that outlives the fix.
 run "check-suite-name-absent" python "$ROOT/tools/check-suite-name-absent.py"
 
+# `check-trace-names` stops a module's own trace line sharing its first token
+# with a `vector_edit` label. `ui-verify` reads a trace by that token and the
+# funnel writes `<label> page=... n=... epoch=...` for the same edit, so two
+# lines with one name means `.last(<label>)` returns the FUNNEL's and a check
+# asking for the module's keys finds none - and reports "the verb did nothing"
+# about a verb that worked. A confident false negative.
+#
+# Three instances in two days, the second written by the session that had just
+# written up the first, the third hours after that. A convention held by memory
+# failed once a day; this is the grep that replaces it.
+#
+# It found three more the moment it worked, one of them written the same hour,
+# and two that were correct only by STATEMENT ORDER - the module's line happened
+# to be traced after the funnel's, so `.last()` returned the right one by luck.
+run "check-trace-names" python "$HERE/check-trace-names.py"
+
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #
 # Both are wrapped in a workspace-loadability probe. If a member crate listed

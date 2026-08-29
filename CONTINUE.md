@@ -1,5 +1,157 @@
 # CONTINUE — handoff
 
+## 2026-08-29 — the editable-surface audit: twelve gaps, two of them live defects
+
+**Clean tree. 19/19 gates. 1,986 + 421 + 150 tests, 0 failing. 105 driven
+checks — seven of them written this session and NEVER RUN. Re-measure before
+quoting.** Engine `6624e18`.
+**Published**: nothing new. `OneDrive\pdfceGUI1` is still O55.
+
+### ★★★ WHAT TO DO FIRST: ask him for the machine, then sweep
+
+Seven new driven checks have never executed: the note editor, the bookmark
+edit, the attachments round trip, the rotate grip, the field groups, the
+signature warning and `unshare_form`. Everything below is asserted by unit
+tests and by reading; **none of it has been driven**.
+
+⇒ One line, with the cost: *the suite takes the mouse for about twenty
+minutes.* `RESUME.md`'s fixture table is the aim, and the sweep needs **three**
+fixtures, not one.
+
+### ★★★ THE QUESTION THAT STARTED IT, AND WHY IT NEEDED A SCRIPT
+
+> *"confirm that you have built every editable surface into the GUI that has
+> been implemented in pdfce"*
+
+**It could not be answered from this project's own documents.** `FEATURES.md`
+says what the GUI does, `NO_SURFACE.md` lists compiled-in constants,
+`GUI_ROADMAP.md` says what is planned — and **all three are keyed on this
+shell**. None is keyed on the engine's verb list, so none can answer *"is there
+a verb `pdfce-core` implements that nothing here calls?"*
+
+`tools/verb-coverage.py` answers it in two seconds. **157 `EditSession` verbs,
+22 named nowhere, twelve of them real gaps.** The register with a reason per
+miss is **`EDITABLE_SURFACES.md`**, new and in git.
+
+★★★ **Three of the twelve were capabilities the engine shipped IN ANSWER TO
+THIS SHELL'S OWN REQUESTS and this shell never consumed.** *A reply arriving is
+not a capability landing.* That is the finding, and the instrument exists
+because a promise to remember had already failed three times.
+
+### ★★★ TWO OF THEM WERE LIVE DEFECTS: SETTINGS THAT DID NOTHING
+
+**`quad_point_order`** and **`separations`** were both parsed, defaulted,
+validated, persisted, drawn in the Settings window — and read by nothing. An
+operator who chose *counterclockwise*, or *Refuse*, got the other thing, with no
+symptom to report.
+
+★★ **`app::settings` exists precisely to prevent that class, and a `syn` check
+enforces it, and both were blind.** The funnel and the check are keyed on
+**option constructors**; these two arrive through a **setter on a session** and a
+**parameter on a verb**. The check reported green for the life of the shell.
+
+⇒ **A guard shaped around one delivery mechanism cannot see a second one**, and
+the way to find the second is to enumerate what the engine OFFERS, not to
+re-read the guard. `EditSession::new` is now on the forbidden list and
+`SettingsExt::open_session` is the fourth funnel. Falsified: the extended check
+was run before its exemptions were added and it failed, naming real call sites.
+
+### ★★★ THE COMMENTS PANEL WRITES NOW, AND THE `/T` RULE IS THE PART TO KEEP
+
+Add note / Edit note / Remove note on every row. `Pass 154.0` shipped
+`set_markup_note` four days earlier in answer to our own request.
+
+★★★ **Correcting somebody else's typo must not re-attribute their comment.**
+The engine called writing all three keys unconditionally *"the easiest way to get
+this wrong"* — it leaves a review comment from nobody, dated never, looking
+exactly like one somebody had mangled. `keeps_author()` is a named function with
+three tests **and it feeds the disclosure sentence from the same expression**, so
+what the operator reads and what is written cannot disagree.
+
+★★ The draft is stamped `(annotation, edit epoch)` and is **dropped** when the
+document moves, not refused at Save time: a stale editor is a lie for as long as
+it is on screen.
+
+### ★★ AND THE CLIPBOARD QUIETLY LOST WHAT THE PANEL HAD JUST GAINED
+
+The object clipboard copied a markup by reading it into a `MarkupSpec` and
+authoring a new one. **That is lossless only for what a spec can express** — so
+the moment notes and opacity shipped, copying a signed, dated, 40 %-opaque cloud
+produced an anonymous opaque one, **and nothing on the page would show it**.
+
+⇒ **A copy implemented as a re-author loses ground every time the authoring side
+gains a key.** `carried_options` closes the two losses created the same day; the
+general fix (`copy_annotations` → `ObjectClip`) is asked of the engine rather
+than assumed, because it is not known whether a `/Popup`, an `/IRT` chain or an
+`/RC` body survive that path either.
+
+### ★★★ A THREE-TIMES-REPEATED MISTAKE BECAME A GATE, AND IT PAID IMMEDIATELY
+
+Two trace lines sharing a first token make `ui-verify` read the funnel's line
+instead of the module's — and report *"the verb did nothing"* about a verb that
+worked. Three instances in two days; the third written hours after the second by
+the same session.
+
+`tools/gates/check-trace-names.py` is 60 lines and **found three more the moment
+it worked**, one written the same hour. ★★ **Two of the three were correct only
+by STATEMENT ORDER** — the module's line happened to be traced after the
+funnel's, so `.last()` reached the right one by luck. Moving one statement would
+have broken four driven checks with no change to what they test.
+
+★ **And the gate's own first cut scanned line by line**, so a deliberately
+planted collision **passed** — the exact failure the gate exists to prevent,
+committed by the gate. *Plant a violation and watch a new check go red before
+believing its green.*
+
+### ★★ Six more surfaces, each closing a gap the register named
+
+| | |
+|---|---|
+| **Attachments** | Edit ▸ Insert. Attach, save a copy out, remove. The saved name is **sanitised and the rename disclosed**; removing does **not** erase and says so |
+| **Rotation** | a ninth grip for annotations and ce dimensions. A dimension gets rotate *only* — scaling one is declined, not unbuilt |
+| **Bookmarks** | rename and delete, with the subtree count disclosed **before** the press and again from the engine after it |
+| **Opacity** | Markup ▸ Style, one verb and one undo entry — the engine's own **undo-defect** argument |
+| **`unshare_form`** | *"Give this page its own copy"*, Format tab and canvas menu. Seven refusals, every one worded, **each ending by restating that the sharing is untouched** — because after a refusal the page looks exactly as it does after a success |
+| **Field groups** | delete a grouping node and its subtree, with a preview naming the fields before the press |
+
+### ★★★ THREE HAZARDS FOUND WHILE WIRING, NOT BY A TEST
+
+**1. The fifth instance of the canvas's oldest defect.** `presspick::covers()` —
+*the function whose own doc comment records the fourth* — asked
+`overlay::grip_box`, which is `None` for an annotation. A press on a markup's
+rotate handle would have selected whatever content sits 20 pt above it and
+rotated **that**. It never looks broken from a chair, because something moves.
+⇒ **A guard that must agree with another module has to CALL it, not resemble
+it.**
+
+**2. Context menus published no `ui_rect` for any row, ever.**
+`MenuHost::attach_with` called the constructor that takes no rect sink, so **no
+driven check could press a menu row** — `right_clicking_a_form_field_opens_its_menu`
+stops at *"the menu opened"* for exactly that reason. Third gesture-class hole
+found in two days, after the missing right-click and the missing window resize.
+
+**3. `deletion_refusal` was consulted by NOTHING.** It appeared in three
+comments arguing correctly about which query Flatten should ask, while Rename,
+Delete field and Delete this box asked none — so on a certified form all three
+were drawn live and every press returned a refusal to the trace and **nothing to
+the operator**. Both queries are now asked once, before anything is drawn.
+
+### ★ What is next, in his likely order
+
+1. **The sweep.** Seven unrun checks, and the suite needs three fixtures.
+2. **A build.** Nothing is packaged; `FEATURES.md` is re-measured and current.
+3. **The register's remaining rows** — `copy_annotations` (asked of the engine),
+   and the preview/refusal queries `annotation_deletion_preview`,
+   `paste_preview` and `preview_style_resolution`, which are R83 quality rather
+   than missing capability: the verb runs either way, and the difference is
+   whether the operator learns from a greyed control or from a refusal after the
+   gesture.
+4. ⚠ **Three files sit at exactly 1,500 lines** — `app/state.rs`,
+   `app/actions/apply.rs`, `canvas/interact.rs`. The next line in any of them
+   breaks R2.
+
+---
+
 ## 2026-08-28 (afternoon) — reflow became a command, and the pinned-edit workaround was deleted
 
 **Clean tree. 18/18 gates. 1,899 + 421 + 144 tests, 0 failing. 96 driven checks

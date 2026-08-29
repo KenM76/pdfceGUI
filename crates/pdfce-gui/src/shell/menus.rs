@@ -86,7 +86,7 @@
 //!
 //! | Context id | Right-click site | Items | The reasoning |
 //! |---|---|---|---|
-//! | [`CANVAS_OBJECT`] | a selected object on the page | `view.zoom_selection`, `format.properties`, `format.delete` | Zoom to selection is here because **SolidWorks and Acrobat both reach it by right-click** and only Inkscape binds a key for it — operator instruction of 2026-08-14 to match those three; see the registration site for why no chord was invented. Then §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. **`format.properties` joined them on 2026-08-18**, with the ce-dimension properties section: a selected ce dimension's group, measurement, style overrides and radius/diameter switch are otherwise reachable only by noticing that a contextual tab appeared or by opening a dock panel by name, and the operator's report was *"I click and can't figure out how to enable some of the basic stuff."* It sits above Delete because the destructive row is last in every menu here. |
+//! | [`CANVAS_OBJECT`] | a selected object on the page | `view.zoom_selection`, `format.properties`, `format.select_form`, `format.unshare_form`, `format.delete` | ★ The Items column was **wrong** until 2026-08-28 — it had never been updated for `format.select_form`, added the previous day, which is this project's recurring shape of a prose claim beside the thing it describes decaying while a test pins the truth one screen down. The two form commands arrived with the form-XObject work: `format.select_form` because a click now reaches *inside* a form and the container has to be reachable on purpose, and `format.unshare_form` because O53 forbids a command existing only on the ribbon — and because the operator who needs it is mid-gesture, about to type into a title block, and the pointer is where they are looking. Zoom to selection is here because **SolidWorks and Acrobat both reach it by right-click** and only Inkscape binds a key for it — operator instruction of 2026-08-14 to match those three; see the registration site for why no chord was invented. Then §5.8 lists Delete in **every** selection type's row. It is the one command in that section that exists (see `manifest::DIRECTED`), and it is wired: `PdfceApp::dispatch_token` reads `SelectionState::deletable_objects_on`, the same rule the Delete key reads. **`format.properties` joined them on 2026-08-18**, with the ce-dimension properties section: a selected ce dimension's group, measurement, style overrides and radius/diameter switch are otherwise reachable only by noticing that a contextual tab appeared or by opening a dock panel by name, and the operator's report was *"I click and can't figure out how to enable some of the basic stuff."* It sits above Delete because the destructive row is last in every menu here. |
 //! | [`CANVAS_EMPTY`] | blank page, or the paper beside the drawing | `view.zoom_fit_page`, `view.zoom_fit_width`, `view.zoom_fit_height`, `view.zoom_actual` | The four **named** zoom levels, all of which have a live dispatch arm today. A right-click on paper is about the *view*, because there is no object to be about. |
 //! | [`DOCK_TAB`] | a panel tab in the dock | `view.reset_layout` | The only registered command that acts on the dock. The **command** is wired (`PdfceApp::dispatch_command` calls `Modes::reset` with `ResetScope::All`); the **menu** still cannot be attached — see the warning below. |
 //! | [`OBJECTS_ROW`] | a row in the Objects panel | `file.properties` | The Properties panel is *where an object row is described*; right-clicking a row focuses it and this is the command that puts the description on screen — which it now does: `PdfceApp::show_panel` activates the panel, mounting it first if the operator's arrangement no longer holds it. |
@@ -132,7 +132,7 @@
 //! never interprets — the same kind of string a command id is.
 
 use egui_shell::manifest::{Item, Shell};
-use egui_shell::menu::{Menu, Menus};
+use egui_shell::menu::{ContextMenu, Menu, Menus};
 use egui_shell::{CommandRegistry, ConditionSet, HandlerToken};
 
 // ===========================================================================
@@ -345,6 +345,32 @@ pub fn built_in() -> Menus {
             // Greyed rather than absent when the selection is not inside a
             // form, by the same R9 reading the catalog entry argues.
             Item::command("format.select_form"),
+            // ★★★ The right-click route to *"give this page its own copy"*,
+            // added 2026-08-28 with the form-XObject unshare.
+            //
+            // **O53's ruling is why it is here at all**: a command must not
+            // exist only on the ribbon. That rule is doing more work for this
+            // command than for most, because the operator who needs it is by
+            // definition mid-gesture — they have just clicked inside a title
+            // block, they are about to type into it, and the moment they need
+            // to be offered a private copy is *before* that keystroke. A
+            // contextual tab three inches away is the correct second home; the
+            // pointer is the first.
+            //
+            // ★★ It is also the only surface that can reach them in time. The
+            // engine's SHARED CONTENT disclosure fires **after** an edit has
+            // fanned out to every sheet; this row is the one place the choice
+            // is offered while it is still a choice.
+            //
+            // Directly under `format.select_form`, matching the ribbon group's
+            // order for the reason argued there: describe, re-aim, detach,
+            // destroy — and Delete stays last, as it does in every menu in this
+            // file.
+            //
+            // Greyed rather than absent when the selection is not inside a
+            // form, by the same R9 reading the catalog entry argues, and on the
+            // same `selection.in_form` predicate as the row above it.
+            Item::command("format.unshare_form"),
             Item::command("format.delete"),
         ]))
         // -------------------------------------------------------------------
@@ -759,7 +785,48 @@ impl<'a> MenuHost<'a> {
         context_id: &str,
         conditions: &ConditionSet,
     ) -> Vec<HandlerToken> {
-        Menu::attach(response, self.shell, self.registry, context_id, conditions)
+        // ★★★ **The rows publish where they were drawn**, since 2026-08-28.
+        //
+        // This was `Menu::attach(…)` — the convenience constructor that takes
+        // *no optional capabilities at all* — so pdfce's context menus drew
+        // rows and told the diagnostic channel nothing about them. The
+        // consequence was narrow and total: **no driven check could click a
+        // context-menu row**, ever, because there was no coordinate to aim at.
+        //
+        // `right_clicking_a_form_field_opens_its_menu` is the evidence. It is
+        // the first driven context menu in this project's history, it asserts
+        // that the right menu *resolved* and that it *offered something*, and
+        // it stops there — because the next step, pressing a row, had nothing
+        // to press. Its own header records the shape: *"a gesture with no
+        // driver is a gesture R1 cannot reach, and the gap left no failing test
+        // behind to advertise itself."* This is the same finding one layer
+        // down: the driver existed and the target did not.
+        //
+        // ★★ Why an `egui` popup makes this the ONLY possible answer, rather
+        // than the tidiest one. `egui_shell::menu::report`'s header states it:
+        // a context menu is drawn at the pointer, and `egui` may flip it to any
+        // of several alignments to keep it on screen. There is no fraction of
+        // the window it can be hard-coded to and no layout a harness could
+        // re-derive. Publishing the rectangle is not the best of three options;
+        // it is the only one.
+        //
+        // ★ The names are `egui_shell::menu::report`'s — `menu.body.<context>`
+        // and `menu.item.<context>.<command id>` — and they go through
+        // `crate::diag::ui_rect`, the same sink the ribbon, the status bar and
+        // the dock already publish to. So a harness filters one channel and one
+        // prefix, and nothing here invents a naming scheme.
+        //
+        // ★ Cost when nobody is listening: `Reporter` does not format a name
+        // unless a sink is present, and `crate::diag::ui_rect` is a no-op
+        // without `PDFCE_DIAG`. A closure per attach, and nothing else.
+        let mut sink = |name: &str, rect: egui::Rect| crate::diag::ui_rect(name, rect);
+        ContextMenu::new().reporting_rects_to(&mut sink).attach(
+            response,
+            self.shell,
+            self.registry,
+            context_id,
+            conditions,
+        )
     }
 
     /// **Whether right-clicking this context would produce a menu at all.**
@@ -1208,6 +1275,7 @@ mod tests {
                     "view.zoom_selection",
                     "format.properties",
                     "format.select_form",
+                    "format.unshare_form",
                     "format.delete",
                 ][..],
             ),

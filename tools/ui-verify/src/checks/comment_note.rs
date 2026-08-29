@@ -53,6 +53,22 @@
 //! | D | type four letters into the box | — |
 //! | E | click *Save note* | `set-markup-note-applied … keys=…Contents…` |
 //! | F | read the census again | `with_note=1` |
+//! | G | select the shape, Ctrl+C, Ctrl+V | `paste-markup … note=true` |
+//!
+//! # ★★★ Phase G exists because THIS CHECK CREATED THE DEFECT IT GUARDS
+//!
+//! The object clipboard copies a markup by reading it into a `MarkupSpec` and
+//! authoring a new one. That is lossless only for what a spec can express — and
+//! the note this check writes in phase E **is not expressible in a spec**. So
+//! on the day the note editor shipped, copying a commented cloud and pasting it
+//! produced an anonymous one, and **nothing on the page would show it**: the
+//! words live in a pop-up this shell does not draw.
+//!
+//! ⇒ The general form, worth carrying: **a copy implemented as a re-author
+//! loses ground every time the authoring side gains a key**, silently, in a
+//! direction no screenshot can see. This phase is the tripwire on that, and it
+//! is here rather than in `object_clipboard` because this is the check that can
+//! produce an annotation with a note to copy in the first place.
 //!
 //! # ★★ Phase F is the assertion that matters, and B is what makes it mean
 //! anything
@@ -119,6 +135,10 @@ const PAGE_REGION: &str = "page";
 const SHAPE: ((f64, f64), (f64, f64)) = ((0.35, 0.35), (0.55, 0.50));
 /// `TAIL`, four keystrokes. See the module header.
 const WORD: [u16; 4] = [vk::T, vk::A, vk::I, vk::L];
+/// The apply arm's line for a paste, carrying whether the note survived.
+const PASTED: &str = "paste-markup-requested";
+/// The line the canvas writes when a click selects an annotation.
+const SELECTED: &str = "annot-select";
 
 /// See the module documentation.
 pub struct ANoteCanBeWrittenOntoAShape;
@@ -365,6 +385,64 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "★★ the panel read the note back out of the session: `{}`",
         after.raw
+    ));
+
+    // --- G: the note survives a copy and a paste ---------------------------
+    //
+    // ★ The shape's centre, computed from the same fractions phase A drew it
+    // at, so the click lands on the annotation rather than on whatever page
+    // content is nearby. A markup tool is still armed from the launch invoke,
+    // so the pointer is put down first — a click with the rectangle tool armed
+    // is the start of a new shape, not a selection.
+    let centre = ((SHAPE.0.0 + SHAPE.1.0) / 2.0, (SHAPE.0.1 + SHAPE.1.1) / 2.0);
+    let at = aim(
+        ctx,
+        &session,
+        page,
+        DocPoint::new(0, centre.0 * page.width_pt, centre.1 * page.height_pt),
+    )?;
+    driver.press(vk::V)?;
+    session.settle(8);
+    driver.click_at(at)?;
+    session.settle(12);
+    if session.trace()?.events(SELECTED).count() == 0 {
+        return Err(Error::new(format!(
+            "the click on the shape produced no `{SELECTED}` line, so nothing is selected and a \
+             copy would have nothing to act on. The Select tool is armed with `V`, which is a \
+             CHORD — and a chord with a dock panel open is not a reliable harness primitive \
+             (`scale_switch` measured a bare key arriving zero times in six). SKIPPED rather \
+             than failed: this is the step before the one under test."
+        )));
+    }
+    driver.press_chord(&[vk::CONTROL], vk::C)?;
+    session.settle(10);
+    driver.press_chord(&[vk::CONTROL], vk::V)?;
+    session.settle(20);
+
+    let trace = session.trace()?;
+    let Some(pasted) = trace.events(PASTED).last() else {
+        return Err(Error::new(format!(
+            "Ctrl+C then Ctrl+V produced no `{PASTED}` line. Both are chords and a chord with a \
+             dock panel raised is the harness primitive this suite has measured as unreliable, \
+             so this is reported as a SKIP: it says nothing about whether the paste is faithful. \
+             Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    if pasted.get("note") != Some("true") {
+        return Ok(Some(format!(
+            "THE PASTE LOST THE COMMENT: `{}`. The annotation copied carries a note — this check \
+             wrote it four steps ago and the panel read it back — and the pasted copy does not. \
+             That is the clipboard round-tripping through `MarkupSpec`, which cannot express \
+             `/Contents`, `/T` or `/M`. ★ It is invisible on the page: the words live in a pop-up \
+             this shell does not draw, so the copy looks correct and is not. \
+             `canvas::clipboard::carried_options` is what should have carried them.",
+            pasted.raw
+        )));
+    }
+    report.note(format!(
+        "★★★ the note survived a copy and a paste: `{}`",
+        pasted.raw
     ));
     Ok(None)
 }

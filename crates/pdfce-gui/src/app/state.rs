@@ -1489,6 +1489,12 @@ pub(crate) const ROTATED_TEXT: &str = "rotated-text.pdf";
 /// Four optional-content groups: 4 and 7 on by default, 5 and 6 off.
 #[cfg(test)]
 pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";
+/// **Two pages, one approval signature.** Built by
+/// `tools/gen-signed-fixture.py`, whose header carries why the engine's own
+/// signature fixtures (all one page, none to spare) could not be used; its
+/// three load-bearing properties are asserted in `crate::dialogs::signature`.
+#[cfg(test)]
+pub(crate) const SIGNED_TWO_PAGES: &str = "signed-two-pages.pdf";
 
 #[cfg(test)]
 mod tests;

@@ -671,6 +671,158 @@ impl PdfceApp {
         }
     }
 
+    /// **Save the open document over its own file, and record which revision
+    /// is now on disk.**
+    ///
+    /// The body of the `Action::Save` arm, lifted out of
+    /// `crate::app::actions::apply` on 2026-08-28 so that the signature
+    /// warning's answer can resume **the same save** rather than re-raise the
+    /// action. `resume_after_unsaved`'s own header carries the argument in its
+    /// general form: re-raising would meet the guard again and put the
+    /// operator in a loop they could only leave by pressing Cancel, and a
+    /// *"but not this time"* flag on the action would put a second, invisible
+    /// meaning on a value the funnel's whole discipline says is plain data.
+    ///
+    /// So there is one implementation with two callers, and what the second
+    /// caller skips is exactly the guard it has just answered.
+    ///
+    /// # ★★★ The defect the move surfaced: `Action::Save` never returned
+    ///
+    /// Worth recording where the body now lives, because nothing about it is
+    /// visible from the arm any more.
+    ///
+    /// `crate::app::actions::apply` matches a handful of actions **before** the
+    /// guard that narrows `self.status` to an open document, and every one of
+    /// those arms `return`s — because the `match` further down lists all of
+    /// them together under
+    /// `unreachable!("handled before the document guard")`. `Action::Save` was
+    /// added between two arms that both return (`SaveCopy` and `Find`) and
+    /// **did not return**, so it fell through the guard and into that
+    /// `unreachable!`.
+    ///
+    /// The consequence: **every in-place save of a document that had a file
+    /// behind it panicked** — which is the path `Ctrl+S` takes for every
+    /// document opened from disk, since `crate::app::dispatch` routes
+    /// `file.save` to `Action::Save` exactly when
+    /// `crate::app::save::has_a_file` is true and to `Action::SaveCopy`
+    /// otherwise.
+    ///
+    /// It is fixed as part of this change because the guard above it needed
+    /// the same `return` and it would have been dishonest to add one and leave
+    /// the other. The class is worth naming: a fall-through arm in a `match`
+    /// whose *later* twin asserts unreachability is a defect the compiler
+    /// cannot see, because both halves type-check and the panic is reached
+    /// only at run time on one input.
+    ///
+    /// # ★★ The `bool` is READ here, where [`Self::write_copy_somewhere`]'s is
+    /// discarded
+    ///
+    /// And the difference is the whole point: an in-place save that succeeded
+    /// means the file on disk now holds this revision, and `OpenDoc::saved_epoch`
+    /// is the only record of that. A failed save must not move it — the disk
+    /// still holds the older bytes, and claiming otherwise would let
+    /// `dialogs::ocr` read a file that does not have the operator's work in
+    /// it.
+    ///
+    /// # Why the no-document case traces rather than dropping silently
+    ///
+    /// A keymap reaches any command from any state, and an operator who
+    /// presses the save chord over an empty shell must not be
+    /// indistinguishable, in the trace, from one whose keystroke never
+    /// arrived. That is the same argument the arm this came from makes for
+    /// sitting above the document guard in the first place.
+    pub(super) fn write_in_place(&mut self) {
+        match &mut self.status {
+            crate::app::state::Status::Open(doc) => {
+                if crate::app::save::save_in_place(doc) {
+                    doc.saved_epoch = doc.edit_epoch;
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed
+                        format!("save-epoch-recorded epoch={}", doc.saved_epoch)
+                    });
+                }
+            }
+            _ => crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed
+                "save-declined reason=no-document".to_owned()
+            }),
+        }
+    }
+
+    /// **Ask where a copy goes and write it there.**
+    ///
+    /// The body of the `Action::SaveCopy` arm, lifted out for
+    /// [`Self::write_in_place`]'s reason and at the same time.
+    ///
+    /// ★ The `bool` is DISCARDED here, deliberately, and that is not the same
+    /// as ignoring it. `crate::app::save::save_copy` answers *"did a file get
+    /// written"* for exactly one caller — `crate::dialogs::unsaved`, which must
+    /// not destroy a document on the strength of a save that did not happen.
+    /// A plain `file.save_copy` has nothing waiting on the answer: it
+    /// succeeded or it reported its own failure, and either way the next thing
+    /// that happens is the operator's choice rather than this function's.
+    pub(super) fn write_copy_somewhere(&mut self) {
+        match &self.status {
+            crate::app::state::Status::Open(doc) => {
+                let _ = crate::app::save::save_copy(doc);
+            }
+            _ => crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "save-copy-declined reason=no-document".to_owned()
+            }),
+        }
+    }
+
+    /// **Perform the save the operator has just authorised over their
+    /// signature.**
+    ///
+    /// Called from [`Self::ui`]'s frame, immediately after the dialogs draw
+    /// and immediately after [`Self::resume_after_unsaved`], for the reason
+    /// that one is called there: it is not a command but a **frame-level
+    /// observation** that a window the operator was looking at has been
+    /// answered, and the act it authorises — a write over their own file —
+    /// belongs to the application rather than to a dialog.
+    ///
+    /// # ★ Why it runs AFTER the unsaved drain and not before
+    ///
+    /// The two questions cannot be live at once — `crate::dialogs::signature`'s
+    /// §7 records why the unsaved window's *Save a copy…* button deliberately
+    /// does not raise this one — so the order cannot matter today. It is
+    /// nonetheless fixed, in the direction that stays correct if that ever
+    /// changes: the unsaved drain may **close or replace the open document**,
+    /// and a save resumed after that would write the document the operator is
+    /// now looking at rather than the one they were asked about. Running this
+    /// second means a stale save can never outlive its subject; running it
+    /// first would mean it could.
+    ///
+    /// # There is no cancel branch, and there does not need to be one
+    ///
+    /// `SignatureDialog::take_confirmation` answers `Some` only when the
+    /// proceed button was pressed. A cancel, and the window's ✕, close the
+    /// window and answer nothing — so this function simply does not run, and
+    /// **no file is written**. That is the shape `crate::dialogs::unsaved`
+    /// uses for the same reason: the destructive act does not happen until a
+    /// button is pressed, which is a property of the control flow rather than
+    /// of the window.
+    pub(super) fn resume_after_signature(&mut self) {
+        let Some(pending) = self.dialogs.take_signature_answer() else {
+            return;
+        };
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // Names the save that was authorised, not merely that one was: an
+            // in-place write and a copy have different consequences for the
+            // operator's own file, and a reader of a trace from a machine they
+            // cannot see should not have to infer which happened.
+            format!("signature-confirmed pending={pending:?}")
+        });
+        match pending {
+            crate::dialogs::signature::PendingSave::InPlace => self.write_in_place(),
+            crate::dialogs::signature::PendingSave::Copy => self.write_copy_somewhere(),
+        }
+    }
+
     /// **Whether a save is in flight, so an Open or a Close must wait.**
     ///
     /// # The rule, stated where it will be needed

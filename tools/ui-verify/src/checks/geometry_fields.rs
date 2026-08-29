@@ -107,7 +107,7 @@ const DECLINED_EVENT: &str = "resize-declined";
 /// whole reason the two routes share that function, and is what this check's
 /// own header claims. See `resize.rs`'s note on the same constant for why a
 /// check that pins a MECHANISM goes red on the day the mechanism improves.
-const APPLIED: &str = "transform-objects";
+const APPLIED: &str = "transform-objects-applied";
 
 /// How far to scrub the Width field, in screen pixels.
 ///

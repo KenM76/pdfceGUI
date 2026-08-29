@@ -24,6 +24,109 @@
 //! operator counts is not a disclosure, it is *evidence*, and evidence belongs
 //! where a check can read it.
 
+/// **The forms THIS PAGE invokes directly** — the set that decides whether the
+/// shared-content disclosure may name a remedy.
+///
+/// # ★★★ Why this type exists, and why the remedy is conditional
+///
+/// This module's header said, correctly and for eight days, that the operator's
+/// half of the shared-content report *"is already handled and is deliberately
+/// not re-worded"*: `pdfce-core` writes the `"SHARED CONTENT: …"` sentence into
+/// `EditReport::disclosures` and the `edit_text` arm carries it to the status
+/// row verbatim.
+///
+/// That is still true, and **nothing below re-words it.** What changed on
+/// 2026-08-28 is that a *remedy* came into existence:
+/// `EditSession::unshare_form`, surfaced as `format.unshare_form`. The engine
+/// cannot name it — `pdfce-core` has never heard of this shell's commands — so
+/// the sentence that names it has to be the shell's, appended, exactly as
+/// `crate::text::textedit::pinned_tail_disclosure` already is in the same arm.
+///
+/// # ★★★ The nesting case, which is the whole reason this is a TYPE and not a
+/// # boolean
+///
+/// The remedy is **not always available**, and offering it where it does not
+/// work would be worse than staying silent — it would send an operator through
+/// undo, a command, and a re-edit to arrive at the identical fan-out.
+///
+/// `format.unshare_form` always hands the engine the **outermost** enclosing
+/// form, because that is the only operand `unshare_form` accepts (a nested one
+/// is refused by name). Now consider a page that invokes form `A`, where `A`
+/// invokes form `B`, and the edited text lives in `B`:
+///
+/// | | before | after unsharing `A` |
+/// |---|---|---|
+/// | this page | `A` → `B` | `A'` → **`B`** |
+/// | the other 35 | `A` → `B` | `A` → **`B`** |
+///
+/// `A` is privatised and `B` — the stream holding the edited glyphs — is
+/// **still shared by both copies**. The command succeeds, discloses that it
+/// succeeded, and the operator's next edit fans out exactly as before. There is
+/// no refusal to catch, because nothing was refused.
+///
+/// ⇒ So the remedy is offered **only when the edit went into a form the page
+/// invokes directly**, which is the case where unsharing that form is the
+/// stream holding the text. That is what this set answers, and it is derived
+/// from `FormLeaf::containment[0]` — *"the chain of enclosing form XObjects,
+/// outermost first"* — which is the same element
+/// `panels::objects::provider::ObjectModelProvider::containing_form_object`
+/// hands the verb. One derivation: the sentence cannot promise a form the
+/// command would not act on.
+///
+/// # Why it is gathered BEFORE the edit rather than after
+///
+/// `super::super::super::app::actions::apply::vector_edit` takes `&mut OpenDoc`
+/// and the decomposition is reached through a `Ref` into a `RefCell` cache, so
+/// the borrow must be released before the edit begins. Gathering a `BTreeSet`
+/// of `u32` first costs one walk of a list the frame already built, and the
+/// page's own `/XObject` names cannot change during the edit that is about to
+/// happen — a text edit rewrites a content stream, not a resource dictionary.
+pub struct PageLevelForms(std::collections::BTreeSet<u32>);
+
+impl PageLevelForms {
+    /// Gather the set from the current page's decomposition.
+    ///
+    /// **Empty when the page has not decomposed**, and that is the safe
+    /// answer rather than a degraded one: an empty set offers no remedy, and
+    /// silence is the correct output when this shell cannot confirm that the
+    /// remedy would work. A fallback that guessed *"probably page-level"* would
+    /// be advice given without evidence, on the one surface where wrong advice
+    /// costs an operator two commands and a re-edit.
+    #[must_use]
+    pub fn of(doc: &crate::app::state::OpenDoc) -> Self {
+        Self(doc.page_objects().map_or_else(Default::default, |objects| {
+            objects
+                .page_objects()
+                .leaves
+                .iter()
+                .filter_map(|leaf| leaf.containment.first())
+                .map(|id| id.num)
+                .collect()
+        }))
+    }
+
+    /// The remedy sentence, if this edit's fan-out is one the shell can offer
+    /// to undo.
+    ///
+    /// Two conditions, both necessary:
+    ///
+    /// 1. **`form_invocations > 1`** — the engine's own `InvocationSet::is_shared`
+    ///    predicate, spelled here as the comparison it is (`sites.len() > 1`),
+    ///    so the remedy appears on exactly the edits the `SHARED CONTENT`
+    ///    sentence appears on and never beside a report that did not warn. A
+    ///    remedy for a problem the operator was not told they had is noise.
+    /// 2. **the edited form is page-level** — see the type's docs for the
+    ///    nesting case this excludes and why excluding it is the point.
+    #[must_use]
+    pub fn remedy_for(&self, report: &pdfce_core::text_edit::EditReport) -> Option<String> {
+        (report.form_invocations > 1
+            && report
+                .form_object
+                .is_some_and(|form| self.0.contains(&form)))
+        .then(crate::text::unshare::shared_content_remedy)
+    }
+}
+
 /// **Which content stream the commit rewrote, and how many places paint it.**
 ///
 /// # ★★★ Shared content, and why this is worth a named function

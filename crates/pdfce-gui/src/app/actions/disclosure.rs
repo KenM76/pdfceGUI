@@ -148,8 +148,33 @@ pub(crate) fn record_edit_disclosure(disclosure: Option<EditDisclosure>) {
 /// the same rule `vector_edit`'s own stamp follows and for the same reason its
 /// ★ comment gives.
 pub(crate) fn record_note(epoch: u64, note: String) {
-    record_edit_disclosure(Some(EditDisclosure {
-        epoch,
-        notes: vec![note],
-    }));
+    record_notes(epoch, vec![note]);
+}
+
+/// **Put several sentences on the status bar's disclosure row**, stamped with
+/// the revision currently on screen.
+///
+/// [`record_note`]'s plural, and it exists because the slot holds one
+/// disclosure rather than a queue: a second `record_note` **replaces** the
+/// first rather than joining it, so a caller with two things to say has to say
+/// them in one call or lose one.
+///
+/// That is not hypothetical. `crate::app::save::save_in_place` records a
+/// receipt naming the file it wrote, and — for a signed document — owes a
+/// second sentence about what the write did to the signature
+/// (`crate::text::signature`). Two `record_note` calls would have shown
+/// whichever ran last and silently dropped the other, and the one it dropped
+/// would have been chosen by statement order rather than by importance.
+///
+/// ★ The order of `notes` is the reading order and the caller owns it. The
+/// bar joins them with a single space behind one lead-in
+/// (`crate::text::status::edit_disclosure_line`), so the first sentence is the
+/// one an operator reads if they read only one.
+///
+/// **`epoch` is the CURRENT one**, exactly as [`record_note`]'s is: the
+/// sentences are visible from now until the next real edit moves the epoch
+/// past them, which is what retires them without anything having to remember
+/// to.
+pub(crate) fn record_notes(epoch: u64, notes: Vec<String>) {
+    record_edit_disclosure(Some(EditDisclosure { epoch, notes }));
 }
