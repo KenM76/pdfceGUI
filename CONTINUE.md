@@ -2,12 +2,17 @@
 
 ## 2026-08-28 (afternoon) — reflow became a command, and the pinned-edit workaround was deleted
 
-**Clean tree. 18/18 gates. 1,899 + 421 + 144 tests, 0 failing. 95 driven checks,
-the newest three unrun. Re-measure before quoting.** Engine `1c292bc`.
+**Clean tree. 18/18 gates. 1,899 + 421 + 144 tests, 0 failing. 96 driven checks
+— the fit pair is driven AND falsified; reflow and the field menu are written
+and unrun. Re-measure before quoting.** Engine `1c292bc`.
 **Published**: `OneDrive\pdfceGUI1` is the newest — **O55**, the fit that
 survives a resize. `pdfceGUI2` is the build before it (O51 scale switches).
 
-### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
+### ★★★ WHAT TO DO FIRST: the machine is FREE — he said so on 2026-08-28 evening
+
+He is off the PC and told me to minimise everything, so `ui-verify` can run.
+**Launch it detached with PowerShell `Start-Process` and a VISIBLE console** —
+see the sweep section below for the four ways this went wrong first.
 
 *"I'm back on the PC so that's why a few of your tests may have gone wonky."*
 The suite drives the real mouse. Nothing since the 27th's sweep has been
