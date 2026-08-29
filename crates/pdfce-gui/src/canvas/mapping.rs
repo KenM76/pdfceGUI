@@ -197,6 +197,60 @@ impl PageMapping {
         viewer::page_to_screen(page, self.image_rect, self.extent, self.zoom)
     }
 
+    /// **Canvas → screen for a DISPLACEMENT**, not a position.
+    ///
+    /// # ★★★ Why a vector needs its own conversion, and what it cost not to have one
+    ///
+    /// A point conversion carries the page's origin on screen; a displacement
+    /// must not. `to_screen(a) - to_screen(b)` is correct and says the origin
+    /// twice; this says it none.
+    ///
+    /// **`DEFECTS.md` D18 is what its absence cost.** The gesture machine works
+    /// in **page** space by design — `canvas::interact` builds its
+    /// `PointerFrame` with `pos: screen_pos.map(|p| map.to_page(p))` — so
+    /// `GestureOutcome::Resize.delta` is a page-space displacement. It was
+    /// handed straight to `resizing::Frame::delta`, whose doc comment says *"in
+    /// screen points"*, and divided against a `bounds` that genuinely is screen
+    /// space. Every resize factor's distance from unity came out inflated by
+    /// **`1/zoom`**: at the operator's fitted 29.55 % a corner dragged 60 px
+    /// committed a 5.94× stretch where the contract says 2.46×, and the shape
+    /// shot 143 px past the cursor on both axes.
+    ///
+    /// ⇒ Two quantities in two spaces, one of them undocumented at its call
+    /// site, and **nothing in the type system to notice**: both are `Vec2`.
+    /// This method is the place the multiply lives, for the reason this
+    /// module's header already gives about the divide — *"there is one zoom and
+    /// one place in `canvas/` that divides by it."* The same must be true of
+    /// multiplying, or the two drift.
+    ///
+    /// ★ It is deliberately **not** called `to_screen_vec`. `to_screen` and
+    /// `to_page` are a matched pair over positions, and a name one character
+    /// away from them is how a caller reaches for the wrong one; this one says
+    /// *page vector* in its name so the space is at the call site rather than
+    /// in its documentation.
+    #[must_use]
+    pub fn page_vec_to_screen(&self, page: egui::Vec2) -> egui::Vec2 {
+        page * self.zoom
+    }
+
+    /// **Screen → canvas for a DISPLACEMENT.** The inverse of
+    /// [`Self::page_vec_to_screen`]; see that method for why a displacement is
+    /// not a position.
+    ///
+    /// ★ A non-finite or non-positive zoom answers `Vec2::ZERO` rather than a
+    /// NaN, on the same argument [`screen_tolerance_to_page`] makes: a
+    /// degenerate zoom is reachable (a page drawn at zero size for one frame),
+    /// and a NaN displacement reaching a content stream is a corrupted file,
+    /// while a zero one is a gesture that did nothing.
+    #[must_use]
+    pub fn screen_vec_to_page(&self, screen: egui::Vec2) -> egui::Vec2 {
+        if self.zoom.is_finite() && self.zoom > 0.0 {
+            screen / self.zoom
+        } else {
+            egui::Vec2::ZERO
+        }
+    }
+
     /// **Screen → canvas** for a rect (the marquee).
     ///
     /// Normalised with [`Rect::from_two_pos`] rather than assembled from
@@ -646,5 +700,62 @@ mod tests {
         );
         assert_eq!(m.to_page(Pos2::new(5.0, 5.0)), Pos2::ZERO);
         assert_eq!(m.to_screen(Pos2::new(5.0, 5.0)), Pos2::ZERO);
+    }
+}
+
+#[cfg(test)]
+mod vector_tests {
+    use super::*;
+
+    /// A mapping at a stated zoom, with a page origin deliberately NOT at the
+    /// window origin — so a conversion that carried the translation would show
+    /// up here rather than passing by luck.
+    fn at(zoom: f32) -> PageMapping {
+        PageMapping::new(
+            Rect::from_min_size(Pos2::new(316.0, 580.0), egui::vec2(400.0, 300.0)),
+            (1584.0, 1224.0),
+            zoom,
+        )
+    }
+
+    /// ★★★ **A displacement does not carry the page's origin.**
+    ///
+    /// `DEFECTS.md` D18's root: two quantities in two spaces, both `Vec2`, and
+    /// nothing to notice. The rect above starts at (316, 580) precisely so a
+    /// conversion written as `to_screen(a)` — the point form — fails this.
+    #[test]
+    fn a_page_displacement_converts_without_the_origin() {
+        let map = at(0.2955);
+        let screen = map.page_vec_to_screen(egui::vec2(100.0, 40.0));
+        assert!((screen.x - 29.55).abs() < 0.01, "{screen:?}");
+        assert!((screen.y - 11.82).abs() < 0.01, "{screen:?}");
+    }
+
+    /// ★★ The round trip, at the operator's own fitted zoom.
+    ///
+    /// The number that matters: at 29.55 % a 60 px drag is 203 page units, and
+    /// handing those 203 to a function expecting 60 is what inflated every
+    /// resize factor by `1/zoom`.
+    #[test]
+    fn the_two_directions_are_inverses() {
+        let map = at(0.2955);
+        let screen = egui::vec2(60.0, 60.0);
+        let page = map.screen_vec_to_page(screen);
+        assert!((page.x - 203.04).abs() < 0.01, "{page:?}");
+        let back = map.page_vec_to_screen(page);
+        assert!((back - screen).length() < 0.001, "{back:?} vs {screen:?}");
+    }
+
+    /// ★ A degenerate zoom answers ZERO, never NaN.
+    ///
+    /// Reachable: a page drawn at zero size for one frame. A NaN displacement
+    /// reaching a content stream is a corrupted file; a zero one is a gesture
+    /// that did nothing, and only one of those is recoverable.
+    #[test]
+    fn a_degenerate_zoom_answers_zero_rather_than_nan() {
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let page = at(bad).screen_vec_to_page(egui::vec2(60.0, 60.0));
+            assert_eq!(page, egui::Vec2::ZERO, "zoom {bad}");
+        }
     }
 }

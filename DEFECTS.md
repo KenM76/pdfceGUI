@@ -1433,3 +1433,284 @@ Driven, on the real binary, against `fixtures/signed-two-pages.pdf`:
 The guard now blocks **and** releases, which is the whole claim, and the two
 halves are asserted in one run so a build that never writes cannot satisfy the
 absence in the middle.
+
+---
+
+## D18 — Every resize runs `1/zoom` too fast, because the drag's travel arrives in a different space from the box it is measured against
+
+**Severity:** high · **Fix:** one line, plus a doc comment · **Found:** 2026-08-29,
+while proving which side of `shift_constrains_a_resize` was wrong · **FIXED AND
+VERIFIED 2026-08-29.** `PageMapping::page_vec_to_screen` is the conversion, and
+the Resize arm names the space at the call site rather than leaving it to a doc
+comment two files away. Re-run on `polyline-nodes.pdf`: `resize-commit
+sx=1.1654 sy=1.4410` where the same class of drag previously committed
+`sx=1.5200 sy=5.9439`. `resize_scales_a_shape`, `shift_constrains_a_resize` and
+`rotate_handle_turns_a_selection` all PASS. Three unit tests on the conversion
+pair, including the degenerate-zoom case, which answers `Vec2::ZERO` rather than
+a NaN — a NaN displacement reaching a content stream is a corrupted file, a zero
+one is a gesture that did nothing. **Was: not fixed
+here** — see *Why this entry is a record rather than a change*.
+
+At any zoom below 1.0 a grip drag scales the object by far more than the
+pointer moved, and the grabbed corner runs away from the hand. At the zoom the
+sweep runs at — 0.2955 — a 60 px drag on a 390.6 × 41.0 px box committed
+`sx=1.5200 sy=5.9439` and left the south-east corner **143 px** beyond the
+cursor on both axes. The gesture works, commits, undoes and announces itself
+correctly. It is simply the wrong size, and it is exactly right at zoom 1.0,
+which is where every unit test lives.
+
+### The contract, quoted from the module that owns it
+
+`crates/pdfce-gui/src/canvas/resizing.rs`, on `Frame`:
+
+```rust
+/// How far the pointer has travelled since then, in screen points.
+pub delta: Vec2,
+...
+/// The selection's grip box in screen space, or `None` if there is no
+/// outline to have grabbed.
+pub bounds: Option<egui::Rect>,
+```
+
+and `factors` divides the first by the second:
+
+```rust
+let sx = if dw == 0.0 { 1.0 } else { (w + dw) / w };
+```
+
+Two quantities, one ratio, one stated space. The ratio is only meaningful
+because both operands are promised to be in it.
+
+### Where the promise is broken
+
+**`bounds` keeps it.** `interact.rs`'s `GestureOutcome::Resize` arm takes it
+from `pressing::grabbable` → `overlay::grip_box`, which is
+`mapping.rect_to_screen(union)` — screen space, as documented, and the same
+rectangle the selection outline is drawn from.
+
+**`delta` does not.** The gesture machine works in **page** space by design.
+`interact.rs` builds its `PointerFrame` as
+
+```rust
+pos: screen_pos.map(|p| map.to_page(p)),
+press_origin: ctx.input(|i| i.pointer.press_origin()).map(|p| map.to_page(p)),
+```
+
+and `gesture::Drag::outcome` answers `let delta = self.latest - self.origin;`.
+So `GestureOutcome::Resize.delta` is a **page-space** displacement, and the
+Resize arm hands it straight to a field documented as screen points. The
+committed factor is therefore
+
+```text
+s = 1 + (d_screen / zoom) / extent_screen      instead of      1 + d_screen / extent_screen
+```
+
+— every factor's distance from unity inflated by `1/zoom`.
+
+### Measured three times, on two different verbs, in one sweep
+
+All from `evidence/sweep-20260829/`, on `SW41177.pdf` at `zoom=0.2955`. The
+selection box for the first two is `[[316.4 580.8] - [707.0 621.8]]`, i.e.
+390.6 × 41.0 px.
+
+| trace | drag, screen px | committed | what the contract predicts | what the mismatch predicts |
+|---|---|---|---|---|
+| `resize.trace.txt` | 60 × 60 | `sx=1.5200 sy=5.9439` | 1.1536 / 2.4634 | **1.5197 / 5.9512** |
+| `shift-constrains.trace.txt` | 90 × 12 | `sx=1.7799 sy=1.9888` | 1.2304 / 1.2927 | **1.7798 / 1.9902** |
+| `scale-switch.trace.txt` | 23 × 14 on a 94 × 54 box, `resize-annot-commit` | `sx=1.8282 sy=1.8775` | 1.2447 / 1.2593 | **1.8282 / 1.8775** |
+
+The third is a **markup annotation**, through `resize_annotation` rather than
+`transform_objects`, so this is not confined to page content: the mismatch is
+above the branch and reaches all three destinations — page content, markup, and
+a form field's box.
+
+### The visible symptom is `drag-moves` D8, which this module claims
+
+`resizing`'s own conventions table says:
+
+> D8 grab-point: the pivot is the OPPOSITE corner, so the grabbed corner tracks
+> the pointer and the far one stays still.
+
+It does not. In `resize.trace.txt` the pointer released at window (767, 682)
+and the outline's south-east corner landed at (910.1, 824.9). An operator
+dragging a corner at a fitted zoom watches the shape shoot past their cursor.
+
+### ★★ Why a green suite never said so
+
+1. **Every unit test in `resizing.rs` is the zoom-1.0 case.** `factors(Grip::SouthEast, box_100x50(), Vec2::new(50.0, 25.0))` passes a box and a delta that are trivially in the same space, so the mismatch is unobservable by construction. The tests are correct and prove nothing about the wiring.
+2. **`resize_scales_a_shape` asserts that a resize HAPPENED**, not that it matched the pointer. It passes on this build and would pass on any inflation factor.
+3. **The one check that compares a committed factor against a number the harness chose** was `shift_constrains_a_resize`, and it compares `locked.sx` against `free.sx` — both inflated by the same constant, which cancels.
+
+⇒ The general form, and it is the fourth time this project has met it: **a ratio
+whose two operands come from different call paths has no test unless something
+asserts the ratio against a number chosen outside the program.** Every assertion
+here was of the shape "the same quantity twice", and a common factor is
+invisible to all of them.
+
+### The fix
+
+One line, and there is a choice of which line:
+
+- **At the call site** — `interact.rs`'s `GestureOutcome::Resize` arm converts
+  the page-space delta back to screen before it becomes `Frame::delta`, so the
+  field matches its documented space and nothing in `resizing` moves. Smallest
+  diff; keeps a conversion the shell does twice.
+- **In the space `Frame` speaks** — take `bounds` from
+  `selection.outline_union()` (page space) instead of `grip_box`, restate both
+  doc comments as page space, and drop the `map.to_page(anchor_screen)` hop
+  under `grip.pivot(bounds)`, which then already holds a page point. Fewer
+  conversions and one fewer chance to do one twice, which is
+  `canvas::mapping`'s standing argument — but it moves the pivot arithmetic and
+  needs the annotation and form-field branches re-read.
+
+Either way the doc comments are part of the fix, not decoration: the field said
+screen points and the caller passed page points for however long this has been
+here, and the next reader gets whichever sentence is left standing.
+
+### Why this entry is a record rather than a change
+
+The session that found it was scoped to two driven checks and explicitly
+forbidden from running the rest of the suite, and this change moves the numbers
+that every resize-related check asserts on across all three destinations. It
+also lands in `canvas/interact.rs`, which other agents had open at the time.
+**A behaviour change of this reach that cannot be verified in the run that makes
+it is the thing this project's rules exist to prevent**, so the evidence is
+filed and the change is not made. It wants its own pass, with
+`resize_scales_a_shape`, `shift_constrains_a_resize`,
+`the_line_weight_switch_reaches_the_resize`, `widget_move` and the annotation
+resize checks all re-run against it.
+
+★ A note for that pass: `the_line_weight_switch_reaches_the_resize` SKIPPED in
+this same sweep reporting *"a non-uniform drag"*, and D18 is **not** the cause —
+its travel is equal fractions of the shape (23.5 and 13.5 px) which the driver
+rounds to 23 and 14 integer cursor pixels, and 23/94 ≠ 14/54 whatever space the
+ratio is taken in. What D18 does is **multiply that rounding error by 3.4**,
+turning a 0.0146 spread into a 0.0493 one. Fixing D18 will not make that check
+pass; it will make its failure smaller, which is worse. That check needs a
+travel the driver can hit exactly.
+
+---
+
+## D19 — The Delete key's annotation gate read a selection that had been moved off the document, so it was `false` on every frame of the program's life — **FIXED AND DRIVEN 2026-08-29**
+
+**Severity:** critical · **Fix:** one argument · **Shipped:** 2026-08-28,
+found by driving on 2026-08-29, open for about eighteen hours.
+
+This is R83's own subject surviving the change that closed R83, on the one
+surface of the three that could not be checked by reading the code.
+
+### What the operator would have met
+
+Open a certified drawing. Click a comment. The Properties panel says, correctly
+and permanently:
+
+> this document carries a certification signature whose permissions are
+> enforced (ISO 32000-1 §12.8.4, /Perms /DocMDP, P=2); structural page changes
+> are not among the changes it permits, so pdfce refuses rather than silently
+> breaking it
+
+The Format tab's *Delete* is withheld. The canvas menu's *Delete* is withheld.
+Then press the **Delete key** — and the comment does not go, nothing is said,
+**and the sentence disappears**, because the selection was cleared by a delete
+that never happened. The one surface that cannot be undrawn was also the one
+surface that never asked.
+
+### Causal chain
+
+1. `canvas::keys` grew the gate on 2026-08-28. Its annotation rung reads
+   `Keys::annot_delete_refused` and, when set, writes
+   `canvas-delete-declined … reason=annot-delete-refused` and returns without
+   raising the action. That code is correct and has eleven unit tests.
+
+2. `canvas::interact` fills that field, at what was `interact.rs:1242`:
+
+   ```rust
+   annot_delete_refused: crate::panels::properties::annotdelete::refuses_selected(doc),
+   ```
+
+3. `refuses_selected` asks `doc.selection.annot()`.
+
+4. **`canvas::interact` opens by moving the selection off the document**, at
+   `interact.rs:342`:
+
+   ```rust
+   let mut selection = std::mem::take(&mut doc.selection);
+   ```
+
+   and puts it back at `interact.rs:1493`. Every line between those two — which
+   is the whole canvas frame, step 2 included — sees a
+   `SelectionState::default()` on `doc`.
+
+⇒ `doc.selection.annot()` was `None`, `is_some_and` short-circuited, and the
+flag was **`false` for every document, on every frame, always**. The Delete key
+raised `AnnotAction::Delete`, `EditSession::delete_annotation` refused it,
+`app::actions::apply::vector_edit`'s `Err` arm wrote
+`delete-annotation-refused` to the trace and — by that arm's own recorded
+decision — said nothing to the operator, and `actions::annots::delete` cleared
+the selection afterwards regardless, because it clears after the funnel rather
+than on success.
+
+### ★★★ Why nothing in the crate could have caught it
+
+Every unit test of the ladder sets `annot_delete_refused` **by hand** — that is
+the design, and a good one: `canvas_keys` takes no `&OpenDoc` so that its tests
+can exercise the whole Delete/Escape rung order without opening a file. So no
+test in `canvas::keys` is downstream of the call that was wrong.
+
+And the panel's own test asserted
+`refuses_selected(&doc) == doc.selection.annot().is_some()`, which on a
+freshly-opened fixture is `false == false` — true of the fixed build and true
+of the broken one.
+
+The **only** instrument that could see it was a real keystroke into a real
+window with a real selection, which is `ui-verify`'s `annot_delete_gate` phase
+D, driven for the first time on 2026-08-29. R1, exactly as written: *a
+capability is not verified until the running binary has been driven through
+it.*
+
+### The fix, and why it is structural rather than a comment
+
+`annotdelete::refuses(doc, selection)` takes the selection **by argument**, so a
+caller holding a detached one cannot silently ask about the wrong one.
+`refuses_selected(doc)` survives as its one-line wrapper for
+`app::conditions`, which runs in the panel pass where the document's selection
+is intact. `canvas::interact`'s line becomes:
+
+```rust
+annot_delete_refused: crate::panels::properties::annotdelete::refuses(doc, &selection),
+```
+
+99 characters, so `interact.rs` stays on R2's 1,500-line ceiling exactly where
+it was.
+
+The regression test is
+`annotdelete::fixtures::the_gate_reads_the_selection_it_is_given`: it puts the
+square in a **detached** `SelectionState`, leaves `doc.selection` empty, and
+asserts `refuses` still says yes — which is precisely the state
+`canvas::interact` asks from, and which the broken build answers `false` to.
+Both directions are asserted, so a gate that refused unconditionally fails it
+too.
+
+### ★★ The generalisation, which is not about annotations
+
+> **A convenience overload that reaches for state through a long path is a trap
+> when any caller holds that state detached.** The path `doc.selection` reads
+> like a fact about the document; inside a canvas frame it is a fact about a
+> temporary.
+
+`std::mem::take` on a field for the duration of a function is a common and
+sound Rust idiom, and it silently changes what every helper called from inside
+that window can see. The remedy is to make the borrow explicit in the
+signature, not to remember.
+
+### The verification
+
+The first run reported the failure as *"the keystroke did not reach
+`canvas::keys` at all — check that the canvas had focus"* while the trace
+carried `delete-annotation-refused` four rows above the region the same phase
+went on to read. The check was right that the gate was broken and wrong about
+every word of why, because it read only the line it hoped for.
+
+Phase D now names all three lines the key can produce, and presses **until the
+trace shows the key was heard** (`driving::press_until_traced`) so that a key
+that never arrived is a SKIP rather than an accusation.

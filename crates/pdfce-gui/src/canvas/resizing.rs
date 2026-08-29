@@ -367,7 +367,29 @@ pub fn action(
 pub struct Frame<'a> {
     /// Which grip the press landed on, sampled at the press.
     pub grip: Grip,
-    /// How far the pointer has travelled since then, in screen points.
+    /// ★★★ How far the pointer has travelled since then, **in PAGE space**.
+    ///
+    /// # This doc comment said "in screen points" until 2026-08-29, and it was
+    /// never true
+    ///
+    /// The gesture machine works in page space by design — `canvas::interact`
+    /// builds its `PointerFrame` with `pos: screen_pos.map(|p| map.to_page(p))`
+    /// — so every caller has always passed a page-space displacement. The
+    /// contract was wrong, not the callers.
+    ///
+    /// ⇒ **And [`Self::bounds`] genuinely IS screen space**, so the two were
+    /// divided against each other and every factor's distance from unity came
+    /// out inflated by `1/zoom`. At the operator's fitted 29.55 % a corner
+    /// dragged 60 px committed a **5.94×** stretch where the geometry says
+    /// 2.46×, and the shape shot **143 px past the cursor** on both axes —
+    /// this module's own D8 convention (*"the grabbed corner tracks the
+    /// pointer"*) violated by the module that states it. `DEFECTS.md` **D18**.
+    ///
+    /// ★★ The fix is a conversion in [`drag`], where the two meet, rather than
+    /// at the call site — because there is one consumer and three would-be
+    /// converters, and the honest contract is the one every caller already
+    /// satisfies. Two `Vec2`s in two spaces are indistinguishable to the
+    /// compiler; the only defence is that exactly one function reconciles them.
     pub delta: Vec2,
     /// Draw the ghost, or commit.
     pub phase: Phase,
@@ -459,6 +481,22 @@ pub fn drag(
         // the harness rather than the document.
         return None;
     };
+    // ★★★ THE ONE PLACE THE TWO SPACES ARE RECONCILED. See [`Frame::delta`].
+    //
+    // `bounds` is screen space (`pressing::grabbable` → `overlay::grip_box`,
+    // the same rectangle the outline is drawn from) and `delta` is page space,
+    // so `factors` — which divides one by the other — needs them in one space.
+    //
+    // ★ Screen rather than page, because `factors` also receives `bounds` and
+    // converting the rectangle would mean converting the grip, the pivot and
+    // the anchor with it. One vector is the smaller crossing.
+    //
+    // ★★ When there is no mapping the delta passes through unchanged, which is
+    // the zoom-1.0 identity — and is exactly what every unit test in this
+    // module supplies. **That is why a green suite never saw D18**: at zoom 1.0
+    // the bug is arithmetically invisible, and the harness only ever compared
+    // the same quantity against itself, where a common factor cancels.
+    let delta = map.map_or(delta, |m| m.page_vec_to_screen(delta));
     let Some((sx, sy)) = factors(grip, bounds, delta) else {
         if phase == Phase::Complete {
             decline(Refusal::Degenerate);

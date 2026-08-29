@@ -55,9 +55,18 @@
 //! | # | step | oracle |
 //! |---|---|---|
 //! | A | place a text field (`edit.form_text_field`, self-accepting dialog) | `form-target` |
-//! | B | Escape to disarm, click it | `form-field-selected field=…` |
+//! | B | Escape to disarm, clear on blank paper, click it | `form-field-selected none`, then `form-field-selected field=…` |
 //! | C | **right-click it** | `canvas-menu context=canvas.field` |
-//! | D | …and the menu had something in it | `canvas-menu-invoked` |
+//! | D | …and the menu had something in it | a `menu.item.canvas.field.*` region per row, inside `menu.body.canvas.field` |
+//!
+//! ★★★ **D's oracle was `canvas-menu-invoked` and that was a misreading**, kept
+//! here because the misreading is instructive. `MenuHost::attach_with` returns
+//! *"the commands the operator CHOSE"*, and the line is written only when that
+//! vector is non-empty — so it reports an ACTIVATION, not an offer, and a check
+//! that opens a menu and presses nothing can never see it. The rows' own
+//! published rects are the offer, they name which commands were drawn, and they
+//! exist for the same reason this check does: `MenuHost::attach_with` began
+//! reporting them on 2026-08-28 precisely so a harness could see a menu.
 //!
 //! ★ Steps A and B are `widget_move`'s, identical in shape including the
 //! Escape — see that file for why the placement tool staying armed is recorded
@@ -362,27 +371,67 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // Not hypothetical — it is how this feature was built. Both items were
     // gated on `selection.any`, which is false while a form field is selected,
     // so the popup would not have appeared and step C would still have passed.
-    let offered = trace
-        .events(INVOKED_EVENT)
-        .filter(|l| l.get("context") == Some(FIELD_CONTEXT))
-        .count();
-    if offered == 0 {
+    // ★★★ THE ORACLE IS THE MENU'S OWN PUBLISHED ROWS, NOT `canvas-menu-invoked`,
+    // AND THE SWAP IS A CORRECTION — 2026-08-29.
+    //
+    // This phase read `canvas-menu-invoked` and its comment said that line is
+    // *"written only when the resolved menu `offers_anything`"*. It is not.
+    // `MenuHost::attach_with` returns `Vec<HandlerToken>` — `egui-shell`'s own
+    // words: *"report the commands the operator CHOSE … the returned tokens are
+    // intent"* — and `canvas::menus` writes `canvas-menu-invoked` only when that
+    // vector is non-empty. So the line means **a row was activated**, which this
+    // check never does, and the assertion could not have held on any build.
+    //
+    // It was never caught because phase B failed first for a whole sweep: the
+    // field authored in phase A is already selected (`checks::formaim`), so the
+    // selecting click changed nothing and the check stopped before ever reaching
+    // this line. Two independent defects, the second hidden behind the first.
+    //
+    // ⇒ The right oracle was added on the same day the menu was: since
+    // 2026-08-28 `MenuHost::attach_with` reports every row's rect through
+    // `crate::diag::ui_rect` as `menu.body.<context>` and
+    // `menu.item.<context>.<command id>`. Those regions ARE the menu having
+    // something in it — they exist only for rows that were laid out — and they
+    // name WHICH commands were offered, which `canvas-menu-invoked` never did.
+    //
+    // ★ Admissible as evidence because phase C proved the menu resolved on this
+    // very frame (`canvas-menu context=canvas.field`): the absence below can
+    // only mean "resolved and drew no rows", never "no right-click happened".
+    // `crate::checks` rule 4.
+    let rows = declared_names(&trace, ui_rect, &format!("menu.item.{FIELD_CONTEXT}."));
+    if rows.is_empty() {
         return Ok(Some(format!(
-            "★★★ THE FIELD MENU RESOLVED AND OFFERED NOTHING: `{}` and no `{INVOKED_EVENT} \
-             context={FIELD_CONTEXT}` line.\n\
-             Every item is disabled, so `Menu::attach` declines to open a popup — correctly, per \
-             the empty-menu rule. Its two items are `format.properties` and `format.delete`, \
-             both gated on `selection.actionable`, which `app::conditions` sets for \
-             `doc.selected_field.is_some()` and which `canvas::menus::attach` must CORRECT for \
-             this frame through `MenuHost::with_conditions`: the frame's own snapshot predates \
-             the selection. A correction that forgot the second condition produces exactly this. \
-             Trace: {}.",
+            "★★★ THE FIELD MENU RESOLVED AND OFFERED NOTHING: `{}`, and no `menu.item.{FIELD_CONTEXT}.*` region was ever declared.
+             Every item is disabled or withheld, so `Menu::attach` declines to open a popup — correctly, per the empty-menu rule. Its two items are `format.properties` and `format.delete`: the first is gated on `selection.actionable`, which `app::conditions` sets for `doc.selected_field.is_some()` and which `canvas::menus::attach` must CORRECT for this frame through `MenuHost::with_conditions` — the frame's own snapshot predates the selection — and the second is `shown_when(selection.delete_permitted)`, corrected on the same frame from `formfield::document_refuses_delete`. A correction that forgot either produces exactly this. Regions beginning `menu.`: {}. Trace: {}.",
             menu.raw,
+            list(&declared_names(&trace, ui_rect, "menu.")),
             session.trace_path().display()
         )));
     }
+    if declared_names(&trace, ui_rect, &format!("menu.body.{FIELD_CONTEXT}")).is_empty() {
+        return Ok(Some(format!(
+            "the field menu declared {} row region(s) and no `menu.body.{FIELD_CONTEXT}` region, so rows were laid out and the popup frame that holds them was not. That is a reporting split rather than a menu defect — `MenuHost::attach_with` publishes both through one sink — and it is reported rather than ignored because every later check that wants to PRESS a row will aim inside the body rect. Rows seen: {}.",
+            rows.len(),
+            list(&rows)
+        )));
+    }
     report.note(format!(
-        "★★★ the field menu opened with items: {offered} `{INVOKED_EVENT}` line(s)"
+        "★★★ the field menu opened with {} row(s): {}",
+        rows.len(),
+        list(&rows)
+    ));
+
+    // ★★ `canvas-menu-invoked` is REPORTED and never asserted, and the
+    // distinction is the point: it appears only once a row has been activated,
+    // so on this check — which opens the menu and presses nothing — it is
+    // correctly absent. Recorded so a later check that does press a row has the
+    // line named in one place.
+    let invoked = trace
+        .events(INVOKED_EVENT)
+        .filter(|l| l.get("context") == Some(FIELD_CONTEXT))
+        .count();
+    report.note(format!(
+        "{invoked} `{INVOKED_EVENT}` line(s) — this check activates no row, so zero is correct"
     ));
 
     // ★ Escape, so the popup is not left over the page for whatever runs next

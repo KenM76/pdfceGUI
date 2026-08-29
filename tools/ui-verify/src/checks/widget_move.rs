@@ -52,18 +52,25 @@ use crate::error::{Error, Result};
 use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
-use crate::trace::Trace;
 
 /// Edit mode, then arm the text-field tool.
 const INVOKE: &str = "mode.edit,edit.form_text_field";
 /// Makes the placement dialog accept itself, so no dialog driving is needed.
 const ACCEPT_ENV: (&str, &str) = ("PDFCE_DIAG_FORM_ACCEPT", "1");
 /// The per-widget census line the canvas publishes, carrying each box's rect.
-const BOX_LINE: &str = "form-target";
+///
+/// ★ Parsed by `checks::formaim::targets` rather than by a copy in this file.
+/// Three checks read this census, and the third copy is where copies start to
+/// disagree; the shared module's header carries the finding that made one worth
+/// having.
+const BOX_LINE: &str = crate::checks::formaim::TARGET_LINE;
 /// The line the canvas writes when a click selects a widget.
 const SELECTED: &str = "form-field-selected";
 /// The line the drag writes when it decides to commit.
 const DRAG_EVENT: &str = "widget-drag";
+/// The line a RESIZE writes when it commits, so a press that landed on a grip
+/// can be reported as what it was rather than as a dropped gesture. See phase C.
+const RESIZE_EVENT: &str = "resize-widget-commit";
 /// The line the apply arm writes when the engine has moved it.
 ///
 /// ★ `-applied`, per the convention this project adopted after making the
@@ -104,24 +111,6 @@ impl Check for DraggingAFormFieldMovesIt {
             Err(skip) => report.skip(skip.to_string()),
         }
     }
-}
-
-/// Each widget's canvas-space centre, from the census the canvas publishes.
-fn boxes(trace: &Trace) -> Vec<(usize, String, (f64, f64))> {
-    trace
-        .events(BOX_LINE)
-        .filter_map(|l| {
-            let page: usize = l.get("page")?.parse().ok()?;
-            let field = l.get("field")?.to_owned();
-            // `rect=(x,y)+(w,h)` — the canvas rect, as the census writes it.
-            let (min, size) = l.get("rect")?.split_once(")+(")?;
-            let (x, y) = min.trim_start_matches('(').split_once(',')?;
-            let (w, h) = size.trim_end_matches(')').split_once(',')?;
-            let (x, y): (f64, f64) = (x.trim().parse().ok()?, y.trim().parse().ok()?);
-            let (w, h): (f64, f64) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
-            Some((page, field, (x + w / 2.0, y + h / 2.0)))
-        })
-        .collect()
 }
 
 fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>> {
@@ -201,8 +190,8 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(35);
 
     let trace = session.trace()?;
-    let placed = boxes(&trace);
-    let Some((_, field, centre)) = placed.iter().find(|(p, _, _)| *p == 0).cloned() else {
+    let placed = crate::checks::formaim::targets(&trace);
+    let Some(widget) = placed.iter().find(|b| b.page == 0).cloned() else {
         return Ok(Some(format!(
             "THE TEXT-FIELD TOOL PLACED NOTHING: a click on the page produced no `{BOX_LINE}` \
              line for page 1, so `edit.form_text_field` did not arm or the placement dialog did \
@@ -211,6 +200,8 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     };
+    let field = widget.field.clone();
+    let centre = widget.centre();
     report.note(format!(
         "★ placed the field {field:?} at canvas ({:.1}, {:.1})",
         centre.0, centre.1
@@ -305,18 +296,91 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!("★ selected {field:?}"));
 
     // --- C: drag it ---------------------------------------------------------
+    //
+    // ★★★ THE PRESS IS AT A QUARTER OF THE BOX'S WIDTH, NOT AT ITS CENTRE, AND
+    // THAT IS THE ONE PLACE ON A SHORT BOX WHERE THE CENTRE IS THE WORST
+    // CHOICE.
+    //
+    // Eight resize grips are hit-tested on any selected widget, anchored at the
+    // four corners and the four edge MIDPOINTS, each an 8 pt square with 2 pt of
+    // slack (`canvas::handles`). A text field is authored 160 × 20 pt, and this
+    // sweep's document is a 1584 × 1224 pt CAD sheet that opens at fit — zoom
+    // 0.2955 — so the box on screen is **47.3 × 5.9 px**. Every grip's 12 px hit
+    // square therefore spans the box's whole height, and the North grip sits at
+    // the centre of the top edge: **dead centre of the box is inside the North
+    // grip**, on every zoom below about 60 %.
+    //
+    // That is what the 2026-08-29 re-run found once the selection was fixed —
+    // the drag committed `resize-widget-commit … grip=North sy=-42.5314` and the
+    // engine correctly refused the result, *"the new field's rectangle has no
+    // area"*. A drag that becomes a resize is not the defect this check names,
+    // and reporting it as one would send a reader to `dragroute`.
+    //
+    // ⇒ The grip anchors on the x axis are at 0, w/2 and w, so the points
+    // furthest from all of them are w/4 and 3w/4 — that is a property of a
+    // handle layout every direct-manipulation surface has, not this build's
+    // pixel arithmetic, which is why it is safe for a harness to rely on. The
+    // vertical position stays at the centre; on a short box every y is equally
+    // near an edge and on a tall one the centre is the safest.
+    //
+    // ★ `markup_move` presses ITS shape's centre and is right to: it draws a
+    // 0.20 × 0.15 page-fraction rectangle, 154 × 89 px here, whose centre is
+    // dozens of pixels from every grip. The difference is the size of the
+    // object, not the gesture.
+    let body = (widget.min.0 + widget.size.0 / 4.0, centre.1);
+    let body_px = widget.size.0 * f64::from(mapping.zoom);
+    if body_px < 32.0 {
+        return Err(Error::new(format!(
+            "the field is {body_px:.1} px wide on screen at zoom {:.4}, and a quarter of that is \
+             inside the corner grips. There is no point on this box that presses its BODY rather \
+             than a resize grip, so the drag under test cannot be started. Reported as a SKIP: \
+             open the document at a zoom where a 160 pt box is at least 32 px wide, or pass a \
+             smaller page. It is also a finding about the product — a field this small on screen \
+             is one an operator cannot drag either.",
+            mapping.zoom
+        )));
+    }
+    let body_screen = session
+        .frame()?
+        .to_screen(mapping.doc_to_window(DocPoint::new(0, body.0, page.height_pt - body.1))?);
+    report.note(format!(
+        "★ pressing the body at canvas ({:.1}, {:.1}) — a quarter of the box's width in, which \
+         is the furthest any point of a {:.1} px-wide box gets from a grip anchor",
+        body.0, body.1, body_px
+    ));
+
     let landing = mapping.doc_to_window(DocPoint::new(
         0,
         MOVE_TO.0 * page.width_pt,
         MOVE_TO.1 * page.height_pt,
     ))?;
-    driver.drag(field_screen, session.frame()?.to_screen(landing))?;
+    driver.drag(body_screen, session.frame()?.to_screen(landing))?;
     session.settle(40);
 
     let trace = session.trace()?;
     let Some(dragged) = trace.events(DRAG_EVENT).last() else {
+        // ★ If the press became a RESIZE, say so instead of telling the reader
+        // to go and look at the router. That is what happened on the run that
+        // moved the press point off the centre, and a check that cannot tell
+        // "the gesture was dropped" from "the gesture went to another verb"
+        // sends every future reader to the wrong file.
+        if let Some(resized) = trace.events(RESIZE_EVENT).last() {
+            return Ok(Some(format!(
+                "★★ THE PRESS BECAME A RESIZE, NOT A MOVE: `{}` and no `{DRAG_EVENT}` line.\n\
+                 The pointer went down inside one of the eight resize grips rather than on the \
+                 box's body, so `meaning::press_kind` returned a `Resize` before it ever reached \
+                 its `widget_body` arm. That is an AIM problem in this check or a grip layout \
+                 that leaves a selected field with no body to press — `canvas::handles` drops a \
+                 mid-edge grip below `MIN_MID_GRIP_EXTENT_PX` of extent for exactly that reason, \
+                 and a box shorter than a grip's hit square has the same problem on its other \
+                 axis. Trace: {}.",
+                resized.raw,
+                session.trace_path().display()
+            )));
+        }
         return Ok(Some(format!(
-            "★★★ THE DRAG ON A SELECTED FORM FIELD RAISED NOTHING: no `{DRAG_EVENT}` line.\n\
+            "★★★ THE DRAG ON A SELECTED FORM FIELD RAISED NOTHING: no `{DRAG_EVENT}` line, and \
+             no `{RESIZE_EVENT}` line either, so the press reached no verb at all.\n\
              **This is the exact state the feature shipped in.** A widget is deliberately not an \
              annotation selection — `canvas::selection::annot` excludes `/Widget` so the form \
              surface owns the press — so a selected field does not reach the annotation branch \
