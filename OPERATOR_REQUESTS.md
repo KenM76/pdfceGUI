@@ -80,6 +80,66 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O58 — ⬜ Copy and paste a form field: `Ctrl+V` pastes a NEW field, `Ctrl+Shift+V` pastes a DUPLICATE
+
+**Ken, 2026-08-29:** *"wire the request. ctrl v for paste as new. ctrl shift v
+for paste as duplicate."*
+
+This closes the one question that was his to answer. Copying a field has two
+legitimate meanings and the engine refuses to guess between them by name
+(`edit.rs:9364` — *"a renamed field is a DIFFERENT field … That is a decision
+about your form, not a copy"*). He ruled that **both** are wanted, on two
+chords:
+
+| chord | meaning | the field's value |
+|---|---|---|
+| `Ctrl+V` | a **new, independent** field with a new name | its own |
+| `Ctrl+Shift+V` | **another widget of the same field** | shared — type in one, both fill |
+
+### ★★★ The counter-intuitive half: the DUPLICATE is the faithful one
+
+`add_text_field` with an existing `/T` **appends a widget to the existing
+field** rather than refusing — `edit.rs:13523`, `merged: true` — and the same
+branch exists on all five authoring verbs. So `Ctrl+Shift+V` is one existing
+call, and because the field object is never touched it inherits `/DA`, `/Q`,
+`/V`, `/DV`, `/Ff` and `/AA` exactly.
+
+`Ctrl+V` is the lossy one. It has to re-author through `New*Field`, which is
+geometry-plus-booleans, so it drops the font, size, colour, alignment, default
+value, calculation script and border colour — every one of them readable on
+`forms::Field` and writable nowhere. A signature field cannot be authored at
+all.
+
+**Fifth stale blocker.** We arrived intending to ask for a widget-clone verb and
+found half of it shipped. *A backlog row is a record, not evidence.*
+
+### What is filed, and what is not blocked on it
+
+Engine request:
+`D:\Dev\FeatureRequests\pdfce_FeatureRequests\open\request_form_fields_cannot_be_pasted_and_half_of_it_already_works.md`
+— asks for one shape, `copy_field` / `paste_field` carrying a serialisable
+`FieldClip` with a `NewField` / `AdditionalWidget` policy. Serialisable because
+he copies **between drawings**, and the engine confirmed this morning that
+`ObjectClip::to_bytes` does not carry annotations.
+
+**Neither chord is blocked on the reply.** Both ship off what exists; until the
+verb lands, `Ctrl+V` discloses what did not come along — off-canvas, in the
+status line, never marked on the page (Rule 4).
+
+### What still has to be built here regardless of the engine
+
+Form fields are deliberately **excluded from canvas annotation selection**
+(`canvas/selection/annot.rs:189` — the form surface owns a `/Widget`), and
+`canvas::clipboard::copy` only ever looks at the annotation selection. So there
+is currently **no path at all** from a selected field to `Ctrl+C`. That is
+shell-side plumbing: a third `Clipped` variant fed from `doc.selected_field`, a
+cut path over `delete_widget`, and the two paste chords.
+
+**Status:** ⬜ **OPEN — request filed 2026-08-29, no shell work started.** Not
+driven. Nothing to verify yet.
+
+---
+
 ## O57 — ⬜ The grips swallow small objects, and half of it is still open
 
 **Not his report — found by a driven check on 2026-08-29**, and filed here

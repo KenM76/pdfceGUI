@@ -106,7 +106,7 @@ re-measured; `OPERATOR_REQUESTS.md` has **three new questions for him (O47, O48,
 O49)** and none of them blocks anything.
 
 **Measured now:** 1,879 GUI + 421 shell + 144 harness tests, 18/18 gates,
-**89 driven checks**. Engine pinned at `e91dfad9`. Scaffold list **5**.
+**89 driven checks**. Engine pinned at `e9412f6` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
 driven end to end; dragging an ordinary markup annotation; the Bold retry using
