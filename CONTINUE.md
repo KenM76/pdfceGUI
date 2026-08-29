@@ -1,5 +1,55 @@
 # CONTINUE — handoff
 
+## 2026-08-29 — THE SWEEP, three times, and the final number is 81 / 0 / 27
+
+**The machine was his and he gave it to us.** Three full 108-check runs against
+his own 36-sheet drawing (`D:\Dev\pdfTests\SW41177\SW41177.pdf`,
+`--doc-point 0,1140,62`):
+
+| run | result | why it moved |
+|---|---|---|
+| 05:52 | 66 / 15 / 24 | **the harness binary was five commits stale** — see below |
+| 06:30 | 73 / 11 / 24 | fresh harness; four real defects fixed |
+| 08:20 | **78 / 3 / 27** | the remaining seven were checks, not the program |
+| re-run of the last three, quiet foreground | **81 / 0 / 27** | ⇒ **the three were foreground theft** |
+
+### ★★★ THE FOURTH WAY TO RUN A SWEEP WRONG, and it was mine
+
+`export_dxf`, `print_dialog` and `settings_theme` all failed, and all three pass
+on a re-run seconds later with nothing else happening. **Windows notification
+toasts steal the foreground**, and one fires on **every background-task
+completion** — I had agents finishing *throughout* the sweep.
+
+★ `ShellExperienceHost` is the process; killing it clears the toast and it
+regenerates. ⇒ **Do not run a driven sweep while background agents are landing.**
+That is now four recorded ways to run this suite wrongly — hidden window, wrong
+fixture, stale harness, and a busy foreground — against zero ways the suite
+itself has been wrong about a defect it reported after those were excluded.
+
+### ★★ And a hypothesis I nearly filed instead
+
+The machine is at **7.8 million handles** — nineteen times the ~404,000 at which
+`accesskit_windows` is recorded to fail installing a window subclass, with
+OneDrive alone holding 825,719. Two of the three failures were *windows that did
+not open*. It fitted perfectly.
+
+**It was wrong.** Driving `file.settings` offscreen opened the window and created
+its viewport at that same handle count. ⇒ A hypothesis that explains the symptom,
+cites a recorded incident and names a measured threshold is still a hypothesis.
+**One command refuted it**; filing it would have blamed his machine for our
+toast.
+
+### What the 27 skips are, honestly
+
+Almost all are *this coordinate is not that kind of thing*: anchors need a
+stroked path, the note editor's last phase needs chords that a dock panel eats,
+the font checks need a document with a missing font. **They are skips rather
+than failures because that is what this suite now does when it cannot prove it
+learned something** — which is the single biggest change to it this session, and
+the reason the failure count is trustworthy at all.
+
+---
+
 ## 2026-08-29 (overnight) — the signature warning is the one new surface that IS verified
 
 **Driven end to end against the release binary, with no mouse**, because its
