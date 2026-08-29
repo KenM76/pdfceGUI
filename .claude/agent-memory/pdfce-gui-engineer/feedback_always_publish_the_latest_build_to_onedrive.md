@@ -8,6 +8,32 @@ metadata:
 **Every time you produce a build worth keeping, package it and mirror it to
 Ken's OneDrive, alternating between the `pdfceGUI1` and `pdfceGUI2` slots.**
 
+## ★★★ AND "WHEN YOU ARE DONE WORK" IS ITSELF THE TRIGGER — 2026-08-29
+
+Ken, in his own words: ***"always release the latest version when you are done
+work."***
+
+He said it after a session in which I **held a build back** — the work was
+committed and green, and I reasoned that the previous slot already carried the
+headline fix and that each OneDrive mirror costs the machine ~27,000 kernel
+handles, so a second publish an hour later was not worth it. I wrote that
+reasoning into `CONTINUE.md` as a considered decision.
+
+**It is not what he wants.** The rule is not *publish when there is something
+notable* — that is `package-portable.py`'s own header talking about handle cost,
+and it is a real cost that he has now weighed and overruled. The rule is:
+
+> **finishing work is the trigger.** If there is a commit that is not in a slot,
+> package it.
+
+⇒ Do not perform the cost-benefit. He has done it. The fallback slot makes a
+bad build cheap; a build sitting only in `target/release` is worth nothing to
+him at all.
+
+★ It composes with the two rules already here rather than replacing them: still
+`cargo update` the engine first, still read both slots back by date afterwards,
+and still say in the report what has **not** been verified.
+
 ## ★★★ AND "IT HAS NOT BEEN VERIFIED" IS NOT A REASON TO WITHHOLD IT
 
 Ken, 2026-08-21, correcting exactly that:
