@@ -169,19 +169,38 @@ pub fn os_marker(field: &str) -> String {
 /// write and every string comparison would trip over. So the separator is not a
 /// house style to pick; it is load-bearing, and the convention has a reason.
 ///
-/// **2. A DOT WOULD BE A STRUCTURAL CHANGE, NOT A COSMETIC ONE.** The other
-/// sourced account of Acrobat's auto-naming describes dot-child notation —
-/// `Text.0`, `Text.1` — and the RAG flags the two accounts as contested. It does
-/// not matter which is right, because pdfce must not use the dot either way:
-/// **`.` is the fully-qualified-name separator** (§12.7.3.2), so `Drawn By.2`
-/// is not a field called *"Drawn By.2"*, it is a **child field named `2` under a
-/// parent named `Drawn By`**. That is a third shape — a shared ancestor node
-/// with independent terminal children — and it is neither of the two this
-/// shell's two chords are for. Adopting it would silently give `Ctrl+V` a
-/// hierarchy nobody asked for.
+/// **2. A DOT DESTROYS THE FIELD YOU COPIED. Measured, not reasoned.**
 ///
-/// ⇒ The one place a reference implementation's own convention must be refused
-/// is where the format assigns the character a meaning.
+/// The other sourced account has Acrobat numbering copies `Text.0`, `Text.1`
+/// with a **dot**, and the two accounts are flagged as contested. The operator
+/// asked, reasonably, why pdfce does not simply follow it. The answer turned
+/// out to be a four-command experiment rather than a spec argument:
+///
+/// ```text
+/// add-text-field --name "Text"     ...   -> field "Text",  value -
+/// fill-field     --set "Text=K. Mantle"  -> field "Text",  value "K. Mantle"
+/// add-text-field --name "Text.2"   ...   -> field "Text.2", value -
+///                                           and "Text" IS GONE
+/// ```
+///
+/// A period separates levels (§12.7.3.2), so `Text.2` asks for a field `2`
+/// inside a group `Text` — and §12.7.3.1 does not let one dictionary be both a
+/// terminal field and a group. Adding the child therefore **converts** `Text`
+/// into a group: its `/FT`, its `/V` and its widget stop being a field's. The
+/// filled-in value is discarded and the box stays on the page belonging to
+/// nothing, still drawn, no longer fillable.
+///
+/// ⇒ Acrobat's version of the scheme must rename the *original* to `Text.0` in
+/// the same operation, which is coherent — and is a **rename of a field that
+/// already exists**. A field's name is its identity to every calculation, FDF
+/// import and external mapping that references it, and a *copy* has no business
+/// changing it. The plain suffix has neither problem: both fields exist, both
+/// are independent, and neither is renamed.
+///
+/// ★ The engine's silent conversion is a defect in its own right and is filed
+/// as `request_a_dotted_name_silently_swallows_an_existing_terminal_field.md`.
+/// This rule does not depend on that being fixed: even with a clean refusal,
+/// the dotted convention would make a paste fail rather than work.
 ///
 /// # Why the catalog and not the call site
 ///
