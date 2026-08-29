@@ -92,3 +92,22 @@ lines and it is not optional.
 Related: [[feedback_update_engine_before_every_build]] — `cargo update -p
 pdfce-core -p pdfce-render -p pdfce-print` comes first, or the package carries
 a stale engine.
+
+**★★★ AND THE PACKAGED BINARY IS NOT THE BINARY THE TESTS RAN AGAINST.**
+
+`package-portable.py` runs `cargo update` on the three engine crates **itself**,
+before it builds. On 2026-08-29 the engine moved `6624e18` → `97d445f` between
+the last green test run and the packaged exe, and the script said so plainly:
+
+> *the engine MOVED and `--verify` was not passed, so nothing has been tested
+> against the revision this build will link.*
+
+It is a well-written warning in the middle of a wall of output and it is easy to
+read past. **After every publish: re-run the suite and the gates against the new
+lock**, or pass `--verify` and let the script do it. On that occasion everything
+was green and the revision was docs-only, but that was luck rather than method —
+and the `Cargo.lock` change has to be committed either way, or the next session
+starts on a tree that says "dirty" for no visible reason.
+
+⇒ Related to the two-slot date check above, and the same class: **the tool's own
+report is not evidence about the tool's own effect.**

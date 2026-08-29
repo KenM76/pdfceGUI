@@ -12,9 +12,13 @@ keyed on the engine's verb list**, so none of them could answer *"is there a
 verb `pdfce-core` implements that nothing in this shell calls?"*
 
 The answer was **yes, twelve times**, and the pattern in the misses matters more
-than the count: several were capabilities the engine had shipped **in answer to
-this shell's own requests**, which this shell then never consumed. One was a
-setting the operator could change that was honoured by nothing.
+than the count: three were capabilities the engine had shipped **in answer to
+this shell's own requests**, which this shell then never consumed, and **two
+were settings the operator could change that were honoured by nothing**.
+
+⇒ *A reply arriving is not a capability landing.* The engine session runs in
+parallel and answers within the hour; its answers sat unread while this
+project's own doc comments still recorded the capability as blocked.
 
 ---
 
@@ -48,54 +52,67 @@ stale blocker in a project that has already found six.
 
 ---
 
-## The state on 2026-08-28, after the day's work
+## The state at the end of 2026-08-29
 
-**157 `EditSession` verbs. 135 named somewhere in the shell. 22 named nowhere.**
+**157 `EditSession` verbs. 144 named somewhere in the shell. 13 named nowhere.**
+At the start of the audit it was 135 / 22.
 
 The twelve gaps this audit found, and what happened to each:
 
-| Verb | Engine Pass | Status after 2026-08-28 |
+| Verb | Engine Pass | Status |
 |---|---|---|
-| `set_markup_note` / `clear_markup_note` | 154.0 | ✅ **Wired** — the Comments panel writes notes now |
-| `add_markup_with` (opacity) | 81.1 | ✅ **Wired** — Markup ▸ Style ▸ Opacity, one undo entry |
-| `set_outline_title` / `delete_outline_item` | 156.0 | ✅ **Wired** — Bookmarks panel renames and removes |
-| `set_quad_point_order` | — | ✅ **Wired** — the fourth settings funnel; see below |
-| `delete_pages_with` | — | ✅ **Wired** — the operator's separation policy now reaches the delete |
-| `rotate_annotation` | 155.0 | 🔨 in progress |
-| `rotate_dimension` | 159.0 | 🔨 in progress |
-| `attach_file` / `detach_file` | — | 🔨 in progress |
-| `unshare_form` | — | ✅ **Wired** — Format ▸ Selection ▸ *Give this page its own copy*, and the canvas right-click; seven worded refusals; the SHARED CONTENT disclosure now names it |
-| `copy_annotations` | 120.x | ⬜ **open** — a fidelity gap in the object clipboard |
-| `delete_field_group` | — | ⬜ **open** |
-| `field_defaults` | — | ⬜ **open** |
+| `set_markup_note` / `clear_markup_note` | 154.0 | ✅ the Comments panel writes notes |
+| `add_markup_with` (opacity) | 81.1 | ✅ Markup ▸ Style ▸ Opacity, one undo entry |
+| `set_outline_title` / `delete_outline_item` | 156.0 | ✅ Bookmarks rename and remove |
+| `set_quad_point_order` | — | ✅ the fourth settings funnel — **it was a live defect** |
+| `delete_pages_with` | — | ✅ the separation policy reaches the delete — **also a live defect** |
+| `rotate_annotation` | 155.0 | ✅ a ninth grip on the selection box |
+| `rotate_dimension` | 159.0 | ✅ the same grip, routed by kind |
+| `attach_file` / `detach_file` | — | ✅ Edit ▸ Insert ▸ Attachments, with extraction |
+| `unshare_form` | — | ✅ *"Give this page its own copy"*, seven worded refusals |
+| `delete_field_group` / `field_group_deletion_preview` | — | ✅ Forms ▸ Field groups, previewed before the press |
+| `signature_impact_of_save` / `changes_structure` | — | ✅ a window before an invalidating save, a note after a preserved one |
+| `copy_annotations` | 120.x | ⬜ **open** — asked of the engine; the interim loss is closed |
 
-### ★★★ The one that was a live defect rather than a missing feature
+**Seven driven checks were written for this work and none has run.** A wired
+verb is not a verified one; see the caveat at the top.
+
+### ★★★ The two that were live defects rather than missing features
 
 **`set_quad_point_order`.** `Settings::quad_point_order` was parsed, defaulted,
 validated, persisted, drawn in the Settings window — and honoured by nothing,
 because every session was opened with `EditSession::new(doc)`, which takes the
-engine's default. An operator who chose *counterclockwise* got reading order in
-every markup annotation this shell has ever authored.
+engine's default.
 
-⇒ ★★ **The lesson is about the shape of the guard, not about the field.**
-`app::settings` exists precisely to prevent this class, and
-`no_call_site_builds_its_own_options` parses every file in the crate to enforce
-it — and both were built around **option constructors**. A setting delivered by
-a **setter on the session** is invisible to that shape, and the check reported
-green for the whole life of the shell.
+⇒ ★★ **The lesson is about the shape of the guard, not the field.**
+`app::settings` exists precisely to prevent this class and a `syn` check
+enforces it — and both were built around **option constructors**. A setting
+delivered by a **setter on the session** is invisible to that shape, and the
+check reported green for the whole life of the shell. `Settings::separations`
+was the same defect one file along: chosen by the operator, reported in the
+disclosure after a page delete, and never passed to the verb that would act on
+it.
 
-The fix is a fourth funnel (`SettingsExt::open_session`) and `EditSession::new`
-on the check's forbidden list. The finding that generalises: **a guard shaped
-around one delivery mechanism cannot see a second one, and the way to find the
-second is to ask what the engine offers rather than to re-read the guard.**
+The fix is a fourth funnel (`SettingsExt::open_session`) with `EditSession::new`
+on the check's forbidden list. **A guard shaped around one delivery mechanism
+cannot see a second one, and the way to find the second is to ask what the
+engine offers rather than to re-read the guard.**
 
-`Settings::separations` was the same defect one file along: chosen by the
-operator, reported in the disclosure after a delete, and never passed to the
-verb that would act on it.
+### ★★ And one defect the audit did not find, which is worth saying
+
+`Ctrl+S` **saved the file and then panicked the application** — every time,
+since 2026-08-20, in the shipped build. It was found by an agent wiring the
+signature guard into that arm, not by this register and not by any of the 105
+driven checks. `DEFECTS.md` D16 carries the class.
+
+⇒ A verb-coverage sweep answers *"is every capability reachable?"* It does not
+answer *"does the route work?"*, and the two questions need different
+instruments. This one is cheap; the other is `tools/ui-verify` and it needs the
+operator's machine.
 
 ---
 
-## The 22 misses, each with its reason
+## The 13 remaining misses, each with its reason
 
 ### Not gaps — session queries the shell has no use for
 
@@ -137,10 +154,15 @@ from a greyed control with a hover explanation, or from a refusal after the
 gesture. **`signature_impact_of_save` is the one with a consequence that
 survives the session** and is the first of these to build.
 
-### ⬜ Real gaps still open
+### ⬜ / ⛔ What is left, and why
 
-| Verb | What it is, and why it matters here |
+| Verb | Reason |
 |---|---|
+| `copy_annotations` | ⬜ **Open, and narrowed.** The object clipboard copied a markup by reading it into a `MarkupSpec` and authoring a new one, so everything a spec cannot express was lost — and on 2026-08-28 that came to include the note, the author, the date and the opacity, all of which this shell had just learned to author. `carried_options` closes those four. The general fix (`copy_annotations` → `ObjectClip` → `paste_objects`) is **asked of the engine rather than assumed**, because it is not known whether a `/Popup`, an `/IRT` reply chain or an `/RC` rich-text body survive that path either, and a paste that silently orphans a reply is worse than the loss it replaces. ⇒ The general form: **a copy implemented as a re-author loses ground every time the authoring side gains a key**, silently, in a direction no screenshot can see. |
+| `add_named_destination` | ⛔ **Not a gap — a deliberate absence, and the engine agrees.** Nothing in this shell constructs a `Destination`: the one authoring call passes `Destination::Page { view: DestView::Fit }` and cannot pass anything else, because there is no destination chooser. The engine's own note says why that is right: *"a destination chooser offering fits pdfce cannot write would be a control whose options are mostly refusals."* The **reading** side already resolves named destinations, so the Bookmarks panel navigates them in CAD and Word exports today. |
+| `field_defaults` | ⛔ **Not a gap.** *"Make another field like this one"* is already how this shell behaves — `FormDefaults::next` carries the previous field's settings forward, with the **name** the one thing that deliberately does not carry. What the verb adds is copying from *any named* field rather than the last one placed, which is a chooser. An operator call, not a hole. |
+
+---|---|
 | `unshare_form` | ★★★ **Give this page its own private copy of a shared form XObject.** A CAD title block is one form invoked from thirty-six sheets — §8.10.1 names that as the feature's purpose — and this shell can edit text inside a form, so an operator fixing a typo on sheet 12 changes all thirty-six. The engine discloses that after the fact (*"SHARED CONTENT: …"*), and this is the remedy the disclosure should point at. `pdfce-core` withdrew its own "do not offer this" note by name: *"Please un-suppress it rather than leaving the suppression in place — a control withheld on the strength of a note that has since been withdrawn is exactly the kind of thing that stays withheld for months."* |
 | `copy_annotations` | The object clipboard copies a markup by reading it into a `MarkupSpec` and authoring a new one, so **everything `MarkupSpec` cannot express is lost**: the note, the author, the date, the opacity, the reply threading. Two of those became losses *today* — the note editor and the opacity control both write keys the clipboard cannot carry, which is a fidelity gap that widens every time the authoring side gains a key. `copy_annotations` returns an `ObjectClip` that owns the annotation and its whole resource closure by value. ⚠ Asked of the engine before rewriting: whether a `/Popup`, an `/IRT` reply chain and a `/RC` rich-text body survive that path, or are the same loss in a different place. |
 | `delete_field_group` | Deleting a grouping node and every field beneath it as one undoable command. The Forms panel can delete a terminal field and not a group. |
