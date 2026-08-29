@@ -1,5 +1,35 @@
 # CONTINUE — handoff
 
+## 2026-08-29 (overnight) — the signature warning is the one new surface that IS verified
+
+**Driven end to end against the release binary, with no mouse**, because its
+whole flow is commands: `PDFCE_DIAG_INVOKE=mode.edit,pages.delete,file.save_copy`
+on `fixtures/signed-two-pages.pdf`, with `PDFCE_DIAG_SAVE_PATH` pointed at a
+scratch file.
+
+```
+pdfce-diag pages-deleted removed=1 freed=2 …
+pdfce-diag signature-asked pending=Copy
+pdfce-diag ui-rect name=dialog:signature rect=[[0.0 0.0] - [460.0 280.0]] viewport="2DBB"
+```
+
+★★★ **And no `save-copy` line, and no file on disk.** That absence is the
+load-bearing half: a guard whose `bool` is discarded would have opened the
+window *and written the file anyway*, which is the failure mode the whole
+`ask_unsaved`-shaped protocol exists to prevent. The save was **stopped**,
+pending the operator's answer.
+
+⇒ Of the nine surfaces that landed in the last two days, this is the only one
+whose complete operator flow needs **no pointer** — a structural edit, a save
+attempt and a modal, all reachable by command id. That is why it is the only one
+verified, and it is worth noticing which features have that property: **a flow
+made of commands can be driven while the operator is at the machine; a flow made
+of gestures cannot.**
+
+★ The rest still need the sweep.
+
+---
+
 ## 2026-08-29 (overnight, latest) — a SMOKE LAUNCH found the fourth broken check, which reading could not
 
 **The technique is worth more than the bug.** Six new surfaces, none ever
