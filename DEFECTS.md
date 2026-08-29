@@ -1226,3 +1226,90 @@ Unquantified on real scanned material, because **there is none in the tree**.
 If a scanned drawing ever arrives, this is the first thing to measure — and if
 it reproduces, the honest fix is upstream or a documented refusal, not a magic
 number in `pdfce-gui`.
+
+---
+
+## D16 — Ctrl+S saved the file and then killed the application — **FIXED AND DRIVEN 2026-08-29**
+
+**Present in the shipped build.** Every in-place save of a document opened from
+disk wrote the file correctly and then panicked the process. Introduced
+2026-08-20 with `file.save`; found 2026-08-29 by an agent wiring an unrelated
+guard into that arm, **not** by a test, **not** by the audit that session was
+running, and not by any of the 105 driven checks.
+
+### The code
+
+`PdfceApp::apply` matches the action **twice**: once before the "is a document
+open" guard, for the handful of actions that must answer differently with
+nothing open, and once after it for everything else. Every arm in the first
+match ends with `return`.
+
+`Action::Save`'s did not.
+
+```rust
+Action::Save => {
+    match &mut self.status { … }          // saved, correctly
+}                                         // ← no `return`
+…
+_ => {}
+}                                          // first match ends
+let Status::Open(doc) = &mut self.status else { … };
+match action {
+    …
+    | Action::Save                         // ← and here it is again
+    | Action::SaveCopy
+    | Action::Find(_) => unreachable!("handled before the document guard"),
+```
+
+`SaveCopy` and `Find`, its two neighbours in the first match, both return.
+
+### ★★★ The class, which is what makes it worth a number
+
+**A fall-through arm whose later twin asserts unreachability. Both halves
+type-check and neither is wrong on its own.**
+
+- The `unreachable!` is **correct**: the arm *is* handled earlier, and the
+  assertion documents a real invariant.
+- The earlier arm is **correct** except for one keyword, and it reads correctly:
+  it does the work, it traces, it records the epoch.
+
+Nothing about either site is suspicious in isolation, and a reviewer reading
+either one alone would approve it. The compiler cannot help: falling out of a
+`match` arm into the following statements is ordinary control flow.
+
+⇒ The general form: **when one `match` is split into a pre-guard pass and a
+post-guard pass over the same value, `return` is load-bearing in every arm of
+the first, and the second pass's `unreachable!` converts a missing one from a
+silent double-handle into a crash.** The crash is the better outcome — it is at
+least loud — but only if somebody presses the key.
+
+### ★★ Why no test and no driven check caught it
+
+- `PdfceApp::apply` is called with `&mut self` on a real application; the unit
+  suite exercises actions through smaller seams.
+- **No driven check drives a save.** `save_in_place` and `save_copy` have unit
+  tests that call `crate::app::save::save_in_place(doc)` **directly** — which is
+  the function that works. The defect is in the arm that calls it.
+- The gap is the same one recorded twice this week for gestures: *which check
+  drives this?* For `Ctrl+S`, the answer was **none**, and R1 exists for exactly
+  that answer.
+
+### The verification, both directions
+
+Driven offscreen (`PDFCE_DIAG_VIEWPORT` + `PDFCE_DIAG_INVOKE=file.save`) against
+a scratch copy of `fixtures/a1-titleblock.pdf`, so the operator's pointer and
+focus were untouched:
+
+| build | result |
+|---|---|
+| fixed (this commit) | `save-in-place outcome=ok`, `save-epoch-recorded epoch=0`, **process alive after 8 s** |
+| the `return` removed again, deliberately | `save-in-place outcome=ok`, `save-epoch-recorded epoch=0`, then `panicked at apply.rs:333`, **exit code 101** |
+
+★ The falsification is the half that matters: the fix was re-broken on purpose
+and the crash came back, so the pass is a measurement of *this* change rather
+than of something else that moved.
+
+★★ Note the order in the trace — **the file is written before the panic.** No
+work was lost; the application simply died immediately afterwards, which is why
+the symptom is *"pdfce disappears when I press Ctrl+S"* rather than *"my save
+did not happen"*.
