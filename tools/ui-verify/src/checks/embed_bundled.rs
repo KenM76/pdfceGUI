@@ -42,6 +42,45 @@
 //! disclosure and the guard are the same flag, which is why understating it is a
 //! correctness defect rather than a cosmetic one.
 //!
+//! ## ★★★ A DECLINE IS A SKIP, NOT A FAILURE — and reading it the other way
+//! cost an afternoon
+//!
+//! The 2026-08-28 sweep ran this check twice. On `fixtures\a1-titleblock.pdf`
+//! it **passed**, with `targets=3 … substituted=true` and no font folder
+//! configured — the bundled rung firing exactly as O47 asked. On
+//! `D:\Dev\pdfTests\SW41177\SW41177.pdf` it **failed**, on
+//! `embed-fonts-declined folders=0 detail=nothing-to-open`, and that failure
+//! was carried into the handoff as *"the strongest candidate for a real
+//! defect"*. It was neither. SW41177 carries six fonts and **six
+//! `/FontFile2` streams** — every face it names is already embedded, so
+//! *"nothing to do"* is the correct and only honest answer.
+//!
+//! ⇒ The old message claimed a decline meant *"the bundled rung was not
+//! reached"*. **That inference is not available**, and has not been since O47.
+//! `DialogsState::open_embed_fonts` has exactly ONE decline sentence left —
+//! `text::embed::nothing_missing` — because O47 falsified the other branch
+//! (*"pdfce has no font folders, so it cannot embed anything"*) and it was
+//! deleted. `EmbedDialog::open` answers `None` only when `plan.targets` is
+//! empty **and** every `plan.blocked` row is `AlreadyEmbedded`; a missing font
+//! nothing can answer for is a `NoSourceFont` row, which is `shown`, which
+//! opens the window. So a decline is a statement about the FIXTURE and
+//! carries no information about the resolver at all.
+//!
+//! ★★★ **The oracle for a broken bundled rung is the `targets=0` branch
+//! below, and it always was.** If `allow_bundled` stopped reaching
+//! `resolve_for_embedding`, this run would still open a window — full of
+//! `NoSourceFont` rows — and that branch would fail it by name. Turning the
+//! decline into a skip therefore gives up nothing: it removes a false failure
+//! and leaves every true one standing.
+//!
+//! ★★ The general lesson, and it is the expensive half: **a check whose
+//! failure message names a suspect can teach a reader the wrong suspect.**
+//! This one named `Library::scan_with(folders, true)` — a call that was
+//! correct, tested (`app::fonts::a_bundled_face_answers_only_when_it_is_
+//! allowed_to`) and proven in the very same sweep by the sibling run. Two runs
+//! of one check disagreeing is a fact about their INPUTS first; check that
+//! before believing either one's diagnosis.
+//!
 //! ## What this does NOT establish
 //!
 //! **Which face was substituted, or that it looks right.** pdfce's standard-14
@@ -75,6 +114,10 @@ const OPENED: &str = "embed-fonts-opened";
 /// The line the apply arm writes when the engine has embedded.
 const APPLIED: &str = "embed-fonts-applied";
 /// The line the dispatcher writes when there is nothing to open.
+///
+/// ★★★ Since O47 this has exactly ONE meaning — *every font in this document
+/// is already embedded* — so it aims the check, it does not fail it. See the
+/// module header.
 const DECLINED: &str = "embed-fonts-declined";
 
 /// See the module documentation.
@@ -152,13 +195,10 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 
     let trace = session.trace()?;
     if let Some(declined) = trace.events(DECLINED).last() {
-        return Ok(Some(format!(
-            "★★★ EMBED FONTS DECLINED WITH NOTHING TO DO: `{}`.\n\
-             **This is the exact state O47 was answered to change.** The document names a font \
-             it does not carry and pdfce ships fourteen faces, so a decline means the bundled \
-             rung was not reached: `Library::scan_with(folders, true)` in `dialogs::embed`, and \
-             `allow_bundled` reaching `resolve_for_embedding`. If this run's --pdf names no \
-             standard-14 font, the check is aimed wrong rather than the program. Trace: {}.",
+        return Err(Error::new(format!(
+            "this fixture carries every font it names, so there was nothing to embed: `{}`. \
+             Aim this check at a document that NAMES a standard-14 face it does not carry — \
+             `fixtures\\a1-titleblock.pdf` is one. Trace: {}.",
             declined.raw,
             session.trace_path().display()
         )));

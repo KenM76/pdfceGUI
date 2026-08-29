@@ -24,6 +24,40 @@
 //!    so its region appearing proves the ribbon control raised a tab that was
 //!    behind another one.
 //!
+//! # ★★★ THE CONTROL IS A TOGGLE, AND THIS CHECK ESTABLISHES ITS OWN
+//! PRECONDITION — 2026-08-28
+//!
+//! The 2026-08-28 sweep failed this check with *"the arm ran, traced neither a
+//! decline nor an unimplemented line, and no panel appeared"*, and the fault
+//! was **the check's**. `app::panels::toggle_panel` closes a panel that is
+//! already on screen and raises one that is not; the check pressed the ribbon
+//! control unconditionally, so on a run where the panel was already the active
+//! tab of its stack the press **shut** it — and the check then reported a
+//! defect in a panel that had been working and visible one frame earlier.
+//!
+//! ⇒ **A driven check may not press a toggle without first reading the state
+//! it toggles.** The guard is three lines: ask whether the panel's own body
+//! region is live, and press the control only when it is not. `declared`
+//! answers that honestly because the application retires a region it stops
+//! drawing (`ui-rect-gone`), so a live `panel:dimension-groups` means *drawing
+//! now*, which is the same predicate `DockLayout::is_on_screen` answers inside
+//! the application.
+//!
+//! ★ The convention is `properties_metadata`'s, quoted rather than reinvented:
+//! *"Only if it is not already, because `file.properties` is a panel TOGGLE and
+//! pressing it when the panel is open would close the thing under test."*
+//! `bookmark_add` cites the same sentence. Three panel checks, one rule, one
+//! wording — because three wordings become three rules and then three
+//! behaviours.
+//!
+//! ★★ What the guard costs, stated rather than hidden: on a run that takes the
+//! already-showing branch, nothing presses the ribbon control, so *that* run
+//! does not prove the control raises a tab. The check writes a note saying so
+//! instead of passing quietly on the weaker claim. Review's default arrangement
+//! mounts this panel LAST in its stack — behind Comments, Properties and Forms
+//! — so the ordinary run still presses the control; only a persisted layout
+//! that left it active takes the other branch.
+//!
 //! # The gap this closes
 //!
 //! `measure.manage_groups` was registered, drawn on Measure ▸ Scale and
@@ -116,6 +150,15 @@ const PANEL: &str = "panel:dimension-groups";
 /// dock publishes its when the layout resolves, and the gap between those two
 /// moments is exactly the hazard `fold` guards against.
 const PANEL_BODY: &str = "dock.body.measure.manage_groups";
+/// `panel-closed id=… closed=…` — the line `app::panels::toggle_panel` writes
+/// when a press took the **closing** branch.
+///
+/// ★ Read only to improve a failure message, and it is the one line that can
+/// tell the 2026-08-28 failure apart from a panel that genuinely did not draw.
+/// The two look identical from outside — no body region either way — and they
+/// have opposite fixes: one is the harness's precondition, the other is the
+/// panel's own body.
+const CLOSED_EVENT: &str = "panel-closed";
 /// The prefix of the foldable sections' heading regions.
 const HEADING: &str = "dimension-groups.heading.";
 /// The new-group name field.
@@ -387,36 +430,81 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 
     // --- 3: show the panel -------------------------------------------------
     //
-    // ★ Through `declared_or_in_overflow`, not `declared`. At the harness's
-    // window width a band can legitimately fold controls into the overflow —
-    // which on 2026-08-18 produced two FALSE failures that were believed and
-    // written down as harness limitations. Looking in both places is the fix
-    // that stopped that recurring.
-    let Some(item) = declared_or_in_overflow(
-        &session,
-        &driver,
-        ui_rect,
-        "ribbon.item.measure.manage_groups",
-    )?
-    else {
-        return Ok(Some(format!(
-            "the Measure tab declares no `ribbon.item.measure.manage_groups`, on the band or \
-             in the overflow. Items declared: {}.",
-            list(&declared_names(
-                &session.trace()?,
-                ui_rect,
-                "ribbon.item.measure."
-            ))
-        )));
-    };
-    driver.click_at(session.frame()?.declared_center(item))?;
-    // ★ Generous, and measured rather than chosen. Raising this panel changes
-    // the DOCK's own layout — its stack's tab strip loses a row when the panel
-    // takes the stack — and that lands a frame after the panel itself, moving
-    // every heading in the body up by one row height. The first driven run read
-    // a heading at y=610, the dock settled it to y=595, and the click toggled
-    // the fold above the one it was aimed at.
-    session.settle(60);
+    // ★★★ **The precondition comes first, because the control is a TOGGLE.**
+    //
+    // `app::panels::toggle_panel` closes a panel that is already **on screen**
+    // — mounted, the active tab of its stack, on a visible side — and raises it
+    // in every other case. So a check that presses the control unconditionally
+    // is not driving a command, it is driving a *flip*, and its outcome depends
+    // on a state it never read. That is exactly what the 2026-08-28 sweep
+    // caught: the arm ran, traced neither a decline nor an unimplemented line,
+    // and no panel body appeared — the panel had been the active tab and the
+    // click SHUT it. The check reported a defect in a panel that worked.
+    //
+    // ★ The guard is the convention this suite already has, in
+    // `properties_metadata` (*"Only if it is not already, because
+    // `file.properties` is a panel TOGGLE and pressing it when the panel is
+    // open would close the thing under test"*) and in `bookmark_add`, which
+    // cites it. Written the same way here rather than invented differently:
+    // three copies of one rule that read alike are one rule; three that read
+    // differently are three rules that will drift.
+    //
+    // ★★ `PANEL` is the oracle for "already showing" and it is the right one
+    // because the application declares that region **from inside the panel's
+    // own body function**. A panel behind a sibling tab is not drawn, so it
+    // declares nothing, and `declared` retires a region the moment the
+    // application stops drawing it (`ui-rect-gone`). ⇒ a live `PANEL` means
+    // *this panel is the active tab of a visible stack right now*, which is the
+    // same predicate `DockLayout::is_on_screen` answers on the other side of
+    // the process boundary. Reading the dock's `PANEL_BODY` instead would be a
+    // weaker claim: the dock publishes its slot when the layout resolves, one
+    // frame before the panel has drawn anything into it.
+    if declared(&session.trace()?, ui_rect, PANEL).is_some() {
+        // Not a skip and not a failure. Review's default arrangement puts this
+        // panel LAST in its stack, so it is normally behind three siblings and
+        // this branch does not run; a persisted layout beside the binary can
+        // leave it active, and when it does the precondition is already met and
+        // there is nothing to press. What the check loses is the assertion that
+        // the ribbon control raised a tab that was behind another one — so it
+        // says so, rather than passing quietly on a weaker claim.
+        report.note(
+            "the Dimension-groups panel was ALREADY the active tab, so the ribbon toggle was \
+             not pressed — pressing it would have closed the subject. The rest of this check \
+             runs against the panel that was already up; the 'the control raises a tab that was \
+             behind another' half is not asserted on this run.",
+        );
+    } else {
+        // ★ Through `declared_or_in_overflow`, not `declared`. At the harness's
+        // window width a band can legitimately fold controls into the overflow
+        // — which on 2026-08-18 produced two FALSE failures that were believed
+        // and written down as harness limitations. Looking in both places is
+        // the fix that stopped that recurring.
+        let Some(item) = declared_or_in_overflow(
+            &session,
+            &driver,
+            ui_rect,
+            "ribbon.item.measure.manage_groups",
+        )?
+        else {
+            return Ok(Some(format!(
+                "the Measure tab declares no `ribbon.item.measure.manage_groups`, on the band or \
+                 in the overflow. Items declared: {}.",
+                list(&declared_names(
+                    &session.trace()?,
+                    ui_rect,
+                    "ribbon.item.measure."
+                ))
+            )));
+        };
+        driver.click_at(session.frame()?.declared_center(item))?;
+        // ★ Generous, and measured rather than chosen. Raising this panel
+        // changes the DOCK's own layout — its stack's tab strip loses a row
+        // when the panel takes the stack — and that lands a frame after the
+        // panel itself, moving every heading in the body up by one row height.
+        // The first driven run read a heading at y=610, the dock settled it to
+        // y=595, and the click toggled the fold above the one it was aimed at.
+        session.settle(60);
+    }
 
     let trace = session.trace()?;
     if declared(&trace, ui_rect, PANEL).is_none() {
@@ -432,7 +520,28 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             .filter(|l| l.get("id") == Some("measure.manage_groups"))
             .filter_map(|l| l.get("reason").map(str::to_owned))
             .last();
-        return Ok(Some(if unimplemented {
+        // ★★ The toggle's OWN line, and it is here because the guard above is
+        // not proof. `app::panels::toggle_panel` traces `panel-closed id=… `
+        // whenever it took the closing branch, so this separates *"the press
+        // shut a panel that was up"* — the 2026-08-28 failure, which the
+        // precondition is supposed to have made impossible — from *"the press
+        // raised nothing"*. If it ever appears again, the guard read a state
+        // the dock disagreed with, and that is a finding about the two
+        // predicates rather than about this panel.
+        let closed = trace
+            .events(CLOSED_EVENT)
+            .any(|l| l.get("id") == Some("measure.manage_groups"));
+        return Ok(Some(if closed {
+            format!(
+                "`measure.manage_groups` was pressed and the application traced `{CLOSED_EVENT} \
+                 id=measure.manage_groups`, so the press CLOSED the panel instead of opening \
+                 it. This check reads `{PANEL}` first and presses the toggle only when the \
+                 panel is not already drawing, so reaching this means the two predicates \
+                 disagreed: the region was retired (or never declared) while \
+                 `DockLayout::is_on_screen` still answered true. Look at the frame between the \
+                 read and the click, not at the panel."
+            )
+        } else if unimplemented {
             "`measure.manage_groups` was clicked and traced `command-unimplemented` — it is \
              still scaffolded. The control is drawn, it is on the ribbon, and there is no \
              dispatch arm behind it."
@@ -444,10 +553,12 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             )
         } else {
             format!(
-                "`measure.manage_groups` was clicked, traced neither a decline nor an \
-                 unimplemented line, and no `{PANEL}` region appeared. The arm ran and the \
-                 panel did not draw — and because the arm is a TOGGLE, the likeliest cause \
-                 is that the panel was already the active tab and the click shut it."
+                "`measure.manage_groups` was clicked, traced neither a decline, nor an \
+                 unimplemented line, nor a `{CLOSED_EVENT}`, and no `{PANEL}` region appeared. \
+                 The arm ran, the toggle took its OPENING branch, and the panel's body drew \
+                 nothing. That is the panel itself: `panels::dimension_groups::body` returned \
+                 before declaring its region, or the panel was mounted on a side the dock is \
+                 not showing."
             )
         }));
     }

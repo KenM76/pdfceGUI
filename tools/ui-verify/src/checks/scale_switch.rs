@@ -48,17 +48,16 @@
 //! | # | step | oracle |
 //! |---|---|---|
 //! | A | Review mode, rectangle tool, drag a shape | `markup-commit` |
-//! | B | Escape, click it | `annot-select` |
+//! | B | click View ▸ Select to put the pen down, then click the shape | `ribbon-command-invoked id=view.tool_select`, `annot-select` |
 //! | C | open the Tool panel, click the *Scale line weight* switch | `resize-modifiers stroke=true` |
 //! | D | drag a corner grip **proportionally** | `resize-annotation-applied … stroke=true` |
 //!
-//! ## ⚠★★★ KNOWN FLAKY, 2026-08-28 — and it is the DISARM step, not the subject
+//! ## ★★★ IT WAS FLAKY, AND THE CURE WAS TO STOP TYPING — 2026-08-28
 //!
-//! This check has passed its real assertion — `resize-annotation-applied …
-//! stroke=true`, the switch reaching the engine — and has also failed three
-//! runs out of six **before getting that far**, at step B.
-//!
-//! The subject is sound. What is unreliable is putting the markup pen down:
+//! This check passed its real assertion — `resize-annotation-applied …
+//! stroke=true`, the switch reaching the engine — and also failed three runs
+//! out of six **before getting that far**, at step B. The subject was never
+//! implicated. What was unreliable was putting the markup pen down:
 //!
 //! | attempt | result |
 //! |---|---|
@@ -66,28 +65,48 @@
 //! | one Escape | arrived sometimes |
 //! | five Escapes, polling for the region | arrived on attempt 1, or not in five |
 //!
-//! ⇒ **A keystroke is not a reliable harness primitive while a dock panel is
-//! open.** A chord is routed through whatever holds keyboard focus, and this
-//! check opens the Tool panel by construction — it has to, the switches live
-//! there.
+//! ⇒ **A keystroke is not a reliable harness primitive while a dock panel this
+//! check itself raised is open.** A chord is routed through whatever holds
+//! keyboard focus, and this check opens the Tool panel by construction — it has
+//! to, the switches live there. Note the shape of the failure: `V` produced
+//! *no line anywhere*, so the check reported the Tool panel as drawing the
+//! wrong block when the truth was that nothing had ever reached the
+//! application.
 //!
-//! ★★ **The fix is to stop using the keyboard**: click
-//! `ribbon.item.view.tool_select` instead, after activating its tab. Clicking a
-//! ribbon control is this harness's most exercised primitive and does not
-//! depend on focus. That is the next change to this file and it was not made
-//! tonight only because the operator's machine had already been held long
-//! enough.
+//! ★★ **The fix is a pointer, not a key**: step B clicks the View tab and then
+//! `ribbon.item.view.tool_select`. Clicking a ribbon control is this harness's
+//! most exercised primitive, it does not depend on focus, and it carries its
+//! own oracle — the shell writes `ribbon-command-invoked id=view.tool_select`,
+//! so *"the click did not land"* and *"the panel did not follow"* are now two
+//! different messages instead of one ambiguous one.
+//!
+//! ★ And the arm it reaches is idempotent. `view.tool_select` calls
+//! `canvas::tool::arm::select`, a plain write; the two neighbouring pointer
+//! commands (`view.tool_hand`, `view.tool_text`) are **toggles** and would flip
+//! on a second press. Choosing the one control on that row that cannot be wrong
+//! about its own state is what makes this step deterministic rather than merely
+//! more reliable.
 //!
 //! ★ Recorded here rather than left to be rediscovered: a check that fails
 //! half the time is worse than one that fails always, because the failure gets
 //! attributed to whatever changed most recently.
+//!
+//! ★★ **Not every keystroke in this suite is suspect, and the distinction
+//! matters.** Typing into a field the check has just clicked is fine — focus is
+//! where the keys are meant to go, which is what `dimension_groups` and
+//! `bookmark_add` do. What is unsafe is a keystroke that has to be *routed to a
+//! command* while a raised panel holds focus. And a chord that IS the subject —
+//! `tool_row`'s bare `T`/`A`, `find_bar`'s `Ctrl+F`, `read_mode_chrome`'s
+//! `Ctrl+H` — must stay a chord: converting it would delete the assertion.
 //!
 //! ★ Step D drags **diagonally by equal amounts** on purpose. A non-uniform
 //! resize of a pdfce-authored appearance is fine — it is rebuilt — but making
 //! the drag uniform keeps this check about the switch rather than about the
 //! distortion refusal, which is a different feature with a different sentence.
 
-use crate::checks::driving::{SHELL_DIAG_ENV, declared, declared_names, list};
+use crate::checks::driving::{
+    SELECT_TOOL_ID, SHELL_DIAG_ENV, arm_select_from_ribbon, declared, declared_names, list,
+};
 use crate::checks::text_selection::aim;
 use crate::checks::{Check, CheckContext};
 use crate::coords::{DocPoint, PageGeometry};
@@ -123,12 +142,20 @@ const PAGE_REGION: &str = "page";
 
 /// Where the shape is drawn, as fractions of the page.
 const SHAPE: ((f64, f64), (f64, f64)) = ((0.30, 0.30), (0.50, 0.45));
-/// How many times to press Escape waiting for the panel to go idle.
+/// How many frames to wait for the Tool panel to swap its armed block for its
+/// idle one, after the select tool has been armed from the ribbon.
 ///
-/// ★ Five, not one: see the loop for why a fixed settle is a guess. Bounded so
-/// a build where Escape genuinely does nothing fails in seconds rather than
-/// hanging.
-const DISARM_TRIES: usize = 5;
+/// ★★ **This is a poll, not a retry.** Nothing is pressed again inside the loop
+/// — the invoke is already confirmed against the shell's own trace — so the
+/// only question left is *which frame does the panel redraw in*, and a fixed
+/// settle would be a guess at it. It was `DISARM_TRIES` while the step pressed
+/// Escape five times, and the rename is the point: a bound on waiting and a
+/// bound on pressing are different things, and conflating them is what let a
+/// step that never worked look like a step that was merely slow.
+///
+/// Bounded so a build where the idle block genuinely never draws fails in
+/// seconds rather than hanging.
+const IDLE_TRIES: usize = 5;
 
 /// How far the bottom-right grip travels, as a fraction of **the shape's own
 /// size** — so the two scale factors come out equal.
@@ -272,54 +299,82 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 
     // --- B: put the pen down ------------------------------------------------
     //
-    // ★★★ **Escape, not `V`**, and the first run of this check is why.
+    // ★★★ **A RIBBON CLICK, NOT A KEYSTROKE — 2026-08-28.**
     //
-    // `markup_move` puts the pen down with `V` — the `view.tool_select` chord —
-    // and that works there. Here it did **not**: the trace showed
-    // `markup-tool tool=Markup(Rectangle)` and no invocation of
-    // `view.tool_select` at all, so the Tool panel went on drawing the ARMED
-    // block and the Select options this check is about were never reached.
+    // This step was `V`, then one Escape, then five polled Escapes, and it made
+    // the check fail three runs out of six. The evidence, from six runs:
     //
-    // ⇒ A chord is routed through whatever holds keyboard focus, and this check
-    // opens a dock panel. Escape does not depend on that routing: it is the
-    // canvas's own put-the-tool-down ladder.
+    // | attempt | result |
+    // |---|---|
+    // | `V` (the `view.tool_select` chord) | never arrived — no invocation traced at all |
+    // | one Escape | arrived sometimes |
+    // | five Escapes, polling for the region | arrived on attempt 1, or not in five |
     //
-    // ★ Worth stating rather than just changing, because three other checks
-    // press a chord after opening a panel.
-    // ★★★ **Escape until the panel is idle, up to `DISARM_TRIES`.** The first
-    // three runs of this check each failed differently on this one step, and
-    // the third was the informative one: the switch regions appeared in the
-    // trace and `declared` still answered `None`, because it correctly reads
-    // the `ui-rect-gone` that follows a retired region. The panel had drawn
-    // them and gone back to the armed block.
+    // ⇒ **A keystroke is not a reliable harness primitive while a dock panel
+    // this check itself raised is open.** A chord is routed through whatever
+    // holds keyboard focus, and this check opens the Tool panel *by
+    // construction* — the switches live there. Escape is no better in kind: it
+    // is the same channel, and polling it five times only converts a silent
+    // wrong answer into a slow one.
     //
-    // ⇒ **A keystroke's arrival is asynchronous and a fixed settle is a
-    // guess.** `V` did not arrive at all with a dock panel open (a chord is
-    // routed through whatever holds focus); Escape arrives, but not always
-    // within one settle. Polling for the *state the next step needs* is the
-    // only honest form: it either reaches it or says how many tries it had.
+    // ★★ Clicking `ribbon.item.view.tool_select` does not depend on focus at
+    // all. It is this harness's most exercised primitive, it has an oracle of
+    // its own (the shell's `ribbon-command-invoked id=view.tool_select`), and
+    // `app::dispatch`'s arm calls `canvas::tool::arm::select` — a plain write,
+    // **not** a toggle like `view.tool_hand`/`view.tool_text` — so pressing it
+    // when Select is already armed is a no-op rather than a flip. That is what
+    // makes the step *deterministic* rather than merely more likely to work:
+    // there is no state this click can be wrong about.
     //
-    // ★ Escape rather than `V` even so — it is the canvas's own
-    // put-the-tool-down ladder and does not depend on focus routing.
+    // ★ The View tab is clicked first because the control lives on View ▸
+    // Navigate, and View is the one tab every mode is shown. Switching tabs
+    // disturbs neither the dock nor the canvas, and every coordinate after this
+    // point is re-derived through `aim`.
+    //
+    // ★★ **And no chord fallback here**, deliberately, where `markup_move` and
+    // `measure_perimeter` keep one. Those two need the pen down and have been
+    // passing on `V` for weeks with no panel of their own; this check raises the
+    // Tool panel by construction, which is the exact condition under which `V`
+    // was measured never to arrive. A fallback would put the flake back and
+    // hide it behind a green run half the time.
+    if !arm_select_from_ribbon(&session, &driver, ui_rect, report)? {
+        return Err(Error::new(format!(
+            "the select tool could not be armed from the ribbon — the note above says which \
+             step of the route was missing — so the markup pen is still down and everything \
+             after this would be measuring the wrong program. Reported as a SKIP rather than a \
+             failure, on this suite's standing rule: a check that could not deliver a click has \
+             learned nothing about the application. **Not retried with the `V` chord**: with \
+             this panel raised, `V` was measured arriving zero times in six runs, and a silent \
+             non-arrival is what made this check flaky in the first place. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note("★ the select tool was armed by clicking View ▸ Select, not by a keystroke");
+
+    // ★★ The click is delivered and confirmed; the PANEL still redraws on its
+    // own schedule, so the region is polled rather than read once. This is not
+    // the old retry loop — nothing is pressed again — it is waiting for the
+    // frame in which the idle block replaces the armed one. The first runs of
+    // this check taught the distinction the hard way: the switch regions were
+    // in the trace and `declared` answered `None`, because it correctly reads
+    // the `ui-rect-gone` that follows a retired region.
     let mut switch = None;
-    for attempt in 1..=DISARM_TRIES {
-        driver.press(crate::sys::vk::ESCAPE)?;
-        session.settle(18);
-        let trace = session.trace()?;
-        if let Some(rect) = declared(&trace, ui_rect, SWITCH_REGION) {
+    for attempt in 1..=IDLE_TRIES {
+        if let Some(rect) = declared(&session.trace()?, ui_rect, SWITCH_REGION) {
             report.note(format!(
-                "★ the pen went down and the Select options drew (attempt {attempt})"
+                "★ the pen went down and the Select options drew (frame poll {attempt})"
             ));
             switch = Some(rect);
             break;
         }
+        session.settle(12);
     }
     let Some(switch) = switch else {
         let trace = session.trace()?;
         return Ok(Some(format!(
-            "★★★ THE SWITCH IS NOT DRAWN after {DISARM_TRIES} Escape(s): no LIVE `{SWITCH_REGION}` region.
+            "★★★ THE SWITCH IS NOT DRAWN: `{SELECT_TOOL_ID}` was invoked from the ribbon and no LIVE `{SWITCH_REGION}` region followed in {IDLE_TRIES} frame poll(s).
              **The state the feature shipped in for one afternoon** was that the switches were written into `panels::tool::armed::options`, and `super::body` calls the armed block only in its `else` arm — Select is this panel's IDLE state, so the branch was dead code that compiled and drew nothing.
- ★ If the region APPEARS in the list below but is not live, that is the other failure: the panel drew it and retired it, meaning a tool re-armed. Regions beginning `tool.`: {}. Trace: {}.",
+ ★ The click is no longer a candidate cause: the shell traced the invoke. If the region APPEARS in the list below but is not live, that is the other failure — the panel drew it and retired it, meaning a tool re-armed after the select. Regions beginning `tool.`: {}. Trace: {}.",
             list(&declared_names(&trace, ui_rect, "tool.")),
             session.trace_path().display()
         )));

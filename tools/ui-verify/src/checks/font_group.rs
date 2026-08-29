@@ -54,10 +54,35 @@
 //! after a sweep and therefore no Font group — a whole feature with no surface,
 //! which is exactly the shape of defect this project exists to catch.
 //!
+//! ## ★★★ THE PRECONDITION, added 2026-08-28 after this check cried wolf
+//!
+//! Every phase-1 oracle is a sentence about **a text object**, and this check
+//! shipped without ever asking whether it had one. The 2026-08-28 sweep drove
+//! the whole suite at one `--doc-point 0,300,500`; on `SW41177.pdf` that point
+//! is inside a drawing view, and the page carries **5,899 paths against 4 text
+//! objects**, so the click selected a 318 × 262 pt path. The Format tab
+//! appeared — `selection.formattable` is the union of *any* object selection
+//! with a live text selection, so it was right to — and then
+//! `properties.text.route` did not draw, which was *also* right, and the check
+//! called it O37's complaint coming back. It was not. It was the aim.
+//!
+//! ★ The answer was in the trace the check was already holding:
+//! `pdfce-diag properties-panel object=832 kind=Path notes=0`. So
+//! [`aimed_at_one_text_object`] now reads that line, plus
+//! `canvas-selection … sel=N`, and **skips** — never fails — when the click did
+//! not leave exactly one text object selected. Phase 2 had this guard from the
+//! start (`chars == 0` is a skip, not a failure); phase 1 did not, and the
+//! asymmetry is what let a correct program be blamed.
+//!
+//! ★★ The correct aim for this fixture is `--doc-point 0,1140,62`, which
+//! `RESUME.md`'s aim table gives and the sweep did not use: a 5 pt title-block
+//! run at PDF (1135.7, 58.4)–(1190.5, 63.4).
+//!
 //! # The oracle
 //!
-//! Phase 1: the regions `ribbon.tab.format`, `ribbon.group.format.font`, the
-//! five `ribbon.item.format.*`, and `properties.text.route`.
+//! Phase 1: the precondition above, then the regions `ribbon.tab.format`,
+//! `ribbon.group.format.font`, the five `ribbon.item.format.*`, and
+//! `properties.text.route`.
 //!
 //! Phase 2: `text-style-applied … applied=N` **and** the `format-text` label
 //! `vector_edit` writes when the edit reached the engine — the same two-line
@@ -73,6 +98,7 @@ use crate::error::{Error, Result};
 use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
+use crate::trace::Trace;
 
 /// The mode whose canvas may select page content, and the only mode the Font
 /// group is drawn in — `mode.edit_content` is its `visible_when`.
@@ -108,6 +134,25 @@ const DECLINED_EVENT: &str = "text-style-declined";
 const APPLIED: &str = "format-text";
 /// The sweep's own oracle.
 const SELECTION_EVENT: &str = "canvas-text-selection";
+/// The canvas's report of a selection change — `sel=` is how many entries it
+/// holds, which is `panels::properties::text::route`'s single-selection rule
+/// expressed as a number the harness can read.
+const CANVAS_SELECTION_EVENT: &str = "canvas-selection";
+/// The Properties panel's report of the object it is describing —
+/// `properties-panel object=N kind=K notes=M`.
+///
+/// ★★★ **The precondition's oracle, and it is the right one because it is the
+/// SAME read.** `panels::properties::mod::object_section` writes this line from
+/// `object_indices_on(view.page_index).first()` classified by
+/// `summary::object_kind`, which is exactly the pair
+/// `panels::properties::text::route` guards on. So a `kind=Text` here means
+/// `route`'s own guard saw text, and any later absence of the sentence is the
+/// program's and not the aim's — which is the whole distinction this check was
+/// unable to draw before 2026-08-28.
+const PANEL_EVENT: &str = "properties-panel";
+/// The `kind=` value [`PANEL_EVENT`] carries for a page-content text object —
+/// `summary::ObjectKind::Text` under `{:?}`.
+const TEXT_KIND: &str = "Text";
 /// How far to sweep along the baseline, in PDF points.
 const SWEEP_PT: f64 = 60.0;
 /// `T` as a Windows virtual key — the text-sweep tool.
@@ -152,6 +197,129 @@ impl Check for TheFormatTabOffersFontControlsForSweptText {
 /// long enough for the worst case makes every run slow while a pleasant one
 /// reads the trace mid-gesture and reports "nothing happened" about a gesture
 /// that is still running.
+/// **Did the phase-1 click land on one text object?** `Ok(())` if it did; an
+/// [`Error`] — which this check's `run` turns into a SKIP — if it did not.
+///
+/// # ★★★ Why this exists, written on the day it was needed
+///
+/// The 2026-08-28 sweep ran every driven check at a single
+/// `--doc-point 0,300,500`. On `SW41177.pdf` that point is inside a drawing
+/// view, not a label, and the page carries 5,899 paths against 4 text objects,
+/// so the click selected a 318 × 262 pt path. `selection.formattable` is the
+/// union of *any* object selection with a live text selection, so the Format
+/// tab appeared exactly as it should; then `properties.text.route` did not
+/// draw, exactly as it should, because there was no text selected to describe.
+/// This check reported that as a defect in `panels::properties::text::route`
+/// and it cost a day. The correct `--doc-point` for this fixture is
+/// `0,1140,62` (`RESUME.md`'s aim table), a 5 pt title-block run.
+///
+/// ★ The trace had the answer on the same frame the check was already reading:
+/// `pdfce-diag properties-panel object=832 kind=Path notes=0`. Nothing new had
+/// to be published for this guard; the check simply had to look.
+///
+/// # ★★ The two facts, and why both are needed
+///
+/// `route` draws when **exactly one** object is selected **and** it is text.
+/// Those are separate refusals with separate causes, so they are read
+/// separately:
+///
+/// | fact | read from | why not the other line |
+/// |---|---|---|
+/// | how many are selected | `canvas-selection … sel=N` | the panel describes only the FIRST, so it cannot count |
+/// | what the first one is | `properties-panel … kind=K` | the canvas line names a `TargetId`, not a kind |
+///
+/// # ★ An absent `properties-panel` line is "selected nothing", not "unknown"
+///
+/// `object_section` writes that line unconditionally once it has an object to
+/// describe, every frame, through `diag::trace` rather than `trace_changed`. So
+/// its absence after a settled click means `object_indices_on` came back empty
+/// — no page-content object under the pointer — which is an aim problem of its
+/// own and is reported as one.
+fn aimed_at_one_text_object(session: &Session, trace: &Trace, target: DocPoint) -> Result<()> {
+    let aim = format!(
+        "the --doc-point (page {}, {:.1}, {:.1})",
+        target.page, target.x, target.y
+    );
+    let path = session.trace_path().display();
+    match aim_verdict(trace) {
+        Aim::OneTextObject => Ok(()),
+        Aim::NothingSelected => Err(Error::new(format!(
+            "{aim} selected no page-content object, so there is nothing for this check's \
+             subject — a piece of text selected as an OBJECT — to be about. No `{PANEL_EVENT}` \
+             line, which `panels::properties::mod::object_section` writes every frame it has an \
+             object to describe. SKIPPED rather than failed: this says where the harness aimed, \
+             not what the program did. Aim at a run of text — `pdfce-cli extract-text --json` \
+             gives the first glyph's x and y of every run. Trace: {path}."
+        ))),
+        Aim::NotText(kind) => Err(Error::new(format!(
+            "{aim} selected a `{kind}`, not text — `{PANEL_EVENT} … kind={kind}`. The Format \
+             tab is right to appear (`selection.formattable` is the union of ANY object \
+             selection with a live text selection) and `panels::properties::text::route` is \
+             right to stay silent, so every oracle below this point would be asserting a \
+             sentence about text over a selection that is not text. SKIPPED rather than failed: \
+             this is the harness's aim and not the program's behaviour. ★ This is the exact \
+             shape of the 2026-08-28 sweep's false alarm — one `--doc-point` was used for the \
+             whole suite and it was on a drawing view. Trace: {path}."
+        ))),
+        Aim::NotAlone(n) => Err(Error::new(format!(
+            "{aim} left {n} object(s) selected and `panels::properties::text::route` is \
+             deliberately single-selection only — a sentence about *these words* over a mixed \
+             selection would describe something the operator did not do. SKIPPED rather than \
+             failed: aim at a text run that no other object overlaps. Trace: {path}."
+        ))),
+    }
+}
+
+/// What the phase-1 click left selected, as the four answers that matter.
+///
+/// Separated from the wording above so the READ is testable without a running
+/// program: every variant here is reachable from a three-line trace, and the
+/// tests at the foot of this module reach all four. That is the whole point of
+/// the split — a guard against a harness misreading its own oracle is worth
+/// nothing if the guard itself can only be exercised by driving the mouse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Aim<'a> {
+    /// Exactly one object is selected and it is text. Phase 1 may proceed.
+    OneTextObject,
+    /// No page-content object is selected — no `properties-panel` line at all.
+    NothingSelected,
+    /// One object is selected and it is not text; the `kind=` value is carried
+    /// so the skip can name it.
+    NotText(&'a str),
+    /// More than one object is selected (or the count did not parse as one).
+    NotAlone(usize),
+}
+
+/// Read [`Aim`] out of a settled trace.
+///
+/// ★ **Order matters, and it is "what" before "how many".** A click that lands
+/// on a path inside a marquee of eleven is an aim problem twice over, and the
+/// kind is the more useful half to be told about: it names the fixture
+/// coordinate that has to change. Reporting "11 objects selected" first would
+/// send a reader looking for a stray Shift.
+fn aim_verdict(trace: &Trace) -> Aim<'_> {
+    let Some(kind) = trace.last(PANEL_EVENT).and_then(|line| line.get("kind")) else {
+        return Aim::NothingSelected;
+    };
+    if kind != TEXT_KIND {
+        return Aim::NotText(kind);
+    }
+    // ★ Absent reads as zero rather than as one. `canvas-selection` is written
+    // through `diag::trace_changed`, so a trace with no line at all is a run
+    // where the selection never changed — which after a click is a click that
+    // selected nothing, and is exactly the state that must not be waved
+    // through. A defaulted-to-one guard would pass on silence.
+    let selected = trace
+        .last(CANVAS_SELECTION_EVENT)
+        .and_then(|line| line.get_usize("sel"))
+        .unwrap_or(0);
+    if selected == 1 {
+        Aim::OneTextObject
+    } else {
+        Aim::NotAlone(selected)
+    }
+}
+
 fn wait_for_verdict(session: &Session) -> Result<u128> {
     const CEILING_MS: u128 = 20_000;
     let started = std::time::Instant::now();
@@ -262,6 +430,33 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(24);
 
     let trace = session.trace()?;
+    // ★★★ THE PRECONDITION, BEFORE ANY ORACLE — what did the click actually
+    // select?
+    //
+    // Every assertion below this line is a sentence about **a text object**,
+    // and none of them means anything if the click landed on a path. The
+    // 2026-08-28 sweep is what proved that: it drove the whole suite at one
+    // `--doc-point 0,300,500`, which on `SW41177.pdf` is a drawing view and not
+    // a label, and this check reported *"A PIECE OF TEXT IS SELECTED AND THE
+    // PROPERTIES PANEL DOES NOT SAY HOW TO CHANGE IT"* about a selection that
+    // was a 318 × 262 pt **Path**. The trace said so on the same frame —
+    // `properties-panel object=832 kind=Path` — and the check never read it.
+    // `panels::properties::text::route` was right to stay silent and was
+    // blamed for a day.
+    //
+    // ★ Note where the guard has to sit: **before** the Format tab is asserted,
+    // not after. The tab's `visible_when` is `selection.formattable`, which is
+    // true of *any* selection, so a click on a path raises the tab and every
+    // later step then runs on a wrong premise. Putting the precondition first
+    // also buys the tab's own failure message a sharper claim — see below.
+    //
+    // ★★ SKIPPED, never failed. This is `restyle_text`'s rule and phase 2's,
+    // one paragraph down: a `--doc-point` that is not on text is the harness's
+    // aim, and a harness that reports its own aim as the program's behaviour is
+    // worse than one that reports nothing.
+    aimed_at_one_text_object(&session, &trace, target)?;
+    report.note("the click selected exactly one object and it is a text object");
+
     let Some(_tab) = declared(&trace, ui_rect, FORMAT_TAB) else {
         let shot = ctx.out("font_group.no-format-tab.png");
         if crate::capture::window_to_png(&session, &shot).is_ok() {
@@ -269,13 +464,12 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         }
         return Ok(Some(format!(
             "★ CLICKING A PIECE OF TEXT RAISED NO FORMAT TAB: no `{FORMAT_TAB}` region.\n\
-             Two candidates. (1) **The click selected nothing**, in which case the tab is right \
-             to stay away and the `--doc-point` is not on ink — the screenshot beside this \
-             report settles it, and this would be an aim problem rather than a defect. (2) \
-             **`selection.formattable` is not published**, which is the condition the tab's \
-             `visible_when` names; it is the union of the object selection and a live text \
-             selection, and a build that spelled it either way round loses one of the tab's two \
-             subjects. Tabs declared: {}. Trace: {}.",
+             One candidate, and the aim is not it: the precondition above read the trace and \
+             found exactly one selected object of kind `Text`, so the click landed on ink and \
+             the tab has a subject. That leaves **`selection.formattable` is not published**, \
+             which is the condition the tab's `visible_when` names; it is the union of the \
+             object selection and a live text selection, and a build that spelled it either way \
+             round loses one of the tab's two subjects. Tabs declared: {}. Trace: {}.",
             list(&declared_names(&trace, ui_rect, "ribbon.tab.")),
             session.trace_path().display()
         )));
@@ -298,10 +492,21 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              IT: no `{ROUTE_REGION}` region.\n\
              This is O37's own complaint. `panels::properties::text::route` draws the heading \
              and one sentence naming the Text tool and its chord whenever the selected object \
-             is text and nothing is swept. Three candidates: the guard decided this object is \
-             not text (`summary::object_kind`), more than one object is selected (the sentence \
-             is deliberately single-selection only), or the section returned before drawing — \
-             which is what it did for the whole of the feature's first week. Trace: {}.",
+             is text and nothing is swept. ★ The two candidates this message used to lead with \
+             are ALREADY RULED OUT by the precondition above, which read the trace and found \
+             `properties-panel … kind=Text` over a selection of exactly one: the object IS text \
+             by `summary::object_kind` — the same call `route` makes — and it is not a \
+             multi-selection. What is left. (1) **The section returned before drawing**, which \
+             is what it did for the whole of the feature's first week. (2) **`route` and \
+             `object_section` disagree about the operand**: they read the same \
+             `object_indices_on(view.page_index)`, so a selection of a text object inside a \
+             form XObject is a `TargetId::Leaf` that BOTH drop — the tab appears (its condition \
+             counts leaves) and neither the sentence nor the panel's kind line does, so this \
+             candidate would show as a missing `properties-panel` line, not a `kind=Path` one. \
+             (3) **The region was drawn and not declared**: `diag::ui_rect_visible` withholds a \
+             rect whose section is less than 60 % inside its clip, which is what a Properties \
+             pane taller than its dock slot produces — the screenshot beside this report \
+             settles that one by eye. Trace: {}.",
             session.trace_path().display()
         )));
     }
@@ -499,4 +704,115 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
 /// a collect-into-owned at the call site.
 fn list_of(names: &[&str]) -> String {
     driving::list_str(names)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The trace of the state the check is FOR: one text object clicked with
+    /// the Select tool, nothing swept.
+    const ON_TEXT: &str = "pdfce-diag canvas-selection via=click mod=false sel=1 level=Object \
+                           first=object:412\n\
+                           pdfce-diag properties-panel object=412 kind=Text notes=0";
+
+    /// ★★★ The regression this guard was written for, in three lines.
+    ///
+    /// These are the actual values from
+    /// `evidence/sweep-20260828/sw/font-group.trace.txt`, where the check ran
+    /// at `--doc-point 0,300,500` — a drawing view on `SW41177.pdf` — and
+    /// reported the program's correct silence as O37's complaint returning.
+    /// The verdict must be a SKIP that names the kind, so the reader is sent to
+    /// the fixture coordinate rather than to `panels::properties::text`.
+    #[test]
+    fn a_click_that_landed_on_a_path_is_the_harnesss_aim_and_not_a_defect() {
+        let trace = Trace::parse(
+            "pdfce-diag canvas-selection via=click mod=false sel=1 level=Object \
+             first=object:832\n\
+             pdfce-diag properties-panel object=832 kind=Path notes=0",
+            "pdfce-diag",
+        );
+        assert_eq!(aim_verdict(&trace), Aim::NotText("Path"));
+    }
+
+    /// The state every phase-1 oracle below the guard is entitled to assume.
+    #[test]
+    fn one_text_object_is_the_state_the_check_may_proceed_from() {
+        let trace = Trace::parse(ON_TEXT, "pdfce-diag");
+        assert_eq!(aim_verdict(&trace), Aim::OneTextObject);
+    }
+
+    /// A click on blank paper: `object_section` has no object to describe, so
+    /// it writes no line at all. Absent must not read as "unknown, carry on".
+    #[test]
+    fn no_properties_panel_line_means_the_click_selected_nothing() {
+        let trace = Trace::parse(
+            "pdfce-diag canvas-selection via=click mod=false sel=0 level=Object first=none",
+            "pdfce-diag",
+        );
+        assert_eq!(aim_verdict(&trace), Aim::NothingSelected);
+        // ★ And an EMPTY trace too — a run where the click never reached the
+        // canvas is the same absence and must skip rather than proceed.
+        assert_eq!(
+            aim_verdict(&Trace::parse("", "pdfce-diag")),
+            Aim::NothingSelected
+        );
+    }
+
+    /// `route` is single-selection by design, so a marquee that caught a label
+    /// and ten paths is an aim problem even though the FIRST object is text.
+    ///
+    /// ★ This is the case `properties-panel` alone cannot see: it describes the
+    /// first selected object and says nothing about how many there are, which
+    /// is why the count is read from `canvas-selection` instead of inferred.
+    #[test]
+    fn a_multi_selection_whose_first_object_is_text_still_skips() {
+        let trace = Trace::parse(
+            "pdfce-diag canvas-selection via=marquee mod=false sel=11 level=Object \
+             first=object:412\n\
+             pdfce-diag properties-panel object=412 kind=Text notes=0",
+            "pdfce-diag",
+        );
+        assert_eq!(aim_verdict(&trace), Aim::NotAlone(11));
+    }
+
+    /// A `properties-panel` line with no readable count beside it must not be
+    /// waved through as one.
+    ///
+    /// `canvas-selection` is written through `diag::trace_changed`, so a run
+    /// that never changed its selection carries no line — and defaulting that
+    /// to one would let the guard pass on silence, which is the failure mode
+    /// the guard exists to end.
+    #[test]
+    fn a_missing_selection_count_is_zero_and_not_one() {
+        let trace = Trace::parse(
+            "pdfce-diag properties-panel object=412 kind=Text notes=0",
+            "pdfce-diag",
+        );
+        assert_eq!(aim_verdict(&trace), Aim::NotAlone(0));
+    }
+
+    /// The event and field names are the program's, and a rename on either side
+    /// silently turns this guard into "always skip".
+    ///
+    /// Pinned here rather than trusted: the two lines are quoted verbatim from
+    /// `canvas::trace` and `panels::properties::mod::object_section`, and the
+    /// kind spelling is `summary::ObjectKind::Text` under `{:?}`.
+    #[test]
+    fn the_oracle_names_are_the_ones_the_program_writes() {
+        assert_eq!(CANVAS_SELECTION_EVENT, "canvas-selection");
+        assert_eq!(PANEL_EVENT, "properties-panel");
+        assert_eq!(TEXT_KIND, "Text");
+        let trace = Trace::parse(ON_TEXT, "pdfce-diag");
+        assert!(
+            trace.last(PANEL_EVENT).is_some(),
+            "the panel line must parse under the profile's `pdfce-diag` prefix"
+        );
+        assert_eq!(
+            trace
+                .last(CANVAS_SELECTION_EVENT)
+                .and_then(|line| line.get_usize("sel")),
+            Some(1)
+        );
+    }
 }

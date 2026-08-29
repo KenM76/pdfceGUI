@@ -702,6 +702,146 @@ pub fn click_mode_segment(
     Ok(())
 }
 
+/// The select tool's ribbon control, on View ▸ Navigate.
+pub const SELECT_TOOL_REGION: &str = "ribbon.item.view.tool_select";
+/// The command id the shell reports for it on [`INVOKE_EVENT`].
+pub const SELECT_TOOL_ID: &str = "view.tool_select";
+/// The tab that carries it — View, which **every** mode is shown.
+pub const VIEW_TAB: (&str, &str) = ("ribbon.tab.view", "view");
+
+/// **Put the pen down with the POINTER, not with a key.** Answers whether the
+/// ribbon route delivered the command.
+///
+/// # ★★★ Why this exists: a keystroke is not a harness primitive with a raised
+/// panel on screen
+///
+/// A check that authors something with a markup or measure tool has to disarm
+/// before it can select what it just made — with a tool armed, a click on the
+/// page is a PICK rather than a selection. Every such check used to do that
+/// with a key: `V` (the `view.tool_select` chord) or Escape.
+///
+/// On 2026-08-28 that cost `the_line_weight_switch_reaches_the_resize` three
+/// failed runs out of six, and the measurements are worth keeping:
+///
+/// | attempt | result |
+/// |---|---|
+/// | `V` | **never arrived** — no invocation traced at all |
+/// | one Escape | arrived sometimes |
+/// | five Escapes, polling for the region | attempt 1, or not in five |
+///
+/// ⇒ **A chord is routed through whatever holds keyboard focus**, and that
+/// check raises a dock panel by construction. The failure's shape is the
+/// dangerous part: `V` produced *no line anywhere*, so the check reported the
+/// Tool panel as drawing the wrong block when nothing had ever reached the
+/// application. A harness primitive that can fail silently will eventually be
+/// believed.
+///
+/// A click does not depend on focus, it is this suite's most exercised
+/// primitive, and it has an oracle — the shell writes
+/// `ribbon-command-invoked id=view.tool_select`.
+///
+/// # ★★ Why `view.tool_select` specifically, and not its neighbours
+///
+/// `app::dispatch`'s arm calls `canvas::tool::arm::select`, a plain write into
+/// tool memory. Its two neighbours on the same band — `view.tool_hand` and
+/// `view.tool_text` — are **toggles** (`toggle_hand`, and its text twin), so a
+/// second press of either flips back. This is the one control on that row that
+/// cannot be wrong about its own state, which is what makes the step
+/// deterministic rather than merely more reliable.
+///
+/// # ★ Why it returns `bool` rather than failing
+///
+/// Because what an unavailable route *means* is the caller's to say, and the
+/// two callers disagree. A check whose subject sits inside a raised panel must
+/// SKIP — falling back to the chord there would restore exactly the flake this
+/// removes, silently. A check that merely needs the pen down, and that has
+/// been passing on `V` for weeks, should press `V` and say so. Neither verdict
+/// belongs here; both messages do belong in their own check.
+///
+/// `false` means *the pointer route was not available or did not land* — the
+/// View tab is missing, the control is on none of the band, a collapsed group
+/// or the overflow, or the click produced no invoke. Each of those writes a
+/// note before returning, so a caller's own message never has to guess which.
+///
+/// # Errors
+///
+/// If the trace cannot be read or the pointer cannot be driven. Note that a
+/// *missing* control is not an error — it is `Ok(false)`.
+pub fn arm_select_from_ribbon(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    report: &mut crate::report::CheckReport,
+) -> Result<bool> {
+    // The tab first, and only if the control is not already on the band: a tab
+    // click is cheap but it is not free, and a check driven from View has the
+    // control in front of it already.
+    if declared(&session.trace()?, ui_rect, SELECT_TOOL_REGION).is_none() {
+        let trace = session.trace()?;
+        let Some(tab) = declared(&trace, ui_rect, VIEW_TAB.0) else {
+            report.note(format!(
+                "the pointer route to the select tool is unavailable: no `{}` region. Tabs \
+                 declared: {}.",
+                VIEW_TAB.0,
+                list(&declared_names(&trace, ui_rect, "ribbon.tab."))
+            ));
+            return Ok(false);
+        };
+        driver.click_at(session.frame()?.declared_center(tab))?;
+        session.settle(14);
+        if !shell_trace(session)?
+            .events(TAB_EVENT)
+            .any(|l| l.get("tab") == Some(VIEW_TAB.1))
+        {
+            report.note(format!(
+                "the click on `{}` produced no `{TAB_EVENT} tab={}` line, so the pointer route \
+                 to the select tool could not be opened.",
+                VIEW_TAB.0, VIEW_TAB.1
+            ));
+            return Ok(false);
+        }
+    }
+
+    let Some(item) = declared_or_in_overflow(session, driver, ui_rect, SELECT_TOOL_REGION)? else {
+        report.note(format!(
+            "the View tab declares no `{SELECT_TOOL_REGION}`, on the band, in a collapsed group \
+             or in the overflow. Items declared: {}.",
+            list(&declared_names(
+                &session.trace()?,
+                ui_rect,
+                "ribbon.item.view."
+            ))
+        ));
+        return Ok(false);
+    };
+
+    // Before/after, not "did it happen at all": the application is free to have
+    // armed the select tool earlier in the run for its own reasons, and what
+    // this step needs to know is whether THIS click landed.
+    let before = select_invokes(session)?;
+    driver.click_at(session.frame()?.declared_center(item))?;
+    session.settle(20);
+    if select_invokes(session)? <= before {
+        report.note(format!(
+            "the click on `{SELECT_TOOL_REGION}` produced no new `{INVOKE_EVENT} \
+             id={SELECT_TOOL_ID}` line, so the pointer did not reach the control."
+        ));
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+/// How many times the **shell** has reported [`SELECT_TOOL_ID`] invoked.
+///
+/// Read from [`shell_trace`], because `ribbon-command-invoked` is written by
+/// `egui-shell` and `Session::trace` parses only the application's vocabulary.
+fn select_invokes(session: &Session) -> Result<usize> {
+    Ok(shell_trace(session)?
+        .events(INVOKE_EVENT)
+        .filter(|l| l.get("id") == Some(SELECT_TOOL_ID))
+        .count())
+}
+
 /// **Scroll a pane until `wanted` is on screen, and answer where it is.**
 ///
 /// # ★★★ Why this is a helper and not two copies of a loop

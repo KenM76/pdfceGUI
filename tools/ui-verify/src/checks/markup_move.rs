@@ -257,8 +257,30 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // a second rectangle instead. A harness that leaves a mode armed is
     // measuring a different program from the one an operator uses, and the
     // failure it produces names the wrong subject.
-    driver.press(crate::sys::vk::V)?;
-    session.settle(12);
+    //
+    // ★★ **The POINTER first, the chord as the fallback — 2026-08-28.**
+    //
+    // `V` has worked in this check since it was written, and it is kept for
+    // that reason. What changed is that it is no longer *first*:
+    // `driving::arm_select_from_ribbon` records six runs of
+    // `the_line_weight_switch_reaches_the_resize` in which `V` arrived **zero**
+    // times with a dock panel that check had raised, and — the part that
+    // matters — arrived silently, producing no line anywhere, so the check
+    // blamed the panel. This check raises no panel, which is why `V` works
+    // here; a click works whether or not that stays true.
+    //
+    // ★ The fallback stays rather than being deleted, because a route with
+    // years of green behind it is better than a SKIP when the ribbon route is
+    // unavailable. `scale_switch` refuses the same fallback, and its own note
+    // says why: there, the chord is measured not to work.
+    if !crate::checks::driving::arm_select_from_ribbon(&session, &driver, ui_rect, report)? {
+        report.note(
+            "the ribbon route to the select tool was unavailable, so the pen was put down with \
+             the `V` chord instead — the route this step used until 2026-08-28",
+        );
+        driver.press(crate::sys::vk::V)?;
+        session.settle(12);
+    }
     driver.click_at(centre_screen)?;
     session.settle(24);
 

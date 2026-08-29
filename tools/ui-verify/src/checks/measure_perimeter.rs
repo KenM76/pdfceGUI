@@ -472,8 +472,30 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // UNVERIFIED rather than as "the handles are not drawn", which is the
     // distinction that made it a two-minute fix instead of an investigation
     // into the painter.
-    driver.press(vk::V)?;
-    session.settle(10);
+    //
+    // ★★ **The POINTER first, the chord as the fallback — 2026-08-28.**
+    //
+    // `driving::arm_select_from_ribbon`'s doc carries the measurements: with a
+    // dock panel raised, `V` was observed arriving zero times in six runs, and
+    // it failed *silently* — no line anywhere — so the check that met it
+    // reported the wrong subject. This check has been passing on `V` and raises
+    // no panel of its own, so the chord stays reachable rather than being
+    // deleted; what changes is the order. A click does not depend on keyboard
+    // focus and it has an oracle of its own.
+    //
+    // ★ Keeping the fallback is deliberate and it is the difference from
+    // `scale_switch`, which refuses one: a check whose subject sits inside a
+    // panel it raised must SKIP rather than retry with a primitive measured not
+    // to work there. Here the pen merely has to go down, and a route that has
+    // worked all along is better than a skip.
+    if !crate::checks::driving::arm_select_from_ribbon(&session, &driver, ui_rect, report)? {
+        report.note(
+            "the ribbon route to the select tool was unavailable, so the pen was put down with \
+             the `V` chord instead — the route this step used until 2026-08-28",
+        );
+        driver.press(vk::V)?;
+        session.settle(10);
+    }
     // ★★ ON THE INK, not in the middle of the ring.
     //
     // This aimed at the centre of the traced square until 2026-08-20 and the
