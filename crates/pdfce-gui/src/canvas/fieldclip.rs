@@ -398,10 +398,16 @@ fn placed_rect(source: Rect, from_page: usize, to_page: usize) -> Rect {
 
 /// A field name this document does not use, derived from `base`.
 ///
-/// `Drawn By` → `Drawn By 2` → `Drawn By 3`. The spelling itself is
-/// [`crate::text::fieldclip::candidate_name`]'s, because a field name is shown
-/// to the operator and is therefore catalogued prose rather than a format
-/// string here.
+/// `Text1` → `Text2` → `Text3`, and `Drawn By` → `Drawn By2`. The spelling is
+/// [`crate::text::fieldclip::candidate_name`]'s — a field name is operator-facing
+/// text — and the *numbering* is [`split_trailing_number`]'s, which is logic and
+/// belongs here.
+///
+/// ★★ The convention is Acrobat's, sourced rather than invented: its bulk
+/// duplication auto-names copies `Date1`, `Date2`, `Date3`, and the separator is
+/// load-bearing rather than cosmetic. `candidate_name`'s header carries both the
+/// scripting rationale and the reason a **dot** is refused even though one
+/// Acrobat account uses it.
 ///
 /// ★ Nothing here is a *guess at what the operator wants it called*. The name
 /// is a placeholder they are expected to change, and the Properties panel's
@@ -423,13 +429,57 @@ fn unique_name(doc: &OpenDoc, base: &str) -> String {
     if !taken(base) {
         return base.to_owned();
     }
-    for n in 2..1000u32 {
-        let candidate = crate::text::fieldclip::candidate_name(base, n);
+    let (stem, start) = split_trailing_number(base);
+    // Bounded, not unbounded. `start` can be large if the operator numbered a
+    // field `Rev2000`, so the ceiling is relative rather than absolute — an
+    // unbounded loop over a document is a hang, and a fixed `2..1000` would
+    // give up immediately on a high-numbered base.
+    for n in start..start.saturating_add(1000) {
+        let candidate = crate::text::fieldclip::candidate_name(stem, n);
         if !taken(&candidate) {
             return candidate;
         }
     }
     base.to_owned()
+}
+
+/// Split a field name into its stem and the number to try first.
+///
+/// ★★ `Text1` → `("Text", 2)`, not `("Text1", 2)`. **Continuing an existing
+/// number is the whole point**, and getting it wrong is what produced `Text1 2`.
+///
+/// This shell's own placement dialog names a new text field `Text1` — Acrobat's
+/// convention, already numbered — so a base *with* a trailing number is the
+/// ordinary case here, not the exotic one. A rule that only appended would
+/// produce `Text12` from `Text1`, which reads as "field twelve" and sorts
+/// nowhere near its source.
+///
+/// A base with no trailing number starts at **2**, because the source itself is
+/// the unwritten 1: `Drawn By` and `Drawn By2` are a pair, `Drawn By1` beside a
+/// bare `Drawn By` is not.
+///
+/// The digits are parsed as `u32` and a name whose trailing run does not fit —
+/// `Rev99999999999` — falls back to treating the whole thing as the stem. That
+/// is a name nobody has, and it is written as a branch rather than an `unwrap`
+/// because a panic here would be on the operator's paste.
+fn split_trailing_number(base: &str) -> (&str, u32) {
+    let digits_start = base
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_ascii_digit())
+        .map(|(i, _)| i)
+        .last();
+    match digits_start {
+        // ★ `Some(0)` means the name is ALL digits — a field called `12`. The
+        // stem would be empty and the paste would be named `13`, which is a
+        // legal field name and a terrible one, but it is also exactly what the
+        // operator's own scheme implies. Left alone deliberately.
+        Some(i) => match base[i..].parse::<u32>() {
+            Ok(n) => (&base[..i], n.saturating_add(1)),
+            Err(_) => (base, 2),
+        },
+        None => (base, 2),
+    }
 }
 
 /// Read `doc.selected_field` into a clip, without touching the clipboard.
@@ -562,6 +612,46 @@ fn value_text(value: &pdfce_core::forms::FieldValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ★★★ The naming convention, which was WRONG until 2026-08-29.
+    ///
+    /// It produced `Text1 2` from `Text1`: a space separator and no awareness
+    /// that the base was already numbered. Both halves are fixed here and both
+    /// are sourced from the Acrobat reference rather than chosen.
+    #[test]
+    fn a_numbered_base_continues_its_number_and_a_bare_one_starts_at_two() {
+        assert_eq!(
+            split_trailing_number("Text1"),
+            ("Text", 2),
+            "★ this shell's own placement dialog names a new text field `Text1`, so a numbered base is the ORDINARY case. Appending instead of continuing gives `Text12`, which reads as field twelve"
+        );
+        assert_eq!(split_trailing_number("Text9"), ("Text", 10));
+        assert_eq!(
+            split_trailing_number("Drawn By"),
+            ("Drawn By", 2),
+            "a bare name starts at 2, because the source itself is the unwritten 1"
+        );
+        assert_eq!(
+            split_trailing_number("Rev2000"),
+            ("Rev", 2001),
+            "a high number continues rather than restarting"
+        );
+    }
+
+    /// The separator is load-bearing, and the DOT is refused.
+    #[test]
+    fn the_generated_name_carries_no_separator_and_never_a_dot() {
+        let name = crate::text::fieldclip::candidate_name("Text", 2);
+        assert_eq!(name, "Text2");
+        assert!(
+            !name.contains('.'),
+            "★★★ `.` is the fully-qualified-name separator (12.7.3.2), so `Text.2` would be a CHILD field named `2` under a parent named `Text` — a hierarchy nobody asked for, not a cosmetic suffix. One Acrobat account uses dot notation and this is the one place its convention must be refused"
+        );
+        assert!(
+            !name.contains(' '),
+            "a space breaks the sourced scripting rationale: the suffix exists so a script can loop over fields sharing `the non-number part of the field name`, and the non-number part of `Text 2` has a trailing space"
+        );
+    }
 
     /// The offset rule, both halves, because they disagree on purpose.
     #[test]

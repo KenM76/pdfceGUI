@@ -164,22 +164,50 @@ pub fn os_marker(field: &str) -> String {
     )
 }
 
-/// **A candidate name for a pasted field** — `Drawn By` + `2` -> `Drawn By 2`.
+/// **A candidate name for a pasted field** — `Text` + `2` -> `Text2`.
 ///
-/// ★ It lives in the string catalog rather than beside the loop that calls it,
-/// and `check-ui-strings` is right to have insisted. A field name is shown to
-/// the operator in three places (the Forms panel, the tab-order list and the
-/// Properties header), so the separator is operator-facing prose: a space here
-/// and an underscore elsewhere would be two conventions for one thing, and a
-/// locale that numbers differently has nowhere else to say so.
+/// # ★★★ NO SEPARATOR, and above all NO DOT
 ///
-/// Space-separated rather than `Drawn By_2`, which reads as a typo. The name is
-/// a placeholder the operator is expected to change; the rename control in the
-/// Properties panel is the route, which is why a paste generates one instead of
-/// opening a dialog on every Ctrl+V.
+/// Corrected 2026-08-29 from `Drawn By 2` (a space) after reading the Acrobat
+/// reference `forms__field_copy_paste_and_duplication.md`. Two things it
+/// settles, and the second is a correctness matter rather than a taste one.
+///
+/// **1. The convention is a plain numeric suffix.** Acrobat's bulk duplication
+/// ("Create Multiple Copies") auto-names its copies `Date1`, `Date2`, `Date3`,
+/// and the sourced rationale is explicitly about scripting: the suffix exists so
+/// a script can loop over every field sharing *"the non-number part of the field
+/// name"*. **A space breaks exactly that property** — the non-number part of
+/// `Drawn By 2` is `Drawn By ` with a trailing space, which no author would
+/// write and every string comparison would trip over. So the separator is not a
+/// house style to pick; it is load-bearing, and the convention has a reason.
+///
+/// **2. A DOT WOULD BE A STRUCTURAL CHANGE, NOT A COSMETIC ONE.** The other
+/// sourced account of Acrobat's auto-naming describes dot-child notation —
+/// `Text.0`, `Text.1` — and the RAG flags the two accounts as contested. It does
+/// not matter which is right, because pdfce must not use the dot either way:
+/// **`.` is the fully-qualified-name separator** (§12.7.3.2), so `Drawn By.2`
+/// is not a field called *"Drawn By.2"*, it is a **child field named `2` under a
+/// parent named `Drawn By`**. That is a third shape — a shared ancestor node
+/// with independent terminal children — and it is neither of the two this
+/// shell's two chords are for. Adopting it would silently give `Ctrl+V` a
+/// hierarchy nobody asked for.
+///
+/// ⇒ The one place a reference implementation's own convention must be refused
+/// is where the format assigns the character a meaning.
+///
+/// # Why the catalog and not the call site
+///
+/// A field name is shown to the operator in three places — the Forms panel, the
+/// tab-order list and the Properties header — so it is operator-facing text and
+/// `check-ui-strings` was right to insist. The numbering itself is *logic* and
+/// lives with the caller; only the spelling is here.
+///
+/// The name is a placeholder the operator is expected to change, which is why a
+/// paste generates one rather than opening a dialog. Four boxes down a column is
+/// four keystrokes, not four interruptions.
 #[must_use]
-pub fn candidate_name(base: &str, n: u32) -> String {
-    format!("{base} {n}")
+pub fn candidate_name(stem: &str, n: u32) -> String {
+    format!("{stem}{n}")
 }
 
 /// `a`, `a and b`, `a, b and c` — the serial comma omitted, matching the rest

@@ -166,6 +166,64 @@ source. That needs typing into one box and reading the other, which this harness
 has no gesture for. The box count proves a second widget arrived; it does not
 prove the two are one field. The engine's own disclosure says they are.
 
+### The naming, checked against Acrobat rather than chosen — 2026-08-29
+
+You left this to me, so it was sourced instead of picked. The reference file
+`forms__field_copy_paste_and_duplication.md` settles two things:
+
+**`Text1` → `Text2` → `Text3`, and `Drawn By` → `Drawn By2`.** The first
+version produced **`Text1 2`** and was wrong twice over. Acrobat's bulk
+duplication auto-names copies `Date1`, `Date2`, `Date3`, and the sourced reason
+is scripting: the suffix exists so a script can loop over every field sharing
+*"the non-number part of the field name"*. **A space breaks exactly that.** And
+our own placement dialog already names a new field `Text1`, so continuing the
+number is the ordinary case, not the exotic one — appending would have given
+`Text12`, which reads as field twelve.
+
+**★★★ And one Acrobat convention is deliberately REFUSED.** A second sourced
+account has Acrobat numbering copies `Text.0`, `Text.1` with a **dot**. pdfce
+must not, whichever account is right: `.` is the fully-qualified-name separator
+(§12.7.3.2), so `Text.2` is not a field called that — it is a **child field
+named `2` under a parent named `Text`**. That is a third shape, a shared
+ancestor with independent children, and it is neither of the two things your two
+chords mean. Adopting it would have given `Ctrl+V` a hierarchy nobody asked for.
+The driven check now forbids both a dot and a space in the pasted name by name.
+
+### ★★★ A FINDING FOR YOU, not a change: your `Ctrl+V` is the OPPOSITE of Acrobat's
+
+Reported rather than acted on, because the chords are your ruling.
+
+In Acrobat, **plain single-field Copy/Paste is the LINKED one.** Copy a field,
+paste it, leave the name alone, and you get a second widget of the *same* field
+sharing its value — what you assigned to `Ctrl+Shift+V`. Acrobat has no
+"paste as independent" chord at all; you get independence only from the *bulk*
+commands (Place Multiple Fields, Create Multiple Copies), which auto-name and
+therefore produce separate fields.
+
+**I think your split is the better one and I have not changed anything.** Two
+reasons, both from the same source:
+
+1. Acrobat's own linking default is a **documented, unresolved point of user
+   friction** — there is a standing Acrobat DC request for an *"option to unlink
+   form fields when copying"*, and the only workaround Acrobat offers is
+   renaming each duplicate by hand afterwards.
+2. Acrobat's own guidance frames the bulk commands as *"the recommended approach
+   when you want each field to behave independently"* — which is the title-block
+   case, and the common one. You put the common intent on the common chord.
+
+⇒ **But it is a divergence from the reference app, it is now written down, and
+it is yours to reverse.** Swapping the two chords is a one-line change if you
+would rather match Acrobat exactly.
+
+### One gap against Acrobat, recorded
+
+An **empty, unsigned signature field** is refused here, and Acrobat would copy
+it. The refusal is honest — `pdfce-core` has five `add_*_field` verbs and none
+authors a signature field, so there is nothing to paste — but the reason is our
+engine, not the convention. (A *signed* field is a hard limit everywhere: the
+cryptographic binding is to the exact bytes, so no viewer can duplicate one and
+have it stay valid.)
+
 **Status:** ✅ **SHIPPED AND DRIVEN — awaiting your verdict.** The lossless
 route for `Ctrl+V` is still filed and unanswered; until it lands, a new-field
 paste says on the status row exactly what did not come with it.

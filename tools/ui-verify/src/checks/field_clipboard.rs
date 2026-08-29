@@ -403,8 +403,36 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     }
+    // ★★★ WHAT it was called, not just that there is one more.
+    //
+    // The naming rule was wrong until 2026-08-29 — it produced `Text1 2` from
+    // `Text1`, a space separator plus no awareness that the base was already
+    // numbered — and a check counting NAMES would have passed against it
+    // unchanged. Acrobat's sourced convention is a plain numeric suffix
+    // continuing an existing number, so `Text1` -> `Text2`.
+    //
+    // ★ The assertion is on the SHAPE rather than the literal: it forbids the
+    // two spellings that are wrong for a stated reason — a space (which breaks
+    // the scripting rationale the convention exists for) and a dot (which is
+    // the fully-qualified-name separator, so `Text.2` is a CHILD field, a
+    // hierarchy nobody asked for). It does not pin `Text2` exactly, because the
+    // base name comes from whatever the placement dialog chose and pinning it
+    // would make this check fail the day that default changes.
+    let fresh: Vec<&String> = names_after_new.difference(&names_before).collect();
+    let Some(pasted) = fresh.first() else {
+        return Ok(Some(format!(
+            "the field count rose but no NEW name appeared, which should be impossible. Trace: {}",
+            session.trace_path().display()
+        )));
+    };
+    if pasted.contains('.') || pasted.contains(' ') {
+        return Ok(Some(format!(
+            "THE PASTED FIELD IS CALLED {pasted:?}, and neither spelling is allowed. A DOT is the fully-qualified-name separator (ISO 32000-1 12.7.3.2), so a dotted name makes the paste a CHILD field of the original rather than an independent one — a third shape, and not the one Ctrl+V promises. A SPACE breaks the reason the convention exists: Acrobat numbers duplicates `Date1`, `Date2` so a script can loop over fields sharing the non-number part of the name. Trace: {}",
+            session.trace_path().display()
+        )));
+    }
     report.note(format!(
-        "★ Ctrl+V added a new field: {} name(s) -> {}",
+        "★ Ctrl+V added a new field named {pasted:?} (from {field:?}): {} name(s) -> {}",
         names_before.len(),
         names_after_new.len()
     ));
