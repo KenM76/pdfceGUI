@@ -83,6 +83,9 @@ pub fn mouse_button(_down: bool) {}
 /// No-op: the secondary button, off Windows. See the win32 twin.
 pub fn mouse_button_secondary(_down: bool) {}
 
+/// No-op: there is no window server here to resize. See the win32 twin.
+pub fn resize_window(_w: WindowHandle, _width: i32, _height: i32) {}
+
 /// No-op: there is no window to type into.
 /// Turn the mouse wheel. No-op off Windows.
 pub fn wheel(_notches: i32) {}

@@ -80,8 +80,77 @@ pub(super) fn placement(
     display_size: Vec2,
     vp: Vec2,
 ) -> Option<Vec2> {
-    let mode = doc.fit_placement.take()?;
+    // ★★★ **A pending request OR a live fit mode**, and the second half is
+    // `OPERATOR_REQUESTS.md` **O55**, 2026-08-28:
+    //
+    // > *"if the canvas window is resized the pdf should resize to match"*
+    //
+    // ## What was here before, and the exact half it was missing
+    //
+    // This read `doc.fit_placement.take()?` alone — a **one-shot**, set by
+    // `Action::Fit` and spent on the following frame. So the page was placed
+    // when the operator pressed the button, and never again.
+    //
+    // `ViewState::apply_fit` meanwhile recomputes the **zoom** from the
+    // viewport on *every* frame a fit mode is active, which is why a resize
+    // already re-scaled correctly. Nothing re-placed it. The page therefore
+    // grew or shrank about whatever offset it happened to be sitting at, and
+    // drifted off centre — the scale right, the position stale, which is the
+    // same pair O28 was about arriving through a different door.
+    //
+    // ⇒ **A fit is a MODE, so its placement is a mode too.** Recomputing the
+    // scale every frame and the position once is the inconsistency the
+    // operator was looking at.
+    //
+    // ## ★★ Why the one-shot survives rather than being replaced
+    //
+    // Because it is still the thing that fires on a frame where the mode was
+    // *already* active — pressing **Fit page** while already fitted to page
+    // must still recentre a view the operator has panned away, and the mode
+    // alone cannot distinguish that frame from the sixty before it.
+    //
+    // ★ It is `take`n whatever happens, for the reason this function's own
+    // note gives: a request left pending fires on some later frame and reads
+    // as the view jumping for a button pressed seconds ago.
+    let pending = doc.fit_placement.take();
+    // ★★★ **A RESIZE, NOT A FRAME**, and the difference is a regression that
+    // was written, run and caught the same hour.
+    //
+    // Re-placing on **every** frame while a fit is active is the obvious
+    // reading of *"a fit is a mode, so its placement is a mode"*, and it is
+    // wrong: under **Fit page** both axes are pinned, so the placement returns
+    // the page's origin on every frame and **the wheel cannot scroll at all**.
+    // In a continuous display that makes the document unnavigable, because the
+    // wheel is how the next page is reached.
+    //
+    // ⇒ Caught by `a_fit_command_puts_the_page_on_screen`'s own precondition,
+    // which scrolls into the pasteboard and **asserts it got there** before
+    // pressing anything. It reported *"the pan did not move the page"* and
+    // SKIPPED — a setup step refusing to proceed rather than a subject
+    // failing, which is the shape a precondition is supposed to have and the
+    // reason that check was written to establish its own.
+    //
+    // ★ The operator's sentence says it exactly: *"if the canvas window is
+    // **resized** the pdf should resize to match"*. Resized, not redrawn.
+    //
+    // ★ Compared exactly rather than with a tolerance. A viewport that has not
+    // changed produces bit-identical floats — it is the same measurement of the
+    // same layout — and a tolerance would only decide how much of a resize is
+    // allowed to be ignored, which is a question nobody has.
+    let resized =
+        doc.view.fit != crate::viewer::FitMode::None && doc.fit_viewport != Some((vp.x, vp.y));
+    let mode = match pending {
+        Some(requested) => requested,
+        None if resized => doc.view.fit,
+        None => return None,
+    };
     let pinned = mode.pinned_axes()?;
+    // Recorded whichever route got here, so the next frame is not a resize.
+    // ★ Written even for a PENDING request: pressing Fit page establishes the
+    // viewport the fit is now placed against, and without this the frame after
+    // the button would read as a resize and re-place a view the operator may
+    // have already begun scrolling.
+    doc.fit_viewport = Some((vp.x, vp.y));
     // Where the view is now, expressed the way a single-page solve expects.
     // The PREVIOUS frame's settled offset, which is the only one available
     // before this frame's scroll area is built — and the correct one, because

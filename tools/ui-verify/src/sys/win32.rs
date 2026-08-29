@@ -47,8 +47,8 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GA_ROOT, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
     GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SW_MAXIMIZE,
-    SW_SHOW, SWP_NOSIZE, SWP_NOZORDER, SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow,
-    WindowFromPoint,
+    SW_SHOW, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetCursorPos, SetForegroundWindow, SetWindowPos,
+    ShowWindow, WindowFromPoint,
 };
 
 use crate::coords::WindowFrame;
@@ -446,6 +446,39 @@ pub fn move_window(w: WindowHandle, x: i32, y: i32) {
             0,
             0,
             SWP_NOSIZE | SWP_NOZORDER,
+        );
+    }
+}
+
+/// **Resize the window**, keeping its position.
+///
+/// ★★★ Added 2026-08-28 for `OPERATOR_REQUESTS.md` **O55**, whose whole
+/// subject is *"if the canvas window is resized the pdf should resize to
+/// match"*. Until then this harness could move a window and could not resize
+/// one — so **no check had ever exercised a resize**, and a fit's behaviour
+/// across one was outside R1's reach entirely.
+///
+/// ⇒ The second gesture class found missing today, after the secondary click.
+/// The pattern is worth naming: a harness grows a primitive when a feature
+/// needs it, so the primitives it has are a map of the features somebody
+/// already had to prove — and the ones it lacks are where nothing has been
+/// proved at all.
+///
+/// `SWP_NOMOVE | SWP_NOZORDER` keeps the position and the stacking exactly as
+/// they were; the size is in **physical pixels**, which is what
+/// `SetWindowPos` takes and what `describe_window`'s client rect reports.
+pub fn resize_window(w: WindowHandle, width: i32, height: i32) {
+    // SAFETY: `w` is a handle this module produced; `SetWindowPos` tolerates a
+    // stale handle by returning false.
+    unsafe {
+        SetWindowPos(
+            w.hwnd(),
+            std::ptr::null_mut(),
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER,
         );
     }
 }

@@ -62,7 +62,7 @@ use crate::launch::{LaunchSpec, Session};
 const CANVAS_REGION: &str = "canvas-viewport";
 
 /// The canvas's own state line, which carries the page's drawn `rect=`.
-const CANVAS_EVENT: &str = "canvas";
+pub(super) const CANVAS_EVENT: &str = "canvas";
 
 /// Where to roll the wheel to throw the view off the page, as a fraction of
 /// the canvas.
@@ -99,6 +99,27 @@ const EDGE_TOLERANCE: f32 = 4.0;
 /// application had never made.**
 const CANVAS_MARGIN: f32 = 16.0;
 
+/// How much smaller the window is made, in **physical pixels**, to test that a
+/// fit survives a resize.
+///
+/// ★ Large enough that the change dwarfs [`EDGE_TOLERANCE`] — a resize the
+/// check cannot distinguish from noise would make the phase vacuous — and
+/// small enough that the ribbon still lays out, since a window too narrow to
+/// draw the ribbon fails for a reason that is not the subject.
+const RESIZE_BY_PX: i32 = 160;
+
+/// The window chrome either side of the client area, in physical pixels.
+///
+/// ★★ Approximate on purpose, and the check does not depend on the number
+/// being right: it resizes by a delta and asserts the CANVAS changed, then
+/// restores by the same arithmetic. An error here makes the window a few
+/// pixels different from where it started and is invisible to every claim —
+/// whereas assuming `client_size` IS the window size would shrink it by the
+/// chrome on every iteration, which compounds.
+const BORDER_PX: i32 = 16;
+/// The title bar and border, vertically. See [`BORDER_PX`].
+const TITLEBAR_PX: i32 = 39;
+
 /// See the module documentation.
 pub struct AFitCommandPutsThePageOnScreen;
 
@@ -124,7 +145,7 @@ impl Check for AFitCommandPutsThePageOnScreen {
 }
 
 /// The page's drawn rect, as the canvas last reported it.
-fn page_rect(session: &Session) -> Result<Option<LRect>> {
+pub(super) fn page_rect(session: &Session) -> Result<Option<LRect>> {
     Ok(session
         .trace()?
         .events(CANVAS_EVENT)
@@ -133,7 +154,7 @@ fn page_rect(session: &Session) -> Result<Option<LRect>> {
 }
 
 /// Click a View-tab command by its ribbon item id.
-fn invoke(session: &Session, driver: &Driver, ui_rect: &str, item: &str) -> Result<()> {
+pub(super) fn invoke(session: &Session, driver: &Driver, ui_rect: &str, item: &str) -> Result<()> {
     let trace = session.trace()?;
     let tab = declared(&trace, ui_rect, "ribbon.tab.view").ok_or_else(|| {
         Error::new(format!(
@@ -364,6 +385,90 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         ));
         if let Some(failure) = verdict(label, page, canvas_now, claim) {
             return Ok(Some(failure));
+        }
+
+        // --- ★★★ AND THE SAME CLAIM AFTER A RESIZE — `O55` ----------------
+        //
+        // > *"if the canvas window is resized the pdf should resize to match"*
+        //
+        // ## What this catches, and why the phase above cannot
+        //
+        // `ViewState::apply_fit` recomputes the **zoom** from the viewport on
+        // every frame a fit is active, so a resized window has always re-scaled
+        // correctly. The **placement** was a one-shot: `canvas::fit::placement`
+        // read `doc.fit_placement.take()`, set only by `Action::Fit`.
+        //
+        // ⇒ So the page grew or shrank about whatever offset it was sitting
+        // at, and drifted off centre. The scale right, the position stale —
+        // and every assertion above still passing, because they all run on the
+        // frame after the button.
+        //
+        // **Re-asserting the identical claim after a resize is the whole
+        // phase.** Nothing new is being measured; the same three claims are
+        // being asked again in the state the operator reported.
+        //
+        // ★★ It resizes and then resizes BACK, so each loop iteration hands
+        // the next one the window it was given. A check that shrank the window
+        // three times would be measuring an ever-smaller viewport and would
+        // eventually assert against one too small to lay the ribbon out.
+        let Some(handle) = session.window() else {
+            return Err(Error::new(
+                "no window handle, so this check cannot resize. SKIPPED.".to_owned(),
+            ));
+        };
+        let start = session.frame()?;
+        // ★ `client_size` is the CLIENT area and `resize_window` takes the
+        // whole window, so the borders are added back. Getting this wrong
+        // shrinks the window a little more each iteration rather than
+        // restoring it, which is the quiet kind of harness bug.
+        let (cw, ch) = start.client_size;
+        let (w, h) = (
+            i32::try_from(cw).unwrap_or(1100) + BORDER_PX,
+            i32::try_from(ch).unwrap_or(800) + TITLEBAR_PX,
+        );
+        crate::sys::resize_window(handle, w - RESIZE_BY_PX, h - RESIZE_BY_PX);
+        session.settle(30);
+
+        let resized_canvas = declared(&session.trace()?, ui_rect, CANVAS_REGION);
+        let after = page_rect(&session)?;
+        // Put it back before judging, so a failure does not leave the next
+        // iteration measuring a window this one shrank.
+        crate::sys::resize_window(handle, w, h);
+        session.settle(25);
+
+        let (Some(page_after), Some(canvas_after)) = (after, resized_canvas) else {
+            return Err(Error::new(
+                "the canvas stopped publishing its rect across the resize. SKIPPED.".to_owned(),
+            ));
+        };
+        if (canvas_after.width() - canvas_now.width()).abs() < EDGE_TOLERANCE {
+            return Err(Error::new(format!(
+                "the resize did not change the canvas (still {:.1} pt wide), so this phase cannot tell a fit that RE-PLACES from one that placed once. The window may be at a size limit, or the desktop may have refused the call. SKIPPED rather than passed.",
+                canvas_after.width()
+            )));
+        }
+        report.note(format!(
+            "{label} after resize: page {:.1},{:.1}..{:.1},{:.1} in canvas {:.1},{:.1}..{:.1},{:.1}",
+            page_after.min.x,
+            page_after.min.y,
+            page_after.max.x,
+            page_after.max.y,
+            canvas_after.min.x,
+            canvas_after.min.y,
+            canvas_after.max.x,
+            canvas_after.max.y
+        ));
+        if let Some(failure) = verdict(
+            &format!("{label} AFTER A RESIZE"),
+            page_after,
+            canvas_after,
+            claim,
+        ) {
+            return Ok(Some(format!(
+                "{failure}
+                 ★★★ **The claim held before the resize and not after**, which is
+                 `OPERATOR_REQUESTS.md` O55 exactly: the zoom re-fits every frame and the PLACEMENT used to be a one-shot spent on the button press. `canvas::fit::placement` must fall back to `doc.view.fit` when no request is pending, not return `None`."
+            )));
         }
     }
 

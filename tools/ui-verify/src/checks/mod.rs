@@ -258,6 +258,10 @@ pub mod dropped_file;
 /// that stays green while the answer goes stale, because a list can be complete
 /// about yesterday's tools and silent about today's.
 pub mod first_frame;
+/// **The exception O55 names**: a fit that a pan has left must not be re-placed
+/// by the next resize. Its sibling asserts the opposite for the wheel, so the
+/// pair pins both directions.
+pub mod fit_left_by_a_pan;
 pub mod fit_places_the_view;
 /// ★★★ **The ribbon route to a restyle, and the sentence that tells an operator
 /// how to reach it.** `restyle_text` below drives the PANEL; this drives the
@@ -791,6 +795,9 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // is a third mode. Pans into the pasteboard first, because the state
         // the request is about did not exist before O23.
         Box::new(fit_places_the_view::AFitCommandPutsThePageOnScreen),
+        // ★ Immediately after it: same subject, opposite outcome, and a failure
+        // in the sibling should be read first because this one builds on it.
+        Box::new(fit_left_by_a_pan::APanLeavesTheFit),
         // ★ O30: the wheel as a page turn, from the status-bar toggle. Asserts
         // the DEFAULT is silent first, so a build that flipped unconditionally
         // could not pass — and that the control is absent where the choice

@@ -188,6 +188,33 @@ pub(super) fn decide(
             (display_size.x, display_size.y),
             (vp.x, vp.y),
         );
+        // ★★★ **A PAN LEAVES THE FIT** — `OPERATOR_REQUESTS.md` **O55**:
+        //
+        // > *"if the canvas window is resized the pdf should resize to match
+        // > **unless the person has changed the zoom or panned around**."*
+        //
+        // `set_zoom` has always dropped out of a fit, so the first half of his
+        // sentence held. The second did not: `last_scroll_offset` is written
+        // every frame from the scroll area's own state and nothing consulted
+        // the fit, so an operator who fitted, then panned to look at a corner,
+        // was **still in fit mode** — and the next resize threw their position
+        // away, now that `fit::placement` re-places on every frame.
+        //
+        // ⇒ The two changes are one change. Re-placing every frame is what
+        // makes a fit a mode; leaving the mode on a pan is what stops that
+        // mode overriding the operator. Either alone is worse than neither.
+        //
+        // ## ★★ The WHEEL deliberately does not do this
+        //
+        // Scrolling a fit-width document is how every reader in the class is
+        // read, and a wheel notch that dropped the fit would mean the page
+        // stopped re-fitting the moment anybody looked at the second half of
+        // it. A pan is a *deliberate* repositioning — the middle button, or
+        // the hand tool — and that is the gesture his sentence names.
+        //
+        // ★ The zoom is left exactly where the fit put it. Leaving a fit is
+        // not a zoom change; it is the view ceasing to track the viewport.
+        doc.view.set_fit(crate::viewer::FitMode::None);
         // The gesture has to look like what it is. Without a cursor change a
         // pan that hits the end of the scroll range is indistinguishable from
         // a pan that is not working. ★ Before the return, for the reason the

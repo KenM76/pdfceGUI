@@ -135,8 +135,58 @@ the zoom or panned around."*
 there are two defensible answers — keep where you were, or centre — and he has
 now asked for centre twice.
 
-**Status:** ★ **ACCEPTED 2026-08-28**, ahead of the three unexplained sweep
-failures. Both halves are small; (b) is the one with the operator-visible bite.
+### What shipped, 2026-08-28, and the trap in the middle of it
+
+**(a) was already right** and the driven check proves it: fit page centres,
+fit width fills the width, fit height fills the height — before *and* after a
+resize. What was missing was **(b)**, and it split into two changes that only
+work together.
+
+**1. A fit re-places when the VIEWPORT changes.** It used to place once, on the
+button press: `canvas::fit::placement` read a one-shot set by `Action::Fit`.
+Meanwhile the *zoom* was recomputed every frame. So a resize re-scaled the page
+correctly and left it anchored wherever it sat — **the scale right, the
+position stale**, which is O28's complaint arriving through a different door.
+
+**2. A pan leaves the fit.** `set_zoom` always did; panning did not.
+
+### ★★★ The trap: "a fit is a mode, so re-place every frame" is WRONG
+
+That is the obvious reading and it was written, built and run. Under **Fit
+page** both axes are pinned, so the placement returns the page's origin on
+every frame and **the wheel cannot scroll at all** — in a continuous display,
+the document becomes unnavigable.
+
+⇒ Caught by `a_fit_command_puts_the_page_on_screen`'s own precondition, which
+scrolls into the pasteboard and **asserts it got there** before pressing
+anything. It reported *"the pan did not move the page"* and SKIPPED. **A setup
+step refusing to proceed**, which is exactly the shape a precondition should
+have and the reason that check was written to establish its own.
+
+★ The fix is to key on the **viewport**, not the frame — which is what his
+sentence says: *"if the canvas window is **resized**"*. Resized, not redrawn.
+
+### ★ And the wheel deliberately still keeps the fit
+
+Scrolling a fit-width document is how every reader in the class is read. A
+wheel notch that dropped the fit would stop the page re-fitting the moment
+anybody looked at the second half of it. **A pan is a deliberate
+repositioning** — the middle button, or the hand tool — and that is the gesture
+he named.
+
+⇒ The two checks assert opposite outcomes for the two gestures, so a build that
+treats all view movement alike fails one of them whichever way it goes.
+
+**Status:** ★★ **DONE 2026-08-28, driven and falsified.**
+`a_fit_command_puts_the_page_on_screen` gained a resize phase;
+`a_pan_leaves_the_fit` is new. With the pan fix removed the latter reports
+`margins l=8.0 r=8.0 t=108.4 b=108.3` — dead centre — against
+`l=-39.0 r=-105.0 t=120.4 b=-27.3` for the correct build.
+
+★ It would **not** have caught the state that shipped before today, and its
+header says so: then, a resize re-placed nothing, so a panned page was not
+re-centred and it would have passed for the wrong reason. **A guard written
+with a fix guards the fix**, not the original defect.
 
 ---
 
