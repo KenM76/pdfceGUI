@@ -205,8 +205,16 @@ answers apart?"*
 checks — seven of them written this session and NEVER RUN. Re-measure before
 quoting.** Engine `97d445f` (it moved during packaging; the suite and the gates
 were re-run against it and are green — that revision is **docs only**).
-**Published**: `OneDrive\pdfceGUI2` is the newest — the Ctrl+S fix and the bulk
-of the audit. `pdfceGUI1` holds O55, the build before it.
+**Published**: ★ `OneDrive\pdfceGUI1` is the newest — **2026-08-29 04:55**, engine
+`fde9fa2`, carrying the whole session including the review fixes. `pdfceGUI2`
+holds the 00:17 build, which has the Ctrl+S fix but **still has the unshare
+telling him a form is shared when it is not, and Ctrl+X half-cutting a comment**.
+Both slots were read back by date after mirroring, which is not optional.
+
+⚠ **Nothing in either build has been driven.** `--verify` was passed this time,
+so the suite and the 19 gates ran against the engine revision the binary
+actually links — the lesson from the 00:17 publish, where the packager's own
+`cargo update` moved the engine between the last green run and the exe.
 
 ⚠ **That package predates the last two commits** — the R83 refusal work (a
 certified document no longer draws three dead Delete controls), the Bold/Italic
