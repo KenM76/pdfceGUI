@@ -89,6 +89,37 @@ pub struct Pen {
     /// Clamped to [`MIN_WIDTH_PTS`]`..=`[`MAX_WIDTH_PTS`] by the control that
     /// sets it — see those constants for why the range is what it is.
     pub width_pts: f64,
+    /// ★★★ **The annotation's constant opacity, `/CA`** — `0.0`–`1.0`, where
+    /// `1.0` is fully opaque and is the default.
+    ///
+    /// # This field is why the mark can be seen THROUGH
+    ///
+    /// A comment on an engineering drawing sits on top of the thing it is about.
+    /// An opaque cloud round a dimension hides the dimension; a 40% one does
+    /// not. That is the whole use, and it is the reason the operator's own
+    /// argument against a **fill** does not apply here — a translucent outline
+    /// obscures nothing.
+    ///
+    /// # ★★ `1.0` writes no key at all, and that is deliberate
+    ///
+    /// [`Self::opacity_option`] answers `None` at `1.0`. §12.5.2 Table 164 makes
+    /// 1.0 the default, so writing it explicitly would add a key that changes
+    /// nothing and make a pdfce-authored opaque annotation textually different
+    /// from every other producer's — which is the engine's own reasoning on
+    /// `MarkupOptions::opacity`, adopted rather than re-derived.
+    ///
+    /// ⇒ It also keeps the standing rule for a capability becoming choosable:
+    /// **a build which omits nothing must behave as it did before the choice
+    /// existed**, byte for byte.
+    ///
+    /// # ★ Clamped by the control, refused by the engine
+    ///
+    /// [`MIN_OPACITY`]`..=1.0` at the widget. The engine **refuses** an
+    /// out-of-range author-time alpha by name rather than clamping it, because
+    /// *"quietly authoring 1.0 would put an opaque annotation on the page while
+    /// reporting success"* — so a value that escaped this range would produce a
+    /// refusal, not a silent surprise.
+    pub opacity: f64,
 }
 
 /// The thinnest pen offered.
@@ -100,6 +131,18 @@ pub struct Pen {
 /// annotation must not have. A quarter point is the thinnest value that means
 /// the same thing everywhere.
 pub const MIN_WIDTH_PTS: f64 = 0.25;
+
+/// **The most transparent mark offered**, as a fraction.
+///
+/// A tenth, not zero. An annotation at `/CA 0` is **invisible** — it is in the
+/// file, it is selectable, it prints as nothing, and nothing on screen says it
+/// is there. A control whose bottom end authors an invisible mark is a control
+/// whose bottom end is a defect report waiting to be filed, and the operator
+/// would have no way to tell it from a markup that failed to author at all.
+///
+/// A tenth is faint enough to be a wash over dense linework and still visible
+/// as a mark.
+pub const MIN_OPACITY: f64 = 0.1;
 
 /// The thickest pen offered.
 ///
@@ -135,6 +178,10 @@ impl Default for Pen {
             // DOCUMENT COLOUR: highlighter yellow, likewise `/C` in the file.
             highlighter: (1.0, 1.0, 0.0),
             width_pts: 2.0,
+            // Fully opaque, which writes no `/CA` at all — see the field's own
+            // doc comment. This is what every markup this shell authored before
+            // 2026-08-28 did, so the default is the old behaviour exactly.
+            opacity: 1.0,
         }
     }
 }
@@ -228,6 +275,18 @@ impl Pen {
     /// the operator is never shown a channel pdfce would silently ignore.
     pub fn set_ink(&mut self, colour: Color32) {
         self.ink = rgb_of(colour);
+    }
+
+    /// **The `/CA` value to author with, or `None` for "write no key".**
+    ///
+    /// `None` at fully opaque. See [`Self::opacity`] for why that is not the
+    /// same as `Some(1.0)` even though it is the same on screen, and why the
+    /// difference is worth a method rather than a comparison at each call site
+    /// — there are three, and the one that forgot would be the one that made a
+    /// pdfce annotation textually unlike everybody else's.
+    #[must_use]
+    pub fn opacity_option(&self) -> Option<f64> {
+        (self.opacity < 1.0).then_some(self.opacity)
     }
 
     /// Set the highlighter colour from a screen colour. As [`Self::set_ink`].

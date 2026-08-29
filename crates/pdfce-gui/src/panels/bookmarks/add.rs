@@ -55,62 +55,19 @@
 //! page-scoped surface in this application uses, and it needs no chooser.
 
 use egui::Ui;
-use pdfce_core::object::ObjId;
-use pdfce_core::outline::OutlineItem;
 
 use crate::app::actions::Action;
+use crate::app::actions::bookmarks::BookmarkAction;
 use crate::app::state::OpenDoc;
 use crate::text::panels as t;
+
+use super::BookmarksUi;
+use super::tree::{display_title, find};
 
 /// The region the title field publishes.
 pub const REGION_TITLE: &str = "bookmarks.new_title"; // ui-text-exempt: trace region name, never displayed
 /// The region the Add button publishes.
 pub const REGION_ADD: &str = "bookmarks.add"; // ui-text-exempt: trace region name, never displayed
-
-/// The panel's authoring state, between frames.
-///
-/// ★ **The parent is an `ObjId`, not a path through the tree.** `OutlineItem::id`
-/// carries it for exactly this, and its own doc says why: *"identity is what a
-/// GUI needs and the tree cannot otherwise supply … selecting a bookmark …
-/// keys off the object, not off a path through the tree that any edit
-/// invalidates."*
-///
-/// An index into the walk would name a different bookmark after every add,
-/// which is the hazard the engine hit **in its own CLI** — *"the indices shift
-/// after every add … I got this wrong myself while driving the command and
-/// nested something two levels deeper than intended, and the output looked
-/// entirely plausible."*
-#[derive(Default)]
-pub struct BookmarksUi {
-    /// What has been typed into the title field.
-    title: String,
-    /// The bookmark a new one goes under, or `None` for the top level.
-    ///
-    /// Set by clicking a row, which also navigates — a bookmark click means
-    /// *"take me there"* first and always, and making it mean *"and this is
-    /// now the parent"* as well is free because both are true of the row the
-    /// operator pointed at.
-    parent: Option<ObjId>,
-}
-
-impl std::fmt::Debug for BookmarksUi {
-    /// The title's length, not its text: a bookmark's name is the operator's
-    /// own words about their drawing, and this reaches a trace file a harness
-    /// keeps. `panels::properties::info` makes the same choice for `/Info`.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BookmarksUi")
-            .field("title_len", &self.title.len())
-            .field("parent", &self.parent)
-            .finish()
-    }
-}
-
-impl BookmarksUi {
-    /// Record the row the operator clicked as the parent for the next add.
-    pub fn select(&mut self, id: ObjId) {
-        self.parent = Some(id);
-    }
-}
 
 /// Draw the add-a-bookmark row.
 ///
@@ -123,9 +80,9 @@ pub fn show(ui: &mut Ui, doc: &OpenDoc, ui_state: &mut BookmarksUi, actions: &mu
     // A parent that has gone — the document was edited, or reloaded — falls
     // back to the top level rather than naming an object that is not there.
     // Reachable through undo, which is the ordinary way an id stops resolving.
-    let parent = ui_state.parent.and_then(|id| find(&outline.items, id));
-    if ui_state.parent.is_some() && parent.is_none() {
-        ui_state.parent = None;
+    let parent = ui_state.selected.and_then(|id| find(&outline.items, id));
+    if ui_state.selected.is_some() && parent.is_none() {
+        ui_state.clear_selection();
     }
 
     ui.separator();
@@ -141,7 +98,11 @@ pub fn show(ui: &mut Ui, doc: &OpenDoc, ui_state: &mut BookmarksUi, actions: &mu
         // Rename button in the groups window is: a control whose only possible
         // effect is the state you are already in reads as broken.
         if parent.is_some() && ui.button(t::bookmark_add_to_top_button()).clicked() {
-            ui_state.parent = None;
+            // Through the state's own verb rather than by poking the field,
+            // because clearing the selection must also drop the rename draft
+            // held against it - the two are one act, and `clear_selection` is
+            // where that is written down once. See `super::BookmarksUi`.
+            ui_state.clear_selection();
         }
     });
     ui.weak(t::bookmark_add_parent_hint());
@@ -184,15 +145,15 @@ pub fn show(ui: &mut Ui, doc: &OpenDoc, ui_state: &mut BookmarksUi, actions: &mu
                     format!(
                         "bookmark-add page={} under={:?} chars={}",
                         page + 1,
-                        ui_state.parent.map(|id| id.num),
+                        ui_state.selected.map(|id| id.num),
                         title.chars().count()
                     )
                 });
-                actions.push(Action::AddBookmark {
-                    parent: ui_state.parent,
+                actions.push(Action::Bookmark(BookmarkAction::Add {
+                    parent: ui_state.selected,
                     title,
                     page,
-                });
+                }));
                 // Cleared so a second press cannot silently make a second
                 // bookmark with the same name under the same parent — which
                 // the engine would accept, and which would leave two
@@ -203,152 +164,42 @@ pub fn show(ui: &mut Ui, doc: &OpenDoc, ui_state: &mut BookmarksUi, actions: &mu
     });
 }
 
-/// Find an item by id, anywhere in the tree.
-///
-/// A depth-first walk rather than an index, for [`BookmarksUi::parent`]'s
-/// reason: an id survives an edit and a position does not.
-///
-/// One line, because the recursion — the part with something to get wrong —
-/// lives in [`find_in`], which **can be tested**. See that function.
-fn find(items: &[OutlineItem], id: ObjId) -> Option<&OutlineItem> {
-    find_in(items, id, |item| item.id, |item| item.children.as_slice())
-}
-
-/// Depth-first search of a tree, given the two things a tree is.
-///
-/// ## ★ Generic because `OutlineItem` is `#[non_exhaustive]`
-///
-/// This crate **cannot construct an `OutlineItem`**, so a search written
-/// directly over one is a search no unit test in this crate can reach — and the
-/// recursion is the only part of this module with something to get wrong. The
-/// nested case is exactly the one an index gets wrong, and it is the one the
-/// engine's own CLI got wrong: *"I … nested something two levels deeper than
-/// intended, and the output looked entirely plausible."*
-///
-/// Taking the id and the children as accessors moves the algorithm somewhere a
-/// test can build a tree for it. That is the fourth remedy in
-/// `D:/dev/rag/rust/`'s `#[non_exhaustive]` finding — restructure so the logic
-/// does not touch the unconstructible type — and it is the second time in this
-/// codebase that the constraint pushed toward the better shape rather than
-/// merely around it: `dialogs::insert_image`'s arithmetic went the same way for
-/// the same reason.
-///
-/// **Depth first, and the order is load-bearing.** A breadth-first walk would
-/// return a shallower item carrying a duplicate id before a deeper one — and
-/// while `ObjId`s are unique in a well-formed document, an outline that made
-/// them not so is exactly the malformed case `read_outline`'s cycle-breaking
-/// exists for.
-fn find_in<'a, T>(
-    items: &'a [T],
-    id: ObjId,
-    id_of: impl Fn(&T) -> ObjId + Copy,
-    children: impl Fn(&'a T) -> &'a [T] + Copy,
-) -> Option<&'a T> {
-    for item in items {
-        if id_of(item) == id {
-            return Some(item);
-        }
-        if let Some(found) = find_in(children(item), id, id_of, children) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-/// A bookmark's title, or the stand-in for one that has none.
-///
-/// An untitled bookmark is **legal** — `OutlineItem::title`'s own doc says a
-/// file may legitimately carry one — so naming it as the parent needs the same
-/// stand-in the row does rather than an empty gap in a sentence.
-fn display_title(title: &str) -> String {
-    if title.trim().is_empty() {
-        t::bookmark_untitled().to_owned()
-    } else {
-        title.to_owned()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A tree this crate CAN build, standing in for the engine's.
+    /// The add row's own two strings still say what the module header promises.
     ///
-    /// `OutlineItem` is `#[non_exhaustive]`, so the real one cannot be
-    /// constructed here — which is why [`find_in`] takes accessors rather than
-    /// the type. This is the tree it is exercised against.
-    struct Node {
-        id: ObjId,
-        open: bool,
-        children: Vec<Node>,
-    }
-
-    fn node(num: u32, open: bool, children: Vec<Node>) -> Node {
-        Node {
-            id: ObjId::new(num, 0),
-            open,
-            children,
-        }
-    }
-
-    fn find_node(items: &[Node], num: u32) -> Option<&Node> {
-        find_in(
-            items,
-            ObjId::new(num, 0),
-            |n| n.id,
-            |n| n.children.as_slice(),
-        )
-    }
-
-    /// ★ A parent is found at any depth.
-    ///
-    /// Depth is the point. The hazard this search replaces is an **index**, and
-    /// an index is wrong precisely for the nested case — which is the one the
-    /// engine hit in its own CLI: *"I got this wrong myself while driving the
-    /// command and nested something two levels deeper than intended, and the
-    /// output looked entirely plausible."*
+    /// The tree walks that used to be tested here moved to [`super::tree`] on
+    /// 2026-08-28, with their fixtures, when `edit` needed them too. What is
+    /// left in this file that a test can reach without a `Ui` is the wording of
+    /// the two disclosures the row is responsible for - and both of them are
+    /// disclosures rather than labels, which is why they are worth pinning.
     #[test]
-    fn a_parent_is_found_at_any_depth() {
-        let tree = vec![
-            node(1, true, vec![]),
-            node(2, true, vec![node(3, false, vec![node(4, true, vec![])])]),
-        ];
-        assert_eq!(
-            find_node(&tree, 4).map(|n| n.id.num),
-            Some(4),
-            "three levels down"
+    fn the_collapsed_disclosure_names_the_consequence_rather_than_the_cause() {
+        let said = t::bookmark_add_under_collapsed();
+        // The operator's problem is that they will not SEE the bookmark. A
+        // sentence about `/Count` would be true and useless.
+        assert!(said.contains("expand"), "{said}");
+        assert!(
+            said.contains("still be in the file"),
+            "the add WORKED, and the sentence must not read as a failure: {said}"
         );
-        assert_eq!(
-            find_node(&tree, 1).map(|n| n.id.num),
-            Some(1),
-            "the first sibling"
-        );
-        assert!(find_node(&tree, 99).is_none(), "an id that is not there");
     }
 
-    /// ★ A collapsed parent is readable, which is what makes the disclosure
-    /// possible at all.
+    /// An untitled parent is named by the stand-in, not by a gap in a sentence.
     ///
-    /// `open` is the shell's read of the **sign** on `/Count` — §12.3.3 defines
-    /// no `/Open` key, so the sign is the only carrier — and it is the one
-    /// field that decides whether an operator will be able to see what they
-    /// just added.
-    #[test]
-    fn a_collapsed_parent_is_visible_to_the_disclosure() {
-        let tree = vec![node(2, true, vec![node(3, false, vec![])])];
-        assert!(!find_node(&tree, 3).expect("present").open);
-        assert!(find_node(&tree, 2).expect("present").open);
-    }
-
-    /// An untitled parent is named by the stand-in, not by a gap.
-    ///
-    /// An untitled bookmark is **legal** — `OutlineItem::title`'s own doc says
-    /// a file may carry one — so naming it as the parent needs the same
-    /// stand-in the row uses rather than an empty space in a sentence.
+    /// An untitled bookmark is **legal** - `OutlineItem::title`'s own doc says
+    /// a file may carry one - so `bookmark_add_under` must never be handed an
+    /// empty string. That is [`display_title`]'s job, and this pins the pairing
+    /// at the call site's own spelling.
     #[test]
     fn an_untitled_parent_is_still_nameable() {
-        assert_eq!(display_title("   "), t::bookmark_untitled());
-        assert_eq!(display_title(""), t::bookmark_untitled());
-        assert_eq!(display_title("Chapter 3"), "Chapter 3");
+        let sentence = t::bookmark_add_under(&display_title("   "));
+        assert!(sentence.contains(t::bookmark_untitled()), "{sentence}");
+        assert!(
+            !sentence.ends_with("Under "),
+            "a gap where the name should be: {sentence}"
+        );
     }
 }

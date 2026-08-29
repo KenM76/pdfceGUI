@@ -30,12 +30,31 @@ mod annots;
 /// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
 /// they are reachable exactly where they were before the split.
 mod apply;
+/// ★ The three verbs whose subject is one entry in the document's outline —
+/// add, rename, and delete-with-its-subtree.
+///
+/// Split out of [`action`] under R2 on 2026-08-28, the day `pdfce-core`
+/// `Pass 156.0` turned a one-verb family into a three-verb one. Its header
+/// carries the property that makes them a family rather than a size-driven
+/// cut — **every one of them addresses its operand by `ObjId`, never by a
+/// position in the tree**, because an outline is renumbered by every edit to
+/// it — and the §12.3.3 `/Count` table the engine sent this shell unprompted.
+///
+/// `pub` rather than private, unlike [`apply`], because the surface that raises
+/// these verbs is outside `app`: `panels::bookmarks::add` and
+/// `panels::bookmarks::edit` both name [`bookmarks::BookmarkAction`] to build
+/// one.
+pub mod bookmarks;
 /// ★ `ViewChrome` — which piece of View ▸ Display an action is about.
 ///
 /// Split out on 2026-08-19: it is not an action, it is the one *operand* in
 /// this vocabulary with a type of its own. Re-exported below, so no call site
 /// learns that it moved.
 mod chrome;
+/// Authoring the annotations that carry WORDS — the sticky note, the text box
+/// and the stamp. Split out of `apply` under R2 on 2026-08-28; its header
+/// carries the seam, which is *composes rather than routes*.
+mod textannot;
 
 /// **Pages dragged out of one open document and into another.**
 ///

@@ -711,7 +711,7 @@ pub struct PanelsState {
     /// is why that matters more than for a search term: an `ObjId` carried into
     /// a second file names a different object there, and a bookmark would be
     /// filed under whatever happens to hold that number.
-    bookmarks: bookmarks::add::BookmarksUi,
+    bookmarks: bookmarks::BookmarksUi,
     /// The dimension-groups panel's selected row, its half-typed names and its
     /// pending *Set scale…* request.
     ///
@@ -727,6 +727,21 @@ pub struct PanelsState {
     /// different group in a different file, so a selection carried across would
     /// point the appearance controls at somebody else's group.
     pub(crate) dimension_groups: dimension_groups::DimensionGroupsUi,
+    /// **The comment note being typed, and the annotation it belongs to.**
+    ///
+    /// Here for [`Self::pages`]' reason — a `TextEdit` needs a `&mut String`
+    /// that outlives the frame and a panel body is handed `&OpenDoc`, shared —
+    /// and the Comments panel is the surface that most recently claimed to have
+    /// no such state at all. It has one now, and
+    /// [`comments::note::NoteDraft`]'s header carries the argument for why it
+    /// is a draft rather than a live binding.
+    ///
+    /// ★ Reset with the document by [`Self::forget_document`], and here that
+    /// matters as much as it does for a half-typed `/Author`: an `ObjId` names
+    /// a different annotation in a different file, so a draft carried across
+    /// would offer to write one document's comment onto another document's
+    /// shape.
+    comments: comments::note::NoteDraft,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -932,6 +947,16 @@ impl PanelsState {
         &mut self.properties
     }
 
+    /// **The Comments panel's note draft.**
+    ///
+    /// Same shape as [`Self::pages_mut`], [`Self::redact_mut`] and
+    /// [`Self::properties_mut`]: the body is handed `&mut PanelsState` and
+    /// reaches its own state through an accessor, so the field stays private
+    /// and no other panel can write it.
+    pub fn comments_mut(&mut self) -> &mut comments::note::NoteDraft {
+        &mut self.comments
+    }
+
     /// **The rename draft for the selected form field**, re-seeded whenever the
     /// selection moves.
     ///
@@ -989,7 +1014,7 @@ impl PanelsState {
     }
 
     /// The Bookmarks panel's authoring state.
-    pub fn bookmarks_mut(&mut self) -> &mut bookmarks::add::BookmarksUi {
+    pub fn bookmarks_mut(&mut self) -> &mut bookmarks::BookmarksUi {
         &mut self.bookmarks
     }
 

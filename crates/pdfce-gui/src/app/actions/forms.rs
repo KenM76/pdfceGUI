@@ -366,7 +366,7 @@ pub enum FieldAction {
     ///
     /// # Why the widget is an `ObjId` and not a position
     ///
-    /// The same reason [`super::action::Action::AddBookmark`]'s parent is: a position is
+    /// The same reason [`super::bookmarks::BookmarkAction::Add`]'s parent is: a position is
     /// invalidated by the edit itself. Registering a widget moves it out of the
     /// unclaimed list and into the rows, so a second registration keyed on
     /// "the second unclaimed box" would act on a different box than the one the

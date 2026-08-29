@@ -638,43 +638,25 @@ pub enum Action {
     /// individual edit would still be correct in the document and wrong only
     /// on screen.
     Page(pages::PageAction),
-    /// ★ **Add a bookmark to the document's outline.**
+    /// ★★ **Everything whose subject is one entry in the document's outline**
+    /// — add, rename, and delete-with-its-subtree.
     ///
-    /// Raised by `crate::panels::bookmarks::add` and by nothing else.
+    /// Moved into [`super::bookmarks::BookmarkAction`] under **R2** on
+    /// 2026-08-28, when `pdfce-core` `Pass 156.0` turned a one-verb family into
+    /// a three-verb one. This file's own header named the rule in advance:
+    /// *"the next family of variants to **grow** is the one that will have to
+    /// become a sub-enum beside `PageAction` and `DimensionAction`."*
     ///
-    /// # ★ Why nothing here counts anything
+    /// Its header carries the two things a reader must not have to rediscover:
     ///
-    /// `EditSession::add_outline_item` maintains `/Count`, and `/Count` is two
-    /// different quantities — visible items at every level on the root, visible
-    /// **descendants excluding itself** on an item, with the **sign carrying
-    /// the open/closed flag** because §12.3.3 defines no `/Open` key.
-    ///
-    /// The consequence the engine flagged as *"the entire difficulty of the
-    /// feature"*: **adding a bookmark under a collapsed ancestor does not
-    /// change the document's total**, because the new item is not visible. A
-    /// surface reporting *"added N"* by diffing the root count therefore
-    /// reports **zero for a correct save**.
-    ///
-    /// So this variant carries one bookmark, the apply arm adds one bookmark,
-    /// and the panel says one bookmark. There is no number to get wrong.
-    ///
-    /// # Why the parent is an `ObjId` and not a position
-    ///
-    /// Because a position is invalidated by the very edit this performs. The
-    /// engine hit that in its own CLI — *"the indices shift after every add …
-    /// I got this wrong myself while driving the command and nested something
-    /// two levels deeper than intended, and the output looked entirely
-    /// plausible."* `OutlineItem::id` exists for this.
-    ///
-    /// `None` is the top level, which is `add_outline_item`'s own spelling.
-    AddBookmark {
-        /// The item it goes under, or `None` for the top level.
-        parent: Option<pdfce_core::object::ObjId>,
-        /// The title. Trimmed and non-empty by the time it gets here.
-        title: String,
-        /// The 0-based page it points at — the one the operator is looking at.
-        page: usize,
-    },
+    /// * **Every variant addresses its operand by `ObjId`, never by a position
+    ///   in the tree**, because an outline is renumbered by every edit to it —
+    ///   the defect the engine hit in its own CLI, where *"the output looked
+    ///   entirely plausible"*.
+    /// * **`/Count` is two different quantities and its SIGN carries
+    ///   open-or-closed** (§12.3.3), which is why no verb in the family
+    ///   describes itself by diffing a count.
+    Bookmark(super::bookmarks::BookmarkAction),
     /// ★★★ **Re-shape the page's own text** — a reflow today, and the caret
     /// and restyle commits when they follow.
     ///

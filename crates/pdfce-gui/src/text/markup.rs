@@ -56,6 +56,42 @@ pub const fn pen_width_tooltip() -> &'static str {
      clearly above it without covering it."
 }
 
+/// Hover text for the opacity control.
+///
+/// # ★★★ Why this sentence names the CAD case rather than describing the slider
+///
+/// Because the reason to reach for it is specific and is not obvious from a
+/// percentage: a comment sits on top of the thing it is about, and on a dense
+/// drawing an opaque cloud hides the dimension it is drawing attention to. An
+/// operator who has never used annotation transparency has no reason to guess
+/// that, and a tooltip reading *"the opacity of the next mark"* would restate
+/// the label.
+///
+/// # ★ It says the mark stays selectable, because faint is not gone
+///
+/// The bottom of the range is a tenth, deliberately (`canvas::markup::pen`'s
+/// `MIN_OPACITY` carries the argument), and at a tenth over dark linework a
+/// mark can be hard to find with the eye. Saying it is still there and still
+/// listed is the disclosure that stops a faint mark reading as a failed one.
+#[must_use]
+pub const fn pen_opacity_tooltip() -> &'static str {
+    "How much of the drawing shows through the next mark. Below 100% the mark \
+     is see-through, which is what lets a cloud or a box sit over a dimension \
+     without hiding it. Even the faintest mark is still selectable and still \
+     listed in the Comments panel."
+}
+
+/// The opacity control's suffix.
+///
+/// A percent sign, because opacity is the one property in this group an
+/// operator already thinks about as a percentage — every other program that
+/// offers it says 40%, not 0.4. The value written into `/CA` is the fraction;
+/// the conversion happens at the control and nowhere else.
+#[must_use]
+pub const fn opacity_suffix() -> &'static str {
+    "%"
+}
+
 /// The width control's suffix.
 ///
 /// A separate entry rather than a literal in the widget call, for the reason
@@ -196,6 +232,86 @@ pub fn appearance_distorted() -> String {
     "This markup was drawn by another program, and scaling it unevenly has made its outline \
      thicker on one side than the other. Hold Shift while dragging a corner to scale it evenly."
         .to_owned()
+}
+
+/// **Disclosure: the words this note used to carry, on the case where a save
+/// overwrote them.**
+///
+/// ★★★ Rule 4's surviving half, and `pdfce-core` commissioned this sentence
+/// itself: *"those words are gone from the document and nothing on the page
+/// shows that they were ever there"*. A shape does not change when its note
+/// does. A sticky's words live in a pop-up window this shell does not draw. So
+/// on every subtype an operator can comment on, overwriting a note is an edit
+/// with **no visible consequence at all** — which is precisely the class this
+/// project's disclosure rule exists for.
+///
+/// ★★ It carries **the text, not a count**, because the engine chose to return
+/// the text and said why: a count lets a shell *mention* the loss, and the text
+/// lets it *offer the words back*. They are on the status line for as long as
+/// the edit epoch holds, so an operator who overwrote the wrong comment can
+/// read what was there and retype it — `Ctrl+Z` restores it outright, and this
+/// is the surface that tells them there is something to undo.
+///
+/// ★ `None` when the annotation had no note, which is the ordinary case for
+/// every shape this shell draws: a disclosure that fires on every save is one
+/// nobody reads by the third time. Same rule as [`deleted_collateral`].
+///
+/// # The truncation, and why it is not a formatting decision
+///
+/// A `/Contents` may legitimately be a paragraph. The status line is one
+/// bounded row that elides rather than wraps (`DEFECTS.md` R128), so a long
+/// previous note would be cut by the *layout* with no indication that it had
+/// been. Cutting it here, with an ellipsis and a stated character count, is the
+/// difference between an operator seeing all of a short note and believing they
+/// have seen all of a long one.
+#[must_use]
+pub fn note_replaced(previous: &str) -> Option<String> {
+    let previous = previous.trim();
+    if previous.is_empty() {
+        return None;
+    }
+    let chars = previous.chars().count();
+    const KEEP: usize = 120;
+    if chars > KEEP {
+        let head: String = previous.chars().take(KEEP).collect();
+        return Some(format!(
+            "The note that was there has been replaced. It began “{head}…” and ran to {chars} \
+             characters. Ctrl+Z restores it."
+        ));
+    }
+    Some(format!(
+        "The note that was there has been replaced: “{previous}”. Ctrl+Z restores it."
+    ))
+}
+
+/// **Disclosure: a note was removed, and what it said.**
+///
+/// The same argument as [`note_replaced`] at its strongest — a removal leaves
+/// the markup on the page looking exactly as it did — so this fires even for a
+/// short note and never returns `None` for a note that had words.
+///
+/// ★ It says the markup itself stayed, because that is the thing an operator
+/// pressing a button labelled *Remove note* most reasonably fears they have
+/// just done, and the canvas cannot answer it: a shape with a note and the same
+/// shape without one are the same picture.
+#[must_use]
+pub fn note_removed(previous: &str) -> Option<String> {
+    let previous = previous.trim();
+    if previous.is_empty() {
+        return None;
+    }
+    let chars = previous.chars().count();
+    const KEEP: usize = 120;
+    let words = if chars > KEEP {
+        let head: String = previous.chars().take(KEEP).collect();
+        format!("“{head}…”, {chars} characters")
+    } else {
+        format!("“{previous}”")
+    };
+    Some(format!(
+        "The note has been removed — it said {words}. The markup itself is still on the page, and \
+         Ctrl+Z restores the words."
+    ))
 }
 
 #[cfg(test)]

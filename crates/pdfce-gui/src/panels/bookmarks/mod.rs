@@ -73,6 +73,163 @@
 /// bookmark is genuinely not visible until the parent is expanded.
 pub mod add;
 
+/// ★ Renaming a bookmark, and removing one with everything under it - the half
+/// this panel did not have until `EditSession::set_outline_title` and
+/// `EditSession::delete_outline_item` shipped on 2026-08-28.
+///
+/// Its header carries the two decisions a reader must not have to re-derive:
+/// why the delete is **undoable rather than confirmed** (one press is one
+/// engine command, so `Ctrl+Z` restores the whole subtree, and the sentence an
+/// operator needs is *"this takes the eleven underneath"* rather than *"are you
+/// sure?"*), and why reorder and re-parent render **nothing** rather than
+/// greyed controls.
+pub mod edit;
+/// The two questions this panel asks of an outline - *where is this id?* and
+/// *how many bookmarks are under this one?* - in the one place they can be
+/// tested.
+///
+/// Split out of [`add`] when [`edit`] needed both. Its header carries why both
+/// walks are generic over the tree (`OutlineItem` is `#[non_exhaustive]` and
+/// this crate cannot build one, so a recursion written over it directly is a
+/// recursion no test here can reach) and why the subtree count reads the
+/// **tree** rather than `/Count`.
+pub mod tree;
+
+/// The panel's state, between frames.
+///
+/// ★ **Moved here from [`add`] on 2026-08-28**, when [`edit`] arrived. It was
+/// never the add row's private state - the row it holds is the row the whole
+/// panel is pointed at - and leaving it in `add` would have made the rename and
+/// remove controls reach through the module that writes new bookmarks to find
+/// the one they act on. `crate::panels::PanelsState` names the type and not its
+/// path, so the move is invisible to every caller.
+///
+/// ★ **The selected bookmark is an `ObjId`, not a path through the tree.**
+/// `OutlineItem::id` carries it for exactly this, and its own doc says why:
+/// *"identity is what a GUI needs and the tree cannot otherwise supply ...
+/// selecting a bookmark ... keys off the object, not off a path through the
+/// tree that any edit invalidates."*
+///
+/// An index into the walk would name a different bookmark after every add,
+/// which is the hazard the engine hit **in its own CLI** - *"the indices shift
+/// after every add ... I got this wrong myself while driving the command and
+/// nested something two levels deeper than intended, and the output looked
+/// entirely plausible."*
+#[derive(Default)]
+pub struct BookmarksUi {
+    /// What has been typed into the **new bookmark's** title field.
+    ///
+    /// Distinct from [`Self::rename`], which is a draft over an existing
+    /// bookmark's name. Two fields rather than one because they answer
+    /// different questions and are live at the same time: an operator may be
+    /// half-way through naming a new bookmark when they decide to rename the
+    /// one they had selected, and a shared buffer would swap one into the
+    /// other.
+    pub(super) title: String,
+    /// ★ **The row the operator last clicked**, or `None` for none.
+    ///
+    /// One field, three meanings, all of them true of the row that was pointed
+    /// at - which is what makes the overload honest rather than a shortcut:
+    ///
+    /// | read by | means |
+    /// |---|---|
+    /// | [`add`] | the parent a new bookmark is filed under; `None` is the top level |
+    /// | [`edit`] | the bookmark being renamed |
+    /// | [`edit`] | the bookmark being removed, with its subtree |
+    ///
+    /// The one seam worth knowing: `None` is a **meaningful** answer for the
+    /// add (file it at the top level) and an **absent** one for the other two
+    /// (nothing is selected, so R9 says draw nothing). So pressing *Move to top
+    /// level* in the add row also takes the rename and remove controls away.
+    /// That is correct - nothing is selected - and it is stated in [`edit`]'s
+    /// header rather than left to be discovered.
+    pub(super) selected: Option<pdfce_core::object::ObjId>,
+    /// The rename draft, **paired with the bookmark it was typed for**.
+    ///
+    /// The pairing is the point: a half-typed name must not follow the operator
+    /// to a different bookmark. A draft whose id does not match the selected
+    /// row is stale, and [`Self::rename_draft_for`] re-seeds from the document
+    /// instead of offering it.
+    pub(super) rename: Option<(pdfce_core::object::ObjId, String)>,
+}
+
+impl std::fmt::Debug for BookmarksUi {
+    /// The drafts' **lengths**, not their text: a bookmark's name is the
+    /// operator's own words about their drawing, and this reaches a trace file
+    /// a harness keeps. `panels::properties::info` makes the same choice for
+    /// `/Info`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BookmarksUi")
+            .field("title_len", &self.title.len())
+            .field("selected", &self.selected)
+            .field(
+                "rename_len",
+                &self.rename.as_ref().map(|(_, text)| text.len()),
+            )
+            .finish()
+    }
+}
+
+impl BookmarksUi {
+    /// Record the row the operator clicked.
+    ///
+    /// Clears any rename draft held for a *different* bookmark on the way
+    /// through, which is belt-and-braces beside [`Self::rename_draft_for`]'s
+    /// staleness test: the draft is re-seeded on read anyway, and dropping it
+    /// here means a stale name does not sit in memory being not-shown.
+    pub fn select(&mut self, id: pdfce_core::object::ObjId) {
+        if self.rename.as_ref().is_some_and(|(held, _)| *held != id) {
+            self.rename = None;
+        }
+        self.selected = Some(id);
+    }
+
+    /// Forget the selected row.
+    ///
+    /// Raised by the add row's *Move to top level* - where it means *"file the
+    /// next one at the top"* - and by [`edit`] the instant a removal is raised,
+    /// so the block does not spend one frame describing a bookmark that has
+    /// gone. See that call site for why one frame matters.
+    pub fn clear_selection(&mut self) {
+        self.selected = None;
+        self.rename = None;
+    }
+
+    /// The rename draft for `item`, seeded from the document when it is stale.
+    ///
+    /// *Stale* means **held for a different bookmark** - see [`Self::rename`].
+    ///
+    /// ★ **The draft does NOT follow the document while it is being typed**,
+    /// deliberately, and that differs from `panels::properties::info`'s
+    /// epoch-reseed. The difference is what the two fields are: a metadata box
+    /// commits on focus loss and is otherwise idle, so re-seeding it costs
+    /// nothing; a rename box is typed into and then committed, and an epoch
+    /// bump from an unrelated edit - placing a dimension, moving a page -
+    /// would wipe a half-typed name mid-keystroke.
+    ///
+    /// The narrow cost is that undoing a rename leaves the old name in the box
+    /// until the operator selects another bookmark and comes back. The button
+    /// re-appears, because the draft now differs from the document, so the
+    /// state is legible rather than wrong. Same trade, same wording, as
+    /// `panels::dimension_groups::identity::rename_draft_for`.
+    pub(super) fn rename_draft_for(&self, item: &pdfce_core::outline::OutlineItem) -> String {
+        match &self.rename {
+            Some((id, text)) if *id == item.id => text.clone(),
+            _ => item.title.clone(),
+        }
+    }
+
+    /// Hold what is in the rename field, against the bookmark it belongs to.
+    pub(super) fn set_rename_draft(&mut self, id: pdfce_core::object::ObjId, text: String) {
+        self.rename = Some((id, text));
+    }
+
+    /// Drop the rename draft so the next frame re-seeds from the document.
+    pub(super) fn clear_rename_draft(&mut self) {
+        self.rename = None;
+    }
+}
+
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
 use crate::panels::PanelsState;
@@ -151,6 +308,29 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // that claim correctly, and the operator sees the destination before they
     // scroll rather than after.
     add::show(ui, doc, state.bookmarks_mut(), actions);
+    // ★ The rename-and-remove block, and it is drawn ONLY when a row has been
+    // clicked. That is R9 rather than tidiness: with nothing selected there is
+    // no bookmark for either verb to name, so the controls would be offering a
+    // capability that cannot act. They are absent, not greyed — greying is for
+    // something *temporarily* unavailable that can explain itself, and "click a
+    // row first" is already what the add row's parent hint says two lines up.
+    //
+    // Resolved here rather than inside `edit::show` so the whole block can be
+    // skipped in one place, and so that module never has to consider an id that
+    // no longer names anything — the ordinary state one frame after an undo of
+    // a delete, and the state `add::show` above has already cleared.
+    let selected = state
+        .bookmarks_mut()
+        .selected
+        .and_then(|id| tree::find(&outline.items, id));
+    if let Some(item) = selected {
+        // Cloned because `state` is borrowed mutably by `edit::show` and the
+        // item is borrowed out of `outline`, which `state` does not own. One
+        // `OutlineItem` per frame in which a bookmark is selected, against
+        // restructuring the whole panel to read the outline twice.
+        let item = item.clone();
+        edit::show(ui, &item, state.bookmarks_mut(), actions);
+    }
     ui.separator();
 
     egui::ScrollArea::vertical()

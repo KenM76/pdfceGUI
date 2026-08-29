@@ -51,7 +51,7 @@
 
 use egui::Ui;
 
-use super::pen::{MAX_WIDTH_PTS, MIN_WIDTH_PTS, Pen};
+use super::pen::{MAX_WIDTH_PTS, MIN_OPACITY, MIN_WIDTH_PTS, Pen};
 use crate::text::markup as t;
 
 /// The region this control publishes, so a check can find and drive it.
@@ -64,6 +64,8 @@ pub const REGION_INK: &str = "markup.style.ink"; // ui-text-exempt: trace region
 pub const REGION_HIGHLIGHTER: &str = "markup.style.highlighter"; // ui-text-exempt: trace region name, never displayed
 /// As [`REGION_INK`], for the width.
 pub const REGION_WIDTH: &str = "markup.style.width"; // ui-text-exempt: trace region name, never displayed
+/// As [`REGION_INK`], for the opacity.
+pub const REGION_OPACITY: &str = "markup.style.opacity"; // ui-text-exempt: trace region name, never displayed
 
 /// Draw the Style group's controls, editing `pen` in place.
 ///
@@ -135,6 +137,43 @@ pub fn show(ui: &mut Ui, pen: &mut Pen) {
         if (pen.width_pts - before).abs() > f64::EPSILON {
             trace(*pen);
         }
+
+        // ★★★ OPACITY, and it shipped four months after the row above it said
+        // it could not.
+        //
+        // This module's header carried a table row reading *"blocked on the
+        // engine … `/CA`, which `pdfce-core` does not write yet — filed,
+        // accepted, not started"*. It was true when written and stopped being
+        // true on 2026-08-27, when `Pass 81.1` landed `MarkupOptions::opacity`
+        // — in answer to a request this shell filed itself. The row was
+        // corrected on 2026-08-28 rather than deleted, because the SHAPE of the
+        // mistake is the useful part: **a blocker's reason is prose, and no test
+        // can check prose.** This is the seventh stale blocker this project has
+        // found, and the standing rule that produced the check is *a backlog row
+        // is a record, not evidence*.
+        //
+        // ★★ A percentage at the control, a fraction in the file. `/CA` is
+        // `0.0`–`1.0` (§12.5.2 Table 164) and every program that offers this
+        // says 40%, so the conversion happens here and nowhere else — one
+        // place, so a second call site cannot write 40.0 into a key whose legal
+        // maximum is 1.0. The engine **refuses** that rather than clamping it,
+        // which is the correct behaviour and not one an operator should ever
+        // see the result of.
+        let before = pen.opacity;
+        let mut percent = pen.opacity * 100.0;
+        let opacity_response = ui
+            .add(
+                egui::DragValue::new(&mut percent)
+                    .speed(1.0)
+                    .range((MIN_OPACITY * 100.0)..=100.0)
+                    .suffix(t::opacity_suffix()),
+            )
+            .on_hover_text(t::pen_opacity_tooltip());
+        crate::diag::ui_rect(REGION_OPACITY, opacity_response.rect);
+        pen.opacity = (percent / 100.0).clamp(MIN_OPACITY, 1.0);
+        if (pen.opacity - before).abs() > f64::EPSILON {
+            trace(*pen);
+        }
     });
 }
 
@@ -148,8 +187,18 @@ fn trace(pen: Pen) {
     crate::diag::trace(|| {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            "markup-pen ink={:?} highlighter={:?} width_pts={}",
-            pen.ink, pen.highlighter, pen.width_pts,
+            "markup-pen ink={:?} highlighter={:?} width_pts={} opacity={} ca={:?}",
+            pen.ink,
+            pen.highlighter,
+            pen.width_pts,
+            pen.opacity,
+            // ★ BOTH, because they answer different questions and only the
+            // second is a fact about the file: `opacity` is what the control
+            // holds, and `ca` is whether a `/CA` key will be written at all.
+            // A trace carrying only the first cannot distinguish "opaque, so no
+            // key" from "the option was dropped on the way to the engine",
+            // which is exactly the failure a driven check exists to catch.
+            pen.opacity_option(),
         )
     });
 }

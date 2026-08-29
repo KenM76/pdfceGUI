@@ -605,6 +605,31 @@ impl PdfceApp {
             Action::Annot(crate::app::actions::annot::AnnotAction::Delete { page, id }) => {
                 super::annots::delete(doc, page, id);
             }
+            // ★★★ The note on an annotation that already exists — the verb the
+            // Comments panel was waiting for since Phase 6.
+            //
+            // The AUTHOR is read here rather than carried on the action, and
+            // that is the deliberate half of the split: `keep_author` is a fact
+            // about the *document* that the panel had in front of it, and the
+            // name is a fact about the *operator* that only this scope can see.
+            // A panel that carried a name would be reading preferences it is
+            // not handed; an apply arm that re-derived `keep_author` would be
+            // walking the annotation a second time for something already known.
+            Action::Annot(crate::app::actions::annot::AnnotAction::SetNote {
+                id,
+                text,
+                keep_author,
+            }) => {
+                let author = if keep_author {
+                    None
+                } else {
+                    Some(self.prefs.author_name.trim().to_owned()).filter(|a| !a.is_empty())
+                };
+                super::annots::set_note(doc, id, &text, author.as_deref());
+            }
+            Action::Annot(crate::app::actions::annot::AnnotAction::ClearNote { id }) => {
+                super::annots::clear_note(doc, id);
+            }
             // ★ A paste is an `add_markup` and nothing more, which is the
             // whole reason this feature was buildable at all: the spec that
             // came off the clipboard is the same shape the authoring path
@@ -631,8 +656,29 @@ impl PdfceApp {
                 pen,
             } => {
                 if let Some(spec) = crate::canvas::markup::spec(kind, &geometry, pen) {
+                    // ★★★ `add_markup_with`, not `add_markup` — ONE verb and ONE
+                    // undo entry for a translucent mark.
+                    //
+                    // This is the engine's own argument, and it is a defect
+                    // argument rather than a convenience one. Authoring at an
+                    // opacity used to take two calls (author, then restyle), and
+                    // that is two undo entries: *"an operator who draws a
+                    // translucent highlight and presses Ctrl+Z once gets an
+                    // OPAQUE highlight, not no highlight. That is a state they
+                    // never asked for and cannot have created any other way."*
+                    //
+                    // ★ `opacity_option()` answers `None` at fully opaque, which
+                    // writes no `/CA` at all — so a build whose operator never
+                    // touches the control authors the same bytes it did before
+                    // the control existed.
+                    let options = pdfce_core::edit::MarkupOptions {
+                        opacity: pen.opacity_option(),
+                        ..Default::default()
+                    };
                     vector_edit(doc, "add-markup", page, 1, |session| {
-                        session.add_markup(page, &spec).map(|_| Vec::new())
+                        session
+                            .add_markup_with(page, &spec, &options)
+                            .map(|_| Vec::new())
                     });
                 } else {
                     crate::canvas::markup::decline(
@@ -718,103 +764,19 @@ impl PdfceApp {
                 rect,
                 text,
                 stamp,
-            } => {
-                // ★ The pen's ink, so a callout matches the comments beside it
-                // and one Style group governs the whole markup family.
-                //
-                // Read here rather than carried on the action, which is the
-                // OPPOSITE of `CommitMarkup`'s rule two arms up — and the
-                // difference is real. That action is raised by a gesture that
-                // completed frames before the queue drains, so the live pen may
-                // have moved under it. This one is raised by a DIALOG the
-                // operator has been sitting in, and is applied on the same
-                // frame they pressed Accept. There is no window for the value
-                // to go stale across.
-                let ink = self.pen.ink;
-                // ★★★ **The note the operator just typed, signed and dated.**
-                //
-                // `add_text_annotation_with` rather than the bare verb, and the
-                // difference is three keys: `/Contents`, `/T` and `/M`.
-                //
-                // # Why the text is passed TWICE, which looks like a mistake
-                //
-                // The spec already carries it — a sticky's `/Contents` is what
-                // its popup shows, a `/FreeText`'s is what is painted — and
-                // `MarkupOptions::note` writes `/Contents` again over the top.
-                // Identical bytes, so the file is unchanged by the duplication.
-                //
-                // ⇒ The note is passed anyway because **`/T` and `/M` are only
-                // reachable through it.** The engine writes the three as a
-                // group or not at all, so a shell that wanted an author had to
-                // supply the text with it. Splitting them would be a change to
-                // `pdfce-core`, and asking for one to avoid re-passing a string
-                // this frame already holds is not a case worth making.
-                //
-                // # ★★ The author is a PREFERENCE and may be empty
-                //
-                // Empty writes no `/T`, which is legal and is exactly what
-                // every annotation this shell authored before today did. It is
-                // not a defect to leave it unset — an anonymous comment is a
-                // real choice — so there is no nag and no default guessed from
-                // the OS user account.
-                //
-                // # ★ The date is UTC and may be absent
-                //
-                // `app::clock` carries the whole argument, including why a
-                // local time labelled `Z` was the one option ruled out. `None`
-                // means the system clock is before 1970, and omitting `/M`
-                // beats writing a comment dated 1969.
-                // ★ Builders, not a struct literal: `MarkupNote` is
-                // `#[non_exhaustive]`, which is what keeps a future field a
-                // non-breaking addition for us. `by` and `at` take the value,
-                // so both are applied conditionally rather than passed as
-                // `Option`.
-                let mut note = pdfce_core::edit::MarkupNote::new(text.clone());
-                let author = self.prefs.author_name.trim();
-                if !author.is_empty() {
-                    note = note.by(author);
-                }
-                if let Some(stamp) = crate::app::clock::pdf_date_utc() {
-                    note = note.at(stamp);
-                }
-                let options = pdfce_core::edit::MarkupOptions {
-                    note: Some(note),
-                    ..Default::default()
-                };
-                if let Some(spec) = crate::canvas::textannot::spec(kind, rect, &text, stamp, ink) {
-                    // ★★ The note's three keys, on the diagnostic channel and
-                    // NOT on the status line. An operator who typed a comment
-                    // does not need to be told their own name was written; a
-                    // driven check needs to know it, because `/T` and `/M` are
-                    // invisible on the page by construction — a sticky's words
-                    // live in a popup and its author lives nowhere at all
-                    // until a reviewer UI draws a column.
-                    //
-                    // ⇒ Without this line the feature has NO oracle short of
-                    // parsing the saved file. It is the same argument
-                    // `markup_move`'s `keys=` makes for the half of a move a
-                    // screenshot cannot see.
-                    let signed = !self.prefs.author_name.trim().is_empty();
-                    let dated = crate::app::clock::pdf_date_utc().is_some();
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!(
-                            "text-annot-note chars={} signed={signed} dated={dated}",
-                            text.chars().count()
-                        )
-                    });
-                    vector_edit(doc, "add-text-annot", page, 1, |session| {
-                        session
-                            .add_text_annotation_with(page, &spec, &options)
-                            .map(|_| Vec::new())
-                    });
-                } else {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed in the UI
-                        format!("text-annot-declined kind={kind:?} reason=no-text")
-                    });
-                }
-            }
+            } => super::textannot::commit(
+                doc,
+                &self.prefs,
+                &super::textannot::Placement {
+                    page,
+                    kind,
+                    rect,
+                    stamp,
+                },
+                &text,
+                self.pen.ink,
+                self.pen.opacity_option(),
+            ),
             // ★ One text markup, through the SAME funnel and the same engine
             // verb as the drag-shaped kinds above.
             //
@@ -853,8 +815,20 @@ impl PdfceApp {
                 pen,
             } => {
                 let spec = crate::canvas::markup::text::spec(kind, quads, pen);
+                // The same options as the drag-shaped kinds above, for the same
+                // reason and off the same pen. ★ A translucent HIGHLIGHT is the
+                // case that matters most here: a highlight is the one markup
+                // whose whole job is to sit over text and let it show through,
+                // and `/CA` is the only key that does that — a highlighter's
+                // yellow is otherwise a solid band over the words.
+                let options = pdfce_core::edit::MarkupOptions {
+                    opacity: pen.opacity_option(),
+                    ..Default::default()
+                };
                 vector_edit(doc, "add-text-markup", page, 1, |session| {
-                    session.add_markup(page, &spec).map(|_| Vec::new())
+                    session
+                        .add_markup_with(page, &spec, &options)
+                        .map(|_| Vec::new())
                 });
             }
             // ★★ **The commit `DEFECTS.md` D4b is about**, and the two lines
@@ -1167,37 +1141,16 @@ impl PdfceApp {
             // draws everywhere it is used.
             Action::EmbedFonts { request } => super::fonts::embed(doc, &request),
             Action::UnembedFonts { request } => super::fonts::unembed(doc, &request),
-            // ★ One bookmark, one undo entry, and NO count reported.
+            // ★ The bookmark family — add, rename, delete-with-its-subtree.
             //
-            // See the variant: `/Count` is two quantities and its sign is the
-            // open/closed flag, so a bookmark added under a collapsed ancestor
-            // leaves the document's total unchanged. A disclosure built by
-            // diffing it would say "0" for a correct save.
-            //
-            // The destination is an explicit page at `Fit`, which is the only
-            // form `add_outline_item` authors without refusing — named and
-            // remote destinations are refused by name, and `DestView::Unknown`
-            // is refused because the reader keeps an extension's fit NAME and
-            // discards its parameters, so re-emitting it would write a view
-            // that is not the one the source had.
-            Action::AddBookmark {
-                parent,
-                title,
-                page,
-            } => {
-                vector_edit(doc, "add-bookmark", page, 1, |session| {
-                    session
-                        .add_outline_item(
-                            parent,
-                            &title,
-                            Some(pdfce_core::outline::Destination::Page {
-                                page_index: page,
-                                view: pdfce_core::outline::DestView::Fit,
-                            }),
-                        )
-                        .map(|_| Vec::new())
-                });
-            }
+            // One line, like `Action::Dimension` and `Action::Page` above it.
+            // The three arms moved into `super::bookmarks` under R2 on
+            // 2026-08-28, and its header carries what a reader needs first:
+            // every verb names its operand by `ObjId` because an outline is
+            // renumbered by every edit to it, and `/Count` is two different
+            // quantities whose SIGN carries open-or-closed (§12.3.3), which is
+            // why none of them describes itself by diffing a count.
+            Action::Bookmark(action) => super::bookmarks::apply(doc, action),
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].

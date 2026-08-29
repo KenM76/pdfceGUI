@@ -248,3 +248,125 @@ pub(super) fn resize(
             })
     });
 }
+
+/// **Write the note on an annotation that already exists** — `/Contents`, and
+/// conditionally `/T` and `/M` — as one undoable command.
+///
+/// Reached from the Comments panel's editor and from nothing else.
+///
+/// # ★★★ The three keys are not written as a group, and that is the contract
+///
+/// `pdfce-core` leaves an **omitted** key untouched rather than clearing it,
+/// and its reply to this shell called getting that wrong *"the easiest way to
+/// get this wrong"*:
+///
+/// > An implementation writing all three keys unconditionally would silently
+/// > strip the author and date on every correction, leaving a review comment
+/// > from nobody, dated never, looking exactly like a note somebody else had
+/// > mangled.
+///
+/// So `author` is `None` on two quite different occasions and both must send
+/// nothing: the annotation already has a byline that is not ours to move, or
+/// the operator has left their name blank in Settings ▸ Comments, which is a
+/// supported choice and means *comment anonymously*. `crate::app::actions::apply`
+/// resolves which; this function only has to not invent one.
+///
+/// # ★★ `/M` is always written, and it is a modification date
+///
+/// §12.5.6.4 Table 170 defines `/M` as the date the annotation was **modified**,
+/// and this call modifies it — so leaving it alone would leave a comment whose
+/// date describes an earlier version of its own text. `crate::app::clock` is
+/// the only place this shell reads a wall clock and its header carries the
+/// whole argument for UTC; `None` there means the system clock is before 1970,
+/// and omitting `/M` beats writing a comment dated 1969.
+///
+/// # ★ The disclosure is about the words that are gone
+///
+/// A note that replaced another one leaves **no trace on the canvas**: the
+/// shape is unchanged, and a sticky's words live in a pop-up window this shell
+/// does not draw. `MarkupNoteChange::replaced` carries the previous text — the
+/// text, not a count — precisely so the operator can be offered it back, which
+/// is what `crate::text::markup::note_replaced` does.
+pub(super) fn set_note(doc: &mut OpenDoc, id: ObjId, text: &str, author: Option<&str>) {
+    // Builders, not a struct literal: `MarkupNote` is `#[non_exhaustive]`,
+    // which is what keeps a future field a non-breaking addition for us.
+    let mut note = pdfce_core::edit::MarkupNote::new(text);
+    if let Some(author) = author.map(str::trim).filter(|a| !a.is_empty()) {
+        note = note.by(author);
+    }
+    if let Some(stamp) = crate::app::clock::pdf_date_utc() {
+        note = note.at(stamp);
+    }
+    super::apply::vector_edit(doc, "set-markup-note", 0, 1, |session| {
+        session.set_markup_note(id, &note).map(|change| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // ★ `-applied`, per the convention `forms::import_data`
+                // records: the funnel writes its own bare-named line for the
+                // same edit and `.last()` would read that one instead.
+                //
+                // `keys` is the field worth tracing rather than the text: it is
+                // the engine's own answer to "what actually moved", and the
+                // whole `/T`-preservation contract above is invisible from a
+                // screenshot and from the saved page alike.
+                format!(
+                    "set-markup-note-applied id={} chars={} keys={} replaced={}",
+                    id.num,
+                    text.chars().count(),
+                    change.keys_written.join("+"),
+                    change.replaced.is_some()
+                )
+            });
+            change
+                .replaced
+                .as_deref()
+                .and_then(crate::text::markup::note_replaced)
+                .into_iter()
+                .collect()
+        })
+    });
+}
+
+/// **Remove an annotation's note entirely** — `/Contents`, `/T` and `/M` — as
+/// one undoable command.
+///
+/// Reached from the Comments panel's *Remove note* control and from nothing
+/// else.
+///
+/// # ★★ It is not a delete, and the disclosure says so because nothing else can
+///
+/// The markup stays on the page with its geometry untouched. A shape with a
+/// note and the same shape without one are **the same picture**, so an operator
+/// who pressed the wrong button has no way to see either what they did or what
+/// it cost them. `crate::text::markup::note_removed` states both — the words
+/// that went, and the fact that the shape did not.
+///
+/// # ★ Why a separate verb from writing an empty note
+///
+/// `pdfce-core`'s reason, adopted rather than re-derived: *"an empty comment is
+/// a comment, and a reviewer deleting their remark is not the same as leaving a
+/// blank one."* An empty `/Contents` beside a `/T` and an `/M` says somebody
+/// wrote nothing; no `/Contents` at all says nobody wrote anything.
+pub(super) fn clear_note(doc: &mut OpenDoc, id: ObjId) {
+    super::apply::vector_edit(doc, "clear-markup-note", 0, 1, |session| {
+        session.clear_markup_note(id).map(|change| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!(
+                    "clear-markup-note-applied id={} keys={} had_note={} had_author={}",
+                    id.num,
+                    change.keys_written.join("+"),
+                    change.replaced.is_some(),
+                    change.replaced_author.is_some()
+                )
+            });
+            change
+                .replaced
+                .as_deref()
+                .and_then(crate::text::markup::note_removed)
+                .into_iter()
+                .collect()
+        })
+    });
+}

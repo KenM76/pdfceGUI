@@ -430,6 +430,11 @@ pub mod adopt_widget;
 pub mod block_nav;
 pub mod bookmark_add;
 pub mod chords;
+/// ★★★ **The Comments panel stopped being a viewer** — a note can be written
+/// onto a shape that already exists, which needed a verb `pdfce-core` did not
+/// have until `Pass 154.0`. Its header carries why link 3 of the chain — a
+/// widget raising the action — is unreachable by any unit test.
+pub mod comment_note;
 pub mod dialog_windows;
 /// A selection INSIDE a text draft — Shift+arrows and the rule that drops it.
 /// Not to be confused with `text_selection`, which is about sweeping the
@@ -850,6 +855,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(dialog_windows::DialogsOpenInTheirOwnWindow),
         Box::new(draft_selection::ShiftArrowsSelectText),
         Box::new(bookmark_add::BookmarkCanBeWritten),
+        Box::new(comment_note::ANoteCanBeWrittenOntoAShape),
         // Last of the three new ones and the most expensive: it drives Insert
         // pages, the Forms panel and the Tab-order section in one session,
         // because the shape it registers does not exist in any fixture — pdfce

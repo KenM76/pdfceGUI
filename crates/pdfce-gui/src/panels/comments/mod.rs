@@ -184,12 +184,20 @@
 /// without a `Ui`.
 pub mod model;
 
+/// The note being typed, and the `(annotation, edit epoch)` stamp that keeps
+/// it honest.
+pub mod note;
+
+use pdfce_core::object::ObjId;
+
 use crate::app::actions::Action;
+use crate::app::actions::annot::AnnotAction;
 use crate::app::state::OpenDoc;
 use crate::panels::PanelsState;
 use crate::text::panels::comments as t;
 
 use self::model::{CommentRow, Listing, Note, Relation};
+use self::note::NoteDraft;
 
 /// The ribbon command that opens this panel.
 ///
@@ -224,17 +232,60 @@ use self::model::{CommentRow, Listing, Note, Relation};
 /// to reopen it — which is the failure the Forms move existed to prevent.
 pub const COMMAND_ID: &str = "markup.comments";
 
+/// **The region the *Add note* / *Edit note* control publishes** — on the
+/// FIRST row that offers one, and only that row.
+///
+/// # ★★ Why only the first, when every row draws the control
+///
+/// A region name is a key. Publishing the same name from thirty rows would
+/// leave the harness clicking whichever one happened to be drawn last, which is
+/// a coordinate nobody chose and which moves when a row above it grows a
+/// caption. The first row is the one deterministic choice available without
+/// inventing a per-row naming scheme that nothing would consume.
+///
+/// ⇒ ★★★ This matters because of a finding this project has now made twice:
+/// **a gesture with no driver is a gesture R1 cannot reach**, and the gap
+/// leaves no failing test behind. The canvas context menus went the whole life
+/// of the project unopened by any check because `Driver` had no right-click.
+/// A panel control that published no rect would be the same hole in a quieter
+/// place.
+pub const REGION_EDIT: &str = "comments.note_edit"; // ui-text-exempt: trace region name, never displayed
+/// The region the open editor's text box publishes. Unique by construction —
+/// one draft, one editor, one box.
+pub const REGION_BOX: &str = "comments.note_box"; // ui-text-exempt: trace region name, never displayed
+/// The region the open editor's *Save note* publishes.
+pub const REGION_SAVE: &str = "comments.note_save"; // ui-text-exempt: trace region name, never displayed
+/// The region the open editor's *Remove note* publishes, when there is a note
+/// to remove.
+pub const REGION_REMOVE: &str = "comments.note_remove"; // ui-text-exempt: trace region name, never displayed
+
 /// Draw the Comments panel.
 ///
 /// The one entry point. Shape and signature match every other panel body — see
 /// [`crate::panels::Panel::show`].
 ///
-/// `state` is unused, and that is a property of the panel rather than an
-/// oversight: it is a pure function of the document. Nothing in it is expanded,
-/// picked, drafted or remembered, so there is no inter-frame state to keep and
-/// none is invented. A panel that stored a "selected comment" would be growing
-/// the second selection [`crate::panels::ObjectTreeUi::focus`]' docs refuse.
-pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions: &mut Vec<Action>) {
+/// ## ★ `state` carries one thing, and it is not a selection
+///
+/// Until 2026-08-28 this paragraph read *"`state` is unused, and that is a
+/// property of the panel rather than an oversight: it is a pure function of the
+/// document."* That was true for as long as the panel could not write anything.
+///
+/// It now holds a [`note::NoteDraft`] — one annotation's `/Contents` while the
+/// operator is typing it — and **nothing else**. It is emphatically not a
+/// "selected comment": the draft names one annotation by `ObjId` for the
+/// duration of one edit, and it decides nothing about what the canvas outlines,
+/// what the Format tab describes or what Delete acts on. That distinction is
+/// the one [`crate::panels::ObjectTreeUi::focus`]' docs refuse to blur, and it
+/// is what stops this panel growing a second, weaker selection that the canvas
+/// would then have to be kept in step with.
+pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut Vec<Action>) {
+    // ★ FIRST, before anything is drawn: drop the operator's half-typed note if
+    // the document has moved under it. `NoteDraft`'s header carries the whole
+    // argument — the short form is that a draft stamped at an older epoch
+    // describes a document that no longer exists, and an editor showing words
+    // beside a shape that no longer has them is lying for as long as it is on
+    // screen.
+    state.comments_mut().sync(doc.edit_epoch);
     // Asked ONCE per frame, never per row. `dimension_model` walks the catalog
     // to the `/PieceInfo` sidecar and deserializes it — cheap, and bounded by
     // the number of ce dimensions rather than by the document — but calling it
@@ -294,6 +345,17 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // cannot be clicked in one frame, and a `Vec` would invite a future reader
     // to push two navigations that would fight.
     let mut go: Option<usize> = None;
+    // The document verb one row raised, if any. One `Option` for the same
+    // reason `go` is one: two rows cannot be pressed in a single frame, and a
+    // `Vec` would invite a future reader to queue two edits that would each
+    // bump the epoch under the other.
+    let mut verb: Option<AnnotAction> = None;
+    // Whether the *Add note* region has been published this frame. See
+    // [`REGION_EDIT`]: one name, one row, and the first row is the only
+    // deterministic choice.
+    let mut published = false;
+    let epoch = doc.edit_epoch;
+    let draft = state.comments_mut();
     egui::ScrollArea::vertical()
         .id_salt("comment-rows")
         .show(ui, |ui| {
@@ -304,7 +366,17 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
                 // the same egui id — which shows up as the wrong button
                 // responding to a hover, the same collision
                 // `crate::panels::bookmarks` keys its indent against.
-                ui.push_id(i, |ui| row(ui, comment, &mut go));
+                ui.push_id(i, |ui| {
+                    row(
+                        ui,
+                        comment,
+                        &mut go,
+                        draft,
+                        epoch,
+                        &mut verb,
+                        &mut published,
+                    );
+                });
                 if i != last {
                     ui.separator();
                 }
@@ -313,6 +385,21 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
 
     if let Some(page) = go {
         actions.push(Action::GoToPage(page));
+    }
+    if let Some(verb) = verb {
+        // ★ The draft closes here rather than in the row that raised the verb,
+        // and it closes for BOTH outcomes — a save the engine accepts and one
+        // it refuses.
+        //
+        // Leaving it open on a refusal was considered and rejected: the refusal
+        // is worded on the status line, the words are still in the undo-free
+        // world of the operator's own clipboard-less retyping, and an editor
+        // that stays open next to a row whose text did not change reads as a
+        // save that is still pending. The stamp would go stale the moment
+        // anything else edited the document anyway, so "open on refusal" is a
+        // state with a very short and unpredictable life.
+        draft.close();
+        actions.push(Action::Annot(verb));
     }
 }
 
@@ -323,7 +410,15 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
 /// two and seven lines tall depending on what the annotation actually carries,
 /// which is why this panel cannot use `ScrollArea::show_rows` — see the module
 /// header.
-fn row(ui: &mut egui::Ui, comment: &CommentRow, go: &mut Option<usize>) {
+fn row(
+    ui: &mut egui::Ui,
+    comment: &CommentRow,
+    go: &mut Option<usize>,
+    draft: &mut NoteDraft,
+    epoch: u64,
+    verb: &mut Option<AnnotAction>,
+    published: &mut bool,
+) {
     // The page number is 1-based **only here**, where a human reads it. The
     // index itself travels 0-based to `Action::GoToPage`; see
     // [`tests::the_page_index_travels_zero_based_and_prints_one_based`].
@@ -430,6 +525,11 @@ fn row(ui: &mut egui::Ui, comment: &CommentRow, go: &mut Option<usize>) {
         Some(Relation::Other) | None => {}
     }
 
+    // The note editor, and the control that opens it. Below the disclosures
+    // because it is the one thing on the row that *acts*, and an operator
+    // scanning the list reads downward and stops when they reach a button.
+    note_controls(ui, comment, draft, epoch, verb, published);
+
     if ui
         .button(t::comment_row_goto())
         .on_hover_text(t::comment_row_goto_tooltip(page_number))
@@ -437,6 +537,186 @@ fn row(ui: &mut egui::Ui, comment: &CommentRow, go: &mut Option<usize>) {
     {
         *go = Some(comment.page_index);
     }
+}
+
+/// **The note editor for one row, and the control that opens it.**
+///
+/// Three shapes, decided by what the annotation is rather than by what this
+/// build can do:
+///
+/// | the row | what is drawn |
+/// |---|---|
+/// | a **ce dimension** | a caption saying where its text actually comes from |
+/// | an annotation with **no object id** | a caption saying why pdfce cannot address it |
+/// | anything else | *Add note* / *Edit note*, and the editor when it is open |
+///
+/// # ★★★ R9: neither caption is a greyed button
+///
+/// *"An unavailable capability renders nothing, not a disabled stub. Greying is
+/// reserved for temporarily unavailable."* Neither of these is temporary: a ce
+/// dimension's `/Contents` is regenerated from its measurement by
+/// `author_dimension`, so a note written over it would be silently thrown away,
+/// and a direct-dictionary annotation is a **malformed file** (§12.5.2 Table 164
+/// requires the dictionary to be an indirect object) with nothing to name. A
+/// greyed *Edit note* would promise that some state of the program would let
+/// the operator press it, and none would.
+///
+/// # ★★ Why a `/Link` is offered the editor
+///
+/// `/Contents` is dual-purpose (§12.5.2): note text on a subtype that displays
+/// text, an accessibility description on one that does not — and
+/// [`t::comment_row_description_caption`] already says which this row is.
+/// `set_markup_note` accepts both, so withholding the editor would be
+/// withholding a capability the engine has, on a guess about the operator's
+/// intent. The caption is the honest half; the button is the useful half.
+///
+/// ★ It is worth knowing what this costs: on a `/Link` with no `/Contents` at
+/// all the control still says *Add note*, because `Note::Absent` carries no
+/// subtype interpretation to distinguish "nobody wrote a comment" from "nobody
+/// wrote a description". Named here rather than left to be found.
+fn note_controls(
+    ui: &mut egui::Ui,
+    comment: &CommentRow,
+    draft: &mut NoteDraft,
+    epoch: u64,
+    verb: &mut Option<AnnotAction>,
+    published: &mut bool,
+) {
+    if comment.is_ce_dimension {
+        ui.label(
+            egui::RichText::new(t::comment_row_note_not_editable_ce_dimension())
+                .small()
+                .weak(),
+        );
+        return;
+    }
+    let Some(id) = comment.id else {
+        ui.label(
+            egui::RichText::new(t::comment_row_note_no_handle())
+                .small()
+                .weak(),
+        );
+        return;
+    };
+
+    if draft.editing(id, epoch) {
+        editor(ui, comment, id, draft, verb);
+        return;
+    }
+
+    // The existing words, which seed the editor. `Note::Description` seeds it
+    // too — the operator is editing that string whichever of §12.5.2's two
+    // meanings it carries, and an editor that opened empty over a description
+    // would invite them to destroy it by typing.
+    let existing = match &comment.note {
+        Note::Text(text) | Note::Description(text) => text.as_str(),
+        Note::Absent => "",
+    };
+    let label = if existing.is_empty() {
+        t::comment_row_add_note()
+    } else {
+        t::comment_row_edit_note()
+    };
+    let button = ui.button(label);
+    // `ui_rect_visible`, not `ui_rect`: these rows live in a `ScrollArea`, and a
+    // control scrolled out of view still reports a rect. A harness clicking a
+    // coordinate that is behind the scroll edge clicks whatever IS there, which
+    // fails as something else entirely.
+    if !*published {
+        crate::diag::ui_rect_visible(REGION_EDIT, button.rect, ui.clip_rect());
+        *published = true;
+    }
+    if button.clicked() {
+        draft.begin(id, epoch, existing);
+    }
+}
+
+/// The open editor: the box, the hint, the signature disclosure and the three
+/// controls.
+///
+/// # ★★ The signature line is a rule-4 disclosure, not a caption
+///
+/// What `/T` will say is **invisible on the page** — a sticky's byline lives in
+/// a pop-up window this shell does not draw, and a shape's lives nowhere at all
+/// — so an operator has no way to discover what name their comments carry, or
+/// that they carry none, or that editing somebody else's comment will leave
+/// their name on it. Two sentences, one per case, and the case is decided by
+/// the row rather than by a preference this panel cannot see.
+///
+/// # ★ Escape closes it, and it does so through egui rather than by reading the
+/// keyboard
+///
+/// `TextEdit` surrenders focus on Escape, so `lost_focus()` plus the key is the
+/// idiomatic test and — importantly for this codebase — it asks nothing about
+/// whether "the operator is typing". A panel that read the raw key would be a
+/// second claimant on a key the canvas caret and the tool arming both want, and
+/// `tools/gates/check-typing-guard.sh` exists because that class of second
+/// claimant has already cost this project the Delete key and the space bar.
+fn editor(
+    ui: &mut egui::Ui,
+    comment: &CommentRow,
+    id: ObjId,
+    draft: &mut NoteDraft,
+    verb: &mut Option<AnnotAction>,
+) {
+    let response = ui.add(
+        egui::TextEdit::multiline(draft.text_mut())
+            .desired_rows(3)
+            .desired_width(f32::INFINITY),
+    );
+    crate::diag::ui_rect_visible(REGION_BOX, response.rect, ui.clip_rect());
+    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        draft.close();
+        return;
+    }
+
+    ui.label(
+        egui::RichText::new(t::comment_row_note_hint())
+            .small()
+            .weak(),
+    );
+
+    // Whose name ends up on it. `keep_author` is the same question, and the two
+    // are computed from one expression on purpose: a disclosure that could
+    // disagree with the action it describes is worse than no disclosure.
+    let keep_author = comment
+        .author
+        .as_deref()
+        .is_some_and(|a| !a.trim().is_empty());
+    let signature = match comment.author.as_deref() {
+        Some(author) if keep_author => t::comment_row_note_signature_kept(author.trim()),
+        _ => t::comment_row_note_signature().to_owned(),
+    };
+    ui.label(egui::RichText::new(signature).small().weak());
+
+    let had_note = !matches!(comment.note, Note::Absent);
+    ui.horizontal(|ui| {
+        let save = ui.button(t::comment_row_note_save());
+        crate::diag::ui_rect_visible(REGION_SAVE, save.rect, ui.clip_rect());
+        if save.clicked() {
+            *verb = Some(AnnotAction::SetNote {
+                id,
+                text: draft.text().to_owned(),
+                keep_author,
+            });
+        }
+        if ui.button(t::comment_row_note_cancel()).clicked() {
+            draft.close();
+        }
+        // Only when there is something to remove. `clear_markup_note` on an
+        // annotation with no note is a call whose entire effect is an undo
+        // entry, and R9's rule about a control that cannot do anything applies
+        // to a control that can only do nothing.
+        if had_note {
+            let remove = ui
+                .button(t::comment_row_note_remove())
+                .on_hover_text(t::comment_row_note_remove_tooltip());
+            crate::diag::ui_rect_visible(REGION_REMOVE, remove.rect, ui.clip_rect());
+            if remove.clicked() {
+                *verb = Some(AnnotAction::ClearNote { id });
+            }
+        }
+    });
 }
 
 /// One `comments-panel` line per frame, carrying what the panel computed.

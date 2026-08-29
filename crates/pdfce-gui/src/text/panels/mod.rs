@@ -645,6 +645,153 @@ pub const fn bookmark_add_needs_a_title() -> &'static str {
      a blank row nothing distinguishes."
 }
 
+// ---------------------------------------------------------------------------
+// Bookmarks — renaming one, and removing one with everything under it
+//
+// The surface for `EditSession::set_outline_title` and
+// `EditSession::delete_outline_item`, both `pdfce-core` `Pass 156.0`. See
+// `crate::panels::bookmarks::edit` for the interaction; this block is only the
+// words, and two of them are load-bearing in a way the rest of this file's
+// entries are not:
+//
+//   * `bookmark_delete_takes_subtree` is said BEFORE the press, because the
+//     verb's blast radius is larger than the row the operator clicked, and
+//     they cannot see how much larger when the row is collapsed.
+//   * `bookmark_deleted` is said AFTER it, from the number the ENGINE
+//     returned, because the shell's own count is a count of what pdfce could
+//     read and the engine's is a count of what it removed.
+// ---------------------------------------------------------------------------
+
+/// The heading over the rename-and-remove block.
+///
+/// Names both verbs, because the block is only drawn when a row is selected
+/// and an operator who has clicked a bookmark to jump somewhere needs to know
+/// why two new controls appeared under it.
+#[must_use]
+pub const fn bookmark_edit_heading() -> &'static str {
+    "Selected bookmark"
+}
+
+/// Which bookmark the rename and remove controls act on.
+///
+/// ★ The selected row is named rather than merely highlighted, for the reason
+/// the ce-dimension group window names its group: this block sits **above** an
+/// unbounded scroll area, so the row it acts on may be scrolled out of sight by
+/// the time the operator presses a button. A highlight nobody can see is not a
+/// selection indicator.
+#[must_use]
+pub fn bookmark_edit_selected(title: &str) -> String {
+    format!("Selected: {title}")
+}
+
+/// The label beside the rename field.
+#[must_use]
+pub const fn bookmark_rename_label() -> &'static str {
+    "Name"
+}
+
+/// The button that writes the new title.
+#[must_use]
+pub const fn bookmark_rename_button() -> &'static str {
+    "Rename"
+}
+
+/// The button that removes the bookmark.
+///
+/// *"Remove"*, not *"Delete"*: the operator-facing distinction this application
+/// keeps is that removing a bookmark takes it out of the navigation and leaves
+/// every page exactly where it was. A button reading "Delete" beside a document
+/// invites the reading that the pages go too.
+#[must_use]
+pub const fn bookmark_delete_button() -> &'static str {
+    "Remove"
+}
+
+/// ★★ **The subtree warning, said before the press.**
+///
+/// The engine's rule, and the reason it is Acrobat's too:
+///
+/// > *"promoting orphaned children to the deleted item's parent silently
+/// > reorganises a document's navigation, and an operator who deleted one
+/// > chapter heading would find its ten sections spliced into the top level."*
+///
+/// So the subtree goes, which is the predictable act — and it is also an act
+/// whose size the operator **cannot see** when the row is collapsed, because
+/// §12.3.3 gives a closed item's ancestors a `/Count` contribution of exactly
+/// one however large its subtree is.
+///
+/// ⇒ Stated as a fact about what the button will do, before it is pressed, in
+/// the same posture `bookmark_add_under_collapsed` takes about the add. The
+/// count is the shell's own read of the tree it drew; the count reported
+/// afterwards is the engine's, and `bookmark_deleted` explains why they are
+/// allowed to differ.
+#[must_use]
+pub fn bookmark_delete_takes_subtree(descendants: usize) -> String {
+    if descendants == 1 {
+        "Removing this also removes the 1 bookmark filed under it.".to_owned()
+    } else {
+        format!("Removing this also removes the {descendants} bookmarks filed under it.")
+    }
+}
+
+/// The reassurance that goes with it, and it is a fact rather than comfort.
+///
+/// An outline is a document-level structure reached from the catalogue's
+/// `/Outlines` (§12.3.3), not from any page. Removing a bookmark removes a way
+/// of *reaching* a page and changes nothing drawn on one. Worth saying beside a
+/// control that removes several things at once, because the operator's
+/// reasonable fear at that moment is that the pages are what is being removed.
+#[must_use]
+pub const fn bookmark_delete_keeps_pages() -> &'static str {
+    "The pages themselves are not touched — only the way of jumping to them."
+}
+
+/// ★★ **What was actually removed**, reported after the fact from the count the
+/// engine returned.
+///
+/// `EditSession::delete_outline_item` returns how many items went, the clicked
+/// one included, and that number is the answer to the question this verb raises
+/// and cannot answer any other way: the subtree went too, and on a collapsed
+/// parent the operator could not see how large it was.
+///
+/// ★ **It may disagree with the number promised before the press, and that is
+/// why both are said.** `read_outline` gives up part-way on a cycle, on
+/// excessive depth, or on exhausting its item budget — the panel draws a
+/// truncation notice when it does — so the pre-press count is a count of *what
+/// pdfce could read* and this one is a count of *what it removed*. On any
+/// ordinary document they agree.
+///
+/// One is not spelled as none: *"including its 0 bookmarks beneath it"* is the
+/// shape of sentence that makes a program look like it is reading from a
+/// template, so the leaf case gets its own words.
+#[must_use]
+pub fn bookmark_deleted(removed: usize) -> String {
+    if removed <= 1 {
+        "Bookmark removed.".to_owned()
+    } else {
+        format!(
+            "Bookmark removed, along with the {} filed under it. Undo puts them all back.",
+            removed - 1
+        )
+    }
+}
+
+/// Why the Rename button is not offered for a blank name.
+///
+/// ★ Absent rather than greyed, unlike the Add button one block up, and the
+/// asymmetry is deliberate in both directions. The Add button is the **whole**
+/// of its feature and a row that vanished until you typed would leave an
+/// operator hunting for where bookmarks are added; the Rename button sits
+/// beside a field that already shows the bookmark's current name, so the field
+/// alone reads as *"this is what it is called"*, which is true. This sentence
+/// is the hover text on the field for the one case worth explaining — a name
+/// typed down to nothing.
+#[must_use]
+pub const fn bookmark_rename_needs_a_title() -> &'static str {
+    "A bookmark needs a name. One with a blank title still appears in the \
+     list, as a blank row nothing distinguishes."
+}
+
 /// Disclosure when pdfce's own reader had to give up part-way.
 ///
 /// A truncated tree looks exactly like a short one from the outside, so
@@ -840,6 +987,107 @@ mod tests {
         assert_ne!(doc_shows, doc_hides);
         assert!(doc_shows.contains("hidden"), "{doc_shows}");
         assert!(doc_hides.contains("shown"), "{doc_hides}");
+    }
+
+    /// ★★ **The delete disclosure speaks about the SAME quantity, before and
+    /// after the press — and the two sentences count differently to do it.**
+    ///
+    /// This is the one piece of arithmetic in the bookmark wording and it has a
+    /// genuine off-by-one waiting in it:
+    ///
+    /// * `bookmark_delete_takes_subtree` is handed the shell's **exclusive**
+    ///   count (how many are filed *under* the row), because that is what the
+    ///   panel can see and what `tree::descendants` returns;
+    /// * `bookmark_deleted` is handed the engine's **inclusive** count, because
+    ///   `EditSession::delete_outline_item` returns how many items went
+    ///   *including* the one that was clicked.
+    ///
+    /// So the second must subtract one to name the same set the first named. If
+    /// it did not, an operator promised *"also removes the 11"* would be told
+    /// *"along with the 12"*, and the only conclusion available to them is that
+    /// pdfce removed a bookmark it was not asked to.
+    ///
+    /// The fixture is deliberately chosen so the right and wrong answers are
+    /// different strings — the discipline the engine's `Pass 156.0` note asks
+    /// for after its own delete test survived every sabotage: *"when you assert
+    /// that A and B differ, check your fixture can tell them apart."*
+    #[test]
+    fn the_delete_promise_and_the_delete_report_name_the_same_quantity() {
+        let under = 11;
+        let promised = bookmark_delete_takes_subtree(under);
+        assert!(promised.contains("11"), "{promised}");
+
+        // What the engine returns for that same removal: the subtree plus the
+        // clicked item.
+        let reported = bookmark_deleted(under + 1);
+        assert!(
+            reported.contains("11"),
+            "the report must name the same 11, not the 12 the engine counted: {reported}"
+        );
+        assert!(
+            !reported.contains("12"),
+            "the inclusive count must not leak into the sentence: {reported}"
+        );
+    }
+
+    /// **A leaf reports a removal without a subtree clause.**
+    ///
+    /// `delete_outline_item` returns `1` for a childless bookmark, and
+    /// *"along with the 0 filed under it"* is the shape of sentence that makes
+    /// a program look like it is filling in a template. The two branches must
+    /// therefore be genuinely different sentences rather than the same one with
+    /// a zero in it.
+    #[test]
+    fn a_leaf_removal_says_nothing_about_a_subtree() {
+        let leaf = bookmark_deleted(1);
+        assert!(!leaf.contains('0'), "{leaf}");
+        assert!(!leaf.contains("along with"), "{leaf}");
+        assert_ne!(leaf, bookmark_deleted(2));
+        // Defensive: a refusal cannot reach this function, but a future verb
+        // that reports zero removals must not produce "the -1 filed under it".
+        assert_eq!(bookmark_deleted(0), leaf);
+    }
+
+    /// ★ **The removal disclosure names the undo**, because that is what
+    /// stands in for the confirmation dialog this surface deliberately does
+    /// not show.
+    ///
+    /// `panels::bookmarks::edit`'s header carries the choice: delete is
+    /// *undoable* rather than *confirmed*, on the grounds that one press is one
+    /// engine command so `Ctrl+Z` restores the whole subtree. A disclosure that
+    /// reported the loss without naming the remedy would be the worst of both —
+    /// no question beforehand and no way out afterwards that the operator has
+    /// been told about.
+    #[test]
+    fn the_removal_disclosure_names_the_way_back() {
+        let said = bookmark_deleted(12);
+        assert!(said.to_lowercase().contains("undo"), "{said}");
+    }
+
+    /// **The subtree warning is singular for one and plural for the rest.**
+    ///
+    /// It is read beside a button the operator is deciding whether to press, so
+    /// *"the 1 bookmarks filed under it"* is exactly the sort of seam that
+    /// makes a warning read as boilerplate and stop being read at all.
+    #[test]
+    fn the_subtree_warning_agrees_in_number() {
+        let one = bookmark_delete_takes_subtree(1);
+        assert!(one.contains("1 bookmark "), "{one}");
+        assert!(!one.contains("bookmarks"), "{one}");
+        assert!(bookmark_delete_takes_subtree(2).contains("2 bookmarks"));
+    }
+
+    /// **The pages line says what is NOT being removed.**
+    ///
+    /// The operator's reasonable fear beside a control that takes several
+    /// things at once is that the pages are what is going. An outline is a
+    /// document-level structure (§12.3.3) and removing a bookmark removes a way
+    /// of *reaching* a page, so the sentence is a fact rather than reassurance —
+    /// and it must actually mention the pages to do its job.
+    #[test]
+    fn the_pages_line_names_the_pages() {
+        let said = bookmark_delete_keeps_pages();
+        assert!(said.contains("pages"), "{said}");
     }
 
     /// A bookmark's three destination states read as three different things.

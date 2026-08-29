@@ -395,6 +395,139 @@ pub fn comment_row_goto_tooltip(page_number: usize) -> String {
     format!("Show page {page_number}, where this is")
 }
 
+/// **The control that opens the note editor on a row that has no note.**
+///
+/// Two labels rather than one, because *add* and *edit* are different acts to
+/// the operator and the difference is legible from the row: a row showing
+/// somebody's words offers to change them, a row saying "No note text" offers
+/// to write some. A single "Note…" would make the operator read the row above
+/// the button to find out what pressing it does.
+///
+/// # ★ Why this exists only from 2026-08-28
+///
+/// `pdfce-core` had no verb that could set `/Contents` on an annotation that
+/// **already exists** until `Pass 154.0`, so every shape this shell drew was
+/// permanently wordless and this panel was a viewer. That is recorded in
+/// [`comments_all_without_notes`]' doc comment as a *capability that does not
+/// exist yet*; it exists now, and the sentence there has been corrected rather
+/// than deleted.
+#[must_use]
+pub fn comment_row_add_note() -> &'static str {
+    "Add note"
+}
+
+/// The same control on a row that already carries note text.
+#[must_use]
+pub fn comment_row_edit_note() -> &'static str {
+    "Edit note"
+}
+
+/// The editor's Save.
+///
+/// **An explicit commit, not a live binding**, for the reason
+/// `crate::panels::properties::geometry` states about its own Apply: one
+/// keystroke per undo entry would make `Ctrl+Z` walk backwards through a
+/// sentence one letter at a time. One press is one `CommandKind::SetMarkupNote`.
+#[must_use]
+pub fn comment_row_note_save() -> &'static str {
+    "Save note"
+}
+
+/// The editor's Cancel — abandons the draft and writes nothing.
+#[must_use]
+pub fn comment_row_note_cancel() -> &'static str {
+    "Cancel"
+}
+
+/// **Remove the note entirely**, leaving the shape on the page.
+///
+/// A separate control from Save-with-empty-text because `pdfce-core` models
+/// them as separate verbs and says why: *"an empty comment is a comment, and a
+/// reviewer deleting their remark is not the same as leaving a blank one."*
+/// `clear_markup_note` removes `/Contents`, `/T` and `/M` together.
+#[must_use]
+pub fn comment_row_note_remove() -> &'static str {
+    "Remove note"
+}
+
+/// Its tooltip — says what survives, because the button sits next to a Delete
+/// in the operator's mental model even though it is not one.
+#[must_use]
+pub fn comment_row_note_remove_tooltip() -> &'static str {
+    "Remove the words, the author and the date. The markup itself stays on the page."
+}
+
+/// The hint under the editor while it is open.
+///
+/// Names the two keys that are NOT obvious in a multi-line box: Enter inserts
+/// a line rather than saving, so the operator needs telling how to save, and
+/// Escape is the standard abandon.
+#[must_use]
+pub fn comment_row_note_hint() -> &'static str {
+    "Enter starts a new line. Press Save note to write it, or Escape to abandon it."
+}
+
+/// **What the editor will write into `/T`, disclosed before it is written.**
+///
+/// Rule 4's surviving half: the author name is invisible on the page — a
+/// sticky's byline lives in a pop-up window this shell does not draw, and a
+/// shape's lives nowhere at all — so an operator who has never opened Settings
+/// has no way to discover what name their comments carry, or that they carry
+/// none.
+///
+/// # ★ Why it names the setting rather than the value
+///
+/// A panel body is handed `&OpenDoc` and `&mut PanelsState` and **nothing
+/// else** — no preferences — so this string cannot quote the configured name
+/// without threading prefs through every panel signature in the crate for one
+/// sentence. Naming the place answers the operator's real question (*where do
+/// I change what my comments say?*), and the value itself becomes visible the
+/// moment the note is saved, as the row's own byline.
+///
+/// Shown only when the row has **no** author, because on a row that has one
+/// nothing is written to `/T` at all: `pdfce-core` leaves an omitted key
+/// untouched, which is what stops correcting a typo from un-signing somebody
+/// else's comment.
+#[must_use]
+pub fn comment_row_note_signature() -> &'static str {
+    "Saving signs this with the name in Settings > Comments, and dates it. Leave that name blank to comment anonymously."
+}
+
+/// The same disclosure on a row that **already has an author** — what is
+/// preserved, rather than what is written.
+///
+/// The operator is about to change somebody's words, and the thing they cannot
+/// see is that the byline will not move with them. Saying so is what stops the
+/// panel looking as though it silently re-attributed a comment.
+#[must_use]
+pub fn comment_row_note_signature_kept(author: &str) -> String {
+    format!("This note stays credited to {author}. Saving updates its date.")
+}
+
+/// The caption on a row whose note cannot be edited here, and where its text
+/// actually lives.
+///
+/// A **ce dimension** is refused by `pdfce-core` **by name** — its `/Contents`
+/// is generated from the measurement by `author_dimension`, so a note written
+/// over it would be silently regenerated away. Saying where the text comes from
+/// is more use than a greyed button, and R9 forbids the greyed button anyway:
+/// this is not *temporarily* unavailable.
+#[must_use]
+pub fn comment_row_note_not_editable_ce_dimension() -> &'static str {
+    "A ce dimension's text comes from its measurement. Use the Measure tools to change it."
+}
+
+/// The caption on a row whose annotation is written as a **direct dictionary**
+/// and therefore has no object id to name.
+///
+/// §12.5.2 Table 164 requires an annotation dictionary to be an indirect
+/// object, so this is a malformed file rather than a shortcoming of pdfce, and
+/// the row says which. Nothing that needs a handle may be offered for it.
+#[must_use]
+pub fn comment_row_note_no_handle() -> &'static str {
+    "This annotation is written into the page rather than as its own object, so pdfce cannot address it."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
