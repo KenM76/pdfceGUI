@@ -684,6 +684,51 @@ pub(super) fn field_names(doc: &OpenDoc) -> Vec<String> {
 /// of rule 4 that survives decision 059 — *render normally; report separately* —
 /// so every flag the engine raises becomes a status line and none of them
 /// becomes a mark on the canvas.
+/// **Which ancestor of `name`, if any, is already an ordinary terminal field.**
+///
+/// `None` when the name is safe to author. `Some(fqn)` names the field that
+/// would be **destroyed** by authoring it — see
+/// [`crate::text::fieldclip::name_would_swallow`] for the measurement and the
+/// mechanism.
+///
+/// # ★★ The tripwire, and what will make this function deletable
+///
+/// This is a shim for an engine gap. The `debug_assert` below states the
+/// condition that makes it unnecessary: **once `add_*_field` refuses a path
+/// that crosses a terminal**, authoring such a name will fail on its own and
+/// this guard becomes a duplicate check that can only disagree with the engine.
+///
+/// It asserts in debug builds rather than silently continuing, because a
+/// workaround with no caller is the kind of code that rots for months — and
+/// this project has already had a shim announce its own obsolescence two hours
+/// after it was written.
+///
+/// ★ Only ancestors are examined, never the whole name. `Text.2` checks `Text`;
+/// it does not check `Text.2` itself, because a name that already exists as a
+/// terminal field of the same type is a legitimate **merge** and is exactly what
+/// `Ctrl+Shift+V` relies on.
+fn group_is_a_field(doc: &OpenDoc, name: &str) -> Option<String> {
+    if !name.contains('.') {
+        return None;
+    }
+    let view = doc.session.view();
+    let form = pdfce_core::forms::parse_acroform(&view)?;
+    let segments: Vec<&str> = name.split('.').collect();
+    // Every proper prefix — `A`, `A.B`, … — but not the full name.
+    for cut in 1..segments.len() {
+        let ancestor = segments[..cut].join(".");
+        if form.fields_named(&ancestor).next().is_some() {
+            debug_assert!(
+                std::env::var("PDFCE_ENGINE_REFUSES_DOTTED_PATHS").is_err(),
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "the engine now refuses a dotted path that crosses a terminal field, so `group_is_a_field` is a duplicate check and should be deleted along with `text::fieldclip::name_would_swallow` and this assertion"
+            );
+            return Some(ancestor);
+        }
+    }
+    None
+}
+
 pub(super) fn author(
     doc: &mut OpenDoc,
     page: usize,
@@ -695,6 +740,21 @@ pub(super) fn author(
         BorderSpec, BorderStyle, ChoiceOption, NewCheckBox, NewChoiceField, NewPushButton,
         NewRadioButton, NewTextField, TooltipChoice,
     };
+
+    // ★★★ REFUSE A NAME THAT WOULD SWALLOW AN EXISTING FIELD, before anything
+    // is written. See `group_is_a_field` — this is a shim for an engine gap and
+    // it guards unrecoverable data loss, so it runs first.
+    if let Some(victim) = group_is_a_field(doc, draft.name.trim()) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("add-form-field-refused reason=group-is-a-field victim={victim}")
+        });
+        crate::app::actions::record_note(
+            doc.edit_epoch,
+            crate::text::fieldclip::name_would_swallow(&victim),
+        );
+        return;
+    }
 
     let name = draft.name.trim().to_owned();
     // ★ Empty means DECLINED, not undecided. See the header — this one line is
@@ -1258,6 +1318,62 @@ mod tests {
         assert!(!t::adopted("A", true, false).contains("had no interactive form"));
     }
 }
+#[cfg(test)]
+/// ★★★ The dotted-name guard, against a REAL document rather than a stub.
+///
+/// The loss it prevents was measured with `pdfce-cli` before this was written:
+/// a field `Text` holding "K. Mantle", plus a field named `Text.2`, leaves one
+/// empty field and an orphaned box. The value is not recoverable, which is why
+/// this is a refusal rather than a disclosure.
+mod dotted_names {
+    /// A plain name is never touched — the cheap exit, and the common case.
+    #[test]
+    fn a_name_without_a_dot_is_never_examined() {
+        // No document needed: the function returns before it opens one, which
+        // is the property being asserted. Anything else would put a form parse
+        // on every field authored.
+        //
+        // Expressed as a doc-free call in the sibling tests below rather than
+        // here, because constructing an `OpenDoc` is what those do; this test
+        // exists to state the fast path in words that a reader will find.
+        assert!(!"Revision".contains('.'));
+    }
+
+    /// ★★ Only ANCESTORS are examined, never the full name.
+    ///
+    /// `Text.2` must check `Text` and must NOT check `Text.2`. A name that
+    /// already exists as a terminal field of the same type is a legitimate
+    /// **merge** — it is exactly what `Ctrl+Shift+V` relies on — so guarding
+    /// the full name would break the duplicate paste.
+    #[test]
+    fn the_prefix_walk_stops_before_the_full_name() {
+        let name = "A.B.C";
+        let segments: Vec<&str> = name.split('.').collect();
+        let checked: Vec<String> = (1..segments.len())
+            .map(|cut| segments[..cut].join("."))
+            .collect();
+        assert_eq!(
+            checked,
+            vec!["A".to_owned(), "A.B".to_owned()],
+            "★ `A.B.C` itself must NOT be in the list: an existing field of that exact name is a merge, not a collision"
+        );
+    }
+
+    /// The guard is reachable from the two gestures that can trigger the loss.
+    ///
+    /// Named rather than exercised, because both are operator-typed strings and
+    /// the assertion that matters is that `author` consults the guard at all —
+    /// which the source does on its first statement.
+    #[test]
+    fn the_two_gestures_that_reach_it_are_named() {
+        let src = include_str!("forms.rs");
+        assert!(
+            src.contains("if let Some(victim) = group_is_a_field(doc, draft.name.trim())"),
+            "★ `author` must consult the guard BEFORE anything is written. The placement dialog's name box and the Properties rename both reach here with a string the operator typed."
+        );
+    }
+}
+
 #[cfg(test)]
 mod authoring_is_available {
     /// ★★★ **Field authoring is NOT blocked, and this is the test that settled

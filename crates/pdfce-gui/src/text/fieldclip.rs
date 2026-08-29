@@ -118,6 +118,52 @@ pub const fn brings_a_script() -> &'static str {
      If it refers to other fields by name, those fields need to exist here too."
 }
 
+/// **A name whose group is already an ordinary field** — refused, with the
+/// reason and the remedy.
+///
+/// ★★★ This guards **silent data loss**, measured on 2026-08-29 against
+/// `pdfce-cli` at engine `3ac9dd7`:
+///
+/// ```text
+/// field "Text" = "K. Mantle"        then   add a field named "Text.2"
+/// -> field "Text" is GONE, its value is GONE, its box is still on the page
+/// ```
+///
+/// A period separates levels (§12.7.3.2), so `Text.2` asks for a field `2`
+/// inside a group `Text` — and §12.7.3.1 does not let one dictionary be both a
+/// terminal field and a group. Adding the child **converts** the parent, which
+/// discards its `/FT`, its `/V` and its widget's field-ness. The engine reports
+/// success and says nothing.
+///
+/// # Why this lives here rather than being left to the engine
+///
+/// It should be the engine's, it is filed as
+/// `request_a_dotted_name_silently_swallows_an_existing_terminal_field.md`, and
+/// the guard there is already **half present** — `add_text_field` refuses the
+/// mirror case (*"the name belongs to a group that contains other fields"*) and
+/// not this one, which is the destructive direction.
+///
+/// Until that lands, the path is reachable from this shell in two gestures: the
+/// placement dialog's name box, and the Properties panel's rename. Both take a
+/// name the operator typed. A shim that prevents an unrecoverable loss is worth
+/// its own deletion later; `actions::forms::group_is_a_field` carries the
+/// tripwire that will name the day it can go.
+///
+/// # The wording
+///
+/// It names the field that would be destroyed, because *"invalid name"* would
+/// leave the operator guessing which part offended. And it offers the remedy
+/// that is almost always what they meant — a plain name — rather than
+/// explaining PDF field hierarchies to a draughtsman.
+#[must_use]
+pub fn name_would_swallow(existing: &str) -> String {
+    format!(
+        "A name with a dot puts the field inside a group, and \u{201c}{existing}\u{201d} is \
+         already an ordinary field rather than a group. Using this name would turn it into a \
+         group and lose what is in it. Pick a name without a dot, or rename \u{201c}{existing}\u{201d} first."
+    )
+}
+
 /// **What a field copy leaves on the OPERATING SYSTEM's clipboard.**
 ///
 /// ★★★ This exists because of a toolkit constraint, not a design wish, and
