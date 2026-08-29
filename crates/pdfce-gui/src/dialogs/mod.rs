@@ -161,6 +161,64 @@ pub mod settings;
 
 use crate::app::state::{OpenDoc, Status};
 
+/// **Whether a dialog that has just drawn must be dropped out of its slot.**
+///
+/// `open` is what the dialog's own `show` returned — *"should I still be on
+/// screen?"* — and `answered` is whether it is holding a decision its owner has
+/// not collected yet. A dialog is retired only when **both** say no: it is off
+/// screen *and* it has nothing left to hand over.
+///
+/// # ★★★ WHY THIS IS NOT `!open`, AND THE DAY THAT COST
+///
+/// It was `!open`, expressed at each call site as
+/// `if …map(|d| d.show(ctx)) == Some(false) { self.slot = None; }`, and for
+/// eleven of the thirteen dialogs that is exactly right: they act through
+/// `actions` while they draw, so a closed one has nothing left in it.
+///
+/// The two **confirmation** windows are different in kind, and the difference
+/// is the whole defect. `unsaved` and `signature` deliberately do NOT act. They
+/// *park* an answer and let `crate::app::PdfceApp` perform it —
+/// `resume_after_unsaved` and `resume_after_signature`, both later in the same
+/// frame — because the acts in question (closing a document, writing over the
+/// operator's own file) are the two most destructive things this shell does and
+/// must have exactly one route each. A window that could call `save_in_place`
+/// would be a second route.
+///
+/// So for those two, `show` returning `false` and the dialog being *finished*
+/// are different facts. Pressing the button sets the answer, which is what
+/// makes `show` answer `false` — and the old branch then destroyed the dialog,
+/// **and the answer inside it**, before the drain three call frames later could
+/// look. `take_signature_answer` found an empty slot and returned `None`.
+///
+/// ⇒ The observable result, found by driving on 2026-08-29
+/// (`an_invalidating_save_is_warned_about`): the signature warning opened, held
+/// the save, drew its proceed button, took the click, **closed** — and traced
+/// no `signature-confirmed` and wrote no file. A signed document could not be
+/// saved at all by any route the guard covers. The feature had shipped the day
+/// before, correctly stopping the save and never letting it through, which is
+/// worse than the silence it replaced.
+///
+/// ★ Neither half was wrong on its own, which is why no unit test saw it. The
+/// dialog returns its answer when asked; the drain performs whatever it is
+/// given; the defect lives entirely in the **lifetime between them**, and a
+/// lifetime is not a value any assertion over either half can name. That is the
+/// same shape `PROJECT_PLAN.md` §4 built the driving harness for.
+///
+/// # The invariant this creates, stated where it can be checked
+///
+/// > **Every caller of [`DialogsState::show`] must drain the parked answers in
+/// > the same frame.**
+///
+/// There is one caller — `crate::app::frame` — and it drains both, immediately
+/// after. A retained-because-answered dialog therefore lives for zero frames:
+/// it is emptied and dropped by `take_*_answer` before anything can draw it
+/// again. A caller that did not drain would see the window redraw for as long
+/// as it ignored it, which is a loud failure rather than a silent one, and that
+/// direction was chosen deliberately over discarding the answer.
+const fn retire(open: bool, answered: bool) -> bool {
+    !open && !answered
+}
+
 /// Every dialog this build has, and whether each is open.
 ///
 /// One field per dialog, each an `Option` whose `Some` *is* the "open" state —
@@ -794,7 +852,16 @@ impl DialogsState {
         // be a statement rather than an accident, because the accident is one
         // reorder away and its failure mode is a surface describing a document
         // nobody has any more.
-        if self.unsaved.as_mut().map(|d| d.show(ctx)) == Some(false) {
+        //
+        // ★★★ [`retire`] rather than `== Some(false)`, and the difference is a
+        // defect: this window PARKS its answer for `resume_after_unsaved` and
+        // pressing a button is what makes `show` say `false`. Dropping it on
+        // that `false` threw the answer away with it.
+        if self
+            .unsaved
+            .as_mut()
+            .is_some_and(|d| retire(d.show(ctx), d.answered()))
+        {
             self.unsaved = None;
         }
         // ★ LAST of all, one place beyond the unsaved question, and the
@@ -813,7 +880,17 @@ impl DialogsState {
         // be raised on separate gestures (see `dialogs::signature`'s §7), and
         // if a future change ever makes both live at once the destructive-est
         // question should be the one on top.
-        if self.signature.as_mut().map(|d| d.show(ctx)) == Some(false) {
+        //
+        // ★★★ [`retire`] rather than `== Some(false)`, for its neighbour's
+        // reason and with the receipt: on 2026-08-29
+        // `an_invalidating_save_is_warned_about` clicked *Save anyway*, the
+        // window closed, and `signature-confirmed` never appeared — because
+        // this line had already destroyed the dialog the answer was sitting in.
+        if self
+            .signature
+            .as_mut()
+            .is_some_and(|d| retire(d.show(ctx), d.answered()))
+        {
             self.signature = None;
         }
     }
@@ -1119,6 +1196,46 @@ impl DialogsState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ★★★ **A window that closed BECAUSE it was answered is not retired
+    /// until the answer has been taken out of it.**
+    ///
+    /// The regression test for the defect
+    /// `an_invalidating_save_is_warned_about` found by driving on 2026-08-29:
+    /// the signature warning's proceed button set the confirmation, which made
+    /// `show` answer `false`, which made the owner drop the dialog **and the
+    /// confirmation with it** — so `resume_after_signature` found nothing,
+    /// traced nothing, and wrote nothing. Save was unusable on every signed
+    /// document.
+    ///
+    /// Four rows because the predicate has two inputs and each combination is a
+    /// real state: an open unanswered window (the normal case), an open window
+    /// that has just been answered (`answered` wins and it is kept — it cannot
+    /// arise today, since answering closes both windows, but the rule must not
+    /// depend on that), a cancelled window (retired, and it answers nothing —
+    /// which is what makes the ✕ non-destructive), and the one that cost the
+    /// day.
+    #[test]
+    fn an_answered_window_survives_its_own_close() {
+        assert!(
+            !retire(true, false),
+            "an open window with nothing parked stays open"
+        );
+        assert!(
+            !retire(true, true),
+            "an answer is never discarded, whatever `show` says about visibility"
+        );
+        assert!(
+            retire(false, false),
+            "a CANCELLED window is retired: it closed and answered nothing, which is \
+             exactly what makes the ✕ mean Cancel"
+        );
+        assert!(
+            !retire(false, true),
+            "★ THE DEFECT: a window closed by its own proceed button is holding the \
+             answer that closed it, and dropping it here loses the save"
+        );
+    }
 
     /// A dialog cannot be opened without a document.
     ///

@@ -1313,3 +1313,123 @@ than of something else that moved.
 work was lost; the application simply died immediately afterwards, which is why
 the symptom is *"pdfce disappears when I press Ctrl+S"* rather than *"my save
 did not happen"*.
+
+---
+
+## D17 — The signature warning's *Save anyway* was inert, so no signed document could be saved at all — **FIXED AND DRIVEN 2026-08-29**
+
+**Present for one day.** The guard that stands between a structural edit and a
+signed document's next revision shipped 2026-08-28 and was found by driving the
+next morning (`an_invalidating_save_is_warned_about`, sweep
+`evidence/sweep-20260829/main.txt`). It stopped the save correctly and then
+**never let it through**: an operator on a signed document could cancel the
+question and nothing else. That is worse than the silence it replaced — the
+feature turned a working save into no save.
+
+### What the trace showed
+
+`target/ui-verify-main/signature-save.trace.txt`, in order:
+
+```text
+pages-deleted removed=1 …              the save is structural
+signature-asked pending=Copy           the guard held it and the window drew
+viewport-inner id="2DBB" rect=…        the dialog is its own OS window
+ui-rect name=signature.proceed … viewport="2DBB"
+…
+ui-rect-gone name=dialog:signature     ← the press LANDED: the window closed
+                                       ← and no `signature-confirmed`, ever
+```
+
+★ The first suspicion was the harness — the button's rectangle is published in
+the **child viewport's own frame**, and this project's record
+(`a_child_viewports_ui_rects_are_relative_to_ITS_origin`) is six checks clicking
+hundreds of points from the control they named. The trace rules it out in one
+line: the window **closed**. Only the proceed button, Cancel or the ✕ can do
+that, and the other two also close it without an answer — so the press was
+delivered and the answer was lost afterwards.
+
+### The code
+
+`dialogs::signature::SignatureDialog::show` returns *"should I still be on
+screen?"*, and pressing the proceed button is exactly what makes it answer
+`false`:
+
+```rust
+open && !self.cancelled && !self.confirmed
+```
+
+Its owner read that `false` as *"this dialog is finished"*:
+
+```rust
+if self.signature.as_mut().map(|d| d.show(ctx)) == Some(false) {
+    self.signature = None;          // ← with the answer still inside it
+}
+```
+
+But this window deliberately **does not act**. It parks the answer, and
+`PdfceApp::resume_after_signature` performs it — later in the same frame —
+because writing over the operator's own file must have exactly one route.
+The dialog was therefore destroyed, with the confirmation in it, three call
+frames before the drain looked; `take_signature_answer` found an empty slot and
+returned `None`.
+
+### ★★★ The class
+
+**A slot whose occupant carries a value the owner has not collected, retired on
+a signal that means "stop drawing me" rather than "I am empty".**
+
+Every part is individually correct. `show` correctly wants to close.
+`take_confirmation` correctly returns the answer when asked. `resume_after_
+signature` correctly performs whatever it is given. **The defect is entirely in
+the lifetime between them, and a lifetime is not a value any assertion over
+either half can name** — which is why `dialogs/signature.rs`'s own headless
+tests, which assert the engine's verdict *and* that `ask_for` builds the window,
+all pass on the broken build. It is the whole-link failure class
+`PROJECT_PLAN.md` §4 built the driving harness for, and the check's own header
+had listed this exact outcome as row 3 of the builds it must fail against.
+
+### The fix
+
+One predicate and one rule, in `dialogs/mod.rs`:
+
+```rust
+const fn retire(open: bool, answered: bool) -> bool { !open && !answered }
+```
+
+A dialog is dropped only when it is off screen **and** holding nothing.
+`SignatureDialog::answered()` and `UnsavedDialog::answered()` are the second
+input. The invariant it creates is stated at `retire`: *every caller of
+`DialogsState::show` must drain the parked answers in the same frame* — there
+is one caller, `app::frame`, and it drains both immediately after, so a
+retained-because-answered dialog lives for zero frames.
+
+### ★★ Its twin was fixed in the same change, unprompted
+
+`dialogs::unsaved` parks an answer the same way, two lines above, through the
+same branch. **Nothing in the harness clicks it** — no check presses *Close
+without saving* — so it was carrying the identical defect with no red run to
+advertise it. Its symptom would have been worse: a *Close without saving* that
+closes the question and leaves the document open, which reads as the whole
+application ignoring the operator.
+
+⇒ The general form: **when a driven check finds a defect in one member of a
+matched pair, the pair is the unit of repair.** Fixing only the observed half
+leaves the survivor looking deliberate.
+
+### The verification
+
+Driven, on the real binary, against `fixtures/signed-two-pages.pdf`:
+
+```text
+[PASS] an_invalidating_save_is_warned_about
+  · the save is structural: pages-deleted removed=1 freed=2
+  ★ the save was held and the window drew: signature-asked pending=Copy
+  ★★ no file was written while the question was on screen
+  ★ the operator authorised it: signature-confirmed pending=Copy
+  ★ the write ran: save-copy … bytes=1973 … deleted=2 epoch=1
+  ★★★ 1973 bytes of PDF reached target/ui-verify-sig\signed-copy.pdf
+```
+
+The guard now blocks **and** releases, which is the whole claim, and the two
+halves are asserted in one run so a build that never writes cannot satisfy the
+absence in the middle.

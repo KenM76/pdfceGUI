@@ -23,6 +23,7 @@
 //! | 2 | a press above the box finds `Grip::Rotate` over `grabbable`'s box | `handles::grip_at` — the geometry, given a box |
 //! | 3 | it becomes `DragKind::Rotate` and not `Move` | `gesture::meaning` — given `annot_rotate`, which `pressing` computes |
 //! | 4 | `rotating::Frame::bounds` is `grabbable`'s and not `overlay::grip_box`'s | **nothing** |
+//! | 4b | **no CONTENT-shaped guard stands in front of the annotation branch** | **nothing** |
 //! | 5 | the commit routes to the **annotation** verb, not `transform_objects` | **nothing** |
 //! | 6 | the sign survives the screen → page crossing | **nothing** |
 //!
@@ -32,6 +33,28 @@
 //! `rotating::drag` returns at its first line, and the whole gesture is a
 //! no-op with nothing said anywhere. That is this project's founding defect
 //! shape exactly: a grip that is dragged, released, and does nothing.
+//!
+//! ## ★★★ LINK 4b IS WHAT THE FIRST DRIVEN RUN ACTUALLY FOUND — 2026-08-29
+//!
+//! It was added to the table *after* that run, and it is here because the run
+//! is the only reason anybody knows it exists. Link 4 was **already correct**:
+//! `canvas::interact` had passed `pressing::grabbable`'s box since the day the
+//! module landed, and this check's failure message said otherwise — a
+//! confident, specific, wrong accusation, which `checks::rotate` already warns
+//! is worse than a vague one.
+//!
+//! The real break was a
+//! `selection.object_indices_on(page_index).is_empty()` guard sitting *above*
+//! `rotating::drag`'s annotation branch. It counts page **content**, which
+//! `select_annot` clears, so it returned `None` on every markup before the
+//! routing decision was ever reached. **Identical symptom, different line, and
+//! the same silence** — which is why the failure message below now names both
+//! candidates and names this one first.
+//!
+//! ⇒ Three destinations share this gesture. The durable form of the lesson is
+//! that **a guard written in one destination's vocabulary belongs after the
+//! branch that picks the destination**, and `canvas::rotating`'s header carries
+//! it as the sixth instance of this canvas's recurring hazard.
 //!
 //! **Link 5 is the one that would ship and look deliberate.** If the press
 //! fell through to `caps.edit_content`'s branch, the commit would call
@@ -442,13 +465,23 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             "★★★ THE ROTATE HANDLE COMMITTED NOTHING. The press was made at the centre of the \
              `{HANDLE_REGION}` rect the application itself declared, the handle is on the canvas, \
              and neither `{ROTATE_EVENT}` nor `{CONTENT_ROTATE_EVENT}` nor `{MOVE_EVENT}` \
-             followed — the gesture was consumed and discarded.\n\
-             **The likeliest cause is `rotating::Frame::bounds`.** It must come from \
-             `pressing::grabbable`, not from `overlay::grip_box`: that one derives its box from \
-             the selection's cached CONTENT outlines, which `select_annot` clears, so over an \
-             annotation it answers `None` and `rotating::drag` returns at its first line with \
-             nothing said anywhere. That is this project's founding defect shape, and it is why \
-             this check exists. Trace: {}.",
+             followed — the gesture was consumed and discarded. That is this project's founding \
+             defect shape, and it is why this check exists.\n\
+             **TWO different lines produce this identical report, and the first one is what the \
+             first driven run actually found.** Read `rotating::drag` top to bottom:\n\
+             1. ★★★ A guard written about page CONTENT standing IN FRONT OF the annotation \
+             branch — on 2026-08-29 it was `object_indices_on(page).is_empty()` sitting above \
+             `if let Some(annot) = selection.annot()`. `select_annot` clears the content \
+             selection, so a test like that answers `empty` on every markup and returns before \
+             the routing decision is reached. Anything the CONTENT verb needs belongs BELOW \
+             that branch.\n\
+             2. `rotating::Frame::bounds` coming from `overlay::grip_box` instead of from \
+             `pressing::grabbable` — `grip_box` derives its box from the selection's cached \
+             CONTENT outlines, so over an annotation it answers `None` and `drag` returns at \
+             its first line. `canvas::interact` is the one call site.\n\
+             ★ Both are silent, and a silent return is the defect whatever the cause: look \
+             for a `rotate-declined` line before concluding the gesture never arrived. \
+             Trace: {}.",
             session.trace_path().display()
         )));
     };

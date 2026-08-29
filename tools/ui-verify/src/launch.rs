@@ -357,7 +357,7 @@ impl Drop for Session {
 /// Deliberately a *complaint string* rather than a bool: the message has to
 /// carry both timestamps and the rebuild command, because whoever sees it is
 /// about to spend an hour diagnosing a feature that was never compiled.
-fn staleness_complaint(exe: &Path, source_root: &Path) -> Option<String> {
+pub fn staleness_complaint(exe: &Path, source_root: &Path) -> Option<String> {
     let exe_time = std::fs::metadata(exe).ok()?.modified().ok()?;
     let mut newest: Option<(PathBuf, std::time::SystemTime)> = None;
     let mut stack = vec![source_root.to_path_buf()];
@@ -392,15 +392,35 @@ fn staleness_complaint(exe: &Path, source_root: &Path) -> Option<String> {
     if t <= exe_time {
         return None;
     }
+    // ★ The GAP, in words, rather than two `SystemTime` debug prints.
+    //
+    // This message is read by somebody about to spend an hour on a feature that
+    // was never compiled, and it printed
+    // `SystemTime { intervals: 134324724498206576 }` twice — which carries the
+    // information and does not deliver it. **How far behind the binary is
+    // decides what the reader does next**: two minutes is a rebuild they
+    // forgot; three hours is a session's work that never ran, which is exactly
+    // what happened to a 108-check sweep on 2026-08-29.
+    let behind = t.duration_since(exe_time).map_or_else(
+        |_| "an unmeasurable amount".to_owned(),
+        |d| {
+            let secs = d.as_secs();
+            if secs <= 90 {
+                format!("{secs} second(s)")
+            } else if secs <= 5400 {
+                format!("{} minute(s)", secs / 60)
+            } else {
+                format!("{} hour(s) {} minute(s)", secs / 3600, (secs % 3600) / 60)
+            }
+        },
+    );
     Some(format!(
-        "STALE BINARY — refusing to run.\n  binary : {}\n built {:?}\n  newest : {}\n \
-          edited {:?}\n\nThe traces you are about to collect would describe code that is NOT \
-         the code you just wrote, and a missing trace looks exactly like a broken feature.\n\n \
-          cargo build --release\n\nPass --allow-stale only if you intend to drive the older \
-         build.",
+        "STALE BINARY — refusing to run.\n  binary : {}\n  newest : {}\n\nThe source is \
+         {behind} newer than the binary.\n\nThe traces you are about to collect would describe \
+         code that is NOT the code you just wrote, and a missing trace looks exactly like a \
+         broken feature.\n\n  cargo build --release\n\nPass --allow-stale only if you intend \
+         to drive the older build.",
         exe.display(),
-        exe_time,
         path.display(),
-        t
     ))
 }

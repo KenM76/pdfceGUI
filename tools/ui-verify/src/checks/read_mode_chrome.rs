@@ -131,6 +131,39 @@ const FULLSCREEN: &str = "ribbon.item.view.fullscreen";
 /// result.
 const FULLSCREEN_EVENT: &str = "fullscreen";
 
+/// `fullscreen-toggle reported=… pending=… asked=…` — the application's own
+/// account of **why** it asked for what it asked for.
+///
+/// Quoted verbatim into the restore failure, because it is the one line that
+/// separates the two defects that produce an unrestored window: a shell that
+/// asked for full screen twice (`asked=true` on both) and a window manager that
+/// declined the restore (`asked=false` and the window still filled).
+const TOGGLE_EVENT: &str = "fullscreen-toggle";
+
+/// How many times a full-screen press is retried before the harness gives up
+/// on it.
+///
+/// # ★★★ Why a retry and not a longer settle
+///
+/// Because the thing that goes wrong is **delivery**, not timing. This suite's
+/// record for this control is three runs and three different outcomes: one
+/// where the first click never reached the ribbon (2026-08-27, SKIPPED with
+/// exactly this diagnosis), one where the foreground was held by a browser
+/// (2026-08-28), and one where the *second* click never reached it
+/// (2026-08-29) — and that last one was reported as a defect in the
+/// application, because only the first press was ever verified.
+///
+/// A click that is not delivered is not delivered no matter how long the
+/// harness then waits, so the answer is to press again and read the
+/// application's own invocation log, not to sleep longer. Three, because the
+/// cost of a wasted press here is a fraction of a second and the cost of
+/// giving up too early is the operator's whole display staying filled.
+///
+/// ★ It is safe to retry precisely BECAUSE the count is read between attempts:
+/// each landed press toggles once, so pressing again after a press that landed
+/// would undo it. [`press_until_invoked`] returns the moment the count moves.
+const PRESS_TRIES: usize = 3;
+
 /// The tab it lives on, and the region that activates it.
 const TAB_ID: &str = "view";
 const TAB: &str = "ribbon.tab.view";
@@ -571,27 +604,11 @@ fn fullscreen_round_trip(
     })?;
     let before = session.frame()?.client_pixels();
 
-    let invokes_before = shell_trace(session)?
-        .events(INVOKE_EVENT)
-        .filter(|l| l.get("id") == Some(FULLSCREEN_ID))
-        .count();
-    driver.click_at(session.frame()?.declared_center(control))?;
-    // A window-manager transition plus a re-fit and a re-raster at the new
-    // size. Longer than a ribbon click needs, because the measurement below is
-    // of the *window*, and reading it mid-transition would be reading neither
-    // state.
-    session.settle(40);
-
-    if shell_trace(session)?
-        .events(INVOKE_EVENT)
-        .filter(|l| l.get("id") == Some(FULLSCREEN_ID))
-        .count()
-        <= invokes_before
-    {
+    if !press_until_invoked(session, driver, ui_rect, control)? {
         return Err(Error::new(format!(
-            "the click on `{FULLSCREEN}` produced no new `{INVOKE_EVENT} id={FULLSCREEN_ID}` \
-             line, so no click reached the ribbon. Nothing has been done to the display and \
-             nothing was learned; see `{SHELL_TRACE_PREFIX}` in {}.",
+            "{PRESS_TRIES} clicks on `{FULLSCREEN}` produced no new `{INVOKE_EVENT} \
+             id={FULLSCREEN_ID}` line, so no click reached the ribbon. Nothing has been done to \
+             the display and nothing was learned; see `{SHELL_TRACE_PREFIX}` in {}.",
             session.trace_path().display()
         )));
     }
@@ -622,7 +639,17 @@ fn fullscreen_round_trip(
     let filled = session.frame()?.client_pixels();
     // Put it back FIRST, so that every return below leaves the operator's
     // display as it found it.
-    driver.click_at(session.frame()?.declared_center(control))?;
+    //
+    // ★★★ AND PROVE THE PRESS LANDED, WHICH IT DID NOT ON 2026-08-29. See
+    // [`press_until_invoked`]: this line used to be a bare `click_at`, and the
+    // failure sentence below was reached with **one** `{INVOKE_EVENT}
+    // id={FULLSCREEN_ID}` line in the whole trace. The restoring press had never
+    // arrived, and the check reported `app::window::next_fullscreen` — a
+    // function that had just been fixed by driving, and was correct — as
+    // reading a stale state. A confident, specific, wrong defect report about
+    // working code, produced by measuring the result of an input nobody had
+    // shown was delivered.
+    let restored_press = press_until_invoked(session, driver, ui_rect, control)?;
     // ★ **Three seconds, and the asymmetry with the 1 s above is measured
     // rather than cautious.** Entering full screen was complete inside 1 s on
     // this machine; *leaving* it was not, and the first run of this phase failed
@@ -682,18 +709,59 @@ fn fullscreen_round_trip(
         before.w, before.h, filled.w, filled.h
     ));
 
+    // ★★★ THE PRESS BEFORE THE VERDICT. Nothing below may be read as a
+    // statement about the application until the application has been shown to
+    // have heard the press it is being judged on — `checks/mod.rs` rule 3, and
+    // the reason this whole phase re-reads the shell trace rather than trusting
+    // `click_at`'s `Ok`.
+    //
+    // `Err` rather than `Ok(Some(_))`, deliberately: a press that was never
+    // delivered is the HARNESS's failure, and a suite that recorded it as a
+    // program defect would be doing exactly what the run of 2026-08-29 did.
+    if !restored_press {
+        return Err(Error::new(format!(
+            "the window is full screen and {PRESS_TRIES} clicks on `{FULLSCREEN}` produced no \
+             new `{INVOKE_EVENT} id={FULLSCREEN_ID}` line, so the restoring press never reached \
+             the ribbon and NOTHING was learned about whether full screen toggles back.\n  \
+             ⚠ **THE DISPLAY HAS BEEN LEFT FILLED.** The operator's routes back are `F11` — \
+             `view.fullscreen`'s chord, which is bound and unaffected by this — and the same \
+             ribbon control, which full screen keeps on screen. Closing the window also works.\n  \
+             This is reported as SKIPPED rather than failed because a press that was not \
+             delivered says nothing about `app::window::next_fullscreen`: on 2026-08-29 this \
+             exact state was reported as a defect in that function, which was correct. See \
+             `{SHELL_TRACE_PREFIX}` in {}.",
+            session.trace_path().display()
+        )));
+    }
+
     // The mirror of the growth test above and it needs the same correction for
     // the same reason: on a monitor the window already spans, restoring gives
     // back only the height, so `restored.w` stays equal to `filled.w` and an
     // `&&` of two `>=` would call a correct restore a failure. Area again.
     if u64::from(restored.w) * u64::from(restored.h) >= u64::from(filled.w) * u64::from(filled.h) {
+        // ★ The application's own account of the press, quoted rather than
+        // paraphrased. `fullscreen-toggle` carries BOTH the viewport's report
+        // and this shell's outstanding request — the two whose disagreement was
+        // the original defect — so a reader of a red run can tell "it asked for
+        // the wrong thing" (`asked=true` twice) from "it asked correctly and the
+        // window manager declined" (`asked=false` and the window still filled),
+        // which are different defects in different code.
+        let toggles = session
+            .trace()?
+            .events(TOGGLE_EVENT)
+            .map(|l| l.raw.clone())
+            .collect::<Vec<_>>();
         return Ok(Some(format!(
-            "the second press of `{FULLSCREEN_ID}` did not restore the window: it is still {} x \
-             {} px. Full screen is a toggle — `app::window::next_fullscreen` reads the \
-             viewport's own state — so a second press that does nothing means the state is \
-             being read from somewhere that did not follow the first press. **The display has \
-             been left filled**; close the window to recover it.",
-            restored.w, restored.h
+            "the second press of `{FULLSCREEN_ID}` reached the ribbon and did not restore the \
+             window: it is still {} x {} px. Full screen is a toggle — \
+             `app::window::next_fullscreen` reads the viewport's own state, and remembers its \
+             own outstanding request for a few frames so that a second press cannot read a \
+             report that has not caught up — so a press that ARRIVES and does not restore means \
+             one of those two is wrong. What the application said: {}. **The display has been \
+             left filled**; press F11, or close the window, to recover it.",
+            restored.w,
+            restored.h,
+            list(&toggles)
         )));
     }
     report.note(format!(
@@ -701,6 +769,79 @@ fn fullscreen_round_trip(
         restored.w, restored.h
     ));
     Ok(None)
+}
+
+/// **Press the Full screen control until the application says it heard**, and
+/// answer whether it ever did.
+///
+/// Returns `true` as soon as a new `ribbon-command-invoked id=view.fullscreen`
+/// line appears in the shell trace, and `false` after [`PRESS_TRIES`] attempts
+/// with no new line. It never presses again after a press that landed, so the
+/// toggle is moved exactly once whatever happens.
+///
+/// # ★★★ Why phase 0 cannot use a bare `click_at`, and the day that cost
+///
+/// `Driver::click_at` answers `Ok(())` when the **pointer input was sent**. It
+/// raises the owning window, refuses if the foreground could not be taken, and
+/// confirms the point is not covered — all real guards, and none of them is the
+/// statement *"the application processed a click on that control"*. Between the
+/// two lies a window-manager transition, an egui frame boundary, and a ribbon
+/// that may have re-laid itself out.
+///
+/// On 2026-08-29 the entering press landed, the restoring press did not, and
+/// the check — which verified only the first — measured a client area still
+/// 3440 × 1440 and reported:
+///
+/// > *"a second press that does not restore means the state it reads is not the
+/// > state the OS is in"*
+///
+/// naming `app::window::next_fullscreen`. The trace carried **one**
+/// `ribbon-command-invoked id=view.fullscreen` line and **one**
+/// `fullscreen-toggle reported=Some(false) pending=None asked=true` for the
+/// whole run: there was no second press to read a stale state with.
+/// `next_fullscreen` had itself been written to fix a real instance of exactly
+/// that defect a fortnight earlier, so the report was a plausible accusation
+/// against the code that already closed it.
+///
+/// ⇒ The rule this encodes, which is `checks/mod.rs` rule 3 applied to input
+/// rather than to selection:
+///
+/// > **Nothing measured after a press is evidence about the program until the
+/// > press is shown to have arrived.** The application's own invocation log
+/// > says so; `Ok(())` from the input layer does not.
+///
+/// ★ Re-reading the control's rectangle each attempt is not defensive padding.
+/// The window changes size between the two presses, and a ribbon is laid out
+/// from the window's width — `ui-rect` is a change log, so an unmoved control
+/// simply publishes nothing and [`declared`] answers with the rect that still
+/// stands. Reading it fresh costs one trace parse and follows the control if it
+/// ever does move.
+fn press_until_invoked(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    fallback: LRect,
+) -> Result<bool> {
+    let count = |session: &Session| -> Result<usize> {
+        Ok(shell_trace(session)?
+            .events(INVOKE_EVENT)
+            .filter(|l| l.get("id") == Some(FULLSCREEN_ID))
+            .count())
+    };
+    let before = count(session)?;
+    for _ in 0..PRESS_TRIES {
+        let here = declared(&session.trace()?, ui_rect, FULLSCREEN).unwrap_or(fallback);
+        driver.click_at(session.frame()?.declared_center(here))?;
+        // A window-manager transition plus a re-fit and a re-raster at the new
+        // size. Longer than a ribbon click needs, because what is measured
+        // afterwards is the *window*, and reading it mid-transition would be
+        // reading neither state.
+        session.settle(40);
+        if count(session)? > before {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Click the View tab and confirm the shell reported it, returning **its

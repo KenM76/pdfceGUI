@@ -49,6 +49,65 @@ fn main() -> ExitCode {
     }
 }
 
+/// **Refuse to run a harness older than its own sources.**
+///
+/// # ★★★ The run this exists for, 2026-08-29
+///
+/// A full 108-check sweep was launched with a freshly built *application* and a
+/// `ui-verify.exe` stamped **two and three-quarter hours earlier** — five
+/// commits of check fixes behind. It reported 15 failures. Several were the old
+/// checks: one had been re-pointed at a different fixture that morning and the
+/// stale binary drove the fixture the new one no longer uses, then failed
+/// confidently about a program that was behaving correctly. **It cost a defect
+/// investigation.**
+///
+/// ⇒ The irony is the point: this harness has guarded the **application**
+/// against exactly this since it was written — `LaunchSpec::allow_stale`, and a
+/// message that opens *"the traces you are about to collect would describe code
+/// that is NOT the code you just wrote."* It guarded everything except itself.
+///
+/// # ★★ Why the failure is worse here than for the application
+///
+/// A stale *application* produces a missing trace line, which reads as a broken
+/// feature — bad, and the reason the original guard exists. A stale *harness*
+/// produces a **confident, articulate failure about the wrong subject**: it
+/// drives the wrong fixture, asserts on a trace name that has since been
+/// renamed, and prints a diagnosis naming a module that is fine. That is harder
+/// to see through, because everything about the report looks like evidence.
+///
+/// # What it compares
+///
+/// The running executable's mtime against the newest `.rs` or `.toml` under
+/// this crate's own directory, resolved at compile time by `CARGO_MANIFEST_DIR`.
+/// If that directory is gone — a binary copied elsewhere, which
+/// `package-portable` does — the check is skipped rather than guessed at.
+///
+/// ★ `--allow-stale` covers this too, deliberately: one flag for *"yes, I mean
+/// to drive the older build"*, whichever binary is older, rather than a second
+/// flag nobody would remember.
+fn refuse_if_self_is_stale(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "--allow-stale") {
+        return Ok(());
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if !root.exists() {
+        return Ok(());
+    }
+    let Ok(me) = std::env::current_exe() else {
+        return Ok(());
+    };
+    match ui_verify::launch::staleness_complaint(&me, &root) {
+        Some(complaint) => Err(format!(
+            "{complaint}
+
+★ This is the HARNESS, not the application under test. A stale \
+             harness drives the wrong fixtures and asserts on renamed trace keys, so its \
+             failures are confident and about the wrong subject."
+        )),
+        None => Ok(()),
+    }
+}
+
 fn run(args: &[String]) -> Result<ExitCode, String> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}");
@@ -58,6 +117,9 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         list();
         return Ok(ExitCode::SUCCESS);
     }
+    // ★ After `--help` and `--list`, which answer without driving anything, and
+    // before every other path. See [`refuse_if_self_is_stale`].
+    refuse_if_self_is_stale(args)?;
 
     let mut profile_name = profile::PDFCE_GUI.name.to_owned();
     let mut exe: Option<PathBuf> = None;

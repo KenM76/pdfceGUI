@@ -185,6 +185,28 @@ fn press_selects(ctx: &egui::Context, tool: CanvasTool, caps: Capabilities, shif
 /// together by nothing. A guard that must agree with another module has to
 /// **call that module**, not resemble it.
 ///
+/// # ★★★ THE SIXTH INSTANCE WAS NOT HERE, AND IT WIDENS THE RULE — 2026-08-29
+///
+/// Recorded here because this is where the rule above lives and where the next
+/// person will look for it. On the first ever driven run of
+/// `rotating_a_markup_turns_it` the rotate handle was painted, was pressed at
+/// the rect the application itself declared, and **committed nothing with
+/// nothing said anywhere** — the same symptom as the fifth, produced by a line
+/// in a different file.
+///
+/// The cause was a guard in `canvas::rotating::drag` that neither called
+/// `grip_box` nor resembled it: `selection.object_indices_on(page).is_empty()`,
+/// standing *in front of* the annotation branch. It counts page **content**,
+/// which `select_annot` clears, so it returned before the routing decision was
+/// ever reached, on every markup and every ce dimension.
+///
+/// ⇒ So the rule above is necessary and was not sufficient. Its companion:
+/// **a guard written in one destination's vocabulary must stand AFTER the
+/// branch that picks the destination, never before it.** Three destinations
+/// share the rotate gesture and four share a press; a content-shaped test in
+/// front of the fork answers about a subject the gesture may already have
+/// routed away from. `canvas::rotating`'s header carries the full account.
+///
 /// The eight resize grips are inside the box and were never at risk. They are
 /// covered by the same call anyway, rather than by an argument that they are
 /// safe: an argument is a thing that stops being true.

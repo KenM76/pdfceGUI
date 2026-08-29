@@ -1,6 +1,6 @@
 //! # `text::rotating` — every sentence the ninth handle shows
 //!
-//! Four refusals and two disclosures, for [`crate::canvas::rotating`] and
+//! Five refusals and two disclosures, for [`crate::canvas::rotating`] and
 //! [`crate::app::actions::annots`]. The sibling of [`crate::text::resizing`],
 //! written the day `pdfce-core` `Pass 155.0` and `Pass 159.0` gave this shell a
 //! rotation for the annotation family and for ce dimensions.
@@ -56,7 +56,7 @@
 
 /// **Why a rotation did not happen**, in the shell's own reading of the cases.
 ///
-/// # ★★★ Four variants, and the founding rule they answer
+/// # ★★★ Five variants, and the founding rule they answer
 ///
 /// > A REFUSAL MUST BE A SENTENCE, NEVER A SILENCE.
 ///
@@ -74,7 +74,7 @@
 /// An enum keeps `crate::app::status::decline::Declined` `Copy` and keeps every
 /// operator-visible word in this file, under **R1**.
 ///
-/// # ★ Two of the four are unreachable today, and they are kept
+/// # ★ Two of the five are unreachable today, and they are kept
 ///
 /// [`Self::WrongVerb`] and [`Self::NoDimensionRecord`] describe **routing
 /// failures**, and this shell routes: `canvas::rotating` matches on
@@ -112,6 +112,24 @@ pub enum RotateRefusal {
     /// `rotate_dimension` addresses the sidecar record rather than the
     /// annotation, so without one there is nothing to turn.
     NoDimensionRecord,
+    /// The drag reached the **page-content** rotation and the selection names
+    /// no page object on this page.
+    ///
+    /// ★★★ Added 2026-08-29, when the first driven run of
+    /// `rotating_a_markup_turns_it` found this state returning in **silence** —
+    /// see [`crate::canvas::rotating::drag`]'s own account of the guard that
+    /// produced it, and the module header's "sixth instance" section.
+    ///
+    /// ★★ It is reachable, and by an ordinary route rather than a routing bug:
+    /// `SelectionState::object_indices_on` keeps entries carrying a
+    /// `page_object_index` and drops the ones carrying only a `leaf_index`, so
+    /// an operator who has clicked **into** a form XObject has an outline, a
+    /// grip box, a painted rotate handle — and nothing this verb can address.
+    /// That is the *"you selected something this verb cannot reach"* half of
+    /// the distinction `SelectionState::leaf_indices_on` exists to let a caller
+    /// word, and it is why the sentence below does not say "select something":
+    /// they did.
+    NothingSelected,
     /// Anything else the engine declined.
     ///
     /// ★ A catch-all with a **hand-written** sentence, not a rendered error.
@@ -151,6 +169,16 @@ impl RotateRefusal {
             // delete and redraw a perfectly good measurement.
             Self::NoDimensionRecord => {
                 "pdfce could not find the measurement behind this dimension, so it turned nothing. The dimension itself is unchanged and still measures what it did."
+            }
+            // ★★ It does NOT say "select something first" — the resize
+            // catalogue's wording for its own `NothingSelected`, and wrong
+            // here. This fires when something IS selected: an operator who has
+            // clicked into a form XObject is holding a piece of one, and being
+            // told to select something would send them to do again the thing
+            // they just did. What it names instead is the remedy — step back
+            // out to the whole shape, which is the rung this verb can address.
+            Self::NothingSelected => {
+                "pdfce turns whole shapes, and what is selected here is a piece of one. Press Escape to select the whole shape, then drag the round handle again."
             }
             // ★ No cause named, because none is known. What it does say is the
             // one thing the operator needs: the page is exactly as it was.
@@ -293,6 +321,7 @@ mod tests {
             RotateRefusal::WrongVerb,
             RotateRefusal::Certified,
             RotateRefusal::NoDimensionRecord,
+            RotateRefusal::NothingSelected,
             RotateRefusal::Other,
         ] {
             let line = why.line();

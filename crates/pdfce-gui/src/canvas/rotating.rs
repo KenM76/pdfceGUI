@@ -96,6 +96,36 @@
 //! rotate handle sits *outside* that box, and a press on it selected the object
 //! underneath, so the rotate became a select-and-move.
 //!
+//! ## ★★★ …AND THE SECTION ABOVE WAS RIGHT AND STILL SHIPPED THE DEFECT —
+//! 2026-08-29
+//!
+//! On the **first ever driven run** of `rotating_a_markup_turns_it` the rotate
+//! handle was painted, was pressed at the centre of the rect this application
+//! itself declared, and committed nothing, with nothing said anywhere. The
+//! check's own report named [`Frame::bounds`] as the suspect — the section
+//! above, quoted back at it — and **it was wrong**: `canvas::interact` has
+//! passed `pressing::grabbable`'s box since the day this module landed.
+//!
+//! The real cause was **fifteen lines further down the same function**: a
+//! `selection.object_indices_on(page_index).is_empty()` guard standing *in
+//! front of* the annotation branch. It counts page **content**, which
+//! `select_annot` clears, so it answered "empty" on every markup and every ce
+//! dimension and returned before the routing decision was reached. [`drag`]'s
+//! own body carries the full account at the line that moved.
+//!
+//! ⇒ **The sixth instance of this hazard, and the lesson it adds is about where
+//! a guard stands rather than about what it reads.** This one asked a perfectly
+//! correct question — *has the content verb got an operand?* — of a gesture
+//! that had already been routed away from the content verb. Three destinations
+//! share this gesture, so a test written in one destination's vocabulary
+//! belongs **after** the branch that picks the destination, never before it.
+//! `canvas::resizing` already had it in the right place: its `NothingSelected`
+//! test lives inside `resizing::action`, the pure builder for the *content*
+//! verb, which the annotation branch returns before ever calling. Every
+//! remaining caller of `overlay::grip_box` was audited the same day and none of
+//! them was this bug — which is precisely why it survived a header section
+//! written to prevent it.
+//!
 //! ## ★★ No options type, for any of the three, and that is a property of the
 //! operation rather than an omission
 //!
@@ -318,10 +348,6 @@ pub fn drag(
         // reporting their change of mind back to them.
         return None;
     }
-    let objects = selection.object_indices_on(page_index);
-    if objects.is_empty() {
-        return None;
-    }
     let page = page?;
     // The SAME two hops every other commit on this canvas takes, in the same
     // order, through the same two functions — screen → canvas → PDF user space.
@@ -344,6 +370,80 @@ pub fn drag(
     // a second arithmetic, exactly as the resize's is.
     if let Some(annot) = selection.annot() {
         commit_annotation(annot, dimension, pivot, theta, actions);
+        return None;
+    }
+    // ★★★ **THE CONTENT GUARD, AND IT IS BELOW THE ANNOTATION BRANCH.** Moved
+    // here on 2026-08-29, on the FIRST driven run of
+    // `rotating_a_markup_turns_it`, and it is the whole defect that run found.
+    //
+    // It used to stand five lines above the `is_travel` check's successor —
+    // *before* the annotation branch — as:
+    //
+    //     let objects = selection.object_indices_on(page_index);
+    //     if objects.is_empty() { return None; }
+    //
+    // ## What that cost
+    //
+    // `object_indices_on` counts **page content**. `select_annot` clears the
+    // content selection — an annotation is not content — so on every markup and
+    // every ce dimension it answers an empty vector. The guard therefore
+    // returned `None` before `selection.annot()` was ever asked, and the entire
+    // annotation rotation was **consumed and discarded with nothing said
+    // anywhere**: the handle painted, the press hit, the ghost turned, the
+    // release did nothing, and no line reached the trace to say why. That is
+    // this project's founding defect shape, D4a, reproduced inside the module
+    // written to close it.
+    //
+    // ## ★★★ THIS IS THE SIXTH INSTANCE OF ONE HAZARD IN THIS CANVAS
+    //
+    // The fifth was `presspick::covers()`, fixed on 2026-08-28 — the same wrong
+    // question at a different call site — and the rule written there is the one
+    // this fix obeys:
+    //
+    // > **A guard that must agree with another module has to CALL it, not
+    // > resemble it.**
+    //
+    // The generalisation the sixth instance adds, because *this* guard called
+    // nothing and resembled nothing: **a guard derived from CONTENT state must
+    // not stand in front of a branch about an ANNOTATION.** Three destinations
+    // share this gesture (the header's table) and only one of them is content,
+    // so any test written in content's vocabulary belongs *after* the routing
+    // decision, never before it. `canvas::resizing` — the sibling gesture,
+    // cutting the identical seam — already has it in the right place: its
+    // `NothingSelected` test lives inside `resizing::action`, the pure builder
+    // for the **content** verb, which the annotation branch returns before ever
+    // reaching.
+    //
+    // ## ★★ And it now SPEAKS, which the old guard did not
+    //
+    // A leaf-only selection is the reachable case: `object_indices_on` keeps
+    // entries with a `page_object_index` and drops the ones with only a
+    // `leaf_index`, so an operator who has clicked *into* a form XObject has an
+    // outline, a grip box, a painted rotate handle — and no operand. Before
+    // this, that drag returned silently. `SelectionState::leaf_indices_on`'s
+    // own header states the distinction it exists to let a caller word: *"you
+    // selected nothing"* versus *"you selected something this verb cannot
+    // reach"*. This is the second, and it is now a sentence.
+    let objects = selection.object_indices_on(page_index);
+    if objects.is_empty() {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // ★ It carries the page, because the guard is per-page: a selection
+            // made on another sheet is the commonest way to arrive here with a
+            // non-empty selection and no operand.
+            format!("rotate-declined reason=nothing-selected page={page_index}")
+        });
+        // ★ Epoch zero, for `resizing::decline`'s stated reason: a refusal
+        // changed nothing, so there is no edit for it to be about, and it must
+        // retire on the operator's NEXT act rather than on the document's next
+        // edit.
+        crate::app::actions::record_note(
+            0,
+            crate::text::rotating::RotateRefusal::NothingSelected
+                .line()
+                .to_owned(),
+        );
         return None;
     }
     crate::diag::trace(|| {

@@ -259,6 +259,31 @@ impl UnsavedDialog {
         Some((self.intent.clone(), outcome))
     }
 
+    /// **Whether an answer is parked here and has not been drained.**
+    ///
+    /// ★★★ The twin of `signature::SignatureDialog::answered`, and it is here
+    /// because this window carries the **same latent defect** its neighbour
+    /// shipped: [`Self::show`] answers `false` on the very frame a button is
+    /// pressed, and its owner used to read that `false` as *"this dialog is
+    /// finished"* and drop the dialog — with the outcome still inside it —
+    /// before `PdfceApp::resume_after_unsaved` could take it out.
+    ///
+    /// ★ It was **not** found by driving, because nothing in the harness clicks
+    /// this window: the sweep of 2026-08-29 that caught the signature warning
+    /// has no check that presses *Close without saving*. It is fixed here
+    /// anyway, in the same change, because the two windows share one retirement
+    /// branch two lines apart in `crate::dialogs::DialogsState::show` — and
+    /// fixing one of a matched pair leaves the survivor looking deliberate.
+    /// Its symptom would be worse than the signature window's: a *Close without
+    /// saving* that closes the question and does not close the document, which
+    /// reads as the whole application ignoring the operator.
+    ///
+    /// See [`crate::dialogs::retire`] for the rule both now obey.
+    #[must_use]
+    pub const fn answered(&self) -> bool {
+        self.outcome.is_some()
+    }
+
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         // ★ ITS OWN OS WINDOW as of 2026-08-21 — and this is the dialog that
@@ -424,15 +449,51 @@ mod tests {
         assert_eq!(d.take_outcome(), None, "it must not repeat");
     }
 
+    /// ★★★ **A parked answer is visible to the owner until it is drained, and
+    /// not after.**
+    ///
+    /// [`crate::dialogs::retire`]'s second input, and the twin of the assertion
+    /// `signature::tests::an_answer_is_visible_until_it_is_taken_and_not_after`
+    /// makes. Pressing a button here sets `outcome`, which makes [`Self::show`]
+    /// answer `false` — and until 2026-08-29 the owner read that `false` as
+    /// permission to drop this dialog **with the outcome still inside it**,
+    /// which would have meant a *Close without saving* that closed the question
+    /// and left the document open.
+    ///
+    /// It is asserted against `take_outcome` rather than alone, because the
+    /// property that matters is that the pair agrees about what "parked" means:
+    /// `true` too late keeps an answered window on screen forever, `false` too
+    /// early loses the operator's decision.
+    #[test]
+    fn an_answer_is_visible_until_it_is_taken_and_not_after() {
+        let mut d = UnsavedDialog::new(PendingIntent::Open("a.pdf".into()), 7);
+        assert!(!d.answered(), "nobody has answered it yet");
+        d.outcome = Some(Outcome::SaveCopy);
+        assert!(d.answered(), "a button parked an answer");
+        assert!(d.take_outcome().is_some());
+        assert!(
+            !d.answered(),
+            "the drain emptied it, so the next frame may retire the window"
+        );
+    }
+
     /// Cancelling closes the window and answers nothing.
     ///
     /// The two have to be separable: a window that closed *and* answered would
     /// make the ✕ destructive, and the ✕ is the control an operator presses
     /// reflexively to make a surprise go away.
+    ///
+    /// ★ The [`Self::answered`] half is what lets [`crate::dialogs::retire`]
+    /// drop a dismissed window on the frame it closes rather than holding it
+    /// open waiting for an answer that is never coming.
     #[test]
     fn cancelling_answers_nothing() {
         let mut d = UnsavedDialog::new(PendingIntent::Close, 1);
         d.cancelled = true;
         assert_eq!(d.take_outcome(), None);
+        assert!(
+            !d.answered(),
+            "so the window is retired on the frame it closes"
+        );
     }
 }

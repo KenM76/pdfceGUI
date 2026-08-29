@@ -391,6 +391,44 @@ impl SignatureDialog {
         }
     }
 
+    /// **Whether a confirmation is parked here and has not been drained.**
+    ///
+    /// # ★★★ Why this predicate exists, and it is a defect fix
+    ///
+    /// [`Self::show`] answers `false` on the very frame the proceed button is
+    /// pressed — that is what closes the window, and it is correct. Its owner
+    /// read that `false` as *"this dialog is finished"* and dropped the whole
+    /// dialog out of `DialogsState`:
+    ///
+    /// ```ignore
+    /// if self.signature.as_mut().map(|d| d.show(ctx)) == Some(false) {
+    ///     self.signature = None;      // <- with the answer still inside it
+    /// }
+    /// ```
+    ///
+    /// The answer lives **in the dialog** until
+    /// `PdfceApp::resume_after_signature` drains it, later in the same frame.
+    /// So the press closed the window, the window took the confirmation to the
+    /// grave with it, `take_signature_answer` found an empty slot, and the save
+    /// never ran. Observed by driving on 2026-08-29
+    /// (`an_invalidating_save_is_warned_about`): the window opened, the button
+    /// was pressed, the window closed, and **no `signature-confirmed` line was
+    /// ever traced** — which made Save unusable on every signed document, by
+    /// any route this guard covers.
+    ///
+    /// ★ It is invisible to every test that does not run a whole frame. The
+    /// dialog is correct in isolation (`take_confirmation` returns the answer),
+    /// the drain is correct in isolation (it acts on whatever it is given), and
+    /// the defect lives entirely in the *lifetime* between them.
+    ///
+    /// So the retirement rule is now [`crate::dialogs::retire`]: a window that
+    /// closed **because it was answered** stays in its slot until the answer
+    /// has been taken out of it.
+    #[must_use]
+    pub const fn answered(&self) -> bool {
+        self.confirmed
+    }
+
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         // Its own OS window, with a taskbar entry, exactly as
@@ -704,6 +742,68 @@ mod tests {
         d.confirmed = true;
         assert_eq!(d.take_confirmation(), Some(PendingSave::Copy));
         assert_eq!(d.take_confirmation(), None, "it must not repeat");
+    }
+
+    /// ★★★ **A parked answer is visible to the owner for exactly as long as it
+    /// is undrained — which is what keeps the window alive long enough to hand
+    /// it over.**
+    ///
+    /// The regression test for `an_invalidating_save_is_warned_about`, found by
+    /// driving on 2026-08-29: pressing *Save anyway* set `confirmed`, which
+    /// made [`SignatureDialog::show`] answer `false`, which made
+    /// `DialogsState::show` drop this dialog **with the confirmation still in
+    /// it** — so `resume_after_signature` found an empty slot, traced no
+    /// `signature-confirmed`, and no file was written. Save was unusable on
+    /// every signed document.
+    ///
+    /// [`crate::dialogs::retire`] is the fix and it reads [`Self::answered`],
+    /// so the two edges asserted here are the ones it depends on:
+    ///
+    /// * **`true` before the drain** — or the window is dropped and the save is
+    ///   lost, which is the defect above;
+    /// * **`false` after it** — or the window is kept forever, redrawing an
+    ///   answered question every frame.
+    ///
+    /// It is asserted against `take_confirmation` rather than alone, because
+    /// the property that matters is that the *pair* agrees about what "parked"
+    /// means.
+    #[test]
+    fn an_answer_is_visible_until_it_is_taken_and_not_after() {
+        let mut d = SignatureDialog::new(
+            PendingSave::InPlace,
+            ImpactBasis::ConservativeReport,
+            2,
+            "drawing.pdf".to_owned(),
+        );
+        assert!(
+            !d.answered(),
+            "a warning nobody has answered is holding nothing"
+        );
+        d.confirmed = true;
+        assert!(d.answered(), "the proceed button parked an answer");
+        assert_eq!(d.take_confirmation(), Some(PendingSave::InPlace));
+        assert!(
+            !d.answered(),
+            "the drain emptied it, so the next frame may retire the window"
+        );
+    }
+
+    /// ★★ **A cancelled window is holding nothing**, which is what lets it be
+    /// retired on the frame it closes.
+    ///
+    /// The other half of [`crate::dialogs::retire`]'s input: `answered()` must
+    /// distinguish *closed because answered* from *closed because dismissed*,
+    /// or the ✕ would keep a window alive that has nothing to say.
+    #[test]
+    fn a_cancelled_window_is_holding_nothing() {
+        let mut d = SignatureDialog::new(
+            PendingSave::Copy,
+            ImpactBasis::SpecSourced,
+            1,
+            "a.pdf".to_owned(),
+        );
+        d.cancelled = true;
+        assert!(!d.answered());
     }
 
     /// ★ **Cancelling answers nothing.**
